@@ -348,18 +348,18 @@ func NewCollectible(genesis *Genesis, locktime, relativeLocktime uint64,
 	}
 }
 
-// OuterCommitmentKey is the key that maps to the root commitment for a specific
-// asset family within a Taro commitment.
-func (a Asset) OuterCommitmentKey() [32]byte {
+// TaroCommitmentKey is the key that maps to the root commitment for a specific
+// asset family within a TaroCommitment.
+func (a Asset) TaroCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
 		return [32]byte(a.Genesis.ID())
 	}
 	return sha256.Sum256(schnorr.SerializePubKey(&a.FamilyKey.Key))
 }
 
-// InnerCommitmentKey is the key that maps to a specific owner of an asset
-// within a Taro commitment.
-func (a Asset) InnerCommitmentKey() [32]byte {
+// AssetCommitmentKey is the key that maps to a specific owner of an asset
+// within a Taro AssetCommitment.
+func (a Asset) AssetCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
 		return sha256.Sum256(schnorr.SerializePubKey(&a.ScriptKey))
 	}
