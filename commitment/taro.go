@@ -122,6 +122,45 @@ func (c TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 	return tapBranchHash(commitmentLeaf.TapHash(), *sibling)
 }
 
+// Proof computes the full TaroCommitment merkle proof for the asset leaf
+// located at `assetCommitmentKey` within the AssetCommitment located at
+// `taroCommitmentKey`.
+func (c TaroCommitment) Proof(taroCommitmentKey,
+	assetCommitmentKey [32]byte) *Proof {
+
+	if c.assetCommitments == nil || c.tree == nil {
+		panic("missing asset commitments to compute proofs")
+	}
+
+	proof := &Proof{
+		AssetCommitmentKey: assetCommitmentKey,
+		TaroCommitmentKey:  taroCommitmentKey,
+		TaroProof: &TaroProof{
+			Proof:   *c.tree.MerkleProof(taroCommitmentKey),
+			Version: c.Version,
+		},
+	}
+
+	// If the corresponding AssetCommitment does not exist, return the Proof
+	// as is.
+	assetCommitment, ok := c.assetCommitments[taroCommitmentKey]
+	if !ok {
+		return proof
+	}
+
+	// Otherwise, compute the AssetProof and include it in the result. It's
+	// possible for the asset to not be found, leading to a non-inclusion
+	// proof.
+	asset, assetProof := assetCommitment.AssetProof(assetCommitmentKey)
+	proof.Asset = asset
+	proof.AssetProof = &AssetProof{
+		Proof:   *assetProof,
+		Version: assetCommitment.Version,
+		AssetID: assetCommitment.AssetID,
+	}
+	return proof
+}
+
 // tapBranchHash takes the tap hashes of the left and right nodes and hashes
 // them into a branch.
 func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {
