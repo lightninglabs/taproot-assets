@@ -1,12 +1,14 @@
 package asset
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -221,6 +223,32 @@ type FamilyKey struct {
 
 	// Sig is a signature over an asset's ID by `Key`.
 	Sig schnorr.Signature
+}
+
+// DeriveFamilyKey derives an asset's family key based on some internal private
+// key and an asset genesis.
+func DeriveFamilyKey(internalPrivKey *btcec.PrivateKey,
+	genesis *Genesis) (*FamilyKey, error) {
+
+	var genesisPrevOut bytes.Buffer
+	err := wire.WriteOutPoint(&genesisPrevOut, 0, 0, &genesis.FirstPrevOut)
+	if err != nil {
+		return nil, err
+	}
+	tweakedPrivKey := txscript.TweakTaprootPrivKey(
+		internalPrivKey, genesisPrevOut.Bytes(),
+	)
+
+	id := genesis.ID()
+	sig, err := schnorr.Sign(tweakedPrivKey, id[:])
+	if err != nil {
+		return nil, err
+	}
+
+	return &FamilyKey{
+		Key: *tweakedPrivKey.PubKey(),
+		Sig: *sig,
+	}, nil
 }
 
 // Asset represents a Taro asset.
