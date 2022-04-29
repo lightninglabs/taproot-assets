@@ -47,7 +47,8 @@ func TestInsertion(t *testing.T) {
 
 	tree, leaves := randTree(10000)
 	for key, leaf := range leaves {
-		_ = tree.Insert(key, leaf)
+		// The leaf was already inserted into the tree above, so verify
+		// that we're able to look it up again.
 		leafCopy := tree.Get(key)
 		require.Equal(t, leaf, leafCopy)
 	}
