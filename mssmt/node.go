@@ -66,7 +66,7 @@ func (n *LeafNode) NodeKey() NodeKey {
 
 	h := sha256.New()
 	h.Write(n.Value)
-	binary.Write(h, binary.BigEndian, n.sum)
+	_ = binary.Write(h, binary.BigEndian, n.sum)
 	n.nodeKey = (*NodeKey)(h.Sum(nil))
 	return *n.nodeKey
 }
@@ -124,7 +124,7 @@ func (n *BranchNode) NodeKey() NodeKey {
 	h := sha256.New()
 	h.Write(left[:])
 	h.Write(right[:])
-	binary.Write(h, binary.BigEndian, n.NodeSum())
+	_ = binary.Write(h, binary.BigEndian, n.NodeSum())
 	n.nodeKey = (*NodeKey)(h.Sum(nil))
 	return *n.nodeKey
 }

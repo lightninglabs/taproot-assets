@@ -47,13 +47,34 @@ func TestInsertion(t *testing.T) {
 
 	tree, leaves := randTree(10000)
 	for key, leaf := range leaves {
-		_ = tree.Insert(key, leaf)
+		// The leaf was already inserted into the tree above, so verify
+		// that we're able to look it up again.
 		leafCopy := tree.Get(key)
 		require.Equal(t, leaf, leafCopy)
 	}
 
 	emptyLeaf := tree.Get(randKey())
 	require.True(t, emptyLeaf.IsEmpty())
+}
+
+// TestHistoryIndependence tests that given the same set of keys, two trees
+// that insert the keys in an arbitrary order get the same root hash in the
+// end.
+func TestHistoryIndependence(t *testing.T) {
+	t.Parallel()
+
+	// Create a tree and insert 100 random leaves in to the tree.
+	tree1, leaves := randTree(100)
+
+	// Create a new empty tree, and iterate over the leaves (giving us a
+	// randomized order) to insert them again in this new tree.
+	tree2 := NewTree(NewDefaultStore())
+	for key, leaf := range leaves {
+		tree2.Insert(key, leaf)
+	}
+
+	// The root hash of both trees should be the same.
+	require.Equal(t, *tree1.Root(), *tree2.Root())
 }
 
 // TestDeletion asserts that deleting all inserted leaves of a tree results in
