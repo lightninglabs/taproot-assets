@@ -15,12 +15,24 @@ var (
 )
 
 func init() {
+	// Force the calculation of the node key for the empty node. This will
+	// ensure the value is fully cached for the loop below.
+	EmptyLeafNode.NodeKey()
+
 	// Initialize the empty MS-SMT by starting from an empty leaf and
 	// hashing all the way up to the root.
 	EmptyTree = make([]Node, maxTreeLevels+1)
 	EmptyTree[maxTreeLevels] = EmptyLeafNode
 	for i := lastBitIndex; i >= 0; i-- {
-		EmptyTree[i] = NewBranch(EmptyTree[i+1], EmptyTree[i+1])
+		// Create the branch and force the calculation of the node key.
+		// At this point we already have computed the keys of each of
+		// the siblings, so those cached values can be used here. If we
+		// don't do this, then concurrent callers will attempt to
+		// read/populate this value causing a race condition.
+		branch := NewBranch(EmptyTree[i+1], EmptyTree[i+1])
+		branch.NodeKey()
+
+		EmptyTree[i] = branch
 	}
 }
 
