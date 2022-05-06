@@ -198,17 +198,6 @@ func (w *Witness) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
-// SplitCommitmentRoot is the root of a MS-SMT storing asset split commitments.
-type SplitCommitmentRoot struct {
-	// Key corresponds to the root's digest, also known as the root node's
-	// NodeKey.
-	Key mssmt.NodeKey
-
-	// Sum encapsulates the total amount of assets under split commitments
-	// committed to by the root.
-	Sum uint64
-}
-
 // ScriptVersion denotes the asset script versioning scheme.
 type ScriptVersion uint16
 
@@ -267,7 +256,7 @@ type Asset struct {
 	//
 	// NOTE: This should only be set when the previous transfer of an asset
 	// resulted in a value split.
-	SplitCommitmentRoot *SplitCommitmentRoot
+	SplitCommitmentRoot mssmt.Node
 
 	// ScriptVersion denotes how an asset's ScriptKey should be validated.
 	ScriptVersion ScriptVersion
@@ -399,8 +388,10 @@ func (a Asset) Copy() *Asset {
 	}
 
 	if a.SplitCommitmentRoot != nil {
-		assetCopy.SplitCommitmentRoot = new(SplitCommitmentRoot)
-		*assetCopy.SplitCommitmentRoot = *a.SplitCommitmentRoot
+		assetCopy.SplitCommitmentRoot = mssmt.NewComputedNode(
+			a.SplitCommitmentRoot.NodeKey(),
+			a.SplitCommitmentRoot.NodeSum(),
+		)
 	}
 
 	if a.FamilyKey != nil {

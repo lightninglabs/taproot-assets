@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -120,7 +121,7 @@ func NewLeafPrevWitnessRecord(prevWitnesses *[]Witness) tlv.Record {
 	)
 }
 
-func NewLeafSplitCommitmentRootRecord(root **SplitCommitmentRoot) tlv.Record {
+func NewLeafSplitCommitmentRootRecord(root *mssmt.Node) tlv.Record {
 	return tlv.MakeStaticRecord(
 		LeafSplitCommitmentRoot, root, sha256.Size+8,
 		SplitCommitmentRootEncoder, SplitCommitmentRootDecoder,

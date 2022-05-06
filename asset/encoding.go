@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -361,18 +362,18 @@ func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 }
 
 func SplitCommitmentRootEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**SplitCommitmentRoot); ok {
-		key := [32]byte((**t).Key)
+	if t, ok := val.(*mssmt.Node); ok {
+		key := [32]byte((*t).NodeKey())
 		if err := tlv.EBytes32(w, &key, buf); err != nil {
 			return err
 		}
-		return tlv.EUint64T(w, (**t).Sum, buf)
+		return tlv.EUint64T(w, (*t).NodeSum(), buf)
 	}
-	return tlv.NewTypeForEncodingErr(val, "*SplitCommitmentRoot")
+	return tlv.NewTypeForEncodingErr(val, "mssmt.Node")
 }
 
 func SplitCommitmentRootDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(**SplitCommitmentRoot); ok {
+	if typ, ok := val.(*mssmt.Node); ok {
 		var key [32]byte
 		if err := tlv.DBytes32(r, &key, buf, 32); err != nil {
 			return err
@@ -381,13 +382,10 @@ func SplitCommitmentRootDecoder(r io.Reader, val any, buf *[8]byte, l uint64) er
 		if err := tlv.DUint64(r, &sum, buf, 8); err != nil {
 			return err
 		}
-		*typ = &SplitCommitmentRoot{
-			Key: key,
-			Sum: sum,
-		}
+		*typ = mssmt.NewComputedNode(key, sum)
 		return nil
 	}
-	return tlv.NewTypeForDecodingErr(val, "*SplitCommitmentRoot", l, 40)
+	return tlv.NewTypeForDecodingErr(val, "mssmt.Node", l, 40)
 }
 
 func ScriptVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
