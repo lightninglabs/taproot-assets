@@ -2,11 +2,13 @@ PKG := github.com/lightninglabs/taro
 
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
-GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
+GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
+TOOLS_DIR := tools
 
 GO_BIN := ${GOPATH}/bin
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
+GOIMPORTS_BIN := $(GO_BIN)/gosimports
 
 LINT_COMMIT := v1.45.2
 GOACC_COMMIT := 80342ae2e0fcf265e99e76bcc4efd022c7c3811b
@@ -58,7 +60,7 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
-LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+DOCKER_TOOLS = docker run -v $$(pwd):/build taro-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -79,12 +81,16 @@ $(LINT_BIN):
 	$(GOINSTALL) $(LINT_PKG)@$(LINT_COMMIT)
 
 $(GOACC_BIN):
-	@$(call print, "Fetching go-acc")
-	$(GOINSTALL) $(GOACC_PKG)@$(GOACC_COMMIT)
+	@$(call print, "Installing go-acc.")
+	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
 
 goimports:
 	@$(call print, "Installing goimports.")
 	$(GOINSTALL) $(GOIMPORTS_PKG)@${GOIMPORTS_COMMIT}
+
+$(GOIMPORTS_BIN):
+	@$(call print, "Installing goimports.")
+	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -99,6 +105,10 @@ install:
 	@$(call print, "Installing tarod and tarocli.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/tarod
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/tarocli
+
+docker-tools:
+	@$(call print, "Building tools docker image.")
+	docker build -q -t taro-tools $(TOOLS_DIR)
 
 scratch: build
 
@@ -143,7 +153,7 @@ vendor:
 
 fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Fixing imports.")
-	goimports -w $(GOFILES_NOVENDOR)
+	gosimports -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
