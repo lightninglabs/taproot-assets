@@ -104,9 +104,7 @@ func TestMerkleProof(t *testing.T) {
 		compressedProof := proof.Compress()
 		for _, node := range compressedProof.Nodes {
 			for _, emptyNode := range EmptyTree {
-				require.NotEqual(
-					t, node.NodeKey(), emptyNode.NodeKey(),
-				)
+				require.False(t, IsEqualNode(node, emptyNode))
 			}
 		}
 		require.Equal(t, proof, compressedProof.Decompress())

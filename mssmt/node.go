@@ -1,7 +1,6 @@
 package mssmt
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -34,9 +33,12 @@ type Node interface {
 
 	// NodeSum returns the sum commitment of the node.
 	NodeSum() uint64
+}
 
-	// Equal determines whether a node is equal to another.
-	Equal(Node) bool
+// IsEqualNode determines whether a and b are equal based on their NodeKey and
+// NodeSum.
+func IsEqualNode(a, b Node) bool {
+	return a.NodeKey() == b.NodeKey() && a.NodeSum() == b.NodeSum()
 }
 
 // LeafNode represents a leaf node within a MS-SMT. Leaf nodes commit to a value
@@ -74,16 +76,6 @@ func (n *LeafNode) NodeKey() NodeKey {
 // NodeSum returns the sum commitment of the leaf node.
 func (n *LeafNode) NodeSum() uint64 {
 	return n.sum
-}
-
-// Equal determines whether a leaf node is equal to another.
-func (n *LeafNode) Equal(other Node) bool {
-	switch leaf := other.(type) {
-	case *LeafNode:
-		return bytes.Equal(n.Value, leaf.Value) && n.sum == leaf.sum
-	default:
-		return false
-	}
 }
 
 // IsEmpty returns whether this is an empty leaf.
@@ -140,15 +132,25 @@ func (n *BranchNode) NodeSum() uint64 {
 	return sum
 }
 
-// Equal determines whether a branch node is equal to another.
-func (n *BranchNode) Equal(other Node) bool {
-	switch branch := other.(type) {
-	case *BranchNode:
-		return n.Left.NodeKey() == branch.Left.NodeKey() &&
-			n.Left.NodeSum() == branch.Left.NodeSum() &&
-			n.Right.NodeKey() == branch.Right.NodeKey() &&
-			n.Right.NodeSum() == branch.Right.NodeSum()
-	default:
-		return false
-	}
+// ComputedNode is a node within a MS-SMT that has already had its NodeKey and
+// NodeSum computed, i.e., its preimage is not available.
+type ComputedNode struct {
+	key NodeKey
+	sum uint64
+}
+
+// NewComputedNode instantiates a new computed node.
+func NewComputedNode(key NodeKey, sum uint64) ComputedNode {
+	return ComputedNode{key: key, sum: sum}
+}
+
+// NodeKey returns the unique identifier for a MS-SMT node. It represents the
+// hash of the node committing to its internal data.
+func (n ComputedNode) NodeKey() NodeKey {
+	return n.key
+}
+
+// NodeSum returns the sum commitment of the node.
+func (n ComputedNode) NodeSum() uint64 {
+	return n.sum
 }

@@ -181,7 +181,7 @@ func (t Tree) MerkleProof(key [hashSize]byte) *Proof {
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the
 // given key is valid.
 func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
-	root *BranchNode) bool {
+	root Node) bool {
 
-	return proof.Root(key, leaf).Equal(root)
+	return IsEqualNode(proof.Root(key, leaf), root)
 }
