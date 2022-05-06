@@ -407,7 +407,7 @@ func (a Asset) Copy() *Asset {
 // EncodeRecords determines the non-nil records to include when encoding an
 // asset at runtime.
 func (a Asset) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 10)
+	records := make([]tlv.Record, 0, 11)
 	records = append(records, NewLeafVersionRecord(&a.Version))
 	records = append(records, NewLeafGenesisRecord(&a.Genesis))
 	records = append(records, NewLeafTypeRecord(&a.Type))
