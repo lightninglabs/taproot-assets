@@ -13,7 +13,10 @@ const LoggingType = LogTypeDefault
 func (w *LogWriter) Write(b []byte) (int, error) {
 	os.Stdout.Write(b)
 	if w.RotatorPipe != nil {
-		w.RotatorPipe.Write(b)
+		n, err := w.RotatorPipe.Write(b)
+		if err != nil {
+			return n, err
+		}
 	}
 	return len(b), nil
 }

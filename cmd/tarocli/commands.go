@@ -36,9 +36,9 @@ func printJSON(resp interface{}) {
 	}
 
 	var out bytes.Buffer
-	json.Indent(&out, b, "", "\t")
+	_ = json.Indent(&out, b, "", "\t")
 	out.WriteString("\n")
-	out.WriteTo(os.Stdout)
+	_, _ = out.WriteTo(os.Stdout)
 }
 
 func printRespJSON(resp proto.Message) {

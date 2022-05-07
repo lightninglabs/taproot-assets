@@ -65,7 +65,7 @@ func main() {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		pprof.StartCPUProfile(f)
+		_ = pprof.StartCPUProfile(f)
 		defer f.Close()
 		defer pprof.StopCPUProfile()
 	}

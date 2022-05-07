@@ -49,29 +49,25 @@ func (s *Server) RunUntilShutdown() error {
 	}
 
 	defer func() {
-		taroLog.Info("Shutdown complete\n")
+		srvrLog.Info("Shutdown complete\n")
 		err := s.cfg.LogWriter.Close()
 		if err != nil {
-			taroLog.Errorf("Could not close log rotator: %v", err)
+			srvrLog.Errorf("Could not close log rotator: %v", err)
 		}
 	}()
 
 	mkErr := func(format string, args ...interface{}) error {
-		taroLog.Errorf("Shutting down because error in main "+
+		srvrLog.Errorf("Shutting down because error in main "+
 			"method: "+format, args...)
 		return fmt.Errorf(format, args...)
 	}
 
 	// Show version at startup.
-	taroLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
+	srvrLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
 		"debuglevel=%s", build.Version(), build.Commit,
 		build.Deployment, build.LoggingType, s.cfg.DebugLevel)
 
-	taroLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
-
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
 
 	// If we have chosen to start with a dedicated listener for the rpc
 	// server, we set it directly.
@@ -113,7 +109,7 @@ func (s *Server) RunUntilShutdown() error {
 	defer func() {
 		err := interceptorChain.Stop()
 		if err != nil {
-			taroLog.Warnf("error stopping RPC interceptor "+
+			rpcsLog.Warnf("error stopping RPC interceptor "+
 				"chain: %v", err)
 		}
 	}()
@@ -161,7 +157,9 @@ func (s *Server) RunUntilShutdown() error {
 	if err := rpcServer.Start(); err != nil {
 		return mkErr("unable to start RPC server: %v", err)
 	}
-	defer rpcServer.Stop()
+	defer func() {
+		_ = rpcServer.Stop()
+	}()
 
 	// We transition the RPC state to Active, as the RPC server is up.
 	interceptorChain.SetRPCActive()
@@ -289,7 +287,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
 	for _, restEndpoint := range cfg.RESTListeners {
 		lis, err := cfg.RestListenFunc(restEndpoint)
 		if err != nil {
-			taroLog.Errorf("gRPC proxy unable to listen on %s",
+			rpcsLog.Errorf("gRPC proxy unable to listen on %s",
 				restEndpoint)
 			return nil, err
 		}
@@ -332,7 +330,7 @@ func (s *Server) Stop() error {
 		return nil
 	}
 
-	rpcsLog.Infof("Stopping Main Server")
+	srvrLog.Infof("Stopping Main Server")
 
 	if err := s.rpcServer.Stop(); err != nil {
 		return err

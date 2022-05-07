@@ -29,7 +29,6 @@ import (
 
 const (
 	defaultDataDir          = "data"
-	defaultChainSubDir      = "chain"
 	defaultTLSCertFilename  = "tls.cert"
 	defaultMacaroonFilename = "admin.macaroon"
 	defaultRPCPort          = "10029"

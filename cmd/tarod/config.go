@@ -38,7 +38,6 @@ const (
 	defaultLogFilename      = "taro.log"
 	defaultRPCPort          = 10029
 	defaultRESTPort         = 8089
-	defaultRPCHost          = "localhost"
 
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
@@ -69,11 +68,6 @@ var (
 
 	defaultTLSCertPath = filepath.Join(DefaultTaroDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
-
-	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
-	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
-
-	defaultBitcoindDir = btcutil.AppDataDir("bitcoin", false)
 )
 
 // ChainConfig...
