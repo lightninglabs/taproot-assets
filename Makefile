@@ -9,6 +9,7 @@ GO_BIN := ${GOPATH}/bin
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
+MIGRATE_BIN := $(GO_BIN)/migrate
 
 LINT_COMMIT := v1.45.2
 GOACC_COMMIT := 80342ae2e0fcf265e99e76bcc4efd022c7c3811b
@@ -112,6 +113,19 @@ docker-tools:
 
 scratch: build
 
+# ===================
+# DATABASE MIGRATIONS
+# ===================
+
+migrate-up: $(MIGRATE_BIN)
+	migrate -path tarodb/sqlite/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose up
+
+migrate-down: $(MIGRATE_BIN)
+	migrate -path tarodb/sqlite/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose down 1
+
+migrate-create: $(MIGRATE_BIN)
+	migrate create -dir tarodb/sqlite/migrations -seq -ext sql $(patchname)
+
 # =======
 # TESTING
 # =======
@@ -133,6 +147,16 @@ unit-race:
 # =========
 # UTILITIES
 # =========
+
+gen: rpc sqlc
+
+sqlc:
+	@$(call print, "Generating sql models and queries in Go")
+	./scripts/gen_sqlc_docker.sh
+
+sqlc-check: sqlc
+	@$(call print, "Verifying sql code generation.")
+	if test -n "$$(git status --porcelain '*.go')"; then echo "SQL models not properly generated!"; git status --porcelain '*.go'; exit 1; fi
 
 rpc:
 	@$(call print, "Compiling protos.")
