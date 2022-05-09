@@ -3,25 +3,30 @@ package tarodb
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/lightninglabs/taro/tarodb/sqlite"
-	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
 // sqlite DB.
 type SqliteConfig struct {
+	// CreateTables if true, then all the tables will be created on start
+	// up if they don't already exist.
+	CreateTables bool
+
 	// DatabaseFileName is the full file path where the database file can be
 	// found.
 	DatabaseFileName string
 }
 
-// SqliteStore is the
+// SqliteStore is a sqlite3 based database for the taro daemon.
 //
 // TODO(roasbeef): can type params out the main interface and db here to also
 // support postgres?
@@ -39,6 +44,29 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	db, err := sql.Open("sqlite", cfg.DatabaseFileName)
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.CreateTables {
+		// Now that the database is open, populate the database with
+		// our set of schemas based on our embedded in-memory file system.
+		fs.WalkDir(sqlSchemas, "sqlite/migrations", func(path string,
+			d fs.DirEntry, err error) error {
+
+			if d.IsDir() {
+				return nil
+			}
+
+			schema, err := sqlSchemas.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			if _, err := db.Exec(string(schema)); err != nil {
+				return fmt.Errorf("unable to create "+
+					"schema: %v", err)
+			}
+			return nil
+		})
 	}
 
 	queries := sqlite.New(db)
@@ -72,6 +100,7 @@ func newTestSqliteDB(t *testing.T) (*SqliteStore, func()) {
 	dbFileName := filepath.Join(dir, "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		DatabaseFileName: dbFileName,
+		CreateTables:     true,
 	})
 	if err != nil {
 		os.RemoveAll(dir)
@@ -81,20 +110,6 @@ func newTestSqliteDB(t *testing.T) (*SqliteStore, func()) {
 	cleanUp := func() {
 		sqlDB.DB.Close()
 		os.RemoveAll(dir)
-	}
-
-	// Now that the database is open, populate the database with our set of
-	// schemas.
-	schemas, err := filepath.Glob("sqlite/migrations/*.up.sql")
-	require.NoError(t, err)
-	for _, schemaFile := range schemas {
-		blob, err := os.ReadFile(schemaFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := sqlDB.DB.Exec(string(blob)); err != nil {
-			t.Fatalf("%s: %s", filepath.Base(schemaFile), err)
-		}
 	}
 
 	return sqlDB, cleanUp

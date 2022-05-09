@@ -45,6 +45,9 @@ func (r *KeyStoreTxOptions) ReadOnly() bool {
 // BatchedKeyStore is the main storage interface for the RootKeyStore. It
 // supports all the basic queries as well as running the set of queries in a
 // single database transaction.
+//
+// TODO(roasbeef) use type params here to use slimmer interface instead of
+// sqlite.Querier?
 type BatchedKeyStore interface {
 	KeyStore
 
