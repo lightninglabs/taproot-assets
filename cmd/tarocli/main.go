@@ -260,7 +260,7 @@ func main() {
 			Name: "network, n",
 			Usage: "The network tarod is running on, e.g. mainnet, " +
 				"testnet, etc.",
-			Value: "mainnet",
+			Value: "testnet",
 		},
 		cli.BoolFlag{
 			Name:  "no-macaroons",
