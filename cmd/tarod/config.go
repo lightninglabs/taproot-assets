@@ -63,6 +63,8 @@ var (
 	// file.
 	DefaultConfigFile = filepath.Join(DefaultTaroDir, defaultConfigFileName)
 
+	defaultNetwork = "testnet"
+
 	defaultDataDir = filepath.Join(DefaultTaroDir, defaultDataDirname)
 	defaultLogDir  = filepath.Join(DefaultTaroDir, defaultLogDirname)
 
@@ -72,13 +74,8 @@ var (
 
 // ChainConfig...
 type ChainConfig struct {
-	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`
+	Network string `long:"network" description:"network to run on" choice:"regtest" choice:"testnet" choice:"mainnet" choice:"simnet"`
 
-	MainNet         bool   `long:"mainnet" description:"Use the main network"`
-	TestNet3        bool   `long:"testnet" description:"Use the test network"`
-	SimNet          bool   `long:"simnet" description:"Use the simulation test network"`
-	RegTest         bool   `long:"regtest" description:"Use the regression test network"`
-	SigNet          bool   `long:"signet" description:"Use the signet test network"`
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
 
@@ -164,7 +161,7 @@ func DefaultConfig() Config {
 			WSPongWait:      lnrpc.DefaultPongWait,
 		},
 		ChainConf: &ChainConfig{
-			TestNet3: true,
+			Network: defaultNetwork,
 		},
 		LogWriter: build.NewRotatingLogWriter(),
 	}
@@ -349,25 +346,16 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Multiple networks can't be selected simultaneously.  Count number of
 	// network flags passed; assign active network params
 	// while we're at it.
-	numNets := 0
-	if cfg.ChainConf.MainNet {
-		numNets++
+	switch cfg.ChainConf.Network {
+	case "mainnet":
 		cfg.ActiveNetParams = chaincfg.MainNetParams
-	}
-	if cfg.ChainConf.TestNet3 {
-		numNets++
+	case "testnet":
 		cfg.ActiveNetParams = chaincfg.TestNet3Params
-	}
-	if cfg.ChainConf.RegTest {
-		numNets++
+	case "regtest":
 		cfg.ActiveNetParams = chaincfg.RegressionNetParams
-	}
-	if cfg.ChainConf.SimNet {
-		numNets++
+	case "simnet":
 		cfg.ActiveNetParams = chaincfg.SimNetParams
-	}
-	if cfg.ChainConf.SigNet {
-		numNets++
+	case "signet":
 		cfg.ActiveNetParams = chaincfg.SigNetParams
 
 		// Let the user overwrite the default signet parameters.
@@ -393,26 +381,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		)
 		cfg.ActiveNetParams = chainParams
 	}
-	if numNets > 1 {
-		str := "The mainnet, testnet, regtest, and simnet " +
-			"params can't be used together -- choose one " +
-			"of the four"
-		return nil, nil, mkErr(str)
-	}
-
-	// The target network must be provided, otherwise, we won't
-	// know how to initialize the daemon.
-	if numNets == 0 {
-		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
-			"bitcoin.simnet, or bitcoin.regtest " +
-			"must be specified"
-		return nil, nil, mkErr(str)
-	}
-
-	cfg.ChainConf.ChainDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		cfg.ActiveNetParams.Name,
-	)
 
 	// Validate profile port or host:port.
 	if cfg.Profile != "" {
