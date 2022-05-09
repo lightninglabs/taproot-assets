@@ -61,5 +61,6 @@ func TestProofEncoding(t *testing.T) {
 
 		decodedProof := decodedCompressed.Decompress()
 		assertEqualProof(t, proof, decodedProof)
+		assertEqualProof(t, proof, decodedProof.Copy())
 	}
 }
