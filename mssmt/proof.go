@@ -47,7 +47,7 @@ func (p Proof) Compress() *CompressedProof {
 	for i, node := range p.Nodes {
 		// The proof nodes start at the leaf, while the EmptyTree starts
 		// at the root.
-		if node.NodeKey() == EmptyTree[maxTreeLevels-i].NodeKey() {
+		if node.NodeKey() == EmptyTree[MaxTreeLevels-i].NodeKey() {
 			bits[i] = true
 		} else {
 			nodes = append(nodes, node)
@@ -80,7 +80,7 @@ func (p *CompressedProof) Decompress() *Proof {
 		if bitSet {
 			// The proof nodes start at the leaf, while the
 			// EmptyTree starts at the root.
-			nodes[i] = EmptyTree[maxTreeLevels-i]
+			nodes[i] = EmptyTree[MaxTreeLevels-i]
 		} else {
 			nodes[i] = p.nextNode()
 		}

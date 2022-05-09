@@ -1,11 +1,11 @@
 package mssmt
 
 const (
-	// maxTreeLevels represents the depth of the MS-SMT.
-	maxTreeLevels = hashSize * 8
+	// MaxTreeLevels represents the depth of the MS-SMT.
+	MaxTreeLevels = hashSize * 8
 
 	// lastBitIndex represents the index of the last bit for MS-SMT keys.
-	lastBitIndex = maxTreeLevels - 1
+	lastBitIndex = MaxTreeLevels - 1
 )
 
 var (
@@ -21,8 +21,8 @@ func init() {
 
 	// Initialize the empty MS-SMT by starting from an empty leaf and
 	// hashing all the way up to the root.
-	EmptyTree = make([]Node, maxTreeLevels+1)
-	EmptyTree[maxTreeLevels] = EmptyLeafNode
+	EmptyTree = make([]Node, MaxTreeLevels+1)
+	EmptyTree[MaxTreeLevels] = EmptyLeafNode
 	for i := lastBitIndex; i >= 0; i-- {
 		// Create the branch and force the calculation of the node key.
 		// At this point we already have computed the keys of each of
@@ -117,11 +117,11 @@ func walkUp(key *[hashSize]byte, start *LeafNode, siblings []Node,
 func (t *Tree) insert(key *[hashSize]byte, leaf *LeafNode) *Tree {
 	// As we walk down to the leaf node, we'll keep track of the sibling and
 	// parent for each node we visit.
-	prevParents := make([]NodeKey, maxTreeLevels)
-	siblings := make([]Node, maxTreeLevels)
+	prevParents := make([]NodeKey, MaxTreeLevels)
+	siblings := make([]Node, MaxTreeLevels)
 	_ = t.walkDown(key, func(i uint8, _, sibling, parent Node) {
-		prevParents[maxTreeLevels-1-i] = parent.NodeKey()
-		siblings[maxTreeLevels-1-i] = sibling
+		prevParents[MaxTreeLevels-1-i] = parent.NodeKey()
+		siblings[MaxTreeLevels-1-i] = sibling
 	})
 
 	// Now that we've arrived at the leaf node, we'll need to work our way
@@ -130,7 +130,7 @@ func (t *Tree) insert(key *[hashSize]byte, leaf *LeafNode) *Tree {
 	root := walkUp(key, leaf, siblings, func(i uint8, _, _, parent Node) {
 		// Replace the old parent with the new one. Our store should
 		// never track empty branches.
-		prevParent := prevParents[maxTreeLevels-1-i]
+		prevParent := prevParents[MaxTreeLevels-1-i]
 		if prevParent != EmptyTree[i].NodeKey() {
 			t.store.DeleteBranch(prevParent)
 		}
@@ -171,9 +171,9 @@ func (t Tree) Get(key [hashSize]byte) *LeafNode {
 // proof should be considered a non-inclusion proof. This is noted by the
 // returned `Proof` containing an empty leaf.
 func (t Tree) MerkleProof(key [hashSize]byte) *Proof {
-	proof := make([]Node, maxTreeLevels)
+	proof := make([]Node, MaxTreeLevels)
 	_ = t.walkDown(&key, func(i uint8, _, sibling, _ Node) {
-		proof[maxTreeLevels-1-i] = sibling
+		proof[MaxTreeLevels-1-i] = sibling
 	})
 	return NewProof(proof)
 }
