@@ -33,7 +33,26 @@ func assertAssetEqual(t *testing.T, a, b *Asset) {
 	require.Equal(t, a.Amount, b.Amount)
 	require.Equal(t, a.LockTime, b.LockTime)
 	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
-	require.Equal(t, a.PrevWitnesses, b.PrevWitnesses)
+	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
+	for i := range a.PrevWitnesses {
+		witA, witB := a.PrevWitnesses[i], b.PrevWitnesses[i]
+		require.Equal(t, witA.PrevID, witB.PrevID)
+		require.Equal(t, witA.TxWitness, witB.TxWitness)
+		splitA, splitB := witA.SplitCommitment, witB.SplitCommitment
+		if witA.SplitCommitment != nil && witB.SplitCommitment != nil {
+			require.Equal(
+				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
+			)
+			for i := range splitA.Proof.Nodes {
+				nodeA := splitA.Proof.Nodes[i]
+				nodeB := splitB.Proof.Nodes[i]
+				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
+			}
+			require.Equal(t, splitA.RootAsset, splitB.RootAsset)
+		} else {
+			require.Equal(t, splitA, splitB)
+		}
+	}
 	require.Equal(t, a.SplitCommitmentRoot, b.SplitCommitmentRoot)
 	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
 	require.Equal(t, a.ScriptKey, b.ScriptKey)
@@ -56,7 +75,7 @@ func TestAssetEncoding(t *testing.T) {
 		assertAssetEqual(t, a, &b)
 	}
 
-	assertAssetEncoding(&Asset{
+	split := &Asset{
 		Version: 1,
 		Genesis: Genesis{
 			FirstPrevOut: wire.OutPoint{
@@ -80,9 +99,22 @@ func TestAssetEncoding(t *testing.T) {
 				ID:        hashBytes1,
 				ScriptKey: *pubKey,
 			},
-			TxWitness:            wire.TxWitness{{1}, {1}},
-			SplitCommitmentProof: []byte{1, 1},
-		}, {
+			TxWitness:       nil,
+			SplitCommitment: nil,
+		}},
+		SplitCommitmentRoot: nil,
+		ScriptVersion:       1,
+		ScriptKey:           *pubKey,
+		FamilyKey:           &FamilyKey{Key: *pubKey, Sig: *sig},
+	}
+	root := &Asset{
+		Version:          1,
+		Genesis:          split.Genesis,
+		Type:             1,
+		Amount:           1,
+		LockTime:         1337,
+		RelativeLockTime: 6,
+		PrevWitnesses: []Witness{{
 			PrevID: &PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  hashBytes2,
@@ -91,14 +123,19 @@ func TestAssetEncoding(t *testing.T) {
 				ID:        hashBytes2,
 				ScriptKey: *pubKey,
 			},
-			TxWitness:            wire.TxWitness{{2}, {2}},
-			SplitCommitmentProof: []byte{2, 2},
+			TxWitness:       wire.TxWitness{{2}, {2}},
+			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
 		ScriptKey:           *pubKey,
 		FamilyKey:           &FamilyKey{Key: *pubKey, Sig: *sig},
-	})
+	}
+	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
+		Proof:     *mssmt.NewProof(mssmt.EmptyTree[:mssmt.MaxTreeLevels]),
+		RootAsset: *root,
+	}
+	assertAssetEncoding(split)
 
 	assertAssetEncoding(&Asset{
 		Version: 2,
@@ -116,13 +153,13 @@ func TestAssetEncoding(t *testing.T) {
 		LockTime:         1337,
 		RelativeLockTime: 6,
 		PrevWitnesses: []Witness{{
-			PrevID:               nil,
-			TxWitness:            nil,
-			SplitCommitmentProof: nil,
+			PrevID:          nil,
+			TxWitness:       nil,
+			SplitCommitment: nil,
 		}, {
-			PrevID:               &PrevID{},
-			TxWitness:            nil,
-			SplitCommitmentProof: nil,
+			PrevID:          &PrevID{},
+			TxWitness:       nil,
+			SplitCommitment: nil,
 		}, {
 			PrevID: &PrevID{
 				OutPoint: wire.OutPoint{
@@ -132,8 +169,8 @@ func TestAssetEncoding(t *testing.T) {
 				ID:        hashBytes2,
 				ScriptKey: *pubKey,
 			},
-			TxWitness:            wire.TxWitness{{2}, {2}},
-			SplitCommitmentProof: nil,
+			TxWitness:       wire.TxWitness{{2}, {2}},
+			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       2,
