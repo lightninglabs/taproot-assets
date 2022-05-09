@@ -367,6 +367,56 @@ func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "[]Witness")
 }
 
+func SplitCommitmentEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**SplitCommitment); ok {
+		// TODO: Make nested TLVs?
+		var proof bytes.Buffer
+		if err := (*t).Proof.Compress().Encode(&proof); err != nil {
+			return err
+		}
+		proofBytes := proof.Bytes()
+		if err := VarBytesEncoder(w, &proofBytes, buf); err != nil {
+			return err
+		}
+		var rootAsset bytes.Buffer
+		if err := (*t).RootAsset.Encode(&rootAsset); err != nil {
+			return err
+		}
+		rootAssetBytes := rootAsset.Bytes()
+		return VarBytesEncoder(w, &rootAssetBytes, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*SplitCommitment")
+}
+
+func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(**SplitCommitment); ok {
+		var proofBytes []byte
+		if err := VarBytesDecoder(r, &proofBytes, buf, l); err != nil {
+			return err
+		}
+		var proof mssmt.CompressedProof
+		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
+			return err
+		}
+		var rootAssetBytes []byte
+		err := VarBytesDecoder(r, &rootAssetBytes, buf, l)
+		if err != nil {
+			return err
+		}
+		var rootAsset Asset
+		err = rootAsset.Decode(bytes.NewReader(rootAssetBytes))
+		if err != nil {
+			return err
+		}
+		*typ = &SplitCommitment{
+			Proof:     *proof.Decompress(),
+			RootAsset: rootAsset,
+		}
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*SplitCommitment", l, 40)
+}
+
 func SplitCommitmentRootEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*mssmt.Node); ok {
 		key := [32]byte((*t).NodeKey())

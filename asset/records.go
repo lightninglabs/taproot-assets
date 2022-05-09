@@ -38,9 +38,9 @@ const (
 type WitnessTlvType = tlv.Type
 
 const (
-	WitnessPrevID               WitnessTlvType = 0
-	WitnessTxWitness            WitnessTlvType = 1
-	WitnessSplitCommitmentProof WitnessTlvType = 2
+	WitnessPrevID          WitnessTlvType = 0
+	WitnessTxWitness       WitnessTlvType = 1
+	WitnessSplitCommitment WitnessTlvType = 2
 )
 
 func NewLeafVersionRecord(version *Version) tlv.Record {
@@ -167,12 +167,17 @@ func NewWitnessTxWitnessRecord(witness *wire.TxWitness) tlv.Record {
 	)
 }
 
-func NewWitnessSplitCommitmentProofRecord(proof *[]byte) tlv.Record {
+func NewWitnessSplitCommitmentRecord(commitment **SplitCommitment) tlv.Record {
 	recordSize := func() uint64 {
-		return uint64(len(*proof))
+		var buf bytes.Buffer
+		err := SplitCommitmentEncoder(&buf, commitment, &[8]byte{})
+		if err != nil {
+			panic(err)
+		}
+		return uint64(buf.Len())
 	}
 	return tlv.MakeDynamicRecord(
-		WitnessSplitCommitmentProof, proof, recordSize, tlv.EVarBytes,
-		tlv.DVarBytes,
+		WitnessSplitCommitment, commitment, recordSize,
+		SplitCommitmentEncoder, SplitCommitmentDecoder,
 	)
 }
