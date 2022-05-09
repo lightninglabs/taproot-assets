@@ -28,7 +28,6 @@ import (
 
 const (
 	defaultDataDirname      = "data"
-	defaultChainSubDirname  = "chain"
 	defaultTLSCertFilename  = "tls.cert"
 	defaultTLSKeyFilename   = "tls.key"
 	defaultAdminMacFilename = "admin.macaroon"
@@ -47,7 +46,8 @@ const (
 	// (14 months * 30 days * 24 hours).
 	defaultTLSCertDuration = 14 * 30 * 24 * time.Hour
 
-	defaultConfigFileName = "taro.conf"
+	defaultConfigFileName   = "taro.conf"
+	defaultMacaroonFileName = "taro.macaroon"
 )
 
 var (
@@ -70,6 +70,9 @@ var (
 
 	defaultTLSCertPath = filepath.Join(DefaultTaroDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
+
+	defaultDatabaseFileName = "taro.db"
+	defaultMacaroonPath     = filepath.Join(DefaultTaroDir, defaultMacaroonFileName)
 )
 
 // ChainConfig...
@@ -97,9 +100,8 @@ type RpcConfig struct {
 	WSPingInterval time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side"`
 	WSPongWait     time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
 
+	MacaroonPath string `long:"macaroonpath" description:"Path to write the admin macaroon for taro's RPC and REST services if it doesn't exist"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
-	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for tarod's RPC and REST services if it doesn't exist"`
-	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for tarod's RPC and REST services if it doesn't exist"`
 
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 }
@@ -113,10 +115,11 @@ type Config struct {
 	TaroDir    string `long:"tarodir" description:"The base directory that contains taro's data, logs, configuration file, etc."`
 	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
 
-	DataDir        string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
-	LogDir         string `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	DataDir          string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
+	LogDir           string `long:"logdir" description:"Directory to log output."`
+	DatabaseFileName string `long:"dbfile" description:"The full path to the database"`
+	MaxLogFiles      int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize   int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
@@ -340,8 +343,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.RpcConf.TLSCertPath = CleanAndExpandPath(cfg.RpcConf.TLSCertPath)
 	cfg.RpcConf.TLSKeyPath = CleanAndExpandPath(cfg.RpcConf.TLSKeyPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
-	cfg.RpcConf.AdminMacPath = CleanAndExpandPath(cfg.RpcConf.AdminMacPath)
-	cfg.RpcConf.ReadMacPath = CleanAndExpandPath(cfg.RpcConf.ReadMacPath)
+	cfg.RpcConf.MacaroonPath = CleanAndExpandPath(cfg.RpcConf.MacaroonPath)
 
 	// Multiple networks can't be selected simultaneously.  Count number of
 	// network flags passed; assign active network params
@@ -380,6 +382,9 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			sigNetChallenge, sigNetSeeds,
 		)
 		cfg.ActiveNetParams = chainParams
+	default:
+		return nil, nil, mkErr(fmt.Sprintf("invalid network: %v",
+			cfg.ChainConf.Network))
 	}
 
 	// Validate profile port or host:port.
@@ -410,21 +415,23 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
 	cfg.networkDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		cfg.DataDir, lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
+
+	// We'll also update the database file location as well, if it wasn't
+	// set.
+	if cfg.DatabaseFileName == "" {
+		cfg.DatabaseFileName = filepath.Join(
+			cfg.networkDir, defaultDatabaseFileName,
+		)
+	}
 
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
-	if cfg.RpcConf.AdminMacPath == "" {
-		cfg.RpcConf.AdminMacPath = filepath.Join(
+	if cfg.RpcConf.MacaroonPath == "" {
+		cfg.RpcConf.MacaroonPath = filepath.Join(
 			cfg.networkDir, defaultAdminMacFilename,
-		)
-	}
-	if cfg.RpcConf.ReadMacPath == "" {
-		cfg.RpcConf.ReadMacPath = filepath.Join(
-			cfg.networkDir, defaultReadMacFilename,
 		)
 	}
 
@@ -435,8 +442,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		taroDir, cfg.DataDir, cfg.networkDir,
 		filepath.Dir(cfg.RpcConf.TLSCertPath),
 		filepath.Dir(cfg.RpcConf.TLSKeyPath),
-		filepath.Dir(cfg.RpcConf.AdminMacPath),
-		filepath.Dir(cfg.RpcConf.ReadMacPath),
+		filepath.Dir(cfg.RpcConf.MacaroonPath),
 	}
 	for _, dir := range dirs {
 		if err := makeDirectory(dir); err != nil {

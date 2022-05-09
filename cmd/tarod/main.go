@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 )
@@ -53,7 +55,7 @@ func main() {
 			profileRedirect := http.RedirectHandler("/debug/pprof",
 				http.StatusSeeOther)
 			http.Handle("/", profileRedirect)
-			//taroLog.Infof("Pprof listening on %v", cfg.Profile)
+			cfgLogger.Infof("Pprof listening on %v", cfg.Profile)
 			fmt.Println(http.ListenAndServe(cfg.Profile, nil))
 		}()
 	}
@@ -70,6 +72,28 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
+	// Now that we know where the databse will live, we'll go ahead and
+	// open up the default implementation of it.
+	cfgLogger.Infof("Opening sqlite3 database at: %v", cfg.DatabaseFileName)
+	db, err := tarodb.NewSqliteStore(&tarodb.SqliteConfig{
+		DatabaseFileName: cfg.DatabaseFileName,
+		CreateTables:     true,
+	})
+	if err != nil {
+		err := fmt.Sprintf("unable to open database: %v", err)
+		cfgLogger.Errorf(err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore,
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.KeyStore {
+
+		// TODO(roasbeef): can get rid of this by emulating the
+		// sqlite.DBTX interface
+		sqlTx, _ := tx.(*sql.Tx)
+		return db.WithTx(sqlTx)
+	})
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:        cfg.DebugLevel,
 		ChainParams:       cfg.ActiveNetParams,
@@ -86,6 +110,10 @@ func main() {
 			WSPongWait:     cfg.RpcConf.WSPongWait,
 			RestCORS:       cfg.RpcConf.RestCORS,
 			NoMacaroons:    cfg.RpcConf.NoMacaroons,
+			MacaroonPath:   cfg.RpcConf.MacaroonPath,
+		},
+		DatabaseConfig: &taro.DatabaseConfig{
+			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
 		},
 	})
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro/build"
+	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
@@ -33,6 +34,12 @@ type RPCConfig struct {
 	RestCORS []string
 
 	NoMacaroons bool
+
+	MacaroonPath string
+}
+
+type DatabaseConfig struct {
+	RootKeyStore *tarodb.RootKeyStore
 }
 
 // Config is the main config of the Taro server.
@@ -48,4 +55,6 @@ type Config struct {
 	LogWriter *build.RotatingLogWriter
 
 	*RPCConfig
+
+	*DatabaseConfig
 }
