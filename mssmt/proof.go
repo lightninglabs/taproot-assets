@@ -37,6 +37,15 @@ func (p Proof) Root(key [32]byte, leaf *LeafNode) *BranchNode {
 	return walkUp(&key, leaf, p.Nodes, nil)
 }
 
+// Proof returns a deep copy of the proof.
+func (p Proof) Copy() *Proof {
+	nodesCopy := make([]Node, 0, len(p.Nodes))
+	for _, node := range p.Nodes {
+		nodesCopy = append(nodesCopy, node.Copy())
+	}
+	return &Proof{Nodes: nodesCopy}
+}
+
 // Compress compresses a merkle proof by replacing its empty nodes with a bit
 // vector.
 func (p Proof) Compress() *CompressedProof {
