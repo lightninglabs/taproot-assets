@@ -499,3 +499,12 @@ func (a *Asset) Decode(r io.Reader) error {
 	}
 	return stream.Decode(r)
 }
+
+// Leaf returns the asset encoded as a MS-SMT leaf node.
+func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
+	var buf bytes.Buffer
+	if err := a.Encode(&buf); err != nil {
+		return nil, err
+	}
+	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
+}
