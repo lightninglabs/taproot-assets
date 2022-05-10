@@ -2,10 +2,6 @@ package mssmt
 
 // Proof represents a merkle proof for a MS-SMT.
 type Proof struct {
-	// Leaf is the leaf node the proof is valid for. If the leaf is empty,
-	// then this should be considered a non-inclusion proof.
-	Leaf LeafNode
-
 	// Nodes represents the siblings that should be hashed with the leaf and
 	// its parents to arrive at the root of the MS-SMT.
 	Nodes []Node
@@ -15,10 +11,6 @@ type Proof struct {
 // proofs for a MS-SMT are always constant size (255 nodes), we replace its
 // empty nodes by a bit vector.
 type CompressedProof struct {
-	// Leaf is the leaf node the compressed proof is valid for. If the leaf
-	// is empty, then this should be considered a non-inclusion proof.
-	Leaf LeafNode
-
 	// Bits determines whether a sibling node within a proof is part of the
 	// empty tree. This allows us to efficiently compress proofs by not
 	// including any pre-computed nodes.
@@ -34,23 +26,15 @@ type CompressedProof struct {
 }
 
 // NewProof initializes a new merkle proof for the given leaf node.
-func NewProof(leaf LeafNode, nodes []Node) *Proof {
+func NewProof(nodes []Node) *Proof {
 	return &Proof{
-		Leaf:  leaf,
 		Nodes: nodes,
 	}
 }
 
 // Root returns the root node obtained by walking up the tree.
-func (p Proof) Root(key [32]byte) *BranchNode {
-	return walkUp(&key, &p.Leaf, p.Nodes, nil)
-}
-
-// ProvesInclusion returns whether the proof proves the leaf is included or not
-// in the tree. Note that this does not refer to the validity of the proof
-// itself, `VerifyMerkleTree` should be used for that instead.
-func (p Proof) ProvesInclusion() bool {
-	return !p.Leaf.IsEmpty()
+func (p Proof) Root(key [32]byte, leaf *LeafNode) *BranchNode {
+	return walkUp(&key, leaf, p.Nodes, nil)
 }
 
 // Compress compresses a merkle proof by replacing its empty nodes with a bit
@@ -70,17 +54,9 @@ func (p Proof) Compress() *CompressedProof {
 		}
 	}
 	return &CompressedProof{
-		Leaf:  p.Leaf,
 		Bits:  bits,
 		Nodes: nodes,
 	}
-}
-
-// ProvesInclusion returns whether the proof proves the leaf is included or not
-// in the tree. Note that this does not refer to the validity of the proof
-// itself, `VerifyMerkleTree` should be used for that instead.
-func (p CompressedProof) ProvesInclusion() bool {
-	return !p.Leaf.IsEmpty()
 }
 
 // resetNodeIdx resets the node index back to the start.
@@ -109,5 +85,5 @@ func (p *CompressedProof) Decompress() *Proof {
 			nodes[i] = p.nextNode()
 		}
 	}
-	return NewProof(p.Leaf, nodes)
+	return NewProof(nodes)
 }

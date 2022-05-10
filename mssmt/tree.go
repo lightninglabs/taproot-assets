@@ -172,14 +172,16 @@ func (t Tree) Get(key [hashSize]byte) *LeafNode {
 // returned `Proof` containing an empty leaf.
 func (t Tree) MerkleProof(key [hashSize]byte) *Proof {
 	proof := make([]Node, maxTreeLevels)
-	leaf := t.walkDown(&key, func(i uint8, _, sibling, _ Node) {
+	_ = t.walkDown(&key, func(i uint8, _, sibling, _ Node) {
 		proof[maxTreeLevels-1-i] = sibling
 	})
-	return NewProof(*leaf, proof)
+	return NewProof(proof)
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the
 // given key is valid.
-func VerifyMerkleProof(key [hashSize]byte, proof *Proof, root *BranchNode) bool {
-	return proof.Root(key).Equal(root)
+func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
+	root *BranchNode) bool {
+
+	return proof.Root(key, leaf).Equal(root)
 }
