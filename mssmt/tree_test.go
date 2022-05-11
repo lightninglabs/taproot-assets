@@ -104,9 +104,7 @@ func TestMerkleProof(t *testing.T) {
 		compressedProof := proof.Compress()
 		for _, node := range compressedProof.Nodes {
 			for _, emptyNode := range EmptyTree {
-				require.NotEqual(
-					t, node.NodeKey(), emptyNode.NodeKey(),
-				)
+				require.False(t, IsEqualNode(node, emptyNode))
 			}
 		}
 		require.Equal(t, proof, compressedProof.Decompress())
@@ -117,25 +115,24 @@ func TestMerkleProof(t *testing.T) {
 	for key, leaf := range leaves {
 		proof := tree.MerkleProof(key)
 		assertEqualAfterCompression(proof)
-		require.True(t, leaf.Equal(&proof.Leaf))
-		require.True(t, VerifyMerkleProof(key, proof, tree.Root()))
+		require.True(t, VerifyMerkleProof(key, leaf, proof, tree.Root()))
 	}
 
 	// Compute the proof for the first leaf and test some negative cases.
-	for key := range leaves {
+	for key, leaf := range leaves {
 		proof := tree.MerkleProof(key)
-		require.True(t, VerifyMerkleProof(key, proof, tree.Root()))
+		require.True(t, VerifyMerkleProof(key, leaf, proof, tree.Root()))
 
 		// If we alter the proof's leaf sum, then the proof should no
 		// longer be valid.
-		proof.Leaf.sum++
-		require.False(t, VerifyMerkleProof(key, proof, tree.Root()))
-		proof.Leaf.sum--
+		leaf.sum++
+		require.False(t, VerifyMerkleProof(key, leaf, proof, tree.Root()))
+		leaf.sum--
 
 		// If we delete the proof's leaf node from the tree, then it
 		// should also no longer be valid.
 		_ = tree.Delete(key)
-		require.False(t, VerifyMerkleProof(key, proof, tree.Root()))
+		require.False(t, VerifyMerkleProof(key, leaf, proof, tree.Root()))
 	}
 
 	// Create a new leaf that will not be inserted in the tree. Computing
@@ -145,10 +142,10 @@ func TestMerkleProof(t *testing.T) {
 	nonExistentLeaf := randLeaf()
 	proof := tree.MerkleProof(nonExistentKey)
 	assertEqualAfterCompression(proof)
-	require.False(t, proof.ProvesInclusion())
-	invalidProof := NewProof(*nonExistentLeaf, proof.Nodes)
 	require.False(t, VerifyMerkleProof(
-		nonExistentKey, invalidProof, tree.Root()),
-	)
-	require.True(t, VerifyMerkleProof(nonExistentKey, proof, tree.Root()))
+		nonExistentKey, nonExistentLeaf, proof, tree.Root(),
+	))
+	require.True(t, VerifyMerkleProof(
+		nonExistentKey, EmptyLeafNode, proof, tree.Root(),
+	))
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,13 +94,10 @@ func TestAssetEncoding(t *testing.T) {
 			TxWitness:            wire.TxWitness{{2}, {2}},
 			SplitCommitmentProof: []byte{2, 2},
 		}},
-		SplitCommitmentRoot: &SplitCommitmentRoot{
-			Key: hashBytes1,
-			Sum: 1337,
-		},
-		ScriptVersion: 1,
-		ScriptKey:     *pubKey,
-		FamilyKey:     &FamilyKey{Key: *pubKey, Sig: *sig},
+		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
+		ScriptVersion:       1,
+		ScriptKey:           *pubKey,
+		FamilyKey:           &FamilyKey{Key: *pubKey, Sig: *sig},
 	})
 
 	assertAssetEncoding(&Asset{

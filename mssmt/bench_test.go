@@ -40,11 +40,11 @@ func benchmarkMerkleProof(b *testing.B, tree *Tree, _ map[[32]byte]*LeafNode,
 }
 
 func benchmarkVerifyMerkleProof(b *testing.B, tree *Tree,
-	_ map[[32]byte]*LeafNode, proofs map[[32]byte]*Proof) {
+	leaves map[[32]byte]*LeafNode, proofs map[[32]byte]*Proof) {
 
 	for i := 0; i < b.N; i++ {
-		key, proof := randElem(proofs)
-		_ = VerifyMerkleProof(key, proof, tree.Root())
+		key, leaf := randElem(leaves)
+		_ = VerifyMerkleProof(key, leaf, proofs[key], tree.Root())
 	}
 }
 
