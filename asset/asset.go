@@ -354,16 +354,14 @@ func (a Asset) OuterCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
 		return [32]byte(a.Genesis.ID())
 	}
-	key := (*[32]byte)(schnorr.SerializePubKey(&a.FamilyKey.Key))
-	return *key
+	return sha256.Sum256(schnorr.SerializePubKey(&a.FamilyKey.Key))
 }
 
 // InnerCommitmentKey is the key that maps to a specific owner of an asset
 // within a Taro commitment.
 func (a Asset) InnerCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
-		key := (*[32]byte)(schnorr.SerializePubKey(&a.ScriptKey))
-		return *key
+		return sha256.Sum256(schnorr.SerializePubKey(&a.ScriptKey))
 	}
 	assetID := a.Genesis.ID()
 	h := sha256.New()
