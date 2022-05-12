@@ -1,12 +1,14 @@
 package asset
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -223,6 +225,32 @@ type FamilyKey struct {
 	Sig schnorr.Signature
 }
 
+// DeriveFamilyKey derives an asset's family key based on some internal private
+// key and an asset genesis.
+func DeriveFamilyKey(internalPrivKey *btcec.PrivateKey,
+	genesis *Genesis) (*FamilyKey, error) {
+
+	var genesisPrevOut bytes.Buffer
+	err := wire.WriteOutPoint(&genesisPrevOut, 0, 0, &genesis.FirstPrevOut)
+	if err != nil {
+		return nil, err
+	}
+	tweakedPrivKey := txscript.TweakTaprootPrivKey(
+		internalPrivKey, genesisPrevOut.Bytes(),
+	)
+
+	id := genesis.ID()
+	sig, err := schnorr.Sign(tweakedPrivKey, id[:])
+	if err != nil {
+		return nil, err
+	}
+
+	return &FamilyKey{
+		Key: *tweakedPrivKey.PubKey(),
+		Sig: *sig,
+	}, nil
+}
+
 // Asset represents a Taro asset.
 type Asset struct {
 	// Version is the Taro version of the asset.
@@ -320,22 +348,20 @@ func NewCollectible(genesis *Genesis, locktime, relativeLocktime uint64,
 	}
 }
 
-// OuterCommitmentKey is the key that maps to the root commitment for a specific
-// asset family within a Taro commitment.
-func (a Asset) OuterCommitmentKey() [32]byte {
+// TaroCommitmentKey is the key that maps to the root commitment for a specific
+// asset family within a TaroCommitment.
+func (a Asset) TaroCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
 		return [32]byte(a.Genesis.ID())
 	}
-	key := (*[32]byte)(schnorr.SerializePubKey(&a.FamilyKey.Key))
-	return *key
+	return sha256.Sum256(schnorr.SerializePubKey(&a.FamilyKey.Key))
 }
 
-// InnerCommitmentKey is the key that maps to a specific owner of an asset
-// within a Taro commitment.
-func (a Asset) InnerCommitmentKey() [32]byte {
+// AssetCommitmentKey is the key that maps to a specific owner of an asset
+// within a Taro AssetCommitment.
+func (a Asset) AssetCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
-		key := (*[32]byte)(schnorr.SerializePubKey(&a.ScriptKey))
-		return *key
+		return sha256.Sum256(schnorr.SerializePubKey(&a.ScriptKey))
 	}
 	assetID := a.Genesis.ID()
 	h := sha256.New()
@@ -407,7 +433,7 @@ func (a Asset) Copy() *Asset {
 // EncodeRecords determines the non-nil records to include when encoding an
 // asset at runtime.
 func (a Asset) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 10)
+	records := make([]tlv.Record, 0, 11)
 	records = append(records, NewLeafVersionRecord(&a.Version))
 	records = append(records, NewLeafGenesisRecord(&a.Genesis))
 	records = append(records, NewLeafTypeRecord(&a.Type))
@@ -472,4 +498,13 @@ func (a *Asset) Decode(r io.Reader) error {
 		return err
 	}
 	return stream.Decode(r)
+}
+
+// Leaf returns the asset encoded as a MS-SMT leaf node.
+func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
+	var buf bytes.Buffer
+	if err := a.Encode(&buf); err != nil {
+		return nil, err
+	}
+	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
 }

@@ -101,9 +101,15 @@ func SchnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err != nil {
 			return err
 		}
-		key, err := schnorr.ParsePubKey(keyBytes[:])
-		if err != nil {
-			return err
+		var key *btcec.PublicKey
+		// Handle empty key, which is not on the curve.
+		if keyBytes == [32]byte{} {
+			key = &btcec.PublicKey{}
+		} else {
+			key, err = schnorr.ParsePubKey(keyBytes[:])
+			if err != nil {
+				return err
+			}
 		}
 		*typ = *key
 		return nil

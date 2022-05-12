@@ -120,6 +120,10 @@ func TestAssetEncoding(t *testing.T) {
 			TxWitness:            nil,
 			SplitCommitmentProof: nil,
 		}, {
+			PrevID:               &PrevID{},
+			TxWitness:            nil,
+			SplitCommitmentProof: nil,
+		}, {
 			PrevID: &PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  hashBytes2,
