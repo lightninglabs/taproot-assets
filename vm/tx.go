@@ -57,7 +57,7 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 
 	// Genesis assets shouldn't have any inputs committed, so they'll have
 	// an empty input tree.
-	isGenesisAsset := isValidGenesisWitness(newAsset)
+	isGenesisAsset := HasGenesisWitness(newAsset)
 	inputTree := mssmt.NewTree(mssmt.NewDefaultStore())
 	if !isGenesisAsset {
 		// For each input we'll locate the asset UTXO beign spent, then

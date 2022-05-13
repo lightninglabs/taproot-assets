@@ -41,23 +41,6 @@ func New(newAsset *asset.Asset, splitAsset *commitment.SplitAsset,
 	}, nil
 }
 
-// isValidGenesisWitness determines whether an asset has a valid genesis
-// witness, which should only have one input with a zero PrevID and empty
-// witness and split commitment proof.
-func isValidGenesisWitness(asset *asset.Asset) bool {
-	if len(asset.PrevWitnesses) != 1 {
-		return false
-	}
-
-	witness := asset.PrevWitnesses[0]
-	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
-		witness.SplitCommitment != nil {
-		return false
-	}
-
-	return *witness.PrevID == zeroPrevID
-}
-
 // matchesPrevGenesis determines whether certain key parameters of the new
 // asset continue to hold its previous genesis.
 func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
@@ -135,14 +118,10 @@ func (vm *Engine) validateSplit() error {
 
 	// Split assets should always have a single witness with a non-nil
 	// PrevID and empty TxWitness.
-	if len(vm.splitAsset.PrevWitnesses) != 1 {
+	if !HasSplitCommitmentWitness(&vm.splitAsset.Asset) {
 		return newErrKind(ErrInvalidSplitCommitmentWitness)
 	}
 	witness := vm.splitAsset.PrevWitnesses[0]
-	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
-		witness.SplitCommitment == nil {
-		return newErrKind(ErrInvalidSplitCommitmentWitness)
-	}
 
 	// The prevID of the split commitment should be the ID of the asset
 	// generating the split in the transaction.
@@ -301,7 +280,7 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 func (vm *Engine) Execute() error {
 	// A genesis asset should have a single witness and a PrevID of all
 	// zeros and empty witness and split commitment proof.
-	if isValidGenesisWitness(vm.newAsset) {
+	if HasGenesisWitness(vm.newAsset) {
 		if vm.splitAsset != nil || len(vm.prevAssets) > 0 {
 			return newErrKind(ErrInvalidGenesisStateTransition)
 		}
