@@ -183,7 +183,7 @@ fmt: $(GOIMPORTS_BIN)
 
 lint: docker-tools
 	@$(call print, "Linting source.")
-	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
+	$(DOCKER_TOOLS) golangci-lint --timeout=5m run -v $(LINT_WORKERS)
 
 list:
 	@$(call print, "Listing commands.")

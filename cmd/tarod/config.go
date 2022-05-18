@@ -31,7 +31,6 @@ const (
 	defaultTLSCertFilename  = "tls.cert"
 	defaultTLSKeyFilename   = "tls.key"
 	defaultAdminMacFilename = "admin.macaroon"
-	defaultReadMacFilename  = "readonly.macaroon"
 	defaultLogLevel         = "info"
 	defaultLogDirname       = "logs"
 	defaultLogFilename      = "taro.log"
@@ -46,8 +45,7 @@ const (
 	// (14 months * 30 days * 24 hours).
 	defaultTLSCertDuration = 14 * 30 * 24 * time.Hour
 
-	defaultConfigFileName   = "taro.conf"
-	defaultMacaroonFileName = "taro.macaroon"
+	defaultConfigFileName = "taro.conf"
 )
 
 var (
@@ -72,7 +70,6 @@ var (
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
 
 	defaultDatabaseFileName = "taro.db"
-	defaultMacaroonPath     = filepath.Join(DefaultTaroDir, defaultMacaroonFileName)
 )
 
 // ChainConfig houses the configuration options that govern which chain/network

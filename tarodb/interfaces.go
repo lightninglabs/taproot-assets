@@ -103,7 +103,9 @@ func (t *TransactionExecutor[Q, O]) ExecTx(ctx context.Context, txOptions O,
 
 	// Rollback is safe to call even if the tx is already closed, so if the
 	// tx commits successfully, this is a no-op.
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	if err := txBody(t.createQuery(tx)); err != nil {
 		return err

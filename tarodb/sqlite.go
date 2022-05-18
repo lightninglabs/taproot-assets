@@ -49,7 +49,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	if cfg.CreateTables {
 		// Now that the database is open, populate the database with
 		// our set of schemas based on our embedded in-memory file system.
-		fs.WalkDir(sqlSchemas, "sqlite/migrations", func(path string,
+		err := fs.WalkDir(sqlSchemas, "sqlite/migrations", func(path string,
 			d fs.DirEntry, err error) error {
 
 			if d.IsDir() {
@@ -67,6 +67,9 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			}
 			return nil
 		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to load schemas: %w", err)
+		}
 	}
 
 	queries := sqlite.New(db)
