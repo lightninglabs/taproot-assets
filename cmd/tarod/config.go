@@ -75,14 +75,16 @@ var (
 	defaultMacaroonPath     = filepath.Join(DefaultTaroDir, defaultMacaroonFileName)
 )
 
-// ChainConfig...
+// ChainConfig houses the configuration options that govern which chain/network
+// we operate on.
 type ChainConfig struct {
 	Network string `long:"network" description:"network to run on" choice:"regtest" choice:"testnet" choice:"mainnet" choice:"simnet"`
 
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
 
-// RpcConfig...
+// RpcConfig houses the set of config options that affect how clients connect
+// to the main RPC server.
 type RpcConfig struct {
 	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
@@ -106,7 +108,7 @@ type RpcConfig struct {
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 }
 
-// Config...
+// Config is the main config for the tarod cli command.
 type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
