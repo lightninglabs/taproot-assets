@@ -141,8 +141,9 @@ func (s *Server) RunUntilShutdown() error {
 	}
 
 	// Now start the REST proxy for our gRPC server above. We'll ensure we
-	// direct LND to connect to its loopback address rather than a wildcard
-	// to prevent certificate issues when accessing the proxy externally.
+	// direct tarod to connect to its loopback address rather than a
+	// wildcard to prevent certificate issues when accessing the proxy
+	// externally.
 	stopProxy, err := startRestProxy(s.cfg, rpcServer)
 	if err != nil {
 		return mkErr("error starting REST proxy: %v", err)

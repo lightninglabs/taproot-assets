@@ -253,12 +253,12 @@ func main() {
 		cli.StringFlag{
 			Name:      "tlscertpath",
 			Value:     defaultTLSCertPath,
-			Usage:     "The path to lnd's TLS certificate.",
+			Usage:     "The path to tarod's TLS certificate.",
 			TakesFile: true,
 		},
 		cli.StringFlag{
 			Name: "network, n",
-			Usage: "The network lnd is running on, e.g. mainnet, " +
+			Usage: "The network tarod is running on, e.g. mainnet, " +
 				"testnet, etc.",
 			Value: "mainnet",
 		},

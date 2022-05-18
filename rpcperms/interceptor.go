@@ -394,7 +394,7 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 	case waitingToStart:
 		return ErrWaitingToStart
 
-	// If the RPC server or lnd server is active, we allow all calls.
+	// If the RPC server or tarod server is active, we allow all calls.
 	case rpcActive, serverActive:
 
 	default:

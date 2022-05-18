@@ -87,8 +87,8 @@ type RpcConfig struct {
 	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 
-	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for tarod's RPC and REST services"`
+	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for tarod's RPC and REST services"`
 	TLSExtraIPs        []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
 	TLSExtraDomains    []string      `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
 	TLSAutoRefresh     bool          `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
@@ -101,8 +101,8 @@ type RpcConfig struct {
 	WSPongWait     time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
 
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
-	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for tarod's RPC and REST services if it doesn't exist"`
+	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for tarod's RPC and REST services if it doesn't exist"`
 
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 }
@@ -196,15 +196,16 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		os.Exit(0)
 	}
 
-	// If the config file path has not been modified by the user, then we'll
-	// use the default config file path. However, if the user has modified
-	// their lnddir, then we should assume they intend to use the config
-	// file within it.
+	// If the config file path has not been modified by the user, then
+	// we'll use the default config file path. However, if the user has
+	// modified their taroddir, then we should assume they intend to use
+	// the config file within it.
 	configFileDir := CleanAndExpandPath(preCfg.TaroDir)
 	configFilePath := CleanAndExpandPath(preCfg.ConfigFile)
 	switch {
-	// User specified --lnddir but no --configfile. Update the config file
-	// path to the lnd config directory, but don't require it to exist.
+	// User specified --taroddir but no --configfile. Update the config
+	// file path to the tarod config directory, but don't require it to
+	// exist.
 	case configFileDir != DefaultTaroDir &&
 		configFilePath == DefaultConfigFile:
 
@@ -296,7 +297,7 @@ func (u *usageError) Error() string {
 func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	flagParser *flags.Parser) (*Config, btclog.Logger, error) {
 
-	// If the provided lnd directory is not the default, we'll modify the
+	// If the provided tarod directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	taroDir := CleanAndExpandPath(cfg.TaroDir)
 	if taroDir != DefaultTaroDir {
@@ -328,7 +329,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 				}
 			}
 
-			str := "Failed to create lnd directory '%s': %v"
+			str := "Failed to create tarod directory '%s': %v"
 			return mkErr(str, dir, err)
 		}
 
@@ -461,7 +462,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// Create the taro directory and all other sub-directories if they
 	// don't already exist. This makes sure that directory trees are also
-	// created for files that point to outside the lnddir.
+	// created for files that point to outside the taroddir.
 	dirs := []string{
 		taroDir, cfg.DataDir, cfg.networkDir,
 		filepath.Dir(cfg.RpcConf.TLSCertPath),

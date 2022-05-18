@@ -162,7 +162,7 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 }
 
 // DebugLevel allows a caller to programmatically set the logging verbosity of
-// lnd. The logging can be targeted according to a coarse daemon-wide logging
+// tarod. The logging can be targeted according to a coarse daemon-wide logging
 // level, or in a granular fashion to specify the logging for a target
 // sub-system.
 func (r *rpcServer) DebugLevel(ctx context.Context,

@@ -8,7 +8,7 @@ package build
 // as integration tests or fuzzing) or only for certain operating systems. For
 // example, the specific btcd import makes sure the indirect dependency
 // github.com/btcsuite/winsvc is kept in the go.sum file. Because of the build
-// tag, this dependency never ends up in the final lnd binary.
+// tag, this dependency never ends up in the final tarod binary.
 import (
 	_ "github.com/btcsuite/btcd"
 	_ "github.com/dvyukov/go-fuzz/go-fuzz-dep"

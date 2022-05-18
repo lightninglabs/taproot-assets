@@ -28,28 +28,28 @@ var (
 var profileSubCommand = cli.Command{
 	Name:     "profile",
 	Category: "Profiles",
-	Usage:    "Create and manage lncli profiles.",
+	Usage:    "Create and manage tarocli profiles.",
 	Description: `
-	Profiles for lncli are an easy and comfortable way to manage multiple
+	Profiles for tarocli are an easy and comfortable way to manage multiple
 	nodes from the command line by storing node specific parameters like RPC
 	host, network, TLS certificate path or macaroons in a named profile.
 
 	To use a predefined profile, just use the '--profile=myprofile' (or
-	short version '-p=myprofile') with any lncli command.
+	short version '-p=myprofile') with any tarocli command.
 
-	A default profile can also be defined, lncli will then always use the
+	A default profile can also be defined, tarocli will then always use the
 	connection/node parameters from that profile instead of the default
 	values.
 
 	WARNING: Setting a default profile changes the default behavior of
-	lncli! To disable the use of the default profile for a single command,
+	tarocli! To disable the use of the default profile for a single command,
 	set '--profile= '.
 
 	The profiles are stored in a file called profiles.json in the user's
 	home directory, for example:
-		C:\Users\<username>\AppData\Local\Lncli\profiles.json on Windows
-		~/.lncli/profiles.json on Linux
-		~/Library/Application Support/Lncli/profiles.json on MacOS
+		C:\Users\<username>\AppData\Local\Tarocli\profiles.json on Windows
+		~/.tarocli/profiles.json on Linux
+		~/Library/Application Support/Tarocli/profiles.json on MacOS
 	`,
 	Subcommands: []cli.Command{
 		profileListCommand,
@@ -63,7 +63,7 @@ var profileSubCommand = cli.Command{
 
 var profileListCommand = cli.Command{
 	Name:   "list",
-	Usage:  "Lists all lncli profiles",
+	Usage:  "Lists all tarocli profiles",
 	Action: profileList,
 }
 
@@ -83,7 +83,7 @@ var profileAddCommand = cli.Command{
 	ArgsUsage: "name",
 	Description: `
 	Add a new named profile to the main profiles.json. All global options
-	(see 'lncli --help') passed into this command are stored in that named
+	(see 'tarocli --help') passed into this command are stored in that named
 	profile.
 	`,
 	Flags: []cli.Flag{
@@ -236,7 +236,7 @@ var profileSetDefaultCommand = cli.Command{
 	Set a specified profile to be used as the default profile.
 
 	WARNING: Setting a default profile changes the default behavior of
-	lncli! To disable the use of the default profile for a single command,
+	tarocli! To disable the use of the default profile for a single command,
 	set '--profile= '.
 	`,
 	Flags: []cli.Flag{
@@ -299,7 +299,7 @@ var profileUnsetDefaultCommand = cli.Command{
 	Name:  "unsetdefault",
 	Usage: "Unsets the default profile.",
 	Description: `
-	Disables the use of a default profile and restores lncli to its original
+	Disables the use of a default profile and restores tarocli to its original
 	behavior.
 	`,
 	Action: profileUnsetDefault,
