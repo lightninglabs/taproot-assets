@@ -4,6 +4,10 @@
 *.dll
 *.so
 *.dylib
+tarocli-debug
+tarod-debug
+cmd/tarocli/tarocli
+cmd/tarod/tarod
 
 # Test binary, built with `go test -c`
 *.test

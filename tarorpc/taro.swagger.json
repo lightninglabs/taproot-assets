@@ -1,0 +1,105 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "taro.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Taro"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/assets": {
+      "post": {
+        "summary": "tarocli: `assets list`\nMintAsset will attempts to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
+        "operationId": "Taro_MintAsset",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcMintAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tarorpcMintAssetRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "tarorpcDebugLevelResponse": {
+      "type": "object",
+      "properties": {
+        "sub_systems": {
+          "type": "string"
+        }
+      }
+    },
+    "tarorpcListAssetResponse": {
+      "type": "object"
+    },
+    "tarorpcMintAssetRequest": {
+      "type": "object"
+    },
+    "tarorpcMintAssetResponse": {
+      "type": "object"
+    },
+    "tarorpcStopResponse": {
+      "type": "object"
+    }
+  }
+}

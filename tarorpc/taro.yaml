@@ -1,0 +1,12 @@
+type: google.api.Service
+config_version: 3
+
+# Mapping for the grpc-gateway REST proxy.
+# Please make sure to also update the `metadata.go` file when editing this file
+# and adding a new client-streaming RPC!
+
+http:
+  rules:
+    - selector: tarorpc.Taro.MintAsset
+      post: "/v1/assets"
+      body: "*"

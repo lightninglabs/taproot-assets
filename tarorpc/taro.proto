@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package tarorpc;
+
+option go_package = "github.com/lightninglabs/tarorpc";
+
+service Taro {
+  /* tarocli: `assets list`
+  MintAsset will attempts to mint the set of assets (async by default to
+  ensure proper batching) specified in the request.
+  */
+  rpc MintAsset(MintAssetRequest) returns (MintAssetResponse);
+
+  /* tarocli: `assets mint`
+  ListAssets lists the set of assets owned by the target daemon.
+  */
+  rpc ListAssets(ListAssetRequest) returns (ListAssetResponse);
+
+  /* tarocli: `stop`
+  StopDaemon will send a shutdown request to the interrupt handler, triggering
+  a graceful shutdown of the daemon.
+  */
+  rpc StopDaemon(StopRequest) returns (StopResponse);
+
+  /* tarocli: `debuglevel`
+  DebugLevel allows a caller to programmatically set the logging verbosity of
+  tarod. The logging can be targeted according to a coarse daemon-wide logging
+  level, or in a granular fashion to specify the logging for a target
+  sub-system.
+  */
+  rpc DebugLevel(DebugLevelRequest) returns (DebugLevelResponse);
+}
+
+message MintAssetRequest {}
+
+message MintAssetResponse {}
+
+message ListAssetRequest {}
+
+message ListAssetResponse {}
+
+message StopRequest {}
+
+message StopResponse {}
+
+message DebugLevelRequest {
+  bool show = 1;
+  string level_spec = 2;
+}
+message DebugLevelResponse { string sub_systems = 1; }
