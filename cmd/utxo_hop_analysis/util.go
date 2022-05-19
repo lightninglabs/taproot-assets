@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcutil"
 )
 
 type workerContext struct {
