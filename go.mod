@@ -24,6 +24,8 @@ require (
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/macaroon.v2 v2.0.0
+	github.com/chrispappas/golang-generics-set v1.0.1
+	github.com/jszwec/csvutil v1.6.0
 )
 
 require (
