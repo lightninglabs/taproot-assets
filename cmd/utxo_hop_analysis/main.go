@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"runtime/trace"
 	"sync"
 
 	"github.com/btcsuite/btcd/rpcclient"
@@ -13,6 +14,7 @@ import (
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpuprofile to file")
 var memprofile = flag.String("memprofile", "", "write memprofile to file")
+var tracedata = flag.String("trace", "", "write trace to file")
 
 func main() {
 	flag.Parse()
@@ -24,6 +26,16 @@ func main() {
 			errorPanic(err)
 		}
 		defer pprof.StopCPUProfile()
+	}
+
+	if *tracedata != "" {
+		file, err := os.Create(*tracedata)
+		errorPanic(err)
+		defer file.Close()
+		if err := trace.Start(file); err != nil {
+			errorPanic(err)
+		}
+		defer trace.Stop()
 	}
 
 	// Connect to local btcd RPC server using websockets. (vestigial)
