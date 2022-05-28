@@ -8,30 +8,23 @@ import (
 )
 
 // Worker that can handle multiple input / job types
-func worker(jobs <-chan any, results chan<- any, config *rpcclient.ConnConfig) {
+func worker[T JobType](jobs <-chan T, results chan<- T, config *rpcclient.ConnConfig) {
 	client, err := rpcclient.New(config, nil)
 	errorPanic(err)
 	defer client.Shutdown()
 
-	for anyJob := range jobs {
-		// job function is decided by job type
-		switch job := anyJob.(type) {
-		case blockHashJob:
-			results <- getBlockHash(client, &job)
-		case coinbaseJob:
-			results <- getCoinbase(client, &job)
-		default:
-			panic("invalid type for worker")
-		}
+	for job := range jobs {
+		job.execute(client)
+		results <- job
 	}
 }
 
 // Worker pool for RPC jobs with adjustable size.
-func initWorkerPool(mult int, config *rpcclient.ConnConfig) (
-	*sync.WaitGroup, chan any, chan any) {
+func initWorkerPool[T JobType](mult int, config *rpcclient.ConnConfig) (
+	*sync.WaitGroup, chan T, chan T) {
 	workerCount := runtime.NumCPU() * mult
-	jobs := make(chan any, workerCount)
-	results := make(chan any, workerCount)
+	jobs := make(chan T, workerCount)
+	results := make(chan T, workerCount)
 	var workerSync sync.WaitGroup
 
 	for i := 0; i < workerCount; i++ {

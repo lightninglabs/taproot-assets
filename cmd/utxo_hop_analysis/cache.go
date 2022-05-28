@@ -15,6 +15,10 @@ type blockHashCache map[string]uint32
 // coinbaseCache stores entries mapping coinbase TXIDs to block heights.
 type coinbaseCache map[chainhash.Hash]uint32
 
+type JobType interface {
+	execute(*rpcclient.Client)
+}
+
 type blockHashJob struct {
 	height int64
 	hash   string
@@ -22,80 +26,67 @@ type blockHashJob struct {
 
 type coinbaseJob struct {
 	height int64
-	txid   string
+	txid   chainhash.Hash
 }
 
 // RPC call to lookup the block hash for a given block height.
-func getBlockHash(client *rpcclient.Client, job *blockHashJob) blockHashJob {
+func (job *blockHashJob) execute(client *rpcclient.Client) {
 	blockHash, err := client.GetBlockHash(job.height)
 	errorLog(err)
 	job.hash = blockHash.String()
-	return *job
 }
 
 // Lookup the coinbase TXID for a given block height.
-func getCoinbase(client *rpcclient.Client, job *coinbaseJob) coinbaseJob {
+func (job *coinbaseJob) execute(client *rpcclient.Client) {
 	blockHash, err := client.GetBlockHash(job.height)
 	errorLog(err)
 	block, err := client.GetBlock(blockHash)
 	errorLog(err)
 	firstTx := block.Transactions[0]
-	txid := firstTx.TxHash()
-	job.txid = txid.String()
-	return *job
+	job.txid = firstTx.TxHash()
 }
 
 // Send as jobs a list of block heights from genesis to the specified height.
-func pubCoinbaseJobs(height int64, waiter *sync.WaitGroup, jobs chan any) {
+func pubCoinbaseJobs(height int64, waiter *sync.WaitGroup, jobs chan *coinbaseJob) {
 	waiter.Add(1)
 	defer waiter.Done()
 
 	for currentBlock := int64(0); currentBlock < height+1; currentBlock++ {
-		jobs <- coinbaseJob{currentBlock, ""}
+		jobs <- &coinbaseJob{currentBlock, [32]byte{}}
 	}
 	close(jobs)
 }
 
 // Send as jobs a list of block heights from genesis to the specified height.
-func pubBlockHashJobs(height int64, waiter *sync.WaitGroup, jobs chan any) {
+func pubBlockHashJobs(height int64, waiter *sync.WaitGroup, jobs chan *blockHashJob) {
 	waiter.Add(1)
 	defer waiter.Done()
 
 	for currentBlock := int64(0); currentBlock < height+1; currentBlock++ {
-		jobs <- blockHashJob{currentBlock, ""}
+		jobs <- &blockHashJob{currentBlock, ""}
 	}
 	close(jobs)
 }
 
 // Receive (blockheight, txid) pairs and add them to a map.
-func subCoinbaseResults(cache coinbaseCache, waiter *sync.WaitGroup, results chan any) {
+func subCoinbaseResults(cache coinbaseCache, waiter *sync.WaitGroup, results chan *coinbaseJob) {
 	waiter.Add(1)
 	defer waiter.Done()
 
-	for anyResult := range results {
-		if result, ok := anyResult.(coinbaseJob); ok {
-			height := int64ToUint32(result.height)
-			txid, err := chainhash.NewHashFromStr(result.txid)
-			errorLog(err)
-			cache[*txid] = height
-		} else {
-			panic("invalid type for consumer")
-		}
+	for result := range results {
+		height := int64ToUint32(result.height)
+		cache[result.txid] = height
 	}
 }
 
 // Receive (blockheight, blockhash) pairs and add them to a map.
-func subBlockHashResults(cache blockHashCache, waiter *sync.WaitGroup, results chan any) {
+func subBlockHashResults(cache blockHashCache, waiter *sync.WaitGroup, results chan *blockHashJob) {
 	waiter.Add(1)
 	defer waiter.Done()
 
-	for anyResult := range results {
-		if result, ok := anyResult.(blockHashJob); ok {
-			height := int64ToUint32(result.height)
-			cache[result.hash] = height
-		} else {
-			panic("invalid type for consumer")
-		}
+	for result := range results {
+		height := int64ToUint32(result.height)
+		cache[result.hash] = height
 	}
 }
 
@@ -113,7 +104,7 @@ func fillCoinbaseCache(ctx *workerContext) bool {
 	errorLog(err)
 	log.Printf("Block count: %d", maxBlock)
 
-	workerSync, jobs, results := initWorkerPool(1, ctx.config)
+	workerSync, jobs, results := initWorkerPool[*coinbaseJob](1, ctx.config)
 
 	go pubCoinbaseJobs(maxBlock, &pubSubSync, jobs)
 	go subCoinbaseResults(ctx.coinbaseCache, &pubSubSync, results)
@@ -150,7 +141,7 @@ func fillBlockHashCache(ctx *workerContext) bool {
 	errorLog(err)
 	log.Printf("Block count: %d", maxBlock)
 
-	workerSync, jobs, results := initWorkerPool(2, ctx.config)
+	workerSync, jobs, results := initWorkerPool[*blockHashJob](2, ctx.config)
 
 	go pubBlockHashJobs(maxBlock, &pubSubSync, jobs)
 	go subBlockHashResults(ctx.blockHashCache, &pubSubSync, results)
