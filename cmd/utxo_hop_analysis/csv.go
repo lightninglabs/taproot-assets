@@ -43,7 +43,7 @@ type HopHeightList []uint32
 // Needed since CSV has no spec for writing lists
 // We use the ':' character to separate values
 func (l HopHeightList) MarshalCSV() ([]byte, error) {
-	var buf []byte
+	buf := make([]byte, 0, len(l)*9-1)
 	buf = strconv.AppendUint(buf, uint64(l[0]), 10)
 	// our hop list needs no separators if it only has one element
 	if len(l) == 1 {
@@ -88,7 +88,7 @@ type HopResult struct {
 }
 
 // Convert a HopList to a form suitable for reading/writing
-// We dro the CurrentTx field of the HopList
+// We drop the CurrentTx field of the HopList
 // For any completed HopList, this field should be all 0s
 func newHopResult(list HopList) HopResult {
 	result := HopResult{
