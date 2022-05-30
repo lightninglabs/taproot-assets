@@ -57,17 +57,6 @@ func main() {
 		panic("Failed to build block height cache")
 	}
 
-	// Test input and output
-	///*
-	testUtxoFile, err := openCSV(TestUTXOEntryFile)
-	errorPanic(err)
-	defer testUtxoFile.Close()
-
-	testResultsFile, err := createCSV(TestResultsFile)
-	errorPanic(err)
-	defer testResultsFile.Close()
-	//*/
-
 	// This feels like the wrong pattern
 	// for condiitonal assignment to the file handle?
 	coinbaseCacheFile, err := createCSV(CoinbaseHeightCache)
@@ -88,6 +77,18 @@ func main() {
 	}
 	defer coinbaseCacheFile.Close()
 
+	// Test input and output
+	///*
+	testUtxoFile, err := openCSV(TestUTXOEntryFile)
+	errorPanic(err)
+	defer testUtxoFile.Close()
+
+	testResultsFile, err := createCSV(TestResultsFile)
+	errorPanic(err)
+	defer testResultsFile.Close()
+
+	entryList := loadEntries(testUtxoFile)
+
 	// Process test input
 	log.Println("Processing test input")
 	var hopSync sync.WaitGroup
@@ -98,9 +99,10 @@ func main() {
 	hopSync.Add(3)
 	go writeCompletedHops(testResultsFile, &hopSync, results)
 	go findHops(&ctx, &hopSync, entries, results)
-	go readUTXOEntries(testUtxoFile, &hopSync, entries)
+	go sendUTXOEntries(entryList, &hopSync, entries)
 
 	hopSync.Wait()
+	//*/
 
 	// Main loop; iterate over input files and start hop finding
 	// Running one hop finding instance per file, and files are loaded one by one

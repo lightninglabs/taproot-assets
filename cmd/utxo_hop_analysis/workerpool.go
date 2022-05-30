@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"runtime"
 	"sync"
 
@@ -17,6 +18,21 @@ func worker[T JobType](jobs <-chan T, results chan<- T, config *rpcclient.ConnCo
 		job.execute(client)
 		results <- job
 	}
+}
+
+
+// Load UTXO entries from a file
+func loadEntries(entryFile *os.File) []UTXOEntry {
+	var entrySync sync.WaitGroup
+	entrySync.Add(1)
+	// TODO: Need to pass around this line count constant properly
+	// NOTE: Slice size must match input file line count
+	// Using 10000-line files for mainnet data
+	// entryList := make([]UTXOEntry, 10000)
+	entryList := make([]UTXOEntry, 3)
+	go readUTXOEntries(entryFile, &entrySync, entryList)
+	entrySync.Wait()
+	return entryList
 }
 
 // Worker pool for RPC jobs with adjustable size.

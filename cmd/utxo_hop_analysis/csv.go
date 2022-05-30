@@ -110,28 +110,37 @@ type coinbaseResult struct {
 // var UTXOEntryHeader = []string{"Txid,BlockHeight,Count"}
 
 // Read UTXOs that need to be traced from a CSV and submit to a channel.
-func readUTXOEntries(entryFile *os.File, waiter *sync.WaitGroup,
-	jobs chan UTXOEntry) {
+func readUTXOEntries(entryFile *os.File, waiter *sync.WaitGroup, entries []UTXOEntry) {
 	defer waiter.Done()
 
+	entryIndex := 0
 	entryReader := createCustomDecoder(entryFile, UTXOEntry{})
 
 	for {
 		var bufEntry UTXOEntry
 		if err := entryReader.Decode(&bufEntry); err == nil {
-			// log.Println("entry: ", bufEntry)
-			jobs <- bufEntry.copy()
+			entries[entryIndex] = bufEntry.copy()
+			entryIndex++
 		} else if err == io.EOF {
 			break
 		} else {
 			errorLog(err)
 		}
 	}
+	log.Println("entries loaded")
+}
+
+func sendUTXOEntries(entries []UTXOEntry, waiter *sync.WaitGroup, jobs chan<- UTXOEntry) {
+	defer waiter.Done()
+
+	for _, entry := range entries {
+		jobs <- entry
+	}
 	log.Println("No more jobs")
 	close(jobs)
 }
 
-// Accept completed HopLists from a chennl and write to a CSV.
+// Accept completed HopLists from a channel and write to a CSV.
 func writeCompletedHops(outfile *os.File, waiter *sync.WaitGroup,
 	results <-chan HopList) {
 	defer waiter.Done()
