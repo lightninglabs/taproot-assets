@@ -133,7 +133,7 @@ func readUTXOEntries(entryFile *os.File, waiter *sync.WaitGroup,
 
 // Accept completed HopLists from a chennl and write to a CSV.
 func writeCompletedHops(outfile *os.File, waiter *sync.WaitGroup,
-	results chan HopList) {
+	results <-chan HopList) {
 	defer waiter.Done()
 
 	fileHandle, hopEncoder := createEncoder(outfile, []string{})

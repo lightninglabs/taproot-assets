@@ -121,6 +121,7 @@ func GetParentTXIDs(ctx *workerContext, client *rpcclient.Client,
 	// Use []byte instead of string? Should work
 	// Also, input array could be []*TxIn
 	// Can get TXID with TxIn.PreviousOutpoint.Hash
+	// Move this set into the context?
 	parentTXIDSet := make(set.Set[string])
 	for _, input := range TxInputs {
 		parentTXIDSet.Add(input.Txid)
@@ -154,7 +155,7 @@ func (hop *HopList) GetParents(ctx *workerContext,
 }
 
 func findHops(ctx *workerContext, waiter *sync.WaitGroup,
-	jobs chan UTXOEntry, results chan HopList) {
+	jobs <-chan UTXOEntry, results chan<- HopList) {
 	defer waiter.Done()
 
 	client, err := rpcclient.New(ctx.config, nil)
