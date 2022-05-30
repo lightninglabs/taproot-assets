@@ -112,30 +112,30 @@ func main() {
 		for file := startFile; file < endFile; file++ {
 			log.Println("Processing file", file)
 
-			var hopSync sync.WaitGroup
-			// async pipeline
-			entries := make(chan UTXOEntry, 1)
-			results := make(chan HopList, 1)
-
 			inputFilename := getTxidFilename(file, false)
-			outputFilename := getTxidFilename(file, true)
-
 			entryFile, err := openCSV(inputFilename)
 			errorPanic(err)
 			defer entryFile.Close()
 
-			resultsFile, err := createCSV(outputFilename)
-			errorPanic(err)
-			defer resultsFile.Close()
+			entryList := loadEntries(entryFile)
+
+			// start writers
+			hopSync, results, resultFiles := initWriterPool(file, 1)
+
+			for _, file := range resultFiles {
+				defer file.Close()
+			}
+
+			// async pipeline
+			entries := make(chan UTXOEntry, 16)
 
 			// start the pipeline from back to front?
 
 			// increment WaitGroup outside of the goroutines to avoid a race
 			// https://github.com/golang/go/issues/23842
-			hopSync.Add(3)
-			go writeCompletedHops(resultsFile, &hopSync, results)
-			go findHops(&ctx, &hopSync, entries, results)
-			go readUTXOEntries(entryFile, &hopSync, entries)
+			hopSync.Add(2)
+			go findHops(&ctx, hopSync, entries, results)
+			go sendUTXOEntries(entryList, hopSync, entries)
 
 			hopSync.Wait()
 		}

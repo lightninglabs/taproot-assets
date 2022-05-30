@@ -20,6 +20,23 @@ func worker[T JobType](jobs <-chan T, results chan<- T, config *rpcclient.ConnCo
 	}
 }
 
+// Worker pool for writing results to disk across multiple files.
+func initWriterPool(index, mult int) (*sync.WaitGroup, chan HopList, []*os.File) {
+	workerCount := runtime.NumCPU() * mult
+	var writerSync sync.WaitGroup
+	results := make(chan HopList, workerCount*4)
+
+	fileHandles := createTxidShardFiles(index, workerCount)
+
+	for i := 0; i < workerCount; i++ {
+		// defer fileHandles[i].Close()
+		writerSync.Add(1)
+		go writeCompletedHops(fileHandles[i], &writerSync, results)
+
+	}
+
+	return &writerSync, results, fileHandles
+}
 
 // Load UTXO entries from a file
 func loadEntries(entryFile *os.File) []UTXOEntry {

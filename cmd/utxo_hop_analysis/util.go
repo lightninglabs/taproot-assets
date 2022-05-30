@@ -90,6 +90,40 @@ func getTxidFilename(val int, output bool) string {
 	return addDir(filename, EntryFolder)
 }
 
+// Create a set of files to write results to
+func createTxidShardFiles(index, count int) []*os.File {
+	fileHandles := make([]*os.File, count)
+
+	var filename string
+	for i := 0; i < count; i++ {
+		filename = getTxidShardFilename(index, i, count)
+		log.Println("File handle:", filename)
+		fileHandle, err := createCSV(filename)
+		errorPanic(err)
+		fileHandles[i] = fileHandle
+	}
+
+	return fileHandles
+}
+
+// Construct a filename for an output file with an index as a suffix
+func getTxidShardFilename(val, index, radix int) string {
+	hexPrefix := intToHex(val, 4)
+	hexSuffix := intToHex(index, radix/16)
+	filename := EntryFilePrefix + hexPrefix + "_" + hexSuffix + ".csv"
+	return addDir(filename, ResultsFolder)
+}
+
+// Convert an int to a 0-padded hex string
+func intToHex(val, padlen int) string {
+	hex := strconv.FormatInt(int64(val), 16)
+	// TODO: should be able to compute # of 0s needed directly
+	for len(hex) < padlen {
+		hex = "0" + hex
+	}
+	return hex
+}
+
 // Prefix a filename with a path to a directory
 func addDir(filename string, dirname string) string {
 	return filepath.Join(dirname, filename)
