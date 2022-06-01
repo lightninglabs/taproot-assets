@@ -15,7 +15,8 @@ type blockHashCache map[string]uint32
 // coinbaseCache stores entries mapping coinbase TXIDs to block heights.
 type coinbaseCache map[chainhash.Hash]uint32
 
-type JobType interface {
+type JobConstraint interface {
+	*coinbaseJob | *blockHashJob
 	execute(*rpcclient.Client)
 }
 

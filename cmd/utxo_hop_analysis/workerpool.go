@@ -9,7 +9,7 @@ import (
 )
 
 // Worker that can handle multiple input / job types
-func worker[T JobType](jobs <-chan T, results chan<- T, config *rpcclient.ConnConfig) {
+func worker[T JobConstraint](jobs <-chan T, results chan<- T, config *rpcclient.ConnConfig) {
 	client, err := rpcclient.New(config, nil)
 	errorPanic(err)
 	defer client.Shutdown()
@@ -53,7 +53,7 @@ func loadEntries(entryFile *os.File) []UTXOEntry {
 }
 
 // Worker pool for RPC jobs with adjustable size.
-func initWorkerPool[T JobType](mult int, config *rpcclient.ConnConfig) (
+func initWorkerPool[T JobConstraint](mult int, config *rpcclient.ConnConfig) (
 	*sync.WaitGroup, chan T, chan T) {
 	workerCount := runtime.NumCPU() * mult
 	jobs := make(chan T, workerCount)
