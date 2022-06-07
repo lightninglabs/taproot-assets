@@ -13,6 +13,30 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
+	"gopkg.in/macaroon-bakery.v2/bakery"
+)
+
+const (
+	// poolMacaroonLocation is the value we use for the taro macaroons'
+	// "Location" field when baking them.
+	taroMacaroonLocation = "taro"
+)
+
+var (
+	// RequiredPermissions is a map of all taro RPC methods and their
+	// required macaroon permissions to access tarod.
+	//
+	// TODO(roasbeef): re think these and go instead w/ the * approach?
+	RequiredPermissions = map[string][]bakery.Op{
+		"/tarorpc.Taro/StopDaemon": {{
+			Entity: "daemon",
+			Action: "write",
+		}},
+		"/tarorpc.Taro/DebugLevel": {{
+			Entity: "daemon",
+			Action: "write",
+		}},
+	}
 )
 
 // rpcServer is the main RPC server for the Taro daemon that handles
@@ -36,14 +60,21 @@ type rpcServer struct {
 // newRPCServer creates a new RPC sever from the set of input dependencies.
 func newRPCServer(interceptor signal.Interceptor,
 	interceptorChain *rpcperms.InterceptorChain,
-	cfg *Config) *rpcServer {
+	cfg *Config) (*rpcServer, error) {
+
+	// Register all our known permission with the macaroon service.
+	for method, ops := range RequiredPermissions {
+		if err := interceptorChain.AddPermission(method, ops); err != nil {
+			return nil, err
+		}
+	}
 
 	return &rpcServer{
 		interceptor:      interceptor,
 		interceptorChain: interceptorChain,
 		quit:             make(chan struct{}),
 		cfg:              cfg,
-	}
+	}, nil
 }
 
 // TODO(roasbeef): build in batching for asset creation?

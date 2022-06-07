@@ -28,11 +28,9 @@ import (
 
 const (
 	defaultDataDirname      = "data"
-	defaultChainSubDirname  = "chain"
 	defaultTLSCertFilename  = "tls.cert"
 	defaultTLSKeyFilename   = "tls.key"
 	defaultAdminMacFilename = "admin.macaroon"
-	defaultReadMacFilename  = "readonly.macaroon"
 	defaultLogLevel         = "info"
 	defaultLogDirname       = "logs"
 	defaultLogFilename      = "taro.log"
@@ -63,26 +61,27 @@ var (
 	// file.
 	DefaultConfigFile = filepath.Join(DefaultTaroDir, defaultConfigFileName)
 
+	defaultNetwork = "testnet"
+
 	defaultDataDir = filepath.Join(DefaultTaroDir, defaultDataDirname)
 	defaultLogDir  = filepath.Join(DefaultTaroDir, defaultLogDirname)
 
 	defaultTLSCertPath = filepath.Join(DefaultTaroDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
+
+	defaultDatabaseFileName = "taro.db"
 )
 
-// ChainConfig...
+// ChainConfig houses the configuration options that govern which chain/network
+// we operate on.
 type ChainConfig struct {
-	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`
+	Network string `long:"network" description:"network to run on" choice:"regtest" choice:"testnet" choice:"mainnet" choice:"simnet"`
 
-	MainNet         bool   `long:"mainnet" description:"Use the main network"`
-	TestNet3        bool   `long:"testnet" description:"Use the test network"`
-	SimNet          bool   `long:"simnet" description:"Use the simulation test network"`
-	RegTest         bool   `long:"regtest" description:"Use the regression test network"`
-	SigNet          bool   `long:"signet" description:"Use the signet test network"`
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
 
-// RpcConfig...
+// RpcConfig houses the set of config options that affect how clients connect
+// to the main RPC server.
 type RpcConfig struct {
 	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
@@ -100,14 +99,13 @@ type RpcConfig struct {
 	WSPingInterval time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side"`
 	WSPongWait     time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
 
+	MacaroonPath string `long:"macaroonpath" description:"Path to write the admin macaroon for taro's RPC and REST services if it doesn't exist"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
-	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for tarod's RPC and REST services if it doesn't exist"`
-	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for tarod's RPC and REST services if it doesn't exist"`
 
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 }
 
-// Config...
+// Config is the main config for the tarod cli command.
 type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
@@ -116,10 +114,11 @@ type Config struct {
 	TaroDir    string `long:"tarodir" description:"The base directory that contains taro's data, logs, configuration file, etc."`
 	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
 
-	DataDir        string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
-	LogDir         string `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	DataDir          string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
+	LogDir           string `long:"logdir" description:"Directory to log output."`
+	DatabaseFileName string `long:"dbfile" description:"The full path to the database"`
+	MaxLogFiles      int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize   int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
@@ -164,7 +163,7 @@ func DefaultConfig() Config {
 			WSPongWait:      lnrpc.DefaultPongWait,
 		},
 		ChainConf: &ChainConfig{
-			TestNet3: true,
+			Network: defaultNetwork,
 		},
 		LogWriter: build.NewRotatingLogWriter(),
 	}
@@ -343,31 +342,21 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.RpcConf.TLSCertPath = CleanAndExpandPath(cfg.RpcConf.TLSCertPath)
 	cfg.RpcConf.TLSKeyPath = CleanAndExpandPath(cfg.RpcConf.TLSKeyPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
-	cfg.RpcConf.AdminMacPath = CleanAndExpandPath(cfg.RpcConf.AdminMacPath)
-	cfg.RpcConf.ReadMacPath = CleanAndExpandPath(cfg.RpcConf.ReadMacPath)
+	cfg.RpcConf.MacaroonPath = CleanAndExpandPath(cfg.RpcConf.MacaroonPath)
 
 	// Multiple networks can't be selected simultaneously.  Count number of
 	// network flags passed; assign active network params
 	// while we're at it.
-	numNets := 0
-	if cfg.ChainConf.MainNet {
-		numNets++
+	switch cfg.ChainConf.Network {
+	case "mainnet":
 		cfg.ActiveNetParams = chaincfg.MainNetParams
-	}
-	if cfg.ChainConf.TestNet3 {
-		numNets++
+	case "testnet":
 		cfg.ActiveNetParams = chaincfg.TestNet3Params
-	}
-	if cfg.ChainConf.RegTest {
-		numNets++
+	case "regtest":
 		cfg.ActiveNetParams = chaincfg.RegressionNetParams
-	}
-	if cfg.ChainConf.SimNet {
-		numNets++
+	case "simnet":
 		cfg.ActiveNetParams = chaincfg.SimNetParams
-	}
-	if cfg.ChainConf.SigNet {
-		numNets++
+	case "signet":
 		cfg.ActiveNetParams = chaincfg.SigNetParams
 
 		// Let the user overwrite the default signet parameters.
@@ -392,27 +381,10 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			sigNetChallenge, sigNetSeeds,
 		)
 		cfg.ActiveNetParams = chainParams
+	default:
+		return nil, nil, mkErr(fmt.Sprintf("invalid network: %v",
+			cfg.ChainConf.Network))
 	}
-	if numNets > 1 {
-		str := "The mainnet, testnet, regtest, and simnet " +
-			"params can't be used together -- choose one " +
-			"of the four"
-		return nil, nil, mkErr(str)
-	}
-
-	// The target network must be provided, otherwise, we won't
-	// know how to initialize the daemon.
-	if numNets == 0 {
-		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
-			"bitcoin.simnet, or bitcoin.regtest " +
-			"must be specified"
-		return nil, nil, mkErr(str)
-	}
-
-	cfg.ChainConf.ChainDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		cfg.ActiveNetParams.Name,
-	)
 
 	// Validate profile port or host:port.
 	if cfg.Profile != "" {
@@ -442,21 +414,23 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
 	cfg.networkDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		cfg.DataDir, lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
+
+	// We'll also update the database file location as well, if it wasn't
+	// set.
+	if cfg.DatabaseFileName == "" {
+		cfg.DatabaseFileName = filepath.Join(
+			cfg.networkDir, defaultDatabaseFileName,
+		)
+	}
 
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
-	if cfg.RpcConf.AdminMacPath == "" {
-		cfg.RpcConf.AdminMacPath = filepath.Join(
+	if cfg.RpcConf.MacaroonPath == "" {
+		cfg.RpcConf.MacaroonPath = filepath.Join(
 			cfg.networkDir, defaultAdminMacFilename,
-		)
-	}
-	if cfg.RpcConf.ReadMacPath == "" {
-		cfg.RpcConf.ReadMacPath = filepath.Join(
-			cfg.networkDir, defaultReadMacFilename,
 		)
 	}
 
@@ -467,8 +441,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		taroDir, cfg.DataDir, cfg.networkDir,
 		filepath.Dir(cfg.RpcConf.TLSCertPath),
 		filepath.Dir(cfg.RpcConf.TLSKeyPath),
-		filepath.Dir(cfg.RpcConf.AdminMacPath),
-		filepath.Dir(cfg.RpcConf.ReadMacPath),
+		filepath.Dir(cfg.RpcConf.MacaroonPath),
 	}
 	for _, dir := range dirs {
 		if err := makeDirectory(dir); err != nil {

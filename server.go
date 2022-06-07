@@ -9,11 +9,13 @@ import (
 	"sync/atomic"
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -114,6 +116,36 @@ func (s *Server) RunUntilShutdown() error {
 		}
 	}()
 
+	// If we're usign macaroons, then go ahead and instntiate the main
+	// macaroon service.
+	if !s.cfg.RPCConfig.NoMacaroons {
+		macaroonService, err := lndclient.NewMacaroonService(
+			&lndclient.MacaroonServiceConfig{
+				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
+				MacaroonLocation: taroMacaroonLocation,
+				MacaroonPath:     s.cfg.MacaroonPath,
+				Checkers: []macaroons.Checker{
+					macaroons.IPLockChecker,
+				},
+				RequiredPerms: RequiredPermissions,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to create macaroon "+
+				"service: %v", err)
+		}
+		rpcsLog.Infof("Validating RPC requests based on macaroon "+
+			"at: %v", s.cfg.MacaroonPath)
+
+		if err := macaroonService.Start(); err != nil {
+			return err
+		}
+
+		// Register the macaroon service with the main interceptor
+		// chain.
+		interceptorChain.AddMacaroonService(macaroonService.Service)
+	}
+
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(
@@ -125,10 +157,13 @@ func (s *Server) RunUntilShutdown() error {
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer := newRPCServer(
+	rpcServer, err := newRPCServer(
 		s.cfg.SignalInterceptor, interceptorChain, s.cfg,
 	)
-	err := rpcServer.RegisterWithGrpcServer(grpcServer)
+	if err != nil {
+		return mkErr("unable to create rpc server: %v", err)
+	}
+	err = rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
 		return mkErr("error registering gRPC server: %v", err)
 	}
@@ -170,7 +205,10 @@ func (s *Server) RunUntilShutdown() error {
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
-	<-s.cfg.SignalInterceptor.ShutdownChannel()
+	select {
+	case <-s.cfg.SignalInterceptor.ShutdownChannel():
+	case <-s.quit:
+	}
 	return nil
 }
 
@@ -332,6 +370,8 @@ func (s *Server) Stop() error {
 	}
 
 	srvrLog.Infof("Stopping Main Server")
+
+	// TODO(roasbeef): stop all other sub-systems
 
 	if err := s.rpcServer.Stop(); err != nil {
 		return err
