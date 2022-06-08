@@ -79,7 +79,7 @@ func newRPCServer(interceptor signal.Interceptor,
 
 // TODO(roasbeef): build in batching for asset creation?
 
-// Start signals that the RPC server start accepting requests.
+// Start signals that the RPC server starts accepting requests.
 func (r *rpcServer) Start() error {
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
