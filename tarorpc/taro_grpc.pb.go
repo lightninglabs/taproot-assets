@@ -18,11 +18,11 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TaroClient interface {
-	// tarocli: `assets list`
+	// tarocli: `assets mint`
 	//MintAsset will attempts to mint the set of assets (async by default to
 	//ensure proper batching) specified in the request.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
-	// tarocli: `assets mint`
+	// tarocli: `assets list`
 	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error)
 	// tarocli: `stop`
@@ -85,11 +85,11 @@ func (c *taroClient) DebugLevel(ctx context.Context, in *DebugLevelRequest, opts
 // All implementations must embed UnimplementedTaroServer
 // for forward compatibility
 type TaroServer interface {
-	// tarocli: `assets list`
+	// tarocli: `assets mint`
 	//MintAsset will attempts to mint the set of assets (async by default to
 	//ensure proper batching) specified in the request.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
-	// tarocli: `assets mint`
+	// tarocli: `assets list`
 	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error)
 	// tarocli: `stop`

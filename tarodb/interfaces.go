@@ -2,6 +2,7 @@ package tarodb
 
 import (
 	"context"
+
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 )
 
@@ -12,7 +13,7 @@ type TxOptions interface {
 	ReadOnly() bool
 }
 
-// BatchedTx is a generic interfaces that represents the ability to execute
+// BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
 // transaction. Typically Q here will be some subset of the main sqlite.Querier
 // interface allowing it to only depend on the routines it needs to implement

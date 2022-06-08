@@ -18,7 +18,7 @@
   "paths": {
     "/v1/assets": {
       "post": {
-        "summary": "tarocli: `assets list`\nMintAsset will attempts to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
+        "summary": "tarocli: `assets mint`\nMintAsset will attempts to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
         "operationId": "Taro_MintAsset",
         "responses": {
           "200": {
