@@ -5,13 +5,13 @@ package tarorpc;
 option go_package = "github.com/lightninglabs/tarorpc";
 
 service Taro {
-  /* tarocli: `assets list`
+  /* tarocli: `assets mint`
   MintAsset will attempts to mint the set of assets (async by default to
   ensure proper batching) specified in the request.
   */
   rpc MintAsset(MintAssetRequest) returns (MintAssetResponse);
 
-  /* tarocli: `assets mint`
+  /* tarocli: `assets list`
   ListAssets lists the set of assets owned by the target daemon.
   */
   rpc ListAssets(ListAssetRequest) returns (ListAssetResponse);
