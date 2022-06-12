@@ -3,6 +3,7 @@ package commitment
 import (
 	"math/rand"
 	"testing"
+	"testing/quick"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -151,11 +152,21 @@ func TestNewAssetCommitment(t *testing.T) {
 			err: ErrAssetDuplicateScriptKey,
 		},
 		{
-			name: "valid asset commitment",
+			name: "valid asset commitment with family key",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
 					randAsset(t, genesis1, familyKey1, asset.Normal),
 					randAsset(t, genesis1, copyOfFamilyKey1, asset.Collectible),
+				}
+			},
+			err: nil,
+		},
+		{
+			name: "valid asset commitment without family key",
+			f: func() []*asset.Asset {
+				return []*asset.Asset{
+					randAsset(t, genesis1, nil, asset.Normal),
+					randAsset(t, genesis1, nil, asset.Collectible),
 				}
 			},
 			err: nil,
@@ -168,6 +179,9 @@ func TestNewAssetCommitment(t *testing.T) {
 			commitment, err := NewAssetCommitment(assets...)
 			require.Equal(t, testCase.err, err)
 			if testCase.err == nil {
+				// Ensure that the Taro commitment was properly set.
+				require.NotZero(t, commitment.TaroCommitmentKey())
+
 				for _, asset := range assets {
 					asset, _ = commitment.AssetProof(
 						asset.AssetCommitmentKey(),
@@ -581,4 +595,43 @@ func TestSplitCommitment(t *testing.T) {
 			return
 		}
 	}
+}
+
+// TestTaroCommitmentPopulation tests a series of invariants related to the
+// Taro commitment key.
+func TestTaroCommitmentKeyPopulation(t *testing.T) {
+	// TODO(roasbeef): update after issue #42 is fixed, should also make
+	// many assets w/ same name but diff type
+	type assetDescription struct {
+		HasFamilyKey  bool
+		IsCollectible bool
+	}
+	mainScenario := func(assetDesc assetDescription) bool {
+		genesis := randGenesis(t)
+
+		var familyKey *asset.FamilyKey
+		if assetDesc.HasFamilyKey {
+			familyKey = randFamilyKey(t, genesis)
+		}
+
+		var assetType asset.Type
+		if assetDesc.IsCollectible {
+			assetType = asset.Collectible
+		}
+
+		asset := randAsset(t, genesis, familyKey, assetType)
+		commitment, err := NewAssetCommitment(asset)
+		require.NoError(t, err)
+
+		// The Taro commitment key value MUST always be set for the
+		// commitment to be well formed.
+		var zero [32]byte
+		if commitment.TaroCommitmentKey() == zero {
+			t.Log("commitment has blank taro commitment key!")
+			return false
+		}
+
+		return true
+	}
+	require.NoError(t, quick.Check(mainScenario, nil))
 }
