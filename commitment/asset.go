@@ -97,9 +97,13 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		assetsMap[key] = asset
 	}
 
+	// The assetID here is what will be used to place this asset commitment
+	// into the top-level Taro commitment. For assets without a family key,
+	// then this will be the normal asset ID. Otherwise, this'll be the
+	// sha256 of the family key.
 	var assetID [32]byte
 	if assetFamilyKey == nil {
-		assetID = [32]byte(assetID)
+		assetID = assetGenesis
 	} else {
 		assetID = sha256.Sum256(
 			schnorr.SerializePubKey(&assetFamilyKey.Key),
