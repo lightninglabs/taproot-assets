@@ -92,6 +92,18 @@ const (
 	Collectible Type = 1
 )
 
+// String returns a human readable description of the type.
+func (t Type) String() string {
+	switch t {
+	case Normal:
+		return "Normal"
+	case Collectible:
+		return "Collectible"
+	default:
+		return "<Unknown>"
+	}
+}
+
 // PrevID serves as a reference to an asset's previous input.
 type PrevID struct {
 	// OutPoint refers to the asset's previous output position within a
