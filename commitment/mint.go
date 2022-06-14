@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // AssetDetails contains all of the configurable parameters of an Asset to
@@ -15,7 +15,7 @@ type AssetDetails struct {
 	Type asset.Type
 
 	// ScriptKey is the Taproot key with ownership of the asset.
-	ScriptKey btcec.PublicKey
+	ScriptKey keychain.KeyDescriptor
 
 	// Amount is the amount of assets that should be minted for `ScriptKey`.
 	// NOTE: This should be nil when minting `Collectible` assets.

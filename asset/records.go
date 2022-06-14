@@ -135,7 +135,7 @@ func NewLeafScriptVersionRecord(version *ScriptVersion) tlv.Record {
 	)
 }
 
-func NewLeafScriptKeyRecord(scriptKey *btcec.PublicKey) tlv.Record {
+func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
 		LeafScriptKey, scriptKey, schnorr.PubKeyBytesLen,
 		SchnorrPubKeyEncoder, SchnorrPubKeyDecoder,

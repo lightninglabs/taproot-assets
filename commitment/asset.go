@@ -102,7 +102,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		assetID = [32]byte(assetID)
 	} else {
 		assetID = sha256.Sum256(
-			schnorr.SerializePubKey(&assetFamilyKey.Key),
+			schnorr.SerializePubKey(&assetFamilyKey.FamKey),
 		)
 	}
 
@@ -177,4 +177,14 @@ func (c AssetCommitment) AssetProof(key [32]byte) (*asset.Asset, *mssmt.Proof) {
 		panic("missing tree to compute proofs")
 	}
 	return c.assets[key], c.tree.MerkleProof(key)
+}
+
+// Assets returns the set of assets committed to in the asset commitment.
+func (c AssetCommitment) Assets() []*asset.Asset {
+	assets := make([]*asset.Asset, 0, len(c.assets))
+	for _, asset := range c.assets {
+		assets = append(assets, asset)
+	}
+
+	return assets
 }
