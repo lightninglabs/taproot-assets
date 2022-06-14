@@ -3,8 +3,10 @@ package tarodb
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +17,13 @@ import (
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 
 	_ "modernc.org/sqlite"
+)
+
+const (
+	// sqliteOptionPrefix is the string prefix sqlite uses to set various
+	// options. This is used in the following format:
+	//   * sqliteOptionPrefix || option_name = option_value.
+	sqliteOptionPrefix = "_pragma"
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
@@ -44,7 +53,32 @@ type SqliteStore struct {
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
 func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
-	db, err := sql.Open("sqlite", cfg.DatabaseFileName)
+	// The set of pragma options are accepted using query options. For now
+	// we only want to ensure that foreign key constraints are properly
+	// enforced.
+	pragmaOptions := []struct {
+		name  string
+		value string
+	}{
+		{
+			name:  "foreign_keys",
+			value: "on",
+		},
+	}
+	sqliteOptions := make(url.Values)
+	for _, option := range pragmaOptions {
+		sqliteOptions.Add(
+			sqliteOptionPrefix,
+			fmt.Sprintf("%v=%v", option.name, option.value),
+		)
+	}
+
+	// Construct the DNS which is just the database file name, appended
+	// with the series of pragma options as a query URL string.
+	dsn := fmt.Sprintf(
+		"%v?%v", cfg.DatabaseFileName, sqliteOptions.Encode(),
+	)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
