@@ -6,9 +6,11 @@ require (
 	github.com/btcsuite/btcd v0.23.1
 	github.com/btcsuite/btcd/btcec/v2 v2.2.0
 	github.com/btcsuite/btcd/btcutil v1.1.1
+	github.com/btcsuite/btcd/btcutil/psbt v1.1.4
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet v0.15.1
+	github.com/davecgh/go-spew v1.1.1
 	github.com/dvyukov/go-fuzz v0.0.0-20210602112143-b1f3d6f4ef4e
 	github.com/golang-migrate/migrate/v4 v4.15.0-beta.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
@@ -19,16 +21,18 @@ require (
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20220707020049-dc35f78ebce6
 	github.com/lightningnetwork/lnd/cert v1.1.1
+	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.0.3
 	github.com/lightningnetwork/lnd/tor v1.0.1
 	github.com/stretchr/testify v1.7.1
 	github.com/urfave/cli v1.22.9
+	golang.org/x/exp v0.0.0-20220426173459-3bcf042a4bf5
 	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.1.0
-	modernc.org/sqlite v1.17.1
+	modernc.org/sqlite v1.17.2
 )
 
 require (
@@ -39,7 +43,6 @@ require (
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/andybalholm/brotli v1.0.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/btcsuite/btcd/btcutil/psbt v1.1.4 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.2.3 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.1.0 // indirect
@@ -53,7 +56,6 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/decred/dcrd/lru v1.0.0 // indirect
@@ -97,7 +99,6 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.3.1 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.0 // indirect
-	github.com/lightningnetwork/lnd/ticker v1.1.0 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.13 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
@@ -164,7 +165,7 @@ require (
 	lukechampine.com/uint128 v1.1.1 // indirect
 	modernc.org/cc/v3 v3.36.0 // indirect
 	modernc.org/ccgo/v3 v3.16.6 // indirect
-	modernc.org/libc v1.16.1 // indirect
+	modernc.org/libc v1.16.7 // indirect
 	modernc.org/mathutil v1.4.1 // indirect
 	modernc.org/memory v1.1.1 // indirect
 	modernc.org/opt v0.1.1 // indirect
