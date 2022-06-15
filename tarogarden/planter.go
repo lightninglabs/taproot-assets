@@ -59,6 +59,37 @@ func NewBatchKey(key *btcec.PublicKey) BatchKey {
 	return b
 }
 
+type stateRequest interface {
+	Resolve(any)
+	Error(error)
+	Type() reqType
+}
+
+type stateReq[T any] struct {
+	resp    chan T
+	err     chan error
+	reqType reqType
+}
+
+func (s *stateReq[T]) Resolve(resp any) {
+	s.resp <- resp.(T)
+}
+
+func (s *stateReq[T]) Error(err error) {
+	s.err <- err
+}
+
+func (s *stateReq[T]) Type() reqType {
+	return s.reqType
+}
+
+type reqType uint8
+
+const (
+	reqTypePendingBatch = iota
+	reqTypeNumActiveBatches
+)
+
 // ChainPlanter is responsible for accepting new incoming requests to create
 // taro assets. The planter will periodically batch those requests into a new
 // minting batch, which is handed off to a caretaker. While batches are
@@ -87,6 +118,10 @@ type ChainPlanter struct {
 	// any relevant resources.
 	completionSignals chan BatchKey
 
+	// stateReqs is the channel that any outside requests for the state of
+	// the planter will come across.
+	stateReqs chan stateRequest
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -99,17 +134,21 @@ func NewChainPlanter(cfg *PlanterConfig) *ChainPlanter {
 		caretakers:        make(map[BatchKey]*BatchCaretaker),
 		completionSignals: make(chan BatchKey),
 		seedlingReqs:      make(chan *Seedling),
+		stateReqs:         make(chan stateRequest),
 	}
 }
 
 // newCaretakerForBatch creates a new BatchCaretaker for a given batch and
 // inserts it into the caretaker map.
 func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker {
+	batchKey := NewBatchKey(c.pendingBatch.BatchKey.PubKey)
 	caretaker := NewBatchCaretaker(&BatchCaretakerConfig{
 		Batch:     c.pendingBatch,
 		GardenKit: c.cfg.GardenKit,
+		SignalCompletion: func() {
+			c.completionSignals <- batchKey
+		},
 	})
-	batchKey := NewBatchKey(c.pendingBatch.BatchKey.PubKey)
 	c.caretakers[batchKey] = caretaker
 
 	return caretaker
@@ -277,6 +316,7 @@ func (c *ChainPlanter) gardener() {
 			err := freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
 			if err != nil {
 				// TODO(roasbeef): critical log?
+				log.Warnf("unable to freeze minting batch: %w", err)
 				continue
 			}
 
@@ -286,6 +326,7 @@ func (c *ChainPlanter) gardener() {
 			caretaker := c.newCaretakerForBatch(c.pendingBatch)
 			if err := caretaker.Start(); err != nil {
 				// TODO(roasbeef): critical log?
+				log.Warnf("unable to start new caretaker: %w", err)
 				continue
 			}
 
@@ -300,12 +341,10 @@ func (c *ChainPlanter) gardener() {
 			// After some basic validation, prepare the asset
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
-			fmt.Println("got em")
 			batchNow, err := c.prepTaroSeedling(req)
 			if err != nil {
 				// Something went wrong, so then an error
 				// update back to the caller.
-				fmt.Println("failed: ", err)
 				req.updates <- SeedlingUpdate{
 					NewState: MintingStateSeed,
 					BatchKey: c.pendingBatch.BatchKey.PubKey,
@@ -322,7 +361,6 @@ func (c *ChainPlanter) gardener() {
 			//
 			// TODO(roasbeef): extend the ticker by a certain
 			// portion?
-			fmt.Println("sending back")
 			req.updates <- SeedlingUpdate{
 				NewState: MintingStateSeed,
 			}
@@ -332,7 +370,6 @@ func (c *ChainPlanter) gardener() {
 			// instance, which'll prompt the finalization of the
 			// current batch.
 			if batchNow {
-				fmt.Println("NAO")
 				log.Infof("Forcing new batch for %v", req)
 				batchTicker <- time.Time{}
 			}
@@ -360,6 +397,15 @@ func (c *ChainPlanter) gardener() {
 
 			// TODO(roasbeef): send completion signal?
 
+		// A new request just came along to query our internal state.
+		case req := <-c.stateReqs:
+			switch req.Type() {
+			case reqTypePendingBatch:
+				req.Resolve(c.pendingBatch)
+			case reqTypeNumActiveBatches:
+				req.Resolve(len(c.caretakers))
+			}
+
 		case <-c.quit:
 			return
 		}
@@ -368,9 +414,34 @@ func (c *ChainPlanter) gardener() {
 
 // PendingBatch returns the current pending batch. If there's no pending batch,
 // then an error is returned.
-func (c *ChainPlanter) PendingBatch() *MintingBatch {
-	// TODO(roasbeef): needs mtx or new request chan
-	return c.pendingBatch
+func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
+	req := &stateReq[*MintingBatch]{
+		resp:    make(chan *MintingBatch, 1),
+		err:     make(chan error, 1),
+		reqType: reqTypePendingBatch,
+	}
+
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, nil
+}
+
+// NumActiveBatches returns the total number of active batches that have an
+// outstanding caretaker assigned.
+func (c *ChainPlanter) NumActiveBatches() (int, error) {
+	req := &stateReq[int]{
+		resp:    make(chan int, 1),
+		err:     make(chan error, 1),
+		reqType: reqTypeNumActiveBatches,
+	}
+
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.quit) {
+		return 0, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, nil
 }
 
 // prepTaroSeedling performs some basic validation for the TaroSeedling, then
@@ -393,12 +464,10 @@ func (c *ChainPlanter) prepTaroSeedling(req *Seedling) (bool, error) {
 		// To create a new batch we'll first need to grab a new
 		// internal key, which'll be used in the output we create, and
 		// also will serve as the primary identifier for a batch.
-		fmt.Println("deriving")
 		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(TaroKeyFamily)
 		if err != nil {
 			return false, err
 		}
-		fmt.Println("got it")
 
 		// Create a new batch and commit it to disk so we can pick up
 		// where we left off upon restart.
