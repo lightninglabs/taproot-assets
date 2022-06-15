@@ -64,6 +64,10 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			name:  "foreign_keys",
 			value: "on",
 		},
+		{
+			name:  "journal_mode",
+			value: "WAL",
+		},
 	}
 	sqliteOptions := make(url.Values)
 	for _, option := range pragmaOptions {
@@ -73,8 +77,10 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		)
 	}
 
-	// Construct the DNS which is just the database file name, appended
-	// with the series of pragma options as a query URL string.
+	// Construct the DSN which is just the database file name, appended
+	// with the series of pragma options as a query URL string. For more
+	// details on the formatting here, see the modernc.org/sqlite docs:
+	// https://pkg.go.dev/modernc.org/sqlite#Driver.Open.
 	dsn := fmt.Sprintf(
 		"%v?%v", cfg.DatabaseFileName, sqliteOptions.Encode(),
 	)
