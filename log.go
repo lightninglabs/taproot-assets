@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
+	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/signal"
 )
 
@@ -84,6 +85,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	signal.UseLogger(taroLog)
 
 	AddSubLogger(root, rpcperms.Subsystem, interceptor, rpcperms.UseLogger)
+	AddSubLogger(root, tarogarden.Subsystem, interceptor, tarogarden.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

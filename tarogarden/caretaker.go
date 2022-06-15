@@ -19,6 +19,13 @@ var (
 	// initial PSBT packet that'll create initial set of assets. It's the
 	// same size as a encoded P2TR output.
 	GenesisDummyScript [34]byte
+
+	// DummyGenesisTxOut is the dummy TxOut we'll place in the PSBt funding
+	// request to make sure we leave enough room for change and fees.
+	DummyGenesisTxOut = wire.TxOut{
+		PkScript: GenesisDummyScript[:],
+		Value:    int64(GenesisAmtSats),
+	}
 )
 
 const (
@@ -79,6 +86,7 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 		batchKey:  NewBatchKey(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
+		quit:      make(chan struct{}),
 	}
 }
 
@@ -223,10 +231,7 @@ func (b *BatchCaretaker) fundGenesisPsbt() (*FundedPsbt, error) {
 		b.batchKey[:])
 
 	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(&wire.TxOut{
-		PkScript: GenesisDummyScript[:],
-		Value:    int64(GenesisAmtSats),
-	})
+	txTemplate.AddTxOut(&DummyGenesisTxOut)
 	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
@@ -359,7 +364,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
-			BatchStatePending, BatchStateFrozen)
+			b.batchKey, BatchStatePending, BatchStateFrozen)
 
 		return BatchStateFrozen, nil
 
@@ -393,11 +398,15 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		assetRoots, err := b.seedlingsToAssetSprouts(
 			genesisPoint, uint32(b.anchorOutputIndex),
 		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to map seedlings to "+
+				"sprouts: %v", err)
+		}
 
 		// Now that we have all our assets created, we'll make a new
 		// Taro asset commitment, which commits to all the assets we
 		// created above in a new root.
-		taroRootCommitment := commitment.NewTaroCommitment(
+		b.cfg.Batch.RootAssetCommitment = commitment.NewTaroCommitment(
 			assetRoots...,
 		)
 
@@ -422,14 +431,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		defer cancel()
 		err = b.cfg.Log.AddSproutsToBatch(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
-			genesisTxPkt, taroRootCommitment,
+			genesisTxPkt, b.cfg.Batch.RootAssetCommitment,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)
 		}
 
 		b.cfg.Batch.GenesisPacket = genesisTxPkt
-		b.cfg.Batch.RootAssetCommitment = taroRootCommitment
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
 			b.batchKey, BatchStateFrozen, BatchStateCommitted)

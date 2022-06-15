@@ -1,6 +1,8 @@
 package tarogarden_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -10,10 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 
@@ -49,15 +54,19 @@ type mintingTestHarness struct {
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
 func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *mintingTestHarness {
+	keyRing := newMockKeyRing()
+	genSigner := newMockGenSigner(keyRing)
+
 	return &mintingTestHarness{
 		T:     t,
 		store: store,
 		// Use a larger internal so it'll never actually tick and only
 		// rely on our manual ticks.
-		ticker:  ticker.NewForce(time.Hour * 24),
-		wallet:  &mockWalletAnchor{},
-		chain:   &mockChainBridge{},
-		keyRing: newMockKeyRing(),
+		ticker:    ticker.NewForce(time.Hour * 24),
+		wallet:    newMockWalletAnchor(),
+		chain:     newMockChainBridge(),
+		keyRing:   keyRing,
+		genSigner: genSigner,
 	}
 }
 
@@ -69,6 +78,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			ChainBridge: t.chain,
 			Log:         t.store,
 			KeyRing:     t.keyRing,
+			GenSigner:   t.genSigner,
 		},
 		BatchTicker: t.ticker,
 	})
@@ -95,8 +105,12 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Se
 			AssetType:      asset.Type(rand.Int31n(2)),
 			AssetName:      assetName,
 			Metadata:       n[:],
-			Amount:         uint64(rand.Int63()),
 			EnableEmission: randBool(),
+		}
+		if seedlings[i].AssetType == asset.Normal {
+			seedlings[i].Amount = uint64(rand.Int63())
+		} else {
+			seedlings[i].Amount = 1
 		}
 	}
 
@@ -121,12 +135,10 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(seedlings ...*tarogarden.Seed
 		// Queue the new seedling for a batch.
 		//
 		// TODO(roasbeef): map of update chans?
-		fmt.Println("queue")
 		updates, err := t.planter.QueueNewSeedling(seedling)
 		require.NoError(t, err)
 
 		// For the first seedlings sent, we should get a new request
-		fmt.Println("sent")
 		if i == 0 {
 			t.batchKey = t.assertKeyDerived()
 		}
@@ -146,21 +158,213 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(seedlings ...*tarogarden.Seed
 // assertPendingBatchExists asserts that a pending batch is found and it has
 // numSeedlings assets registered.
 func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
-	batch := t.planter.PendingBatch()
+	t.Helper()
+
+	batch, err := t.planter.PendingBatch()
+	require.NoError(t, err)
 	require.NotNil(t, batch)
 	require.Len(t, batch.Seedlings, numSeedlings)
 }
 
-// assertNoActiveBatch asserts that no active batch exists.
-func (t *mintingTestHarness) assertNoActiveBatch() {
-	batch := t.planter.PendingBatch()
+// assertNoActiveBatch asserts that no pending batch exists.
+func (t *mintingTestHarness) assertNoPendingBatch() {
+	t.Helper()
+
+	batch, err := t.planter.PendingBatch()
+	require.NoError(t, err)
 	require.Nil(t, batch)
 }
 
 // tickMintingBatch first the ticker that forces the planter to create a new
 // batch.
 func (t *mintingTestHarness) tickMintingBatch() {
+	t.Helper()
+
 	t.ticker.Force <- time.Time{}
+}
+
+// assertNumCaretakersActive asserts that the specified number of caretakers
+// are active.
+func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
+	t.Helper()
+
+	err := wait.Predicate(func() bool {
+		numBatches, err := t.planter.NumActiveBatches()
+		require.NoError(t, err)
+		return numBatches == n
+	}, defaultTimeout)
+	require.NoError(t, err)
+}
+
+// assertGenesisTxFunded asserts that a caretaker attempted to fund a new
+// genesis transaction.
+func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
+	// In order to fund a transaction, we expect a call to estimate the
+	// fee, followed by a request to fund a new PSBT packet.
+	_, err := chanutils.RecvOrTimeout(
+		t.chain.feeEstimateSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+
+	pkt, err := chanutils.RecvOrTimeout(
+		t.wallet.fundPsbtSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+
+	// Finally, we'll assert that the dummy output we added is found in the
+	// packet.
+	var found bool
+	for _, txOut := range (*pkt).Pkt.UnsignedTx.TxOut {
+		if bytes.Equal(txOut.PkScript, tarogarden.GenesisDummyScript[:]) &&
+			txOut.Value == int64(tarogarden.GenesisAmtSats) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("unable to find dummy tx out in genesis tx: %v",
+			spew.Sdump(pkt))
+	}
+
+	return *pkt
+}
+
+// assertSeedlingsExist asserts that all the seedlings are present in the batch.
+func (t *mintingTestHarness) assertSeedlingsExist(
+	seedlings []*tarogarden.Seedling) {
+
+	t.Helper()
+
+	pendingBatches, err := t.store.FetchNonFinalBatches(context.Background())
+	require.NoError(t, err)
+
+	pendingBatch := pendingBatches[0]
+
+	// The seedlings should match up properly.
+	require.Len(t, pendingBatch.Seedlings, len(seedlings))
+
+	for _, seedling := range seedlings {
+		batchSeedling, ok := pendingBatch.Seedlings[seedling.AssetName]
+		if !ok {
+			t.Fatalf("seedling %v not found", seedling.AssetName)
+		}
+
+		require.Equal(t, seedling.AssetType, batchSeedling.AssetType)
+		require.Equal(t, seedling.AssetName, batchSeedling.AssetName)
+		require.Equal(t, seedling.Metadata, batchSeedling.Metadata)
+		require.Equal(t, seedling.Amount, batchSeedling.Amount)
+		require.Equal(
+			t, seedling.EnableEmission, batchSeedling.EnableEmission,
+		)
+	}
+}
+
+// assertSeedlingsMatchSprouts asserts that the seedlings were properly matched
+// into actual assets.
+func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
+	seedlings []*tarogarden.Seedling) {
+
+	t.Helper()
+
+	// The caretaker is async, so we'll spin here until the batch read is
+	// in the expected state.
+	var pendingBatch *tarogarden.MintingBatch
+	err := wait.Predicate(func() bool {
+		pendingBatches, err := t.store.FetchNonFinalBatches(
+			context.Background(),
+		)
+		require.NoError(t, err)
+		require.Len(t, pendingBatches, 1)
+
+		if pendingBatches[0].BatchState != tarogarden.BatchStateCommitted {
+			return false
+		}
+
+		pendingBatch = pendingBatches[0]
+		return true
+	}, defaultTimeout)
+	require.NoError(
+		t, err, fmt.Errorf("unable to read pending batch: %v", err),
+	)
+
+	// The amount of assets committed to in the taro commitment should
+	// match up
+	dbAssets := pendingBatch.RootAssetCommitment.CommittedAssets()
+	require.Len(t, dbAssets, len(seedlings))
+
+	assetsByTag := make(map[string]*asset.Asset)
+	for _, asset := range dbAssets {
+		assetsByTag[asset.Genesis.Tag] = asset
+	}
+
+	for _, seedling := range seedlings {
+		assetSprout, ok := assetsByTag[seedling.AssetName]
+		if !ok {
+			t.Fatalf("asset for seedling %v not found",
+				seedling.AssetName)
+		}
+
+		// We expect the seedling to have been properly mapped onto an
+		// asset.
+		require.Equal(t, seedling.AssetType, assetSprout.Type)
+		require.Equal(t, seedling.AssetName, assetSprout.Genesis.Tag)
+		require.Equal(t, seedling.Metadata, assetSprout.Genesis.Metadata)
+		require.Equal(t, seedling.Amount, assetSprout.Amount)
+		require.Equal(
+			t, seedling.EnableEmission, assetSprout.FamilyKey != nil,
+		)
+	}
+}
+
+// assertGenesisPsbtFinalized asserts that a request to finalize the genesis
+// transaction has been requested by a caretaker.
+func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
+	t.Helper()
+
+	// Ensure that a request to finalize the PSBt has come across.
+	_, err := chanutils.RecvOrTimeout(
+		t.wallet.signPsbtSignal, defaultTimeout,
+	)
+	require.NoError(t, err, "psbt sign req not sent")
+
+	// Next fetch the minting key of the batch.
+	pendingBatches, err := t.store.FetchNonFinalBatches(
+		context.Background(),
+	)
+	require.NoError(t, err)
+	require.Len(t, pendingBatches, 1)
+
+	// The minting key of the batch should match the public key
+	// that was inserted into the wallet.
+	batchKey, _, err := pendingBatches[0].MintingOutputKey()
+	require.NoError(t, err)
+
+	importedKey, err := chanutils.RecvOrTimeout(
+		t.wallet.importPubKeySignal, defaultTimeout,
+	)
+	require.NoError(t, err, "pubkey import req not sent")
+	require.True(t, (*importedKey).IsEqual(batchKey))
+}
+
+// assertTxPublished asserts that a transaction was published via the active
+// chain bridge.
+func (t *mintingTestHarness) assertTxPublished() {
+	t.Helper()
+
+	_, err := chanutils.RecvOrTimeout(t.chain.publishReq, defaultTimeout)
+	require.NoError(t, err)
+}
+
+// assertConfReqSent asserts that a confirmation request has been sent. If so,
+// then a closure is returned that once called will send a confirmation
+// notification.
+func (t *mintingTestHarness) assertConfReqSent() func() {
+	reqNo, err := chanutils.RecvOrTimeout(t.chain.confReqSignal, defaultTimeout)
+	require.NoError(t, err)
+
+	return func() {
+		t.chain.sendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 10)
+	}
 }
 
 // testBasicAssetCreation tests that we're able to properly progress the state
@@ -170,6 +374,97 @@ func (t *mintingTestHarness) tickMintingBatch() {
 // assertions?
 func testBasicAssetCreation(t *mintingTestHarness) {
 	t.Helper()
+
+	// First, create a new chain planter instance using the supplied test harness.
+	//
+	// TODO(roasbeef): also assert restarts
+	t.refreshChainPlanter()
+
+	// Next make 5 new random seedlings, and queue each of them up within
+	// the main state machine for batched minting.
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(seedlings...)
+
+	// At this point, there should be a single pending batch with 5
+	// seedlings. The batch stored in the log should also match up exactly.
+	t.assertPendingBatchExists(numSeedlings)
+	t.assertSeedlingsExist(seedlings)
+
+	// Now we'll now we'll force a batch tick which should kick off a new
+	// caretaker that starts to progress the batch all the way to
+	// broadcast.
+	t.tickMintingBatch()
+
+	// A single caretaker should have been launched as well. Next, assert
+	// that the caretaker has requested a genesis tx to be funded.
+	_ = t.assertGenesisTxFunded()
+	t.assertNumCaretakersActive(1)
+
+	// For each seedling created above, we expect a new set of keys to be
+	// derived.
+	for i := 0; i < numSeedlings; i++ {
+		// The seedlings requires on going emission, then we'll expect an
+		// additional key to be derived.
+		t.assertKeyDerived()
+
+		if seedlings[i].EnableEmission {
+			t.assertKeyDerived()
+		}
+	}
+
+	// Now that the batch has been ticked, and the caretaker started, there
+	// should no longer be an pending batch.
+	t.assertNoPendingBatch()
+
+	// If we fetch the pending batch just created on disk, then it should
+	// match up with the seedlings we specified, and also the genesis
+	// transaction sent above.
+	t.assertSeedlingsMatchSprouts(seedlings)
+
+	// We should now transition to the next state where we'll attempt to
+	// sign this PSBT packet generated above.
+	t.assertGenesisPsbtFinalized()
+
+	// With the PSBT packet finalized for the caretaker, we should now
+	// receive a request to publish a transaction followed by a
+	// confirmation request.
+	t.assertTxPublished()
+	sendConfNtfn := t.assertConfReqSent()
+
+	// We'll now send the confirmation notification which should result in
+	// the batch being finalized, and the caretaker being cleaned up.
+	sendConfNtfn()
+
+	// At this point there should be no active caretakers.
+	t.assertNumCaretakersActive(0)
+
+	// TODO(roasbeef): use actual DB, or use in mem version so then able to
+	// mock out w/e tings?
+
+	// queue two assets in batch
+
+	// get notification about both of them
+
+	// queue second asset that forces batch
+
+	// TODO(roasbeef): insert batch state updater to be able to catch the set
+	// of state transitions? or just use update chan for that
+	//
+	// should now transition all the way to final state
+
+	// tx should be inserted on disk, managed UTXO called, and transaction
+	// broadcast
+	//
+	// TODO(roasbeef): restarts as well
+
+	// fake mine a block
+
+	// assert that new stuff on disk, final notification sent
+
+	// all care takers gone
+
+	// batch marked as confirmed
 }
 
 // mintingStoreCreator is a function closure that is capable of creating a new

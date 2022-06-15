@@ -723,7 +723,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		// Finally, update the batch state to BatchStateCommitted.
 		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     rawBatchKey,
-			BatchState: tarogarden.BatchStateCommitted,
+			BatchState: int16(tarogarden.BatchStateCommitted),
 		})
 	})
 }
@@ -840,7 +840,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Finally, update the batch state to BatchStateBroadcast.
 		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     rawBatchKey,
-			BatchState: tarogarden.BatchStateBroadcast,
+			BatchState: int16(tarogarden.BatchStateBroadcast),
 		})
 	})
 }
@@ -859,7 +859,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		// that the batch is fully finalized.
 		err := q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     rawBatchKey,
-			BatchState: tarogarden.BatchStateConfirmed,
+			BatchState: int16(tarogarden.BatchStateConfirmed),
 		})
 		if err != nil {
 			return err

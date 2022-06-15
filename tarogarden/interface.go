@@ -48,26 +48,26 @@ const (
 
 	// BatchStateFrozen denotes that a batch is frozen, and no new
 	// seedlings can be added to it.
-	BatchStateFrozen = 1
+	BatchStateFrozen BatchState = 1
 
 	// BatchStateCommitted denotes that a batch now has an unsigned genesis
 	// PSBT packet and the set of seedlings have been made into sprouts
 	// with all relevant fields populated.
-	BatchStateCommitted = 2
+	BatchStateCommitted BatchState = 2
 
 	// BatchStateBroadcast denotes a batch now has a fully signed genesis
 	// transaction and can be broadcast to the network.
-	BatchStateBroadcast = 3
+	BatchStateBroadcast BatchState = 3
 
 	// BatchStateConfirmed denotes that a batch has confirmed on chain, and
 	// only needs a sufficient amount of confirmations before it can be
 	// finalized.
-	BatchStateConfirmed = 4
+	BatchStateConfirmed BatchState = 4
 
 	// BatchStateFinalized is the final state for a batch. In this terminal
 	// state the batch has been confirmed on chain, with all assets
 	// created.
-	BatchStateFinalized = 5
+	BatchStateFinalized BatchState = 5
 )
 
 // String returns a human readable string for the target batch state.
@@ -155,11 +155,6 @@ func (m *MintingBatch) AddSeedling(s *Seedling) error {
 func (m *MintingBatch) MintingOutputKey() (*btcec.PublicKey, []byte, error) {
 	if m.mintingOutputKey != nil {
 		return m.mintingOutputKey, nil, nil
-	}
-
-	if m.BatchState != BatchStateCommitted {
-		return nil, nil, fmt.Errorf("sprouts must be present to " +
-			"derive output key")
 	}
 
 	if m.RootAssetCommitment == nil {
