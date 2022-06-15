@@ -7,12 +7,6 @@ import (
 	"github.com/lightninglabs/taro/mssmt"
 )
 
-var (
-	// ErrMissingAssetProof is an error returned when attempting to derive a
-	// TaroCommitment and an AssetProof is required but missing.
-	ErrMissingAssetProof = errors.New("missing asset proof")
-)
-
 // AssetProof is the proof used along with an asset leaf to arrive at the root
 // of the AssetCommitment MS-SMT.
 type AssetProof struct {
@@ -41,6 +35,16 @@ type TaroProof struct {
 // Proof represents a full commitment proof for a particular `Asset`. It proves
 // that an asset does or does not exist within a Taro commitment.
 type Proof struct {
+	// Asset is the asset in question to prove existence for.
+	//
+	// NOTE: This must be nil if the asset itself or its respective
+	// AssetCommitment do not exist within the Taro commitment.
+	Asset *asset.Asset
+
+	// AssetCommitmentKey is the key of the Asset for which the AssetProof
+	// below is generated for.
+	AssetCommitmentKey [32]byte
+
 	// AssetProof is the proof used along with the asset to arrive at the
 	// root of the AssetCommitment MS-SMT.
 	//
@@ -50,92 +54,60 @@ type Proof struct {
 	// commitment.
 	AssetProof *AssetProof
 
+	// TaroCommitmentKey is the key of the AssetCommitment for which the
+	// TaroProof below is generated for.
+	TaroCommitmentKey [32]byte
+
 	// TaroProof is the proof used along with the asset commitment to arrive
 	// at the root of the TaroCommitment MS-SMT.
 	TaroProof *TaroProof
 }
 
-// DeriveByAsseInclusion derives the Taro commitment containing the provided
-// asset. This consists of proving that an asset exists within the inner MS-SMT
-// with the AssetProof, also known as the AssetCommitment. With the
-// AssetCommitment obtained, the TaroProof is used to prove that it exists or
-// within the outer MS-SMT, also known as the TaroCommitment.
-func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TaroCommitment,
-	error) {
-
-	if p.AssetProof == nil {
-		return nil, ErrMissingAssetProof
-	}
-
+// DeriveTaroCommitment derives the Taro commitment using an asset's commitment
+// proof. This consists of proving that an asset does or does not exist within
+// the inner MS-SMT, also known as the AssetCommitment. With the AssetCommitment
+// obtained, the commitment proof is used to prove that it exists or not within
+// the outer MS-SMT, also known as the TaroCommitment.
+func (p Proof) DeriveTaroCommitment() (*TaroCommitment, error) {
 	// Use the asset proof to arrive at the asset commitment included within
 	// the Taro commitment.
-	assetCommitmentLeaf, err := asset.Leaf()
-	if err != nil {
-		return nil, err
-	}
-	assetProofRoot := p.AssetProof.Root(
-		asset.AssetCommitmentKey(), assetCommitmentLeaf,
-	)
-	assetCommitment := &AssetCommitment{
-		Version:  p.AssetProof.Version,
-		AssetID:  p.AssetProof.AssetID,
-		TreeRoot: assetProofRoot,
-	}
-
-	// Use the Taro commitment proof to arrive at the Taro commitment.
-	taroProofRoot := p.TaroProof.Root(
-		assetCommitment.TaroCommitmentKey(),
-		assetCommitment.TaroCommitmentLeaf(),
-	)
-	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
-}
-
-// DeriveByAssetExclusion derives the Taro commitment excluding the given asset
-// identified by its key within an AssetCommitment. This consists of proving
-// with the AssetProof that an asset does not exist within the inner MS-SMT,
-// also known as the AssetCommitment. With the AssetCommitment obtained, the
-// TaroProof is used to prove that the AssetCommitment exists within the outer
-// MS-SMT, also known as the TaroCommitment.
-func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
-	*TaroCommitment, error) {
-
-	if p.AssetProof == nil {
-		return nil, ErrMissingAssetProof
-	}
-
-	// Use the asset proof to arrive at the asset commitment included within
-	// the Taro commitment.
-	assetCommitmentLeaf := mssmt.EmptyLeafNode
-	assetProofRoot := p.AssetProof.Root(
-		assetCommitmentKey, assetCommitmentLeaf,
-	)
-	assetCommitment := &AssetCommitment{
-		Version:  p.AssetProof.Version,
-		AssetID:  p.AssetProof.AssetID,
-		TreeRoot: assetProofRoot,
-	}
-
-	// Use the Taro commitment proof to arrive at the Taro commitment.
-	taroProofRoot := p.TaroProof.Root(
-		assetCommitment.TaroCommitmentKey(),
-		assetCommitment.TaroCommitmentLeaf(),
-	)
-	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
-}
-
-// DeriveByAssetCommitmentExclusion derives the Taro commitment excluding the
-// given asset commitment identified by its key within a TaroCommitment. This
-// consists of proving with the TaroProof that an AssetCommitment does not exist
-// within the outer MS-SMT, also known as the TaroCommitment.
-func (p Proof) DeriveByAssetCommitmentExclusion(taroCommitmentKey [32]byte) (
-	*TaroCommitment, error) {
-
+	taroCommitmentKey := p.TaroCommitmentKey
+	taroCommitmentLeaf := mssmt.EmptyLeafNode
 	if p.AssetProof != nil {
-		return nil, errors.New("attempting to prove an invalid asset " +
-			"commitment exclusion")
+		assetCommitmentKey := p.AssetCommitmentKey
+		assetCommitmentLeaf := mssmt.EmptyLeafNode
+		if p.Asset != nil {
+			if p.Asset.AssetCommitmentKey() != assetCommitmentKey {
+				return nil, errors.New("asset commitment key mismatch")
+			}
+			var err error
+			assetCommitmentLeaf, err = p.Asset.Leaf()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		assetProofRoot := p.AssetProof.Root(
+			assetCommitmentKey, assetCommitmentLeaf,
+		)
+		assetCommitment := &AssetCommitment{
+			Version:  p.AssetProof.Version,
+			AssetID:  p.AssetProof.AssetID,
+			TreeRoot: assetProofRoot,
+		}
+		if assetCommitment.TaroCommitmentKey() != taroCommitmentKey {
+			return nil, errors.New("taro commitment key mismatch")
+		}
+		taroCommitmentLeaf = assetCommitment.TaroCommitmentLeaf()
 	}
 
 	// Use the Taro commitment proof to arrive at the Taro commitment.
-	taroProofRoot := p.TaroProof.Root(taroCommitmentKey, mssmt.EmptyLeafNode)
+	taroProofRoot := p.TaroProof.Root(taroCommitmentKey, taroCommitmentLeaf)
 	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
+}
+
+// ProvesAssetInclusion determines whether Proof proves that its Asset is
+// included within the derived TaroCommimtment.
+func (p Proof) ProvesAssetInclusion() bool {
+	return p.Asset != nil
 }

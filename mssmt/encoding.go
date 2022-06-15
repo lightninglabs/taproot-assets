@@ -86,7 +86,7 @@ func (p *CompressedProof) Decode(r io.Reader) error {
 		nodes = append(nodes, NewComputedNode(NodeKey(keyBytes), sum))
 	}
 
-	var bitsBytes [maxTreeLevels / 8]byte
+	var bitsBytes [MaxTreeLevels / 8]byte
 	if _, err := r.Read(bitsBytes[:]); err != nil {
 		return err
 	}
