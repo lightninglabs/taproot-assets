@@ -262,7 +262,7 @@ WITH assets_to_update AS (
     JOIN genesis_assets 
         ON assets.asset_id = genesis_assets.gen_asset_id
     JOIN genesis_points
-        ON genesis_points.genesis_id = genesis_assets.gen_asset_id
+        ON genesis_points.genesis_id = genesis_assets.genesis_point_id
     WHERE prev_out = ?
 )
 UPDATE assets
