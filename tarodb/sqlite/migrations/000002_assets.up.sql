@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS asset_witnesses (
 
     -- TODO(roasbeef): need to ref asset_id as well?
     -- likely want to fully unroll
-    script_key BLOB NOT NULL REFERENCES asset(script_key),
+    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
 
     asset_witness BLOB,
 
@@ -180,12 +180,8 @@ CREATE TABLE IF NOT EXISTS asset_witnesses (
 CREATE TABLE IF NOT EXISTS asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 
-    -- TODO(roasbeef): is this actually many to many?
-    asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
 
-    script_key INTEGER NOT NULL REFERENCES asset(script_key_id),
-
-    -- TODO(roasbeef): unroll into series of tables?
     proof_file BLOB NOT NULL
 );
 
