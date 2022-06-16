@@ -10,13 +10,21 @@ import (
 )
 
 type Querier interface {
+	AllAssets(ctx context.Context) ([]Asset, error)
 	AllInternalKeys(ctx context.Context) ([]InternalKey, error)
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
+	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	// TODO(roasbeef): identical to the above but no batch, how to combine?
+	// We use a LEFT JOIN here as not every asset has a family key, so this'll
+	// generate rows that have NULL values for the faily key fields if an asset
+	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// around that needs to be used with this query until a sqlc bug is fixed.
+	FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt32) ([]Asset, error)
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the faily key fields if an asset
@@ -30,6 +38,8 @@ type Querier interface {
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByStateRow, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
+	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
+	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	InsertAssetFamilyKey(ctx context.Context, arg InsertAssetFamilyKeyParams) (int32, error)
 	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)

@@ -50,7 +50,6 @@ type AssetMintingBatch struct {
 type AssetProof struct {
 	ProofID   int32
 	AssetID   int32
-	ScriptKey int32
 	ProofFile []byte
 }
 
@@ -67,7 +66,7 @@ type AssetSeedling struct {
 
 type AssetWitness struct {
 	TaroPrevOut          []byte
-	ScriptKey            []byte
+	AssetID              int32
 	AssetWitness         []byte
 	SplitCommitmentProof []byte
 }

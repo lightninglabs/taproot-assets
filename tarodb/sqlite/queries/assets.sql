@@ -188,6 +188,68 @@ LEFT JOIN key_fam_info
 JOIN internal_keys
     ON assets.script_key_id = internal_keys.key_id;
 
+-- name: FetchAllAssets :many
+-- TODO(roasbeef): identical to the above but no batch, how to combine?
+WITH genesis_info AS (
+    -- This CTE is used to fetch the base asset information from disk based on
+    -- the raw key of the batch that will ultimately create this set of assets.
+    -- To do so, we'll need to traverse a few tables to join the set of assets
+    -- with the genesis points, then with the batches that reference this
+    -- points, to the internal key that reference the batch, then restricted
+    -- for internal keys that match our main batch key.
+    SELECT
+        gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
+        genesis_points.prev_out prev_out
+    FROM genesis_assets
+    JOIN genesis_points
+        ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+), key_fam_info AS (
+    -- This CTE is used to perform a series of joins that allow us to extract
+    -- the family key information, as well as the family sigs for the series of
+    -- assets we care about. We obtain only the assets found in the batch
+    -- above, with the WHERE query at the bottom.
+    SELECT 
+        sig_id, gen_asset_id, genesis_sig, tweaked_fam_key, raw_key, key_index, key_family
+    FROM asset_family_sigs sigs
+    JOIN asset_families fams
+        ON sigs.key_fam_id = fams.family_id
+    JOIN internal_keys keys
+        ON keys.key_id = fams.internal_key_id
+    -- TODO(roasbeef): or can join do this below?
+    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
+)
+SELECT 
+    version, internal_keys.raw_key AS script_key_raw, 
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
+    key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
+    key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
+    script_version, amount, lock_time, relative_lock_time, 
+    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_data, 
+    genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
+    genesis_info.prev_out AS genesis_prev_out,
+    txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
+    utxos.outpoint AS anchor_outpoint
+FROM assets
+JOIN genesis_info
+    ON assets.asset_id = genesis_info.gen_asset_id
+-- We use a LEFT JOIN here as not every asset has a family key, so this'll
+-- generate rows that have NULL values for the faily key fields if an asset
+-- doesn't have a family key. See the comment in fetchAssetSprouts for a work
+-- around that needs to be used with this query until a sqlc bug is fixed.
+LEFT JOIN key_fam_info
+    ON assets.asset_id = key_fam_info.gen_asset_id
+JOIN internal_keys
+    ON assets.script_key_id = internal_keys.key_id
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN chain_txns txns
+    ON utxos.txn_id = txns.txn_id;
+
+-- name: AllAssets :many
+SELECT * 
+FROM assets;
+
 -- name: AssetsInBatch :many
 SELECT
     gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
@@ -268,6 +330,23 @@ WITH assets_to_update AS (
 UPDATE assets
 SET anchor_utxo_id = ?
 WHERE script_key_id in (SELECT script_key_id FROM assets_to_update);
+
+-- name: AssetsByGenesisPoint :many
+SELECT *
+FROM assets 
+JOIN genesis_assets 
+    ON assets.asset_id = genesis_assets.gen_asset_id
+JOIN genesis_points
+    ON genesis_points.genesis_id = genesis_assets.genesis_point_id
+WHERE prev_out = ?;
+
+-- name: GenesisAssets :many
+SELECT * 
+FROM genesis_assets;
+
+-- name: GenesisPoints :many
+SELECT * 
+FROM genesis_points;
 
 -- name: FetchAssetsByAnchorTx :many
 SELECT *
