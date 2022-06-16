@@ -123,7 +123,8 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := sqlMigrate.Up(); err != nil {
+		err = sqlMigrate.Up()
+		if err != nil && err != migrate.ErrNoChange {
 			return nil, err
 		}
 	}
