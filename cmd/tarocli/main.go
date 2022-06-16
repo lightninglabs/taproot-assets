@@ -301,6 +301,7 @@ func main() {
 		debugLevelCommand,
 		profileSubCommand,
 	}
+	app.Commands = append(app.Commands, assetsCommands...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
