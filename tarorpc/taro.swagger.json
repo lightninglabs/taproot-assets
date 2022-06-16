@@ -81,6 +81,88 @@
         }
       }
     },
+    "tarorpcAnchorInfo": {
+      "type": "object",
+      "properties": {
+        "anchor_tx": {
+          "type": "string",
+          "format": "byte"
+        },
+        "anchor_txid": {
+          "type": "string",
+          "format": "byte"
+        },
+        "anchor_block_hash": {
+          "type": "string",
+          "format": "byte"
+        },
+        "anchor_outpoint": {
+          "type": "string"
+        }
+      }
+    },
+    "tarorpcAsset": {
+      "type": "object",
+      "properties": {
+        "asset_genesis": {
+          "$ref": "#/definitions/tarorpcGenesisInfo"
+        },
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "lock_time": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "relative_lock_time": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "script_version": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "asset_family": {
+          "$ref": "#/definitions/tarorpcAssetFamily"
+        },
+        "chain_anchor": {
+          "$ref": "#/definitions/tarorpcAnchorInfo"
+        }
+      }
+    },
+    "tarorpcAssetFamily": {
+      "type": "object",
+      "properties": {
+        "raw_family_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "tweaked_family_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "asset_id_sig": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "tarorpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL"
+    },
     "tarorpcDebugLevelResponse": {
       "type": "object",
       "properties": {
@@ -89,14 +171,73 @@
         }
       }
     },
+    "tarorpcGenesisInfo": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "genesis_point": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "meta": {
+          "type": "string",
+          "format": "byte"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
     "tarorpcListAssetResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAsset"
+          }
+        }
+      }
     },
     "tarorpcMintAssetRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType"
+        },
+        "name": {
+          "type": "string"
+        },
+        "meta_data": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "enable_emission": {
+          "type": "boolean"
+        },
+        "skip_batch": {
+          "type": "boolean"
+        }
+      }
     },
     "tarorpcMintAssetResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "batch_key": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
     },
     "tarorpcStopResponse": {
       "type": "object"

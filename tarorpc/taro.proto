@@ -31,13 +31,60 @@ service Taro {
   rpc DebugLevel(DebugLevelRequest) returns (DebugLevelResponse);
 }
 
-message MintAssetRequest {}
+enum AssetType {
+  NORMAL = 0;
+  COLLECTIBLE = 1;
+}
+message MintAssetRequest {
+  AssetType asset_type = 1;
+  string name = 2;
+  bytes meta_data = 3;
+  int64 amount = 4;
+  bool enable_emission = 5;
+  bool skip_batch = 6;
+}
 
-message MintAssetResponse {}
+message MintAssetResponse { bytes batch_key = 1; }
 
 message ListAssetRequest {}
 
-message ListAssetResponse {}
+message AnchorInfo {
+  bytes anchor_tx = 1;
+  bytes anchor_txid = 2;
+  bytes anchor_block_hash = 3;
+  string anchor_outpoint = 4;
+}
+
+message GenesisInfo {
+  int32 version = 1;
+  string genesis_point = 2;
+  string name = 3;
+  bytes meta = 4;
+  bytes asset_id = 5;
+}
+
+message AssetFamily {
+  bytes raw_family_key = 1;
+  bytes tweaked_family_key = 2;
+  bytes asset_id_sig = 3;
+}
+
+message Asset {
+  GenesisInfo asset_genesis = 1;
+
+  AssetType asset_type = 2;
+  int64 amount = 4;
+  int32 lock_time = 5;
+  int32 relative_lock_time = 6;
+  int32 script_version = 7;
+  bytes script_key = 9;
+
+  AssetFamily asset_family = 10;
+
+  AnchorInfo chain_anchor = 11;
+}
+
+message ListAssetResponse { repeated Asset assets = 1; }
 
 message StopRequest {}
 

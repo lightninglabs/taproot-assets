@@ -20,10 +20,63 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type AssetType int32
+
+const (
+	AssetType_NORMAL      AssetType = 0
+	AssetType_COLLECTIBLE AssetType = 1
+)
+
+// Enum value maps for AssetType.
+var (
+	AssetType_name = map[int32]string{
+		0: "NORMAL",
+		1: "COLLECTIBLE",
+	}
+	AssetType_value = map[string]int32{
+		"NORMAL":      0,
+		"COLLECTIBLE": 1,
+	}
+)
+
+func (x AssetType) Enum() *AssetType {
+	p := new(AssetType)
+	*p = x
+	return p
+}
+
+func (x AssetType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AssetType) Descriptor() protoreflect.EnumDescriptor {
+	return file_taro_proto_enumTypes[0].Descriptor()
+}
+
+func (AssetType) Type() protoreflect.EnumType {
+	return &file_taro_proto_enumTypes[0]
+}
+
+func (x AssetType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AssetType.Descriptor instead.
+func (AssetType) EnumDescriptor() ([]byte, []int) {
+	return file_taro_proto_rawDescGZIP(), []int{0}
+}
+
 type MintAssetRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	AssetType      AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
+	Name           string    `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	MetaData       []byte    `protobuf:"bytes,3,opt,name=meta_data,json=metaData,proto3" json:"meta_data,omitempty"`
+	Amount         int64     `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	EnableEmission bool      `protobuf:"varint,5,opt,name=enable_emission,json=enableEmission,proto3" json:"enable_emission,omitempty"`
+	SkipBatch      bool      `protobuf:"varint,6,opt,name=skip_batch,json=skipBatch,proto3" json:"skip_batch,omitempty"`
 }
 
 func (x *MintAssetRequest) Reset() {
@@ -58,10 +111,54 @@ func (*MintAssetRequest) Descriptor() ([]byte, []int) {
 	return file_taro_proto_rawDescGZIP(), []int{0}
 }
 
+func (x *MintAssetRequest) GetAssetType() AssetType {
+	if x != nil {
+		return x.AssetType
+	}
+	return AssetType_NORMAL
+}
+
+func (x *MintAssetRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *MintAssetRequest) GetMetaData() []byte {
+	if x != nil {
+		return x.MetaData
+	}
+	return nil
+}
+
+func (x *MintAssetRequest) GetAmount() int64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *MintAssetRequest) GetEnableEmission() bool {
+	if x != nil {
+		return x.EnableEmission
+	}
+	return false
+}
+
+func (x *MintAssetRequest) GetSkipBatch() bool {
+	if x != nil {
+		return x.SkipBatch
+	}
+	return false
+}
+
 type MintAssetResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	BatchKey []byte `protobuf:"bytes,1,opt,name=batch_key,json=batchKey,proto3" json:"batch_key,omitempty"`
 }
 
 func (x *MintAssetResponse) Reset() {
@@ -94,6 +191,13 @@ func (x *MintAssetResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use MintAssetResponse.ProtoReflect.Descriptor instead.
 func (*MintAssetResponse) Descriptor() ([]byte, []int) {
 	return file_taro_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *MintAssetResponse) GetBatchKey() []byte {
+	if x != nil {
+		return x.BatchKey
+	}
+	return nil
 }
 
 type ListAssetRequest struct {
@@ -134,16 +238,342 @@ func (*ListAssetRequest) Descriptor() ([]byte, []int) {
 	return file_taro_proto_rawDescGZIP(), []int{2}
 }
 
+type AnchorInfo struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	AnchorTx        []byte `protobuf:"bytes,1,opt,name=anchor_tx,json=anchorTx,proto3" json:"anchor_tx,omitempty"`
+	AnchorTxid      []byte `protobuf:"bytes,2,opt,name=anchor_txid,json=anchorTxid,proto3" json:"anchor_txid,omitempty"`
+	AnchorBlockHash []byte `protobuf:"bytes,3,opt,name=anchor_block_hash,json=anchorBlockHash,proto3" json:"anchor_block_hash,omitempty"`
+	AnchorOutpoint  string `protobuf:"bytes,4,opt,name=anchor_outpoint,json=anchorOutpoint,proto3" json:"anchor_outpoint,omitempty"`
+}
+
+func (x *AnchorInfo) Reset() {
+	*x = AnchorInfo{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taro_proto_msgTypes[3]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AnchorInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnchorInfo) ProtoMessage() {}
+
+func (x *AnchorInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_taro_proto_msgTypes[3]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnchorInfo.ProtoReflect.Descriptor instead.
+func (*AnchorInfo) Descriptor() ([]byte, []int) {
+	return file_taro_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *AnchorInfo) GetAnchorTx() []byte {
+	if x != nil {
+		return x.AnchorTx
+	}
+	return nil
+}
+
+func (x *AnchorInfo) GetAnchorTxid() []byte {
+	if x != nil {
+		return x.AnchorTxid
+	}
+	return nil
+}
+
+func (x *AnchorInfo) GetAnchorBlockHash() []byte {
+	if x != nil {
+		return x.AnchorBlockHash
+	}
+	return nil
+}
+
+func (x *AnchorInfo) GetAnchorOutpoint() string {
+	if x != nil {
+		return x.AnchorOutpoint
+	}
+	return ""
+}
+
+type GenesisInfo struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Version      int32  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	GenesisPoint string `protobuf:"bytes,2,opt,name=genesis_point,json=genesisPoint,proto3" json:"genesis_point,omitempty"`
+	Name         string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Meta         []byte `protobuf:"bytes,4,opt,name=meta,proto3" json:"meta,omitempty"`
+	AssetId      []byte `protobuf:"bytes,5,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+}
+
+func (x *GenesisInfo) Reset() {
+	*x = GenesisInfo{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taro_proto_msgTypes[4]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *GenesisInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenesisInfo) ProtoMessage() {}
+
+func (x *GenesisInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_taro_proto_msgTypes[4]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenesisInfo.ProtoReflect.Descriptor instead.
+func (*GenesisInfo) Descriptor() ([]byte, []int) {
+	return file_taro_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GenesisInfo) GetVersion() int32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *GenesisInfo) GetGenesisPoint() string {
+	if x != nil {
+		return x.GenesisPoint
+	}
+	return ""
+}
+
+func (x *GenesisInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *GenesisInfo) GetMeta() []byte {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *GenesisInfo) GetAssetId() []byte {
+	if x != nil {
+		return x.AssetId
+	}
+	return nil
+}
+
+type AssetFamily struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	RawFamilyKey     []byte `protobuf:"bytes,1,opt,name=raw_family_key,json=rawFamilyKey,proto3" json:"raw_family_key,omitempty"`
+	TweakedFamilyKey []byte `protobuf:"bytes,2,opt,name=tweaked_family_key,json=tweakedFamilyKey,proto3" json:"tweaked_family_key,omitempty"`
+	AssetIdSig       []byte `protobuf:"bytes,3,opt,name=asset_id_sig,json=assetIdSig,proto3" json:"asset_id_sig,omitempty"`
+}
+
+func (x *AssetFamily) Reset() {
+	*x = AssetFamily{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taro_proto_msgTypes[5]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AssetFamily) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssetFamily) ProtoMessage() {}
+
+func (x *AssetFamily) ProtoReflect() protoreflect.Message {
+	mi := &file_taro_proto_msgTypes[5]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssetFamily.ProtoReflect.Descriptor instead.
+func (*AssetFamily) Descriptor() ([]byte, []int) {
+	return file_taro_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AssetFamily) GetRawFamilyKey() []byte {
+	if x != nil {
+		return x.RawFamilyKey
+	}
+	return nil
+}
+
+func (x *AssetFamily) GetTweakedFamilyKey() []byte {
+	if x != nil {
+		return x.TweakedFamilyKey
+	}
+	return nil
+}
+
+func (x *AssetFamily) GetAssetIdSig() []byte {
+	if x != nil {
+		return x.AssetIdSig
+	}
+	return nil
+}
+
+type Asset struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	AssetGenesis     *GenesisInfo `protobuf:"bytes,1,opt,name=asset_genesis,json=assetGenesis,proto3" json:"asset_genesis,omitempty"`
+	AssetType        AssetType    `protobuf:"varint,2,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
+	Amount           int64        `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	LockTime         int32        `protobuf:"varint,5,opt,name=lock_time,json=lockTime,proto3" json:"lock_time,omitempty"`
+	RelativeLockTime int32        `protobuf:"varint,6,opt,name=relative_lock_time,json=relativeLockTime,proto3" json:"relative_lock_time,omitempty"`
+	ScriptVersion    int32        `protobuf:"varint,7,opt,name=script_version,json=scriptVersion,proto3" json:"script_version,omitempty"`
+	ScriptKey        []byte       `protobuf:"bytes,9,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	AssetFamily      *AssetFamily `protobuf:"bytes,10,opt,name=asset_family,json=assetFamily,proto3" json:"asset_family,omitempty"`
+	ChainAnchor      *AnchorInfo  `protobuf:"bytes,11,opt,name=chain_anchor,json=chainAnchor,proto3" json:"chain_anchor,omitempty"`
+}
+
+func (x *Asset) Reset() {
+	*x = Asset{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taro_proto_msgTypes[6]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Asset) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Asset) ProtoMessage() {}
+
+func (x *Asset) ProtoReflect() protoreflect.Message {
+	mi := &file_taro_proto_msgTypes[6]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Asset.ProtoReflect.Descriptor instead.
+func (*Asset) Descriptor() ([]byte, []int) {
+	return file_taro_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Asset) GetAssetGenesis() *GenesisInfo {
+	if x != nil {
+		return x.AssetGenesis
+	}
+	return nil
+}
+
+func (x *Asset) GetAssetType() AssetType {
+	if x != nil {
+		return x.AssetType
+	}
+	return AssetType_NORMAL
+}
+
+func (x *Asset) GetAmount() int64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *Asset) GetLockTime() int32 {
+	if x != nil {
+		return x.LockTime
+	}
+	return 0
+}
+
+func (x *Asset) GetRelativeLockTime() int32 {
+	if x != nil {
+		return x.RelativeLockTime
+	}
+	return 0
+}
+
+func (x *Asset) GetScriptVersion() int32 {
+	if x != nil {
+		return x.ScriptVersion
+	}
+	return 0
+}
+
+func (x *Asset) GetScriptKey() []byte {
+	if x != nil {
+		return x.ScriptKey
+	}
+	return nil
+}
+
+func (x *Asset) GetAssetFamily() *AssetFamily {
+	if x != nil {
+		return x.AssetFamily
+	}
+	return nil
+}
+
+func (x *Asset) GetChainAnchor() *AnchorInfo {
+	if x != nil {
+		return x.ChainAnchor
+	}
+	return nil
+}
+
 type ListAssetResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	Assets []*Asset `protobuf:"bytes,1,rep,name=assets,proto3" json:"assets,omitempty"`
 }
 
 func (x *ListAssetResponse) Reset() {
 	*x = ListAssetResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taro_proto_msgTypes[3]
+		mi := &file_taro_proto_msgTypes[7]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -156,7 +586,7 @@ func (x *ListAssetResponse) String() string {
 func (*ListAssetResponse) ProtoMessage() {}
 
 func (x *ListAssetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taro_proto_msgTypes[3]
+	mi := &file_taro_proto_msgTypes[7]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -169,7 +599,14 @@ func (x *ListAssetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAssetResponse.ProtoReflect.Descriptor instead.
 func (*ListAssetResponse) Descriptor() ([]byte, []int) {
-	return file_taro_proto_rawDescGZIP(), []int{3}
+	return file_taro_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListAssetResponse) GetAssets() []*Asset {
+	if x != nil {
+		return x.Assets
+	}
+	return nil
 }
 
 type StopRequest struct {
@@ -181,7 +618,7 @@ type StopRequest struct {
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taro_proto_msgTypes[4]
+		mi := &file_taro_proto_msgTypes[8]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -194,7 +631,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taro_proto_msgTypes[4]
+	mi := &file_taro_proto_msgTypes[8]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -207,7 +644,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_taro_proto_rawDescGZIP(), []int{4}
+	return file_taro_proto_rawDescGZIP(), []int{8}
 }
 
 type StopResponse struct {
@@ -219,7 +656,7 @@ type StopResponse struct {
 func (x *StopResponse) Reset() {
 	*x = StopResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taro_proto_msgTypes[5]
+		mi := &file_taro_proto_msgTypes[9]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -232,7 +669,7 @@ func (x *StopResponse) String() string {
 func (*StopResponse) ProtoMessage() {}
 
 func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taro_proto_msgTypes[5]
+	mi := &file_taro_proto_msgTypes[9]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -245,7 +682,7 @@ func (x *StopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_taro_proto_rawDescGZIP(), []int{5}
+	return file_taro_proto_rawDescGZIP(), []int{9}
 }
 
 type DebugLevelRequest struct {
@@ -260,7 +697,7 @@ type DebugLevelRequest struct {
 func (x *DebugLevelRequest) Reset() {
 	*x = DebugLevelRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taro_proto_msgTypes[6]
+		mi := &file_taro_proto_msgTypes[10]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -273,7 +710,7 @@ func (x *DebugLevelRequest) String() string {
 func (*DebugLevelRequest) ProtoMessage() {}
 
 func (x *DebugLevelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taro_proto_msgTypes[6]
+	mi := &file_taro_proto_msgTypes[10]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -286,7 +723,7 @@ func (x *DebugLevelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugLevelRequest.ProtoReflect.Descriptor instead.
 func (*DebugLevelRequest) Descriptor() ([]byte, []int) {
-	return file_taro_proto_rawDescGZIP(), []int{6}
+	return file_taro_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DebugLevelRequest) GetShow() bool {
@@ -314,7 +751,7 @@ type DebugLevelResponse struct {
 func (x *DebugLevelResponse) Reset() {
 	*x = DebugLevelResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taro_proto_msgTypes[7]
+		mi := &file_taro_proto_msgTypes[11]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -327,7 +764,7 @@ func (x *DebugLevelResponse) String() string {
 func (*DebugLevelResponse) ProtoMessage() {}
 
 func (x *DebugLevelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taro_proto_msgTypes[7]
+	mi := &file_taro_proto_msgTypes[11]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +777,7 @@ func (x *DebugLevelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugLevelResponse.ProtoReflect.Descriptor instead.
 func (*DebugLevelResponse) Descriptor() ([]byte, []int) {
-	return file_taro_proto_rawDescGZIP(), []int{7}
+	return file_taro_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DebugLevelResponse) GetSubSystems() string {
@@ -354,22 +791,94 @@ var File_taro_proto protoreflect.FileDescriptor
 
 var file_taro_proto_rawDesc = []byte{
 	0x0a, 0x0a, 0x74, 0x61, 0x72, 0x6f, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x07, 0x74, 0x61,
-	0x72, 0x6f, 0x72, 0x70, 0x63, 0x22, 0x12, 0x0a, 0x10, 0x4d, 0x69, 0x6e, 0x74, 0x41, 0x73, 0x73,
-	0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x13, 0x0a, 0x11, 0x4d, 0x69, 0x6e,
-	0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x12,
-	0x0a, 0x10, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x22, 0x13, 0x0a, 0x11, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52,
-	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x0d, 0x0a, 0x0b, 0x53, 0x74, 0x6f, 0x70, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x0e, 0x0a, 0x0c, 0x53, 0x74, 0x6f, 0x70, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x46, 0x0a, 0x11, 0x44, 0x65, 0x62, 0x75, 0x67, 0x4c,
-	0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x73,
-	0x68, 0x6f, 0x77, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x73, 0x68, 0x6f, 0x77, 0x12,
-	0x1d, 0x0a, 0x0a, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x5f, 0x73, 0x70, 0x65, 0x63, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x09, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x53, 0x70, 0x65, 0x63, 0x22, 0x35,
-	0x0a, 0x12, 0x44, 0x65, 0x62, 0x75, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x1f, 0x0a, 0x0b, 0x73, 0x75, 0x62, 0x5f, 0x73, 0x79, 0x73, 0x74,
-	0x65, 0x6d, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x73, 0x75, 0x62, 0x53, 0x79,
-	0x73, 0x74, 0x65, 0x6d, 0x73, 0x32, 0x91, 0x02, 0x0a, 0x04, 0x54, 0x61, 0x72, 0x6f, 0x12, 0x42,
+	0x72, 0x6f, 0x72, 0x70, 0x63, 0x22, 0xd6, 0x01, 0x0a, 0x10, 0x4d, 0x69, 0x6e, 0x74, 0x41, 0x73,
+	0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x31, 0x0a, 0x0a, 0x61, 0x73,
+	0x73, 0x65, 0x74, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x12,
+	0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x54, 0x79,
+	0x70, 0x65, 0x52, 0x09, 0x61, 0x73, 0x73, 0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x12, 0x12, 0x0a,
+	0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d,
+	0x65, 0x12, 0x1b, 0x0a, 0x09, 0x6d, 0x65, 0x74, 0x61, 0x5f, 0x64, 0x61, 0x74, 0x61, 0x18, 0x03,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x44, 0x61, 0x74, 0x61, 0x12, 0x16,
+	0x0a, 0x06, 0x61, 0x6d, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x06,
+	0x61, 0x6d, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x27, 0x0a, 0x0f, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65,
+	0x5f, 0x65, 0x6d, 0x69, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52,
+	0x0e, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x45, 0x6d, 0x69, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x12,
+	0x1d, 0x0a, 0x0a, 0x73, 0x6b, 0x69, 0x70, 0x5f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18, 0x06, 0x20,
+	0x01, 0x28, 0x08, 0x52, 0x09, 0x73, 0x6b, 0x69, 0x70, 0x42, 0x61, 0x74, 0x63, 0x68, 0x22, 0x30,
+	0x0a, 0x11, 0x4d, 0x69, 0x6e, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x6e, 0x73, 0x65, 0x12, 0x1b, 0x0a, 0x09, 0x62, 0x61, 0x74, 0x63, 0x68, 0x5f, 0x6b, 0x65, 0x79,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x62, 0x61, 0x74, 0x63, 0x68, 0x4b, 0x65, 0x79,
+	0x22, 0x12, 0x0a, 0x10, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x22, 0x9f, 0x01, 0x0a, 0x0a, 0x41, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x49,
+	0x6e, 0x66, 0x6f, 0x12, 0x1b, 0x0a, 0x09, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x5f, 0x74, 0x78,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x54, 0x78,
+	0x12, 0x1f, 0x0a, 0x0b, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x5f, 0x74, 0x78, 0x69, 0x64, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0a, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x54, 0x78, 0x69,
+	0x64, 0x12, 0x2a, 0x0a, 0x11, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x5f, 0x62, 0x6c, 0x6f, 0x63,
+	0x6b, 0x5f, 0x68, 0x61, 0x73, 0x68, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0f, 0x61, 0x6e,
+	0x63, 0x68, 0x6f, 0x72, 0x42, 0x6c, 0x6f, 0x63, 0x6b, 0x48, 0x61, 0x73, 0x68, 0x12, 0x27, 0x0a,
+	0x0f, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x5f, 0x6f, 0x75, 0x74, 0x70, 0x6f, 0x69, 0x6e, 0x74,
+	0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x4f, 0x75,
+	0x74, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x22, 0x8f, 0x01, 0x0a, 0x0b, 0x47, 0x65, 0x6e, 0x65, 0x73,
+	0x69, 0x73, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x18, 0x0a, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f,
+	0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e,
+	0x12, 0x23, 0x0a, 0x0d, 0x67, 0x65, 0x6e, 0x65, 0x73, 0x69, 0x73, 0x5f, 0x70, 0x6f, 0x69, 0x6e,
+	0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x67, 0x65, 0x6e, 0x65, 0x73, 0x69, 0x73,
+	0x50, 0x6f, 0x69, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x6d, 0x65, 0x74,
+	0x61, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x6d, 0x65, 0x74, 0x61, 0x12, 0x19, 0x0a,
+	0x08, 0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0c, 0x52,
+	0x07, 0x61, 0x73, 0x73, 0x65, 0x74, 0x49, 0x64, 0x22, 0x83, 0x01, 0x0a, 0x0b, 0x41, 0x73, 0x73,
+	0x65, 0x74, 0x46, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x12, 0x24, 0x0a, 0x0e, 0x72, 0x61, 0x77, 0x5f,
+	0x66, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c,
+	0x52, 0x0c, 0x72, 0x61, 0x77, 0x46, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x4b, 0x65, 0x79, 0x12, 0x2c,
+	0x0a, 0x12, 0x74, 0x77, 0x65, 0x61, 0x6b, 0x65, 0x64, 0x5f, 0x66, 0x61, 0x6d, 0x69, 0x6c, 0x79,
+	0x5f, 0x6b, 0x65, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x10, 0x74, 0x77, 0x65, 0x61,
+	0x6b, 0x65, 0x64, 0x46, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x4b, 0x65, 0x79, 0x12, 0x20, 0x0a, 0x0c,
+	0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x69, 0x64, 0x5f, 0x73, 0x69, 0x67, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x0c, 0x52, 0x0a, 0x61, 0x73, 0x73, 0x65, 0x74, 0x49, 0x64, 0x53, 0x69, 0x67, 0x22, 0x8f,
+	0x03, 0x0a, 0x05, 0x41, 0x73, 0x73, 0x65, 0x74, 0x12, 0x39, 0x0a, 0x0d, 0x61, 0x73, 0x73, 0x65,
+	0x74, 0x5f, 0x67, 0x65, 0x6e, 0x65, 0x73, 0x69, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x14, 0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70, 0x63, 0x2e, 0x47, 0x65, 0x6e, 0x65, 0x73, 0x69,
+	0x73, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x0c, 0x61, 0x73, 0x73, 0x65, 0x74, 0x47, 0x65, 0x6e, 0x65,
+	0x73, 0x69, 0x73, 0x12, 0x31, 0x0a, 0x0a, 0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x74, 0x79, 0x70,
+	0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x12, 0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70,
+	0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x52, 0x09, 0x61, 0x73, 0x73,
+	0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x61, 0x6d, 0x6f, 0x75, 0x6e, 0x74,
+	0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x06, 0x61, 0x6d, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x1b,
+	0x0a, 0x09, 0x6c, 0x6f, 0x63, 0x6b, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28,
+	0x05, 0x52, 0x08, 0x6c, 0x6f, 0x63, 0x6b, 0x54, 0x69, 0x6d, 0x65, 0x12, 0x2c, 0x0a, 0x12, 0x72,
+	0x65, 0x6c, 0x61, 0x74, 0x69, 0x76, 0x65, 0x5f, 0x6c, 0x6f, 0x63, 0x6b, 0x5f, 0x74, 0x69, 0x6d,
+	0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x05, 0x52, 0x10, 0x72, 0x65, 0x6c, 0x61, 0x74, 0x69, 0x76,
+	0x65, 0x4c, 0x6f, 0x63, 0x6b, 0x54, 0x69, 0x6d, 0x65, 0x12, 0x25, 0x0a, 0x0e, 0x73, 0x63, 0x72,
+	0x69, 0x70, 0x74, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x07, 0x20, 0x01, 0x28,
+	0x05, 0x52, 0x0d, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e,
+	0x12, 0x1d, 0x0a, 0x0a, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x09,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x09, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x4b, 0x65, 0x79, 0x12,
+	0x37, 0x0a, 0x0c, 0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x66, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x18,
+	0x0a, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70, 0x63, 0x2e,
+	0x41, 0x73, 0x73, 0x65, 0x74, 0x46, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x52, 0x0b, 0x61, 0x73, 0x73,
+	0x65, 0x74, 0x46, 0x61, 0x6d, 0x69, 0x6c, 0x79, 0x12, 0x36, 0x0a, 0x0c, 0x63, 0x68, 0x61, 0x69,
+	0x6e, 0x5f, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x18, 0x0b, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x13,
+	0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x49,
+	0x6e, 0x66, 0x6f, 0x52, 0x0b, 0x63, 0x68, 0x61, 0x69, 0x6e, 0x41, 0x6e, 0x63, 0x68, 0x6f, 0x72,
+	0x22, 0x3b, 0x0a, 0x11, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x26, 0x0a, 0x06, 0x61, 0x73, 0x73, 0x65, 0x74, 0x73, 0x18,
+	0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x0e, 0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70, 0x63, 0x2e,
+	0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x06, 0x61, 0x73, 0x73, 0x65, 0x74, 0x73, 0x22, 0x0d, 0x0a,
+	0x0b, 0x53, 0x74, 0x6f, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x0e, 0x0a, 0x0c,
+	0x53, 0x74, 0x6f, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x46, 0x0a, 0x11,
+	0x44, 0x65, 0x62, 0x75, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x12, 0x12, 0x0a, 0x04, 0x73, 0x68, 0x6f, 0x77, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52,
+	0x04, 0x73, 0x68, 0x6f, 0x77, 0x12, 0x1d, 0x0a, 0x0a, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x5f, 0x73,
+	0x70, 0x65, 0x63, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x6c, 0x65, 0x76, 0x65, 0x6c,
+	0x53, 0x70, 0x65, 0x63, 0x22, 0x35, 0x0a, 0x12, 0x44, 0x65, 0x62, 0x75, 0x67, 0x4c, 0x65, 0x76,
+	0x65, 0x6c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x1f, 0x0a, 0x0b, 0x73, 0x75,
+	0x62, 0x5f, 0x73, 0x79, 0x73, 0x74, 0x65, 0x6d, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x0a, 0x73, 0x75, 0x62, 0x53, 0x79, 0x73, 0x74, 0x65, 0x6d, 0x73, 0x2a, 0x28, 0x0a, 0x09, 0x41,
+	0x73, 0x73, 0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0a, 0x0a, 0x06, 0x4e, 0x4f, 0x52, 0x4d,
+	0x41, 0x4c, 0x10, 0x00, 0x12, 0x0f, 0x0a, 0x0b, 0x43, 0x4f, 0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49,
+	0x42, 0x4c, 0x45, 0x10, 0x01, 0x32, 0x91, 0x02, 0x0a, 0x04, 0x54, 0x61, 0x72, 0x6f, 0x12, 0x42,
 	0x0a, 0x09, 0x4d, 0x69, 0x6e, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x12, 0x19, 0x2e, 0x74, 0x61,
 	0x72, 0x6f, 0x72, 0x70, 0x63, 0x2e, 0x4d, 0x69, 0x6e, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52,
 	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e, 0x74, 0x61, 0x72, 0x6f, 0x72, 0x70, 0x63,
@@ -404,31 +913,43 @@ func file_taro_proto_rawDescGZIP() []byte {
 	return file_taro_proto_rawDescData
 }
 
-var file_taro_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_taro_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_taro_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_taro_proto_goTypes = []interface{}{
-	(*MintAssetRequest)(nil),   // 0: tarorpc.MintAssetRequest
-	(*MintAssetResponse)(nil),  // 1: tarorpc.MintAssetResponse
-	(*ListAssetRequest)(nil),   // 2: tarorpc.ListAssetRequest
-	(*ListAssetResponse)(nil),  // 3: tarorpc.ListAssetResponse
-	(*StopRequest)(nil),        // 4: tarorpc.StopRequest
-	(*StopResponse)(nil),       // 5: tarorpc.StopResponse
-	(*DebugLevelRequest)(nil),  // 6: tarorpc.DebugLevelRequest
-	(*DebugLevelResponse)(nil), // 7: tarorpc.DebugLevelResponse
+	(AssetType)(0),             // 0: tarorpc.AssetType
+	(*MintAssetRequest)(nil),   // 1: tarorpc.MintAssetRequest
+	(*MintAssetResponse)(nil),  // 2: tarorpc.MintAssetResponse
+	(*ListAssetRequest)(nil),   // 3: tarorpc.ListAssetRequest
+	(*AnchorInfo)(nil),         // 4: tarorpc.AnchorInfo
+	(*GenesisInfo)(nil),        // 5: tarorpc.GenesisInfo
+	(*AssetFamily)(nil),        // 6: tarorpc.AssetFamily
+	(*Asset)(nil),              // 7: tarorpc.Asset
+	(*ListAssetResponse)(nil),  // 8: tarorpc.ListAssetResponse
+	(*StopRequest)(nil),        // 9: tarorpc.StopRequest
+	(*StopResponse)(nil),       // 10: tarorpc.StopResponse
+	(*DebugLevelRequest)(nil),  // 11: tarorpc.DebugLevelRequest
+	(*DebugLevelResponse)(nil), // 12: tarorpc.DebugLevelResponse
 }
 var file_taro_proto_depIdxs = []int32{
-	0, // 0: tarorpc.Taro.MintAsset:input_type -> tarorpc.MintAssetRequest
-	2, // 1: tarorpc.Taro.ListAssets:input_type -> tarorpc.ListAssetRequest
-	4, // 2: tarorpc.Taro.StopDaemon:input_type -> tarorpc.StopRequest
-	6, // 3: tarorpc.Taro.DebugLevel:input_type -> tarorpc.DebugLevelRequest
-	1, // 4: tarorpc.Taro.MintAsset:output_type -> tarorpc.MintAssetResponse
-	3, // 5: tarorpc.Taro.ListAssets:output_type -> tarorpc.ListAssetResponse
-	5, // 6: tarorpc.Taro.StopDaemon:output_type -> tarorpc.StopResponse
-	7, // 7: tarorpc.Taro.DebugLevel:output_type -> tarorpc.DebugLevelResponse
-	4, // [4:8] is the sub-list for method output_type
-	0, // [0:4] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0,  // 0: tarorpc.MintAssetRequest.asset_type:type_name -> tarorpc.AssetType
+	5,  // 1: tarorpc.Asset.asset_genesis:type_name -> tarorpc.GenesisInfo
+	0,  // 2: tarorpc.Asset.asset_type:type_name -> tarorpc.AssetType
+	6,  // 3: tarorpc.Asset.asset_family:type_name -> tarorpc.AssetFamily
+	4,  // 4: tarorpc.Asset.chain_anchor:type_name -> tarorpc.AnchorInfo
+	7,  // 5: tarorpc.ListAssetResponse.assets:type_name -> tarorpc.Asset
+	1,  // 6: tarorpc.Taro.MintAsset:input_type -> tarorpc.MintAssetRequest
+	3,  // 7: tarorpc.Taro.ListAssets:input_type -> tarorpc.ListAssetRequest
+	9,  // 8: tarorpc.Taro.StopDaemon:input_type -> tarorpc.StopRequest
+	11, // 9: tarorpc.Taro.DebugLevel:input_type -> tarorpc.DebugLevelRequest
+	2,  // 10: tarorpc.Taro.MintAsset:output_type -> tarorpc.MintAssetResponse
+	8,  // 11: tarorpc.Taro.ListAssets:output_type -> tarorpc.ListAssetResponse
+	10, // 12: tarorpc.Taro.StopDaemon:output_type -> tarorpc.StopResponse
+	12, // 13: tarorpc.Taro.DebugLevel:output_type -> tarorpc.DebugLevelResponse
+	10, // [10:14] is the sub-list for method output_type
+	6,  // [6:10] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_taro_proto_init() }
@@ -474,7 +995,7 @@ func file_taro_proto_init() {
 			}
 		}
 		file_taro_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListAssetResponse); i {
+			switch v := v.(*AnchorInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -486,7 +1007,7 @@ func file_taro_proto_init() {
 			}
 		}
 		file_taro_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StopRequest); i {
+			switch v := v.(*GenesisInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -498,7 +1019,7 @@ func file_taro_proto_init() {
 			}
 		}
 		file_taro_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StopResponse); i {
+			switch v := v.(*AssetFamily); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -510,7 +1031,7 @@ func file_taro_proto_init() {
 			}
 		}
 		file_taro_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DebugLevelRequest); i {
+			switch v := v.(*Asset); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -522,6 +1043,54 @@ func file_taro_proto_init() {
 			}
 		}
 		file_taro_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ListAssetResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taro_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StopRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taro_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StopResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taro_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DebugLevelRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taro_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*DebugLevelResponse); i {
 			case 0:
 				return &v.state
@@ -539,13 +1108,14 @@ func file_taro_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_taro_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   8,
+			NumEnums:      1,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_taro_proto_goTypes,
 		DependencyIndexes: file_taro_proto_depIdxs,
+		EnumInfos:         file_taro_proto_enumTypes,
 		MessageInfos:      file_taro_proto_msgTypes,
 	}.Build()
 	File_taro_proto = out.File
