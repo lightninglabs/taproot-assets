@@ -188,6 +188,11 @@ func (s *Server) RunUntilShutdown() error {
 	// TODO(roasbeef): make macaroons service, needs the lnd APIs present
 	// an abstracted
 
+	// First, we'll start the main batched asset minter.
+	if err := s.cfg.AssetMinter.Start(); err != nil {
+		return mkErr("unable to start asset minter: %v", err)
+	}
+
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	if err := rpcServer.Start(); err != nil {
@@ -202,6 +207,8 @@ func (s *Server) RunUntilShutdown() error {
 
 	// We transition the server state to Active, as the server is up.
 	interceptorChain.SetServerActive()
+
+	srvrLog.Infof("Taro Daemon fully active!")
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
@@ -374,6 +381,9 @@ func (s *Server) Stop() error {
 	// TODO(roasbeef): stop all other sub-systems
 
 	if err := s.rpcServer.Stop(); err != nil {
+		return err
+	}
+	if err := s.cfg.AssetMinter.Start(); err != nil {
 		return err
 	}
 
