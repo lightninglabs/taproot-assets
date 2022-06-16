@@ -99,7 +99,7 @@ type ChainPlanter struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	cfg *PlanterConfig
+	cfg PlanterConfig
 
 	// seedlingReqs is used to accept new asset issuance requests.
 	seedlingReqs chan *Seedling
@@ -127,7 +127,7 @@ type ChainPlanter struct {
 }
 
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
-func NewChainPlanter(cfg *PlanterConfig) *ChainPlanter {
+func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
 		cfg:               cfg,
 		quit:              make(chan struct{}),
@@ -141,9 +141,9 @@ func NewChainPlanter(cfg *PlanterConfig) *ChainPlanter {
 // newCaretakerForBatch creates a new BatchCaretaker for a given batch and
 // inserts it into the caretaker map.
 func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker {
-	batchKey := NewBatchKey(c.pendingBatch.BatchKey.PubKey)
+	batchKey := NewBatchKey(batch.BatchKey.PubKey)
 	caretaker := NewBatchCaretaker(&BatchCaretakerConfig{
-		Batch:     c.pendingBatch,
+		Batch:     batch,
 		GardenKit: c.cfg.GardenKit,
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
@@ -346,9 +346,7 @@ func (c *ChainPlanter) gardener() {
 				// Something went wrong, so then an error
 				// update back to the caller.
 				req.updates <- SeedlingUpdate{
-					NewState: MintingStateSeed,
-					BatchKey: c.pendingBatch.BatchKey.PubKey,
-					Error:    err,
+					Error: err,
 				}
 				continue
 			}
@@ -362,6 +360,7 @@ func (c *ChainPlanter) gardener() {
 			// TODO(roasbeef): extend the ticker by a certain
 			// portion?
 			req.updates <- SeedlingUpdate{
+				BatchKey: c.pendingBatch.BatchKey.PubKey,
 				NewState: MintingStateSeed,
 			}
 

@@ -137,7 +137,7 @@ func (b *BatchCaretaker) withCtxQuit() (context.Context, func()) {
 func (b *BatchCaretaker) advanceStateUntil(currentState,
 	targetState BatchState) (BatchState, error) {
 
-	log.Infof("BatchCaretaker(%x), advancing from state=%v to =%v",
+	log.Infof("BatchCaretaker(%x), advancing from state=%v to state=%v",
 		b.batchKey[:], currentState, targetState)
 
 	var terminalState bool
@@ -168,6 +168,22 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 func (b *BatchCaretaker) taroCultivator() {
 	defer b.wg.Done()
 
+	// If the batch is already marked as confirmed, then we just need to
+	// advance it one more level to be finalized.
+	if b.cfg.Batch.BatchState == BatchStateConfirmed {
+		log.Infof("MintingBatch(%x): already confirmed!", b.batchKey[:])
+
+		_, err := b.advanceStateUntil(
+			BatchStateFinalized, BatchStateFinalized,
+		)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+
+		b.cfg.SignalCompletion()
+	}
+
 	// Our task as a cultivator is pretty simple: we advance our state
 	// machine up until the minting transaction is broadcaster or we fail
 	// for some reason. If we can broadcast, then we'll await a
@@ -180,6 +196,8 @@ func (b *BatchCaretaker) taroCultivator() {
 		log.Errorf("unable to advanced state machine: %v", err)
 		return
 	}
+
+	// TODO(roasbeef): proper restart logic?
 
 	// At this point, we've advanced all the way to broadcasting the
 	// minting transaction, so we'll wait until we need to exit, or we get
@@ -271,7 +289,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(genesisPoint wire.OutPoint,
 	taroOutputIndex uint32) ([]*commitment.AssetCommitment, error) {
 
 	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
-		"with genesis_point=%v", len(b.cfg.Batch.Seedlings),
+		"with genesis_point=%v", b.batchKey[:], len(b.cfg.Batch.Seedlings),
 		genesisPoint)
 
 	assetRoots := make(
@@ -465,7 +483,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
 
 		log.Infof("BatchCaretaker(%x): GenesisPacket finalized: %v",
-			spew.Sdump(signedPkt))
+			b.batchKey[:], spew.Sdump(signedPkt))
 
 		// At this point we have a fully signed PSBT packet which'll
 		// create our set of assets once mined. We'll write this to
@@ -518,7 +536,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"signed tx: %w", err)
 		}
 
-		log.Infof("BatchCaretaker(%x): extracted finalized GenesisTx",
+		log.Infof("BatchCaretaker(%x): extracted finalized GenesisTx: %v",
 			b.batchKey[:], spew.Sdump(signedTx))
 
 		// With the final transaction extracted, we'll broadcast the
@@ -594,7 +612,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
 			b.batchKey, BatchStateFinalized, BatchStateFinalized)
 
-		return BatchStateFinalized, nil
+		// TODO(roasbeef): confirmed should just be the final state?
+		ctx, cancel := b.withCtxQuit()
+		defer cancel()
+		err := b.cfg.Log.UpdateBatchState(
+			ctx, b.cfg.Batch.BatchKey.PubKey, BatchStateFinalized,
+		)
+		return BatchStateFinalized, err
 
 	default:
 		return 0, fmt.Errorf("unknown state: %v", currentState)

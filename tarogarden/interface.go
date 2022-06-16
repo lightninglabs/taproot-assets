@@ -36,6 +36,13 @@ type Planter interface {
 	// point where the genesis PSBT has been broadcasted, an error is
 	// returned.
 	CancelSeedling() error
+
+	// Start signals that the asset minter should being operations.
+	Start() error
+
+	// Stop signals that the asset minter should attempt a graceful
+	// shutdown.
+	Stop() error
 }
 
 // BatchState an enum that represents the various stages of a minting batch.
@@ -310,7 +317,10 @@ func SupportedMintingStores() []string {
 // notifications, the current height, publish transactions, and also estimate
 // fees.
 type ChainBridge interface {
-	chainntnfs.ChainNotifier
+	// RegisterConfirmationsNtfn registers an intent to be notified once
+	// txid reaches numConfs confirmations.
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
+		numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error)
 
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight() (uint32, error)

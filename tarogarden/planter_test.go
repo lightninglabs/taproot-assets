@@ -72,7 +72,7 @@ func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *minting
 
 // refreshChainPlanter creates a new test harness.
 func (t *mintingTestHarness) refreshChainPlanter() {
-	t.planter = tarogarden.NewChainPlanter(&tarogarden.PlanterConfig{
+	t.planter = tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
 		GardenKit: tarogarden.GardenKit{
 			Wallet:      t.wallet,
 			ChainBridge: t.chain,
@@ -438,33 +438,6 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// At this point there should be no active caretakers.
 	t.assertNumCaretakersActive(0)
-
-	// TODO(roasbeef): use actual DB, or use in mem version so then able to
-	// mock out w/e tings?
-
-	// queue two assets in batch
-
-	// get notification about both of them
-
-	// queue second asset that forces batch
-
-	// TODO(roasbeef): insert batch state updater to be able to catch the set
-	// of state transitions? or just use update chan for that
-	//
-	// should now transition all the way to final state
-
-	// tx should be inserted on disk, managed UTXO called, and transaction
-	// broadcast
-	//
-	// TODO(roasbeef): restarts as well
-
-	// fake mine a block
-
-	// assert that new stuff on disk, final notification sent
-
-	// all care takers gone
-
-	// batch marked as confirmed
 }
 
 // mintingStoreCreator is a function closure that is capable of creating a new

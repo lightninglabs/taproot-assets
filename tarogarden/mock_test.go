@@ -128,27 +128,6 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScri
 	return req, nil
 }
 
-func (m *mockChainBridge) RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
-	return nil, nil
-}
-
-func (m *mockChainBridge) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
-	return nil, nil
-}
-
-func (m *mockChainBridge) Start() error {
-	return nil
-}
-
-func (m *mockChainBridge) Started() bool {
-	return true
-}
-
-func (m *mockChainBridge) Stop() error {
-	return nil
-}
-
 func (m *mockChainBridge) CurrentHeight() (uint32, error) {
 	return 0, nil
 }

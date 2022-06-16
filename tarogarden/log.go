@@ -5,7 +5,7 @@ import (
 )
 
 // Subsystem defines the logging code for this subsystem.
-const Subsystem = "TNRS" // TNRS as in Taro Nursery.
+const Subsystem = "GRDN" // GRDN as in Garden.
 
 // log is a logger that is initialized with no output filters.  This
 // means the package will not perform any logging by default until the caller
