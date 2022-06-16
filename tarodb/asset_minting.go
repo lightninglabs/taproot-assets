@@ -199,7 +199,7 @@ func NewAssetStoreReadTx() AssetStoreTxOptions {
 
 // BatchedPendingAssetStore combines the PendingAssetStore interface with the
 // BatchedTx interface, allowing for multiple queries to be executed in a
-// single SQl transaction.
+// single SQL transaction.
 type BatchedPendingAssetStore interface {
 	PendingAssetStore
 

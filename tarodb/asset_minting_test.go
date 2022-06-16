@@ -23,7 +23,7 @@ import (
 
 // newAssetStore makes a new instance of the AssetMintingStore backed by sqlite
 // by default.
-func newAssetStore(t *testing.T) (*AssetMintingStore, *SqliteStore, func()) {
+func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore, *SqliteStore, func()) {
 	// First, Make a new test database.
 	db, cleanUp := newTestSqliteDB(t)
 
@@ -35,11 +35,19 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *SqliteStore, func()) {
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
 	}
+	activeTxCreator := func(tx Tx) ActiveAssetsStore {
+		sqlTx, _ := tx.(*sql.Tx)
+		return db.WithTx(sqlTx)
+	}
 
-	assetDB := NewTransactionExecutor[PendingAssetStore, TxOptions](
+	assetMintingDB := NewTransactionExecutor[PendingAssetStore, TxOptions](
 		db, txCreator,
 	)
-	return NewAssetMintingStore(assetDB), db, cleanUp
+	assetsDB := NewTransactionExecutor[ActiveAssetsStore, TxOptions](
+		db, activeTxCreator,
+	)
+	return NewAssetMintingStore(assetMintingDB), NewAssetStore(assetsDB),
+		db, cleanUp
 }
 
 // randBool rolls a random boolean.
@@ -118,7 +126,7 @@ func assertSeedlingBatchLen(t *testing.T, batches []*tarogarden.MintingBatch,
 func TestCommitMintingBatchSeedlings(t *testing.T) {
 	t.Parallel()
 
-	assetStore, _, cleanUp := newAssetStore(t)
+	assetStore, _, _, cleanUp := newAssetStore(t)
 	defer cleanUp()
 
 	ctx := context.Background()
@@ -327,7 +335,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	ctx := context.Background()
 	const numSeedlings = 5
-	assetStore, _, cleanUp := newAssetStore(t)
+	assetStore, _, _, cleanUp := newAssetStore(t)
 	defer cleanUp()
 
 	// First, we'll create a new batch, then add some sample seedlings.
@@ -391,7 +399,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 func TestCommitBatchChainActions(t *testing.T) {
 	ctx := context.Background()
 	const numSeedlings = 5
-	assetStore, db, cleanUp := newAssetStore(t)
+	assetStore, confAssets, db, cleanUp := newAssetStore(t)
 	defer cleanUp()
 
 	// First, we'll create a new batch, then add some sample seedlings, and
@@ -447,8 +455,11 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// Next, we'll confirm that all the assets inserted previously now are
 	// able to be queried according to the anchor UTXO primary key.
-	_, err = db.FetchAssetsByAnchorTx(ctx, sqlInt32(managedUTXO.UtxoID))
+	anchoredAssets, err := db.FetchAssetsByAnchorTx(
+		ctx, sqlInt32(managedUTXO.UtxoID),
+	)
 	require.NoError(t, err)
+	require.Equal(t, numSeedlings, len(anchoredAssets))
 
 	// Finally, we'll verify that the genesis point also points to the
 	// inserted chain transaction.
@@ -473,6 +484,14 @@ func TestCommitBatchChainActions(t *testing.T) {
 		t, blockHeight, extractSqlInt32[uint32](dbGenTx.BlockHeight),
 	)
 	require.Equal(t, txIndex, extractSqlInt32[uint32](dbGenTx.TxIndex))
+
+	// If we query for the set of all active assets, then we should get
+	// back the same number of seedlings.
+	//
+	// TODO(roasbeef): move into isolated test
+	assets, err := confAssets.FetchAllAssets(ctx)
+	require.NoError(t, err)
+	require.Equal(t, numSeedlings, len(assets))
 }
 
 func init() {

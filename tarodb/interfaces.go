@@ -113,6 +113,8 @@ func (t *TransactionExecutor[Q, O]) ExecTx(ctx context.Context, txOptions O,
 	}
 
 	// Commit transaction.
+	//
+	// TODO(roasbeef): need to handle SQLITE_BUSY here?
 	if err = tx.Commit(); err != nil {
 		return err
 	}
