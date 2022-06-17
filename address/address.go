@@ -2,13 +2,21 @@ package address
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -16,6 +24,11 @@ import (
 const (
 	Bech32HRPTaroMainnet = "taro"
 	Bech32HRPTaroTestnet = "tarot"
+)
+
+// Highest version of Taro script supported.
+const (
+	TaroScriptVersion uint8 = 0
 )
 
 // Set of all supported prefixes for bech32m encoded addresses.
@@ -56,7 +69,7 @@ type AddressTLV struct {
 	// different ways an asset can be spent.
 	ScriptKey btcec.PublicKey
 
-	// Internal is the
+	// InternalKey is the BIP-340/341 public key of the receiver.
 	InternalKey btcec.PublicKey
 
 	// Amount is the number of asset units being requested by the receiver.
@@ -87,6 +100,200 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 		}
 	}
 	return nil
+}
+
+// TaroCommitmentKey is the key that maps to the root commitment for a specific
+// asset or asset family within a TaroCommitment.
+func (a AddressTLV) TaroCommitmentKey() [32]byte {
+	if a.FamilyKey == nil {
+		return a.ID
+	}
+	return sha256.Sum256(schnorr.SerializePubKey(a.FamilyKey))
+}
+
+// AssetCommitmentKey computes the key that maps to the location in the Taro
+// asset tree where the sender creates a new asset leaf for the receiver.
+func (a AddressTLV) AssetCommitmentKey() [32]byte {
+	return AssetCommitmentKey(a.ID, a.ScriptKey, a.FamilyKey)
+}
+
+// TapLeaf constructs a 'TapLeaf' for this address, tagged with a Taro marker.
+func (a *AddressTLV) TapLeaf() txscript.TapLeaf {
+	var assetAmount [8]byte
+	binary.BigEndian.PutUint64(assetAmount[:], a.Amount)
+	// NOTE: What is meant by 'Taro leaf'? Just a script with a prefix of Taro marker
+	// and Taro version byte? Similar to the root hash for an asset tree
+	addressParts := [][]byte{
+		commitment.TaroMarker[:], {byte(a.Version)}, a.ID[:],
+		{byte(a.Type)}, assetAmount[:], {byte(TaroScriptVersion)},
+		schnorr.SerializePubKey(&a.ScriptKey),
+		schnorr.SerializePubKey(a.FamilyKey),
+	}
+	addressScript := bytes.Join(addressParts, nil)
+	addressTapLeaf := txscript.NewBaseTapLeaf(addressScript)
+
+	return addressTapLeaf
+}
+
+// TaprootScript construct a P2TR script for a Taro address. This script is
+// spent to by the asset sender, and reconstructed by the receiver.
+func (a *AddressTLV) TaprootScript() ([]byte, error) {
+	addressTapLeaf := a.TapLeaf()
+	addressTapRoot := txscript.AssembleTaprootScriptTree(addressTapLeaf).
+		RootNode.TapHash()
+	addressOutputKey := txscript.ComputeTaprootOutputKey(&a.InternalKey,
+		addressTapRoot[:])
+	return txscript.NewScriptBuilder().
+		AddOp(txscript.OP_1).
+		AddData(schnorr.SerializePubKey(addressOutputKey)).
+		Script()
+}
+
+// CreateAssetSpend computes the asset leaf and split commitment needed to
+// send assets to the receiver from the specified input. This is done by first
+// validating that the input asset can satisfy the given Taro address. A split
+// commitment is generated if needed, and the transfer is validated using the
+// Taro VM. The returned asset leaves and split commitment should be used to
+// construct new Taro commitments for both sender and receiver.
+func (a AddressTLV) CreateAssetSpend(privKey btcec.PrivateKey,
+	input asset.PrevID, inputCommitment *commitment.TaroCommitment) (
+	*asset.Asset, *asset.Asset, *commitment.SplitCommitment, error,
+) {
+	inputAsset := a.isValidInput(inputCommitment, input.ScriptKey)
+	if inputAsset != nil {
+		// To validate the transfer, we need the input and output assets, and
+		// optionally a split commitment plus all created splits.
+		var splitCommitment *commitment.SplitCommitment
+		var newAsset *asset.Asset
+		var inputAssets commitment.InputSet
+		var splitAssets commitment.SplitSet
+		// If our asset is a Collectible, or a Normal asset where the requested
+		// amount exactly matches the input amount, we don't need a split.
+		if a.Type == asset.Collectible || a.Amount == inputAsset.Amount {
+			splitCommitment = nil
+			splitAssets = nil
+			newAsset = inputAsset.Copy()
+			newAsset.ScriptKey = a.ScriptKey
+			newAsset.PrevWitnesses = []asset.Witness{{
+				PrevID:          &input,
+				TxWitness:       nil,
+				SplitCommitment: nil,
+			}}
+			inputAssets = commitment.InputSet{input: inputAsset}
+		} else {
+			// NOTE: Default to using the first output for asset change,
+			// and the second output for the receiver.
+			changeLocator := commitment.SplitLocator{
+				OutputIndex: 0,
+				AssetID:     a.ID,
+				ScriptKey:   input.ScriptKey,
+				Amount:      inputAsset.Amount - a.Amount,
+			}
+			receiverLocator := commitment.SplitLocator{
+				OutputIndex: 1,
+				AssetID:     a.ID,
+				ScriptKey:   a.ScriptKey,
+				Amount:      a.Amount,
+			}
+			var err error
+			splitCommitment, err = commitment.NewSplitCommitment(
+				inputAsset, input.OutPoint, &changeLocator, &receiverLocator,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			newAsset = splitCommitment.RootAsset
+			inputAssets = splitCommitment.PrevAssets
+			splitAssets = splitCommitment.SplitAssets
+		}
+		// With the desired output assets and split commitment, sign a witness
+		// for the transfer and validate with the Taro VM.
+		virtualTx, _, err := vm.VirtualTx(newAsset, inputAssets)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		newWitness, err := signVirtualKeySpend(
+			privKey, virtualTx, inputAsset, 0,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		newAsset.PrevWitnesses[0].TxWitness = *newWitness
+		if len(splitAssets) == 0 {
+			vm, err := vm.New(newAsset, nil, inputAssets)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if vm.Execute() != nil {
+				return nil, nil, nil, err
+			}
+		} else {
+			for _, splitAsset := range splitAssets {
+				vm, err := vm.New(newAsset, splitAsset, inputAssets)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				if vm.Execute() != nil {
+					return nil, nil, nil, err
+				}
+			}
+		}
+		return inputAsset, newAsset, splitCommitment, nil
+
+	}
+	return nil, nil, nil, errors.New("address spend: input asset mismatch")
+}
+
+// isValidInput verifies that the Taro commitment of the input contains an
+// asset that could be spent to the given Taro address. The input commitment
+// should produce a proof of inclusion for the asset specified in the address,
+// at a location controlled by the sender.
+func (a AddressTLV) isValidInput(input *commitment.TaroCommitment,
+	inputScriptKey btcec.PublicKey) *asset.Asset {
+	taroCommitmentKey := a.TaroCommitmentKey()
+	inputAssetCommitmentKey := AssetCommitmentKey(a.ID,
+		inputScriptKey, a.FamilyKey)
+	inputProof := input.Proof(taroCommitmentKey, inputAssetCommitmentKey)
+	if inputProof.ProvesAssetInclusion() {
+		// Check that the input asset amount is at least as large as the amount
+		// specified in the address. This check does not apply to Collectibles.
+		if inputProof.Asset.Type == asset.Normal &&
+			inputProof.Asset.Amount < a.Amount {
+			return nil
+		}
+		return inputProof.Asset
+	}
+	return nil
+}
+
+// AssetCommitmentKey is the key that maps to a specific owner of an asset
+// within a Taro AssetCommitment.
+func AssetCommitmentKey(assetID asset.ID, scriptKey btcec.PublicKey,
+	familyKey *btcec.PublicKey) [32]byte {
+	if familyKey == nil {
+		return sha256.Sum256(schnorr.SerializePubKey(&scriptKey))
+	}
+	h := sha256.New()
+	_, _ = h.Write(assetID[:])
+	_, _ = h.Write(schnorr.SerializePubKey(&scriptKey))
+	return *(*[32]byte)(h.Sum(nil))
+}
+
+// signVirtualKeySpend generates a signature over a Taro virtual transaction,
+// where the input asset was spendable via the key path. This signature is
+// the witness for the output asset or split commitment.
+func signVirtualKeySpend(privKey btcec.PrivateKey, virtualTx *wire.MsgTx,
+	input *asset.Asset, idx uint32) (*wire.TxWitness, error) {
+	sigHash, err := vm.InputKeySpendSigHash(virtualTx, input, idx)
+	if err != nil {
+		return nil, err
+	}
+	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
+	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
+	if err != nil {
+		return nil, err
+	}
+	return &wire.TxWitness{sig.Serialize()}, nil
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
