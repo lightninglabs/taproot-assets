@@ -3,14 +3,17 @@ package tarodb
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"io/fs"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/golang-migrate/migrate/v4"
+	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
+	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -48,27 +51,40 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 
 	if cfg.CreateTables {
 		// Now that the database is open, populate the database with
-		// our set of schemas based on our embedded in-memory file system.
-		err := fs.WalkDir(sqlSchemas, "sqlite/migrations", func(path string,
-			d fs.DirEntry, err error) error {
-
-			if d.IsDir() {
-				return nil
-			}
-
-			schema, err := sqlSchemas.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			if _, err := db.Exec(string(schema)); err != nil {
-				return fmt.Errorf("unable to create "+
-					"schema: %v", err)
-			}
-			return nil
-		})
+		// our set of schemas based on our embedded in-memory file
+		// system.
+		//
+		// First, we'll need to open up a new migration instance for
+		// our current target database: sqlite.
+		driver, err := sqlite_migrate.WithInstance(
+			db, &sqlite_migrate.Config{},
+		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to load schemas: %w", err)
+			return nil, err
+		}
+
+		// With the migrate instance open, we'll create a new migration
+		// source using the embedded file system stored in sqlSchemas.
+		// The library we're using can't handle a raw file system
+		// interface, so we wrap it in this intermediate layer.
+		migrateFileServer, err := httpfs.New(
+			http.FS(sqlSchemas), "sqlite/migrations",
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Finally, we'll run the migration with our driver above based
+		// on the open DB, and also the migration source stored in the
+		// file system above.
+		sqlMigrate, err := migrate.NewWithInstance(
+			"migrations", migrateFileServer, "sqlite", driver,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := sqlMigrate.Up(); err != nil {
+			return nil, err
 		}
 	}
 
