@@ -37,9 +37,6 @@ jobs:
       - name: Generate sql models
         run: make sqlc
 
-      - name: run sqlc-check
-        run: make sqlc-check
-
   ########################
   # Format, compilation and lint check
   ########################
