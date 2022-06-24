@@ -77,10 +77,10 @@ type SplitAsset struct {
 
 // InputSet represents the set of inputs for a given asset indexed by their
 // `PrevID`.
-type InputSet = map[asset.PrevID]*asset.Asset
+type InputSet map[asset.PrevID]*asset.Asset
 
-// SplitSet is a type alias to represent a set of asset splits.
-type SplitSet = map[SplitLocator]*SplitAsset
+// SplitSet is a type to represent a set of asset splits.
+type SplitSet map[SplitLocator]*SplitAsset
 
 // SplitCommitment encodes all of the data necessary to generate and validate a
 // set of asset splits from its root.
