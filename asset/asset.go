@@ -101,6 +101,8 @@ type PrevID struct {
 	// ID is the asset ID of the previous asset tree.
 	ID ID
 
+	// TODO(roasbeef): need another ref type for assets w/ a key family?
+
 	// ScriptKey is the previous tweaked Taproot output key committing to
 	// the possible spending conditions of the asset.
 	ScriptKey btcec.PublicKey
