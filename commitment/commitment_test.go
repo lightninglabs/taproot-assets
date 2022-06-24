@@ -471,6 +471,25 @@ func TestSplitCommitment(t *testing.T) {
 			},
 			err: nil,
 		},
+		{
+			name: "no external splits",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesis, familyKey, asset.Normal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      1,
+				}
+
+				return input, root, nil
+			},
+			err: ErrInvalidSplitLocator,
+		},
 	}
 
 	for _, testCase := range testCases {
