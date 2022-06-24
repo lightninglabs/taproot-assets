@@ -144,6 +144,10 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	addAssetSplit := func(locator *SplitLocator) error {
 		// Return an error if we've already seen a locator with this
 		// output index.
+		//
+		// TODO(roasbeef): is there any reason to allow the external
+		// split to map to a series of internal splits? so you split
+		// into more UTXOs within the tree
 		if _, ok := locatorOutputs[locator.OutputIndex]; ok {
 			return ErrDuplicateSplitOutputIndex
 		}
@@ -159,16 +163,19 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		assetSplit.SplitCommitmentRoot = nil
 
 		locatorOutputs[locator.OutputIndex] = struct{}{}
+
 		splitAssets[*locator] = &SplitAsset{
 			Asset:       *assetSplit,
 			OutputIndex: locator.OutputIndex,
 		}
+
 		splitKey := locator.Hash()
 		splitLeaf, err := assetSplit.Leaf()
 		if err != nil {
 			return err
 		}
 		splitTree.Insert(splitKey, splitLeaf)
+
 		remainingAmount -= locator.Amount
 
 		return nil
