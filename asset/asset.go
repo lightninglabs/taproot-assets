@@ -101,6 +101,8 @@ type PrevID struct {
 	// ID is the asset ID of the previous asset tree.
 	ID ID
 
+	// TODO(roasbeef): need another ref type for assets w/ a key family?
+
 	// ScriptKey is the previous tweaked Taproot output key committing to
 	// the possible spending conditions of the asset.
 	ScriptKey btcec.PublicKey
@@ -113,6 +115,17 @@ func (id PrevID) Hash() [sha256.Size]byte {
 	_, _ = h.Write(id.ID[:])
 	_, _ = h.Write(schnorr.SerializePubKey(&id.ScriptKey))
 	return *(*[sha256.Size]byte)(h.Sum(nil))
+}
+
+// SplitCommitment represents the asset witness for an asset split.
+type SplitCommitment struct {
+	// Proof is the proof for a particular asset split resulting from a
+	// split commitment.
+	Proof mssmt.Proof
+
+	// RootAsset is the asset containing the root of the split commitment
+	// tree from which the `Proof` above was computed from.
+	RootAsset Asset
 }
 
 // Witness is a nested TLV stream within the main Asset TLV stream that contains
@@ -149,7 +162,7 @@ type Witness struct {
 	//
 	// TODO: This still needs to be specified further in the BIPs, see
 	// https://github.com/lightninglabs/taro/issues/3.
-	SplitCommitmentProof []byte
+	SplitCommitment *SplitCommitment
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
@@ -164,9 +177,9 @@ func (w Witness) EncodeRecords() []tlv.Record {
 			&w.TxWitness,
 		))
 	}
-	if len(w.SplitCommitmentProof) > 0 {
-		records = append(records, NewWitnessSplitCommitmentProofRecord(
-			&w.SplitCommitmentProof,
+	if w.SplitCommitment != nil {
+		records = append(records, NewWitnessSplitCommitmentRecord(
+			&w.SplitCommitment,
 		))
 	}
 	return records
@@ -178,7 +191,7 @@ func (w *Witness) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		NewWitnessPrevIDRecord(&w.PrevID),
 		NewWitnessTxWitnessRecord(&w.TxWitness),
-		NewWitnessSplitCommitmentProofRecord(&w.SplitCommitmentProof),
+		NewWitnessSplitCommitmentRecord(&w.SplitCommitment),
 	}
 }
 
@@ -313,9 +326,9 @@ func New(genesis *Genesis, amount, locktime, relativeLocktime uint64,
 		RelativeLockTime: relativeLocktime,
 		PrevWitnesses: []Witness{{
 			// Valid genesis asset witness.
-			PrevID:               &PrevID{},
-			TxWitness:            nil,
-			SplitCommitmentProof: nil,
+			PrevID:          &PrevID{},
+			TxWitness:       nil,
+			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       ScriptV0,
@@ -337,9 +350,9 @@ func NewCollectible(genesis *Genesis, locktime, relativeLocktime uint64,
 		RelativeLockTime: relativeLocktime,
 		PrevWitnesses: []Witness{{
 			// Valid genesis asset witness.
-			PrevID:               &PrevID{},
-			TxWitness:            nil,
-			SplitCommitmentProof: nil,
+			PrevID:          &PrevID{},
+			TxWitness:       nil,
+			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       ScriptV0,
@@ -399,14 +412,11 @@ func (a Asset) Copy() *Asset {
 				copy(witnessCopy.TxWitness[i], witnessItem)
 			}
 		}
-		if len(witness.SplitCommitmentProof) > 0 {
-			witnessCopy.SplitCommitmentProof = make(
-				[]byte, len(witness.SplitCommitmentProof),
-			)
-			copy(
-				witnessCopy.SplitCommitmentProof,
-				witness.SplitCommitmentProof,
-			)
+		if witness.SplitCommitment != nil {
+			witnessCopy.SplitCommitment = &SplitCommitment{
+				Proof:     *witness.SplitCommitment.Proof.Copy(),
+				RootAsset: *witness.SplitCommitment.RootAsset.Copy(),
+			}
 		}
 		assetCopy.PrevWitnesses = append(
 			assetCopy.PrevWitnesses, witnessCopy,

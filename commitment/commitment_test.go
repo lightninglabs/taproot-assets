@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -367,4 +368,191 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	)
 	require.NoError(t, err)
 	proveAssets(nonExistentAssetFamily, false, false)
+}
+
+// TestSplitCommitment assets that we can properly create and prove split
+// commitments, testing negative cases along the way.
+func TestSplitCommitment(t *testing.T) {
+	t.Parallel()
+
+	outPoint := wire.OutPoint{}
+	genesis := randGenesis(t)
+	familyKey := randFamilyKey(t, genesis)
+
+	testCases := []struct {
+		name string
+		f    func() (*asset.Asset, *SplitLocator, []*SplitLocator)
+		err  error
+	}{
+		{
+			name: "invalid asset input type",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesis, familyKey, asset.Collectible,
+				)
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      input.Amount,
+				}
+				return input, root, nil
+			},
+			err: ErrInvalidInputType,
+		},
+		{
+			name: "locator duplicate output index",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesis, familyKey, asset.Normal,
+				)
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      input.Amount,
+				}
+				external := []*SplitLocator{root}
+				return input, root, external
+			},
+			err: ErrDuplicateSplitOutputIndex,
+		},
+		{
+			name: "invalid split amount",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesis, familyKey, asset.Normal,
+				)
+				splitAmount := input.Amount / 4
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      splitAmount,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      splitAmount,
+				}}
+				return input, root, external
+			},
+			err: ErrInvalidSplitAmount,
+		},
+		{
+			name: "single input split commitment",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesis, familyKey, asset.Normal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      1,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesis.ID(),
+					ScriptKey:   *randKey(t).PubKey(),
+					Amount:      1,
+				}, {
+
+					OutputIndex: 2,
+					AssetID:     genesis.ID(),
+					ScriptKey:   *randKey(t).PubKey(),
+					Amount:      1,
+				}}
+
+				return input, root, external
+			},
+			err: nil,
+		},
+		{
+			name: "no external splits",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesis, familyKey, asset.Normal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesis.ID(),
+					ScriptKey:   input.ScriptKey,
+					Amount:      1,
+				}
+
+				return input, root, nil
+			},
+			err: ErrInvalidSplitLocator,
+		},
+	}
+
+	for _, testCase := range testCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			input, root, external := testCase.f()
+			split, err := NewSplitCommitment(
+				input, outPoint, root, external...,
+			)
+			require.Equal(t, testCase.err, err)
+
+			if testCase.err != nil {
+				return
+			}
+
+			// Verify that the asset input is well formed within the
+			// InputSet.
+			prevID := asset.PrevID{
+				OutPoint:  outPoint,
+				ID:        genesis.ID(),
+				ScriptKey: input.ScriptKey,
+			}
+			require.Contains(t, split.PrevAssets, prevID)
+			prevAsset := split.PrevAssets[prevID]
+			require.Equal(t, *input, *prevAsset)
+
+			// Verify that the root asset was constructed properly.
+			require.Equal(t, root.AssetID, split.RootAsset.Genesis.ID())
+			require.Equal(t, root.ScriptKey, split.RootAsset.ScriptKey)
+			require.Equal(t, root.Amount, split.RootAsset.Amount)
+			require.Len(t, split.RootAsset.PrevWitnesses, 1)
+			require.NotNil(t, split.RootAsset.PrevWitnesses[0].PrevID)
+			require.Nil(t, split.RootAsset.PrevWitnesses[0].TxWitness)
+			require.Nil(t, split.RootAsset.PrevWitnesses[0].SplitCommitment)
+			require.NotNil(t, split.RootAsset.SplitCommitmentRoot)
+
+			// Verify that each asset split was constructed properly
+			// and has a valid split commitment proof.
+			for _, l := range append(external, root) {
+				require.Contains(t, split.SplitAssets, *l)
+				splitAsset := split.SplitAssets[*l]
+
+				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
+				require.Equal(t, l.ScriptKey, splitAsset.ScriptKey)
+				require.Equal(t, l.Amount, splitAsset.Amount)
+				require.Len(t, splitAsset.PrevWitnesses, 1)
+				require.NotNil(t, splitAsset.PrevWitnesses[0].PrevID)
+				require.Nil(t, splitAsset.PrevWitnesses[0].TxWitness)
+				require.NotNil(t, splitAsset.PrevWitnesses[0].SplitCommitment)
+				require.Nil(t, splitAsset.SplitCommitmentRoot)
+
+				splitAssetNoProof := splitAsset.Copy()
+				splitAssetNoProof.PrevWitnesses[0].SplitCommitment = nil
+				splitLeaf, err := splitAssetNoProof.Leaf()
+				require.NoError(t, err)
+				require.True(t, mssmt.VerifyMerkleProof(
+					l.Hash(), splitLeaf,
+					&splitAsset.PrevWitnesses[0].SplitCommitment.Proof,
+					split.RootAsset.SplitCommitmentRoot,
+				))
+			}
+		})
+		if !success {
+			return
+		}
+	}
 }

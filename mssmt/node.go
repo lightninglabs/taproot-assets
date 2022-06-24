@@ -33,6 +33,9 @@ type Node interface {
 
 	// NodeSum returns the sum commitment of the node.
 	NodeSum() uint64
+
+	// Copy returns a deep copy of the node.
+	Copy() Node
 }
 
 // IsEqualNode determines whether a and b are equal based on their NodeKey and
@@ -81,6 +84,24 @@ func (n *LeafNode) NodeSum() uint64 {
 // IsEmpty returns whether this is an empty leaf.
 func (n *LeafNode) IsEmpty() bool {
 	return len(n.Value) == 0 && n.sum == 0
+}
+
+// Copy returns a deep copy of the leaf node.
+func (n *LeafNode) Copy() Node {
+	var nodeKeyCopy *NodeKey
+	if n.nodeKey != nil {
+		nodeKeyCopy = new(NodeKey)
+		*nodeKeyCopy = *n.nodeKey
+	}
+
+	valueCopy := make([]byte, 0, len(n.Value))
+	copy(valueCopy, n.Value)
+
+	return &LeafNode{
+		nodeKey: nodeKeyCopy,
+		Value:   valueCopy,
+		sum:     n.sum,
+	}
 }
 
 // BranchNode represents an intermediate or root node within a MS-SMT. It
@@ -132,6 +153,29 @@ func (n *BranchNode) NodeSum() uint64 {
 	return sum
 }
 
+// Copy returns a deep copy of the branch node, with its children returned as
+// `ComputedNode`.
+func (n *BranchNode) Copy() Node {
+	var nodeKeyCopy *NodeKey
+	if n.nodeKey != nil {
+		nodeKeyCopy = new(NodeKey)
+		*nodeKeyCopy = *n.nodeKey
+	}
+
+	var sumCopy *uint64
+	if n.sum != nil {
+		sumCopy = new(uint64)
+		*sumCopy = *n.sum
+	}
+
+	return &BranchNode{
+		nodeKey: nodeKeyCopy,
+		Left:    NewComputedNode(n.Left.NodeKey(), n.Left.NodeSum()),
+		Right:   NewComputedNode(n.Right.NodeKey(), n.Right.NodeSum()),
+		sum:     sumCopy,
+	}
+}
+
 // ComputedNode is a node within a MS-SMT that has already had its NodeKey and
 // NodeSum computed, i.e., its preimage is not available.
 type ComputedNode struct {
@@ -153,4 +197,12 @@ func (n ComputedNode) NodeKey() NodeKey {
 // NodeSum returns the sum commitment of the node.
 func (n ComputedNode) NodeSum() uint64 {
 	return n.sum
+}
+
+// Copy returns a deep copy of the branch node.
+func (n ComputedNode) Copy() Node {
+	return ComputedNode{
+		key: n.key,
+		sum: n.sum,
+	}
 }
