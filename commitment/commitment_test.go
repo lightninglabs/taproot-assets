@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +33,11 @@ func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
 	t.Helper()
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
-	familyKey, err := asset.DeriveFamilyKey(privKey, genesis)
+	genSigner := asset.NewRawKeyGenesisSigner(privKey)
+	fakeKeyDesc := keychain.KeyDescriptor{
+		PubKey: privKey.PubKey(),
+	}
+	familyKey, err := asset.DeriveFamilyKey(genSigner, fakeKeyDesc, genesis)
 	require.NoError(t, err)
 	return familyKey
 }
@@ -45,8 +50,10 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 		*amount = rand.Uint64()
 	}
 	return &AssetDetails{
-		Type:             assetType,
-		ScriptKey:        *randKey(t).PubKey(),
+		Type: assetType,
+		ScriptKey: keychain.KeyDescriptor{
+			PubKey: randKey(t).PubKey(),
+		},
 		Amount:           amount,
 		LockTime:         rand.Uint64(),
 		RelativeLockTime: rand.Uint64(),
@@ -63,9 +70,21 @@ func randAsset(t *testing.T, genesis *asset.Genesis, familyKey *asset.FamilyKey,
 	switch assetType {
 	case asset.Normal:
 		units := rand.Uint64() + 1
-		return asset.New(genesis, units, 0, 0, *pubKey, familyKey)
+		return asset.New(
+			genesis, units, 0, 0,
+			keychain.KeyDescriptor{
+				PubKey: pubKey,
+			},
+			familyKey,
+		)
 	case asset.Collectible:
-		return asset.NewCollectible(genesis, 0, 0, *pubKey, familyKey)
+		return asset.NewCollectible(
+			genesis, 0, 0,
+			keychain.KeyDescriptor{
+				PubKey: pubKey,
+			},
+			familyKey,
+		)
 	default:
 		t.Fatal("unhandled asset type", assetType)
 		return nil // unreachable
@@ -164,7 +183,9 @@ func TestMintTaroCommitment(t *testing.T) {
 
 	genesis := randGenesis(t)
 	familyKey := randFamilyKey(t, genesis)
-	pubKey := *randKey(t).PubKey()
+	pubKey := keychain.KeyDescriptor{
+		PubKey: randKey(t).PubKey(),
+	}
 
 	testCases := []struct {
 		name  string
@@ -393,7 +414,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesis.ID(),
-					ScriptKey:   input.ScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      input.Amount,
 				}
 				return input, root, nil
@@ -409,7 +430,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesis.ID(),
-					ScriptKey:   input.ScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      input.Amount,
 				}
 				external := []*SplitLocator{root}
@@ -427,13 +448,13 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesis.ID(),
-					ScriptKey:   input.ScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      splitAmount,
 				}
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesis.ID(),
-					ScriptKey:   input.ScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      splitAmount,
 				}}
 				return input, root, external
@@ -451,7 +472,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesis.ID(),
-					ScriptKey:   input.ScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      1,
 				}
 				external := []*SplitLocator{{
@@ -482,7 +503,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesis.ID(),
-					ScriptKey:   input.ScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      1,
 				}
 
@@ -509,7 +530,7 @@ func TestSplitCommitment(t *testing.T) {
 			prevID := asset.PrevID{
 				OutPoint:  outPoint,
 				ID:        genesis.ID(),
-				ScriptKey: input.ScriptKey,
+				ScriptKey: *input.ScriptKey.PubKey,
 			}
 			require.Contains(t, split.PrevAssets, prevID)
 			prevAsset := split.PrevAssets[prevID]
@@ -517,7 +538,7 @@ func TestSplitCommitment(t *testing.T) {
 
 			// Verify that the root asset was constructed properly.
 			require.Equal(t, root.AssetID, split.RootAsset.Genesis.ID())
-			require.Equal(t, root.ScriptKey, split.RootAsset.ScriptKey)
+			require.Equal(t, root.ScriptKey, *split.RootAsset.ScriptKey.PubKey)
 			require.Equal(t, root.Amount, split.RootAsset.Amount)
 			require.Len(t, split.RootAsset.PrevWitnesses, 1)
 			require.NotNil(t, split.RootAsset.PrevWitnesses[0].PrevID)
@@ -532,7 +553,7 @@ func TestSplitCommitment(t *testing.T) {
 				splitAsset := split.SplitAssets[*l]
 
 				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
-				require.Equal(t, l.ScriptKey, splitAsset.ScriptKey)
+				require.Equal(t, l.ScriptKey, *splitAsset.ScriptKey.PubKey)
 				require.Equal(t, l.Amount, splitAsset.Amount)
 				require.Len(t, splitAsset.PrevWitnesses, 1)
 				require.NotNil(t, splitAsset.PrevWitnesses[0].PrevID)

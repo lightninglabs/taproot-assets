@@ -86,16 +86,16 @@ func OutPointDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 }
 
 func SchnorrPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*btcec.PublicKey); ok {
+	if t, ok := val.(**btcec.PublicKey); ok {
 		var keyBytes [schnorr.PubKeyBytesLen]byte
-		copy(keyBytes[:], schnorr.SerializePubKey(t))
+		copy(keyBytes[:], schnorr.SerializePubKey(*t))
 		return tlv.EBytes32(w, &keyBytes, buf)
 	}
-	return tlv.NewTypeForEncodingErr(val, "btcec.PublicKey")
+	return tlv.NewTypeForEncodingErr(val, "*btcec.PublicKey")
 }
 
 func SchnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*btcec.PublicKey); ok {
+	if typ, ok := val.(**btcec.PublicKey); ok {
 		var keyBytes [schnorr.PubKeyBytesLen]byte
 		err := tlv.DBytes32(r, &keyBytes, buf, schnorr.PubKeyBytesLen)
 		if err != nil {
@@ -111,11 +111,11 @@ func SchnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 				return err
 			}
 		}
-		*typ = *key
+		*typ = key
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(
-		val, "btcec.PublicKey", l, schnorr.PubKeyBytesLen,
+		val, "*btcec.PublicKey", l, schnorr.PubKeyBytesLen,
 	)
 }
 
@@ -258,12 +258,13 @@ func PrevIDEncoder(w io.Writer, val any, buf *[8]byte) error {
 		if err := IDEncoder(w, &(**t).ID, buf); err != nil {
 			return err
 		}
-		return SchnorrPubKeyEncoder(w, &(**t).ScriptKey, buf)
+		scriptKey := &(**t).ScriptKey
+		return SchnorrPubKeyEncoder(w, &scriptKey, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*PrevID")
 }
 
-func PrevIDDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
+func PrevIDDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	if typ, ok := val.(**PrevID); ok {
 		var prevID PrevID
 		err := OutPointDecoder(r, &prevID.OutPoint, buf, 0)
@@ -273,16 +274,18 @@ func PrevIDDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err = IDDecoder(r, &prevID.ID, buf, sha256.Size); err != nil {
 			return err
 		}
+		var scriptKey *btcec.PublicKey
 		err = SchnorrPubKeyDecoder(
-			r, &prevID.ScriptKey, buf, schnorr.PubKeyBytesLen,
+			r, &scriptKey, buf, schnorr.PubKeyBytesLen,
 		)
 		if err != nil {
 			return err
 		}
+		prevID.ScriptKey = *scriptKey
 		*typ = &prevID
 		return nil
 	}
-	return tlv.NewTypeForEncodingErr(val, "*PrevID")
+	return tlv.NewTypeForDecodingErr(val, "*PrevID", l, l)
 }
 
 func TxWitnessEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -466,7 +469,7 @@ func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 
 func FamilyKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**FamilyKey); ok {
-		key := (*t).Key
+		key := &(*t).FamKey
 		if err := SchnorrPubKeyEncoder(w, &key, buf); err != nil {
 			return err
 		}
@@ -478,9 +481,12 @@ func FamilyKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 
 func FamilyKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 	if typ, ok := val.(**FamilyKey); ok {
-		var familyKey FamilyKey
+		var (
+			familyKey FamilyKey
+			famKey    *btcec.PublicKey
+		)
 		err := SchnorrPubKeyDecoder(
-			r, &familyKey.Key, buf, schnorr.PubKeyBytesLen,
+			r, &famKey, buf, schnorr.PubKeyBytesLen,
 		)
 		if err != nil {
 			return err
@@ -491,6 +497,7 @@ func FamilyKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+		familyKey.FamKey = *famKey
 		*typ = &familyKey
 		return nil
 	}

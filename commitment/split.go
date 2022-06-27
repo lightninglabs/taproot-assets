@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -120,7 +121,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	prevID := &asset.PrevID{
 		OutPoint:  outPoint,
 		ID:        input.Genesis.ID(),
-		ScriptKey: input.ScriptKey,
+		ScriptKey: *input.ScriptKey.PubKey,
 	}
 	if input.Type != asset.Normal {
 		return nil, ErrInvalidInputType
@@ -154,7 +155,10 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 
 		assetSplit := input.Copy()
 		assetSplit.Amount = locator.Amount
-		assetSplit.ScriptKey = locator.ScriptKey
+		assetSplit.ScriptKey = keychain.KeyDescriptor{
+			// TODO(roasbeef): other info not needed here?
+			PubKey: &locator.ScriptKey,
+		}
 		assetSplit.PrevWitnesses = []asset.Witness{{
 			PrevID:          prevID,
 			TxWitness:       nil,

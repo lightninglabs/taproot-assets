@@ -158,6 +158,17 @@ func (c TaroCommitment) Proof(taroCommitmentKey,
 	return asset, proof
 }
 
+// CommittedAssets returns the set of assets committed to in the taro
+// commitment.
+func (c TaroCommitment) CommittedAssets() []*asset.Asset {
+	var assets []*asset.Asset
+	for _, commitment := range c.assetCommitments {
+		assets = append(assets, commitment.Assets()...)
+	}
+
+	return assets
+}
+
 // tapBranchHash takes the tap hashes of the left and right nodes and hashes
 // them into a branch.
 func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {

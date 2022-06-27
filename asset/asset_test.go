@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,8 +105,13 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       1,
-		ScriptKey:           *pubKey,
-		FamilyKey:           &FamilyKey{Key: *pubKey, Sig: *sig},
+		ScriptKey: keychain.KeyDescriptor{
+			PubKey: pubKey,
+		},
+		FamilyKey: &FamilyKey{
+			FamKey: *pubKey,
+			Sig:    *sig,
+		},
 	}
 	root := &Asset{
 		Version:          1,
@@ -128,8 +134,13 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
-		ScriptKey:           *pubKey,
-		FamilyKey:           &FamilyKey{Key: *pubKey, Sig: *sig},
+		ScriptKey: keychain.KeyDescriptor{
+			PubKey: pubKey,
+		},
+		FamilyKey: &FamilyKey{
+			FamKey: *pubKey,
+			Sig:    *sig,
+		},
 	}
 	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
 		Proof:     *mssmt.NewProof(mssmt.EmptyTree[:mssmt.MaxTreeLevels]),
@@ -174,7 +185,9 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       2,
-		ScriptKey:           *pubKey,
-		FamilyKey:           nil,
+		ScriptKey: keychain.KeyDescriptor{
+			PubKey: pubKey,
+		},
+		FamilyKey: nil,
 	})
 }
