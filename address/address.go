@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 
@@ -18,6 +17,32 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+var (
+	// ErrUnsupportedHRP is an error returned when we attempt to encode a Taro
+	// address with an HRP for a network without Taro support.
+	ErrUnsupportedHRP = errors.New(
+		"address: Unsupported HRP value",
+	)
+
+	// ErrInvalidBech32m is an error returned when we attempt to decode
+	// a Taro address from a string that is not a valid bech32m string.
+	ErrInvalidBech32m = errors.New(
+		"address: Invalid bech32m string",
+	)
+
+	// ErrMissingInputAsset is an error returned when we attempt to spend to a
+	// Taro address from an input that does not contain the matching asset.
+	ErrMissingInputAsset = errors.New(
+		"address: Input does not contain requested asset",
+	)
+
+	// ErrInsufficientInputAsset is an error returned when we attempt to spend
+	// to a Taro address from an input that contains insufficient asset funds.
+	ErrInsufficientInputAsset = errors.New(
+		"address: Input asset value is insufficient",
+	)
 )
 
 // Human-readable prefixes for bech32m encoded addresses for each network.
@@ -159,89 +184,90 @@ func (a AddressTLV) CreateAssetSpend(privKey btcec.PrivateKey,
 	input asset.PrevID, inputCommitment *commitment.TaroCommitment) (
 	*asset.Asset, *asset.Asset, *commitment.SplitCommitment, error,
 ) {
-	inputAsset := a.isValidInput(inputCommitment, input.ScriptKey)
-	if inputAsset != nil {
-		// To validate the transfer, we need the input and output assets, and
-		// optionally a split commitment plus all created splits.
-		var splitCommitment *commitment.SplitCommitment
-		var newAsset *asset.Asset
-		var inputAssets commitment.InputSet
-		var splitAssets commitment.SplitSet
-		// If our asset is a Collectible, or a Normal asset where the requested
-		// amount exactly matches the input amount, we don't need a split.
-		if a.Type == asset.Collectible || a.Amount == inputAsset.Amount {
-			splitCommitment = nil
-			splitAssets = nil
-			newAsset = inputAsset.Copy()
-			newAsset.ScriptKey = a.ScriptKey
-			newAsset.PrevWitnesses = []asset.Witness{{
-				PrevID:          &input,
-				TxWitness:       nil,
-				SplitCommitment: nil,
-			}}
-			inputAssets = commitment.InputSet{input: inputAsset}
-		} else {
-			// NOTE: Default to using the first output for asset change,
-			// and the second output for the receiver.
-			changeLocator := commitment.SplitLocator{
-				OutputIndex: 0,
-				AssetID:     a.ID,
-				ScriptKey:   input.ScriptKey,
-				Amount:      inputAsset.Amount - a.Amount,
-			}
-			receiverLocator := commitment.SplitLocator{
-				OutputIndex: 1,
-				AssetID:     a.ID,
-				ScriptKey:   a.ScriptKey,
-				Amount:      a.Amount,
-			}
-			var err error
-			splitCommitment, err = commitment.NewSplitCommitment(
-				inputAsset, input.OutPoint, &changeLocator, &receiverLocator,
-			)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			newAsset = splitCommitment.RootAsset
-			inputAssets = splitCommitment.PrevAssets
-			splitAssets = splitCommitment.SplitAssets
+	inputAsset, err := a.isValidInput(inputCommitment, input.ScriptKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// To validate the transfer, we need the input and output assets, and
+	// optionally a split commitment plus all created splits.
+
+	var (
+		splitCommitment *commitment.SplitCommitment
+		newAsset        *asset.Asset
+		inputAssets     commitment.InputSet
+		splitAssets     commitment.SplitSet
+		splitErr        error
+	)
+
+	// If our asset is a Collectible, or a Normal asset where the requested
+	// amount exactly matches the input amount, we don't need a split.
+	if a.Type == asset.Collectible || a.Amount == inputAsset.Amount {
+		newAsset = inputAsset.Copy()
+		newAsset.ScriptKey = a.ScriptKey
+		newAsset.PrevWitnesses = []asset.Witness{{
+			PrevID:          &input,
+			TxWitness:       nil,
+			SplitCommitment: nil,
+		}}
+		inputAssets = commitment.InputSet{input: inputAsset}
+	} else {
+		// NOTE: Default to using the first output for asset change,
+		// and the second output for the receiver.
+		changeLocator := commitment.SplitLocator{
+			OutputIndex: 0,
+			AssetID:     a.ID,
+			ScriptKey:   input.ScriptKey,
+			Amount:      inputAsset.Amount - a.Amount,
 		}
-		// With the desired output assets and split commitment, sign a witness
-		// for the transfer and validate with the Taro VM.
-		virtualTx, _, err := vm.VirtualTx(newAsset, inputAssets)
-		if err != nil {
-			return nil, nil, nil, err
+		receiverLocator := commitment.SplitLocator{
+			OutputIndex: 1,
+			AssetID:     a.ID,
+			ScriptKey:   a.ScriptKey,
+			Amount:      a.Amount,
 		}
-		newWitness, err := signVirtualKeySpend(
-			privKey, virtualTx, inputAsset, 0,
+		splitCommitment, splitErr = commitment.NewSplitCommitment(
+			inputAsset, input.OutPoint, &changeLocator, &receiverLocator,
 		)
+		if splitErr != nil {
+			return nil, nil, nil, splitErr
+		}
+		newAsset = splitCommitment.RootAsset
+		inputAssets = splitCommitment.PrevAssets
+		splitAssets = splitCommitment.SplitAssets
+	}
+	// With the desired output assets and split commitment, sign a witness
+	// for the transfer and validate with the Taro VM.
+	virtualTx, _, err := vm.VirtualTx(newAsset, inputAssets)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	newWitness, err := signVirtualKeySpend(
+		privKey, virtualTx, inputAsset, 0,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	newAsset.PrevWitnesses[0].TxWitness = *newWitness
+	if len(splitAssets) == 0 {
+		vm, err := vm.New(newAsset, nil, inputAssets)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		newAsset.PrevWitnesses[0].TxWitness = *newWitness
-		if len(splitAssets) == 0 {
-			vm, err := vm.New(newAsset, nil, inputAssets)
+		if vm.Execute() != nil {
+			return nil, nil, nil, err
+		}
+	} else {
+		for _, splitAsset := range splitAssets {
+			vm, err := vm.New(newAsset, splitAsset, inputAssets)
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			if vm.Execute() != nil {
 				return nil, nil, nil, err
 			}
-		} else {
-			for _, splitAsset := range splitAssets {
-				vm, err := vm.New(newAsset, splitAsset, inputAssets)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-				if vm.Execute() != nil {
-					return nil, nil, nil, err
-				}
-			}
 		}
-		return inputAsset, newAsset, splitCommitment, nil
-
 	}
-	return nil, nil, nil, errors.New("address spend: input asset mismatch")
+	return inputAsset, newAsset, splitCommitment, nil
 }
 
 // isValidInput verifies that the Taro commitment of the input contains an
@@ -249,7 +275,7 @@ func (a AddressTLV) CreateAssetSpend(privKey btcec.PrivateKey,
 // should produce a proof of inclusion for the asset specified in the address,
 // at a location controlled by the sender.
 func (a AddressTLV) isValidInput(input *commitment.TaroCommitment,
-	inputScriptKey btcec.PublicKey) *asset.Asset {
+	inputScriptKey btcec.PublicKey) (*asset.Asset, error) {
 	taroCommitmentKey := a.TaroCommitmentKey()
 	inputAssetCommitmentKey := AssetCommitmentKey(a.ID,
 		inputScriptKey, a.FamilyKey)
@@ -259,11 +285,11 @@ func (a AddressTLV) isValidInput(input *commitment.TaroCommitment,
 		// specified in the address. This check does not apply to Collectibles.
 		if inputProof.Asset.Type == asset.Normal &&
 			inputProof.Asset.Amount < a.Amount {
-			return nil
+			return nil, ErrInsufficientInputAsset
 		}
-		return inputProof.Asset
+		return inputProof.Asset, nil
 	}
-	return nil
+	return nil, ErrMissingInputAsset
 }
 
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
@@ -367,7 +393,7 @@ func (a AddressTaro) EncodeAddress() (string, error) {
 		}
 		return bech, nil
 	} else {
-		return "", fmt.Errorf("unsupported hrp value %s", a.hrp)
+		return "", ErrUnsupportedHRP
 	}
 }
 
@@ -408,5 +434,5 @@ func DecodeAddress(addr string) (*AddressTaro, error) {
 			return &a, nil
 		}
 	}
-	return nil, fmt.Errorf("invalid bech32m string")
+	return nil, ErrInvalidBech32m
 }
