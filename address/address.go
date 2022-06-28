@@ -2,7 +2,6 @@ package address
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -130,16 +129,13 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
 // asset or asset family within a TaroCommitment.
 func (a AddressTLV) TaroCommitmentKey() [32]byte {
-	if a.FamilyKey == nil {
-		return a.ID
-	}
-	return sha256.Sum256(schnorr.SerializePubKey(a.FamilyKey))
+	return asset.TaroCommitmentKey(a.ID, a.FamilyKey)
 }
 
 // AssetCommitmentKey computes the key that maps to the location in the Taro
 // asset tree where the sender creates a new asset leaf for the receiver.
 func (a AddressTLV) AssetCommitmentKey() [32]byte {
-	return AssetCommitmentKey(a.ID, a.ScriptKey, a.FamilyKey)
+	return asset.AssetCommitmentKey(a.ID, &a.ScriptKey, a.FamilyKey)
 }
 
 // TapLeaf constructs a 'TapLeaf' for this address, tagged with a Taro marker.
@@ -277,9 +273,10 @@ func (a AddressTLV) CreateAssetSpend(privKey btcec.PrivateKey,
 func (a AddressTLV) isValidInput(input *commitment.TaroCommitment,
 	inputScriptKey btcec.PublicKey) (*asset.Asset, error) {
 	taroCommitmentKey := a.TaroCommitmentKey()
-	inputAssetCommitmentKey := AssetCommitmentKey(a.ID,
-		inputScriptKey, a.FamilyKey)
+	inputAssetCommitmentKey := asset.AssetCommitmentKey(a.ID,
+		&inputScriptKey, a.FamilyKey)
 	inputProof := input.Proof(taroCommitmentKey, inputAssetCommitmentKey)
+
 	if inputProof.ProvesAssetInclusion() {
 		// Check that the input asset amount is at least as large as the amount
 		// specified in the address. This check does not apply to Collectibles.
@@ -290,19 +287,6 @@ func (a AddressTLV) isValidInput(input *commitment.TaroCommitment,
 		return inputProof.Asset, nil
 	}
 	return nil, ErrMissingInputAsset
-}
-
-// AssetCommitmentKey is the key that maps to a specific owner of an asset
-// within a Taro AssetCommitment.
-func AssetCommitmentKey(assetID asset.ID, scriptKey btcec.PublicKey,
-	familyKey *btcec.PublicKey) [32]byte {
-	if familyKey == nil {
-		return sha256.Sum256(schnorr.SerializePubKey(&scriptKey))
-	}
-	h := sha256.New()
-	_, _ = h.Write(assetID[:])
-	_, _ = h.Write(schnorr.SerializePubKey(&scriptKey))
-	return *(*[32]byte)(h.Sum(nil))
 }
 
 // signVirtualKeySpend generates a signature over a Taro virtual transaction,
