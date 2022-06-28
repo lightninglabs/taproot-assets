@@ -442,8 +442,8 @@ type FetchAllAssetsRow struct {
 	GenesisSig         []byte
 	TweakedFamKey      []byte
 	FamKeyRaw          []byte
-	FamKeyFamily       int32
-	FamKeyIndex        int32
+	FamKeyFamily       sql.NullInt32
+	FamKeyIndex        sql.NullInt32
 	ScriptVersion      int32
 	Amount             int64
 	LockTime           sql.NullInt32
@@ -614,8 +614,8 @@ type FetchAssetsForBatchRow struct {
 	GenesisSig         []byte
 	TweakedFamKey      []byte
 	FamKeyRaw          []byte
-	FamKeyFamily       int32
-	FamKeyIndex        int32
+	FamKeyFamily       sql.NullInt32
+	FamKeyIndex        sql.NullInt32
 	ScriptVersion      int32
 	Amount             int64
 	LockTime           sql.NullInt32
