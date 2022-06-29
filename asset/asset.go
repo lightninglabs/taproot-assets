@@ -259,6 +259,42 @@ type FamilyKey struct {
 	Sig schnorr.Signature
 }
 
+// IsEqual returns true if this family key is equivalent to the passed other
+// family key.
+func (f *FamilyKey) IsEqual(otherFamilyKey *FamilyKey) bool {
+	// If this key is nil, the other must be nil too.
+	if f == nil {
+		return otherFamilyKey == nil
+	}
+
+	// This key is non nil, other must be non nil too.
+	if otherFamilyKey == nil {
+		return false
+	}
+
+	// Make sure the RawKey keylocators are equivalent.
+	if f.RawKey.KeyLocator != otherFamilyKey.RawKey.KeyLocator {
+		return false
+	}
+
+	if f.RawKey.PubKey != nil && otherFamilyKey.RawKey.PubKey == nil {
+		return false
+	}
+
+	if f.RawKey.PubKey == nil && otherFamilyKey.RawKey.PubKey != nil {
+		return false
+	}
+
+	// At this point either both RawKey pubkeys are nil or they should be
+	// equivalent.
+	rawKeyPubEqual := f.RawKey.PubKey == otherFamilyKey.RawKey.PubKey ||
+		f.RawKey.PubKey.IsEqual(otherFamilyKey.RawKey.PubKey)
+
+	return rawKeyPubEqual &&
+		f.FamKey.IsEqual(&otherFamilyKey.FamKey) &&
+		f.Sig.IsEqual(&otherFamilyKey.Sig)
+}
+
 // GenesisSigner is used to sign the assetID using the family key public key
 // for a given asset.
 type GenesisSigner interface {

@@ -81,7 +81,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	assetFamilyKey := assets[0].FamilyKey
 	assetsMap := make(map[[32]byte]*asset.Asset, len(assets))
 	for _, asset := range assets {
-		if assetFamilyKey != asset.FamilyKey {
+		if !assetFamilyKey.IsEqual(asset.FamilyKey) {
 			return nil, ErrAssetFamilyKeyMismatch
 		}
 		if assetFamilyKey == nil && assetGenesis != asset.Genesis.ID() {
