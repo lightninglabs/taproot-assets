@@ -2,7 +2,6 @@ package address
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"io"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
@@ -141,12 +141,11 @@ type PotentialSpend struct {
 // A collection of structs created by validating a potential spend, that are
 // used to commit to the spend in a Bitcoin transaction.
 type ValidatedSpend struct {
-	InputAsset      *asset.Asset
-	inputCommitment *commitment.TaroCommitment
-	validatedAsset  *asset.Asset
-	SplitCommitment *commitment.SplitCommitment
-	ChangeLocator   *commitment.SplitLocator
-	ReceiverLocator *commitment.SplitLocator
+	SenderCommitment   *commitment.TaroCommitment
+	ReceiverCommitment *commitment.TaroCommitment
+	SplitCommitment    *commitment.SplitCommitment
+	ChangeLocator      *commitment.SplitLocator
+	ReceiverLocator    *commitment.SplitLocator
 }
 
 // New creates an address for receiving a Taro asset.
@@ -184,35 +183,18 @@ func (a AddressTLV) AssetCommitmentKey() [32]byte {
 	return asset.AssetCommitmentKey(a.ID, &a.ScriptKey, a.FamilyKey)
 }
 
-// TapLeaf constructs a 'TapLeaf' for this address, tagged with a Taro marker.
-func (a *AddressTLV) TapLeaf() txscript.TapLeaf {
-	var assetAmount [8]byte
-	binary.BigEndian.PutUint64(assetAmount[:], a.Amount)
-	// NOTE: What is meant by 'Taro leaf'? Just a script with a prefix of Taro marker
-	// and Taro version byte? Similar to the root hash for an asset tree
-	addressParts := [][]byte{
-		commitment.TaroMarker[:], {byte(a.Version)}, a.ID[:],
-		{byte(a.Type)}, assetAmount[:], {byte(TaroScriptVersion)},
-		schnorr.SerializePubKey(&a.ScriptKey),
-		schnorr.SerializePubKey(a.FamilyKey),
-	}
-	addressScript := bytes.Join(addressParts, nil)
-	addressTapLeaf := txscript.NewBaseTapLeaf(addressScript)
-
-	return addressTapLeaf
-}
-
-// TaprootScript construct a P2TR script for a Taro address. This script is
-// spent to by the asset sender, and reconstructed by the receiver.
-func (a *AddressTLV) TaprootScript() ([]byte, error) {
-	addressTapLeaf := a.TapLeaf()
-	addressTapRoot := txscript.AssembleTaprootScriptTree(addressTapLeaf).
-		RootNode.TapHash()
-	addressOutputKey := txscript.ComputeTaprootOutputKey(&a.InternalKey,
-		addressTapRoot[:])
+// PayToAddrScript constructs a P2TR script that embeds a Taro commitment
+// by tweaking the receiver key by a Tapscript tree that contains the Taro
+// commitment root. The Taro commitment must be reconstructed by the receiver,
+// and they also need to Tapscript sibling hash used here if present.
+func PayToAddrScript(internalKey *btcec.PublicKey, sibling *chainhash.Hash,
+	commitment *commitment.TaroCommitment) ([]byte, error) {
+	tapscriptRoot := commitment.TapscriptRoot(sibling)
+	outputKey := txscript.ComputeTaprootOutputKey(internalKey,
+		tapscriptRoot[:])
 	return txscript.NewScriptBuilder().
 		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(addressOutputKey)).
+		AddData(schnorr.SerializePubKey(outputKey)).
 		Script()
 }
 
@@ -354,10 +336,38 @@ func CreateAssetSpend(privKey *btcec.PrivateKey, input asset.PrevID,
 		return nil, err
 	}
 
-	// Pass along the data needed to create new Taro commitment trees and
-	// create the final Bitcoin transaction including the asset transfer.
-	validSpend := ValidatedSpend{newSpend.InputAsset, inputCommitment,
-		validatedAsset, newSpend.SplitCommitment, newSpend.ChangeLocator,
+	// Remove the spent Asset from the AssetCommitment of the sender.
+	senderCommitment, _ := inputCommitment.Asset(addr.TaroCommitmentKey())
+	err = senderCommitment.Update(newSpend.InputAsset, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the change from the asset split to the AssetCommitment of the sender
+	// if present.
+	if newSpend.SplitCommitment != nil {
+		changeAsset := newSpend.SplitAssets[*newSpend.ChangeLocator].Asset
+		err = senderCommitment.Update(&changeAsset, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Update the TaroCommitment of the sender.
+	senderTaroCommitment := inputCommitment
+	senderTaroCommitment.Update(senderCommitment, false)
+
+	// Create a Taro tree for the receiver.
+	validatedCommitment, err := commitment.NewAssetCommitment(validatedAsset)
+	if err != nil {
+		return nil, err
+	}
+	receiverTaroCommitment := commitment.NewTaroCommitment(validatedCommitment)
+
+	// Provide the data needed to embed the asset spend in a Bitcoin
+	// Bitcoin transaction and send necessary proofs to the receiver.
+	validSpend := ValidatedSpend{senderTaroCommitment, receiverTaroCommitment,
+		newSpend.SplitCommitment, newSpend.ChangeLocator,
 		newSpend.ReceiverLocator}
 
 	return &validSpend, nil
