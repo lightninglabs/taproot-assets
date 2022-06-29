@@ -60,6 +60,134 @@ func assertAssetEqual(t *testing.T, a, b *Asset) {
 	require.Equal(t, a.FamilyKey, b.FamilyKey)
 }
 
+// TestFamilyKeyIsEqual tests that FamilyKey.IsEqual is correct.
+func TestFamilyKeyIsEqual(t *testing.T) {
+	t.Parallel()
+
+	testKey := &FamilyKey{
+		RawKey: keychain.KeyDescriptor{
+			// Fill in some non-defaults.
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyMultiSig,
+				Index:  1,
+			},
+			PubKey: pubKey,
+		},
+		FamKey: *pubKey,
+		Sig:    *sig,
+	}
+
+	pubKeyCopy := *pubKey
+
+	tests := []struct {
+		a, b  *FamilyKey
+		equal bool
+	}{
+		{
+			a:     nil,
+			b:     nil,
+			equal: true,
+		},
+		{
+			a:     &FamilyKey{},
+			b:     &FamilyKey{},
+			equal: true,
+		},
+		{
+			a:     nil,
+			b:     &FamilyKey{},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &FamilyKey{
+				FamKey: *pubKey,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &FamilyKey{
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &FamilyKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+					PubKey:     nil,
+				},
+
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &FamilyKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: &pubKeyCopy,
+				},
+
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &FamilyKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+					PubKey:     &pubKeyCopy,
+				},
+
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			equal: true,
+		},
+		{
+			a: &FamilyKey{
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			b: &FamilyKey{
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			equal: true,
+		},
+		{
+			a: &FamilyKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+				},
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			b: &FamilyKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+				},
+				FamKey: testKey.FamKey,
+				Sig:    testKey.Sig,
+			},
+			equal: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+		require.Equal(t, testCase.equal, testCase.a.IsEqual(testCase.b))
+		require.Equal(t, testCase.equal, testCase.b.IsEqual(testCase.a))
+	}
+}
+
 // TestAssetEncoding asserts that we can properly encode and decode assets
 // through their TLV serialization.
 func TestAssetEncoding(t *testing.T) {

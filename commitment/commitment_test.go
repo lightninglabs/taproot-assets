@@ -99,6 +99,11 @@ func TestNewAssetCommitment(t *testing.T) {
 	genesis2 := randGenesis(t)
 	familyKey1 := randFamilyKey(t, genesis1)
 	familyKey2 := randFamilyKey(t, genesis2)
+	copyOfFamilyKey1 := &asset.FamilyKey{
+		RawKey: familyKey1.RawKey,
+		FamKey: familyKey1.FamKey,
+		Sig:    familyKey1.Sig,
+	}
 
 	testCases := []struct {
 		name string
@@ -150,7 +155,7 @@ func TestNewAssetCommitment(t *testing.T) {
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
 					randAsset(t, genesis1, familyKey1, asset.Normal),
-					randAsset(t, genesis1, familyKey1, asset.Collectible),
+					randAsset(t, genesis1, copyOfFamilyKey1, asset.Collectible),
 				}
 			},
 			err: nil,
