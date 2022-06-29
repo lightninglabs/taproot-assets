@@ -137,6 +137,51 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 	return commitment, nil
 }
 
+// Update modifies one entry in the AssetCommitment by inserting or deleting it
+// in the inner MS-SMT and adding or deleting it in the internal asset map.
+func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
+	if asset == nil {
+		return ErrNoAssets
+	}
+
+	// The given Asset must have an ID that matches the AssetCommitment ID.
+	// The AssetCommitment ID is either a hash of the familyKey, or the ID
+	// of all the assets in the AssetCommitment.
+	if asset.FamilyKey != nil {
+		familyKeyHash := sha256.Sum256(
+			schnorr.SerializePubKey(&asset.FamilyKey.Key),
+		)
+		if familyKeyHash != c.AssetID {
+			return ErrAssetFamilyKeyMismatch
+		}
+	}
+	if asset.FamilyKey == nil && asset.Genesis.ID() != c.AssetID {
+		return ErrAssetGenesisMismatch
+	}
+
+	key := asset.AssetCommitmentKey()
+	leaf := mssmt.EmptyLeafNode
+
+	var err error
+	if !deletion {
+		leaf, err = asset.Leaf()
+		if err != nil {
+			return err
+		}
+	}
+
+	c.tree.Insert(key, leaf)
+	c.TreeRoot = c.tree.Root()
+
+	if leaf.IsEmpty() {
+		delete(c.assets, key)
+	} else {
+		c.assets[key] = asset
+	}
+
+	return nil
+}
+
 // Root computes the root identifier required to commit to this specific asset
 // commitment within the outer commitment, also known as the Taro commitment.
 func (c AssetCommitment) Root() [sha256.Size]byte {

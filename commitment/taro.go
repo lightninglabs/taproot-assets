@@ -74,6 +74,32 @@ func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 	}
 }
 
+// Update modifies one entry in the TaroCommitment by inserting or deleting
+// it in the inner MS-SMT and adding or deleting it in the internal
+// AssetCommitment map.
+func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) {
+	if asset == nil {
+		// TODO(jhb): Concrete error types
+		panic("taro commitment update is missing asset commitment")
+	}
+
+	key := asset.TaroCommitmentKey()
+	leaf := mssmt.EmptyLeafNode
+
+	if !deletion {
+		leaf = asset.TaroCommitmentLeaf()
+	}
+
+	c.tree.Insert(key, leaf)
+	c.TreeRoot = c.tree.Root()
+
+	if leaf.IsEmpty() {
+		delete(c.assetCommitments, key)
+	} else {
+		c.assetCommitments[key] = asset
+	}
+}
+
 // NewTaroCommitmentWithRoot creates a new Taro commitment backed by the root
 // node. The resulting commitment will not be able to compute merkle proofs as
 // it only knows of the tree's root node, and not the tree itself.
