@@ -161,6 +161,14 @@ func (c TaroCommitment) Proof(taroCommitmentKey,
 	return proof
 }
 
+// Asset returns the AssetCommitment located at 'taroCommitmentKey'.
+// This function is safe to use even if the TaroCommitment tree is empty,
+// such as when constructed with NewTaroCommitmentWIthRoot.
+func (c TaroCommitment) Asset(taroCommitmentKey [32]byte) (*AssetCommitment, bool) {
+	assetCommitment, ok := c.assetCommitments[taroCommitmentKey]
+	return assetCommitment, ok
+}
+
 // tapBranchHash takes the tap hashes of the left and right nodes and hashes
 // them into a branch.
 func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {

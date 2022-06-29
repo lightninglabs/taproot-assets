@@ -267,26 +267,32 @@ func (a AddressTLV) CreateAssetSpend(privKey btcec.PrivateKey,
 }
 
 // isValidInput verifies that the Taro commitment of the input contains an
-// asset that could be spent to the given Taro address. The input commitment
-// should produce a proof of inclusion for the asset specified in the address,
-// at a location controlled by the sender.
-func (a AddressTLV) isValidInput(input *commitment.TaroCommitment,
-	inputScriptKey btcec.PublicKey) (*asset.Asset, error) {
-	taroCommitmentKey := a.TaroCommitmentKey()
-	inputAssetCommitmentKey := asset.AssetCommitmentKey(a.ID,
-		&inputScriptKey, a.FamilyKey)
-	inputProof := input.Proof(taroCommitmentKey, inputAssetCommitmentKey)
-
-	if inputProof.ProvesAssetInclusion() {
-		// Check that the input asset amount is at least as large as the amount
-		// specified in the address. This check does not apply to Collectibles.
-		if inputProof.Asset.Type == asset.Normal &&
-			inputProof.Asset.Amount < a.Amount {
-			return nil, ErrInsufficientInputAsset
-		}
-		return inputProof.Asset, nil
+// asset that could be spent to the given Taro address.
+func isValidInput(input *commitment.TaroCommitment,
+	inputScriptKey btcec.PublicKey, address AddressTLV) (*asset.Asset, error) {
+	// The top-level Taro tree must have a non-empty asset tree at the leaf
+	// specified in the address.
+	taroCommitmentKey := address.TaroCommitmentKey()
+	assetCommitment, ok := input.Asset(taroCommitmentKey)
+	if !ok {
+		return nil, ErrMissingInputAsset
 	}
-	return nil, ErrMissingInputAsset
+
+	// The asset tree must have a non-empty Asset at the location
+	// specified by the sender's script key.
+	assetCommitmentKey := asset.AssetCommitmentKey(address.ID,
+		&inputScriptKey, address.FamilyKey)
+	inputAsset, _ := assetCommitment.AssetProof(assetCommitmentKey)
+	if inputAsset == nil {
+		return nil, ErrMissingInputAsset
+	}
+
+	// For Normal assets, we also check that the input asset amount is at least
+	// as large as the amount specified in the address.
+	if inputAsset.Type == asset.Normal && inputAsset.Amount < address.Amount {
+		return nil, ErrInsufficientInputAsset
+	}
+	return inputAsset, nil
 }
 
 // signVirtualKeySpend generates a signature over a Taro virtual transaction,
