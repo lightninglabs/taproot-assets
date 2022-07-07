@@ -48,16 +48,18 @@ func isValidGenesisWitness(asset *asset.Asset) bool {
 	if len(asset.PrevWitnesses) != 1 {
 		return false
 	}
+
 	witness := asset.PrevWitnesses[0]
 	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
 		witness.SplitCommitment != nil {
 		return false
 	}
+
 	return *witness.PrevID == zeroPrevID
 }
 
-// matchesPrevGenesis determines whether certain key parameters of the new asset
-// continue to hold its previous genesis.
+// matchesPrevGenesis determines whether certain key parameters of the new
+// asset continue to hold its previous genesis.
 func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
 	tag string, prevAsset *asset.Asset) bool {
 
@@ -80,17 +82,19 @@ func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
 		if !familyKey.IsEqual(prevAsset.FamilyKey) {
 			return false
 		}
+
 		// Matched ID and FamilyKey, there's still hope!
 		return tag == prevAsset.Genesis.Tag
 
 	// How did we get here?
 	default:
+		// TODO(roasbeef): actually make into an error?
 		panic("unreachable")
 	}
 }
 
-// matchesAssetParams ensures that a new asset continues to adhere to the static
-// parameters of its predecessor.
+// matchesAssetParams ensures that a new asset continues to adhere to the
+// static parameters of its predecessor.
 func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 	prevAssetWitness *asset.Witness) error {
 
@@ -98,15 +102,18 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 	if !prevAssetWitness.PrevID.ScriptKey.IsEqual(scriptKey) {
 		return newErrKind(ErrScriptKeyMismatch)
 	}
+
 	if !matchesPrevGenesis(
 		prevAssetWitness.PrevID.ID, newAsset.FamilyKey,
 		newAsset.Genesis.Tag, prevAsset,
 	) {
 		return newErrKind(ErrIDMismatch)
 	}
+
 	if newAsset.Type != prevAsset.Type {
 		return newErrKind(ErrTypeMismatch)
 	}
+
 	return nil
 }
 
@@ -114,16 +121,19 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 // input. This is done by verifying the asset split is committed to within the
 // new asset's split commitment root through its split commitment proof.
 func (vm *Engine) validateSplit() error {
-	// Only `Normal` assets can be split, and the change asset should have a
-	// split commitment root.
-	if vm.newAsset.Type != asset.Normal || vm.splitAsset.Type != asset.Normal {
+	// Only `Normal` assets can be split, and the change asset should have
+	// a split commitment root.
+	switch {
+	case vm.newAsset.Type != asset.Normal ||
+		vm.splitAsset.Type != asset.Normal:
+
 		return newErrKind(ErrInvalidSplitAssetType)
-	}
-	if vm.newAsset.SplitCommitmentRoot == nil {
+
+	case vm.newAsset.SplitCommitmentRoot == nil:
 		return newErrKind(ErrNoSplitCommitment)
 	}
 
-	// Split assets should always have a single witness with a nil
+	// Split assets should always have a single witness with a non-nil
 	// PrevID and empty TxWitness.
 	if len(vm.splitAsset.PrevWitnesses) != 1 {
 		return newErrKind(ErrInvalidSplitCommitmentWitness)
@@ -134,6 +144,10 @@ func (vm *Engine) validateSplit() error {
 		return newErrKind(ErrInvalidSplitCommitmentWitness)
 	}
 
+	// The prevID of the split commitment should be the ID of the asset
+	// generating the split in the transaction.
+	//
+	// TODO(roasbeef): revisit?
 	prevAsset, ok := vm.prevAssets[*witness.PrevID]
 	if !ok {
 		return newErrKind(ErrNoInputs)
@@ -173,25 +187,33 @@ func (vm *Engine) validateSplit() error {
 func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	witness *asset.Witness, prevAsset *asset.Asset) error {
 
+	// We only support version 0 scripts atm.
 	if prevAsset.ScriptVersion != asset.ScriptV0 {
 		return newErrKind(ErrInvalidScriptVersion)
 	}
 
+	// An input MUST have a prev out and also a valid witness.
 	if witness.PrevID == nil || len(witness.TxWitness) == 0 {
 		return newErrKind(ErrInvalidTransferWitness)
 	}
+
+	// The parameters of the new and old asset much match exactly.
 	err := matchesAssetParams(vm.newAsset, prevAsset, witness)
 	if err != nil {
 		return err
 	}
+
 	for _, witnessItem := range witness.TxWitness {
 		// Signatures can either be 64, with SIGHASH_DEFAULT, or 65
 		// bytes otherwise.
+		//
+		// TODO(roasbeef): remove? will go thru normal sig parse
+		// checks, untested as is
 		if len(witnessItem) == 65 {
 			_, err = schnorr.ParseSignature(witnessItem[:])
 			if err != nil {
-				// Not a valid signature, so it must be
-				// some arbitrary data push.
+				// Not a valid signature, so it must be some
+				// arbitrary data push.
 				continue
 			}
 			return newErrKind(ErrInvalidSigHashFlag)
@@ -203,6 +225,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	virtualTxCopy := virtualTxWithInput(
 		virtualTx, prevAsset, inputIdx, witness.TxWitness,
 	)
+
 	prevOutFetcher, err := inputPrevOutFetcher(
 		prevAsset.ScriptVersion, prevAsset.ScriptKey.PubKey,
 		prevAsset.Amount,
@@ -210,8 +233,17 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	if err != nil {
 		return err
 	}
+
+	// Obtain the prev out created above, we can pass in a null outpoint
+	// here as it's a canned fetcher, so it'll return the same prev out
+	// every time.
 	prevOut := prevOutFetcher.FetchPrevOutput(wire.OutPoint{})
+
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)
+
+	// With all the components mapped into a virtual transaction, will
+	// execute it using the normal Tapscript VM, which does most of the
+	// heavy lifting here.
 	engine, err := txscript.NewEngine(
 		prevOut.PkScript, virtualTxCopy, 0, txscript.StandardVerifyFlags,
 		nil, sigHashes, prevOut.Value, prevOutFetcher,
@@ -231,11 +263,13 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 // done by verifying each input has a valid witness generated over the virtual
 // transaction representing the state transition.
 func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
-	if len(vm.newAsset.PrevWitnesses) == 0 {
+	switch {
+	case len(vm.newAsset.PrevWitnesses) == 0:
 		return newErrKind(ErrNoInputs)
-	}
-	if vm.newAsset.Type == asset.Collectible &&
-		len(vm.newAsset.PrevWitnesses) > 1 {
+
+	case vm.newAsset.Type == asset.Collectible &&
+		len(vm.newAsset.PrevWitnesses) > 1:
+
 		return newErrKind(ErrInvalidTransferWitness)
 	}
 

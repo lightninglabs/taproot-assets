@@ -32,7 +32,14 @@ func computeTaprootScript(witnessProgram []byte) ([]byte, error) {
 // virtualTxInPrevOut returns the prevout of the Taro virtual transaction's
 // single input as a hash of the root node's key concatenated by its sum.
 func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
+	// Grab the hash digest of the SMT node. This'll be used to generate
+	// the virtual prev out for this tx in.
+	//
+	// TODO(roasbeef): this already contains the sum, so can just use it
+	// directly?
 	rootKey := root.NodeKey()
+
+	// Map this to: nodeHash || nodeSum.
 	h := sha256.New()
 	_, _ = h.Write(rootKey[:])
 	_ = binary.Write(h, binary.BigEndian, root.NodeSum())
@@ -53,17 +60,28 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	isGenesisAsset := isValidGenesisWitness(newAsset)
 	inputTree := mssmt.NewTree(mssmt.NewDefaultStore())
 	if !isGenesisAsset {
+		// For each input we'll locate the asset UTXO beign spent, then
+		// insert that into a new SMT, with the key being the hash of
+		// the prevID pointer, and the value being the leaf itself.
 		inputsConsumed := make(map[asset.PrevID]struct{}, len(prevAssets))
 		for _, input := range newAsset.PrevWitnesses {
+			// At this point, each input MUST have a prev ID.
 			if input.PrevID == nil {
 				return nil, nil, newErrKind(ErrNoInputs)
 
 			}
+
+			// The set of prev assets are similar to the prev
+			// output fetcher used in taproot.
 			prevAsset, ok := prevAssets[*input.PrevID]
 			if !ok {
 				return nil, nil, newErrKind(ErrNoInputs)
 			}
 
+			// Now we'll insert his prev asset leaf into the tree.
+			// The generated leaf includes the amount of the asset,
+			// so the usm of this tree will be the total amount
+			// being spent.
 			key := input.PrevID.Hash()
 			leaf, err := prevAsset.Leaf()
 			if err != nil {
@@ -73,11 +91,18 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 
 			inputsConsumed[*input.PrevID] = struct{}{}
 		}
+
+		// In this context, the set of refrenced inputs should match
+		// the set of previous assets. This ensures no duplicate inputs
+		// are being spent.
+		//
+		// TODO(roasbeef): make further expliit?
 		if len(inputsConsumed) != len(prevAssets) {
 			return nil, nil, newErrKind(ErrInputMismatch)
 		}
 	}
 
+	// TODO(roasbeef): document empty hash usage here
 	prevOut := virtualTxInPrevOut(inputTree.Root())
 	return wire.NewTxIn(prevOut, nil, nil), inputTree, nil
 }
@@ -88,6 +113,9 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	// If we have any asset splits, then we'll indirectly commit to all of
 	// them through the SplitCommitmentRoot.
 	if asset.SplitCommitmentRoot != nil {
+		// In this case, we already have an MS-SMT over the set of
+		// outputs created, so we'll map this into a normal taproot
+		// (segwit v1) script.
 		rootKey := asset.SplitCommitmentRoot.NodeKey()
 		pkScript, err := computeTaprootScript(rootKey[:])
 		if err != nil {
@@ -109,6 +137,8 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	}
 	assetID := asset.Genesis.ID()
 
+	// TODO(roasbeef): double check this key matches the split commitment
+	// above? or can treat as standalone case (no splits)
 	h := sha256.New()
 	_, _ = h.Write(familyKey)
 	_, _ = h.Write(assetID[:])
@@ -117,6 +147,8 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	// The new asset may have witnesses for its input(s), so make a
 	// copy and strip them out when including the asset in the tree,
 	// as the witness depends on the result of the tree.
+	//
+	// TODO(roasbeef): ensure this is documented in the BIP
 	copyWithoutWitness := asset.Copy()
 	for i := range copyWithoutWitness.PrevWitnesses {
 		copyWithoutWitness.PrevWitnesses[i].TxWitness = nil
@@ -163,6 +195,10 @@ func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 
 // virtualTxWithInput returns a copy of the `virtualTx` amended to include all
 // input-specific details.
+//
+// This is used to further bind a given witness to the "true" input it spends.
+// We'll use the index of the serialized input to bind the prev index, which
+// represents the "leaf index" of the virtual input MS-SMT.
 func virtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32, witness wire.TxWitness) *wire.MsgTx {
 
@@ -183,6 +219,7 @@ func inputPrevOutFetcher(version asset.ScriptVersion,
 	var pkScript []byte
 	switch version {
 	case asset.ScriptV0:
+		// TODO(roasbeef): lift and combine w/ computeTaprootScript
 		var err error
 		pkScript, err = computeTaprootScript(
 			schnorr.SerializePubKey(scriptKey),
