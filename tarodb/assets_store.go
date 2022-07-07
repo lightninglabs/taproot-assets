@@ -23,7 +23,7 @@ type (
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
 	// FetchAllAssets fetches the set of fully confirmed assets.
-	FetchAllAssets(ctx context.Context) ([]sqlite.FetchAllAssetsRow, error)
+	FetchAllAssets(ctx context.Context) ([]ConfirmedAsset, error)
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -117,10 +117,8 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 						Index: extractSqlInt32[uint32](
 							sprout.FamKeyIndex,
 						),
-						Family: keychain.KeyFamily(
-							extractSqlInt32[keychain.KeyFamily](
-								sprout.FamKeyFamily,
-							),
+						Family: extractSqlInt32[keychain.KeyFamily](
+							sprout.FamKeyFamily,
 						),
 					},
 				},
@@ -172,10 +170,18 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 			return nil, fmt.Errorf("unable to decode tx: %w", err)
 		}
 
-		anchorBlockHash, err := chainhash.NewHash(sprout.AnchorBlockHash)
-		if err != nil {
-			return nil, fmt.Errorf("unable to extract block "+
-				"hash: %w", err)
+		// An asset will only have an anchor block hash once it has
+		// confirmed, so we'll only parse this if it exists.
+		var anchorBlockHash chainhash.Hash
+		if sprout.AnchorBlockHash != nil {
+			anchorHash, err := chainhash.NewHash(
+				sprout.AnchorBlockHash,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to extract block "+
+					"hash: %w", err)
+			}
+			anchorBlockHash = *anchorHash
 		}
 
 		var anchorOutpoint wire.OutPoint
@@ -192,7 +198,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 			Asset:           assetSprout,
 			AnchorTx:        anchorTx,
 			AnchorTxid:      anchorTx.TxHash(),
-			AnchorBlockHash: *anchorBlockHash,
+			AnchorBlockHash: anchorBlockHash,
 			AnchorOutpoint:  anchorOutpoint,
 		}
 	}
