@@ -6,6 +6,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -26,12 +27,12 @@ func NewLndRpcKeyRing(lnd *lndclient.LndServices) *LndRpcKeyRing {
 // DeriveNextKey attempts to derive the *next* key within the key family
 // (account in BIP43) specified. This method should return the next external
 // child within this branch.
-func (l *LndRpcKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
+	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+
 	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 
-	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(
-		context.Background(), int32(keyFam),
-	)
+	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, int32(keyFam))
 	if err != nil {
 		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
 			"derive key ring: %w", err)
@@ -43,10 +44,12 @@ func (l *LndRpcKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDe
 // DeriveKey attempts to derive an arbitrary key specified by the passed
 // KeyLocator. This may be used in several recovery scenarios, or when manually
 // rotating something like our current default node key.
-func (l *LndRpcKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+func (l *LndRpcKeyRing) DeriveKey(ctx context.Context,
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
 	taroLog.Debugf("Deriving new key, key_loc=%v", spew.Sdump(keyLoc))
 
-	keyDesc, err := l.lnd.WalletKit.DeriveKey(context.Background(), &keyLoc)
+	keyDesc, err := l.lnd.WalletKit.DeriveKey(ctx, &keyLoc)
 	if err != nil {
 		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
 			"derive key ring: %w", err)
@@ -55,6 +58,6 @@ func (l *LndRpcKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescr
 	return *keyDesc, nil
 }
 
-// A compile time assertion to ensure LndRpcKeyRing meets the keychain.KeyRing
-// interface.
-var _ keychain.KeyRing = (*LndRpcKeyRing)(nil)
+// A compile time assertion to ensure LndRpcKeyRing meets the
+// tarogarden.KeyRing interface.
+var _ tarogarden.KeyRing = (*LndRpcKeyRing)(nil)

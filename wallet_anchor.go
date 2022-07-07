@@ -31,7 +31,8 @@ func NewLndRpcWalletAnchor(lnd *lndclient.LndServices) *LndRpcWalletAnchor {
 
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
-func (l *LndRpcWalletAnchor) FundPsbt(packet *psbt.Packet, minConfs uint32,
+func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
+	minConfs uint32,
 	feeRate chainfee.SatPerKWeight) (tarogarden.FundedPsbt, error) {
 
 	var psbtBuf bytes.Buffer
@@ -41,7 +42,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(packet *psbt.Packet, minConfs uint32,
 	}
 
 	pkt, changeIndex, leasedUtxos, err := l.lnd.WalletKit.FundPsbt(
-		context.Background(), &walletrpc.FundPsbtRequest{
+		ctx, &walletrpc.FundPsbtRequest{
 			Template: &walletrpc.FundPsbtRequest_Psbt{
 				Psbt: psbtBuf.Bytes(),
 			},
@@ -76,8 +77,10 @@ func (l *LndRpcWalletAnchor) FundPsbt(packet *psbt.Packet, minConfs uint32,
 }
 
 // SignAndFinalizePsbt fully signs and finalizes the target PSBT packet.
-func (l *LndRpcWalletAnchor) SignAndFinalizePsbt(pkt *psbt.Packet) (*psbt.Packet, error) {
-	pkt, _, err := l.lnd.WalletKit.FinalizePsbt(context.Background(), pkt, "")
+func (l *LndRpcWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
+	pkt *psbt.Packet) (*psbt.Packet, error) {
+
+	pkt, _, err := l.lnd.WalletKit.FinalizePsbt(ctx, pkt, "")
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +89,9 @@ func (l *LndRpcWalletAnchor) SignAndFinalizePsbt(pkt *psbt.Packet) (*psbt.Packet
 }
 
 // ImportPubKey imports a new public key into the wallet, as a P2TR output.
-func (l *LndRpcWalletAnchor) ImportPubKey(pub *btcec.PublicKey) error {
+func (l *LndRpcWalletAnchor) ImportPubKey(_ context.Context,
+	pub *btcec.PublicKey) error {
+
 	// TODO(roasbeef): actually need to use ImportTaprootScript here, but
 	// not yet exposed on RPC
 	//
@@ -97,7 +102,7 @@ func (l *LndRpcWalletAnchor) ImportPubKey(pub *btcec.PublicKey) error {
 }
 
 // UnlockInput unlocks the set of target inputs after a batch is abandoned.
-func (l *LndRpcWalletAnchor) UnlockInput() error {
+func (l *LndRpcWalletAnchor) UnlockInput(ctx context.Context) error {
 	return nil
 }
 

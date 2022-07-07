@@ -72,6 +72,12 @@ func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *minting
 
 // refreshChainPlanter creates a new test harness.
 func (t *mintingTestHarness) refreshChainPlanter() {
+	// If the old planter exists, then we'll stop it now to simulate a
+	// normal shutdown.
+	if t.planter != nil {
+		require.NoError(t, t.planter.Stop())
+	}
+
 	t.planter = tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
 		GardenKit: tarogarden.GardenKit{
 			Wallet:      t.wallet,
@@ -376,8 +382,6 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.Helper()
 
 	// First, create a new chain planter instance using the supplied test harness.
-	//
-	// TODO(roasbeef): also assert restarts
 	t.refreshChainPlanter()
 
 	// Next make 5 new random seedlings, and queue each of them up within
@@ -396,13 +400,25 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// broadcast.
 	t.tickMintingBatch()
 
-	// A single caretaker should have been launched as well. Next, assert
-	// that the caretaker has requested a genesis tx to be funded.
+	// We'll now restart the planter to ensure that it's able to properly
+	// resume all the caretakers. We need to sleep for a small amount to
+	// allow the planter to get the batch tick signal.
+	time.Sleep(time.Millisecond * 100)
+	t.refreshChainPlanter()
+
+	// Now that the planter is back up, a single caretaker should have been
+	// launched as well. Next, assert that the caretaker has requested a
+	// genesis tx to be funded.
 	_ = t.assertGenesisTxFunded()
 	t.assertNumCaretakersActive(1)
 
+	// We'll now force yet another restart to ensure correctness of the
+	// state machine, we expect the PSBT packet to be funded again as well,
+	// since we didn't get a chance to write it to disk.
+	t.refreshChainPlanter()
+	_ = t.assertGenesisTxFunded()
+
 	// For each seedling created above, we expect a new set of keys to be
-	// derived.
 	for i := 0; i < numSeedlings; i++ {
 		// The seedlings requires on going emission, then we'll expect an
 		// additional key to be derived.
@@ -422,6 +438,10 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// transaction sent above.
 	t.assertSeedlingsMatchSprouts(seedlings)
 
+	// Before we proceed to the next phase, we'll restart the planter again
+	// to ensure it can proceed with some bumps along the way.
+	t.refreshChainPlanter()
+
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
 	t.assertGenesisPsbtFinalized()
@@ -430,6 +450,16 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// receive a request to publish a transaction followed by a
 	// confirmation request.
 	t.assertTxPublished()
+
+	// We'll now restart the daemon once again to simulate some downtime
+	// after the transaction has been published.
+	t.refreshChainPlanter()
+
+	// After the restart, the transaction should be published again.
+	t.assertTxPublished()
+
+	// With the transaction published, we should now receive a confirmation
+	// request.
 	sendConfNtfn := t.assertConfReqSent()
 
 	// We'll now send the confirmation notification which should result in

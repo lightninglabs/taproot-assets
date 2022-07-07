@@ -32,7 +32,7 @@ const (
 	// GenesisAmtSats is the amount of sats we'll use to anchor created
 	// assets within. This value just needs to be greater than dust, as for
 	// now, we assume that the taro client manages asset bearing UTXOs
-	// distintly from normal UTXOs.
+	// distinctly from normal UTXOs.
 	GenesisAmtSats = btcutil.Amount(1_000)
 
 	// GenesisConfTarget is the confirmation target we'll use to query for
@@ -142,6 +142,16 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 
 	var terminalState bool
 	for !terminalState {
+		// Before we attempt a state transition, make sure that we
+		// aren't trying to shutdown.
+		select {
+		case <-b.quit:
+			return 0, fmt.Errorf("BatchCaretaker(%x), shutting "+
+				"down", b.batchKey[:])
+
+		default:
+		}
+
 		nextState, err := b.stateStep(currentState)
 		if err != nil {
 			return 0, fmt.Errorf("unable to advance state "+
@@ -193,7 +203,7 @@ func (b *BatchCaretaker) taroCultivator() {
 		b.cfg.Batch.BatchState, BatchStateBroadcast,
 	)
 	if err != nil {
-		log.Errorf("unable to advanced state machine: %v", err)
+		log.Errorf("unable to advance state machine: %v", err)
 		return
 	}
 
@@ -244,7 +254,7 @@ func (b *BatchCaretaker) taroCultivator() {
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actually script key since
 // that's dependent on the genesis outpoint.
-func (b *BatchCaretaker) fundGenesisPsbt() (*FundedPsbt, error) {
+func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, error) {
 	log.Infof("BatchCaretaker(%x): attempting to fund GenesisPacket",
 		b.batchKey[:])
 
@@ -259,13 +269,15 @@ func (b *BatchCaretaker) fundGenesisPsbt() (*FundedPsbt, error) {
 		b.batchKey[:], spew.Sdump(genesisPkt))
 
 	feeRate, err := b.cfg.ChainBridge.EstimateFee(
-		GenesisConfTarget,
+		ctx, GenesisConfTarget,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to estimate fee: %w", err)
 	}
 
-	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(genesisPkt, 1, feeRate)
+	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
+		ctx, genesisPkt, 1, feeRate,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
@@ -285,7 +297,8 @@ func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
 // seedlingsToAssetSprouts maps a set of seedlings in the internal batch into a
 // set of sprouts: Assets that aren't yet fully linked to broadcast genesis
 // transaction.
-func (b *BatchCaretaker) seedlingsToAssetSprouts(genesisPoint wire.OutPoint,
+func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
+	genesisPoint wire.OutPoint,
 	taroOutputIndex uint32) ([]*commitment.AssetCommitment, error) {
 
 	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
@@ -304,7 +317,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(genesisPoint wire.OutPoint,
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			TaroKeyFamily,
+			ctx, TaroKeyFamily,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to obtain script "+
@@ -317,7 +330,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(genesisPoint wire.OutPoint,
 		// along with the tweaked key family.
 		if seedling.EnableEmission {
 			rawFamilyKey, err := b.cfg.KeyRing.DeriveNextKey(
-				TaroKeyFamily,
+				ctx, TaroKeyFamily,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to derive "+
@@ -396,7 +409,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		//
 		// TODO(roasbeef): need to invalidate asset creation if on
 		// restart leases are gone
-		genesisTxPkt, err := b.fundGenesisPsbt()
+		ctx, cancel := b.withCtxQuit()
+		defer cancel()
+		genesisTxPkt, err := b.fundGenesisPsbt(ctx)
 		if err != nil {
 			return 0, err
 		}
@@ -414,7 +429,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// First, we'll turn all the seedlings into actual taro assets.
 		assetRoots, err := b.seedlingsToAssetSprouts(
-			genesisPoint, uint32(b.anchorOutputIndex),
+			ctx, genesisPoint, uint32(b.anchorOutputIndex),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to map seedlings to "+
@@ -431,7 +446,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// With the commitment Taro root SMT constructed, we'll map
 		// that into the tapscript root we'll insert into the genesis
 		// transaction.
-		genesisScript, err := b.cfg.Batch.GenesisScript()
+		genesisScript, err := b.cfg.Batch.genesisScript()
 		if err != nil {
 			return 0, fmt.Errorf("unable to create genesis "+
 				"script: %v", err)
@@ -445,8 +460,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// With all our commitments created, we'll commit them to disk,
 		// replacing the existing seedlings we had created for each of
 		// these assets.
-		ctx, cancel := b.withCtxQuit()
-		defer cancel()
 		err = b.cfg.Log.AddSproutsToBatch(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
 			genesisTxPkt, b.cfg.Batch.RootAssetCommitment,
@@ -474,8 +487,10 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// was then modified.
 		//
 		// TODO(roasbeef): only execute if finalized? or missing sig
+		ctx, cancel := b.withCtxQuit()
+		defer cancel()
 		signedPkt, err := b.cfg.Wallet.SignAndFinalizePsbt(
-			b.cfg.Batch.GenesisPacket.Pkt,
+			ctx, b.cfg.Batch.GenesisPacket.Pkt,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to sign psbt: %w", err)
@@ -495,8 +510,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		if err != nil {
 			return 0, err
 		}
-		ctx, cancel := b.withCtxQuit()
-		defer cancel()
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
 			b.cfg.Batch.GenesisPacket, b.anchorOutputIndex,
@@ -513,7 +526,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		//
 		// TODO(roasbeef): should be idempotent along w/ all other
 		// operations above
-		err = b.cfg.Wallet.ImportPubKey(mintingOutputKey)
+		ctx, cancel = b.withCtxQuit()
+		defer cancel()
+		err = b.cfg.Wallet.ImportPubKey(ctx, mintingOutputKey)
 		if err != nil {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
@@ -541,7 +556,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// With the final transaction extracted, we'll broadcast the
 		// transaction, then request a confirmation notification.
-		err = b.cfg.ChainBridge.PublishTransaction(signedTx)
+		ctx, cancel := b.withCtxQuit()
+		defer cancel()
+		err = b.cfg.ChainBridge.PublishTransaction(ctx, signedTx)
 		if err != nil {
 			return 0, fmt.Errorf("unable to publish "+
 				"transaction: %w", err)
@@ -551,14 +568,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// state that requires an on-chain event to shift from.
 		//
 		// TODO(roasbeef): eventually want to be able to RBF the bump
-		currentHeight, err := b.cfg.ChainBridge.CurrentHeight()
+		currentHeight, err := b.cfg.ChainBridge.CurrentHeight(ctx)
 		if err != nil {
 			return 0, fmt.Errorf("unable to get current "+
 				"height: %v", err)
 		}
 		txHash := signedTx.TxHash()
 		confNtfn, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
-			&txHash, signedTx.TxOut[0].PkScript, 1, currentHeight,
+			ctx, &txHash, signedTx.TxOut[0].PkScript, 1, currentHeight,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to register for "+

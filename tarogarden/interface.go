@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -158,8 +155,8 @@ type MintingStore interface {
 		txIndex uint32) error
 }
 
-// MintingStoreDriver represents a concrete drive of the main MintingStore
-// interface. A drive is identified by a globally unique string identifier,
+// MintingStoreDriver represents a concrete driver of the main MintingStore
+// interface. A driver is identified by a globally unique string identifier,
 // along with a 'New()' method which is responsible for initializing a
 // particular MintingStore concrete implementation.
 type MintingStoreDriver struct {
@@ -232,18 +229,20 @@ func SupportedMintingStores() []string {
 type ChainBridge interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations.
-	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
-		numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error)
+	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
+		pkScript []byte, numConfs,
+		heightHint uint32) (*chainntnfs.ConfirmationEvent, error)
 
 	// CurrentHeight return the current height of the main chain.
-	CurrentHeight() (uint32, error)
+	CurrentHeight(context.Context) (uint32, error)
 
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.
-	PublishTransaction(*wire.MsgTx) error
+	PublishTransaction(context.Context, *wire.MsgTx) error
 
 	// EstimateFee returns a fee estimate for the confirmation target.
-	EstimateFee(confTarget uint32) (chainfee.SatPerKWeight, error)
+	EstimateFee(ctx context.Context,
+		confTarget uint32) (chainfee.SatPerKWeight, error)
 }
 
 // TaroKeyFamily is the key family used to generate internal keys that taro
@@ -275,18 +274,35 @@ type FundedPsbt struct {
 type WalletAnchor interface {
 	// FundPsbt attaches enough inputs to the target PSBT packet for it to
 	// be valid.
-	FundPsbt(packet *psbt.Packet, minConfs uint32,
+	FundPsbt(ctx context.Context, packet *psbt.Packet, minConfs uint32,
 		feeRate chainfee.SatPerKWeight) (FundedPsbt, error)
 
 	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
 	// packet.
-	SignAndFinalizePsbt(*psbt.Packet) (*psbt.Packet, error)
+	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
 	// ImportPubKey imports a new public key into the wallet, as a P2TR
 	// output.
-	ImportPubKey(*btcec.PublicKey) error
+	ImportPubKey(context.Context, *btcec.PublicKey) error
 
 	// UnlockInput unlocks the set of target inputs after a batch is
 	// abandoned.
-	UnlockInput() error
+	UnlockInput(context.Context) error
+}
+
+// KeyRing is a mirror of the keychain.KeyRing interface, with the addition of
+// a passed context which allows for cancellation of requests.
+type KeyRing interface {
+	// DeriveNextKey attempts to derive the *next* key within the key
+	// family (account in BIP43) specified. This method should return the
+	// next external child within this branch.
+	DeriveNextKey(context.Context,
+		keychain.KeyFamily) (keychain.KeyDescriptor, error)
+
+	// DeriveKey attempts to derive an arbitrary key specified by the
+	// passed KeyLocator. This may be used in several recovery scenarios,
+	// or when manually rotating something like our current default node
+	// key.
+	DeriveKey(context.Context,
+		keychain.KeyLocator) (keychain.KeyDescriptor, error)
 }

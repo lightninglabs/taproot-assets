@@ -28,10 +28,12 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 
 // RegisterConfirmationsNtfn registers an intent to be notified once
 // txid reaches numConfs confirmations.
-func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
+func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
+	txid *chainhash.Hash, pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	confChan, _, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
 		ctx, txid, pkScript, int32(numConfs), int32(heightHint),
 	)
@@ -46,8 +48,8 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(txid *chainhash.Hash, pkSc
 }
 
 // CurrentHeight return the current height of the main chain.
-func (l *LndRpcChainBridge) CurrentHeight() (uint32, error) {
-	info, err := l.lnd.Client.GetInfo(context.Background())
+func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
+	info, err := l.lnd.Client.GetInfo(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("unable to grab block height: %w", err)
 	}
@@ -57,18 +59,18 @@ func (l *LndRpcChainBridge) CurrentHeight() (uint32, error) {
 
 // PublishTransaction attempts to publish a new transaction to the
 // network.
-func (l *LndRpcChainBridge) PublishTransaction(tx *wire.MsgTx) error {
+func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
+	tx *wire.MsgTx) error {
+
 	label := "tarod-asset-minting"
-	return l.lnd.WalletKit.PublishTransaction(
-		context.Background(), tx, label,
-	)
+	return l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
 }
 
 // EstimateFee returns a fee estimate for the confirmation target.
-func (l *LndRpcChainBridge) EstimateFee(confTarget uint32) (chainfee.SatPerKWeight, error) {
-	return l.lnd.WalletKit.EstimateFeeRate(
-		context.Background(), int32(confTarget),
-	)
+func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
+	confTarget uint32) (chainfee.SatPerKWeight, error) {
+
+	return l.lnd.WalletKit.EstimateFeeRate(ctx, int32(confTarget))
 }
 
 // A compile time assertion to ensure LndRpcChainBridge meets the

@@ -1,6 +1,9 @@
 package tarogarden_test
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -28,7 +31,7 @@ func newMockWalletAnchor() *mockWalletAnchor {
 	}
 }
 
-func (m *mockWalletAnchor) FundPsbt(packet *psbt.Packet, minConfs uint32,
+func (m *mockWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet, minConfs uint32,
 	feeRate chainfee.SatPerKWeight) (tarogarden.FundedPsbt, error) {
 
 	// Take the PSBT packet and add an additional input and output to
@@ -63,22 +66,33 @@ func (m *mockWalletAnchor) FundPsbt(packet *psbt.Packet, minConfs uint32,
 	return pkt, nil
 }
 
-func (m *mockWalletAnchor) SignAndFinalizePsbt(pkt *psbt.Packet) (*psbt.Packet, error) {
+func (m *mockWalletAnchor) SignAndFinalizePsbt(ctx context.Context, pkt *psbt.Packet) (*psbt.Packet, error) {
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("shutting down")
+	default:
+	}
+
 	// We'll modify the packet by attaching a "signature" so the PSBT
 	// appears to actually be finalized.
 	pkt.Inputs[0].FinalScriptSig = []byte{}
 
-	m.signPsbtSignal <- struct{}{}
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("shutting down")
+	case m.signPsbtSignal <- struct{}{}:
+	}
 
 	return pkt, nil
 }
 
-func (m *mockWalletAnchor) ImportPubKey(pub *btcec.PublicKey) error {
+func (m *mockWalletAnchor) ImportPubKey(ctx context.Context, pub *btcec.PublicKey) error {
 	m.importPubKeySignal <- pub
 	return nil
 }
 
-func (m *mockWalletAnchor) UnlockInput() error {
+func (m *mockWalletAnchor) UnlockInput(ctx context.Context) error {
 	return nil
 }
 
@@ -110,8 +124,15 @@ func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 	}
 }
 
-func (m *mockChainBridge) RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
+func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
+	txid *chainhash.Hash, pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("shutting down")
+	default:
+	}
 
 	defer func() {
 		m.reqCount++
@@ -123,22 +144,30 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScri
 
 	m.confReqs[m.reqCount] = req
 
-	m.confReqSignal <- m.reqCount
+	select {
+	case m.confReqSignal <- m.reqCount:
+	case <-ctx.Done():
+	}
 
 	return req, nil
 }
 
-func (m *mockChainBridge) CurrentHeight() (uint32, error) {
+func (m *mockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
 
-func (m *mockChainBridge) PublishTransaction(*wire.MsgTx) error {
+func (m *mockChainBridge) PublishTransaction(ctx context.Context, _ *wire.MsgTx) error {
 	m.publishReq <- struct{}{}
 	return nil
 }
 
-func (m *mockChainBridge) EstimateFee(confTarget uint32) (chainfee.SatPerKWeight, error) {
-	m.feeEstimateSignal <- struct{}{}
+func (m *mockChainBridge) EstimateFee(ctx context.Context, confTarget uint32) (chainfee.SatPerKWeight, error) {
+	select {
+	case m.feeEstimateSignal <- struct{}{}:
+
+	case <-ctx.Done():
+		return 0, fmt.Errorf("shutting down")
+	}
 
 	return 253, nil
 }
@@ -159,7 +188,15 @@ func newMockKeyRing() *mockKeyRing {
 	}
 }
 
-func (m *mockKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
+	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+
+	select {
+	case <-ctx.Done():
+		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
+	default:
+	}
+
 	defer func() {
 		m.famIndex++
 		m.keyIndex++
@@ -182,12 +219,22 @@ func (m *mockKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDesc
 		KeyLocator: loc,
 	}
 
-	m.reqKeys <- &desc
+	select {
+	case m.reqKeys <- &desc:
+	case <-ctx.Done():
+		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
+	}
 
 	return desc, nil
 }
 
-func (m *mockKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+func (m *mockKeyRing) DeriveKey(ctx context.Context, keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+	select {
+	case <-ctx.Done():
+		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
+	default:
+	}
+
 	return keychain.KeyDescriptor{}, nil
 }
 

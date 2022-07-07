@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -30,7 +29,7 @@ type GardenKit struct {
 	// KeyRing is used for obtaining internal keys for the anchor
 	// transaction, as well as script keys for each asset and family keys
 	// for assets created that permit ongoing emission.
-	KeyRing keychain.KeyRing
+	KeyRing KeyRing
 
 	// GenSigner is used to generate signatures for the key family tweaked
 	// by the genesis point when creating assets that permit on going
@@ -168,6 +167,7 @@ func (c *ChainPlanter) withCtxQuit() (context.Context, func()) {
 		select {
 		case <-c.quit:
 			cancel()
+			return
 
 		case <-ctx.Done():
 			return
@@ -209,7 +209,7 @@ func (c *ChainPlanter) Start() error {
 		// caretaker which'll handle progressing each batch to
 		// completion.
 		for _, batch := range nonFinalBatches {
-			log.Infof("Launching ChainCartaker(%x)",
+			log.Infof("Launching ChainCaretaker(%x)",
 				batch.BatchKey.PubKey.SerializeCompressed())
 
 			caretaker := c.newCaretakerForBatch(batch)
@@ -235,22 +235,25 @@ func (c *ChainPlanter) Stop() error {
 	c.stopOnce.Do(func() {
 		log.Infof("Stopping ChainPlanter")
 
-		for batchKey, caretaker := range c.caretakers {
-			log.Debugf("Stopping ChainCartaker(%v)", batchKey[:])
-
-			if err := caretaker.Stop(); err != nil {
-				// TODO(roasbeef): continue and stop the rest
-				// of them?
-				stopErr = err
-				return
-			}
-		}
-
 		close(c.quit)
 		c.wg.Wait()
 	})
 
 	return stopErr
+}
+
+// stopCaretakers attempts to gracefully stop all the active caretakers.
+func (c *ChainPlanter) stopCaretakers() {
+	for batchKey, caretaker := range c.caretakers {
+		log.Debugf("Stopping ChainCaretaker(%x)", batchKey[:])
+
+		if err := caretaker.Stop(); err != nil {
+			// TODO(roasbeef): continue and stop the rest
+			// of them?
+			log.Warnf("Unable to stop ChainCaretaker(%x)", batchKey[:])
+			return
+		}
+	}
 }
 
 // freezeMintingBatch freezes a target minting batch which means that no new
@@ -279,6 +282,10 @@ func freezeMintingBatch(ctx context.Context, pLog MintingStore,
 func (c *ChainPlanter) gardener() {
 	defer c.wg.Done()
 
+	// When this exits due to the quit signal, we also want to stop all the
+	// active caretakers as well.
+	defer c.stopCaretakers()
+
 	log.Infof("Gardner for ChainPlanter now active!")
 
 	// TODO(roasbeef): use top level ticker.Force instead?
@@ -292,7 +299,14 @@ func (c *ChainPlanter) gardener() {
 		// This lets us trigger manual ticks, but also make sure we're
 		// grabbing the real set of ticks.
 		select {
-		case batchTicker <- (<-c.cfg.BatchTicker.Ticks()):
+		case tick := <-c.cfg.BatchTicker.Ticks():
+
+			select {
+			case batchTicker <- tick:
+			case <-c.quit:
+				return
+			}
+
 		case <-c.quit:
 			return
 		}
@@ -307,6 +321,10 @@ func (c *ChainPlanter) gardener() {
 				log.Debugf("No batches pending...doing nothing")
 				continue
 			}
+
+			// Prep the new care taker that'll be launched assuming
+			// the call below to freeze the batch succeeds.
+			caretaker := c.newCaretakerForBatch(c.pendingBatch)
 
 			// At this point, we have a non-empty batch, so we'll
 			// first finalize it on disk. This means no further
@@ -323,7 +341,6 @@ func (c *ChainPlanter) gardener() {
 			// Now that the batch has been frozen, we'll launch a
 			// new caretaker state machine for the batch that'll
 			// drive all the seedlings do adulthood.
-			caretaker := c.newCaretakerForBatch(c.pendingBatch)
 			if err := caretaker.Start(); err != nil {
 				// TODO(roasbeef): critical log?
 				log.Warnf("unable to start new caretaker: %w", err)
@@ -341,8 +358,11 @@ func (c *ChainPlanter) gardener() {
 			// After some basic validation, prepare the asset
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
-			batchNow, err := c.prepTaroSeedling(req)
+			ctx, cancel := c.withCtxQuit()
+			batchNow, err := c.prepTaroSeedling(ctx, req)
 			if err != nil {
+				cancel()
+
 				// Something went wrong, so then an error
 				// update back to the caller.
 				req.updates <- SeedlingUpdate{
@@ -369,6 +389,8 @@ func (c *ChainPlanter) gardener() {
 			// instance, which'll prompt the finalization of the
 			// current batch.
 			if batchNow {
+				cancel()
+
 				log.Infof("Forcing new batch for %v", req)
 				batchTicker <- time.Time{}
 			}
@@ -446,7 +468,9 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 // prepTaroSeedling performs some basic validation for the TaroSeedling, then
 // either adds it to an existing pending batch or creates a new batch for it. A
 // bool indicating if a new batch should immediately be created is returned.
-func (c *ChainPlanter) prepTaroSeedling(req *Seedling) (bool, error) {
+func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
+	req *Seedling) (bool, error) {
+
 	// First, we'll perform some basic validation for the seedling.
 	if err := req.validateFields(); err != nil {
 		return false, err
@@ -463,7 +487,9 @@ func (c *ChainPlanter) prepTaroSeedling(req *Seedling) (bool, error) {
 		// To create a new batch we'll first need to grab a new
 		// internal key, which'll be used in the output we create, and
 		// also will serve as the primary identifier for a batch.
-		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(TaroKeyFamily)
+		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, TaroKeyFamily,
+		)
 		if err != nil {
 			return false, err
 		}
@@ -498,7 +524,7 @@ func (c *ChainPlanter) prepTaroSeedling(req *Seedling) (bool, error) {
 		//
 		// TODO(roasbeef): unique constraint below? will trigger on the
 		// name?
-		if err := c.pendingBatch.AddSeedling(req); err != nil {
+		if err := c.pendingBatch.addSeedling(req); err != nil {
 			return false, err
 		}
 
