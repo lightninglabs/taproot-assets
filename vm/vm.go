@@ -77,7 +77,7 @@ func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
 	// Mismatched ID and non-nil FamilyKey, there's hope!
 	case familyKey != nil && prevAsset.FamilyKey != nil:
 		// Mismatched ID and FamilyKey, sigh.
-		if *familyKey != *prevAsset.FamilyKey {
+		if !familyKey.IsEqual(prevAsset.FamilyKey) {
 			return false
 		}
 		// Matched ID and FamilyKey, there's still hope!
