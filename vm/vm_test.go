@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,9 +32,22 @@ func randGenesis(t *testing.T) *asset.Genesis {
 func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
-	familyKey, err := asset.DeriveFamilyKey(privKey, genesis)
+
+	genSigner := asset.NewRawKeyGenesisSigner(privKey)
+
+	familyKey, err := asset.DeriveFamilyKey(
+		genSigner, toKeyDesc(privKey.PubKey()),
+		genesis,
+	)
 	require.NoError(t, err)
+
 	return familyKey
+}
+
+func toKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
+	return keychain.KeyDescriptor{
+		PubKey: p,
+	}
 }
 
 func randAsset(t *testing.T, assetType asset.Type,
@@ -47,12 +61,14 @@ func randAsset(t *testing.T, assetType asset.Type,
 	switch assetType {
 	case asset.Normal:
 		units := rand.Uint64() + 1
-		asset := asset.New(genesis, units, 0, 0, scriptKey, familyKey)
+		asset := asset.New(
+			genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
+		)
 		return asset
 
 	case asset.Collectible:
 		asset := asset.NewCollectible(
-			genesis, 0, 0, scriptKey, familyKey,
+			genesis, 0, 0, toKeyDesc(&scriptKey), familyKey,
 		)
 		return asset
 
@@ -139,10 +155,10 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	prevID := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset.Genesis.ID(),
-		ScriptKey: genesisAsset.ScriptKey,
+		ScriptKey: *genesisAsset.ScriptKey.PubKey,
 	}
 	newAsset := genesisAsset.Copy()
-	newAsset.ScriptKey = *randKey(t).PubKey()
+	newAsset.ScriptKey = toKeyDesc(randKey(t).PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID,
 		TxWitness:       nil,
@@ -159,6 +175,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	return newAsset, nil, inputs
 }
 
+// TODO(roasbeef): need to add 1:1 spend
 func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	commitment.InputSet) {
 
@@ -189,17 +206,17 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	prevID1 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset1.Genesis.ID(),
-		ScriptKey: genesisAsset1.ScriptKey,
+		ScriptKey: *genesisAsset1.ScriptKey.PubKey,
 	}
 	prevID2 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset2.Genesis.ID(),
-		ScriptKey: genesisAsset2.ScriptKey,
+		ScriptKey: *genesisAsset2.ScriptKey.PubKey,
 	}
 
 	newAsset := genesisAsset1.Copy()
 	newAsset.Amount = genesisAsset1.Amount + genesisAsset2.Amount
-	newAsset.ScriptKey = *randKey(t).PubKey()
+	newAsset.ScriptKey = toKeyDesc(randKey(t).PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID1,
 		TxWitness:       nil,
@@ -240,7 +257,7 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	rootLocator := &commitment.SplitLocator{
 		OutputIndex: 0,
 		AssetID:     assetID,
-		ScriptKey:   genesisAsset.ScriptKey,
+		ScriptKey:   *genesisAsset.ScriptKey.PubKey,
 		Amount:      1,
 	}
 	externalLocators := []*commitment.SplitLocator{{
@@ -331,7 +348,8 @@ func TestVM(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				require.Equal(t, testCase.err, vm.Execute())
+				err = vm.Execute()
+				require.Equal(t, testCase.err, err)
 			}
 			if len(splitSet) == 0 {
 				verify(nil)

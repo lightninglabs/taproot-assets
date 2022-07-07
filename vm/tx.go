@@ -93,7 +93,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	// MS-SMT containing the new asset.
 	var familyKey []byte
 	if asset.FamilyKey != nil {
-		familyKey = schnorr.SerializePubKey(&asset.FamilyKey.Key)
+		familyKey = schnorr.SerializePubKey(&asset.FamilyKey.FamKey)
 	} else {
 		var emptyKey [32]byte
 		familyKey = emptyKey[:]
@@ -103,7 +103,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	h := sha256.New()
 	_, _ = h.Write(familyKey)
 	_, _ = h.Write(assetID[:])
-	_, _ = h.Write(schnorr.SerializePubKey(&asset.ScriptKey))
+	_, _ = h.Write(schnorr.SerializePubKey(asset.ScriptKey.PubKey))
 
 	// The new asset may have witnesses for its input(s), so make a
 	// copy and strip them out when including the asset in the tree,
@@ -195,7 +195,7 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 
 	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
 	prevOutFetcher, err := inputPrevOutFetcher(
-		input.ScriptVersion, &input.ScriptKey, input.Amount,
+		input.ScriptVersion, input.ScriptKey.PubKey, input.Amount,
 	)
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 
 	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
 	prevOutFetcher, err := inputPrevOutFetcher(
-		input.ScriptVersion, &input.ScriptKey, input.Amount,
+		input.ScriptVersion, input.ScriptKey.PubKey, input.Amount,
 	)
 	if err != nil {
 		return nil, err
