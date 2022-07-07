@@ -14,6 +14,12 @@ import (
 	"github.com/lightninglabs/taro/mssmt"
 )
 
+const (
+	// zeroIndex is a constant that stores the usual zero index we use for
+	// the virtual prev outs created in the VM.
+	zeroIndex = 0
+)
+
 // computeTaprootScript computes the on-chain SegWit v1 script, known as
 // Taproot, based on the given `witnessProgram`.
 func computeTaprootScript(witnessProgram []byte) ([]byte, error) {
@@ -30,7 +36,10 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 	h := sha256.New()
 	_, _ = h.Write(rootKey[:])
 	_ = binary.Write(h, binary.BigEndian, root.NodeSum())
-	return wire.NewOutPoint((*chainhash.Hash)(h.Sum(nil)), 0)
+
+	return wire.NewOutPoint(
+		(*chainhash.Hash)(h.Sum(nil)), zeroIndex,
+	)
 }
 
 // virtualTxIn computes the single input of a Taro virtual transaction. The
@@ -159,9 +168,9 @@ func virtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
 
 	txCopy := virtualTx.Copy()
 	txCopy.LockTime = uint32(input.LockTime)
-	txCopy.TxIn[0].PreviousOutPoint.Index = idx
-	txCopy.TxIn[0].Sequence = uint32(input.RelativeLockTime)
-	txCopy.TxIn[0].Witness = witness
+	txCopy.TxIn[zeroIndex].PreviousOutPoint.Index = idx
+	txCopy.TxIn[zeroIndex].Sequence = uint32(input.RelativeLockTime)
+	txCopy.TxIn[zeroIndex].Witness = witness
 	return txCopy
 }
 
@@ -202,7 +211,7 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	}
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)
 	return txscript.CalcTaprootSignatureHash(
-		sigHashes, txscript.SigHashDefault, virtualTxCopy, 0,
+		sigHashes, txscript.SigHashDefault, virtualTxCopy, zeroIndex,
 		prevOutFetcher,
 	)
 }
@@ -222,7 +231,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	}
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)
 	return txscript.CalcTapscriptSignaturehash(
-		sigHashes, txscript.SigHashDefault, virtualTxCopy, 0,
+		sigHashes, txscript.SigHashDefault, virtualTxCopy, zeroIndex,
 		prevOutFetcher, *tapLeaf,
 	)
 }
