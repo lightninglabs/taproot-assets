@@ -110,14 +110,19 @@ type Error struct {
 	Inner error
 }
 
+// newErrKind returns a new error of a particular kind.
 func newErrKind(kind ErrorKind) Error {
 	return Error{Kind: kind}
 }
 
+// newErrInner returns a new error with a particular kind, that wraps an
+// existing error. The inner error can be obtained via the Unwrap method .
 func newErrInner(kind ErrorKind, inner error) Error {
 	return Error{Kind: kind, Inner: inner}
 }
 
+// Error returns a human readable version of the error. This implements the
+// main error interface.
 func (e Error) Error() string {
 	if e.Inner == nil {
 		return e.Kind.String()
@@ -125,6 +130,13 @@ func (e Error) Error() string {
 	return fmt.Errorf("%v: %w", e.Kind, e.Inner).Error()
 }
 
+// String is the same as Error, but intended to be used for string formatting.
 func (e Error) String() string {
 	return e.Error()
+}
+
+// Unwrap implements the extended error interface, with the ability to expose a
+// wrapped error to the caller.
+func (e Error) Unwrap() error {
+	return e.Inner
 }
