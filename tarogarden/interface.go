@@ -250,8 +250,10 @@ type ChainBridge interface {
 // will use creating internal taproot keys and also any other keys used for
 // asset script keys. This was derived via: sum(map(lambda y: ord(y), 'taro')).
 // In order words: take the word taro and return the integer representation of
-// each character and sum those.
-const TaroKeyFamily = 438
+// each character and sum those. We get 438, then divide that by 2, to allow
+// use to fit this into just a 2-byte integer and to ensure compatibility with
+// the remote signer.
+const TaroKeyFamily = 219
 
 // FundedPsbt represents a fully funded PSBT transaction.
 type FundedPsbt struct {
