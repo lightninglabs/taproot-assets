@@ -139,7 +139,7 @@ type TaprootProof struct {
 	OutputIndex uint32
 
 	// InternalKey is the internal key of the taproot output at OutputIndex.
-	InternalKey btcec.PublicKey
+	InternalKey *btcec.PublicKey
 
 	// CommitmentProof represents a commitment proof for an asset, proving
 	// inclusion or exclusion of an asset within a Taro commitment.
@@ -290,7 +290,7 @@ func (p TaprootProof) DeriveByAssetInclusion(asset *asset.Asset) (
 		return nil, err
 	}
 	return deriveTaprootKeysFromTaroCommitment(
-		taroCommitment, &p.InternalKey,
+		taroCommitment, p.InternalKey,
 		p.CommitmentProof.TapSiblingPreimage,
 	)
 }
@@ -333,7 +333,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 		return nil, err
 	}
 	return deriveTaprootKeysFromTaroCommitment(
-		commitment, &p.InternalKey, p.CommitmentProof.TapSiblingPreimage,
+		commitment, p.InternalKey, p.CommitmentProof.TapSiblingPreimage,
 	)
 }
 
@@ -412,5 +412,5 @@ func (p TaprootProof) DeriveByTapscriptProof() ([]*btcec.PublicKey, error) {
 	if p.CommitmentProof != nil || p.TapscriptProof == nil {
 		return nil, ErrInvalidTapscriptProof
 	}
-	return p.TapscriptProof.DeriveTaprootKeys(&p.InternalKey)
+	return p.TapscriptProof.DeriveTaprootKeys(p.InternalKey)
 }

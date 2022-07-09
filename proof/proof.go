@@ -156,7 +156,7 @@ func (p Proof) verifyAssetStateTransition(prev *Result) error {
 			asset.PrevID{
 				OutPoint:  p.PrevOut,
 				ID:        prev.Asset.Genesis.ID(),
-				ScriptKey: prev.Asset.ScriptKey,
+				ScriptKey: *prev.Asset.ScriptKey.PubKey,
 			}: prev.Asset,
 		}
 	}
@@ -169,7 +169,7 @@ func (p Proof) verifyAssetStateTransition(prev *Result) error {
 		prevID := asset.PrevID{
 			OutPoint:  result.OutPoint,
 			ID:        result.Asset.Genesis.ID(),
-			ScriptKey: result.Asset.ScriptKey,
+			ScriptKey: *result.Asset.ScriptKey.PubKey,
 		}
 		prevAssets[prevID] = result.Asset
 	}

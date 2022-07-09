@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,10 +54,21 @@ func randGenesis(t *testing.T) *asset.Genesis {
 	}
 }
 
+func pubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
+	return keychain.KeyDescriptor{
+		PubKey: p,
+	}
+}
+
 func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
-	familyKey, err := asset.DeriveFamilyKey(privKey, genesis)
+
+	genSigner := asset.NewRawKeyGenesisSigner(privKey)
+
+	familyKey, err := asset.DeriveFamilyKey(
+		genSigner, pubToKeyDesc(privKey.PubKey()), genesis,
+	)
 	require.NoError(t, err)
 	return familyKey
 }
@@ -136,7 +148,7 @@ func TestProofEncoding(t *testing.T) {
 	commitment, assets, err := commitment.Mint(
 		genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        *randPubKey(t),
+			ScriptKey:        pubToKeyDesc(randPubKey(t)),
 			Amount:           nil,
 			LockTime:         1337,
 			RelativeLockTime: 6,
@@ -144,6 +156,7 @@ func TestProofEncoding(t *testing.T) {
 	)
 	require.NoError(t, err)
 	asset := assets[0]
+	asset.FamilyKey.RawKey = keychain.KeyDescriptor{}
 	_, commitmentProof := commitment.Proof(
 		asset.TaroCommitmentKey(), asset.AssetCommitmentKey(),
 	)
@@ -156,7 +169,7 @@ func TestProofEncoding(t *testing.T) {
 		Asset:         *asset,
 		InclusionProof: TaprootProof{
 			OutputIndex: 1,
-			InternalKey: *randPubKey(t),
+			InternalKey: randPubKey(t),
 			CommitmentProof: &CommitmentProof{
 				Proof:              *commitmentProof,
 				TapSiblingPreimage: []byte{1},
@@ -166,7 +179,7 @@ func TestProofEncoding(t *testing.T) {
 		ExclusionProofs: []TaprootProof{
 			{
 				OutputIndex: 2,
-				InternalKey: *randPubKey(t),
+				InternalKey: randPubKey(t),
 				CommitmentProof: &CommitmentProof{
 					Proof:              *commitmentProof,
 					TapSiblingPreimage: []byte{1},
@@ -175,7 +188,7 @@ func TestProofEncoding(t *testing.T) {
 			},
 			{
 				OutputIndex:     3,
-				InternalKey:     *randPubKey(t),
+				InternalKey:     randPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
 					TapPreimage1: []byte{1},
@@ -208,7 +221,7 @@ func TestGenesisProofVerification(t *testing.T) {
 	commitment, assets, err := commitment.Mint(
 		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        *genesisScriptKey,
+			ScriptKey:        pubToKeyDesc(genesisScriptKey),
 			Amount:           nil,
 			LockTime:         0,
 			RelativeLockTime: 0,
@@ -254,7 +267,7 @@ func TestGenesisProofVerification(t *testing.T) {
 		Asset:         *genesisAsset,
 		InclusionProof: TaprootProof{
 			OutputIndex: 0,
-			InternalKey: *internalKey,
+			InternalKey: internalKey,
 			CommitmentProof: &CommitmentProof{
 				Proof:              *commitmentProof,
 				TapSiblingPreimage: nil,

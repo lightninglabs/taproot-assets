@@ -142,7 +142,7 @@ func TaprootProofOutputIndexRecord(idx *uint32) tlv.Record {
 	return tlv.MakePrimitiveRecord(TaprootProofOutputIndexType, idx)
 }
 
-func TaprootProofInternalKeyRecord(internalKey *btcec.PublicKey) tlv.Record {
+func TaprootProofInternalKeyRecord(internalKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
 		TaprootProofInternalKeyType, internalKey, schnorr.PubKeyBytesLen,
 		asset.SchnorrPubKeyEncoder, asset.SchnorrPubKeyDecoder,
