@@ -107,7 +107,7 @@ INSERT INTO asset_families (
 ) VALUES (
     ?, ?, ?, ?
 ) ON CONFLICT 
-    DO UPDATE SET genesis_point_id = EXCLUDED.genesis_id
+    DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING family_id;
 
 -- name: InsertAssetFamilySig :one

@@ -494,6 +494,54 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.Equal(t, numSeedlings, len(assets))
 }
 
+// TestDuplicateFamilyKey tests that if we attempt to insert a family key with
+// the exact same tweaked key blob, then the noop UPSERT logic triggers, and we
+// get the ID of that same key.
+func TestDuplicateFamilyKey(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// First, we'll open up a new asset store, we only need the raw DB
+	// pointer, as we'll be doing some lower level access in this test.
+	_, _, db, cleanUp := newAssetStore(t)
+	defer cleanUp()
+
+	// Now that we have the DB, we'll insert a new random internal key, and
+	// then a key family linked to that internal key.
+	keyDesc, _ := randKeyDesc(t)
+	rawKey := keyDesc.PubKey.SerializeCompressed()
+
+	keyID, err := db.InsertInternalKey(ctx, InternalKey{
+		RawKey:    rawKey,
+		KeyFamily: int32(keyDesc.Family),
+		KeyIndex:  int32(keyDesc.Index),
+	})
+	require.NoError(t, err)
+
+	// Before we can insert the family key, we also need to insert a valid
+	// genesis point as well. We'll just use the key again as uniqueness is
+	// what matters.
+	genesisPointID, err := db.InsertGenesisPoint(ctx, rawKey)
+	require.NoError(t, err)
+
+	// We'll just use the same family key here as it doesn't really matter
+	// what it is. What matters is that it's unique.
+	assetKey := AssetFamilyKey{
+		TweakedFamKey:  rawKey,
+		InternalKeyID:  keyID,
+		GenesisPointID: genesisPointID,
+	}
+	famID, err := db.InsertAssetFamilyKey(ctx, assetKey)
+	require.NoError(t, err)
+
+	// Now we'll try to insert that same key family again. We should get no
+	// error, and the same famID back.
+	famID2, err := db.InsertAssetFamilyKey(ctx, assetKey)
+	require.NoError(t, err)
+	require.Equal(t, famID, famID2)
+}
+
 func init() {
 	rand.Seed(time.Now().Unix())
 }

@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS key_index on internal_keys (raw_key);
 CREATE TABLE IF NOT EXISTS asset_families (
     family_id INTEGER PRIMARY KEY,
 
-    tweaked_fam_key BLOB NOT NULL, 
+    tweaked_fam_key BLOB UNIQUE NOT NULL, 
 
     -- TODO(roasbeef): also need to mix in output index here? to derive the
     -- genesis key?
@@ -227,5 +227,6 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
 
     creation_time_unix TIMESTAMP NOT NULL
 );
+CREATE INDEX IF NOT EXISTS batch_state_lookup on asset_minting_batches (batch_state);
 
 -- TODO(roasbeef): need on delete cascade for all these?
