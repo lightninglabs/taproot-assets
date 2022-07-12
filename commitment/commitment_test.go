@@ -100,11 +100,12 @@ func TestNewAssetCommitment(t *testing.T) {
 	genesis1Collectible := randGenesis(t, asset.Collectible)
 	genesis2 := randGenesis(t, asset.Normal)
 	familyKey1 := randFamilyKey(t, genesis1)
+	familyKey1Collectible := randFamilyKey(t, genesis1Collectible)
 	familyKey2 := randFamilyKey(t, genesis2)
-	copyOfFamilyKey1 := &asset.FamilyKey{
-		RawKey: familyKey1.RawKey,
-		FamKey: familyKey1.FamKey,
-		Sig:    familyKey1.Sig,
+	copyOfFamilyKey1Collectible := &asset.FamilyKey{
+		RawKey: familyKey1Collectible.RawKey,
+		FamKey: familyKey1Collectible.FamKey,
+		Sig:    familyKey1Collectible.Sig,
 	}
 
 	testCases := []struct {
@@ -140,7 +141,7 @@ func TestNewAssetCommitment(t *testing.T) {
 					randAsset(t, genesis2, familyKey1),
 				}
 			},
-			err: nil,
+			err: ErrAssetGenesisInvalidSig,
 		},
 		{
 			name: "duplicate script key",
@@ -169,11 +170,11 @@ func TestNewAssetCommitment(t *testing.T) {
 				return []*asset.Asset{
 					randAsset(
 						t, genesis1Collectible,
-						familyKey1,
+						familyKey1Collectible,
 					),
 					randAsset(
 						t, genesis1Collectible,
-						copyOfFamilyKey1,
+						copyOfFamilyKey1Collectible,
 					),
 				}
 			},

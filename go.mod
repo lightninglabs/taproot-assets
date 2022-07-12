@@ -17,9 +17,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.0.0
-	github.com/lightninglabs/lndclient v1.0.1-0.20220707023447-84240280b244
+	github.com/lightninglabs/lndclient v0.16.0-0
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
-	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20220707020049-dc35f78ebce6
+	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20220714125147-af97b8f877c2
 	github.com/lightningnetwork/lnd/cert v1.1.1
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.0.3
