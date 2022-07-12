@@ -23,7 +23,15 @@ const (
 type AssetType int32
 
 const (
-	AssetType_NORMAL      AssetType = 0
+	//
+	//Indicates that an asset is capable of being split/merged, with each of the
+	//units being fungible, even across a key asset ID boundary (assuming the
+	//key family is the same).
+	AssetType_NORMAL AssetType = 0
+	//
+	//Indicates that an asset is a collectible, meaning that each of the other
+	//items under the same key family are not fully fungible with each other.
+	//Collectibles also cannot be split or merged.
 	AssetType_COLLECTIBLE AssetType = 1
 )
 
@@ -71,12 +79,26 @@ type MintAssetRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetType      AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
-	Name           string    `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	MetaData       []byte    `protobuf:"bytes,3,opt,name=meta_data,json=metaData,proto3" json:"meta_data,omitempty"`
-	Amount         int64     `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	EnableEmission bool      `protobuf:"varint,5,opt,name=enable_emission,json=enableEmission,proto3" json:"enable_emission,omitempty"`
-	SkipBatch      bool      `protobuf:"varint,6,opt,name=skip_batch,json=skipBatch,proto3" json:"skip_batch,omitempty"`
+	// The type of the asset to be created.
+	AssetType AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
+	// The name, or "tag" of the asset. This will affect the final asset ID.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	//
+	//An opaque blob that resents metadata related to the asset. This will affect
+	//the final asset ID.
+	MetaData []byte `protobuf:"bytes,3,opt,name=meta_data,json=metaData,proto3" json:"meta_data,omitempty"`
+	//
+	//The total amount of units of the new asset that should be created. If the
+	//AssetType is Collectible, then this field cannot be set.
+	Amount int64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	//
+	//If true, then the asset will be created with a key family, which allows for
+	//future asset issuance.
+	EnableEmission bool `protobuf:"varint,5,opt,name=enable_emission,json=enableEmission,proto3" json:"enable_emission,omitempty"`
+	//
+	//If true, then a batch will be created immediately. Otherwise the asset
+	//creation transaction may be batched with other pending minting requests.
+	SkipBatch bool `protobuf:"varint,6,opt,name=skip_batch,json=skipBatch,proto3" json:"skip_batch,omitempty"`
 }
 
 func (x *MintAssetRequest) Reset() {
@@ -158,6 +180,10 @@ type MintAssetResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	//
+	//A public key serialized in compressed format that can be used to uniquely
+	//identify a pending minting batch. Responses that share the same key will be
+	//batched into the same minting transaction.
 	BatchKey []byte `protobuf:"bytes,1,opt,name=batch_key,json=batchKey,proto3" json:"batch_key,omitempty"`
 }
 
@@ -243,10 +269,14 @@ type AnchorInfo struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AnchorTx        []byte `protobuf:"bytes,1,opt,name=anchor_tx,json=anchorTx,proto3" json:"anchor_tx,omitempty"`
-	AnchorTxid      []byte `protobuf:"bytes,2,opt,name=anchor_txid,json=anchorTxid,proto3" json:"anchor_txid,omitempty"`
+	// The transaction that anchors the Taro commitment where the asset resides.
+	AnchorTx []byte `protobuf:"bytes,1,opt,name=anchor_tx,json=anchorTx,proto3" json:"anchor_tx,omitempty"`
+	// The txid of the above transaction.
+	AnchorTxid []byte `protobuf:"bytes,2,opt,name=anchor_txid,json=anchorTxid,proto3" json:"anchor_txid,omitempty"`
+	// The block hash the contains the anchor transaction above.
 	AnchorBlockHash []byte `protobuf:"bytes,3,opt,name=anchor_block_hash,json=anchorBlockHash,proto3" json:"anchor_block_hash,omitempty"`
-	AnchorOutpoint  string `protobuf:"bytes,4,opt,name=anchor_outpoint,json=anchorOutpoint,proto3" json:"anchor_outpoint,omitempty"`
+	// The outpoint (txid:vout) that stores the Taro commitment.
+	AnchorOutpoint string `protobuf:"bytes,4,opt,name=anchor_outpoint,json=anchorOutpoint,proto3" json:"anchor_outpoint,omitempty"`
 }
 
 func (x *AnchorInfo) Reset() {
@@ -314,11 +344,16 @@ type GenesisInfo struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Version      int32  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The version of the Taro asset.
+	Version int32 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The first outpoint of the transaction that created the asset (txid:vout).
 	GenesisPoint string `protobuf:"bytes,2,opt,name=genesis_point,json=genesisPoint,proto3" json:"genesis_point,omitempty"`
-	Name         string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Meta         []byte `protobuf:"bytes,4,opt,name=meta,proto3" json:"meta,omitempty"`
-	AssetId      []byte `protobuf:"bytes,5,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The name of the asset.
+	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	// The opaque meta data of the asset.
+	Meta []byte `protobuf:"bytes,4,opt,name=meta,proto3" json:"meta,omitempty"`
+	// The asset ID that uniquely identifies the asset.
+	AssetId []byte `protobuf:"bytes,5,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 }
 
 func (x *GenesisInfo) Reset() {
@@ -393,9 +428,14 @@ type AssetFamily struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	RawFamilyKey     []byte `protobuf:"bytes,1,opt,name=raw_family_key,json=rawFamilyKey,proto3" json:"raw_family_key,omitempty"`
+	// The raw family key which is a normal public key.
+	RawFamilyKey []byte `protobuf:"bytes,1,opt,name=raw_family_key,json=rawFamilyKey,proto3" json:"raw_family_key,omitempty"`
+	//
+	//The tweaked family key, which is derived based on the genesis point and also
+	//asset type.
 	TweakedFamilyKey []byte `protobuf:"bytes,2,opt,name=tweaked_family_key,json=tweakedFamilyKey,proto3" json:"tweaked_family_key,omitempty"`
-	AssetIdSig       []byte `protobuf:"bytes,3,opt,name=asset_id_sig,json=assetIdSig,proto3" json:"asset_id_sig,omitempty"`
+	// A signature over the genesis point using the above key.
+	AssetIdSig []byte `protobuf:"bytes,3,opt,name=asset_id_sig,json=assetIdSig,proto3" json:"asset_id_sig,omitempty"`
 }
 
 func (x *AssetFamily) Reset() {
@@ -456,15 +496,24 @@ type Asset struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	AssetGenesis     *GenesisInfo `protobuf:"bytes,1,opt,name=asset_genesis,json=assetGenesis,proto3" json:"asset_genesis,omitempty"`
-	AssetType        AssetType    `protobuf:"varint,2,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
-	Amount           int64        `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	LockTime         int32        `protobuf:"varint,5,opt,name=lock_time,json=lockTime,proto3" json:"lock_time,omitempty"`
-	RelativeLockTime int32        `protobuf:"varint,6,opt,name=relative_lock_time,json=relativeLockTime,proto3" json:"relative_lock_time,omitempty"`
-	ScriptVersion    int32        `protobuf:"varint,7,opt,name=script_version,json=scriptVersion,proto3" json:"script_version,omitempty"`
-	ScriptKey        []byte       `protobuf:"bytes,9,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	AssetFamily      *AssetFamily `protobuf:"bytes,10,opt,name=asset_family,json=assetFamily,proto3" json:"asset_family,omitempty"`
-	ChainAnchor      *AnchorInfo  `protobuf:"bytes,11,opt,name=chain_anchor,json=chainAnchor,proto3" json:"chain_anchor,omitempty"`
+	// The base genesis information of an asset. This information never changes.
+	AssetGenesis *GenesisInfo `protobuf:"bytes,1,opt,name=asset_genesis,json=assetGenesis,proto3" json:"asset_genesis,omitempty"`
+	// The type of the asset.
+	AssetType AssetType `protobuf:"varint,2,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
+	// The total amount of the asset stored in this Taro UTXO.
+	Amount int64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	// An optional locktime, as with Bitcoin transactions.
+	LockTime int32 `protobuf:"varint,5,opt,name=lock_time,json=lockTime,proto3" json:"lock_time,omitempty"`
+	// An optional relative lock time, same as Bitcoin transactions.
+	RelativeLockTime int32 `protobuf:"varint,6,opt,name=relative_lock_time,json=relativeLockTime,proto3" json:"relative_lock_time,omitempty"`
+	// The version of the script, only version 0 is defined at present.
+	ScriptVersion int32 `protobuf:"varint,7,opt,name=script_version,json=scriptVersion,proto3" json:"script_version,omitempty"`
+	// The script key of the asset, which can be spent under Taproot semantics.
+	ScriptKey []byte `protobuf:"bytes,9,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	// The information related to the key family of an asset (if it exists).
+	AssetFamily *AssetFamily `protobuf:"bytes,10,opt,name=asset_family,json=assetFamily,proto3" json:"asset_family,omitempty"`
+	// Describes where in the chain the asset is currently anchored.
+	ChainAnchor *AnchorInfo `protobuf:"bytes,11,opt,name=chain_anchor,json=chainAnchor,proto3" json:"chain_anchor,omitempty"`
 }
 
 func (x *Asset) Reset() {
@@ -690,6 +739,7 @@ type DebugLevelRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// If true, all the valid debug sub-systems will be returned.
 	Show      bool   `protobuf:"varint,1,opt,name=show,proto3" json:"show,omitempty"`
 	LevelSpec string `protobuf:"bytes,2,opt,name=level_spec,json=levelSpec,proto3" json:"level_spec,omitempty"`
 }

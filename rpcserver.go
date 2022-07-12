@@ -256,7 +256,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	// or failed.
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("context closed")
+		return nil, fmt.Errorf("context closed: %w", ctx.Err())
 
 	case update := <-updates:
 		if update.Error != nil {
