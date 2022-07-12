@@ -990,9 +990,9 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 
 const insertAssetFamilyKey = `-- name: InsertAssetFamilyKey :one
 INSERT INTO asset_families (
-    tweaked_fam_key, internal_key_id, raw_priv, genesis_point_id 
+    tweaked_fam_key, internal_key_id, genesis_point_id 
 ) VALUES (
-    ?, ?, ?, ?
+    ?, ?, ?
 ) ON CONFLICT 
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING family_id
@@ -1001,17 +1001,11 @@ RETURNING family_id
 type InsertAssetFamilyKeyParams struct {
 	TweakedFamKey  []byte
 	InternalKeyID  int32
-	RawPriv        []byte
 	GenesisPointID int32
 }
 
 func (q *Queries) InsertAssetFamilyKey(ctx context.Context, arg InsertAssetFamilyKeyParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetFamilyKey,
-		arg.TweakedFamKey,
-		arg.InternalKeyID,
-		arg.RawPriv,
-		arg.GenesisPointID,
-	)
+	row := q.db.QueryRowContext(ctx, insertAssetFamilyKey, arg.TweakedFamKey, arg.InternalKeyID, arg.GenesisPointID)
 	var family_id int32
 	err := row.Scan(&family_id)
 	return family_id, err

@@ -103,9 +103,9 @@ INSERT INTO genesis_points(
 
 -- name: InsertAssetFamilyKey :one
 INSERT INTO asset_families (
-    tweaked_fam_key, internal_key_id, raw_priv, genesis_point_id 
+    tweaked_fam_key, internal_key_id, genesis_point_id 
 ) VALUES (
-    ?, ?, ?, ?
+    ?, ?, ?
 ) ON CONFLICT 
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING family_id;
