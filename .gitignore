@@ -9,6 +9,9 @@ tarod-debug
 cmd/tarocli/tarocli
 cmd/tarod/tarod
 
+tarocli-debug
+tarod-debug
+
 # Test binary, built with `go test -c`
 *.test
 

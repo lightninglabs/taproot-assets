@@ -81,6 +81,105 @@
         }
       }
     },
+    "tarorpcAnchorInfo": {
+      "type": "object",
+      "properties": {
+        "anchor_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The transaction that anchors the Taro commitment where the asset resides."
+        },
+        "anchor_txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "The txid of the above transaction."
+        },
+        "anchor_block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block hash the contains the anchor transaction above."
+        },
+        "anchor_outpoint": {
+          "type": "string",
+          "description": "The outpoint (txid:vout) that stores the Taro commitment."
+        }
+      }
+    },
+    "tarorpcAsset": {
+      "type": "object",
+      "properties": {
+        "asset_genesis": {
+          "$ref": "#/definitions/tarorpcGenesisInfo",
+          "description": "The base genesis information of an asset. This information never changes."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType",
+          "description": "The type of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of the asset stored in this Taro UTXO."
+        },
+        "lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional locktime, as with Bitcoin transactions."
+        },
+        "relative_lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional relative lock time, same as Bitcoin transactions."
+        },
+        "script_version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the script, only version 0 is defined at present."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset, which can be spent under Taproot semantics."
+        },
+        "asset_family": {
+          "$ref": "#/definitions/tarorpcAssetFamily",
+          "description": "The information related to the key family of an asset (if it exists)."
+        },
+        "chain_anchor": {
+          "$ref": "#/definitions/tarorpcAnchorInfo",
+          "description": "Describes where in the chain the asset is currently anchored."
+        }
+      }
+    },
+    "tarorpcAssetFamily": {
+      "type": "object",
+      "properties": {
+        "raw_family_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw family key which is a normal public key."
+        },
+        "tweaked_family_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked family key, which is derived based on the genesis point and also\nasset type."
+        },
+        "asset_id_sig": {
+          "type": "string",
+          "format": "byte",
+          "description": "A signature over the genesis point using the above key."
+        }
+      }
+    },
+    "tarorpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL",
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey family is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key family are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
     "tarorpcDebugLevelResponse": {
       "type": "object",
       "properties": {
@@ -89,14 +188,85 @@
         }
       }
     },
+    "tarorpcGenesisInfo": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taro asset."
+        },
+        "genesis_point": {
+          "type": "string",
+          "description": "The first outpoint of the transaction that created the asset (txid:vout)."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the asset."
+        },
+        "meta": {
+          "type": "string",
+          "format": "byte",
+          "description": "The opaque meta data of the asset."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        }
+      }
+    },
     "tarorpcListAssetResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAsset"
+          }
+        }
+      }
     },
     "tarorpcMintAssetRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType",
+          "description": "The type of the asset to be created."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name, or \"tag\" of the asset. This will affect the final asset ID."
+        },
+        "meta_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "An opaque blob that resents metadata related to the asset. This will affect\nthe final asset ID."
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of units of the new asset that should be created. If the\nAssetType is Collectible, then this field cannot be set."
+        },
+        "enable_emission": {
+          "type": "boolean",
+          "description": "If true, then the asset will be created with a key family, which allows for\nfuture asset issuance."
+        },
+        "skip_batch": {
+          "type": "boolean",
+          "description": "If true, then a batch will be created immediately. Otherwise the asset\ncreation transaction may be batched with other pending minting requests."
+        }
+      }
     },
     "tarorpcMintAssetResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "batch_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
+        }
+      }
     },
     "tarorpcStopResponse": {
       "type": "object"

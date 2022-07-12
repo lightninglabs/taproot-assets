@@ -344,7 +344,8 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	// TODO(roasbeef): this actually needs to sign the digest of the asset
 	// itself
 	id := gen.ID()
-	sig, err := schnorr.Sign(tweakedPrivKey, id[:])
+	idHash := sha256.Sum256(id[:])
+	sig, err := schnorr.Sign(tweakedPrivKey, idHash[:])
 	if err != nil {
 		return nil, nil, err
 	}

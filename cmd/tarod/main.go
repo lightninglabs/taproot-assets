@@ -10,8 +10,10 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 func main() {
@@ -94,9 +96,43 @@ func main() {
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
 	})
+	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore,
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.PendingAssetStore {
+		sqlTx, _ := tx.(*sql.Tx)
+		return db.WithTx(sqlTx)
+	})
+	assetMintingStore := tarodb.NewAssetMintingStore(mintingStore)
+
+	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore,
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.ActiveAssetsStore {
+		sqlTx, _ := tx.(*sql.Tx)
+		return db.WithTx(sqlTx)
+	})
+
+	lndConn, err := getLnd(
+		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
+	)
+	if err != nil {
+		err := fmt.Sprintf("unable to connect to lnd node: %v", err)
+		cfgLogger.Infof(err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	lndServices := &lndConn.LndServices
+
 	server, err := taro.NewServer(&taro.Config{
-		DebugLevel:        cfg.DebugLevel,
-		ChainParams:       cfg.ActiveNetParams,
+		DebugLevel:  cfg.DebugLevel,
+		ChainParams: cfg.ActiveNetParams,
+		AssetMinter: tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
+			GardenKit: tarogarden.GardenKit{
+				Wallet:      taro.NewLndRpcWalletAnchor(lndServices),
+				ChainBridge: taro.NewLndRpcChainBridge(lndServices),
+				Log:         assetMintingStore,
+				KeyRing:     taro.NewLndRpcKeyRing(lndServices),
+				GenSigner:   taro.NewLndRpcGenSigner(lndServices),
+			},
+			BatchTicker: ticker.New(cfg.BatchMintingInterval),
+		}),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
@@ -114,6 +150,8 @@ func main() {
 		},
 		DatabaseConfig: &taro.DatabaseConfig{
 			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
+			MintingStore: assetMintingStore,
+			AssetStore:   tarodb.NewAssetStore(assetDB),
 		},
 	})
 	if err != nil {

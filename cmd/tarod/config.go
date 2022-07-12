@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,11 +17,13 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog"
 	"github.com/jessevdk/go-flags"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/build"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"google.golang.org/grpc"
@@ -46,6 +50,11 @@ const (
 	defaultTLSCertDuration = 14 * 30 * 24 * time.Hour
 
 	defaultConfigFileName = "taro.conf"
+
+	// defaultBatchMintingInterval is the default interval used to
+	// determine when a set of pending assets should be flushed into a new
+	// batch.
+	defaultBatchMintingInterval = time.Minute * 10
 )
 
 var (
@@ -70,6 +79,38 @@ var (
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
 
 	defaultDatabaseFileName = "taro.db"
+
+	// defaultLndMacaroon is the default macaroon file we use if the old,
+	// deprecated --lnd.macaroondir config option is used.
+	defaultLndMacaroon = "admin.macaroon"
+
+	// defaultLndDir is the default location where we look for lnd's tls and
+	// macaroon files.
+	defaultLndDir = btcutil.AppDataDir("lnd", false)
+
+	// defaultLndMacaroonPath is the default location where we look for a
+	// macaroon to use when connecting to lnd.
+	defaultLndMacaroonPath = filepath.Join(
+		defaultLndDir, "data", "chain", "bitcoin", defaultNetwork,
+		defaultLndMacaroon,
+	)
+
+	// minimalCompatibleVersion is the minimum version and build tags
+	// required in lnd to run pool.
+	minimalCompatibleVersion = &verrpc.Version{
+		AppMajor: 0,
+		AppMinor: 15,
+		AppPatch: 0,
+
+		// We don't actually require the invoicesrpc calls. But if we
+		// try to use lndclient on an lnd that doesn't have it enabled,
+		// the library will try to load the invoices.macaroon anyway and
+		// fail. So until that bug is fixed in lndclient, we require the
+		// build tag to be active.
+		BuildTags: []string{
+			"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
+		},
+	}
 )
 
 // ChainConfig houses the configuration options that govern which chain/network
@@ -105,6 +146,25 @@ type RpcConfig struct {
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 }
 
+// LndConfig is the main config we'll use to connect to the lnd node that backs
+// up tarod.
+type LndConfig struct {
+	Host string `long:"host" description:"lnd instance rpc address"`
+
+	// MacaroonDir is the directory that contains all the macaroon files
+	// required for the remote connection.
+	MacaroonDir string `long:"macaroondir" description:"DEPRECATED: Use macaroonpath."`
+
+	// MacaroonPath is the path to the single macaroon that should be used
+	// instead of needing to specify the macaroon directory that contains
+	// all of lnd's macaroons. The specified macaroon MUST have all
+	// permissions that all the subservers use, otherwise permission errors
+	// will occur.
+	MacaroonPath string `long:"macaroonpath" description:"The full path to the single macaroon to use, either the admin.macaroon or a custom baked one. Cannot be specified at the same time as macaroondir. A custom macaroon must contain ALL permissions required for all subservers to work, otherwise permission errors will occur."`
+
+	TLSPath string `long:"tlspath" description:"Path to lnd tls certificate"`
+}
+
 // Config is the main config for the tarod cli command.
 type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
@@ -123,8 +183,12 @@ type Config struct {
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
 
+	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
+
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
+
+	Lnd *LndConfig `group:"lnd" namespace:"lnd"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
@@ -165,7 +229,12 @@ func DefaultConfig() Config {
 		ChainConf: &ChainConfig{
 			Network: defaultNetwork,
 		},
-		LogWriter: build.NewRotatingLogWriter(),
+		Lnd: &LndConfig{
+			Host:         "localhost:10009",
+			MacaroonPath: defaultLndMacaroonPath,
+		},
+		LogWriter:            build.NewRotatingLogWriter(),
+		BatchMintingInterval: defaultBatchMintingInterval,
 	}
 }
 
@@ -431,6 +500,43 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	if cfg.RpcConf.MacaroonPath == "" {
 		cfg.RpcConf.MacaroonPath = filepath.Join(
 			cfg.networkDir, defaultAdminMacFilename,
+		)
+	}
+
+	// Make sure only one of the macaroon options is used.
+	switch {
+	case cfg.Lnd.MacaroonPath != defaultLndMacaroonPath &&
+		cfg.Lnd.MacaroonDir != "":
+
+		return nil, nil, fmt.Errorf("use --lnd.macaroonpath only")
+
+	case cfg.Lnd.MacaroonDir != "":
+		// With the new version of lndclient we can only specify a
+		// single macaroon instead of all of them. If the old
+		// macaroondir is used, we use the admin macaroon located in
+		// that directory.
+		cfg.Lnd.MacaroonPath = path.Join(
+			lncfg.CleanAndExpandPath(cfg.Lnd.MacaroonDir),
+			defaultLndMacaroon,
+		)
+
+	case cfg.Lnd.MacaroonPath != "":
+		cfg.Lnd.MacaroonPath = lncfg.CleanAndExpandPath(
+			cfg.Lnd.MacaroonPath,
+		)
+
+	default:
+		return nil, nil, fmt.Errorf("must specify --lnd.macaroonpath")
+	}
+
+	// Adjust the default lnd macaroon path if only the network is
+	// specified.
+	if cfg.ChainConf.Network != defaultNetwork &&
+		cfg.Lnd.MacaroonPath == defaultLndMacaroonPath {
+
+		cfg.Lnd.MacaroonPath = path.Join(
+			defaultLndDir, "data", "chain", "bitcoin",
+			cfg.ChainConf.Network, defaultLndMacaroon,
 		)
 	}
 
@@ -714,4 +820,41 @@ func CleanAndExpandPath(path string) string {
 	// NOTE: The os.ExpandEnv doesn't work with Windows-style %VARIABLE%,
 	// but the variables can still be expanded via POSIX-style $VARIABLE.
 	return filepath.Clean(os.ExpandEnv(path))
+}
+
+// getLnd returns an instance of the lnd services proxy.
+func getLnd(network string, cfg *LndConfig,
+	interceptor signal.Interceptor) (*lndclient.GrpcLndServices, error) {
+
+	// We'll want to wait for lnd to be fully synced to its chain backend.
+	// The call to NewLndServices will block until the sync is completed.
+	// But we still want to be able to shutdown the daemon if the user
+	// decides to not wait. For that we can pass down a context that we
+	// cancel on shutdown.
+	ctxc, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Make sure the context is canceled if the user requests shutdown.
+	go func() {
+		select {
+		// Client requests shutdown, cancel the wait.
+		case <-interceptor.ShutdownChannel():
+			cancel()
+
+		// The check was completed and the above defer canceled the
+		// context. We can just exit the goroutine, nothing more to do.
+		case <-ctxc.Done():
+		}
+	}()
+
+	return lndclient.NewLndServices(&lndclient.LndServicesConfig{
+		LndAddress:            cfg.Host,
+		Network:               lndclient.Network(network),
+		CustomMacaroonPath:    cfg.MacaroonPath,
+		TLSPath:               cfg.TLSPath,
+		CheckVersion:          minimalCompatibleVersion,
+		BlockUntilChainSynced: true,
+		BlockUntilUnlocked:    true,
+		CallerCtx:             ctxc,
+	})
 }

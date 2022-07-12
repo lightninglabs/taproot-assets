@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
@@ -38,8 +39,14 @@ type RPCConfig struct {
 	MacaroonPath string
 }
 
+// DatabaseConfig is the config that holds all the persistence related structs
+// and interfaces needed for tarod to function.
 type DatabaseConfig struct {
 	RootKeyStore *tarodb.RootKeyStore
+
+	MintingStore tarogarden.MintingStore
+
+	AssetStore *tarodb.AssetStore
 }
 
 // Config is the main config of the Taro server.
@@ -49,6 +56,8 @@ type Config struct {
 	ChainParams chaincfg.Params
 
 	SignalInterceptor signal.Interceptor
+
+	AssetMinter tarogarden.Planter
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
