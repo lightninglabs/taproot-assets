@@ -226,7 +226,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			famKeyRaw, famPriv := randKeyDesc(t)
 			famKey, err := asset.DeriveFamilyKey(
 				asset.NewRawKeyGenesisSigner(famPriv),
-				famKeyRaw, &assetGen,
+				famKeyRaw, assetGen,
 			)
 			require.NoError(t, err)
 
@@ -237,12 +237,12 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		switch seedling.AssetType {
 		case asset.Normal:
 			newAsset = asset.New(
-				&assetGen, seedling.Amount, 0, 0, scriptKey,
+				assetGen, seedling.Amount, 0, 0, scriptKey,
 				familyKey,
 			)
 		case asset.Collectible:
 			newAsset = asset.NewCollectible(
-				&assetGen, 0, 0, scriptKey, familyKey,
+				assetGen, 0, 0, scriptKey, familyKey,
 			)
 		}
 

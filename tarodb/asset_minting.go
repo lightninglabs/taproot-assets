@@ -442,12 +442,12 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		)
 		if asset.Type(sprout.AssetType) == asset.Normal {
 			assetSprout = asset.New(
-				&assetGenesis, uint64(sprout.Amount), lockTime,
+				assetGenesis, uint64(sprout.Amount), lockTime,
 				relativeLocktime, scriptKey, familyKey,
 			)
 		} else {
 			assetSprout = asset.NewCollectible(
-				&assetGenesis, lockTime, relativeLocktime,
+				assetGenesis, lockTime, relativeLocktime,
 				scriptKey, familyKey,
 			)
 		}

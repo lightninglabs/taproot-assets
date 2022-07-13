@@ -360,9 +360,9 @@ var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 // DeriveFamilyKey derives an asset's family key based on an internal public
 // key descriptor key and an asset genesis.
 func DeriveFamilyKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	genesis *Genesis) (*FamilyKey, error) {
+	genesis Genesis) (*FamilyKey, error) {
 
-	famKey, sig, err := genSigner.SignGenesis(rawKey, *genesis)
+	famKey, sig, err := genSigner.SignGenesis(rawKey, genesis)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ type Asset struct {
 
 	// Genesis encodes an asset's genesis metadata which directly maps to
 	// its unique ID within the Taro protocol.
-	Genesis Genesis
+	Genesis
 
 	// Type uniquely identifies the type of Taro asset.
 	Type Type
@@ -427,12 +427,12 @@ type Asset struct {
 
 // New instantiates a new fungible asset of type `Normal` with a genesis asset
 // witness.
-func New(genesis *Genesis, amount, locktime, relativeLocktime uint64,
+func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) *Asset {
 
 	return &Asset{
 		Version:          V0,
-		Genesis:          *genesis,
+		Genesis:          genesis,
 		Type:             Normal,
 		Amount:           amount,
 		LockTime:         locktime,
@@ -451,12 +451,12 @@ func New(genesis *Genesis, amount, locktime, relativeLocktime uint64,
 }
 
 // NewCollectible instantiates a new `Collectible` asset.
-func NewCollectible(genesis *Genesis, locktime, relativeLocktime uint64,
+func NewCollectible(genesis Genesis, locktime, relativeLocktime uint64,
 	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) *Asset {
 
 	return &Asset{
 		Version:          V0,
-		Genesis:          *genesis,
+		Genesis:          genesis,
 		Type:             Collectible,
 		Amount:           1,
 		LockTime:         locktime,

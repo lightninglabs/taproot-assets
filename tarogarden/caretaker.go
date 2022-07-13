@@ -337,7 +337,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 					"family key: %v", err)
 			}
 			familyKey, err = asset.DeriveFamilyKey(
-				b.cfg.GenSigner, rawFamilyKey, &assetGen,
+				b.cfg.GenSigner, rawFamilyKey, assetGen,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to tweak	family "+
@@ -351,12 +351,12 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		switch seedling.AssetType {
 		case asset.Normal:
 			newAsset = asset.New(
-				&assetGen, seedling.Amount, 0, 0, scriptKey,
+				assetGen, seedling.Amount, 0, 0, scriptKey,
 				familyKey,
 			)
 		case asset.Collectible:
 			newAsset = asset.NewCollectible(
-				&assetGen, 0, 0, scriptKey, familyKey,
+				assetGen, 0, 0, scriptKey, familyKey,
 			)
 		}
 

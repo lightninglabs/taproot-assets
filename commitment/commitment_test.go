@@ -20,9 +20,9 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randGenesis(t *testing.T) *asset.Genesis {
+func randGenesis(t *testing.T) asset.Genesis {
 	t.Helper()
-	return &asset.Genesis{
+	return asset.Genesis{
 		FirstPrevOut: wire.OutPoint{},
 		Tag:          "",
 		Metadata:     nil,
@@ -30,7 +30,7 @@ func randGenesis(t *testing.T) *asset.Genesis {
 	}
 }
 
-func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
+func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 	t.Helper()
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 	}
 }
 
-func randAsset(t *testing.T, genesis *asset.Genesis, familyKey *asset.FamilyKey,
+func randAsset(t *testing.T, genesis asset.Genesis, familyKey *asset.FamilyKey,
 	assetType asset.Type) *asset.Asset {
 
 	t.Helper()
