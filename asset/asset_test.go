@@ -319,3 +319,13 @@ func TestAssetEncoding(t *testing.T) {
 		FamilyKey: nil,
 	})
 }
+
+func FuzzAssetDecode(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		r := bytes.NewReader(data)
+		a := &Asset{}
+		if err := a.Decode(r); err != nil {
+			return
+		}
+	})
+}
