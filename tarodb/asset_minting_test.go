@@ -217,6 +217,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			Tag:          seedling.AssetName,
 			Metadata:     seedling.Metadata,
 			OutputIndex:  0,
+			Type:         seedling.AssetType,
 		}
 
 		scriptKey, _ := randKeyDesc(t)
@@ -233,18 +234,18 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			familyKey = famKey
 		}
 
-		var newAsset *asset.Asset
+		var amount uint64
 		switch seedling.AssetType {
 		case asset.Normal:
-			newAsset = asset.New(
-				assetGen, seedling.Amount, 0, 0, scriptKey,
-				familyKey,
-			)
+			amount = seedling.Amount
 		case asset.Collectible:
-			newAsset = asset.NewCollectible(
-				assetGen, 0, 0, scriptKey, familyKey,
-			)
+			amount = 1
 		}
+
+		newAsset, err := asset.New(
+			assetGen, amount, 0, 0, scriptKey, familyKey,
+		)
+		require.NoError(t, err)
 
 		// Finally make a new asset commitment (the inner SMT tree) for
 		// this newly created asset.

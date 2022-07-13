@@ -2,6 +2,7 @@ package asset
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 
@@ -214,8 +215,8 @@ func TestAssetEncoding(t *testing.T) {
 			Tag:         "asset",
 			Metadata:    []byte{1, 2, 3},
 			OutputIndex: 1,
+			Type:        1,
 		},
-		Type:             1,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -244,7 +245,6 @@ func TestAssetEncoding(t *testing.T) {
 	root := &Asset{
 		Version:          1,
 		Genesis:          split.Genesis,
-		Type:             1,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -286,8 +286,8 @@ func TestAssetEncoding(t *testing.T) {
 			Tag:         "asset",
 			Metadata:    []byte{1, 2, 3},
 			OutputIndex: 2,
+			Type:        2,
 		},
-		Type:             2,
 		Amount:           2,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -318,4 +318,89 @@ func TestAssetEncoding(t *testing.T) {
 		},
 		FamilyKey: nil,
 	})
+}
+
+// TestAssetType asserts that the number of issued assets is set according to
+// the genesis type when creating a new asset.
+func TestAssetType(t *testing.T) {
+	t.Parallel()
+
+	normalGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 1,
+		},
+		Tag:         "normal asset",
+		Metadata:    []byte{1, 2, 3},
+		OutputIndex: 1,
+		Type:        Normal,
+	}
+	collectibleGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 1,
+		},
+		Tag:         "collectible asset",
+		Metadata:    []byte{1, 2, 3},
+		OutputIndex: 2,
+		Type:        Collectible,
+	}
+	desc := keychain.KeyDescriptor{
+		PubKey: pubKey,
+	}
+
+	normal, err := New(normalGen, 741, 0, 0, desc, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 741, normal.Amount)
+
+	_, err = New(collectibleGen, 741, 0, 0, desc, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "amount must be 1 for asset")
+
+	collectible, err := New(collectibleGen, 1, 0, 0, desc, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, collectible.Amount)
+}
+
+// TestAssetID makes sure that the asset ID is derived correctly.
+func TestAssetID(t *testing.T) {
+	t.Parallel()
+
+	g := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 99,
+		},
+		Tag:         "collectible asset 1",
+		Metadata:    []byte{1, 2, 3},
+		OutputIndex: 21,
+		Type:        Collectible,
+	}
+	tagHash := sha256.Sum256([]byte(g.Tag))
+	metadataHash := sha256.Sum256(g.Metadata)
+
+	h := sha256.New()
+	_ = wire.WriteOutPoint(h, 0, 0, &g.FirstPrevOut)
+	_, _ = h.Write(tagHash[:])
+	_, _ = h.Write(metadataHash[:])
+	_, _ = h.Write([]byte{0, 0, 0, 21, 1})
+	result := h.Sum(nil)
+
+	id := g.ID()
+	require.Equal(t, result, id[:])
+
+	// Make sure we get a different asset ID even if everything is the same
+	// except for the type.
+	normalWithDifferentType := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 99,
+		},
+		Tag:         "collectible asset 1",
+		Metadata:    []byte{1, 2, 3},
+		OutputIndex: 21,
+		Type:        Normal,
+	}
+	differentID := normalWithDifferentType.ID()
+	require.NotEqual(t, id[:], differentID[:])
 }

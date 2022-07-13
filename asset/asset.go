@@ -53,8 +53,8 @@ type Genesis struct {
 	// commitment in the genesis transaction.
 	OutputIndex uint32
 
-	// TODO(roasbeef): add asset type, have it be part of the assetID
-	// calculation
+	// Type uniquely identifies the type of Taro asset.
+	Type Type
 }
 
 // TagHash computes the SHA-256 hash of the asset's tag.
@@ -68,7 +68,8 @@ func (g Genesis) MetadataHash() [sha256.Size]byte {
 }
 
 // ID serves as a unique identifier of an asset, resulting from:
-//   sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex)
+//   sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex ||
+//     assetType)
 type ID [sha256.Size]byte
 
 // ID computes an asset's unique identifier from its metadata.
@@ -81,6 +82,7 @@ func (g Genesis) ID() ID {
 	_, _ = h.Write(tagHash[:])
 	_, _ = h.Write(metadataHash[:])
 	_ = binary.Write(h, binary.BigEndian, g.OutputIndex)
+	_ = binary.Write(h, binary.BigEndian, g.Type)
 	return *(*ID)(h.Sum(nil))
 }
 
@@ -383,9 +385,6 @@ type Asset struct {
 	// its unique ID within the Taro protocol.
 	Genesis
 
-	// Type uniquely identifies the type of Taro asset.
-	Type Type
-
 	// Amount is the number of units represented by the asset.
 	Amount uint64
 
@@ -425,15 +424,20 @@ type Asset struct {
 	FamilyKey *FamilyKey
 }
 
-// New instantiates a new fungible asset of type `Normal` with a genesis asset
-// witness.
+// New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
-	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) *Asset {
+	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) (*Asset,
+	error) {
+
+	// Collectible assets can only ever be issued once.
+	if genesis.Type != Normal && amount != 1 {
+		return nil, fmt.Errorf("amount must be 1 for asset of type %v",
+			genesis.Type)
+	}
 
 	return &Asset{
 		Version:          V0,
 		Genesis:          genesis,
-		Type:             Normal,
 		Amount:           amount,
 		LockTime:         locktime,
 		RelativeLockTime: relativeLocktime,
@@ -447,31 +451,7 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 		ScriptVersion:       ScriptV0,
 		ScriptKey:           scriptKey,
 		FamilyKey:           familyKey,
-	}
-}
-
-// NewCollectible instantiates a new `Collectible` asset.
-func NewCollectible(genesis Genesis, locktime, relativeLocktime uint64,
-	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) *Asset {
-
-	return &Asset{
-		Version:          V0,
-		Genesis:          genesis,
-		Type:             Collectible,
-		Amount:           1,
-		LockTime:         locktime,
-		RelativeLockTime: relativeLocktime,
-		PrevWitnesses: []Witness{{
-			// Valid genesis asset witness.
-			PrevID:          &PrevID{},
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		}},
-		SplitCommitmentRoot: nil,
-		ScriptVersion:       ScriptV0,
-		ScriptKey:           scriptKey,
-		FamilyKey:           familyKey,
-	}
+	}, nil
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
