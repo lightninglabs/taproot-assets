@@ -53,21 +53,39 @@ type File struct {
 	Proofs []Proof
 }
 
-// Result commits to the result of a valid proof within a proof file.
-type Result struct {
+// AssetSnapshot commits to the result of a valid proof within a proof file.
+// This represents the state of an asset's lineage at a given point in time.
+type AssetSnapshot struct {
 	// Asset is the resulting asset of a valid proof.
 	Asset *asset.Asset
 
-	// OutPoint is the outpoint in which the resulting asset was included
-	// in.
+	// OutPoint is the outpoint that commits to the asset specified above.
 	OutPoint wire.OutPoint
 }
 
 // Verify attempts to verify a full proof file starting from the asset's
 // genesis.
-func (f File) Verify() (*Result, error) {
-	var prev *Result
+//
+// The passed context can be used to exit early from the inner proof
+// verification loop.
+//
+// TODO(roasbeef): pass in the expected genesis point here?
+func (f File) Verify(ctx context.Context) (*AssetSnapshot, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	var prev *AssetSnapshot
 	for _, proof := range f.Proofs {
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		result, err := proof.Verify(prev)
 		if err != nil {
 			return nil, err

@@ -1,8 +1,12 @@
 package proof
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
+	"runtime"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
@@ -11,6 +15,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -136,12 +141,15 @@ func (p Proof) verifyExclusionProofs() error {
 
 // verifyAssetStateTransition verifies an asset's witnesses resulting from a
 // state transition.
-func (p Proof) verifyAssetStateTransition(prev *Result) error {
+func (p Proof) verifyAssetStateTransition(prev *AssetSnapshot) error {
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
 	newAsset := &p.Asset
 	var splitAsset *commitment.SplitAsset
 	if vm.HasSplitCommitmentWitness(newAsset) {
+		// In this case, an asset was created via a split, so we need
+		// to first verify that asset that created the split (the new
+		// asset).
 		splitAsset = &commitment.SplitAsset{
 			Asset:       *newAsset,
 			OutputIndex: p.InclusionProof.OutputIndex,
@@ -160,18 +168,37 @@ func (p Proof) verifyAssetStateTransition(prev *Result) error {
 			}: prev.Asset,
 		}
 	}
-	// TODO: Spawn a goroutine per input proof to verify them in parallel.
+
+	// We'll use an err group to be able to validate all the inputs in
+	// parallel, limiting the total number of goroutines to the number of
+	// available CPUs. We'll also pass in a cotnext, which'll enable us to
+	// bail out as soon as any of the active goroutines encounters an
+	// error.
+	errGroup, ctx := errgroup.WithContext(context.Background())
+	errGroup.SetLimit(runtime.NumCPU())
+
+	var assetsMtx sync.Mutex
 	for _, inputProof := range p.AdditionalInputs {
-		result, err := inputProof.Verify()
-		if err != nil {
-			return err
-		}
-		prevID := asset.PrevID{
-			OutPoint:  result.OutPoint,
-			ID:        result.Asset.Genesis.ID(),
-			ScriptKey: *result.Asset.ScriptKey.PubKey,
-		}
-		prevAssets[prevID] = result.Asset
+		errGroup.Go(func() error {
+			result, err := inputProof.Verify(ctx)
+			if err != nil {
+				return err
+			}
+
+			assetsMtx.Lock()
+			defer assetsMtx.Unlock()
+			prevID := asset.PrevID{
+				OutPoint:  result.OutPoint,
+				ID:        result.Asset.Genesis.ID(),
+				ScriptKey: *result.Asset.ScriptKey.PubKey,
+			}
+			prevAssets[prevID] = result.Asset
+
+			return nil
+		})
+	}
+	if err := errGroup.Wait(); err != nil {
+		return fmt.Errorf("inputs invalid: %w", err)
 	}
 
 	// Spawn a new VM instance to verify the asset's state transition.
@@ -190,7 +217,7 @@ func (p Proof) verifyAssetStateTransition(prev *Result) error {
 // 3. A set of valid exclusion proofs for the resulting asset are included.
 // 4. A set of asset inputs with valid witnesses are included that satisfy the
 //    resulting state transition.
-func (p Proof) Verify(prev *Result) (*Result, error) {
+func (p Proof) Verify(prev *AssetSnapshot) (*AssetSnapshot, error) {
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
@@ -221,7 +248,7 @@ func (p Proof) Verify(prev *Result) (*Result, error) {
 		return nil, err
 	}
 
-	return &Result{
+	return &AssetSnapshot{
 		Asset: &p.Asset,
 		OutPoint: wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
