@@ -446,3 +446,13 @@ func TestAssetFamilyKey(t *testing.T) {
 		schnorr.SerializePubKey(&keyFam.FamKey),
 	)
 }
+
+func FuzzAssetDecode(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		r := bytes.NewReader(data)
+		a := &Asset{}
+		if err := a.Decode(r); err != nil {
+			return
+		}
+	})
+}
