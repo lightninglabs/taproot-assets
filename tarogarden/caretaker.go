@@ -314,6 +314,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			Tag:          seedling.AssetName,
 			Metadata:     seedling.Metadata,
 			OutputIndex:  taroOutputIndex,
+			Type:         seedling.AssetType,
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
@@ -337,7 +338,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 					"family key: %v", err)
 			}
 			familyKey, err = asset.DeriveFamilyKey(
-				b.cfg.GenSigner, rawFamilyKey, &assetGen,
+				b.cfg.GenSigner, rawFamilyKey, assetGen,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to tweak	family "+
@@ -347,17 +348,20 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 		// With the necessary keys components assembled, we'll create
 		// the actual asset now.
-		var newAsset *asset.Asset
+		var amount uint64
 		switch seedling.AssetType {
 		case asset.Normal:
-			newAsset = asset.New(
-				&assetGen, seedling.Amount, 0, 0, scriptKey,
-				familyKey,
-			)
+			amount = seedling.Amount
 		case asset.Collectible:
-			newAsset = asset.NewCollectible(
-				&assetGen, 0, 0, scriptKey, familyKey,
-			)
+			amount = 1
+		}
+
+		newAsset, err := asset.New(
+			assetGen, amount, 0, 0, scriptKey, familyKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create new asset: %v",
+				err)
 		}
 
 		// Finally make a new asset commitment (the inner SMT tree) for

@@ -20,24 +20,24 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randGenesis(t *testing.T) *asset.Genesis {
-	return &asset.Genesis{
+func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
+	return asset.Genesis{
 		FirstPrevOut: wire.OutPoint{},
 		Tag:          "",
 		Metadata:     nil,
 		OutputIndex:  rand.Uint32(),
+		Type:         assetType,
 	}
 }
 
-func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
+func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	genSigner := asset.NewRawKeyGenesisSigner(privKey)
 
 	familyKey, err := asset.DeriveFamilyKey(
-		genSigner, toKeyDesc(privKey.PubKey()),
-		genesis,
+		genSigner, toKeyDesc(privKey.PubKey()), genesis,
 	)
 	require.NoError(t, err)
 
@@ -55,27 +55,27 @@ func randAsset(t *testing.T, assetType asset.Type,
 
 	t.Helper()
 
-	genesis := randGenesis(t)
+	genesis := randGenesis(t, assetType)
 	familyKey := randFamilyKey(t, genesis)
 
+	var units uint64
 	switch assetType {
 	case asset.Normal:
-		units := rand.Uint64() + 1
-		asset := asset.New(
-			genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
-		)
-		return asset
+		units = rand.Uint64() + 1
 
 	case asset.Collectible:
-		asset := asset.NewCollectible(
-			genesis, 0, 0, toKeyDesc(&scriptKey), familyKey,
-		)
-		return asset
+		units = 1
 
 	default:
 		t.Fatal("unhandled asset type", assetType)
 		return nil // unreachable
 	}
+
+	a, err := asset.New(
+		genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
+	)
+	require.NoError(t, err)
+	return a
 }
 
 func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,

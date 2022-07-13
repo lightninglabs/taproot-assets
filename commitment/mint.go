@@ -33,23 +33,25 @@ type AssetDetails struct {
 
 // mintAssets mints a series of assets based on the same asset ID and family
 // key.
-func mintAssets(genesis *asset.Genesis, familyKey *asset.FamilyKey,
+func mintAssets(genesis asset.Genesis, familyKey *asset.FamilyKey,
 	mintDetails ...*AssetDetails) ([]*asset.Asset, error) {
 
 	assets := make([]*asset.Asset, 0, len(mintDetails))
 	for _, mint := range mintDetails {
-		var a *asset.Asset
+		if mint.Type != genesis.Type {
+			return nil, fmt.Errorf("mint asset type mismatch, "+
+				"got %v while genesis committed to %v",
+				mint.Type, genesis.Type)
+		}
+
+		var amount uint64
 		switch mint.Type {
 		case asset.Normal:
 			if mint.Amount == nil || *mint.Amount < 1 {
 				return nil, errors.New("zero mint amount for " +
 					"normal asset")
 			}
-			a = asset.New(
-				genesis, *mint.Amount, mint.LockTime,
-				mint.RelativeLockTime, mint.ScriptKey,
-				familyKey,
-			)
+			amount = *mint.Amount
 
 		case asset.Collectible:
 			if mint.Amount != nil && *mint.Amount != 1 {
@@ -57,14 +59,19 @@ func mintAssets(genesis *asset.Genesis, familyKey *asset.FamilyKey,
 					"%v for collectible asset",
 					*mint.Amount)
 			}
-			a = asset.NewCollectible(
-				genesis, mint.LockTime, mint.RelativeLockTime,
-				mint.ScriptKey, familyKey,
-			)
+			amount = 1
 
 		default:
 			return nil, fmt.Errorf("unhandled asset type %v",
 				mint.Type)
+		}
+
+		a, err := asset.New(
+			genesis, amount, mint.LockTime, mint.RelativeLockTime,
+			mint.ScriptKey, familyKey,
+		)
+		if err != nil {
+			return nil, err
 		}
 
 		assets = append(assets, a)
@@ -75,7 +82,7 @@ func mintAssets(genesis *asset.Genesis, familyKey *asset.FamilyKey,
 
 // Mint mints a series of assets within a new Taro commitment. The distribution
 // and other parameters of these assets can be specified through `AssetDetails`.
-func Mint(genesis *asset.Genesis, familyKey *asset.FamilyKey,
+func Mint(genesis asset.Genesis, familyKey *asset.FamilyKey,
 	details ...*AssetDetails) (*TaroCommitment, []*asset.Asset, error) {
 
 	assets, err := mintAssets(genesis, familyKey, details...)

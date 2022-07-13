@@ -143,25 +143,30 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 			Tag:          sprout.AssetTag,
 			Metadata:     sprout.MetaData,
 			OutputIndex:  uint32(sprout.GenesisOutputIndex),
+			Type:         asset.Type(sprout.AssetType),
 		}
 
 		// With the base information extracted, we'll use that to
 		// create either a normal asset or a collectible.
-		var assetSprout *asset.Asset
 		lockTime := extractSqlInt32[uint64](sprout.LockTime)
 		relativeLocktime := extractSqlInt32[uint64](
 			sprout.RelativeLockTime,
 		)
-		if asset.Type(sprout.AssetType) == asset.Normal {
-			assetSprout = asset.New(
-				&assetGenesis, uint64(sprout.Amount), lockTime,
-				relativeLocktime, scriptKey, familyKey,
-			)
-		} else {
-			assetSprout = asset.NewCollectible(
-				&assetGenesis, lockTime, relativeLocktime,
-				scriptKey, familyKey,
-			)
+		var amount uint64
+		switch asset.Type(sprout.AssetType) {
+		case asset.Normal:
+			amount = uint64(sprout.Amount)
+		case asset.Collectible:
+			amount = 1
+		}
+
+		assetSprout, err := asset.New(
+			assetGenesis, amount, lockTime, relativeLocktime,
+			scriptKey, familyKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create new sprout: "+
+				"%v", err)
 		}
 
 		anchorTx := wire.NewMsgTx(2)

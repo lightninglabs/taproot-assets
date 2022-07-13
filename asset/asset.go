@@ -53,8 +53,8 @@ type Genesis struct {
 	// commitment in the genesis transaction.
 	OutputIndex uint32
 
-	// TODO(roasbeef): add asset type, have it be part of the assetID
-	// calculation
+	// Type uniquely identifies the type of Taro asset.
+	Type Type
 }
 
 // TagHash computes the SHA-256 hash of the asset's tag.
@@ -68,7 +68,8 @@ func (g Genesis) MetadataHash() [sha256.Size]byte {
 }
 
 // ID serves as a unique identifier of an asset, resulting from:
-//   sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex)
+//   sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex ||
+//     assetType)
 type ID [sha256.Size]byte
 
 // ID computes an asset's unique identifier from its metadata.
@@ -81,7 +82,18 @@ func (g Genesis) ID() ID {
 	_, _ = h.Write(tagHash[:])
 	_, _ = h.Write(metadataHash[:])
 	_ = binary.Write(h, binary.BigEndian, g.OutputIndex)
+	_ = binary.Write(h, binary.BigEndian, g.Type)
 	return *(*ID)(h.Sum(nil))
+}
+
+// FamilyKeyTweak returns the tweak bytes that commit to the previous outpoint,
+// output index and type of the genesis.
+func (g Genesis) FamilyKeyTweak() []byte {
+	var keyFamBytes bytes.Buffer
+	_ = wire.WriteOutPoint(&keyFamBytes, 0, 0, &g.FirstPrevOut)
+	_ = binary.Write(&keyFamBytes, binary.BigEndian, g.OutputIndex)
+	_ = binary.Write(&keyFamBytes, binary.BigEndian, g.Type)
+	return keyFamBytes.Bytes()
 }
 
 // Type denotes the asset types supported by the Taro protocol.
@@ -330,15 +342,9 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
-	var genesisPrevOut bytes.Buffer
-	err := wire.WriteOutPoint(&genesisPrevOut, 0, 0, &gen.FirstPrevOut)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	// TODO(roasbeef): can use the musig2 API for this?? w/ a single signer
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		r.privKey, genesisPrevOut.Bytes(),
+		r.privKey, gen.FamilyKeyTweak(),
 	)
 
 	// TODO(roasbeef): this actually needs to sign the digest of the asset
@@ -360,9 +366,9 @@ var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 // DeriveFamilyKey derives an asset's family key based on an internal public
 // key descriptor key and an asset genesis.
 func DeriveFamilyKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	genesis *Genesis) (*FamilyKey, error) {
+	genesis Genesis) (*FamilyKey, error) {
 
-	famKey, sig, err := genSigner.SignGenesis(rawKey, *genesis)
+	famKey, sig, err := genSigner.SignGenesis(rawKey, genesis)
 	if err != nil {
 		return nil, err
 	}
@@ -381,10 +387,7 @@ type Asset struct {
 
 	// Genesis encodes an asset's genesis metadata which directly maps to
 	// its unique ID within the Taro protocol.
-	Genesis Genesis
-
-	// Type uniquely identifies the type of Taro asset.
-	Type Type
+	Genesis
 
 	// Amount is the number of units represented by the asset.
 	Amount uint64
@@ -425,15 +428,20 @@ type Asset struct {
 	FamilyKey *FamilyKey
 }
 
-// New instantiates a new fungible asset of type `Normal` with a genesis asset
-// witness.
-func New(genesis *Genesis, amount, locktime, relativeLocktime uint64,
-	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) *Asset {
+// New instantiates a new asset with a genesis asset witness.
+func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
+	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) (*Asset,
+	error) {
+
+	// Collectible assets can only ever be issued once.
+	if genesis.Type != Normal && amount != 1 {
+		return nil, fmt.Errorf("amount must be 1 for asset of type %v",
+			genesis.Type)
+	}
 
 	return &Asset{
 		Version:          V0,
-		Genesis:          *genesis,
-		Type:             Normal,
+		Genesis:          genesis,
 		Amount:           amount,
 		LockTime:         locktime,
 		RelativeLockTime: relativeLocktime,
@@ -447,38 +455,14 @@ func New(genesis *Genesis, amount, locktime, relativeLocktime uint64,
 		ScriptVersion:       ScriptV0,
 		ScriptKey:           scriptKey,
 		FamilyKey:           familyKey,
-	}
-}
-
-// NewCollectible instantiates a new `Collectible` asset.
-func NewCollectible(genesis *Genesis, locktime, relativeLocktime uint64,
-	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) *Asset {
-
-	return &Asset{
-		Version:          V0,
-		Genesis:          *genesis,
-		Type:             Collectible,
-		Amount:           1,
-		LockTime:         locktime,
-		RelativeLockTime: relativeLocktime,
-		PrevWitnesses: []Witness{{
-			// Valid genesis asset witness.
-			PrevID:          &PrevID{},
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		}},
-		SplitCommitmentRoot: nil,
-		ScriptVersion:       ScriptV0,
-		ScriptKey:           scriptKey,
-		FamilyKey:           familyKey,
-	}
+	}, nil
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
 // asset family within a TaroCommitment.
 func (a Asset) TaroCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
-		return [32]byte(a.Genesis.ID())
+		return a.Genesis.ID()
 	}
 	return sha256.Sum256(schnorr.SerializePubKey(&a.FamilyKey.FamKey))
 }
