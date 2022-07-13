@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -403,4 +405,44 @@ func TestAssetID(t *testing.T) {
 	}
 	differentID := normalWithDifferentType.ID()
 	require.NotEqual(t, id[:], differentID[:])
+}
+
+// TestAssetFamilyKey tests that the asset key family is derived correctly.
+func TestAssetFamilyKey(t *testing.T) {
+	t.Parallel()
+
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
+	genSigner := NewRawKeyGenesisSigner(privKeyCopy)
+	fakeKeyDesc := keychain.KeyDescriptor{
+		PubKey: privKeyCopy.PubKey(),
+	}
+
+	g := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 99,
+		},
+		Tag:         "normal asset 1",
+		Metadata:    []byte{1, 2, 3},
+		OutputIndex: 21,
+		Type:        Collectible,
+	}
+
+	var famBytes bytes.Buffer
+	_ = wire.WriteOutPoint(&famBytes, 0, 0, &g.FirstPrevOut)
+	_, _ = famBytes.Write([]byte{0, 0, 0, 21, 1})
+
+	tweakedKey := txscript.TweakTaprootPrivKey(privKey, famBytes.Bytes())
+
+	// TweakTaprootPrivKey modifies the private key that is passed in! We
+	// need to provide a copy to arrive at the same result.
+	keyFam, err := DeriveFamilyKey(genSigner, fakeKeyDesc, g)
+	require.NoError(t, err)
+
+	require.Equal(
+		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
+		schnorr.SerializePubKey(&keyFam.FamKey),
+	)
 }

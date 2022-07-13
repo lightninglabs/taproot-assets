@@ -1,14 +1,12 @@
 package taro
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -34,14 +32,8 @@ func NewLndRpcGenSigner(lnd *lndclient.LndServices) *LndRpcGenSigner {
 func (l *LndRpcGenSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	assetGen asset.Genesis) (*btcec.PublicKey, *schnorr.Signature, error) {
 
-	var genesisPrevOut bytes.Buffer
-	err := wire.WriteOutPoint(&genesisPrevOut, 0, 0, &assetGen.FirstPrevOut)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	tweakedPubKey := txscript.ComputeTaprootOutputKey(
-		keyDesc.PubKey, genesisPrevOut.Bytes(),
+		keyDesc.PubKey, assetGen.FamilyKeyTweak(),
 	)
 
 	// TODO(roasbeef): needs to actually be a schnorr sig here

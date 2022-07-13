@@ -86,6 +86,16 @@ func (g Genesis) ID() ID {
 	return *(*ID)(h.Sum(nil))
 }
 
+// FamilyKeyTweak returns the tweak bytes that commit to the previous outpoint,
+// output index and type of the genesis.
+func (g Genesis) FamilyKeyTweak() []byte {
+	var keyFamBytes bytes.Buffer
+	_ = wire.WriteOutPoint(&keyFamBytes, 0, 0, &g.FirstPrevOut)
+	_ = binary.Write(&keyFamBytes, binary.BigEndian, g.OutputIndex)
+	_ = binary.Write(&keyFamBytes, binary.BigEndian, g.Type)
+	return keyFamBytes.Bytes()
+}
+
 // Type denotes the asset types supported by the Taro protocol.
 type Type uint8
 
@@ -332,15 +342,9 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
-	var genesisPrevOut bytes.Buffer
-	err := wire.WriteOutPoint(&genesisPrevOut, 0, 0, &gen.FirstPrevOut)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	// TODO(roasbeef): can use the musig2 API for this?? w/ a single signer
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		r.privKey, genesisPrevOut.Bytes(),
+		r.privKey, gen.FamilyKeyTweak(),
 	)
 
 	// TODO(roasbeef): this actually needs to sign the digest of the asset
