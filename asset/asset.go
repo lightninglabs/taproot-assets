@@ -462,7 +462,7 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 // asset family within a TaroCommitment.
 func (a Asset) TaroCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
-		return [32]byte(a.Genesis.ID())
+		return a.Genesis.ID()
 	}
 	return sha256.Sum256(schnorr.SerializePubKey(&a.FamilyKey.FamKey))
 }
