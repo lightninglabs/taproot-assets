@@ -96,7 +96,6 @@ func NewTxMerkleProof(txs []*wire.MsgTx, txIdx int) (*TxMerkleProof, error) {
 			}, nil
 		}
 	}
-
 }
 
 // Verify verifies a merkle proof for `tx` by ensuring the end result matches

@@ -140,6 +140,8 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 func TestProofEncoding(t *testing.T) {
 	t.Parallel()
 
+	oddTxBlock, _ := readTestData(t)
+
 	txMerkleProof, err := NewTxMerkleProof(oddTxBlock.Transactions, 0)
 	require.NoError(t, err)
 
