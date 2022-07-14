@@ -38,7 +38,7 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 		opts = append(opts, lndclient.WithIncludeBlock())
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx) // nolint:govet
 	confChan, errChan, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
 		ctx, txid, pkScript, int32(numConfs), int32(heightHint),
 		opts...,
