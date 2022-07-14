@@ -569,7 +569,10 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		// Now we'll wait for a confirmation as we reach our terminal
-		// state that requires an on-chain event to shift from.
+		// state that requires an on-chain event to shift from. We make
+		// sure to request that the block is included as well, since we
+		// need this to construct the proof files for each of the
+		// assets later.
 		//
 		// TODO(roasbeef): eventually want to be able to RBF the bump
 		currentHeight, err := b.cfg.ChainBridge.CurrentHeight(ctx)
@@ -579,7 +582,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 		txHash := signedTx.TxHash()
 		confNtfn, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
-			ctx, &txHash, signedTx.TxOut[0].PkScript, 1, currentHeight,
+			ctx, &txHash, signedTx.TxOut[0].PkScript, 1,
+			currentHeight, true,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to register for "+

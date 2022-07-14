@@ -126,7 +126,8 @@ func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 
 func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte,
-	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+	numConfs, heightHint uint32,
+	includeBlock bool) (*chainntnfs.ConfirmationEvent, error) {
 
 	select {
 	case <-ctx.Done():

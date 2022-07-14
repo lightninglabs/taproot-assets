@@ -230,8 +230,8 @@ type ChainBridge interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations.
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
-		pkScript []byte, numConfs,
-		heightHint uint32) (*chainntnfs.ConfirmationEvent, error)
+		pkScript []byte, numConfs, heightHint uint32,
+		includeBlock bool) (*chainntnfs.ConfirmationEvent, error)
 
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)
