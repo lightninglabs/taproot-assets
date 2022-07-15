@@ -460,24 +460,49 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
 // asset family within a TaroCommitment.
+//
+// NOTE: This function is also used outside of the asset package.
+func TaroCommitmentKey(assetID ID, familyKey *btcec.PublicKey) [32]byte {
+	if familyKey == nil {
+		return assetID
+	}
+	return sha256.Sum256(schnorr.SerializePubKey(familyKey))
+}
+
+// TaroCommitmentKey is the key that maps to the root commitment for a specific
+// asset family within a TaroCommitment.
 func (a Asset) TaroCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
-		return a.Genesis.ID()
+		return TaroCommitmentKey(a.Genesis.ID(), nil)
 	}
-	return sha256.Sum256(schnorr.SerializePubKey(&a.FamilyKey.FamKey))
+	return TaroCommitmentKey(a.Genesis.ID(), &a.FamilyKey.FamKey)
+}
+
+// AssetCommitmentKey is the key that maps to a specific owner of an asset
+// within a Taro AssetCommitment.
+//
+// NOTE: This function is also used outside of the asset package.
+func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
+	familyKey *btcec.PublicKey) [32]byte {
+	if familyKey == nil {
+		return sha256.Sum256(schnorr.SerializePubKey(scriptKey))
+	}
+
+	h := sha256.New()
+	_, _ = h.Write(assetID[:])
+	_, _ = h.Write(schnorr.SerializePubKey(scriptKey))
+	return *(*[32]byte)(h.Sum(nil))
 }
 
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
 // within a Taro AssetCommitment.
 func (a Asset) AssetCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
-		return sha256.Sum256(schnorr.SerializePubKey(a.ScriptKey.PubKey))
+		return AssetCommitmentKey(a.Genesis.ID(), a.ScriptKey.PubKey, nil)
 	}
-	assetID := a.Genesis.ID()
-	h := sha256.New()
-	_, _ = h.Write(assetID[:])
-	_, _ = h.Write(schnorr.SerializePubKey(a.ScriptKey.PubKey))
-	return *(*[32]byte)(h.Sum(nil))
+	return AssetCommitmentKey(
+		a.Genesis.ID(), a.ScriptKey.PubKey, &a.FamilyKey.FamKey,
+	)
 }
 
 // Copy returns a deep copy of an Asset.
