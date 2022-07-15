@@ -1,7 +1,6 @@
 package address
 
 import (
-	"bytes"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -50,7 +49,6 @@ func randAddress(t *testing.T, net *ChainParams, famkey bool,
 		pubKeyCopy2, amount, assetType, net)
 }
 
-// TODO: Use network
 func randEncodedAddress(t *testing.T, net *ChainParams, famkey bool,
 	assetType asset.Type) (*AddressTaro, string, error) {
 
@@ -183,11 +181,13 @@ func TestAddressEncoding(t *testing.T) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
-		var buf bytes.Buffer
-		require.NoError(t, a.Encode(&buf))
-		var b AddressTaro
-		require.NoError(t, b.Decode(&buf))
-		assertAddressEqual(t, a, &b)
+		addr, err := a.EncodeAddress()
+		require.NoError(t, err)
+		net, err := a.Net()
+		require.NoError(t, err)
+		b, err := DecodeAddress(addr, net)
+		require.NoError(t, err)
+		assertAddressEqual(t, a, b)
 	}
 
 	testCases := []struct {
@@ -199,7 +199,7 @@ func TestAddressEncoding(t *testing.T) {
 			name: "valid address",
 			f: func() (*AddressTaro, string, error) {
 				return randEncodedAddress(
-					t, &TestNet3Taro, false, asset.Normal,
+					t, &RegressionNetTaro, false, asset.Normal,
 				)
 			},
 			err: nil,
@@ -208,7 +208,16 @@ func TestAddressEncoding(t *testing.T) {
 			name: "family collectible",
 			f: func() (*AddressTaro, string, error) {
 				return randEncodedAddress(
-					t, &MainNetTaro, true, asset.Collectible,
+					t, &SigNetTaro, true, asset.Collectible,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "simnet collectible",
+			f: func() (*AddressTaro, string, error) {
+				return randEncodedAddress(
+					t, &SimNetTaro, false, asset.Collectible,
 				)
 			},
 			err: nil,
