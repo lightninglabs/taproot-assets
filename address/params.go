@@ -118,14 +118,19 @@ func Net(hrp string) (*ChainParams, error) {
 	switch hrp {
 	case MainNetTaro.TaroHRP:
 		return &MainNetTaro, nil
+
 	case TestNet3Taro.TaroHRP:
 		return &TestNet3Taro, nil
+
 	case RegressionNetTaro.TaroHRP:
 		return &RegressionNetTaro, nil
+
 	case SigNetTaro.TaroHRP:
 		return &SigNetTaro, nil
+
 	case SimNetTaro.TaroHRP:
 		return &SimNetTaro, nil
+
 	default:
 		return nil, ErrUnsupportedHRP
 	}
