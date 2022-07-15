@@ -60,7 +60,7 @@ CREATE INDEX IF NOT EXISTS asset_ids on genesis_assets(asset_id);
 CREATE TABLE IF NOT EXISTS internal_keys (
     key_id INTEGER PRIMARY KEY,
 
-    raw_key BLOB UNIQUE NOT NULL,
+    raw_key BLOB UNIQUE NOT NULL UNIQUE,
 
     key_family INTEGER NOT NULL,
 
