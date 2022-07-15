@@ -508,7 +508,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
 
-	// Now that the batch has bee committed on disk, we should be able to
+	// Now that the batch has been committed on disk, we should be able to
 	// obtain all the proofs we just committed.
 	diskProofs, err := confAssets.FetchAssetProofs(ctx)
 	require.NoError(t, err)
