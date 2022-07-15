@@ -512,6 +512,73 @@ func (q *Queries) FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, erro
 	return items, nil
 }
 
+const fetchAssetProof = `-- name: FetchAssetProof :one
+WITH asset_info AS (
+    SELECT assets.asset_id, keys.raw_key
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+    WHERE keys.raw_key = ?
+)
+SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id
+`
+
+type FetchAssetProofRow struct {
+	ScriptKey []byte
+	ProofFile []byte
+}
+
+func (q *Queries) FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAssetProof, rawKey)
+	var i FetchAssetProofRow
+	err := row.Scan(&i.ScriptKey, &i.ProofFile)
+	return i, err
+}
+
+const fetchAssetProofs = `-- name: FetchAssetProofs :many
+WITH asset_info AS (
+    SELECT assets.asset_id, keys.raw_key
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+)
+SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id
+`
+
+type FetchAssetProofsRow struct {
+	ScriptKey []byte
+	ProofFile []byte
+}
+
+func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetProofs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofsRow
+	for rows.Next() {
+		var i FetchAssetProofsRow
+		if err := rows.Scan(&i.ScriptKey, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
 SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id
 FROM assets
@@ -1271,6 +1338,32 @@ type NewMintingBatchParams struct {
 
 func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error {
 	_, err := q.db.ExecContext(ctx, newMintingBatch, arg.BatchID, arg.CreationTimeUnix)
+	return err
+}
+
+const updateAssetProof = `-- name: UpdateAssetProof :exec
+WITH target_asset(asset_id) AS (
+    SELECT asset_id
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+    WHERE keys.raw_key = ?
+)
+INSERT INTO asset_proofs (
+    asset_id, proof_file
+) VALUES (
+    (SELECT asset_id FROM target_asset), ?
+) ON CONFLICT 
+    DO UPDATE SET proof_file = EXCLUDED.proof_file
+`
+
+type UpdateAssetProofParams struct {
+	RawKey    []byte
+	ProofFile []byte
+}
+
+func (q *Queries) UpdateAssetProof(ctx context.Context, arg UpdateAssetProofParams) error {
+	_, err := q.db.ExecContext(ctx, updateAssetProof, arg.RawKey, arg.ProofFile)
 	return err
 }
 

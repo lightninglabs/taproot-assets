@@ -381,3 +381,43 @@ WITH target_txn(txn_id) AS (
 UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
 WHERE txn_id in (SELECT txn_id FROm target_txn);
+
+-- name: UpdateAssetProof :exec
+WITH target_asset(asset_id) AS (
+    SELECT asset_id
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+    WHERE keys.raw_key = ?
+)
+INSERT INTO asset_proofs (
+    asset_id, proof_file
+) VALUES (
+    (SELECT asset_id FROM target_asset), ?
+) ON CONFLICT 
+    DO UPDATE SET proof_file = EXCLUDED.proof_file;
+
+-- name: FetchAssetProofs :many
+WITH asset_info AS (
+    SELECT assets.asset_id, keys.raw_key
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+)
+SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id;
+
+-- name: FetchAssetProof :one
+WITH asset_info AS (
+    SELECT assets.asset_id, keys.raw_key
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+    WHERE keys.raw_key = ?
+)
+SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id;
