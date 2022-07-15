@@ -66,13 +66,15 @@ func readOutPoint(r io.Reader, pver uint32, version int32, op *wire.OutPoint) er
 	return binary.Read(r, binary.LittleEndian, &op.Index)
 }
 
-// mapValues extracts the set of values from a map.
-func mapValues[K comparable, V any](m map[K]V) []V {
-	values := make([]V, 0, len(m))
-	for _, v := range m {
-		values = append(values, v)
+// mapKeysPtr extracts the set of keys from a map, returning pointers to the
+// specified key.
+func mapKeysPtr[K comparable, V any](m map[K]V) []*K {
+	keys := make([]*K, 0, len(m))
+	for k := range m {
+		k := k
+		keys = append(keys, &k)
 	}
-	return values
+	return keys
 }
 
 // mergeMap adds all the values that are in map b to map a.

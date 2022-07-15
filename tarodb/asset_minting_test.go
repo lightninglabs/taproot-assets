@@ -16,9 +16,11 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 // newAssetStore makes a new instance of the AssetMintingStore backed by sqlite
@@ -155,7 +157,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
 	require.NoError(t,
 		assetStore.AddSeedlingsToBatch(
-			ctx, batchKey, mapValues(seedlings)...,
+			ctx, batchKey, maps.Values(seedlings)...,
 		), "unable to write seedlings: %v", err,
 	)
 
@@ -372,7 +374,8 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 func addRandAssets(t *testing.T, ctx context.Context,
 	assetStore *AssetMintingStore,
-	numAssets int) (*btcec.PublicKey, *tarogarden.FundedPsbt, []byte) {
+	numAssets int) (*btcec.PublicKey, *tarogarden.FundedPsbt, []byte,
+	*commitment.TaroCommitment) {
 
 	mintingBatch := randSeedlingMintingBatch(t, numAssets)
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -389,7 +392,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	))
 
 	scriptRoot := assetRoot.TapscriptRoot(nil)
-	return batchKey, genesisPacket, scriptRoot[:]
+	return batchKey, genesisPacket, scriptRoot[:], assetRoot
 }
 
 // TestCommitBatchChainActions tests that we're able to properly write a signed
@@ -405,7 +408,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// First, we'll create a new batch, then add some sample seedlings, and
 	// then those seedlings as assets.
-	batchKey, genesisPkt, scriptRoot := addRandAssets(
+	batchKey, genesisPkt, scriptRoot, assetRoot := addRandAssets(
 		t, ctx, assetStore, numSeedlings,
 	)
 
@@ -467,13 +470,24 @@ func TestCommitBatchChainActions(t *testing.T) {
 	_, err = db.FetchGenesisPointByAnchorTx(ctx, sqlInt32(dbGenTx.TxnID))
 	require.NoError(t, err)
 
+	// For each asset created above, we'll make a fake proof file for it.
+	assetProofs := make(proof.AssetBlobs)
+	for _, asset := range assetRoot.CommittedAssets() {
+		blob := make([]byte, 100)
+		_, err := rand.Read(blob[:])
+		require.NoError(t, err)
+
+		assetProofs[*asset.ScriptKey.PubKey] = blob
+	}
+
 	// We'll now conclude the lifetime of a batch by marking it confirmed
-	// on disk.
+	// on disk, while also committing all the relevant asset proof files.
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
 	blockHeight := uint32(20)
 	txIndex := uint32(5)
 	require.NoError(t, assetStore.MarkBatchConfirmed(
 		ctx, batchKey, &fakeBlockHash, blockHeight, txIndex,
+		assetProofs,
 	))
 
 	// We'll now fetch the chain transaction again, to confirm that all the
@@ -493,6 +507,19 @@ func TestCommitBatchChainActions(t *testing.T) {
 	assets, err := confAssets.FetchAllAssets(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
+
+	// Now that the batch has bee committed on disk, we should be able to
+	// obtain all the proofs we just committed.
+	diskProofs, err := confAssets.FetchAssetProofs(ctx)
+	require.NoError(t, err)
+	require.Equal(t, assetProofs, diskProofs)
+
+	// If we look up all the proofs by their specific script key, we should
+	// get the same set of proofs.
+	scriptKeys := mapKeysPtr(assetProofs)
+	diskProofs, err = confAssets.FetchAssetProofs(ctx, scriptKeys...)
+	require.NoError(t, err)
+	require.Equal(t, assetProofs, diskProofs)
 }
 
 // TestDuplicateFamilyKey tests that if we attempt to insert a family key with
