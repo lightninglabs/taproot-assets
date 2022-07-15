@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -618,9 +619,29 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		confInfo := b.confInfo
 		ctx, cancel := b.withCtxQuit()
 		defer cancel()
-		err := b.cfg.Log.MarkBatchConfirmed(
+
+		// Now that the minting transaction has been confirmed, we'll
+		// need to create the series of proof file blobs for each of
+		// the assets.
+		mintingProofs, err := proof.NewMintingBlobs(&proof.MintParams{
+			Block:       confInfo.Block,
+			Tx:          confInfo.Tx,
+			TxIndex:     int(confInfo.TxIndex),
+			OutputIndex: int(b.anchorOutputIndex),
+			InternalKey: b.cfg.Batch.BatchKey.PubKey,
+			GenesisPoint: extractGenesisOutpoint(
+				b.cfg.Batch.GenesisPacket.Pkt.UnsignedTx,
+			),
+			TaroRoot: b.cfg.Batch.RootAssetCommitment,
+		})
+		if err != nil {
+			return 0, fmt.Errorf("unable to construct minting "+
+				"proofs: %v", err)
+		}
+
+		err = b.cfg.Log.MarkBatchConfirmed(
 			ctx, b.cfg.Batch.BatchKey.PubKey, confInfo.BlockHash,
-			confInfo.BlockHeight, confInfo.TxIndex,
+			confInfo.BlockHeight, confInfo.TxIndex, mintingProofs,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)

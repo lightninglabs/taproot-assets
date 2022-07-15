@@ -12,7 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
@@ -354,22 +358,25 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 
 // assertTxPublished asserts that a transaction was published via the active
 // chain bridge.
-func (t *mintingTestHarness) assertTxPublished() {
+func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 	t.Helper()
 
-	_, err := chanutils.RecvOrTimeout(t.chain.publishReq, defaultTimeout)
+	tx, err := chanutils.RecvOrTimeout(t.chain.publishReq, defaultTimeout)
 	require.NoError(t, err)
+
+	return *tx
 }
 
 // assertConfReqSent asserts that a confirmation request has been sent. If so,
 // then a closure is returned that once called will send a confirmation
 // notification.
-func (t *mintingTestHarness) assertConfReqSent() func() {
+func (t *mintingTestHarness) assertConfReqSent(tx *wire.MsgTx,
+	block *wire.MsgBlock) func() {
 	reqNo, err := chanutils.RecvOrTimeout(t.chain.confReqSignal, defaultTimeout)
 	require.NoError(t, err)
 
 	return func() {
-		t.chain.sendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 10)
+		t.chain.sendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 0, block, tx)
 	}
 }
 
@@ -449,7 +456,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
 	// confirmation request.
-	t.assertTxPublished()
+	tx := t.assertTxPublished()
 
 	// We'll now restart the daemon once again to simulate some downtime
 	// after the transaction has been published.
@@ -459,8 +466,20 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.assertTxPublished()
 
 	// With the transaction published, we should now receive a confirmation
-	// request.
-	sendConfNtfn := t.assertConfReqSent()
+	// request. To ensure the file proof is constructed properly, we'll
+	// also make a "fake" block that includes our transaction.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+	sendConfNtfn := t.assertConfReqSent(tx, block)
 
 	// We'll now send the confirmation notification which should result in
 	// the batch being finalized, and the caretaker being cleaned up.
