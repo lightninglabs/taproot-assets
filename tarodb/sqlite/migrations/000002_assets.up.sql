@@ -176,7 +176,12 @@ CREATE TABLE IF NOT EXISTS asset_witnesses (
 CREATE TABLE IF NOT EXISTS asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 
-    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
+    -- We enforce that this value is unique so we can use an UPSERT to update a
+    -- proof file that already exists.
+    asset_id INTEGER NOT NULL REFERENCES assets(asset_id) UNIQUE,
+
+    -- TODO(roasbef): store the merkle root sepraretly? then can refre back to
+    -- for all other files
 
     proof_file BLOB NOT NULL
 );
