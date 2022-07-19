@@ -96,6 +96,16 @@ func (g Genesis) FamilyKeyTweak() []byte {
 	return keyFamBytes.Bytes()
 }
 
+// VerifySignature verifies the given signature that it is valid over the
+// asset's unique identifier with the given public key.
+func (g Genesis) VerifySignature(sig *schnorr.Signature,
+	pubKey *btcec.PublicKey) bool {
+
+	msg := g.ID()
+	digest := sha256.Sum256(msg[:])
+	return sig.Verify(digest[:], pubKey)
+}
+
 // Type denotes the asset types supported by the Taro protocol.
 type Type uint8
 
@@ -313,9 +323,8 @@ type GenesisSigner interface {
 	// SignGenesis signs the passed Genesis description using the public
 	// key identified by the passed key descriptor. The final tweaked
 	// public key and the signature are returned.
-	//
-	// TODO(roasbeef): need to create schnorr message signer?
-	SignGenesis(keychain.KeyDescriptor, Genesis) (*btcec.PublicKey, *schnorr.Signature, error)
+	SignGenesis(keychain.KeyDescriptor, Genesis) (*btcec.PublicKey,
+		*schnorr.Signature, error)
 }
 
 // RawKeyGenesisSigner implements the GenesisSigner interface using a raw
@@ -342,7 +351,6 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
-	// TODO(roasbeef): can use the musig2 API for this?? w/ a single signer
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
 		r.privKey, gen.FamilyKeyTweak(),
 	)

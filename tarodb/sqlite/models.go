@@ -27,7 +27,6 @@ type AssetFamily struct {
 	FamilyID       int32
 	TweakedFamKey  []byte
 	InternalKeyID  int32
-	RawPriv        []byte
 	GenesisPointID int32
 }
 

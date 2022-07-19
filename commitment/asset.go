@@ -36,6 +36,13 @@ var (
 	ErrAssetDuplicateScriptKey = errors.New(
 		"asset commitment: duplicate script key",
 	)
+
+	// ErrAssetGenesisInvalidSig is an error returned when we attempt to
+	// create a new asset commitment from a genesis with an invalid
+	// signature with their family key.
+	ErrAssetGenesisInvalidSig = errors.New(
+		"asset commitment: invalid genesis signature",
+	)
 )
 
 // AssetCommitment represents the inner MS-SMT within the Taro protocol
@@ -81,12 +88,26 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	assetFamilyKey := assets[0].FamilyKey
 	assetsMap := make(map[[32]byte]*asset.Asset, len(assets))
 	for _, asset := range assets {
-		if !assetFamilyKey.IsEqual(asset.FamilyKey) {
+		switch {
+		case !assetFamilyKey.IsEqual(asset.FamilyKey):
 			return nil, ErrAssetFamilyKeyMismatch
+
+		case assetFamilyKey == nil:
+			if assetGenesis != asset.Genesis.ID() {
+				return nil, ErrAssetGenesisMismatch
+			}
+
+		case assetFamilyKey != nil:
+			// There should be a valid Schnorr sig over the asset ID
+			// in the family key struct.
+			validSig := asset.Genesis.VerifySignature(
+				&assetFamilyKey.Sig, &assetFamilyKey.FamKey,
+			)
+			if !validSig {
+				return nil, ErrAssetGenesisInvalidSig
+			}
 		}
-		if assetFamilyKey == nil && assetGenesis != asset.Genesis.ID() {
-			return nil, ErrAssetGenesisMismatch
-		}
+
 		key := asset.AssetCommitmentKey()
 		if _, ok := assetsMap[key]; ok {
 			return nil, ErrAssetDuplicateScriptKey

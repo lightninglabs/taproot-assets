@@ -81,10 +81,6 @@ CREATE TABLE IF NOT EXISTS asset_families (
     -- genesis key?
     internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
-    -- TODO(roasbeef): need to remove this one lnd's signer sub-server is able
-    -- to sign w/ the tweak -- use the musig2 API for this?
-    raw_priv BLOB,
-
     genesis_point_id INTEGER NOT NULL REFERENCES genesis_points(genesis_id)
 );
 CREATE INDEX IF NOT EXISTS fam_key_index on asset_families (tweaked_fam_key);

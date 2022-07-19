@@ -36,25 +36,23 @@ func (l *LndRpcGenSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 		keyDesc.PubKey, assetGen.FamilyKeyTweak(),
 	)
 
-	// TODO(roasbeef): needs to actually be a schnorr sig here
-	// * fix along side: https://github.com/lightninglabs/taro/issues/33
-	// * also make SignMessage suppoprt schnorr
 	id := assetGen.ID()
 	sig, err := l.lnd.Signer.SignMessage(
 		context.Background(), id[:], keyDesc.KeyLocator,
+		lndclient.SignSchnorr(assetGen.FamilyKeyTweak()),
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	fakeSchnorrSig, err := schnorr.ParseSignature(sig)
+	schnorrSig, err := schnorr.ParseSignature(sig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to parse schnorr sig: "+
-			"%w", err)
+		return nil, nil, fmt.Errorf("unable to parse schnorr sig: %w",
+			err)
 	}
-	return tweakedPubKey, fakeSchnorrSig, nil
+	return tweakedPubKey, schnorrSig, nil
 }
 
 // A compile time assertion to ensure LndRpcGenSigner meets the
-// tarogarden.WalletAnchor interface.
+// asset.GenesisSigner interface.
 var _ asset.GenesisSigner = (*LndRpcGenSigner)(nil)
