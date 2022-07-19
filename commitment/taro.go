@@ -74,6 +74,29 @@ func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 	}
 }
 
+// Update modifies one entry in the TaroCommitment by inserting or deleting
+// it in the inner MS-SMT and adding or deleting it in the internal
+// AssetCommitment map.
+func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) {
+	if asset == nil {
+		// TODO(jhb): Concrete error types
+		panic("taro commitment update is missing asset commitment")
+	}
+
+	key := asset.TaroCommitmentKey()
+
+	if deletion {
+		c.tree.Delete(key)
+		c.TreeRoot = c.tree.Root()
+		delete(c.assetCommitments, key)
+	} else {
+		leaf := asset.TaroCommitmentLeaf()
+		c.tree.Insert(key, leaf)
+		c.TreeRoot = c.tree.Root()
+		c.assetCommitments[key] = asset
+	}
+}
+
 // NewTaroCommitmentWithRoot creates a new Taro commitment backed by the root
 // node. The resulting commitment will not be able to compute merkle proofs as
 // it only knows of the tree's root node, and not the tree itself.
@@ -167,6 +190,19 @@ func (c TaroCommitment) CommittedAssets() []*asset.Asset {
 	}
 
 	return assets
+}
+
+// Commitments returns the set of assetCommitments committed to in the taro
+// commitment.
+func (c TaroCommitment) Commitments() map[[32]byte]*AssetCommitment {
+	assetCommitments := make(
+		map[[32]byte]*AssetCommitment, len(c.assetCommitments),
+	)
+	for key, val := range c.assetCommitments {
+		assetCommitments[key] = val
+	}
+
+	return assetCommitments
 }
 
 // tapBranchHash takes the tap hashes of the left and right nodes and hashes
