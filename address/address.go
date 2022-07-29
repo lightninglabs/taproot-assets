@@ -226,43 +226,51 @@ func (a AddressTaro) EncodeAddress() (string, error) {
 // returns the HRP and address TLV.
 func DecodeAddress(addr string, net *ChainParams) (*AddressTaro, error) {
 	// Bech32m encoded Taro addresses start with a human-readable part
-	// (hrp) followed by '1'. For Bitcoin mainnet the hrp is "taro", and for
-	// testnet it is "tarot". If the address string has a prefix that matches
-	// one of the prefixes for the known networks, we try to decode it as
-	// a Taro address.
+	// (hrp) followed by '1'. For Bitcoin mainnet the hrp is "taro", and
+	// for testnet it is "tarot". If the address string has a prefix that
+	// matches one of the prefixes for the known networks, we try to decode
+	// it as a Taro address.
 	oneIndex := strings.LastIndexByte(addr, '1')
-	if oneIndex > 1 {
-		prefix := addr[:oneIndex+1]
-		if !IsBech32MTaroPrefix(prefix) {
-			return nil, ErrUnsupportedHRP
-		}
+	if oneIndex <= 0 {
+		return nil, ErrInvalidBech32m
+	}
 
-		// The HRP is everything before the found '1'.
-		hrp := prefix[:len(prefix)-1]
+	prefix := addr[:oneIndex+1]
+	if !IsBech32MTaroPrefix(prefix) {
+		return nil, ErrUnsupportedHRP
+	}
 
-		if IsForNet(hrp, net) {
-			_, data, err := bech32.DecodeNoLimit(addr)
-			if err != nil {
-				return nil, err
-			}
+	// The HRP is everything before the found '1'.
+	hrp := prefix[:len(prefix)-1]
 
-			// The remaining characters of the address returned are grouped into
-			// words of 5 bits. In order to restore the original address TLV
-			// bytes, we'll need to regroup into 8 bit words.
-			converted, err := bech32.ConvertBits(data, 5, 8, false)
-			if err != nil {
-				return nil, err
-			}
-
-			buf := bytes.NewBuffer(converted)
-			var a AddressTaro
-			if err := a.Decode(buf); err != nil {
-				return nil, err
-			}
-			a.Hrp = hrp
-			return &a, nil
-		}
+	// Ensure that the hrp we deocded matches the network we're trying to
+	// use the address on.
+	if !IsForNet(hrp, net) {
 		return nil, ErrMismatchedHRP
 	}
-	return nil, ErrInvalidBech32m
+
+	// At this point, the HRP is valid/known, and for the target network,
+	// so we can decode the TLV blob into an actual address struct.
+	_, data, err := bech32.DecodeNoLimit(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	// The remaining characters of the address returned are grouped into
+	// words of 5 bits. In order to restore the original address TLV bytes,
+	// we'll need to regroup into 8 bit words.
+	converted, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var a AddressTaro
+	buf := bytes.NewBuffer(converted)
+	if err := a.Decode(buf); err != nil {
+		return nil, err
+	}
+
+	a.Hrp = hrp
+
+	return &a, nil
 }
