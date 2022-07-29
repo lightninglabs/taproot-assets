@@ -8,8 +8,11 @@ import (
 
 // Human-readable prefixes for bech32m encoded addresses for each network.
 const (
-	Bech32HRPTaroMainnet = "taro"
-	Bech32HRPTaroTestnet = "tarot"
+	Bech32HRPTaroMainnet       = "tarobc"
+	Bech32HRPTaroTestnet       = "tarotb"
+	Bech32HRPTaroRegressionnet = "tarort"
+	Bech32HRPTaroSignet        = "tarotb"
+	Bech32HRPTaroSimnet        = "tarosb"
 )
 
 // ChainParams defines a Taro-supporting network by its parameters. These
@@ -38,8 +41,17 @@ var (
 	bech32TaroPrefixes = make(map[string]struct{})
 
 	// Default Taro-supportng networks.
-	MainNetTaro  = ChainParams{&chaincfg.MainNetParams, Bech32HRPTaroMainnet}
-	TestNet3Taro = ChainParams{&chaincfg.TestNet3Params, Bech32HRPTaroTestnet}
+	MainNetTaro = ChainParams{
+		&chaincfg.MainNetParams, Bech32HRPTaroMainnet,
+	}
+	TestNet3Taro = ChainParams{
+		&chaincfg.TestNet3Params, Bech32HRPTaroTestnet,
+	}
+	RegressionNetTaro = ChainParams{
+		&chaincfg.RegressionNetParams, Bech32HRPTaroRegressionnet,
+	}
+	SigNetTaro = ChainParams{&chaincfg.SigNetParams, Bech32HRPTaroSignet}
+	SimNetTaro = ChainParams{&chaincfg.SimNetParams, Bech32HRPTaroSimnet}
 )
 
 // IsBech32MTaroPrefix returns whether the prefix is a known prefix for Taro
@@ -57,8 +69,29 @@ func IsForNet(hrp string, net *ChainParams) bool {
 	return hrp == net.TaroHRP
 }
 
+// Net returns the ChainParams struct associated with a Taro HRP.
+func Net(hrp string) (*ChainParams, error) {
+	switch hrp {
+	case MainNetTaro.TaroHRP:
+		return &MainNetTaro, nil
+	case TestNet3Taro.TaroHRP:
+		return &TestNet3Taro, nil
+	case RegressionNetTaro.TaroHRP:
+		return &RegressionNetTaro, nil
+	case SigNetTaro.TaroHRP:
+		return &SigNetTaro, nil
+	case SimNetTaro.TaroHRP:
+		return &SimNetTaro, nil
+	default:
+		return nil, ErrUnsupportedHRP
+	}
+}
+
 func init() {
 	// Register all default networks when the package is initialized.
 	bech32TaroPrefixes[MainNetTaro.TaroHRP+"1"] = struct{}{}
 	bech32TaroPrefixes[TestNet3Taro.TaroHRP+"1"] = struct{}{}
+	bech32TaroPrefixes[RegressionNetTaro.TaroHRP+"1"] = struct{}{}
+	bech32TaroPrefixes[SigNetTaro.TaroHRP+"1"] = struct{}{}
+	bech32TaroPrefixes[SimNetTaro.TaroHRP+"1"] = struct{}{}
 }

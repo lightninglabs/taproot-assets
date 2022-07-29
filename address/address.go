@@ -139,6 +139,11 @@ func (a AddressTaro) Copy() *AddressTaro {
 	return &addressCopy
 }
 
+// Net returns the ChainParams struct matching the Taro address network.
+func (a *AddressTaro) Net() (*ChainParams, error) {
+	return Net(a.Hrp)
+}
+
 // EncodeRecords determines the non-nil records to include when encoding an
 // address at runtime.
 func (a AddressTaro) EncodeRecords() []tlv.Record {
@@ -227,7 +232,11 @@ func DecodeAddress(addr string, net *ChainParams) (*AddressTaro, error) {
 		if !IsBech32MTaroPrefix(prefix) {
 			return nil, ErrUnsupportedHRP
 		}
-		if IsForNet(prefix, net) {
+
+		// The HRP is everything before the found '1'.
+		hrp := prefix[:len(prefix)-1]
+
+		if IsForNet(hrp, net) {
 			_, data, err := bech32.DecodeNoLimit(addr)
 			if err != nil {
 				return nil, err
@@ -240,9 +249,6 @@ func DecodeAddress(addr string, net *ChainParams) (*AddressTaro, error) {
 			if err != nil {
 				return nil, err
 			}
-
-			// The HRP is everything before the found '1'.
-			hrp := prefix[:len(prefix)-1]
 
 			buf := bytes.NewBuffer(converted)
 			var a AddressTaro
