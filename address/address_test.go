@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	hashBytes1     = [32]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+	hashBytes1 = [32]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 	invalidHrp     = "bc"
 	invalidNet     = ChainParams{&chaincfg.MainNetParams, invalidHrp}
 	pubKeyBytes, _ = hex.DecodeString(
@@ -159,6 +160,8 @@ func TestNewAddress(t *testing.T) {
 
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			address, err := testCase.f()
 			require.Equal(t, testCase.err, err)
 
@@ -258,6 +261,8 @@ func TestAddressEncoding(t *testing.T) {
 
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			addr, _, err := testCase.f()
 			require.Equal(t, testCase.err, err)
 			if testCase.err == nil {
