@@ -13,20 +13,20 @@ import (
 )
 
 var (
-	// ErrUnsupportedHRP is an error returned when we attempt to encode a Taro
-	// address with an HRP for a network without Taro support.
+	// ErrUnsupportedHRP is an error returned when we attempt to encode a
+	// Taro address with an HRP for a network without Taro support.
 	ErrUnsupportedHRP = errors.New(
 		"address: unsupported HRP value",
 	)
 
-	// ErrMistmatchedHRP is an error returned when we attempt to decode a Taro
-	// address with an HRP that does not match the expected network.
+	// ErrMistmatchedHRP is an error returned when we attempt to decode a
+	// Taro address with an HRP that does not match the expected network.
 	ErrMismatchedHRP = errors.New(
 		"address: network mismatch",
 	)
 
-	// ErrInvalidBech32m is an error returned when we attempt to decode
-	// a Taro address from a string that is not a valid bech32m string.
+	// ErrInvalidBech32m is an error returned when we attempt to decode a
+	// Taro address from a string that is not a valid bech32m string.
 	ErrInvalidBech32m = errors.New(
 		"address: invalid bech32m string",
 	)
@@ -38,21 +38,21 @@ var (
 		"address: collectible asset amount not one",
 	)
 
-	// ErrInvalidAmountNormal is an error returned when we attempt to create
-	// a Taro address for a Normal asset with an amount of zero.
+	// ErrInvalidAmountNormal is an error returned when we attempt to
+	// create a Taro address for a Normal asset with an amount of zero.
 	ErrInvalidAmountNormal = errors.New(
 		"address: normal asset amount of zero",
 	)
 
-	// ErrUnsupportedAssetType is an error returned when we attempt to create
-	// a Taro address for a non-standard asset type.
+	// ErrUnsupportedAssetType is an error returned when we attempt to
+	// create a Taro address for a non-standard asset type.
 	ErrUnsupportedAssetType = errors.New(
 		"address: unsupported asset type",
 	)
 )
 
-// Highest version of Taro script supported.
 const (
+	// TaroScriptVersion is the highest version of Taro script supported.
 	TaroScriptVersion uint8 = 0
 )
 
@@ -65,8 +65,8 @@ type AddressTaro struct {
 	// Version is the Taro version of the asset.
 	Version asset.Version
 
-	// ID is the hash that uniquely identifies
-	// the asset requested by the receiver.
+	// ID is the hash that uniquely identifies the asset requested by the
+	// receiver.
 	ID asset.ID
 
 	// FamilyKey is the tweaked public key that is used to associate assets
@@ -95,8 +95,8 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 ) (*AddressTaro, error) {
 
 	// Check for invalid combinations of asset type and amount.
-	// Collectible assets must have an amount of 1, and Normal assets
-	// must have a non-zero amount. We also reject invalid asset types.
+	// Collectible assets must have an amount of 1, and Normal assets must
+	// have a non-zero amount. We also reject invalid asset types.
 	switch assetType {
 	case asset.Collectible:
 		if amt != 1 {
@@ -204,8 +204,9 @@ func (a AddressTaro) EncodeAddress() (string, error) {
 	if err := a.Encode(&buf); err != nil {
 		return "", err
 	}
-	// Group the address bytes into 5 bit groups, as this is what is used to
-	// encode each character in the address string.
+
+	// Group the address bytes into 5 bit groups, as this is what is used
+	// to encode each character in the address string.
 	converted, err := bech32.ConvertBits(buf.Bytes(), 8, 5, true)
 	if err != nil {
 		return "", err
@@ -219,6 +220,7 @@ func (a AddressTaro) EncodeAddress() (string, error) {
 		}
 		return bech, nil
 	}
+
 	return "", ErrUnsupportedHRP
 }
 
