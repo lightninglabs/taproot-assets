@@ -2,6 +2,7 @@ package address
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg"
 )
@@ -25,8 +26,19 @@ type ChainParams struct {
 	TaroHRP string
 }
 
+// registerMtx is used to provide thread-safe access to the internal global
+// vriables.
+var registerMtx sync.RWMutex
+
+// Register attempts to register a new taro ChainParams with the library. If a
+// set of parameters for the network has already been registered, then an error
+// is returned.
+//
 // TODO(jhb): Resolve duplicate networks?
 func Register(params *ChainParams) error {
+	registerMtx.Lock()
+	defer registerMtx.Unlock()
+
 	err := chaincfg.Register(params.Params)
 	if err != nil {
 		return err
@@ -58,6 +70,9 @@ var (
 // addresses on any supported network.  This is used when creating an address,
 // encoding an address to a string, or decoding an address string into a TLV.
 func IsBech32MTaroPrefix(prefix string) bool {
+	registerMtx.RLock()
+	defer registerMtx.RUnlock()
+
 	prefix = strings.ToLower(prefix)
 	_, ok := bech32TaroPrefixes[prefix]
 	return ok
@@ -88,6 +103,9 @@ func Net(hrp string) (*ChainParams, error) {
 }
 
 func init() {
+	registerMtx.RLock()
+	defer registerMtx.RUnlock()
+
 	// Register all default networks when the package is initialized.
 	bech32TaroPrefixes[MainNetTaro.TaroHRP+"1"] = struct{}{}
 	bech32TaroPrefixes[TestNet3Taro.TaroHRP+"1"] = struct{}{}
