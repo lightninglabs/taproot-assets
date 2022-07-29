@@ -148,17 +148,21 @@ func (a *AddressTaro) Net() (*ChainParams, error) {
 // address at runtime.
 func (a AddressTaro) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 7)
-	records = append(records, NewAddressVersionRecord(&a.Version))
-	records = append(records, NewAddressIDRecord(&a.ID))
+	records = append(records, newAddressVersionRecord(&a.Version))
+	records = append(records, newAddressIDRecord(&a.ID))
+
 	if a.FamilyKey != nil {
-		records = append(records, NewAddressFamilyKeyRecord(&a.FamilyKey))
+		records = append(records, newAddressFamilyKeyRecord(&a.FamilyKey))
 	}
-	records = append(records, NewAddressScriptKeyRecord(&a.ScriptKey))
-	records = append(records, NewAddressInternalKeyRecord(&a.InternalKey))
-	records = append(records, NewAddressAmountRecord(&a.Amount))
+
+	records = append(records, newAddressScriptKeyRecord(&a.ScriptKey))
+	records = append(records, newAddressInternalKeyRecord(&a.InternalKey))
+	records = append(records, newAddressAmountRecord(&a.Amount))
+
 	if a.Type != asset.Normal {
-		records = append(records, NewAddressTypeRecord(&a.Type))
+		records = append(records, newAddressTypeRecord(&a.Type))
 	}
+
 	return records
 }
 
@@ -166,13 +170,13 @@ func (a AddressTaro) EncodeRecords() []tlv.Record {
 // decoding.
 func (a *AddressTaro) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
-		NewAddressVersionRecord(&a.Version),
-		NewAddressIDRecord(&a.ID),
-		NewAddressFamilyKeyRecord(&a.FamilyKey),
-		NewAddressScriptKeyRecord(&a.ScriptKey),
-		NewAddressInternalKeyRecord(&a.InternalKey),
-		NewAddressAmountRecord(&a.Amount),
-		NewAddressTypeRecord(&a.Type),
+		newAddressVersionRecord(&a.Version),
+		newAddressIDRecord(&a.ID),
+		newAddressFamilyKeyRecord(&a.FamilyKey),
+		newAddressScriptKeyRecord(&a.ScriptKey),
+		newAddressInternalKeyRecord(&a.InternalKey),
+		newAddressAmountRecord(&a.Amount),
+		newAddressTypeRecord(&a.Type),
 	}
 }
 

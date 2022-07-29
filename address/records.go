@@ -9,64 +9,80 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// AddressTlvType represents the different TLV types for Address TLV records.
-type AddressTLVType = tlv.Type
+// addressTlvType represents the different TLV types for Address TLV records.
+type addressTLVType = tlv.Type
 
 const (
-	AddressVersion     AddressTLVType = 0
-	AddressID          AddressTLVType = 2
-	AddressFamilyKey   AddressTLVType = 3
-	AddressScriptKey   AddressTLVType = 4
-	AddressInternalKey AddressTLVType = 6
-	AddressAmount      AddressTLVType = 8
-	AddressType        AddressTLVType = 9
+	// addrVersionType is the TLV type of the addr version.
+	addrVersionType addressTLVType = 0
+
+	// addrAssetIDType is the TLV type of the asset ID.
+	addrAssetIDType addressTLVType = 2
+
+	// addrFamKeyType is the TLV type of the family key of the asset.
+	addrFamKeyType addressTLVType = 3
+
+	// addrScriptKeyType is the TLV type of the script key for the asset.
+	addrScriptKeyType addressTLVType = 4
+
+	// addrInternalKeyType is the TLV type of the internal key for the asset.
+	addrInternalKeyType addressTLVType = 6
+
+	// addrAmountType is the TLV type of the amount of the asset.
+	addrAmountType addressTLVType = 8
+
+	// addrAssetType is the TLV type that stores the type of the asset.
+	addrAssetType addressTLVType = 9
 )
 
-func NewAddressVersionRecord(version *asset.Version) tlv.Record {
+func newAddressVersionRecord(version *asset.Version) tlv.Record {
 	return tlv.MakeStaticRecord(
-		AddressVersion, version, 1, asset.VersionEncoder, asset.VersionDecoder,
+		addrVersionType, version, 1, asset.VersionEncoder,
+		asset.VersionDecoder,
 	)
 }
 
-func NewAddressIDRecord(id *asset.ID) tlv.Record {
+func newAddressIDRecord(id *asset.ID) tlv.Record {
 	return tlv.MakeStaticRecord(
-		AddressID, id, sha256.Size, asset.IDEncoder, asset.IDDecoder,
+		addrAssetIDType, id, sha256.Size, asset.IDEncoder,
+		asset.IDDecoder,
 	)
 }
 
-func NewAddressFamilyKeyRecord(familyKey **btcec.PublicKey) tlv.Record {
+func newAddressFamilyKeyRecord(familyKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		AddressFamilyKey, familyKey, schnorr.PubKeyBytesLen,
+		addrFamKeyType, familyKey, schnorr.PubKeyBytesLen,
 		asset.SchnorrPubKeyEncoder, asset.SchnorrPubKeyDecoder,
 	)
 }
 
-func NewAddressScriptKeyRecord(scriptKey *btcec.PublicKey) tlv.Record {
+func newAddressScriptKeyRecord(scriptKey *btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		AddressScriptKey, scriptKey, schnorr.PubKeyBytesLen,
+		addrScriptKeyType, scriptKey, schnorr.PubKeyBytesLen,
 		schnorrPubKeyEncoder, schnorrPubKeyDecoder,
 	)
 }
 
-func NewAddressInternalKeyRecord(internalKey *btcec.PublicKey) tlv.Record {
+func newAddressInternalKeyRecord(internalKey *btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		AddressInternalKey, internalKey, schnorr.PubKeyBytesLen,
+		addrInternalKeyType, internalKey, schnorr.PubKeyBytesLen,
 		schnorrPubKeyEncoder, schnorrPubKeyDecoder,
 	)
 }
 
-func NewAddressAmountRecord(amount *uint64) tlv.Record {
+func newAddressAmountRecord(amount *uint64) tlv.Record {
 	recordSize := func() uint64 {
 		return tlv.VarIntSize(*amount)
 	}
 	return tlv.MakeDynamicRecord(
-		AddressAmount, amount, recordSize,
+		addrAmountType, amount, recordSize,
 		asset.VarIntEncoder, asset.VarIntDecoder,
 	)
 }
 
-func NewAddressTypeRecord(assetType *asset.Type) tlv.Record {
+func newAddressTypeRecord(assetType *asset.Type) tlv.Record {
 	return tlv.MakeStaticRecord(
-		AddressType, assetType, 1, asset.TypeEncoder, asset.TypeDecoder,
+		addrAssetType, assetType, 1, asset.TypeEncoder,
+		asset.TypeDecoder,
 	)
 }
