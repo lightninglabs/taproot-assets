@@ -7,13 +7,21 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 )
 
-// Human-readable prefixes for bech32m encoded addresses for each network.
 const (
-	Bech32HRPTaroMainnet       = "tarobc"
-	Bech32HRPTaroTestnet       = "tarotb"
-	Bech32HRPTaroRegressionnet = "tarort"
-	Bech32HRPTaroSignet        = "tarotb"
-	Bech32HRPTaroSimnet        = "tarosb"
+	// MainnetHRP is the HRP for mainnet.
+	MainnetHRP = "tarobc"
+
+	// TestnetHRP is the HRP for testnet.
+	TestnetHRP = "tarotb"
+
+	// RegTestHRP is the HRP for regtest.
+	RegTestHRP = "tarort"
+
+	// SigNetHRP is the HRP for "the" signet.
+	SigNetHRP = "tarotb"
+
+	// SimNetHRP is the HRP for simnet.
+	SimNetHRP = "tarosb"
 )
 
 // ChainParams defines a Taro-supporting network by its parameters. These
@@ -23,6 +31,8 @@ const (
 // and keys for one network from those intended for use on another network.
 type ChainParams struct {
 	*chaincfg.Params
+
+	// TaroHRP is the HRP to use for Taro addresses for the target network.
 	TaroHRP string
 }
 
@@ -49,21 +59,39 @@ func Register(params *ChainParams) error {
 }
 
 var (
-	// Set of all supported prefixes for bech32m encoded addresses.
+	// bech32TaroPrefixes holds the set of all supported prefixes for
+	// bech32m encoded addresses.
 	bech32TaroPrefixes = make(map[string]struct{})
 
-	// Default Taro-supportng networks.
+	// MainNetTaro holds the chain params for mainnet.
 	MainNetTaro = ChainParams{
-		&chaincfg.MainNetParams, Bech32HRPTaroMainnet,
+		Params:  &chaincfg.MainNetParams,
+		TaroHRP: MainnetHRP,
 	}
+
+	// TestNet3Taro holds the chain params for testnet.
 	TestNet3Taro = ChainParams{
-		&chaincfg.TestNet3Params, Bech32HRPTaroTestnet,
+		Params:  &chaincfg.TestNet3Params,
+		TaroHRP: TestnetHRP,
 	}
+
+	// RegressionNetParams holds the chain params for regtest.
 	RegressionNetTaro = ChainParams{
-		&chaincfg.RegressionNetParams, Bech32HRPTaroRegressionnet,
+		Params:  &chaincfg.RegressionNetParams,
+		TaroHRP: RegTestHRP,
 	}
-	SigNetTaro = ChainParams{&chaincfg.SigNetParams, Bech32HRPTaroSignet}
-	SimNetTaro = ChainParams{&chaincfg.SimNetParams, Bech32HRPTaroSimnet}
+
+	// SigNetTaro holds the chain params for signet.
+	SigNetTaro = ChainParams{
+		Params:  &chaincfg.SigNetParams,
+		TaroHRP: SigNetHRP,
+	}
+
+	// SimNetTaro holds the chain params for simnet.
+	SimNetTaro = ChainParams{
+		Params:  &chaincfg.SimNetParams,
+		TaroHRP: SimNetHRP,
+	}
 )
 
 // IsBech32MTaroPrefix returns whether the prefix is a known prefix for Taro
