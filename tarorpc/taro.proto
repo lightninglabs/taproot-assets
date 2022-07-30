@@ -29,6 +29,22 @@ service Taro {
   sub-system.
   */
   rpc DebugLevel(DebugLevelRequest) returns (DebugLevelResponse);
+
+  /* tarocli: `addrs query`
+  QueryTaroAddrs queries the set of Taro addresses stored in the database.
+  */
+  rpc QueryAddrs(QueryAddrRequest) returns (QueryAddrResponse);
+
+  /* tarocli: `addrs new`
+  NewAddr makes a new address from the set of request params.
+  */
+  rpc NewAddr(NewAddrRequest) returns (Addr);
+
+  /* tarocli: `addrs decode`
+  DecodeAddr decode a Taro address into a partial asset message that
+  represents the asset it wants to receive.
+  */
+  rpc DecodeAddr(Addr) returns (Asset);
 }
 
 enum AssetType {
@@ -176,3 +192,37 @@ message DebugLevelRequest {
   string level_spec = 2;
 }
 message DebugLevelResponse { string sub_systems = 1; }
+
+message Addr { string addr = 1; }
+
+message QueryAddrRequest {
+  /*
+  If set, then only addresses created after this Unix timestamp will be
+  returned.
+  */
+  int64 created_after = 1;
+
+  /*
+  If set, then only addresses created before this Unix timestamp will be
+  returned.
+  */
+  int64 created_before = 2;
+
+  // The max number of addresses that should be returned.
+  int32 limit = 3;
+
+  // The offset from the addresses that should be returned.
+  int32 offset = 4;
+}
+
+message QueryAddrResponse { repeated Addr addrs = 1; }
+
+message NewAddrRequest {
+  bytes asset_id = 1;
+
+  bytes fam_key = 2;
+
+  int64 amt = 3;
+
+  AssetType asset_type = 4;
+}

@@ -35,6 +35,16 @@ type TaroClient interface {
 	//level, or in a granular fashion to specify the logging for a target
 	//sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
+	// tarocli: `addrs query`
+	//QueryTaroAddrs queries the set of Taro addresses stored in the database.
+	QueryAddrs(ctx context.Context, in *QueryAddrRequest, opts ...grpc.CallOption) (*QueryAddrResponse, error)
+	// tarocli: `addrs new`
+	//NewAddr makes a new address from the set of request params.
+	NewAddr(ctx context.Context, in *NewAddrRequest, opts ...grpc.CallOption) (*Addr, error)
+	// tarocli: `addrs decode`
+	//DecodeAddr decode a Taro address into a partial asset message that
+	//represents the asset it wants to receive.
+	DecodeAddr(ctx context.Context, in *Addr, opts ...grpc.CallOption) (*Asset, error)
 }
 
 type taroClient struct {
@@ -81,6 +91,33 @@ func (c *taroClient) DebugLevel(ctx context.Context, in *DebugLevelRequest, opts
 	return out, nil
 }
 
+func (c *taroClient) QueryAddrs(ctx context.Context, in *QueryAddrRequest, opts ...grpc.CallOption) (*QueryAddrResponse, error) {
+	out := new(QueryAddrResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/QueryAddrs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) NewAddr(ctx context.Context, in *NewAddrRequest, opts ...grpc.CallOption) (*Addr, error) {
+	out := new(Addr)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/NewAddr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) DecodeAddr(ctx context.Context, in *Addr, opts ...grpc.CallOption) (*Asset, error) {
+	out := new(Asset)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/DecodeAddr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaroServer is the server API for Taro service.
 // All implementations must embed UnimplementedTaroServer
 // for forward compatibility
@@ -102,6 +139,16 @@ type TaroServer interface {
 	//level, or in a granular fashion to specify the logging for a target
 	//sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)
+	// tarocli: `addrs query`
+	//QueryTaroAddrs queries the set of Taro addresses stored in the database.
+	QueryAddrs(context.Context, *QueryAddrRequest) (*QueryAddrResponse, error)
+	// tarocli: `addrs new`
+	//NewAddr makes a new address from the set of request params.
+	NewAddr(context.Context, *NewAddrRequest) (*Addr, error)
+	// tarocli: `addrs decode`
+	//DecodeAddr decode a Taro address into a partial asset message that
+	//represents the asset it wants to receive.
+	DecodeAddr(context.Context, *Addr) (*Asset, error)
 	mustEmbedUnimplementedTaroServer()
 }
 
@@ -120,6 +167,15 @@ func (UnimplementedTaroServer) StopDaemon(context.Context, *StopRequest) (*StopR
 }
 func (UnimplementedTaroServer) DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DebugLevel not implemented")
+}
+func (UnimplementedTaroServer) QueryAddrs(context.Context, *QueryAddrRequest) (*QueryAddrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryAddrs not implemented")
+}
+func (UnimplementedTaroServer) NewAddr(context.Context, *NewAddrRequest) (*Addr, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NewAddr not implemented")
+}
+func (UnimplementedTaroServer) DecodeAddr(context.Context, *Addr) (*Asset, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DecodeAddr not implemented")
 }
 func (UnimplementedTaroServer) mustEmbedUnimplementedTaroServer() {}
 
@@ -206,6 +262,60 @@ func _Taro_DebugLevel_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Taro_QueryAddrs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryAddrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).QueryAddrs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/QueryAddrs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).QueryAddrs(ctx, req.(*QueryAddrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_NewAddr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NewAddrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).NewAddr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/NewAddr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).NewAddr(ctx, req.(*NewAddrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_DecodeAddr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Addr)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).DecodeAddr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/DecodeAddr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).DecodeAddr(ctx, req.(*Addr))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Taro_ServiceDesc is the grpc.ServiceDesc for Taro service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -228,6 +338,18 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DebugLevel",
 			Handler:    _Taro_DebugLevel_Handler,
+		},
+		{
+			MethodName: "QueryAddrs",
+			Handler:    _Taro_QueryAddrs_Handler,
+		},
+		{
+			MethodName: "NewAddr",
+			Handler:    _Taro_NewAddr_Handler,
+		},
+		{
+			MethodName: "DecodeAddr",
+			Handler:    _Taro_DecodeAddr_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

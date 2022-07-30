@@ -10,3 +10,17 @@ http:
     - selector: tarorpc.Taro.MintAsset
       post: "/v1/assets"
       body: "*"
+
+    - selector: tarorpc.Taro.ListAssets
+      get: "/v1/assets"
+
+    - selector: tarorpc.Taro.QueryAddrs
+      get: "/v1/addrs"
+
+    - selector: tarorpc.Taro.NewAddr
+      post: "/v1/addrs"
+      body: "*"
+
+    - selector: tarorpc.Taro.DecodeAddr
+      post: "/v1/addrs/decode"
+      body: "*"
