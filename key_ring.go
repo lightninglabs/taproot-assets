@@ -41,6 +41,24 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	return *keyDesc, nil
 }
 
+// DeriveNextTaroKey attempts to derive the *next* key within the Taro key
+// family.
+func (l *LndRpcKeyRing) DeriveNextTaroKey(ctx context.Context,
+) (keychain.KeyDescriptor, error) {
+
+	keyFam := int32(tarogarden.TaroKeyFamily)
+
+	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+
+	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, keyFam)
+	if err != nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
+			"derive next key: %w", err)
+	}
+
+	return *keyDesc, nil
+}
+
 // DeriveKey attempts to derive an arbitrary key specified by the passed
 // KeyLocator. This may be used in several recovery scenarios, or when manually
 // rotating something like our current default node key.

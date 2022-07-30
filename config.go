@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarogarden"
@@ -47,17 +48,22 @@ type DatabaseConfig struct {
 	MintingStore tarogarden.MintingStore
 
 	AssetStore *tarodb.AssetStore
+
+	TaroAddrBook *tarodb.TaroAddressBook
 }
 
 // Config is the main config of the Taro server.
 type Config struct {
 	DebugLevel string
 
+	// TODO(roasbeef): use the taro chain param wrapper here?
 	ChainParams chaincfg.Params
 
 	SignalInterceptor signal.Interceptor
 
 	AssetMinter tarogarden.Planter
+
+	AddrBook *address.Book
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
