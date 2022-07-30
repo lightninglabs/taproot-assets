@@ -19,6 +19,7 @@ type Querier interface {
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	// TODO(roasbeef): identical to the above but no batch, how to combine?
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the faily key fields if an asset
@@ -41,6 +42,7 @@ type Querier interface {
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
+	InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error)
 	InsertAssetFamilyKey(ctx context.Context, arg InsertAssetFamilyKeyParams) (int32, error)
 	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error

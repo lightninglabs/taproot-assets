@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+type Addr struct {
+	ID           int32
+	Version      int16
+	AssetID      []byte
+	FamKey       []byte
+	ScriptKeyID  int32
+	TaprootKeyID int32
+	Amount       int64
+	AssetType    int16
+	CreationTime time.Time
+}
+
 type Asset struct {
 	AssetID                  int32
 	Version                  int32
