@@ -64,6 +64,15 @@ var mintAssetCommand = cli.Command{
 	Action: mintAsset,
 }
 
+func parseAssetType(ctx *cli.Context) tarorpc.AssetType {
+	assetType := tarorpc.AssetType_NORMAL
+	if ctx.String(assetTypeName) == "collectible" {
+		assetType = tarorpc.AssetType_COLLECTIBLE
+	}
+
+	return assetType
+}
+
 func mintAsset(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
@@ -77,12 +86,8 @@ func mintAsset(ctx *cli.Context) error {
 		return nil
 	}
 
-	assetType := tarorpc.AssetType_NORMAL
-	if ctx.String(assetTypeName) == "collectible" {
-		assetType = tarorpc.AssetType_COLLECTIBLE
-	}
 	resp, err := client.MintAsset(ctxc, &tarorpc.MintAssetRequest{
-		AssetType:      assetType,
+		AssetType:      parseAssetType(ctx),
 		Name:           ctx.String(assetTagName),
 		MetaData:       []byte(ctx.String(assetMetaName)),
 		Amount:         ctx.Int64(assetSupplyName),
