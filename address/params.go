@@ -1,6 +1,7 @@
 package address
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -127,6 +128,24 @@ func Net(hrp string) (*ChainParams, error) {
 		return &SimNetTaro, nil
 	default:
 		return nil, ErrUnsupportedHRP
+	}
+}
+
+// ParamsForChain returns the ChainParams for a given chain based on its name.
+func ParamsForChain(name string) ChainParams {
+	switch name {
+	case chaincfg.MainNetParams.Name:
+		return MainNetTaro
+	case chaincfg.TestNet3Params.Name:
+		return TestNet3Taro
+	case chaincfg.RegressionNetParams.Name:
+		return RegressionNetTaro
+	case chaincfg.SigNetParams.Name:
+		return SigNetTaro
+	case chaincfg.SimNetParams.Name:
+		return SimNetTaro
+	default:
+		panic(fmt.Sprintf("unknown chain: %v", name))
 	}
 }
 
