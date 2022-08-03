@@ -60,6 +60,8 @@ const (
 // pubkey, and amount.
 type AddressTaro struct {
 	// HRP is the human-readable part for Bech32m encoded Taro addresses.
+	//
+	// TODO(roasbeef): replace w/ the chain cfg params intead?
 	Hrp string
 
 	// Version is the Taro version of the asset.
@@ -85,6 +87,8 @@ type AddressTaro struct {
 	Amount uint64
 
 	// Type uniquely identifies the type of Taro asset.
+	//
+	// TODO(roasbeef): sort of redundant w/ the asset ID?
 	Type asset.Type
 }
 

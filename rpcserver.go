@@ -8,9 +8,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
@@ -47,6 +51,18 @@ var (
 		}},
 		"/tarorpc.Taro/ListAssets": {{
 			Entity: "assets",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/QueryTaroAddrs": {{
+			Entity: "addresses",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/NewTaroAddr": {{
+			Entity: "addresses",
+			Action: "write",
+		}},
+		"/tarorpc.Taro/DecodeTaroAddr": {{
+			Entity: "addresses",
 			Action: "read",
 		}},
 	}
@@ -324,5 +340,128 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 
 	return &tarorpc.ListAssetResponse{
 		Assets: rpcAssets,
+	}, nil
+}
+
+// QueryAddrs queries the set of Taro addresses stored in the database.
+func (r *rpcServer) QueryAddrs(ctx context.Context,
+	in *tarorpc.QueryAddrRequest) (*tarorpc.QueryAddrResponse, error) {
+
+	query := address.QueryParams{
+		CreatedAfter:  time.Unix(in.CreatedAfter, 0),
+		CreatedBefore: time.Unix(in.CreatedBefore, 0),
+		Limit:         in.Limit,
+		Offset:        in.Offset,
+	}
+
+	rpcsLog.Debugf("[QueryAddrs]: addr query params: %v",
+		spew.Sdump(query))
+
+	dbAddrs, err := r.cfg.AddrBook.ListAddrs(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query addrs: %w", err)
+	}
+
+	// TODO(roasbeef): just stop storing the hrp in the addr?
+	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+	addrs := make([]*tarorpc.Addr, len(dbAddrs))
+	for i, dbAddr := range dbAddrs {
+		dbAddr.Hrp = taroParams.TaroHRP
+
+		addrStr, err := dbAddr.EncodeAddress()
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode addr: %w", err)
+		}
+
+		addrs[i] = &tarorpc.Addr{
+			Addr: addrStr,
+		}
+	}
+
+	rpcsLog.Debugf("[QueryTaroAddrs]: returning %v addrs", len(addrs))
+
+	return &tarorpc.QueryAddrResponse{
+		Addrs: addrs,
+	}, nil
+}
+
+// NewAddr makes a new address from the set of request params.
+func (r *rpcServer) NewAddr(ctx context.Context,
+	in *tarorpc.NewAddrRequest) (*tarorpc.Addr, error) {
+
+	var (
+		famKey *btcec.PublicKey
+		err    error
+	)
+
+	// The family key is optional, so we'll only decode it if it's
+	// specified.
+	if len(in.FamKey) != 0 {
+		famKey, err = schnorr.ParsePubKey(in.FamKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode "+
+				"fam key: %w", err)
+		}
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], in.AssetId)
+
+	rpcsLog.Infof("[NewTaroAddr]: making new addr: asset_id=%x, amt=%v, type=%v",
+		assetID, in.Amt, asset.Type(in.AssetType))
+
+	// Now that we have all the params, we'll try to add a new address to
+	// the addr book.
+	addr, err := r.cfg.AddrBook.NewAddress(
+		ctx, assetID, famKey, uint64(in.Amt), asset.Type(in.AssetType),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make new addr: %w", err)
+	}
+
+	// With our addr obtained, we'll encode it as a string then send off
+	// the response.
+	addrStr, err := addr.EncodeAddress()
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode addr: %w", err)
+	}
+	return &tarorpc.Addr{
+		Addr: addrStr,
+	}, nil
+}
+
+// DecodeAddr decode a Taro address into a partial asset message that
+// represents the asset it wants to receive.
+func (r *rpcServer) DecodeAddr(ctx context.Context,
+	in *tarorpc.Addr) (*tarorpc.Asset, error) {
+
+	if len(in.Addr) == 0 {
+		return nil, fmt.Errorf("must specify an addr")
+	}
+
+	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+	addr, err := address.DecodeAddress(in.Addr, &taroParams)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode addr: %w", err)
+	}
+
+	var famKeyBytes []byte
+	if addr.FamilyKey != nil {
+		famKeyBytes = schnorr.SerializePubKey(addr.FamilyKey)
+	}
+
+	// TODO(roasbeef): display internal key somewhere?
+	return &tarorpc.Asset{
+		AssetGenesis: &tarorpc.GenesisInfo{
+			AssetId: addr.ID[:],
+		},
+		AssetFamily: &tarorpc.AssetFamily{
+			TweakedFamilyKey: famKeyBytes,
+		},
+		ScriptKey: schnorr.SerializePubKey(&addr.ScriptKey),
+		Amount:    int64(addr.Amount),
+		AssetType: tarorpc.AssetType(addr.Type),
 	}, nil
 }

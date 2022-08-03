@@ -302,6 +302,7 @@ func main() {
 		profileSubCommand,
 	}
 	app.Commands = append(app.Commands, assetsCommands...)
+	app.Commands = append(app.Commands, addrCommands...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

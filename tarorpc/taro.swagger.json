@@ -16,7 +16,149 @@
     "application/json"
   ],
   "paths": {
+    "/v1/addrs": {
+      "get": {
+        "summary": "tarocli: `addrs query`\nQueryTaroAddrs queries the set of Taro addresses stored in the database.",
+        "operationId": "Taro_QueryAddrs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcQueryAddrResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "created_after",
+            "description": "If set, then only addresses created after this Unix timestamp will be\nreturned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "created_before",
+            "description": "If set, then only addresses created before this Unix timestamp will be\nreturned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "limit",
+            "description": "The max number of addresses that should be returned.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "offset",
+            "description": "The offset from the addresses that should be returned.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      },
+      "post": {
+        "summary": "tarocli: `addrs new`\nNewAddr makes a new address from the set of request params.",
+        "operationId": "Taro_NewAddr",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcAddr"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tarorpcNewAddrRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
+    "/v1/addrs/decode": {
+      "post": {
+        "summary": "tarocli: `addrs decode`\nDecodeAddr decode a Taro address into a partial asset message that\nrepresents the asset it wants to receive.",
+        "operationId": "Taro_DecodeAddr",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcAsset"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tarorpcAddr"
+            }
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/assets": {
+      "get": {
+        "summary": "tarocli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
+        "operationId": "Taro_ListAssets",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcListAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Taro"
+        ]
+      },
       "post": {
         "summary": "tarocli: `assets mint`\nMintAsset will attempts to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
         "operationId": "Taro_MintAsset",
@@ -78,6 +220,14 @@
           "items": {
             "$ref": "#/definitions/protobufAny"
           }
+        }
+      }
+    },
+    "tarorpcAddr": {
+      "type": "object",
+      "properties": {
+        "addr": {
+          "type": "string"
         }
       }
     },
@@ -265,6 +415,37 @@
           "type": "string",
           "format": "byte",
           "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
+        }
+      }
+    },
+    "tarorpcNewAddrRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "fam_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType"
+        }
+      }
+    },
+    "tarorpcQueryAddrResponse": {
+      "type": "object",
+      "properties": {
+        "addrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAddr"
+          }
         }
       }
     },
