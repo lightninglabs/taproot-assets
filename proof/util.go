@@ -25,10 +25,12 @@ func packBits(bits []bool) []byte {
 		if !isBitSet {
 			continue
 		}
+
 		byteIdx := i / 8
 		bitIdx := i % 8
 		bytes[byteIdx] |= byte(1 << bitIdx)
 	}
+
 	return bytes
 }
 
@@ -41,6 +43,7 @@ func unpackBits(bytes []byte) []bool {
 		bitIdx := i % 8
 		bits[i] = (byteVal>>bitIdx)&1 == 1
 	}
+
 	return bits
 }
 
@@ -52,6 +55,7 @@ func txSpendsPrevOut(tx *wire.MsgTx, prevOut *wire.OutPoint) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -63,15 +67,18 @@ func extractTaprootKey(tx *wire.MsgTx, outputIndex uint32) (*btcec.PublicKey,
 	if outputIndex >= uint32(len(tx.TxOut)) {
 		return nil, errors.New("invalid output index")
 	}
+
 	version, keyBytes, err := txscript.ExtractWitnessProgramInfo(
 		tx.TxOut[outputIndex].PkScript,
 	)
 	if err != nil {
 		return nil, err
 	}
+
 	if version != txscript.TaprootWitnessVersion {
 		return nil, errors.New("invalid witness version")
 	}
+
 	return schnorr.ParsePubKey(keyBytes)
 }
 
@@ -81,6 +88,7 @@ func newTapBranchHash(l, r chainhash.Hash) chainhash.Hash {
 	if bytes.Compare(l[:], r[:]) > 0 {
 		l, r = r, l
 	}
+
 	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
 }
 

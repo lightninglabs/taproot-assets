@@ -9,19 +9,25 @@ func HasGenesisWitness(asset *asset.Asset) bool {
 	if len(asset.PrevWitnesses) != 1 {
 		return false
 	}
+
 	witness := asset.PrevWitnesses[0]
 	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
 		witness.SplitCommitment != nil {
 		return false
 	}
+
 	return *witness.PrevID == zeroPrevID
 }
 
+// HasSplitCommitmentWitness returns true if an asset has a split commitment
+// witness.
 func HasSplitCommitmentWitness(asset *asset.Asset) bool {
 	if len(asset.PrevWitnesses) != 1 {
 		return false
 	}
+
 	witness := asset.PrevWitnesses[0]
+
 	return witness.PrevID != nil && len(witness.TxWitness) == 0 &&
 		witness.SplitCommitment != nil
 }

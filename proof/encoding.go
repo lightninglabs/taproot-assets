@@ -313,7 +313,7 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**commitment.TaroProof); ok {
+	if t, ok := val.(*commitment.TaroProof); ok {
 		records := []tlv.Record{
 			TaroProofVersionRecord(&(*t).Version),
 			TaroProofRecord(&(*t).Proof),
@@ -328,7 +328,7 @@ func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(**commitment.TaroProof); ok {
+	if typ, ok := val.(*commitment.TaroProof); ok {
 		var streamBytes []byte
 		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
 			return err
@@ -345,7 +345,7 @@ func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err := stream.Decode(bytes.NewReader(streamBytes)); err != nil {
 			return err
 		}
-		*typ = &proof
+		*typ = proof
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "commitment.TaroProof")

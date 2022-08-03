@@ -68,7 +68,7 @@ type Proof struct {
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
 // exclusion of an asset.
-func (p Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
+func (p *Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
 	// Extract the final taproot key from the output including/excluding the
 	// asset, which we'll use to compare our derived key against.
 	expectedTaprootKey, err := extractTaprootKey(
@@ -105,12 +105,12 @@ func (p Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
-func (p Proof) verifyInclusionProof() error {
+func (p *Proof) verifyInclusionProof() error {
 	return p.verifyTaprootProof(&p.InclusionProof, true)
 }
 
 // verifyExclusionProofs verifies all ExclusionProofs are valid.
-func (p Proof) verifyExclusionProofs() error {
+func (p *Proof) verifyExclusionProofs() error {
 	// Gather all P2TR outputs in the on-chain transaction.
 	p2trOutputs := make(map[uint32]struct{})
 	for i, txOut := range p.AnchorTx.TxOut {
@@ -141,7 +141,9 @@ func (p Proof) verifyExclusionProofs() error {
 
 // verifyAssetStateTransition verifies an asset's witnesses resulting from a
 // state transition.
-func (p Proof) verifyAssetStateTransition(prev *AssetSnapshot) error {
+func (p *Proof) verifyAssetStateTransition(ctx context.Context,
+	prev *AssetSnapshot) error {
+
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
 	newAsset := &p.Asset
@@ -174,11 +176,14 @@ func (p Proof) verifyAssetStateTransition(prev *AssetSnapshot) error {
 	// available CPUs. We'll also pass in a cotnext, which'll enable us to
 	// bail out as soon as any of the active goroutines encounters an
 	// error.
-	errGroup, ctx := errgroup.WithContext(context.Background())
+	errGroup, ctx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(runtime.NumCPU())
 
 	var assetsMtx sync.Mutex
 	for _, inputProof := range p.AdditionalInputs {
+
+		inputProof := inputProof
+
 		errGroup.Go(func() error {
 			result, err := inputProof.Verify(ctx)
 			if err != nil {
@@ -217,7 +222,9 @@ func (p Proof) verifyAssetStateTransition(prev *AssetSnapshot) error {
 // 3. A set of valid exclusion proofs for the resulting asset are included.
 // 4. A set of asset inputs with valid witnesses are included that satisfy the
 //    resulting state transition.
-func (p Proof) Verify(prev *AssetSnapshot) (*AssetSnapshot, error) {
+func (p *Proof) Verify(ctx context.Context,
+	prev *AssetSnapshot) (*AssetSnapshot, error) {
+
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
@@ -244,7 +251,7 @@ func (p Proof) Verify(prev *AssetSnapshot) (*AssetSnapshot, error) {
 
 	// 4. A set of asset inputs with valid witnesses are included that
 	// satisfy the resulting state transition.
-	if err := p.verifyAssetStateTransition(prev); err != nil {
+	if err := p.verifyAssetStateTransition(ctx, prev); err != nil {
 		return nil, err
 	}
 
@@ -258,7 +265,7 @@ func (p Proof) Verify(prev *AssetSnapshot) (*AssetSnapshot, error) {
 }
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
-func (p Proof) EncodeRecords() []tlv.Record {
+func (p *Proof) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 8)
 	records = append(records, PrevOutRecord(&p.PrevOut))
 	records = append(records, BlockHeaderRecord(&p.BlockHeader))
@@ -294,7 +301,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 }
 
 // Encode encodes a Proof into `w`.
-func (p Proof) Encode(w io.Writer) error {
+func (p *Proof) Encode(w io.Writer) error {
 	stream, err := tlv.NewStream(p.EncodeRecords()...)
 	if err != nil {
 		return err

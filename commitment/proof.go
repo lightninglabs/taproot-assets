@@ -52,7 +52,7 @@ type Proof struct {
 
 	// TaroProof is the proof used along with the asset commitment to arrive
 	// at the root of the TaroCommitment MS-SMT.
-	TaroProof *TaroProof
+	TaroProof TaroProof
 }
 
 // DeriveByAsseInclusion derives the Taro commitment containing the provided

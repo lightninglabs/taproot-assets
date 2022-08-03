@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -70,7 +71,7 @@ type AssetSnapshot struct {
 // verification loop.
 //
 // TODO(roasbeef): pass in the expected genesis point here?
-func (f File) Verify(ctx context.Context) (*AssetSnapshot, error) {
+func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -86,17 +87,18 @@ func (f File) Verify(ctx context.Context) (*AssetSnapshot, error) {
 		default:
 		}
 
-		result, err := proof.Verify(prev)
+		result, err := proof.Verify(ctx, prev)
 		if err != nil {
 			return nil, err
 		}
 		prev = result
 	}
+
 	return prev, nil
 }
 
 // encodeNoChecksum encodes the proof file into `w` without its checksum.
-func (f File) encodeNoChecksum(w io.Writer) error {
+func (f *File) encodeNoChecksum(w io.Writer) error {
 	err := binary.Write(w, binary.BigEndian, uint32(f.Version))
 	if err != nil {
 		return err
@@ -125,7 +127,7 @@ func (f File) encodeNoChecksum(w io.Writer) error {
 }
 
 // Encode encodes the proof file into `w` including its checksum.
-func (f File) Encode(w io.Writer) error {
+func (f *File) Encode(w io.Writer) error {
 	var buf bytes.Buffer
 	if err := f.encodeNoChecksum(&buf); err != nil {
 		return err

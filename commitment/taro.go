@@ -156,7 +156,7 @@ func (c TaroCommitment) Proof(taroCommitmentKey,
 	}
 
 	proof := &Proof{
-		TaroProof: &TaroProof{
+		TaroProof: TaroProof{
 			Proof:   *c.tree.MerkleProof(taroCommitmentKey),
 			Version: c.Version,
 		},

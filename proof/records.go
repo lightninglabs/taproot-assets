@@ -194,7 +194,7 @@ func CommitmentProofAssetProofRecord(proof **commitment.AssetProof) tlv.Record {
 	)
 }
 
-func CommitmentProofTaroProofRecord(proof **commitment.TaroProof) tlv.Record {
+func CommitmentProofTaroProofRecord(proof *commitment.TaroProof) tlv.Record {
 	sizeFunc := func() uint64 {
 		var buf bytes.Buffer
 		err := TaroProofEncoder(&buf, proof, &[8]byte{})
