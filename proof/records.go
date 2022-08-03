@@ -209,27 +209,40 @@ func CommitmentProofTaroProofRecord(proof *commitment.TaroProof) tlv.Record {
 	)
 }
 
-func CommitmentProofTapSiblingPreimageRecord(preimage *[]byte) tlv.Record {
+func CommitmentProofTapSiblingPreimageRecord(preimage **TapscriptPreimage,
+) tlv.Record {
+
 	sizeFunc := func() uint64 {
-		return uint64(len(*preimage))
+		// 1 byte for the type, and then the pre-image itself.
+		return 1 + uint64(len((*preimage).SiblingPreimage))
 	}
 	return tlv.MakeDynamicRecord(
 		CommitmentProofTapSiblingPreimageType, preimage, sizeFunc,
-		tlv.EVarBytes, tlv.DVarBytes,
+		TapscriptPreimageEncoder, TapscriptPreimageDecoder,
 	)
 }
 
-func TapscriptProofTapPreimage1Record(preimage *[]byte) tlv.Record {
+func TapscriptProofTapPreimage1Record(preimage **TapscriptPreimage) tlv.Record {
+	sizeFunc := func() uint64 {
+		// 1 byte for the type, and then the pre-image itself.
+		return 1 + uint64(len((*preimage).SiblingPreimage))
+	}
+
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage1, preimage,
-		tlv.SizeVarBytes(preimage), tlv.EVarBytes, tlv.DVarBytes,
+		sizeFunc, TapscriptPreimageEncoder, TapscriptPreimageDecoder,
 	)
 }
 
-func TapscriptProofTapPreimage2Record(preimage *[]byte) tlv.Record {
+func TapscriptProofTapPreimage2Record(preimage **TapscriptPreimage) tlv.Record {
+	sizeFunc := func() uint64 {
+		// 1 byte for the type, and then the pre-image itself.
+		return 1 + uint64(len((*preimage).SiblingPreimage))
+	}
+
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage2, preimage,
-		tlv.SizeVarBytes(preimage), tlv.EVarBytes, tlv.DVarBytes,
+		sizeFunc, TapscriptPreimageEncoder, TapscriptPreimageDecoder,
 	)
 }
 

@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"context"
 	"math/rand"
 	"testing"
 
@@ -41,7 +42,8 @@ func randPubKey(t *testing.T) *btcec.PublicKey {
 	return schnorrPubKey(t, randPrivKey(t))
 }
 
-func randGenesis(t *testing.T) *asset.Genesis {
+func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
+
 	metadata := make([]byte, rand.Uint32()%32+1)
 	_, err := rand.Read(metadata)
 	require.NoError(t, err)
@@ -51,6 +53,7 @@ func randGenesis(t *testing.T) *asset.Genesis {
 		Tag:          "kek",
 		Metadata:     metadata,
 		OutputIndex:  rand.Uint32(),
+		Type:         assetType,
 	}
 }
 
@@ -67,7 +70,7 @@ func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
 	genSigner := asset.NewRawKeyGenesisSigner(privKey)
 
 	familyKey, err := asset.DeriveFamilyKey(
-		genSigner, pubToKeyDesc(privKey.PubKey()), genesis,
+		genSigner, pubToKeyDesc(privKey.PubKey()), *genesis,
 	)
 	require.NoError(t, err)
 	return familyKey
@@ -145,10 +148,10 @@ func TestProofEncoding(t *testing.T) {
 	txMerkleProof, err := NewTxMerkleProof(oddTxBlock.Transactions, 0)
 	require.NoError(t, err)
 
-	genesis := randGenesis(t)
+	genesis := randGenesis(t, asset.Collectible)
 	familyKey := randFamilyKey(t, genesis)
 	commitment, assets, err := commitment.Mint(
-		genesis, familyKey, &commitment.AssetDetails{
+		*genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        pubToKeyDesc(randPubKey(t)),
 			Amount:           nil,
@@ -173,8 +176,11 @@ func TestProofEncoding(t *testing.T) {
 			OutputIndex: 1,
 			InternalKey: randPubKey(t),
 			CommitmentProof: &CommitmentProof{
-				Proof:              *commitmentProof,
-				TapSiblingPreimage: []byte{1},
+				Proof: *commitmentProof,
+				TapSiblingPreimage: &TapscriptPreimage{
+					SiblingPreimage: []byte{1},
+					SiblingType:     LeafPreimage,
+				},
 			},
 			TapscriptProof: nil,
 		},
@@ -183,8 +189,11 @@ func TestProofEncoding(t *testing.T) {
 				OutputIndex: 2,
 				InternalKey: randPubKey(t),
 				CommitmentProof: &CommitmentProof{
-					Proof:              *commitmentProof,
-					TapSiblingPreimage: []byte{1},
+					Proof: *commitmentProof,
+					TapSiblingPreimage: &TapscriptPreimage{
+						SiblingPreimage: []byte{1},
+						SiblingType:     LeafPreimage,
+					},
 				},
 				TapscriptProof: nil,
 			},
@@ -193,8 +202,14 @@ func TestProofEncoding(t *testing.T) {
 				InternalKey:     randPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
-					TapPreimage1: []byte{1},
-					TapPreimage2: []byte{2},
+					TapPreimage1: &TapscriptPreimage{
+						SiblingPreimage: []byte{1},
+						SiblingType:     BranchPreimage,
+					},
+					TapPreimage2: &TapscriptPreimage{
+						SiblingPreimage: []byte{2},
+						SiblingType:     LeafPreimage,
+					},
 				},
 			},
 		},
@@ -218,10 +233,10 @@ func TestGenesisProofVerification(t *testing.T) {
 	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
 		genesisPrivKey.PubKey(),
 	)
-	assetGenesis := randGenesis(t)
+	assetGenesis := randGenesis(t, asset.Collectible)
 	assetFamilyKey := randFamilyKey(t, assetGenesis)
 	commitment, assets, err := commitment.Mint(
-		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
+		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        pubToKeyDesc(genesisScriptKey),
 			Amount:           nil,
@@ -279,6 +294,8 @@ func TestGenesisProofVerification(t *testing.T) {
 		ExclusionProofs:  nil,
 		AdditionalInputs: nil,
 	}
-	_, err = proof.Verify(nil)
+	_, err = proof.Verify(context.Background(), nil)
 	require.NoError(t, err)
 }
+
+// TODO(roasbeef): additional tests for the diff sibling preimage combinations

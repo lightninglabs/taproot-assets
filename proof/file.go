@@ -40,6 +40,7 @@ var (
 type Version uint32
 
 const (
+	// V0 is the first version of the proof file.
 	V0 Version = 0
 )
 

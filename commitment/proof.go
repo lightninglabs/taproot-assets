@@ -55,7 +55,7 @@ type Proof struct {
 	TaroProof TaroProof
 }
 
-// DeriveByAsseInclusion derives the Taro commitment containing the provided
+// DeriveByAssetInclusion derives the Taro commitment containing the provided
 // asset. This consists of proving that an asset exists within the inner MS-SMT
 // with the AssetProof, also known as the AssetCommitment. With the
 // AssetCommitment obtained, the TaroProof is used to prove that it exists or
@@ -87,6 +87,7 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TaroCommitment,
 		assetCommitment.TaroCommitmentKey(),
 		assetCommitment.TaroCommitmentLeaf(),
 	)
+
 	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
 }
 

@@ -78,27 +78,40 @@ func (p *Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
 		return err
 	}
 
-	// Derive the possible taproot keys based on the proof.
-	var possibleKeys []*btcec.PublicKey
-	if inclusion {
-		possibleKeys, err = proof.DeriveByAssetInclusion(&p.Asset)
-	} else if proof.CommitmentProof != nil {
-		possibleKeys, err = proof.DeriveByAssetExclusion(
+	// For each proof type, we'll map this to a single key based on the
+	// self-identified pre-image type in the specified proof.
+	var derivedKey *btcec.PublicKey
+	switch {
+	// If this is an inclusion proof, then we'll derive the expected
+	// taproot output key based on the revealed asset MS-SMT proof. The
+	// root of this tree will then be used to assemble the top of the
+	// tapscript tree, which will then be tweaked as normal with the
+	// internal key to derive the expected output key.
+	case inclusion:
+		derivedKey, err = proof.DeriveByAssetInclusion(&p.Asset)
+
+	// If the commitment proof is present, then this is actually a
+	// non-inclusion proof: we want to verify that either no root
+	// commitment exists, or one does, but the asset in question isn't
+	// present.
+	case proof.CommitmentProof != nil:
+		derivedKey, err = proof.DeriveByAssetExclusion(
 			p.Asset.AssetCommitmentKey(),
 			p.Asset.TaroCommitmentKey(),
 		)
-	} else if proof.TapscriptProof != nil {
-		possibleKeys, err = proof.DeriveByTapscriptProof()
+
+	// If this is a tapscript proof, then we want to verify that the target
+	// output DOES NOT contain any sort of Taro commitment.
+	case proof.TapscriptProof != nil:
+		derivedKey, err = proof.DeriveByTapscriptProof()
 	}
 	if err != nil {
 		return err
 	}
 
-	// Check that at least one of them matches the expected key.
-	for _, key := range possibleKeys {
-		if key.IsEqual(expectedTaprootKey) {
-			return nil
-		}
+	// The derive key should match the extracted key.
+	if derivedKey.IsEqual(expectedTaprootKey) {
+		return nil
 	}
 
 	return ErrInvalidTaprootProof
