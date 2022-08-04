@@ -3,6 +3,8 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -292,3 +294,59 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 
 	return proofs, nil
 }
+
+// FetchProof fetches a proof for an asset uniquely idenfitied by the passed
+// ProofIdentifier.
+//
+// NOTE: This implements the proof.ArchiveBackend interface.
+func (a *AssetStore) FetchProof(ctx context.Context,
+	locator proof.Locator) (proof.Blob, error) {
+
+	// We don't need anything else but the script key since we have an
+	// on-disk index for all proofs we store.
+	scriptKey := locator.ScriptKey
+
+	var diskProof proof.Blob
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		assetProof, err := q.FetchAssetProof(
+			ctx, scriptKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch asset "+
+				"proof: %w", err)
+		}
+
+		diskProof = assetProof.ProofFile
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, proof.ErrProofNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return diskProof, nil
+}
+
+// StoreProofs attempts to store fully populated proofs on disk. The
+// previous outpoint of the first state transition will be used as the
+// Genesis point. The final resting place of the asset will be used as
+// the script key itself.
+//
+// NOTE: This implements the proof.ArchiveBackend intefrace.
+func (a *AssetStore) StoreProofs(ctx context.Context,
+	proofs ...proof.AnnotatedProof) error {
+
+	// TODO(roasbeef): need additional information w/ annotated proof, like
+	// script key information, etc?
+
+	return nil
+}
+
+// A compile-time constant to ensure that AssetStore meets the proof.Archiver
+// interface.
+var _ proof.Archiver = (*AssetStore)(nil)
