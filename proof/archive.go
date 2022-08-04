@@ -166,3 +166,59 @@ func (f *FileArchiver) StoreProofs(ctx context.Context, proofs ...AnnotatedProof
 // A compile-time interface to ensure FileArchiver meets the Archiver
 // interface.
 var _ Archiver = (*FileArchiver)(nil)
+
+// MultiArchiver is an archive of archives. It contains several archives and
+// attempts to use them either as a look-aside cache, or a write through cache
+// for all incoming requests.
+type MultiArchiver struct {
+	backends []Archiver
+}
+
+// NewMultiArchiver creates a new MultiArchiver based on the set of specified
+// backends.
+func NewMultiArchiver(backends ...Archiver) *MultiArchiver {
+	return &MultiArchiver{
+		backends: backends,
+	}
+}
+
+// FetchProof fetches a proof for an asset uniquely identified by the passed
+// ProofIdentifier.
+func (m *MultiArchiver) FetchProof(ctx context.Context,
+	loc Locator) (Blob, error) {
+
+	// TODO(roasbeef): fire all requests off and take the one that responds first?
+
+	// Iterate through all our active backends and try to see if at least
+	// one of them contains the proof. Either one of them will have the
+	// proof, or we'll return an error back to the user.
+	for _, archive := range m.backends {
+		proof, err := archive.FetchProof(ctx, loc)
+		switch {
+		case errors.Is(err, ErrProofNotFound):
+			continue
+		case err != nil:
+			return nil, err
+		}
+
+		return proof, nil
+	}
+
+	return nil, ErrProofNotFound
+}
+
+// StoreProofs attempts to store fully populated proofs on disk. The previous
+// outpoint of the first state transition will be used as the Genesis point.
+// The final resting place of the asset will be used as the script key itself.
+func (m *MultiArchiver) StoreProofs(ctx context.Context, proofs ...AnnotatedProof) error {
+	// TODO(roasbeef): need other information along w/ the annotated proof?
+
+	for _, archive := range m.backends {
+		err := archive.StoreProofs(ctx, proofs...)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
