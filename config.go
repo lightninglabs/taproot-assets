@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarogarden"

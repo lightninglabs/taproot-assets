@@ -16,7 +16,6 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarogarden"

@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
@@ -152,6 +153,16 @@ func main() {
 	)
 	errQueue.Start()
 	defer errQueue.Stop()
+	assetStore := tarodb.NewAssetStore(assetDB)
+
+	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
+	if err != nil {
+		err := fmt.Sprintf("unable to open disk archive: %v", err)
+		cfgLogger.Infof(err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+		return
+	}
 
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
@@ -170,6 +181,7 @@ func main() {
 			ErrChan:     errQueue.ChanIn(),
 		}),
 		AddrBook:          addrBook,
+		ProofArchive:      proof.NewMultiArchiver(assetStore, proofFileStore),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
@@ -188,8 +200,8 @@ func main() {
 		DatabaseConfig: &taro.DatabaseConfig{
 			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,
-			AssetStore:   tarodb.NewAssetStore(assetDB),
-			TaroAddrBook: tarodbAddrBook,
+			AssetStore:   assetStore,
+			TaroAddrBook: taroAddrBook,
 		},
 	})
 	if err != nil {
