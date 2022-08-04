@@ -11,10 +11,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/build"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
@@ -63,6 +66,18 @@ var (
 		"/tarorpc.Taro/DecodeTaroAddr": {{
 			Entity: "addresses",
 			Action: "read",
+		}},
+		"/tarorpc.Taro/VerifyProof": {{
+			Entity: "proofs",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/ExportProof": {{
+			Entity: "proofs",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/ImportProof": {{
+			Entity: "proofs",
+			Action: "write",
 		}},
 	}
 )
@@ -464,4 +479,76 @@ func (r *rpcServer) DecodeAddr(ctx context.Context,
 		Amount:    int64(addr.Amount),
 		AssetType: tarorpc.AssetType(addr.Type),
 	}, nil
+}
+
+// VerifyProof attempts to verify a given proof file that claims to be anchored
+// at the specified genesis point.
+func (r *rpcServer) VerifyProof(ctx context.Context,
+	in *tarorpc.ProofFile) (*tarorpc.ProofVerifyResponse, error) {
+
+	if len(in.RawProof) == 0 {
+		return nil, fmt.Errorf("proof file must be specified")
+	}
+
+	var proofFile proof.File
+	err := proofFile.Decode(bytes.NewReader(in.RawProof))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	_, err = proofFile.Verify(ctx)
+	valid := err == nil
+
+	// TODO(roasbeef): show the final resting place of the asset?
+	return &tarorpc.ProofVerifyResponse{
+		Valid: valid,
+	}, nil
+}
+
+// ExportProof exports the latest raw proof file acnhored at the specified
+// script_key.
+func (r *rpcServer) ExportProof(ctx context.Context,
+	in *tarorpc.ExportProofRequest) (*tarorpc.ProofFile, error) {
+
+	if len(in.ScriptKey) == 0 {
+		return nil, fmt.Errorf("a valid script key must be specified")
+	}
+
+	scriptKey, err := schnorr.ParsePubKey(in.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid script key: %w", err)
+	}
+
+	if len(in.AssetId) != 32 {
+		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], in.AssetId)
+
+	proof, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &tarorpc.ProofFile{
+		RawProof: proof,
+	}, nil
+}
+
+// ImportProof attempts to import a proof file into the daemon. If succesful, a
+// new asset will be inserted on disk, spendable using the specified target
+// script key, and internaly key.
+func (r *rpcServer) ImportProof(ctx context.Context,
+	in *tarorpc.ImportProofRequest) (*tarorpc.ImportProofResponse, error) {
+
+	// TODO(roasbeef): need additional annotations to know which script
+	// key to use
+	//
+	//  * look up based on pubkey?
+
+	return nil, nil
 }

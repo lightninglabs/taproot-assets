@@ -6,6 +6,8 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/build"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
@@ -64,6 +66,8 @@ type Config struct {
 	AssetMinter tarogarden.Planter
 
 	AddrBook *address.Book
+
+	ProofArchive proof.Archiver
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
