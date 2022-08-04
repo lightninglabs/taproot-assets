@@ -1,5 +1,7 @@
 PKG := github.com/lightninglabs/taro
 
+BTCD_PKG := github.com/btcsuite/btcd
+LND_PKG := github.com/lightningnetwork/lnd
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
@@ -46,10 +48,11 @@ make_ldflags = $(2) -X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.GoVersion=$(GOVERSION) \
 	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 
+make_lnd_ldflags = -X $(LND_PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 DEV_GCFLAGS := -gcflags "all=-N -l"
 LDFLAGS := -ldflags "$(call make_ldflags, ${tags}, -s -w)"
 DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
-ITEST_LDFLAGS := -ldflags "$(call make_ldflags, $(ITEST_TAGS))"
+ITEST_LDFLAGS := -ldflags "$(call make_lnd_ldflags, $(ITEST_TAGS))"
 
 # For the release, we want to remove the symbol table and debug information (-s)
 # and omit the DWARF symbol table (-w). Also we clear the build ID.
@@ -102,6 +105,13 @@ build:
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o tarod-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tarod
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o tarocli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tarocli
 
+build-itest:
+	@$(call print, "Building itest btcd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="rpctest" -o itest/btcd-itest $(BTCD_PKG)
+
+	@$(call print, "Building itest lnd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(ITEST_LDFLAGS) $(LND_PKG)/cmd/lnd
+
 install:
 	@$(call print, "Installing tarod and tarocli.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/tarod
@@ -143,6 +153,13 @@ unit-cover: $(GOACC_BIN)
 unit-race:
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOLIST) | $(XARGS) env $(GOTEST) -race -test.timeout=20m
+
+itest: build-itest itest-only
+
+itest-only:
+	@$(call print, "Running integration tests with ${backend} backend.")
+	rm -rf itest/regtest; date
+	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
 
 # =========
 # UTILITIES
