@@ -71,3 +71,98 @@ type Archiver interface {
 	// the script key itself.
 	StoreProofs(ctx context.Context, proofs ...AnnotatedProof) error
 }
+
+// FileArchive implements proof Archiver backed by an on-disk file system. The
+// archiver takes a single root directory then creates the following overlap
+// mapping:
+//
+// proofs/
+// ├─ asset_id1/
+// │  ├─ script_key1
+// │  ├─ script_key2
+type FileArchiver struct {
+	// proofPath is the directory name that we'll use as the roof for all our files.
+	proofPath string
+}
+
+// NewFileArchiver creates a new file arc
+//
+// TODO(roasbeef): use fs.FS instead?
+func NewFileArchiver(dirName string) (*FileArchiver, error) {
+
+	// First, we'll make sure our main proof directory has already been
+	// created.
+	proofPath := filepath.Join(dirName, ProofDirName)
+	if err := os.Mkdir(proofPath, 0750); err != nil && !os.IsExist(err) {
+		return nil, fmt.Errorf("unable to create proof dir: %w", err)
+	}
+
+	return &FileArchiver{
+		proofPath: proofPath,
+	}, nil
+}
+
+// genProofFilePath generates the full proof file path based on a rootPath and
+// a valid locator. The final path is: root/assetID/scriptKey.taro
+func genProofFilePath(rootPath string, loc Locator) (string, error) {
+	if loc.AssetID == nil {
+		return "", fmt.Errorf("asset ID of locator must be populated")
+	}
+
+	assetID := hex.EncodeToString(loc.AssetID[:])
+	scriptKey := hex.EncodeToString(schnorr.SerializePubKey(&loc.ScriptKey))
+
+	return filepath.Join(rootPath, assetID, scriptKey+TaroFileSuffix), nil
+}
+
+// FetchProof fetches a proof for an asset uniquely identified by the
+// passed ProofIdentifier.
+//
+// If a proof cannot be found, then ErrProofNotFound should be
+// returned.
+//
+// NOTE: This implements the Archiver interface.
+func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error) {
+	// All our on-disk storage is based on asset IDs, so to look up a path,
+	// we just need to compute the full file path and see if it exists on
+	// disk.
+	proofPath, err := genProofFilePath(f.proofPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	proofFile, err := os.ReadFile(proofPath)
+	switch {
+	case os.IsNotExist(err):
+		return nil, ErrProofNotFound
+	case err != nil:
+		return nil, fmt.Errorf("unable to find proof: %w", err)
+	}
+
+	return proofFile, nil
+}
+
+// StoreProofs attempts to store fully populated proofs on disk. The previous
+// outpoint of the first state transition will be used as the Genesis point.
+// The final resting place of the asset will be used as the script key itself.
+//
+// NOTE: This implements the Archiver interface.
+func (f *FileArchiver) StoreProofs(ctx context.Context, proofs ...AnnotatedProof) error {
+	for _, proof := range proofs {
+		proofPath, err := genProofFilePath(f.proofPath, proof.Locator)
+		if err != nil {
+			return err
+		}
+
+		err = os.WriteFile(proofPath, proof.Blob, 0666)
+		if err != nil {
+			return fmt.Errorf("unable to store proof: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// A compile-time interface to ensure FileArchiver meets the Archiver
+// interface.
+var _ Archiver = (*FileArchiver)(nil)
