@@ -29,8 +29,7 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 // RegisterConfirmationsNtfn registers an intent to be notified once
 // txid reaches numConfs confirmations.
 func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	txid *chainhash.Hash, pkScript []byte,
-	numConfs, heightHint uint32,
+	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
 	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	var opts []lndclient.NotifierOption

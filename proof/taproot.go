@@ -375,8 +375,9 @@ func deriveTaprootKeysFromTaroCommitment(commitment *commitment.TaroCommitment,
 // There are at most two _possible_ keys that exist if each leaf preimage
 // matches the length of a branch preimage. However, using the annotated type
 // information we only need to derive a single key.
-func (p TaprootProof) DeriveByAssetInclusion(asset *asset.Asset,
-) (*btcec.PublicKey, *commitment.TaroCommitment, error) {
+func (p TaprootProof) DeriveByAssetInclusion(
+	asset *asset.Asset) (*btcec.PublicKey, *commitment.TaroCommitment,
+	error) {
 
 	if p.CommitmentProof == nil || p.TapscriptProof != nil {
 		return nil, nil, ErrInvalidCommitmentProof
