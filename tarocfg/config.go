@@ -314,9 +314,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	}
 
 	// Make sure everything we just loaded makes sense.
-	cleanCfg, cfgLogger, err := ValidateConfig(
-		cfg, interceptor, fileParser, flagParser,
-	)
+	cleanCfg, cfgLogger, err := ValidateConfig(cfg, interceptor)
 	if usageErr, ok := err.(*usageError); ok {
 		// The logging system might not yet be initialized, so we also
 		// write to stderr to make sure the error appears somewhere.
@@ -362,8 +360,8 @@ func (u *usageError) Error() string {
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
-func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
-	flagParser *flags.Parser) (*Config, btclog.Logger, error) {
+func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
+	btclog.Logger, error) {
 
 	// If the provided tarod directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
