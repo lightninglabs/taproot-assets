@@ -45,6 +45,19 @@ type TaroClient interface {
 	//DecodeAddr decode a Taro address into a partial asset message that
 	//represents the asset it wants to receive.
 	DecodeAddr(ctx context.Context, in *Addr, opts ...grpc.CallOption) (*Asset, error)
+	// tarocli: `proofs verify`
+	//VerifyProof attempts to verify a given proof file that claims to be anchored
+	//at the specified genesis point.
+	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*ProofVerifyResponse, error)
+	// tarocli: `proofs export`
+	//ExportProof exports the latest raw proof file acnhored at the specified
+	//script_key.
+	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
+	// tarocli: `proofs import`
+	//ImportProof attempts to import a proof file into the daemon. If succesful, a
+	//new asset will be inserted on disk, spendable using the specified target
+	//script key, and internaly key.
+	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 }
 
 type taroClient struct {
@@ -118,6 +131,33 @@ func (c *taroClient) DecodeAddr(ctx context.Context, in *Addr, opts ...grpc.Call
 	return out, nil
 }
 
+func (c *taroClient) VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*ProofVerifyResponse, error) {
+	out := new(ProofVerifyResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/VerifyProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error) {
+	out := new(ProofFile)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ExportProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error) {
+	out := new(ImportProofResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ImportProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaroServer is the server API for Taro service.
 // All implementations must embed UnimplementedTaroServer
 // for forward compatibility
@@ -149,6 +189,19 @@ type TaroServer interface {
 	//DecodeAddr decode a Taro address into a partial asset message that
 	//represents the asset it wants to receive.
 	DecodeAddr(context.Context, *Addr) (*Asset, error)
+	// tarocli: `proofs verify`
+	//VerifyProof attempts to verify a given proof file that claims to be anchored
+	//at the specified genesis point.
+	VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error)
+	// tarocli: `proofs export`
+	//ExportProof exports the latest raw proof file acnhored at the specified
+	//script_key.
+	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
+	// tarocli: `proofs import`
+	//ImportProof attempts to import a proof file into the daemon. If succesful, a
+	//new asset will be inserted on disk, spendable using the specified target
+	//script key, and internaly key.
+	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	mustEmbedUnimplementedTaroServer()
 }
 
@@ -176,6 +229,15 @@ func (UnimplementedTaroServer) NewAddr(context.Context, *NewAddrRequest) (*Addr,
 }
 func (UnimplementedTaroServer) DecodeAddr(context.Context, *Addr) (*Asset, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecodeAddr not implemented")
+}
+func (UnimplementedTaroServer) VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyProof not implemented")
+}
+func (UnimplementedTaroServer) ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportProof not implemented")
+}
+func (UnimplementedTaroServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
 }
 func (UnimplementedTaroServer) mustEmbedUnimplementedTaroServer() {}
 
@@ -316,6 +378,60 @@ func _Taro_DecodeAddr_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Taro_VerifyProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProofFile)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).VerifyProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/VerifyProof",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).VerifyProof(ctx, req.(*ProofFile))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_ExportProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).ExportProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/ExportProof",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).ExportProof(ctx, req.(*ExportProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).ImportProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/ImportProof",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).ImportProof(ctx, req.(*ImportProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Taro_ServiceDesc is the grpc.ServiceDesc for Taro service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -350,6 +466,18 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DecodeAddr",
 			Handler:    _Taro_DecodeAddr_Handler,
+		},
+		{
+			MethodName: "VerifyProof",
+			Handler:    _Taro_VerifyProof_Handler,
+		},
+		{
+			MethodName: "ExportProof",
+			Handler:    _Taro_ExportProof_Handler,
+		},
+		{
+			MethodName: "ImportProof",
+			Handler:    _Taro_ImportProof_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
