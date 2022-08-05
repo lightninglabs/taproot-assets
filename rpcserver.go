@@ -513,7 +513,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := schnorr.ParsePubKey(in.ScriptKey)
+	scriptKey, err := btcec.ParsePubKey(in.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
