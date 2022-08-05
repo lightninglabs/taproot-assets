@@ -60,7 +60,9 @@ CREATE INDEX IF NOT EXISTS asset_ids on genesis_assets(asset_id);
 CREATE TABLE IF NOT EXISTS internal_keys (
     key_id INTEGER PRIMARY KEY,
 
-    raw_key BLOB UNIQUE NOT NULL UNIQUE,
+    -- We'll always store the full 33-byte key on disk, to make sure we're
+    -- retaining full information.
+    raw_key BLOB UNIQUE NOT NULL UNIQUE CHECK(length(raw_key) == 33),
 
     key_family INTEGER NOT NULL,
 
