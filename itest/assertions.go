@@ -137,7 +137,7 @@ func commitmentKey(t *testing.T, rpcAsset *tarorpc.Asset) [32]byte {
 		require.NoError(t, err)
 	}
 
-	return asset.AssetCommitmentKey(assetID, scriptKey, familyKey)
+	return asset.AssetCommitmentKey(assetID, scriptKey, familyKey == nil)
 }
 
 // assertAssetProofs makes sure the proofs for the given asset can be retrieved
