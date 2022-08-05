@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
@@ -320,7 +319,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 			LockTime:         int32(asset.LockTime),
 			RelativeLockTime: int32(asset.RelativeLockTime),
 			ScriptVersion:    int32(asset.ScriptVersion),
-			ScriptKey:        schnorr.SerializePubKey(asset.ScriptKey.PubKey),
+			ScriptKey:        asset.ScriptKey.PubKey.SerializeCompressed(),
 			ChainAnchor: &tarorpc.AnchorInfo{
 				AnchorTx:        anchorTxBytes,
 				AnchorTxid:      asset.AnchorTxid[:],
@@ -398,7 +397,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	// The family key is optional, so we'll only decode it if it's
 	// specified.
 	if len(in.FamKey) != 0 {
-		famKey, err = schnorr.ParsePubKey(in.FamKey)
+		famKey, err = btcec.ParsePubKey(in.FamKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode "+
 				"fam key: %w", err)
@@ -449,7 +448,7 @@ func (r *rpcServer) DecodeAddr(ctx context.Context,
 
 	var famKeyBytes []byte
 	if addr.FamilyKey != nil {
-		famKeyBytes = schnorr.SerializePubKey(addr.FamilyKey)
+		famKeyBytes = addr.FamilyKey.SerializeCompressed()
 	}
 
 	// TODO(roasbeef): display internal key somewhere?
@@ -460,7 +459,7 @@ func (r *rpcServer) DecodeAddr(ctx context.Context,
 		AssetFamily: &tarorpc.AssetFamily{
 			TweakedFamilyKey: famKeyBytes,
 		},
-		ScriptKey: schnorr.SerializePubKey(&addr.ScriptKey),
+		ScriptKey: addr.ScriptKey.SerializeCompressed(),
 		Amount:    int64(addr.Amount),
 		AssetType: tarorpc.AssetType(addr.Type),
 	}, nil
