@@ -106,5 +106,5 @@ func fMap[T1, T2 any](s []T1, f func(T1) T2) []T2 {
 
 // randInt makes a random integer of the specified type.
 func randInt[T constraints.Integer]() T {
-	return T(rand.Int63())
+	return T(rand.Int63()) // nolint:gosec
 }

@@ -367,7 +367,7 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	return tweakedPrivKey.PubKey(), sig, nil
 }
 
-// A compile time assertion to ensure RawKeyGenesisSigner meets the
+// A compile-time assertion to ensure RawKeyGenesisSigner meets the
 // GenesisSigner interface.
 var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 
@@ -469,7 +469,7 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
 // asset family within a TaroCommitment.
 //
-// NOTE: This function is also used outside of the asset package.
+// NOTE: This function is also used outside the asset package.
 func TaroCommitmentKey(assetID ID, familyKey *btcec.PublicKey) [32]byte {
 	if familyKey == nil {
 		return assetID

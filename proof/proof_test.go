@@ -43,7 +43,6 @@ func randPubKey(t *testing.T) *btcec.PublicKey {
 }
 
 func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
-
 	metadata := make([]byte, rand.Uint32()%32+1)
 	_, err := rand.Read(metadata)
 	require.NoError(t, err)

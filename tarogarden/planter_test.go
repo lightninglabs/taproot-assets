@@ -227,6 +227,7 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
 	for _, txOut := range (*pkt).Pkt.UnsignedTx.TxOut {
 		if bytes.Equal(txOut.PkScript, tarogarden.GenesisDummyScript[:]) &&
 			txOut.Value == int64(tarogarden.GenesisAmtSats) {
+
 			found = true
 			break
 		}
@@ -560,7 +561,6 @@ func TestBatchedAssetIssuance(t *testing.T) {
 		// TODO(roasbeef): needed to avoid import cycle
 		//  * alternatively can move the middleware logic here?
 		switch mintingStoreDriver.Name {
-
 		case "sqlite3":
 			mintingStoreFunc = func() (tarogarden.MintingStore, error) {
 				tempDir := t.TempDir()

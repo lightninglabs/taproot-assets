@@ -128,5 +128,4 @@ func (c Seedling) validateFields() error {
 func (c Seedling) String() string {
 	return fmt.Sprintf("AssetSeedling(name=%v, type=%v, amt=%v) received",
 		c.AssetName, c.AssetType, c.Amount)
-
 }

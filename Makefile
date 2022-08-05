@@ -2,20 +2,14 @@ PKG := github.com/lightninglabs/taro
 
 BTCD_PKG := github.com/btcsuite/btcd
 LND_PKG := github.com/lightningnetwork/lnd
-LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 TOOLS_DIR := tools
 
 GO_BIN := ${GOPATH}/bin
-LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
-
-LINT_COMMIT := v1.45.2
-GOACC_COMMIT := 80342ae2e0fcf265e99e76bcc4efd022c7c3811b
-GOIMPORTS_COMMIT := v0.1.10
 
 COMMIT := $(shell git describe --tags --dirty)
 COMMIT_HASH := $(shell git rev-parse HEAD)
@@ -80,17 +74,9 @@ all: scratch check install
 # DEPENDENCIES
 # ============
 
-$(LINT_BIN):
-	@$(call print, "Fetching linter")
-	$(GOINSTALL) $(LINT_PKG)@$(LINT_COMMIT)
-
 $(GOACC_BIN):
 	@$(call print, "Installing go-acc.")
 	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
-
-goimports:
-	@$(call print, "Installing goimports.")
-	$(GOINSTALL) $(GOIMPORTS_PKG)@${GOIMPORTS_COMMIT}
 
 $(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
@@ -200,7 +186,7 @@ fmt: $(GOIMPORTS_BIN)
 
 lint: docker-tools
 	@$(call print, "Linting source.")
-	$(DOCKER_TOOLS) golangci-lint --timeout=5m run -v $(LINT_WORKERS)
+	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
 
 list:
 	@$(call print, "Listing commands.")

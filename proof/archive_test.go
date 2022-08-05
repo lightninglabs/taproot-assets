@@ -132,7 +132,6 @@ func TestFileArchiver(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var proofBlob Blob
 			if test.proofBlob != nil {
-
 				proofBlob = test.proofBlob()
 				proof := &AnnotatedProof{
 					Blob:    proofBlob,

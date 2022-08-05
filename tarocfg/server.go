@@ -42,7 +42,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.KeyStore {
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.KeyStore { // nolint
 
 		// TODO(roasbeef): can get rid of this by emulating the
 		// sqlite.DBTX interface
@@ -50,7 +50,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		return db.WithTx(sqlTx)
 	})
 	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.PendingAssetStore {
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.PendingAssetStore { // nolint
 
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
@@ -58,14 +58,14 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	assetMintingStore := tarodb.NewAssetMintingStore(mintingStore)
 
 	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.ActiveAssetsStore {
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.ActiveAssetsStore { // nolint
 
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
 	})
 
 	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.AddrBook {
+		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.AddrBook { // nolint
 
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)

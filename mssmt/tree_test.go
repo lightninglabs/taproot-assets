@@ -92,7 +92,6 @@ func TestInsertion(t *testing.T) {
 			len(store.branches), len(store.leaves))
 		t.Logf("full SMT: reads=%v, writes=%v, deletes=%v\n",
 			store.cntReads, store.cntWrites, store.cntDeletes)
-
 	})
 
 	t.Run("smol SMT", func(t *testing.T) {

@@ -466,7 +466,6 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 	var tapscriptRoot chainhash.Hash
 	// There're 3 possible cases for tapscript exclusion proofs:
 	switch {
-
 	// Two pre-images are specified, and both of the pre-images are leaf
 	// hashes. In this case, the tapscript tree has two elements, with both
 	// of them being leaves.
