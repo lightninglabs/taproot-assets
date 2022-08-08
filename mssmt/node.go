@@ -104,6 +104,68 @@ func (n *LeafNode) Copy() Node {
 	}
 }
 
+// CompactedLeafNode holds a leafnode that represents a whole "compacted"
+// subtree omitting all default branches and leafs in the represented subtree.
+type CompactedLeafNode struct {
+	*LeafNode
+
+	// key holds the leaf's key.
+	key [32]byte
+
+	// compactedNodeKey holds the topmost (omitted) node's nodekey in the
+	// subtree.
+	compactedNodeKey NodeKey
+}
+
+// newCompactedLeafNode creates a new compacted leaf at the passed height with
+// the passed leaf key.
+func NewCompactedLeafNode(height int, key *[32]byte,
+	leaf *LeafNode) *CompactedLeafNode {
+
+	var current Node = leaf
+	for i := lastBitIndex; i >= height; i-- {
+		if bitIndex(uint8(i), key) == 0 {
+			current = NewBranch(current, EmptyTree[i+1])
+		} else {
+			current = NewBranch(EmptyTree[i+1], current)
+		}
+	}
+	nodeKey := current.NodeKey()
+
+	node := &CompactedLeafNode{
+		LeafNode:         leaf,
+		key:              *key,
+		compactedNodeKey: nodeKey,
+	}
+
+	return node
+}
+
+// NodeKey returns the compacted subtree's node key.
+func (c *CompactedLeafNode) NodeKey() NodeKey {
+	return c.compactedNodeKey
+}
+
+// Extract extracts the subtree represented by this compacted leaf and returns
+// the topmost node in the tree.
+func (c *CompactedLeafNode) Extract(height int) Node {
+	var current Node = c.LeafNode
+
+	// Walk up and recreate the missing branches.
+	for j := MaxTreeLevels; j > height+1; j-- {
+		var left, right Node
+		if bitIndex(uint8(j-1), &c.key) == 0 {
+			left, right = current, EmptyTree[j]
+		} else {
+			left, right = EmptyTree[j], current
+		}
+
+		current = NewBranch(left, right)
+	}
+
+	return current
+}
+
 // BranchNode represents an intermediate or root node within a MS-SMT. It
 // commits to its left and right children, along with their respective sum
 // values.

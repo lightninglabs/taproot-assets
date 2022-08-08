@@ -12,11 +12,19 @@ type Store interface {
 	// key).
 	InsertLeaf(*LeafNode)
 
+	// InsertCompactedLeaf stores a new compacted leaf keyed by its
+	// NodeKey (not the insertion key).
+	InsertCompactedLeaf(*CompactedLeafNode)
+
 	// DeleteBranch deletes the branch node keyed by the given NodeKey.
 	DeleteBranch(NodeKey)
 
 	// DeleteLeaf deletes the leaf node keyed by the given NodeKey.
 	DeleteLeaf(NodeKey)
+
+	// DeleteCompactedLeaf deletes a compacted leaf keyed by the given
+	// NodeKey.
+	DeleteCompactedLeaf(NodeKey)
 
 	// GetChildren returns the left and right child of the node keyed by the
 	// given NodeKey.
@@ -25,8 +33,9 @@ type Store interface {
 
 // DefaultStore is an in-memory implementation of the Store interface.
 type DefaultStore struct {
-	branches map[NodeKey]*BranchNode
-	leaves   map[NodeKey]*LeafNode
+	branches        map[NodeKey]*BranchNode
+	leaves          map[NodeKey]*LeafNode
+	compactedLeaves map[NodeKey]*CompactedLeafNode
 }
 
 var _ Store = (*DefaultStore)(nil)
@@ -34,8 +43,9 @@ var _ Store = (*DefaultStore)(nil)
 // NewDefaultStore initializes a new DefaultStore.
 func NewDefaultStore() *DefaultStore {
 	return &DefaultStore{
-		branches: make(map[NodeKey]*BranchNode),
-		leaves:   make(map[NodeKey]*LeafNode),
+		branches:        make(map[NodeKey]*BranchNode),
+		leaves:          make(map[NodeKey]*LeafNode),
+		compactedLeaves: make(map[NodeKey]*CompactedLeafNode),
 	}
 }
 
@@ -49,6 +59,12 @@ func (c *DefaultStore) InsertLeaf(leaf *LeafNode) {
 	c.leaves[leaf.NodeKey()] = leaf
 }
 
+// InsertCompactedLeaf stores a new compacted leaf keyed by its NodeKey (not
+// the insertion key).
+func (c *DefaultStore) InsertCompactedLeaf(leaf *CompactedLeafNode) {
+	c.compactedLeaves[leaf.NodeKey()] = leaf
+}
+
 // DeleteBranch deletes the branch node keyed by the given NodeKey.
 func (c *DefaultStore) DeleteBranch(key NodeKey) {
 	delete(c.branches, key)
@@ -57,6 +73,11 @@ func (c *DefaultStore) DeleteBranch(key NodeKey) {
 // DeleteLeaf deletes the leaf node keyed by the given NodeKey.
 func (c *DefaultStore) DeleteLeaf(key NodeKey) {
 	delete(c.leaves, key)
+}
+
+// DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeKey.
+func (c *DefaultStore) DeleteCompactedLeaf(key NodeKey) {
+	delete(c.compactedLeaves, key)
 }
 
 // GetChildren returns the left and right child of the node keyed by the given
@@ -69,6 +90,10 @@ func (c *DefaultStore) GetChildren(height uint8, key NodeKey) (Node, Node) {
 		if branch, ok := c.branches[key]; ok {
 			return branch
 		}
+		if leaf, ok := c.compactedLeaves[key]; ok {
+			return leaf
+		}
+
 		return c.leaves[key]
 	}
 
