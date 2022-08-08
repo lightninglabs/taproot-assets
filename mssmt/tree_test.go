@@ -27,8 +27,8 @@ func randLeaf() *LeafNode {
 	return NewLeafNode(value, sum)
 }
 
-func randTree(numLeaves int) (*Tree, map[[hashSize]byte]*LeafNode) {
-	tree := NewTree(NewDefaultStore())
+func randTree(numLeaves int) (Tree, map[[hashSize]byte]*LeafNode) {
+	tree := NewFullTree(NewDefaultStore())
 	leaves := make(map[[hashSize]byte]*LeafNode, numLeaves)
 	for i := 0; i < numLeaves; i++ {
 		key := randKey()
@@ -68,7 +68,7 @@ func TestHistoryIndependence(t *testing.T) {
 
 	// Create a new empty tree, and iterate over the leaves (giving us a
 	// randomized order) to insert them again in this new tree.
-	tree2 := NewTree(NewDefaultStore())
+	tree2 := NewFullTree(NewDefaultStore())
 	for key, leaf := range leaves {
 		tree2.Insert(key, leaf)
 	}

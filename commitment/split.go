@@ -98,7 +98,7 @@ type SplitCommitment struct {
 	SplitAssets SplitSet
 
 	// tree is the MS-SMT committing to all of the asset splits above.
-	tree *mssmt.Tree
+	tree mssmt.Tree
 }
 
 // NewSplitCommitment computes a new SplitCommitment based on the given asset
@@ -140,7 +140,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	locators := append(externalLocators, rootLocator)
 	locatorOutputs := make(map[uint32]struct{}, len(locators))
 	splitAssets := make(SplitSet, len(locators))
-	splitTree := mssmt.NewTree(mssmt.NewDefaultStore())
+	splitTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
 	remainingAmount := input.Amount
 	addAssetSplit := func(locator *SplitLocator) error {
 		// Return an error if we've already seen a locator with this

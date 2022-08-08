@@ -53,12 +53,12 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 // input prevout's hash is the root of a MS-SMT committing to all inputs of a
 // state transition.
 func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
-	*wire.TxIn, *mssmt.Tree, error) {
+	*wire.TxIn, mssmt.Tree, error) {
 
 	// Genesis assets shouldn't have any inputs committed, so they'll have
 	// an empty input tree.
 	isGenesisAsset := HasGenesisWitness(newAsset)
-	inputTree := mssmt.NewTree(mssmt.NewDefaultStore())
+	inputTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
 	if !isGenesisAsset {
 		// For each input we'll locate the asset UTXO beign spent, then
 		// insert that into a new SMT, with the key being the hash of
@@ -158,7 +158,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	if err != nil {
 		return nil, err
 	}
-	outputTree := mssmt.NewTree(mssmt.NewDefaultStore())
+	outputTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
 	rootKey := outputTree.Insert(key, leaf).Root().NodeKey()
 
 	pkScript, err := computeTaprootScript(rootKey[:])
@@ -171,7 +171,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 // VirtualTx constructs the virtual transaction that enables the movement of an
 // asset representing an asset state transition.
 func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
-	*wire.MsgTx, *mssmt.Tree, error) {
+	*wire.MsgTx, mssmt.Tree, error) {
 
 	// We'll start by mapping all inputs into a MS-SMT.
 	txIn, inputTree, err := virtualTxIn(newAsset, prevAssets)

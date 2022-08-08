@@ -36,28 +36,30 @@ func init() {
 	}
 }
 
-// Tree represents a Merkle-Sum Sparse Merkle Tree (MS-SMT). A MS-SMT is an
+// FullTree represents a Merkle-Sum Sparse Merkle Tree (MS-SMT). A MS-SMT is an
 // augmented version of a sparse merkle tree that includes a sum value, which is
 // combined during the internal branch hashing operation. Such trees permit
 // efficient proofs of non-inclusion, while also supporting efficient fault
 // proofs of invalid merkle sum commitments.
-type Tree struct {
+type FullTree struct {
 	root  Node
 	store Store
 }
 
-// NewTree initializes an empty MS-SMT backed by `store`. As a result, `store`
-// will only maintain non-empty relevant nodes, i.e., stale parents are deleted
-// and empty nodes are never stored.
-func NewTree(store Store) *Tree {
-	return &Tree{
+var _ Tree = (*FullTree)(nil)
+
+// NewFullTree initializes an empty MS-SMT backed by `store`. As a result,
+// `store` will only maintain non-empty relevant nodes, i.e., stale parents are
+// deleted and empty nodes are never stored.
+func NewFullTree(store Store) *FullTree {
+	return &FullTree{
 		root:  EmptyTree[0],
 		store: store,
 	}
 }
 
 // Root returns the root node of the MS-SMT.
-func (t Tree) Root() *BranchNode {
+func (t *FullTree) Root() *BranchNode {
 	return t.root.(*BranchNode)
 }
 
@@ -73,7 +75,7 @@ type iterFunc = func(height uint8, current, sibling, parent Node)
 
 // walkDown walks down the tree from the root node to the leaf indexed by `key`.
 // The leaf node found is returned.
-func (t Tree) walkDown(key *[hashSize]byte, iter iterFunc) *LeafNode {
+func (t *FullTree) walkDown(key *[hashSize]byte, iter iterFunc) *LeafNode {
 	current := t.root
 	for i := 0; i <= lastBitIndex; i++ {
 		left, right := t.store.GetChildren(uint8(i), current.NodeKey())
@@ -114,7 +116,7 @@ func walkUp(key *[hashSize]byte, start *LeafNode, siblings []Node,
 }
 
 // insert inserts a leaf node at the given key within the MS-SMT.
-func (t *Tree) insert(key *[hashSize]byte, leaf *LeafNode) *Tree {
+func (t *FullTree) insert(key *[hashSize]byte, leaf *LeafNode) *FullTree {
 	// As we walk down to the leaf node, we'll keep track of the sibling and
 	// parent for each node we visit.
 	prevParents := make([]NodeKey, MaxTreeLevels)
@@ -152,17 +154,17 @@ func (t *Tree) insert(key *[hashSize]byte, leaf *LeafNode) *Tree {
 }
 
 // Insert inserts a leaf node at the given key within the MS-SMT.
-func (t *Tree) Insert(key [hashSize]byte, leaf *LeafNode) *Tree {
+func (t *FullTree) Insert(key [hashSize]byte, leaf *LeafNode) Tree {
 	return t.insert(&key, leaf)
 }
 
 // Delete deletes the leaf node found at the given key within the MS-SMT.
-func (t *Tree) Delete(key [hashSize]byte) *Tree {
+func (t *FullTree) Delete(key [hashSize]byte) Tree {
 	return t.insert(&key, EmptyLeafNode)
 }
 
 // Get returns the leaf node found at the given key within the MS-SMT.
-func (t Tree) Get(key [hashSize]byte) *LeafNode {
+func (t *FullTree) Get(key [hashSize]byte) *LeafNode {
 	return t.walkDown(&key, nil)
 }
 
@@ -170,7 +172,7 @@ func (t Tree) Get(key [hashSize]byte) *LeafNode {
 // within the MS-SMT. If a leaf node does not exist at the given key, then the
 // proof should be considered a non-inclusion proof. This is noted by the
 // returned `Proof` containing an empty leaf.
-func (t Tree) MerkleProof(key [hashSize]byte) *Proof {
+func (t *FullTree) MerkleProof(key [hashSize]byte) *Proof {
 	proof := make([]Node, MaxTreeLevels)
 	_ = t.walkDown(&key, func(i uint8, _, sibling, _ Node) {
 		proof[MaxTreeLevels-1-i] = sibling

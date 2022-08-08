@@ -12,7 +12,7 @@ func randElem[K comparable, V any](elems map[K]V) (K, V) {
 	panic("unreachable")
 }
 
-func benchmarkInsert(b *testing.B, tree *Tree, leaves map[[32]byte]*LeafNode,
+func benchmarkInsert(b *testing.B, tree Tree, leaves map[[32]byte]*LeafNode,
 	_ map[[32]byte]*Proof) {
 
 	for i := 0; i < b.N; i++ {
@@ -21,7 +21,7 @@ func benchmarkInsert(b *testing.B, tree *Tree, leaves map[[32]byte]*LeafNode,
 	}
 }
 
-func benchmarkGet(b *testing.B, tree *Tree, leaves map[[32]byte]*LeafNode,
+func benchmarkGet(b *testing.B, tree Tree, leaves map[[32]byte]*LeafNode,
 	_ map[[32]byte]*Proof) {
 
 	for i := 0; i < b.N; i++ {
@@ -30,7 +30,7 @@ func benchmarkGet(b *testing.B, tree *Tree, leaves map[[32]byte]*LeafNode,
 	}
 }
 
-func benchmarkMerkleProof(b *testing.B, tree *Tree, _ map[[32]byte]*LeafNode,
+func benchmarkMerkleProof(b *testing.B, tree Tree, _ map[[32]byte]*LeafNode,
 	proofs map[[32]byte]*Proof) {
 
 	for i := 0; i < b.N; i++ {
@@ -39,7 +39,7 @@ func benchmarkMerkleProof(b *testing.B, tree *Tree, _ map[[32]byte]*LeafNode,
 	}
 }
 
-func benchmarkVerifyMerkleProof(b *testing.B, tree *Tree,
+func benchmarkVerifyMerkleProof(b *testing.B, tree Tree,
 	leaves map[[32]byte]*LeafNode, proofs map[[32]byte]*Proof) {
 
 	for i := 0; i < b.N; i++ {
@@ -48,7 +48,7 @@ func benchmarkVerifyMerkleProof(b *testing.B, tree *Tree,
 	}
 }
 
-func benchmarkMerkleProofCompress(b *testing.B, _ *Tree,
+func benchmarkMerkleProofCompress(b *testing.B, _ Tree,
 	_ map[[32]byte]*LeafNode, proofs map[[32]byte]*Proof) {
 
 	for i := 0; i < b.N; i++ {
@@ -57,7 +57,7 @@ func benchmarkMerkleProofCompress(b *testing.B, _ *Tree,
 	}
 }
 
-type benchmarkFunc = func(*testing.B, *Tree, map[[32]byte]*LeafNode,
+type benchmarkFunc = func(*testing.B, Tree, map[[32]byte]*LeafNode,
 	map[[32]byte]*Proof)
 
 type benchmark struct {
