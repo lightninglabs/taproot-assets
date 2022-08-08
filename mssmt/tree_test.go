@@ -88,6 +88,10 @@ func TestInsertion(t *testing.T) {
 		tree := NewFullTree(store)
 
 		testInsertion(t, leaves, tree)
+		t.Logf("full SMT: branches=%v, leaves=%v\n",
+			len(store.branches), len(store.leaves))
+		t.Logf("full SMT: reads=%v, writes=%v, deletes=%v\n",
+			store.cntReads, store.cntWrites, store.cntDeletes)
 
 	})
 
@@ -97,6 +101,10 @@ func TestInsertion(t *testing.T) {
 
 		testInsertion(t, leaves, smolTree)
 		require.Equal(t, len(leaves), len(store.compactedLeaves))
+		t.Logf("smol SMT: branches=%v, leaves=%v\n",
+			len(store.branches), len(store.compactedLeaves))
+		t.Logf("smol SMT: reads=%v, writes=%v, deletes=%v\n",
+			store.cntReads, store.cntWrites, store.cntDeletes)
 	})
 }
 
