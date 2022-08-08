@@ -45,9 +45,14 @@ func TestBitPacking(t *testing.T) {
 func TestProofEncoding(t *testing.T) {
 	t.Parallel()
 
-	tree, leaves := randTree(10_000)
-	for key := range leaves {
-		proof := tree.MerkleProof(key)
+	leaves := randTree(10_000)
+	tree := NewFullTree(NewDefaultStore())
+	for _, item := range leaves {
+		tree.Insert(item.key, item.leaf)
+	}
+
+	for _, item := range leaves {
+		proof := tree.MerkleProof(item.key)
 		compressed := proof.Compress()
 
 		var buf bytes.Buffer
