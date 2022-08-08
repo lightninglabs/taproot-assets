@@ -2,6 +2,7 @@ package mssmt
 
 import (
 	"math"
+	"math/big"
 	"math/rand"
 	"testing"
 	"time"
@@ -43,6 +44,21 @@ func randTree(numLeaves int) []treeLeaf {
 	return leaves
 }
 
+func genTreeFromRange(numLeaves int) []treeLeaf {
+	leaves := make([]treeLeaf, numLeaves)
+	for i := 0; i < numLeaves; i++ {
+		var key [32]byte
+		big.NewInt(int64(i)).FillBytes(key[:])
+
+		leaves[i] = treeLeaf{
+			key:  key,
+			leaf: randLeaf(),
+		}
+	}
+
+	return leaves
+}
+
 // TestInsertion asserts that we can insert N leaves and retrieve them by their
 // insertion key. Keys that do not exist within the tree should return an empty
 // leaf.
@@ -81,6 +97,46 @@ func TestInsertion(t *testing.T) {
 
 		testInsertion(t, leaves, smolTree)
 		require.Equal(t, len(leaves), len(store.compactedLeaves))
+	})
+}
+
+// TestReplace tests that replacing keys works as expected.
+func TestReplace(t *testing.T) {
+	const numLeaves = 1000
+
+	leaves1 := genTreeFromRange(numLeaves)
+	leaves2 := genTreeFromRange(numLeaves)
+
+	testUpdate := func(tree Tree) {
+		for _, item := range leaves1 {
+			tree.Insert(item.key, item.leaf)
+		}
+
+		for _, item := range leaves1 {
+			leafCopy := tree.Get(item.key)
+			require.Equal(t, item.leaf, leafCopy)
+		}
+
+		for _, item := range leaves2 {
+			tree.Insert(item.key, item.leaf)
+		}
+
+		for _, item := range leaves2 {
+			leafCopy := tree.Get(item.key)
+			require.Equal(t, item.leaf, leafCopy)
+		}
+	}
+
+	t.Run("full SMT", func(t *testing.T) {
+		store := NewDefaultStore()
+		tree := NewFullTree(store)
+		testUpdate(tree)
+	})
+
+	t.Run("smol SMT", func(t *testing.T) {
+		store := NewDefaultStore()
+		smolTree := NewCompactedTree(store)
+		testUpdate(smolTree)
 	})
 }
 
