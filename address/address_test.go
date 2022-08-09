@@ -1,6 +1,7 @@
 package address
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -8,7 +9,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,6 +29,40 @@ var (
 	)
 	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
 )
+
+func randKey(t *testing.T) *btcec.PrivateKey {
+	t.Helper()
+	key, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return key
+}
+
+func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
+	t.Helper()
+
+	return asset.Genesis{
+		FirstPrevOut: wire.OutPoint{},
+		Tag:          "",
+		Metadata:     nil,
+		OutputIndex:  rand.Uint32(),
+		Type:         assetType,
+	}
+}
+
+func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
+	t.Helper()
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	genSigner := asset.NewRawKeyGenesisSigner(privKey)
+	fakeKeyDesc := keychain.KeyDescriptor{
+		PubKey: privKey.PubKey(),
+	}
+	familyKey, err := asset.DeriveFamilyKey(genSigner, fakeKeyDesc, genesis)
+	require.NoError(t, err)
+
+	return familyKey
+}
 
 func randAddress(t *testing.T, net *ChainParams, famkey bool,
 	amt *uint64, assetType asset.Type) (*AddressTaro, error) {
@@ -68,9 +109,16 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famkey bool,
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
-	newAddr := AddressTaro{net.TaroHRP, asset.Version(TaroScriptVersion),
-		hashBytes1, familyKey, pubKeyCopy1, pubKeyCopy2,
-		amount, asset.Normal}
+	newAddr := AddressTaro{
+		Hrp:         net.TaroHRP,
+		Version:     asset.Version(TaroScriptVersion),
+		ID:          hashBytes1,
+		FamilyKey:   familyKey,
+		ScriptKey:   pubKeyCopy1,
+		InternalKey: pubKeyCopy2,
+		Amount:      amount,
+		Type:        asset.Normal,
+	}
 
 	encodedAddr, err := newAddr.EncodeAddress()
 
@@ -89,6 +137,45 @@ func assertAddressEqual(t *testing.T, a, b *AddressTaro) {
 	require.Equal(t, a.Type, b.Type)
 }
 
+func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
+	t.Helper()
+
+	require.Equal(t, a.Version, b.Version)
+	require.Equal(t, a.Genesis, b.Genesis)
+	require.Equal(t, a.Type, b.Type)
+	require.Equal(t, a.Amount, b.Amount)
+	require.Equal(t, a.LockTime, b.LockTime)
+	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
+	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
+
+	for i := range a.PrevWitnesses {
+		witA, witB := a.PrevWitnesses[i], b.PrevWitnesses[i]
+		require.Equal(t, witA.PrevID, witB.PrevID)
+		require.Equal(t, witA.TxWitness, witB.TxWitness)
+		splitA, splitB := witA.SplitCommitment, witB.SplitCommitment
+
+		if witA.SplitCommitment != nil && witB.SplitCommitment != nil {
+			require.Equal(
+				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
+			)
+			for i := range splitA.Proof.Nodes {
+				nodeA := splitA.Proof.Nodes[i]
+				nodeB := splitB.Proof.Nodes[i]
+				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
+			}
+			require.Equal(t, splitA.RootAsset, splitB.RootAsset)
+		} else {
+			require.Equal(t, splitA, splitB)
+		}
+	}
+
+	require.Equal(t, a.SplitCommitmentRoot, b.SplitCommitmentRoot)
+	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
+	require.Equal(t, a.ScriptKey, b.ScriptKey)
+	require.Equal(t, a.FamilyKey, b.FamilyKey)
+}
+
+// TestNewAddress tests edge cases around creating a new address.
 func TestNewAddress(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +262,193 @@ func TestNewAddress(t *testing.T) {
 			return
 		}
 	}
+}
+
+// TestAddressValidInput tests edge cases around validating inputs for asset
+// transfers with isValidInput.
+func TestAddressValidInput(t *testing.T) {
+	t.Parallel()
+
+	// Amounts and geneses, needed for addresses and assets.
+	collectAmt := 1
+	normalAmt1 := 5
+	normalAmt2 := 2
+	genesis1 := randGenesis(t, asset.Normal)
+	genesis1collect := randGenesis(t, asset.Collectible)
+
+	// Keys for sender, receiver, and family.
+	spenderKey1 := randKey(t)
+	spenderKey2 := randKey(t)
+	spenderPubKey1 := spenderKey1.PubKey()
+	spenderPubKey2 := spenderKey2.PubKey()
+	spender1Descriptor := keychain.KeyDescriptor{
+		PubKey: spenderPubKey1,
+	}
+	familyKey1 := randFamilyKey(t, genesis1collect)
+	familyKey1pubkey := familyKey1.FamKey
+
+	// Address for both asset types and networks.
+	address1, err := New(
+		genesis1.ID(), nil, *spenderPubKey2, *spenderPubKey2,
+		uint64(normalAmt1), asset.Normal, &MainNetTaro,
+	)
+	require.NoError(t, err)
+	address1testnet, err := New(
+		genesis1.ID(), nil, *spenderPubKey2, *spenderPubKey2,
+		uint64(normalAmt1), asset.Normal, &TestNet3Taro,
+	)
+	require.NoError(t, err)
+	address1collectFamily, err := New(
+		genesis1collect.ID(), &familyKey1pubkey, *spenderPubKey2,
+		*spenderPubKey2, uint64(collectAmt), asset.Collectible, &TestNet3Taro,
+	)
+	require.NoError(t, err)
+
+	// Sender assets of both types.
+	inputAsset1, err := asset.New(
+		genesis1, uint64(normalAmt1), 1, 1, spender1Descriptor, nil,
+	)
+	require.NoError(t, err)
+	inputAsset1collectFamily, err := asset.New(
+		genesis1collect, uint64(collectAmt), 1,
+		1, spender1Descriptor, familyKey1,
+	)
+	require.NoError(t, err)
+	inputAsset2, err := asset.New(
+		genesis1, uint64(normalAmt2), 1, 1, spender1Descriptor, nil,
+	)
+	require.NoError(t, err)
+
+	// Sender TaroCommitments for each asset.
+	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
+	require.NoError(t, err)
+	inputAsset1TaroTree := commitment.NewTaroCommitment(inputAsset1AssetTree)
+	inputAsset1CollectFamilyAssetTree, err := commitment.NewAssetCommitment(
+		inputAsset1collectFamily,
+	)
+	require.NoError(t, err)
+	inputAsset1CollectFamilyTaroTree := commitment.NewTaroCommitment(
+		inputAsset1CollectFamilyAssetTree,
+	)
+	inputAsset2AssetTree, err := commitment.NewAssetCommitment(inputAsset2)
+	require.NoError(t, err)
+	inputAsset2TaroTree := commitment.NewTaroCommitment(inputAsset2AssetTree)
+
+	testCases := []struct {
+		name string
+		f    func() (*asset.Asset, *asset.Asset, error)
+		err  error
+	}{
+		{
+			name: "valid normal",
+			f: func() (*asset.Asset, *asset.Asset, error) {
+				checkedInputAsset, err := isValidInput(
+					inputAsset1TaroTree, *address1,
+					*spenderPubKey1, &MainNetTaro,
+				)
+				return inputAsset1, checkedInputAsset, err
+			},
+			err: nil,
+		},
+		{
+			name: "valid collectible with family key",
+			f: func() (*asset.Asset, *asset.Asset, error) {
+				checkedInputAsset, err := isValidInput(
+					inputAsset1CollectFamilyTaroTree,
+					*address1collectFamily, *spenderPubKey1, &TestNet3Taro,
+				)
+				return inputAsset1collectFamily, checkedInputAsset, err
+			},
+			err: nil,
+		},
+		{
+			name: "normal with insufficient amount",
+			f: func() (*asset.Asset, *asset.Asset, error) {
+				checkedInputAsset, err := isValidInput(
+					inputAsset2TaroTree, *address1,
+					*spenderPubKey1, &MainNetTaro,
+				)
+				return inputAsset2, checkedInputAsset, err
+			},
+			err: ErrInsufficientInputAsset,
+		},
+		{
+			name: "collectible with missing input asset",
+			f: func() (*asset.Asset, *asset.Asset, error) {
+				checkedInputAsset, err := isValidInput(
+					inputAsset2TaroTree, *address1collectFamily,
+					*spenderPubKey1, &TestNet3Taro,
+				)
+				return inputAsset2, checkedInputAsset, err
+			},
+			err: ErrMissingInputAsset,
+		},
+		{
+			name: "normal with bad sender script key",
+			f: func() (*asset.Asset, *asset.Asset, error) {
+				checkedInputAsset, err := isValidInput(inputAsset1TaroTree,
+					*address1testnet, *spenderPubKey2, &TestNet3Taro)
+				return inputAsset1, checkedInputAsset, err
+			},
+			err: ErrMissingInputAsset,
+		},
+		{
+			name: "normal with mismatched network",
+			f: func() (*asset.Asset, *asset.Asset, error) {
+				checkedInputAsset, err := isValidInput(inputAsset1TaroTree,
+					*address1testnet, *spenderPubKey2, &MainNetTaro)
+				return inputAsset1, checkedInputAsset, err
+			},
+			err: ErrMismatchedHRP,
+		},
+	}
+
+	for _, testCase := range testCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			inputAsset, checkedInputAsset, err := testCase.f()
+			require.Equal(t, testCase.err, err)
+			if testCase.err == nil {
+				assertAssetEqual(t, inputAsset, checkedInputAsset)
+			}
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+// TestPayToAddrScript tests edge cases around creating a P2TR script with
+// PayToAddrScript.
+func TestPayToAddrScript(t *testing.T) {
+	t.Parallel()
+
+	normalAmt1 := 5
+	genesis1 := randGenesis(t, asset.Normal)
+	receiverKey1 := randKey(t)
+	receiverPubKey1 := receiverKey1.PubKey()
+	receiver1Descriptor := keychain.KeyDescriptor{PubKey: receiverPubKey1}
+
+	inputAsset1, err := asset.New(
+		genesis1, uint64(normalAmt1), 1, 1, receiver1Descriptor, nil,
+	)
+	require.NoError(t, err)
+	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
+	require.NoError(t, err)
+	inputAsset1TaroTree := commitment.NewTaroCommitment(inputAsset1AssetTree)
+
+	scriptNoSibling, err := PayToAddrScript(*receiverPubKey1, nil,
+		*inputAsset1TaroTree)
+	require.NoError(t, err)
+	require.Equal(t, scriptNoSibling[0], byte(txscript.OP_1))
+	require.Equal(t, scriptNoSibling[1], byte(sha256.Size))
+
+	sibling, err := chainhash.NewHash(hashBytes1[:])
+	require.NoError(t, err)
+	scriptWithSibling, err := PayToAddrScript(*receiverPubKey1, sibling,
+		*inputAsset1TaroTree)
+	require.NoError(t, err)
+	require.Equal(t, scriptWithSibling[0], byte(txscript.OP_1))
+	require.Equal(t, scriptWithSibling[1], byte(sha256.Size))
 }
 
 func TestAddressEncoding(t *testing.T) {

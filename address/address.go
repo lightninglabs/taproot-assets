@@ -7,8 +7,12 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -48,6 +52,18 @@ var (
 	// create a Taro address for a non-standard asset type.
 	ErrUnsupportedAssetType = errors.New(
 		"address: unsupported asset type",
+	)
+
+	// ErrMissingInputAsset is an error returned when we attempt to spend to a
+	// Taro address from an input that does not contain the matching asset.
+	ErrMissingInputAsset = errors.New(
+		"address: Input does not contain requested asset",
+	)
+
+	// ErrInsufficientInputAsset is an error returned when we attempt to spend
+	// to a Taro address from an input that contains insufficient asset funds.
+	ErrInsufficientInputAsset = errors.New(
+		"address: Input asset value is insufficient",
 	)
 )
 
@@ -131,6 +147,43 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 	return &payload, nil
 }
 
+// isValidInput verifies that the Taro commitment of the input contains an
+// asset that could be spent to the given Taro address.
+func isValidInput(input *commitment.TaroCommitment, address AddressTaro,
+	inputScriptKey btcec.PublicKey, net *ChainParams) (*asset.Asset, error) {
+
+	// The input and address networks must match.
+	if !IsForNet(address.Hrp, net) {
+		return nil, ErrMismatchedHRP
+	}
+
+	// The top-level Taro tree must have a non-empty asset tree at the leaf
+	// specified in the address.
+	inputCommitments := input.Commitments()
+	assetCommitment, ok := inputCommitments[address.taroCommitmentKey()]
+	if !ok {
+		return nil, ErrMissingInputAsset
+	}
+
+	// The asset tree must have a non-empty Asset at the location
+	// specified by the sender's script key.
+	assetCommitmentKey := asset.AssetCommitmentKey(
+		address.ID, &inputScriptKey, address.FamilyKey,
+	)
+	inputAsset, _ := assetCommitment.AssetProof(assetCommitmentKey)
+	if inputAsset == nil {
+		return nil, ErrMissingInputAsset
+	}
+
+	// For Normal assets, we also check that the input asset amount is at least
+	// as large as the amount specified in the address.
+	if inputAsset.Type == asset.Normal && inputAsset.Amount < address.Amount {
+		return nil, ErrInsufficientInputAsset
+	}
+
+	return inputAsset, nil
+}
+
 // Copy returns a deep copy of an Address.
 func (a AddressTaro) Copy() *AddressTaro {
 	addressCopy := a
@@ -146,6 +199,30 @@ func (a AddressTaro) Copy() *AddressTaro {
 // Net returns the ChainParams struct matching the Taro address network.
 func (a *AddressTaro) Net() (*ChainParams, error) {
 	return Net(a.Hrp)
+}
+
+// TaroCommitmentKey is the key that maps to the root commitment for the asset
+// family specified by a Taro address.
+func (a *AddressTaro) taroCommitmentKey() [32]byte {
+	return asset.TaroCommitmentKey(a.ID, a.FamilyKey)
+}
+
+// PayToAddrScript constructs a P2TR script that embeds a Taro commitment
+// by tweaking the receiver key by a Tapscript tree that contains the Taro
+// commitment root. The Taro commitment must be reconstructed by the receiver,
+// and they also need to Tapscript sibling hash used here if present.
+func PayToAddrScript(internalKey btcec.PublicKey, sibling *chainhash.Hash,
+	commitment commitment.TaroCommitment) ([]byte, error) {
+
+	tapscriptRoot := commitment.TapscriptRoot(sibling)
+	outputKey := txscript.ComputeTaprootOutputKey(
+		&internalKey, tapscriptRoot[:],
+	)
+
+	return txscript.NewScriptBuilder().
+		AddOp(txscript.OP_1).
+		AddData(schnorr.SerializePubKey(outputKey)).
+		Script()
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
