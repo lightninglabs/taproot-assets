@@ -272,3 +272,22 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 		prevOutFetcher, *tapLeaf,
 	)
 }
+
+// SignTaprootKeySpend computes a signature over a Taro virtual transaction
+// spending a Taro input through the key path. This signature is attached
+// to a Taro output asset before state transition validation.
+func SignTaprootKeySpend(privKey btcec.PrivateKey, virtualTx *wire.MsgTx,
+	input *asset.Asset, idx uint32) (*wire.TxWitness, error) {
+
+	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
+	sigHash, err := InputKeySpendSigHash(virtualTxCopy, input, idx)
+	if err != nil {
+		return nil, err
+	}
+	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
+	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
+	if err != nil {
+		return nil, err
+	}
+	return &wire.TxWitness{sig.Serialize()}, nil
+}
