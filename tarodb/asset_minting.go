@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -91,6 +92,9 @@ type (
 
 	// MintingBatchInit is used to create a new minting batch.
 	MintingBatchInit = sqlite.NewMintingBatchParams
+
+	// ProofUpdate is used to update a proof file on disk.
+	ProofUpdate = sqlite.UpdateAssetProofParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlite.Querier interface that
@@ -174,6 +178,13 @@ type PendingAssetStore interface {
 	// FetchAssetsForBatch fetches all the assets created by a particular
 	// batch.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout, error)
+
+	// UpdateAssetProof inserts a new asset proofon disk. If one already
+	// exists, then the proof file is updated in place.
+	//
+	// TODO(roasbeef): move somewhere else??
+	UpdateAssetProof(ctx context.Context,
+		arg sqlite.UpdateAssetProofParams) error
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore
@@ -456,6 +467,9 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 			return nil, fmt.Errorf("unable to create new sprout: "+
 				"%v", err)
 		}
+
+		// TODO(roasbeef): need to update the above to set the
+		// witnesses of a valid asset
 
 		// Finally make a new asset commitment from this sprout and
 		// accumulate it along the rest of the assets.
@@ -854,7 +868,8 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 // disk.
 func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 	batchKey *btcec.PublicKey, blockHash *chainhash.Hash,
-	blockHeight uint32, txIndex uint32) error {
+	blockHeight uint32, txIndex uint32,
+	mintingProofs proof.AssetBlobs) error {
 
 	rawBatchKey := batchKey.SerializeCompressed()
 
@@ -870,7 +885,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 			return err
 		}
 
-		// Now that the bach has been confirmed, we'll add the chain
+		// Now that the batch has been confirmed, we'll add the chain
 		// location information to the confirmed transaction.
 		if err := q.ConfirmChainTx(ctx, ChainTxConf{
 			RawKey:      rawBatchKey,
@@ -881,6 +896,18 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 			return fmt.Errorf("unable to confirm chain tx: %w", err)
 		}
 
+		// As a final act, we'll now insert the proof files for each of
+		// the assets that were fully confirmed with this block.
+		for scriptKey, proofBlob := range mintingProofs {
+			err := q.UpdateAssetProof(ctx, ProofUpdate{
+				RawKey:    scriptKey.SerializeCompressed(),
+				ProofFile: proofBlob,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert proof "+
+					"file: %w", err)
+			}
+		}
 		return nil
 	})
 }

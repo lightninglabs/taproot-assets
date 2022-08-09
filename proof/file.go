@@ -55,6 +55,14 @@ type File struct {
 	Proofs []Proof
 }
 
+// NewFile returns a new proof file given a version and a series of state
+// transition proofs.
+func NewFile(v Version, proofs ...Proof) File {
+	return File{
+		Proofs: proofs,
+	}
+}
+
 // AssetSnapshot commits to the result of a valid proof within a proof file.
 // This represents the state of an asset's lineage at a given point in time.
 type AssetSnapshot struct {

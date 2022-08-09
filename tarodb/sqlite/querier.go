@@ -26,6 +26,8 @@ type Querier interface {
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, error)
+	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
+	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt32) ([]Asset, error)
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the faily key fields if an asset
@@ -55,6 +57,7 @@ type Querier interface {
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
+	UpdateAssetProof(ctx context.Context, arg UpdateAssetProofParams) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 }

@@ -30,12 +30,19 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 // txid reaches numConfs confirmations.
 func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte,
-	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+	numConfs, heightHint uint32,
+	includeBlock bool) (*chainntnfs.ConfirmationEvent, error) {
+
+	var opts []lndclient.NotifierOption
+	if includeBlock {
+		opts = append(opts, lndclient.WithIncludeBlock())
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	confChan, _, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
 		ctx, txid, pkScript, int32(numConfs), int32(heightHint),
+		opts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register for conf: %w", err)

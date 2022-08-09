@@ -173,3 +173,7 @@ require (
 	modernc.org/token v1.0.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
+
+replace github.com/lightningnetwork/lnd => github.com/roasbeef/lnd v0.2.1-alpha.0.20220802025933-89dc75cd900c
+
+replace github.com/lightninglabs/lndclient => github.com/roasbeef/lndclient v1.0.1-0.20220802030840-ac5d0cc1a799

@@ -60,7 +60,9 @@ CREATE INDEX IF NOT EXISTS asset_ids on genesis_assets(asset_id);
 CREATE TABLE IF NOT EXISTS internal_keys (
     key_id INTEGER PRIMARY KEY,
 
-    raw_key BLOB UNIQUE NOT NULL,
+    -- We'll always store the full 33-byte key on disk, to make sure we're
+    -- retaining full information.
+    raw_key BLOB UNIQUE NOT NULL UNIQUE CHECK(length(raw_key) == 33),
 
     key_family INTEGER NOT NULL,
 
@@ -176,7 +178,12 @@ CREATE TABLE IF NOT EXISTS asset_witnesses (
 CREATE TABLE IF NOT EXISTS asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 
-    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
+    -- We enforce that this value is unique so we can use an UPSERT to update a
+    -- proof file that already exists.
+    asset_id INTEGER NOT NULL REFERENCES assets(asset_id) UNIQUE,
+
+    -- TODO(roasbef): store the merkle root sepraretly? then can refre back to
+    -- for all other files
 
     proof_file BLOB NOT NULL
 );

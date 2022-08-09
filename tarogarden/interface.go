@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -152,7 +153,7 @@ type MintingStore interface {
 	// state upon a successful call.
 	MarkBatchConfirmed(ctx context.Context, batchKey *btcec.PublicKey,
 		blockHash *chainhash.Hash, blockHeight uint32,
-		txIndex uint32) error
+		txIndex uint32, mintingProofs proof.AssetBlobs) error
 }
 
 // MintingStoreDriver represents a concrete driver of the main MintingStore
@@ -230,8 +231,8 @@ type ChainBridge interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations.
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
-		pkScript []byte, numConfs,
-		heightHint uint32) (*chainntnfs.ConfirmationEvent, error)
+		pkScript []byte, numConfs, heightHint uint32,
+		includeBlock bool) (*chainntnfs.ConfirmationEvent, error)
 
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)

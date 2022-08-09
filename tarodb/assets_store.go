@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -17,6 +18,14 @@ import (
 type (
 	// ConfirmedAsset is an asset that has been fully confirmed on chain.
 	ConfirmedAsset = sqlite.FetchAllAssetsRow
+
+	// AssetProof is the asset proof for a given asset, identified by its
+	// script key.
+	AssetProof = sqlite.FetchAssetProofsRow
+
+	// AssetProofI is identical to AssetProof but is used for the case
+	// where the proofs for a specific asset are fetched.
+	AssetProofI = sqlite.FetchAssetProofRow
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
@@ -24,6 +33,15 @@ type (
 type ActiveAssetsStore interface {
 	// FetchAllAssets fetches the set of fully confirmed assets.
 	FetchAllAssets(ctx context.Context) ([]ConfirmedAsset, error)
+
+	// FetchAssetProofs fetches all the asset proofs we have stored on
+	// disk.
+	FetchAssetProofs(ctx context.Context) ([]AssetProof, error)
+
+	// FetchAssetProof fetches the asset proof for a given asset identified
+	// by its script key.
+	FetchAssetProof(ctx context.Context,
+		scriptKey []byte) (AssetProofI, error)
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -67,6 +85,8 @@ type ChainAsset struct {
 }
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
+//
+// TODO(roasbeef): specify if proof file should be retrieved as well?
 func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) {
 
 	dbAssets, err := a.db.FetchAllAssets(ctx)
@@ -209,4 +229,66 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 	}
 
 	return chainAssets, nil
+}
+
+// FetchAssetProofs returns the latest proof file for either the set of target
+// assets, or all assets if no script keys for an asset are passed in.
+//
+// TODO(roasbeef): potentially have a version that writes thru a reader
+// instead?
+func (a *AssetStore) FetchAssetProofs(ctx context.Context,
+	targetAssets ...*btcec.PublicKey) (proof.AssetBlobs, error) {
+
+	proofs := make(proof.AssetBlobs)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// No target asset so we can just read them all from disk.
+		if len(targetAssets) == 0 {
+			assetProofs, err := q.FetchAssetProofs(ctx)
+			if err != nil {
+				return fmt.Errorf("unable to fetch asset "+
+					"proofs: %w", err)
+			}
+
+			for _, proof := range assetProofs {
+				scriptKey, err := btcec.ParsePubKey(
+					proof.ScriptKey,
+				)
+				if err != nil {
+					return err
+				}
+
+				proofs[*scriptKey] = proof.ProofFile
+			}
+
+			return nil
+		}
+
+		// Otherwise, we'll need to issue a series of queries to fetch
+		// each of the relevant proof files.
+		//
+		// TODO(roasbeef): can modify the query to use IN somewhere
+		// instead? then would take input params and insert into
+		// virtual rows to use
+		for _, scriptKey := range targetAssets {
+			scriptKey := scriptKey
+
+			assetProof, err := q.FetchAssetProof(
+				ctx, scriptKey.SerializeCompressed(),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch asset "+
+					"proof: %w", err)
+			}
+
+			proofs[*scriptKey] = assetProof.ProofFile
+		}
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return proofs, nil
 }

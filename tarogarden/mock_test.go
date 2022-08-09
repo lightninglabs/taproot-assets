@@ -54,11 +54,11 @@ func (m *mockWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet, mi
 	})
 	packet.Outputs = append(packet.Outputs, psbt.POutput{})
 
-	// We always have the change output be the first output, so this means
-	// the taro commitment will live in the second output.
+	// We always have the change output be the second output, so this means
+	// the taro commitment will live in the first output.
 	pkt := tarogarden.FundedPsbt{
 		Pkt:               packet,
-		ChangeOutputIndex: 0,
+		ChangeOutputIndex: 1,
 	}
 
 	m.fundPsbtSignal <- &pkt
@@ -98,7 +98,7 @@ func (m *mockWalletAnchor) UnlockInput(ctx context.Context) error {
 
 type mockChainBridge struct {
 	feeEstimateSignal chan struct{}
-	publishReq        chan struct{}
+	publishReq        chan *wire.MsgTx
 	confReqSignal     chan int
 
 	reqCount int
@@ -108,25 +108,30 @@ type mockChainBridge struct {
 func newMockChainBridge() *mockChainBridge {
 	return &mockChainBridge{
 		feeEstimateSignal: make(chan struct{}),
-		publishReq:        make(chan struct{}),
+		publishReq:        make(chan *wire.MsgTx),
 		confReqs:          make(map[int]*chainntnfs.ConfirmationEvent),
 		confReqSignal:     make(chan int),
 	}
 }
 
 func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
-	blockHeight, blockIndex int) {
+	blockHeight, blockIndex int, block *wire.MsgBlock,
+	tx *wire.MsgTx) {
+
 	req := m.confReqs[reqNo]
 	req.Confirmed <- &chainntnfs.TxConfirmation{
 		BlockHash:   blockHash,
 		BlockHeight: uint32(blockHeight),
 		TxIndex:     uint32(blockIndex),
+		Block:       block,
+		Tx:          tx,
 	}
 }
 
 func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte,
-	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+	numConfs, heightHint uint32,
+	includeBlock bool) (*chainntnfs.ConfirmationEvent, error) {
 
 	select {
 	case <-ctx.Done():
@@ -156,8 +161,8 @@ func (m *mockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
 
-func (m *mockChainBridge) PublishTransaction(ctx context.Context, _ *wire.MsgTx) error {
-	m.publishReq <- struct{}{}
+func (m *mockChainBridge) PublishTransaction(ctx context.Context, tx *wire.MsgTx) error {
+	m.publishReq <- tx
 	return nil
 }
 
