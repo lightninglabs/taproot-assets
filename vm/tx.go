@@ -58,7 +58,7 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	// Genesis assets shouldn't have any inputs committed, so they'll have
 	// an empty input tree.
 	isGenesisAsset := HasGenesisWitness(newAsset)
-	inputTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+	inputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	if !isGenesisAsset {
 		// For each input we'll locate the asset UTXO beign spent, then
 		// insert that into a new SMT, with the key being the hash of
@@ -158,7 +158,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	if err != nil {
 		return nil, err
 	}
-	outputTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+	outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	rootKey := outputTree.Insert(key, leaf).Root().NodeKey()
 
 	pkScript, err := computeTaprootScript(rootKey[:])

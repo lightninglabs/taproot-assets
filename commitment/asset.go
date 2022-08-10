@@ -147,7 +147,7 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 		return nil, err
 	}
 
-	tree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	for _, asset := range assets {
 		key := asset.AssetCommitmentKey()
 		leaf, err := asset.Leaf()

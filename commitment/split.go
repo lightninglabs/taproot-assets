@@ -140,7 +140,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	locators := append(externalLocators, rootLocator)
 	locatorOutputs := make(map[uint32]struct{}, len(locators))
 	splitAssets := make(SplitSet, len(locators))
-	splitTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	remainingAmount := input.Amount
 	addAssetSplit := func(locator *SplitLocator) error {
 		// Return an error if we've already seen a locator with this
