@@ -131,3 +131,12 @@ type ManagedUtxo struct {
 	TaroRoot         []byte
 	TxnID            int32
 }
+
+type MssmtNode struct {
+	HashKey  []byte
+	LHashKey []byte
+	RHashKey []byte
+	Key      []byte
+	Value    []byte
+	Sum      int64
+}
