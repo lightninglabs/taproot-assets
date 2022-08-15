@@ -260,7 +260,10 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		assetRoots = append(assetRoots, assetRoot)
 	}
 
-	return commitment.NewTaroCommitment(assetRoots...)
+	taroCommitment, err := commitment.NewTaroCommitment(assetRoots...)
+	require.NoError(t, err)
+
+	return taroCommitment
 }
 
 func randGenesisPacket(t *testing.T) *tarogarden.FundedPsbt {

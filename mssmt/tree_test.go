@@ -1,6 +1,7 @@
 package mssmt
 
 import (
+	"context"
 	"math"
 	"math/big"
 	"math/rand"
@@ -63,20 +64,24 @@ func genTreeFromRange(numLeaves int) []treeLeaf {
 // insertion key. Keys that do not exist within the tree should return an empty
 // leaf.
 func testInsertion(t *testing.T, leaves []treeLeaf, tree Tree) {
+	ctx := context.TODO()
 	for _, item := range leaves {
-		tree.Insert(item.key, item.leaf)
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
 	}
 
 	for _, item := range leaves {
 		// The leaf was already inserted into the tree above, so verify
 		// that we're able to look it up again.
-		leafCopy := tree.Get(item.key)
+		leafCopy, err := tree.Get(ctx, item.key)
+		require.NoError(t, err)
 		require.Equal(t, item.leaf, leafCopy)
 	}
 
 	// Finally veryify that we're able to loop up a random key (resulting
 	// in the default empty leaf).
-	emptyLeaf := tree.Get(randKey())
+	emptyLeaf, err := tree.Get(ctx, randKey())
+	require.NoError(t, err)
 	require.True(t, emptyLeaf.IsEmpty())
 }
 
@@ -115,21 +120,26 @@ func TestReplace(t *testing.T) {
 	leaves2 := genTreeFromRange(numLeaves)
 
 	testUpdate := func(tree Tree) {
+		ctx := context.TODO()
 		for _, item := range leaves1 {
-			tree.Insert(item.key, item.leaf)
+			_, err := tree.Insert(ctx, item.key, item.leaf)
+			require.NoError(t, err)
 		}
 
 		for _, item := range leaves1 {
-			leafCopy := tree.Get(item.key)
+			leafCopy, err := tree.Get(ctx, item.key)
+			require.NoError(t, err)
 			require.Equal(t, item.leaf, leafCopy)
 		}
 
 		for _, item := range leaves2 {
-			tree.Insert(item.key, item.leaf)
+			_, err := tree.Insert(ctx, item.key, item.leaf)
+			require.NoError(t, err)
 		}
 
 		for _, item := range leaves2 {
-			leafCopy := tree.Get(item.key)
+			leafCopy, err := tree.Get(ctx, item.key)
+			require.NoError(t, err)
 			require.Equal(t, item.leaf, leafCopy)
 		}
 	}
@@ -158,29 +168,34 @@ func TestHistoryIndependence(t *testing.T) {
 
 	// First create the default SMT tree in the same order we created the
 	// leaves.
+	ctx := context.TODO()
 	tree1 := NewFullTree(NewDefaultStore())
 	for _, item := range leaves {
-		tree1.Insert(item.key, item.leaf)
+		_, err := tree1.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
 	}
 
 	// Next recreate the same tree but by changing the insertion order
 	// to a random permutation of the original range.
 	tree2 := NewFullTree(NewDefaultStore())
 	for i := range rand.Perm(len(leaves)) {
-		tree2.Insert(leaves[i].key, leaves[i].leaf)
+		_, err := tree2.Insert(ctx, leaves[i].key, leaves[i].leaf)
+		require.NoError(t, err)
 	}
 
 	// Now create a compacted tree again with the original order.
 	smolTree1 := NewCompactedTree(NewDefaultStore())
 	for i := range leaves {
-		smolTree1.Insert(leaves[i].key, leaves[i].leaf)
+		_, err := smolTree1.Insert(ctx, leaves[i].key, leaves[i].leaf)
+		require.NoError(t, err)
 	}
 
 	// Finally create a compacted tree but by changing the insertion order
 	// to a random permutation of the original range.
 	smolTree2 := NewCompactedTree(NewDefaultStore())
 	for i := range rand.Perm(len(leaves)) {
-		smolTree2.Insert(leaves[i].key, leaves[i].leaf)
+		_, err := smolTree2.Insert(ctx, leaves[i].key, leaves[i].leaf)
+		require.NoError(t, err)
 	}
 
 	// The root hash and sum of both full trees should be the same.
@@ -212,14 +227,18 @@ func TestDeletion(t *testing.T) {
 }
 
 func testDeletion(t *testing.T, leaves []treeLeaf, tree Tree) {
+	ctx := context.TODO()
 	for _, item := range leaves {
-		tree.Insert(item.key, item.leaf)
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
 	}
 
 	require.NotEqual(t, EmptyTree[0], tree.Root())
 	for _, item := range leaves {
-		_ = tree.Delete(item.key)
-		emptyLeaf := tree.Get(item.key)
+		_, err := tree.Delete(ctx, item.key)
+		require.NoError(t, err)
+		emptyLeaf, err := tree.Get(ctx, item.key)
+		require.NoError(t, err)
 		require.True(t, emptyLeaf.IsEmpty())
 	}
 	require.Equal(t, EmptyTree[0], tree.Root())
@@ -240,8 +259,10 @@ func assertEqualProofAfterCompression(t *testing.T, proof *Proof) {
 
 func testMerkleProof(t *testing.T, tree Tree, leaves []treeLeaf) {
 	// Compute the proof for the first leaf and test some negative cases.
+	ctx := context.TODO()
 	for _, item := range leaves {
-		proof := tree.MerkleProof(item.key)
+		proof, err := tree.MerkleProof(ctx, item.key)
+		require.NoError(t, err)
 
 		require.True(t,
 			VerifyMerkleProof(
@@ -259,7 +280,9 @@ func testMerkleProof(t *testing.T, tree Tree, leaves []treeLeaf) {
 
 		// If we delete the proof's leaf node from the tree, then it
 		// should also no longer be valid.
-		_ = tree.Delete(item.key)
+		_, err = tree.Delete(ctx, item.key)
+		require.NoError(t, err)
+
 		require.False(t,
 			VerifyMerkleProof(
 				item.key, item.leaf, proof, tree.Root()),
@@ -272,7 +295,8 @@ func testMerkleProof(t *testing.T, tree Tree, leaves []treeLeaf) {
 	nonExistentKey := randKey()
 	nonExistentLeaf := randLeaf()
 
-	proof := tree.MerkleProof(nonExistentKey)
+	proof, err := tree.MerkleProof(ctx, nonExistentKey)
+	require.NoError(t, err)
 
 	assertEqualProofAfterCompression(t, proof)
 
@@ -302,9 +326,13 @@ func testProofEquality(t *testing.T, tree1, tree2 Tree, leaves []treeLeaf) {
 		}
 	}
 
+	ctx := context.TODO()
 	for _, item := range leaves {
-		proof1 := tree1.MerkleProof(item.key)
-		proof2 := tree2.MerkleProof(item.key)
+		proof1, err := tree1.MerkleProof(ctx, item.key)
+		require.NoError(t, err)
+
+		proof2, err := tree2.MerkleProof(ctx, item.key)
+		require.NoError(t, err)
 
 		require.True(t,
 			VerifyMerkleProof(
@@ -331,9 +359,12 @@ func TestMerkleProof(t *testing.T) {
 	smolTree := NewCompactedTree(NewDefaultStore())
 
 	leaves := randTree(1337)
+	ctx := context.TODO()
 	for _, item := range leaves {
-		tree.Insert(item.key, item.leaf)
-		smolTree.Insert(item.key, item.leaf)
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+		_, err = smolTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
 	}
 
 	t.Run("proof equality", func(t *testing.T) {

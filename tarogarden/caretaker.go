@@ -437,9 +437,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// Now that we have all our assets created, we'll make a new
 		// Taro asset commitment, which commits to all the assets we
 		// created above in a new root.
-		b.cfg.Batch.RootAssetCommitment = commitment.NewTaroCommitment(
+		taroCommitment, err := commitment.NewTaroCommitment(
 			assetRoots...,
 		)
+		if err != nil {
+			return 0, err
+		}
+
+		b.cfg.Batch.RootAssetCommitment = taroCommitment
 
 		// With the commitment Taro root SMT constructed, we'll map
 		// that into the tapscript root we'll insert into the genesis

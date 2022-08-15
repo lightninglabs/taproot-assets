@@ -2,6 +2,7 @@ package mssmt
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,16 +48,19 @@ func TestProofEncoding(t *testing.T) {
 
 	leaves := randTree(10_000)
 	tree := NewFullTree(NewDefaultStore())
+	ctx := context.TODO()
 	for _, item := range leaves {
-		tree.Insert(item.key, item.leaf)
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
 	}
 
 	for _, item := range leaves {
-		proof := tree.MerkleProof(item.key)
+		proof, err := tree.MerkleProof(ctx, item.key)
+		require.NoError(t, err)
 		compressed := proof.Compress()
 
 		var buf bytes.Buffer
-		err := compressed.Encode(&buf)
+		err = compressed.Encode(&buf)
 		require.NoError(t, err)
 
 		var decodedCompressed CompressedProof

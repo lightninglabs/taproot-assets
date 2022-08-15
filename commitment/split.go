@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -178,7 +179,12 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		if err != nil {
 			return err
 		}
-		splitTree.Insert(splitKey, splitLeaf)
+
+		// TODO(bhandras): thread the context through.
+		_, err = splitTree.Insert(context.TODO(), splitKey, splitLeaf)
+		if err != nil {
+			return err
+		}
 
 		remainingAmount -= locator.Amount
 
@@ -203,9 +209,17 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 
 	// We'll also update each asset split with it's split commitment proof.
 	for _, locator := range locators {
+		// TODO(bhandras): thread the context through.
+		proof, err := splitTree.MerkleProof(
+			context.TODO(), locator.Hash(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		splitAssets[*locator].PrevWitnesses[0].SplitCommitment =
 			&asset.SplitCommitment{
-				Proof:     *splitTree.MerkleProof(locator.Hash()),
+				Proof:     *proof,
 				RootAsset: *rootAsset,
 			}
 	}

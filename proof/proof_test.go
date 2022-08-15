@@ -161,9 +161,10 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 	asset := assets[0]
 	asset.FamilyKey.RawKey = keychain.KeyDescriptor{}
-	_, commitmentProof := commitment.Proof(
+	_, commitmentProof, err := commitment.Proof(
 		asset.TaroCommitmentKey(), asset.AssetCommitmentKey(),
 	)
+	require.NoError(t, err)
 
 	proof := Proof{
 		PrevOut:       testOutPoint,
@@ -245,10 +246,11 @@ func TestGenesisProofVerification(t *testing.T) {
 	)
 	require.NoError(t, err)
 	genesisAsset := assets[0]
-	_, commitmentProof := commitment.Proof(
+	_, commitmentProof, err := commitment.Proof(
 		genesisAsset.TaroCommitmentKey(),
 		genesisAsset.AssetCommitmentKey(),
 	)
+	require.NoError(t, err)
 
 	internalKey := schnorrPubKey(t, genesisPrivKey)
 	tapscriptRoot := commitment.TapscriptRoot(nil)

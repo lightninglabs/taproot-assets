@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 
@@ -58,7 +59,7 @@ type TaroCommitment struct {
 
 // NewTaroCommitment creates a new Taro commitment for the given asset
 // commitments capable of computing merkle proofs.
-func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
+func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 	maxVersion := asset.V0
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	assetCommitments := make(AssetCommitments, len(assets))
@@ -68,7 +69,13 @@ func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 		}
 		key := asset.TaroCommitmentKey()
 		leaf := asset.TaroCommitmentLeaf()
-		tree.Insert(key, leaf)
+
+		// TODO(bhandras): thread the context through.
+		_, err := tree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return nil, err
+		}
+
 		assetCommitments[key] = asset
 	}
 	return &TaroCommitment{
@@ -76,13 +83,13 @@ func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 		TreeRoot:         tree.Root(),
 		assetCommitments: assetCommitments,
 		tree:             tree,
-	}
+	}, nil
 }
 
 // Update modifies one entry in the TaroCommitment by inserting or deleting
 // it in the inner MS-SMT and adding or deleting it in the internal
 // AssetCommitment map.
-func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) {
+func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
 	if asset == nil {
 		// TODO(jhb): Concrete error types
 		panic("taro commitment update is missing asset commitment")
@@ -90,16 +97,27 @@ func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) {
 
 	key := asset.TaroCommitmentKey()
 
+	// TODO(bhandras): thread the context through.
 	if deletion {
-		c.tree.Delete(key)
+		_, err := c.tree.Delete(context.TODO(), key)
+		if err != nil {
+			return err
+		}
+
 		c.TreeRoot = c.tree.Root()
 		delete(c.assetCommitments, key)
 	} else {
 		leaf := asset.TaroCommitmentLeaf()
-		c.tree.Insert(key, leaf)
+		_, err := c.tree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return err
+		}
+
 		c.TreeRoot = c.tree.Root()
 		c.assetCommitments[key] = asset
 	}
+
+	return nil
 }
 
 // NewTaroCommitmentWithRoot creates a new Taro commitment backed by the root
@@ -154,15 +172,23 @@ func (c *TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 // located at `assetCommitmentKey` within the AssetCommitment located at
 // `taroCommitmentKey`.
 func (c *TaroCommitment) Proof(taroCommitmentKey,
-	assetCommitmentKey [32]byte) (*asset.Asset, *Proof) {
+	assetCommitmentKey [32]byte) (*asset.Asset, *Proof, error) {
 
 	if c.assetCommitments == nil || c.tree == nil {
 		panic("missing asset commitments to compute proofs")
 	}
 
+	// TODO(bhandras): thread the context through.
+	merkleProof, err := c.tree.MerkleProof(
+		context.TODO(), taroCommitmentKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	proof := &Proof{
 		TaroProof: TaroProof{
-			Proof:   *c.tree.MerkleProof(taroCommitmentKey),
+			Proof:   *merkleProof,
 			Version: c.Version,
 		},
 	}
@@ -171,19 +197,24 @@ func (c *TaroCommitment) Proof(taroCommitmentKey,
 	// as is.
 	assetCommitment, ok := c.assetCommitments[taroCommitmentKey]
 	if !ok {
-		return nil, proof
+		return nil, proof, nil
 	}
 
 	// Otherwise, compute the AssetProof and include it in the result. It's
 	// possible for the asset to not be found, leading to a non-inclusion
 	// proof.
-	asset, assetProof := assetCommitment.AssetProof(assetCommitmentKey)
+	asset, assetProof, err := assetCommitment.AssetProof(assetCommitmentKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	proof.AssetProof = &AssetProof{
 		Proof:   *assetProof,
 		Version: assetCommitment.Version,
 		AssetID: assetCommitment.AssetID,
 	}
-	return asset, proof
+
+	return asset, proof, nil
 }
 
 // CommittedAssets returns the set of assets committed to in the taro

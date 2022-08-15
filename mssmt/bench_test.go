@@ -1,9 +1,12 @@
 package mssmt
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func randElem[V any](elems []V) V {
@@ -20,27 +23,33 @@ func randMapElem[K comparable, V any](elems map[K]V) (K, V) {
 func benchmarkInsert(b *testing.B, tree Tree, leaves []treeLeaf,
 	_ map[[32]byte]*Proof) {
 
+	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
 		item := randElem(leaves)
-		_ = tree.Insert(item.key, item.leaf)
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(b, err)
 	}
 }
 
 func benchmarkGet(b *testing.B, tree Tree, leaves []treeLeaf,
 	_ map[[32]byte]*Proof) {
 
+	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
 		item := randElem(leaves)
-		_ = tree.Get(item.key)
+		_, err := tree.Get(ctx, item.key)
+		require.NoError(b, err)
 	}
 }
 
 func benchmarkMerkleProof(b *testing.B, tree Tree, leaves []treeLeaf,
 	proofs map[[32]byte]*Proof) {
 
+	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
 		item := randElem(leaves)
-		_ = tree.MerkleProof(item.key)
+		_, err := tree.MerkleProof(ctx, item.key)
+		require.NoError(b, err)
 	}
 }
 
@@ -87,14 +96,18 @@ func benchmarkTree(b *testing.B, makeTree func() Tree) {
 	for _, numLeaves := range []int{10, 1_000, 100_000} {
 		leaves := randTree(numLeaves)
 
+		var err error
 		tree := makeTree()
+		ctx := context.Background()
 		for _, item := range leaves {
-			tree.Insert(item.key, item.leaf)
+			_, err = tree.Insert(ctx, item.key, item.leaf)
+			require.NoError(b, err)
 		}
 
 		proofs := make(map[[32]byte]*Proof, numLeaves)
 		for _, item := range leaves {
-			proofs[item.key] = tree.MerkleProof(item.key)
+			proofs[item.key], err = tree.MerkleProof(ctx, item.key)
+			require.NoError(b, err)
 		}
 
 		for _, benchmark := range benchmarks {

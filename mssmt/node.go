@@ -146,6 +146,11 @@ func (c *CompactedLeafNode) NodeKey() NodeKey {
 	return c.compactedNodeKey
 }
 
+// Key returns the leaf key.
+func (c *CompactedLeafNode) Key() [32]byte {
+	return c.key
+}
+
 // Extract extracts the subtree represented by this compacted leaf and returns
 // the topmost node in the tree.
 func (c *CompactedLeafNode) Extract(height int) Node {

@@ -110,10 +110,13 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 		// With the base information contained, we'll now need to
 		// generate our series of MS-SMT inclusion proofs that prove
 		// the existence of the asset.
-		_, assetMerkleProof := params.TaroRoot.Proof(
+		_, assetMerkleProof, err := params.TaroRoot.Proof(
 			newAsset.TaroCommitmentKey(),
 			newAsset.AssetCommitmentKey(),
 		)
+		if err != nil {
+			return nil, err
+		}
 
 		// With the merkle proof obtained, we can now set that in the
 		// main inclusion proof.
