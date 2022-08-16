@@ -41,7 +41,7 @@ type TaroCommitment struct {
 	//
 	// NOTE: This is nil when TaroCommitment is constructed with
 	// NewTaroCommitmentWithRoot.
-	tree *mssmt.Tree
+	tree mssmt.Tree
 
 	// assetCommitments is the set of asset commitments found within the
 	// tree above.
@@ -55,7 +55,7 @@ type TaroCommitment struct {
 // commitments capable of computing merkle proofs.
 func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 	maxVersion := asset.V0
-	tree := mssmt.NewTree(mssmt.NewDefaultStore())
+	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	assetCommitments := make(map[[32]byte]*AssetCommitment, len(assets))
 	for _, asset := range assets {
 		if asset.Version > maxVersion {
