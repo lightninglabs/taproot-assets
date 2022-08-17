@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -23,6 +24,10 @@ var (
 	// tapscript tree.
 	TaroMarker = sha256.Sum256([]byte(taroMarkerTag))
 )
+
+// AssetCommitments is the set of assetCommitments backing a TaroCommitment.
+// The map is keyed by the AssetCommitment's TaroCommitmentKey.
+type AssetCommitments map[[32]byte]*AssetCommitment
 
 // TaroCommitment represents the outer MS-SMT within the Taro protocol
 // committing to a set of asset commitments. Asset commitments, which are
@@ -48,7 +53,7 @@ type TaroCommitment struct {
 	//
 	// NOTE: This is nil when TaroCommitment is constructed with
 	// NewTaroCommitmentWithRoot.
-	assetCommitments map[[32]byte]*AssetCommitment
+	assetCommitments AssetCommitments
 }
 
 // NewTaroCommitment creates a new Taro commitment for the given asset
@@ -56,7 +61,7 @@ type TaroCommitment struct {
 func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 	maxVersion := asset.V0
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-	assetCommitments := make(map[[32]byte]*AssetCommitment, len(assets))
+	assetCommitments := make(AssetCommitments, len(assets))
 	for _, asset := range assets {
 		if asset.Version > maxVersion {
 			maxVersion = asset.Version
@@ -186,7 +191,8 @@ func (c TaroCommitment) Proof(taroCommitmentKey,
 func (c TaroCommitment) CommittedAssets() []*asset.Asset {
 	var assets []*asset.Asset
 	for _, commitment := range c.assetCommitments {
-		assets = append(assets, commitment.Assets()...)
+		committedAssets := maps.Values(commitment.Assets())
+		assets = append(assets, committedAssets...)
 	}
 
 	return assets
@@ -194,13 +200,9 @@ func (c TaroCommitment) CommittedAssets() []*asset.Asset {
 
 // Commitments returns the set of assetCommitments committed to in the taro
 // commitment.
-func (c TaroCommitment) Commitments() map[[32]byte]*AssetCommitment {
-	assetCommitments := make(
-		map[[32]byte]*AssetCommitment, len(c.assetCommitments),
-	)
-	for key, val := range c.assetCommitments {
-		assetCommitments[key] = val
-	}
+func (c TaroCommitment) Commitments() AssetCommitments {
+	assetCommitments := make(AssetCommitments, len(c.assetCommitments))
+	maps.Copy(assetCommitments, c.assetCommitments)
 
 	return assetCommitments
 }

@@ -818,7 +818,9 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 1:
 					assets := familyAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					assertAssetEqual(t, assets[0], asset)
+					assertAssetEqual(
+						t, assets[asset.AssetCommitmentKey()], asset,
+					)
 
 				// insertion of collectible with family key.
 				case 2:
