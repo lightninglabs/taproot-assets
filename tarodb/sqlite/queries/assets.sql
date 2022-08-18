@@ -296,9 +296,10 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: InsertChainTx :one
 INSERT INTO chain_txns (
-    txid, raw_tx
+    txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
-    ?, ?
+    sqlc.narg('txid'), sqlc.narg('raw_tx'), sqlc.narg('block_height'),
+    sqlc.narg('block_hash'), sqlc.narg('tx_index')
 )
 RETURNING txn_id;
 
