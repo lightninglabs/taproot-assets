@@ -112,13 +112,13 @@ func main() {
 		return db.WithTx(sqlTx)
 	})
 
-	addrBook := tarodb.NewTransactionExecutor[tarodb.AddrBook,
+	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook,
 		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.AddrBook {
 
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
 	})
-	taroAddrBook := tarodb.NewTaroAddressBook(addrBook)
+	tarodbAddrBook := tarodb.NewTaroAddressBook(addrBookDB)
 
 	lndConn, err := getLnd(
 		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
@@ -132,27 +132,33 @@ func main() {
 	lndServices := &lndConn.LndServices
 
 	keyRing := taro.NewLndRpcKeyRing(lndServices)
+	walletAnchor := taro.NewLndRpcWalletAnchor(lndServices)
+	chainBridge := taro.NewLndRpcChainBridge(lndServices)
+	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
+
+	addrBook := address.NewBook(address.BookConfig{
+		Store:        tarodbAddrBook,
+		StoreTimeout: tarodb.DefaultStoreTimeout,
+		KeyRing:      keyRing,
+		Chain:        taroChainParams,
+	})
 
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
 		AssetMinter: tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
 			GardenKit: tarogarden.GardenKit{
-				Wallet:      taro.NewLndRpcWalletAnchor(lndServices),
-				ChainBridge: taro.NewLndRpcChainBridge(lndServices),
+				Wallet:      walletAnchor,
+				ChainBridge: chainBridge,
 				Log:         assetMintingStore,
 				KeyRing:     keyRing,
-				GenSigner:   taro.NewLndRpcGenSigner(lndServices),
+				GenSigner: taro.NewLndRpcGenSigner(
+					lndServices,
+				),
 			},
 			BatchTicker: ticker.New(cfg.BatchMintingInterval),
 		}),
-		AddrBook: address.NewBook(address.BookConfig{
-			Store:   taroAddrBook,
-			KeyRing: keyRing,
-			Chain: address.ParamsForChain(
-				cfg.ActiveNetParams.Name,
-			),
-		}),
+		AddrBook:          addrBook,
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
@@ -172,7 +178,7 @@ func main() {
 			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,
 			AssetStore:   tarodb.NewAssetStore(assetDB),
-			TaroAddrBook: taroAddrBook,
+			TaroAddrBook: tarodbAddrBook,
 		},
 	})
 	if err != nil {

@@ -3,10 +3,12 @@ package address
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -70,17 +72,36 @@ type BookConfig struct {
 
 	// Chain points to the chain the address.Book is active on.
 	Chain ChainParams
+
+	// StoreTimeout is the default timeout to use for any storage
+	// interaction.
+	StoreTimeout time.Duration
 }
 
 // Book is used to create and also look up the set of created Taro addresses.
 type Book struct {
 	cfg BookConfig
+
+	// subscribers is a map of components that want to be notified on new
+	// address events, keyed by their subscription ID.
+	subscribers map[uint64]*chanutils.EventReceiver[*AddrWithKeyInfo]
+
+	// subscriberMtx guards the subscribers map and access to the
+	// subscriptionID.
+	subscriberMtx sync.Mutex
 }
+
+// A compile-time assertion to make sure Book satisfies the
+// chanutils.EventPublisher interface.
+var _ chanutils.EventPublisher[*AddrWithKeyInfo, *time.Time] = (*Book)(nil)
 
 // NewBook creates a new Book instance from the config.
 func NewBook(cfg BookConfig) *Book {
 	return &Book{
 		cfg: cfg,
+		subscribers: make(
+			map[uint64]*chanutils.EventReceiver[*AddrWithKeyInfo],
+		),
 	}
 }
 
@@ -116,6 +137,13 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 		return nil, fmt.Errorf("unable to insert addr: %w", err)
 	}
 
+	// Inform our subscribers about the new address.
+	b.subscriberMtx.Lock()
+	for _, sub := range b.subscribers {
+		sub.NewItemCreated.ChanIn() <- &addr
+	}
+	b.subscriberMtx.Unlock()
+
 	return &addr, nil
 }
 
@@ -124,4 +152,70 @@ func (b *Book) ListAddrs(ctx context.Context,
 	params QueryParams) ([]AddrWithKeyInfo, error) {
 
 	return b.cfg.Store.QueryAddrs(ctx, params)
+}
+
+// RegisterSubscriber adds a new subscriber for receiving events. The
+// deliverExisting boolean indicates whether already existing items should be
+// sent to the NewItemCreated channel when the subscription is started. An
+// optional deliverFrom can be specified to indicate from which timestamp/index/
+// marker onward existing items should be delivered on startup. If deliverFrom
+// is nil/zero/empty then all existing items will be delivered.
+func (b *Book) RegisterSubscriber(
+	receiver *chanutils.EventReceiver[*AddrWithKeyInfo],
+	deliverExisting bool, deliverFrom *time.Time) error {
+
+	b.subscriberMtx.Lock()
+	defer b.subscriberMtx.Unlock()
+
+	b.subscribers[receiver.ID()] = receiver
+
+	// No delivery of existing items requested, we're done here.
+	if !deliverExisting {
+		return nil
+	}
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), b.cfg.StoreTimeout,
+	)
+	defer cancel()
+
+	// Only give us addresses created after the last one we know we already
+	// processed.
+	var queryParams QueryParams
+	if deliverFrom != nil {
+		queryParams.CreatedAfter = *deliverFrom
+	}
+
+	existingAddrs, err := b.ListAddrs(ctxt, queryParams)
+	if err != nil {
+		return fmt.Errorf("error listing existing addresses: %w", err)
+	}
+
+	// Deliver each existing address to the new item queue of the
+	// subscriber.
+	for i := range existingAddrs {
+		receiver.NewItemCreated.ChanIn() <- &existingAddrs[i]
+	}
+
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+func (b *Book) RemoveSubscriber(
+	subscriber *chanutils.EventReceiver[*AddrWithKeyInfo]) error {
+
+	b.subscriberMtx.Lock()
+	defer b.subscriberMtx.Unlock()
+
+	_, ok := b.subscribers[subscriber.ID()]
+	if !ok {
+		return fmt.Errorf("subscriber with ID %d not found",
+			subscriber.ID())
+	}
+
+	subscriber.Stop()
+	delete(b.subscribers, subscriber.ID())
+
+	return nil
 }
