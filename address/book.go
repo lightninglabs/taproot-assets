@@ -40,7 +40,7 @@ type QueryParams struct {
 	Offset int32
 }
 
-// Store is the main storage interface for the address book.
+// Storage is the main storage interface for the address book.
 type Storage interface {
 	// InsertAddrs inserts a series of addresses into the database.
 	InsertAddrs(ctx context.Context, addrs ...AddrWithKeyInfo) error
@@ -52,7 +52,7 @@ type Storage interface {
 
 // KeyRing is used to create script and internal keys for Taro addresses.
 type KeyRing interface {
-	// DeriveNexTarotKey attempts to derive the *next* key within the Taro
+	// DeriveNextTaroKey attempts to derive the *next* key within the Taro
 	// key family.
 	DeriveNextTaroKey(context.Context) (keychain.KeyDescriptor, error)
 }
