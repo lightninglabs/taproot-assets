@@ -20,6 +20,9 @@ type AddrWithKeyInfo struct {
 
 	// InternalKeyDesc is the key desc for the internal key.
 	InternalKeyDesc keychain.KeyDescriptor
+
+	// CreationTime is the time the address was created in the database.
+	CreationTime time.Time
 }
 
 // QueryParams holds the set of query params for the address book.
@@ -106,6 +109,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 		Taro:            baseAddr,
 		ScriptKeyDesc:   scriptKeyDesc,
 		InternalKeyDesc: internalKeyDesc,
+		CreationTime:    time.Now(),
 	}
 
 	if err := b.cfg.Store.InsertAddrs(ctx, addr); err != nil {
