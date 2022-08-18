@@ -1,7 +1,12 @@
 -- name: InsertInternalKey :one
 INSERT INTO internal_keys (
     raw_key, key_family, key_index
-) VALUES (?, ?, ?) RETURNING key_id;
+) VALUES (
+    ?, ?, ?
+) ON CONFLICT
+    DO UPDATE SET key_id = EXCLUDED.key_id
+RETURNING key_id;
+
 
 -- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
