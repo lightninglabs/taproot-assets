@@ -1,11 +1,13 @@
 package proof
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -51,6 +53,8 @@ type AnnotatedProof struct {
 	Locator
 
 	Blob
+
+	*AssetSnapshot
 }
 
 // Archiver is the main storage backend the ProofArchiver uses to store and
@@ -65,11 +69,11 @@ type Archiver interface {
 	// returned.
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
-	// StoreProofs attempts to store fully populated proofs on disk. The
+	// ImportProofs attempts to store fully populated proofs on disk. The
 	// previous outpoint of the first state transition will be used as the
 	// Genesis point. The final resting place of the asset will be used as
 	// the script key itself.
-	StoreProofs(ctx context.Context, proofs ...AnnotatedProof) error
+	ImportProofs(ctx context.Context, proofs ...*AnnotatedProof) error
 }
 
 // FileArchive implements proof Archiver backed by an on-disk file system. The
@@ -88,6 +92,9 @@ type FileArchiver struct {
 // NewFileArchiver creates a new file arc
 //
 // TODO(roasbeef): use fs.FS instead?
+//
+// TODO(roasbeef): option to memory map these instead? then don't need to lug
+// around large blobs in user space as much
 func NewFileArchiver(dirName string) (*FileArchiver, error) {
 
 	// First, we'll make sure our main proof directory has already been
@@ -147,10 +154,14 @@ func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error)
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the Archiver interface.
-func (f *FileArchiver) StoreProofs(ctx context.Context, proofs ...AnnotatedProof) error {
+func (f *FileArchiver) ImportProofs(ctx context.Context, proofs ...*AnnotatedProof) error {
 	for _, proof := range proofs {
 		proofPath, err := genProofFilePath(f.proofPath, proof.Locator)
 		if err != nil {
+			return err
+		}
+
+		if err := os.MkdirAll(path.Dir(proofPath), 0750); err != nil {
 			return err
 		}
 
@@ -187,11 +198,12 @@ func NewMultiArchiver(backends ...Archiver) *MultiArchiver {
 func (m *MultiArchiver) FetchProof(ctx context.Context,
 	loc Locator) (Blob, error) {
 
-	// TODO(roasbeef): fire all requests off and take the one that responds first?
-
 	// Iterate through all our active backends and try to see if at least
 	// one of them contains the proof. Either one of them will have the
 	// proof, or we'll return an error back to the user.
+	//
+	// TODO(roasbeef): fire all requests off and take the one that responds
+	// first?
 	for _, archive := range m.backends {
 		proof, err := archive.FetchProof(ctx, loc)
 		switch {
@@ -207,14 +219,59 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 	return nil, ErrProofNotFound
 }
 
-// StoreProofs attempts to store fully populated proofs on disk. The previous
+// ImportProofs attempts to store fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
-func (m *MultiArchiver) StoreProofs(ctx context.Context, proofs ...AnnotatedProof) error {
-	// TODO(roasbeef): need other information along w/ the annotated proof?
+func (m *MultiArchiver) ImportProofs(ctx context.Context,
+	proofs ...*AnnotatedProof) error {
 
+	// Before we import the proofs into the archive, we want to make sure
+	// that they're all valid. Along the way, we may augment the locator
+	// for each proof accordingly.
+	//
+	// TODO(roasbeef): can do concurrently
+	for _, proof := range proofs {
+		proof := proof
+
+		// First, we'll decode and then also verify the proof.
+		var proofFile File
+		err := proofFile.Decode(bytes.NewReader(proof.Blob))
+		if err != nil {
+			return fmt.Errorf("unable to parse proof: %w", err)
+		}
+		finalStateTransition, err := proofFile.Verify(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to verify proof: %w", err)
+		}
+
+		proof.AssetSnapshot = finalStateTransition
+
+		// TODO(roasbeef): actually want the split commit info here?
+		//  * or need to pass in alongside the proof?
+
+		finalAsset := finalStateTransition.Asset
+
+		// Now that the proof has been fully verified, we'll use the
+		// final resting place of the asset (result of the last state
+		// transition) to create a proper annotated proof. We only need
+		// to do this if it wasn't specified though.
+		if proof.AssetID == nil {
+			assetID := finalAsset.ID()
+			proof.AssetID = &assetID
+
+			if finalAsset.FamilyKey != nil {
+				proof.FamilyKey = &finalAsset.FamilyKey.FamKey
+			}
+
+			proof.ScriptKey = *finalAsset.ScriptKey.PubKey
+		}
+	}
+
+	// Now that we know all the proofs are valid, and have tacked on some
+	// additional supplementary information into the locator, we'll attempt
+	// to import each proof our archive backends.
 	for _, archive := range m.backends {
-		err := archive.StoreProofs(ctx, proofs...)
+		err := archive.ImportProofs(ctx, proofs...)
 		if err != nil {
 			return err
 		}
