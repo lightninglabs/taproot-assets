@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -219,10 +219,7 @@ func PayToAddrScript(internalKey btcec.PublicKey, sibling *chainhash.Hash,
 		&internalKey, tapscriptRoot[:],
 	)
 
-	return txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(outputKey)).
-		Script()
+	return vm.PayToTaprootScript(outputKey)
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
