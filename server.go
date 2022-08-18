@@ -10,9 +10,9 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -66,8 +66,8 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 	// Show version at startup.
 	srvrLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
-		"debuglevel=%s", build.Version(), build.Commit,
-		build.Deployment, build.LoggingType, s.cfg.DebugLevel)
+		"debuglevel=%s", Version(), Commit, build.Deployment,
+		build.LoggingType, s.cfg.DebugLevel)
 
 	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
 
