@@ -376,10 +376,10 @@ func deriveTaprootKeysFromTaroCommitment(commitment *commitment.TaroCommitment,
 // matches the length of a branch preimage. However, using the annotated type
 // information we only need to derive a single key.
 func (p TaprootProof) DeriveByAssetInclusion(asset *asset.Asset,
-) (*btcec.PublicKey, error) {
+) (*btcec.PublicKey, *commitment.TaroCommitment, error) {
 
 	if p.CommitmentProof == nil || p.TapscriptProof != nil {
-		return nil, ErrInvalidCommitmentProof
+		return nil, nil, ErrInvalidCommitmentProof
 	}
 
 	// Use the commitment proof to go from the asset leaf all the way up to
@@ -388,12 +388,17 @@ func (p TaprootProof) DeriveByAssetInclusion(asset *asset.Asset,
 	// taproot output key.
 	taroCommitment, err := p.CommitmentProof.DeriveByAssetInclusion(asset)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return deriveTaprootKeysFromTaroCommitment(
+	pubKey, err := deriveTaprootKeysFromTaroCommitment(
 		taroCommitment, p.InternalKey,
 		p.CommitmentProof.TapSiblingPreimage,
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pubKey, taroCommitment, nil
 }
 
 // DeriveByAssetExclusion derives the possible taproot keys backing a Taro

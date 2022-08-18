@@ -48,6 +48,8 @@ type Proof struct {
 
 	// TxMerkleProof is the merkle proof for AnchorTx used to prove its
 	// inclusion within BlockHeader.
+	//
+	// TODO(roasbeef): also store height+index information?
 	TxMerkleProof TxMerkleProof
 
 	// Asset is the resulting asset after its state transition.
@@ -67,20 +69,26 @@ type Proof struct {
 }
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
-// exclusion of an asset.
-func (p *Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
+// exclusion of an asset. If the taproot proof was an inclusion proof, then the
+// TaroCommitment is returned as well.
+func (p *Proof) verifyTaprootProof(proof *TaprootProof,
+	inclusion bool) (*commitment.TaroCommitment, error) {
+
 	// Extract the final taproot key from the output including/excluding the
 	// asset, which we'll use to compare our derived key against.
 	expectedTaprootKey, err := extractTaprootKey(
 		&p.AnchorTx, proof.OutputIndex,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// For each proof type, we'll map this to a single key based on the
 	// self-identified pre-image type in the specified proof.
-	var derivedKey *btcec.PublicKey
+	var (
+		derivedKey     *btcec.PublicKey
+		taroCommitment *commitment.TaroCommitment
+	)
 	switch {
 	// If this is an inclusion proof, then we'll derive the expected
 	// taproot output key based on the revealed asset MS-SMT proof. The
@@ -88,7 +96,9 @@ func (p *Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
 	// tapscript tree, which will then be tweaked as normal with the
 	// internal key to derive the expected output key.
 	case inclusion:
-		derivedKey, err = proof.DeriveByAssetInclusion(&p.Asset)
+		derivedKey, taroCommitment, err = proof.DeriveByAssetInclusion(
+			&p.Asset,
+		)
 
 	// If the commitment proof is present, then this is actually a
 	// non-inclusion proof: we want to verify that either no root
@@ -106,19 +116,19 @@ func (p *Proof) verifyTaprootProof(proof *TaprootProof, inclusion bool) error {
 		derivedKey, err = proof.DeriveByTapscriptProof()
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// The derive key should match the extracted key.
 	if derivedKey.IsEqual(expectedTaprootKey) {
-		return nil
+		return taroCommitment, nil
 	}
 
-	return ErrInvalidTaprootProof
+	return nil, ErrInvalidTaprootProof
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
-func (p *Proof) verifyInclusionProof() error {
+func (p *Proof) verifyInclusionProof() (*commitment.TaroCommitment, error) {
 	return p.verifyTaprootProof(&p.InclusionProof, true)
 }
 
@@ -138,7 +148,7 @@ func (p *Proof) verifyExclusionProofs() error {
 	// Verify all of the encoded exclusion proofs.
 	for _, exclusionProof := range p.ExclusionProofs {
 		exclusionProof := exclusionProof
-		err := p.verifyTaprootProof(&exclusionProof, false)
+		_, err := p.verifyTaprootProof(&exclusionProof, false)
 		if err != nil {
 			return err
 		}
@@ -186,7 +196,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 
 	// We'll use an err group to be able to validate all the inputs in
 	// parallel, limiting the total number of goroutines to the number of
-	// available CPUs. We'll also pass in a cotnext, which'll enable us to
+	// available CPUs. We'll also pass in a context, which'll enable us to
 	// bail out as soon as any of the active goroutines encounters an
 	// error.
 	errGroup, ctx := errgroup.WithContext(ctx)
@@ -229,12 +239,12 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 
 // Verify verifies the proof by ensuring that:
 //
-// 1. A transaction that spends the previous asset output has a valid merkle
-//    proof within a block in the chain.
-// 2. A valid inclusion proof for the resulting asset is included.
-// 3. A set of valid exclusion proofs for the resulting asset are included.
-// 4. A set of asset inputs with valid witnesses are included that satisfy the
-//    resulting state transition.
+//  1. A transaction that spends the previous asset output has a valid merkle
+//     proof within a block in the chain.
+//  2. A valid inclusion proof for the resulting asset is included.
+//  3. A set of valid exclusion proofs for the resulting asset are included.
+//  4. A set of asset inputs with valid witnesses are included that satisfy the
+//     resulting state transition.
 func (p *Proof) Verify(ctx context.Context,
 	prev *AssetSnapshot) (*AssetSnapshot, error) {
 
@@ -252,7 +262,8 @@ func (p *Proof) Verify(ctx context.Context,
 	}
 
 	// 2. A valid inclusion proof for the resulting asset is included.
-	if err := p.verifyInclusionProof(); err != nil {
+	taroCommitment, err := p.verifyInclusionProof()
+	if err != nil {
 		return nil, err
 	}
 
@@ -268,12 +279,19 @@ func (p *Proof) Verify(ctx context.Context,
 		return nil, err
 	}
 
+	// TODO(roasbeef): need tx index and block height as well
+
 	return &AssetSnapshot{
 		Asset: &p.Asset,
 		OutPoint: wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
 		},
+		AnchorBlockHash: p.BlockHeader.BlockHash(),
+		AnchorTx:        &p.AnchorTx,
+		OutputIndex:     p.InclusionProof.OutputIndex,
+		InternalKey:     p.InclusionProof.InternalKey,
+		ScriptRoot:      taroCommitment,
 	}, nil
 }
 

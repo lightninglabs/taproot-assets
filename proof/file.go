@@ -11,8 +11,11 @@ import (
 	"io/ioutil"
 	"math"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -71,6 +74,32 @@ type AssetSnapshot struct {
 
 	// OutPoint is the outpoint that commits to the asset specified above.
 	OutPoint wire.OutPoint
+
+	// AnchorBlockHash is the block hash that anchors the Bitcoin
+	// transaction for this Taro state transition.
+	AnchorBlockHash chainhash.Hash
+
+	// AnchorBlockHeight is the height of the block hash above.
+	AnchorBlockHeight uint32
+
+	// AnchorTxIndex is the transaction index within the above block where
+	// the AnchorTx can be found.
+	AnchorTxIndex uint32
+
+	// AnchorTx is the transaction that commits to the above asset.
+	AnchorTx *wire.MsgTx
+
+	// OutputIndex is the output index in the above transaction that
+	// commits to the output.
+	OutputIndex uint32
+
+	// InternalKey is the internal key used to commit to the above asset in
+	// the AnchorTx.
+	InternalKey *btcec.PublicKey
+
+	// ScriptRoot is the Taro commitment root committed to using the above
+	// internal key in the Anchor transaction.
+	ScriptRoot *commitment.TaroCommitment
 }
 
 // Verify attempts to verify a full proof file starting from the asset's
