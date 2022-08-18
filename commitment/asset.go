@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -45,6 +46,10 @@ var (
 	)
 )
 
+// CommittedAssets is the set of Assets backing an AssetCommitment.
+// The map is keyed by the Asset's AssetCommitmentKey.
+type CommittedAssets map[[32]byte]*asset.Asset
+
 // AssetCommitment represents the inner MS-SMT within the Taro protocol
 // committing to a set of assets under the same ID/family. Assets within this
 // tree, which are leaves represented as the serialized asset TLV payload, are
@@ -73,7 +78,7 @@ type AssetCommitment struct {
 	//
 	// NOTE: This is nil unless AssetCommitment is constructed with
 	// NewAssetCommitment.
-	assets map[[32]byte]*asset.Asset
+	assets CommittedAssets
 }
 
 // parseCommon extracts the common fixed parameters of a set of assets to
@@ -86,7 +91,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	maxVersion := asset.Version(0)
 	assetGenesis := assets[0].Genesis.ID()
 	assetFamilyKey := assets[0].FamilyKey
-	assetsMap := make(map[[32]byte]*asset.Asset, len(assets))
+	assetsMap := make(CommittedAssets, len(assets))
 	for _, asset := range assets {
 		switch {
 		case !assetFamilyKey.IsEqual(asset.FamilyKey):
@@ -242,11 +247,9 @@ func (c AssetCommitment) AssetProof(key [32]byte) (*asset.Asset, *mssmt.Proof) {
 }
 
 // Assets returns the set of assets committed to in the asset commitment.
-func (c AssetCommitment) Assets() []*asset.Asset {
-	assets := make([]*asset.Asset, 0, len(c.assets))
-	for _, asset := range c.assets {
-		assets = append(assets, asset)
-	}
+func (c AssetCommitment) Assets() CommittedAssets {
+	assets := make(CommittedAssets, len(c.assets))
+	maps.Copy(assets, c.assets)
 
 	return assets
 }
