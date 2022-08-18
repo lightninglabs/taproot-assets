@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -39,6 +41,10 @@ const (
 	// GenesisConfTarget is the confirmation target we'll use to query for
 	// a fee estimate.
 	GenesisConfTarget = 6
+
+	// DefaultTimeout is the default timeout we use for RPC and database
+	// operations.
+	DefaultTimeout = 30 * time.Second
 )
 
 // BatchCaretakerConfig houses all the items that the BatchCaretaker needs to
@@ -65,7 +71,7 @@ type BatchCaretaker struct {
 
 	cfg *BatchCaretakerConfig
 
-	// confEvent is used to deliver a confirmation even to the caretaker.
+	// confEvent is used to deliver a confirmation event to the caretaker.
 	confEvent chan *chainntnfs.TxConfirmation
 
 	// confInfo is used to store a delivered confirmation event.
@@ -75,8 +81,9 @@ type BatchCaretaker struct {
 	// the Taro commitment.
 	anchorOutputIndex uint32
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	// ContextGuard provides a wait group and main quit channel that can be
+	// used to create guarded contexts.
+	*chanutils.ContextGuard
 }
 
 // NewBatchCaretaker creates a new taro caretaker based on the passed config.
@@ -87,7 +94,10 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 		batchKey:  NewBatchKey(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
-		quit:      make(chan struct{}),
+		ContextGuard: &chanutils.ContextGuard{
+			DefaultTimeout: DefaultTimeout,
+			Quit:           make(chan struct{}),
+		},
 	}
 }
 
@@ -95,7 +105,7 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 func (b *BatchCaretaker) Start() error {
 	var startErr error
 	b.startOnce.Do(func() {
-		b.wg.Add(1)
+		b.Wg.Add(1)
 		go b.taroCultivator()
 	})
 	return startErr
@@ -105,32 +115,11 @@ func (b *BatchCaretaker) Start() error {
 func (b *BatchCaretaker) Stop() error {
 	var stopErr error
 	b.stopOnce.Do(func() {
-		close(b.quit)
-		b.wg.Wait()
+		close(b.Quit)
+		b.Wg.Wait()
 	})
 
 	return stopErr
-}
-
-// withCtxQuit is used to create a cancellable context that will be cancelled
-// if the main quit signal is triggered.
-func (b *BatchCaretaker) withCtxQuit() (context.Context, func()) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	b.wg.Add(1)
-	go func() {
-		b.wg.Done()
-
-		select {
-		case <-b.quit:
-			cancel()
-
-		case <-ctx.Done():
-			return
-		}
-	}()
-
-	return ctx, cancel
 }
 
 // advanceStateUntil attempts to advance the internal state machine until the
@@ -146,7 +135,7 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 		// Before we attempt a state transition, make sure that we
 		// aren't trying to shutdown.
 		select {
-		case <-b.quit:
+		case <-b.Quit:
 			return 0, fmt.Errorf("BatchCaretaker(%x), shutting "+
 				"down", b.batchKey[:])
 
@@ -177,7 +166,7 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 // broadcast. Once the batch has been broadcast, we'll register for a
 // confirmation to progress the batch to the final terminal state.
 func (b *BatchCaretaker) taroCultivator() {
-	defer b.wg.Done()
+	defer b.Wg.Done()
 
 	// If the batch is already marked as confirmed, then we just need to
 	// advance it one more level to be finalized.
@@ -243,7 +232,7 @@ func (b *BatchCaretaker) taroCultivator() {
 			b.cfg.SignalCompletion()
 			return
 
-		case <-b.quit:
+		case <-b.Quit:
 			return
 		}
 	}
@@ -392,7 +381,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// thing we need to do is finalize it.
 	case BatchStatePending:
 		// Finalize the batch, then move the batch state to frozen.
-		ctx, cancel := b.withCtxQuit()
+		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		err := freezeMintingBatch(ctx, b.cfg.Log, b.cfg.Batch)
 		if err != nil {
@@ -414,7 +403,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		//
 		// TODO(roasbeef): need to invalidate asset creation if on
 		// restart leases are gone
-		ctx, cancel := b.withCtxQuit()
+		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		genesisTxPkt, err := b.fundGenesisPsbt(ctx)
 		if err != nil {
@@ -492,7 +481,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// was then modified.
 		//
 		// TODO(roasbeef): only execute if finalized? or missing sig
-		ctx, cancel := b.withCtxQuit()
+		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		signedPkt, err := b.cfg.Wallet.SignAndFinalizePsbt(
 			ctx, b.cfg.Batch.GenesisPacket.Pkt,
@@ -531,7 +520,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		//
 		// TODO(roasbeef): should be idempotent along w/ all other
 		// operations above
-		ctx, cancel = b.withCtxQuit()
+		ctx, cancel = b.WithCtxQuit()
 		defer cancel()
 		err = b.cfg.Wallet.ImportPubKey(ctx, mintingOutputKey)
 		if err != nil {
@@ -561,7 +550,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// With the final transaction extracted, we'll broadcast the
 		// transaction, then request a confirmation notification.
-		ctx, cancel := b.withCtxQuit()
+		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		err = b.cfg.ChainBridge.PublishTransaction(ctx, signedTx)
 		if err != nil {
@@ -582,8 +571,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"height: %v", err)
 		}
 		txHash := signedTx.TxHash()
+		confCtx, confCancel := b.WithCtxQuitNoTimeout()
 		confNtfn, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
-			ctx, &txHash, signedTx.TxOut[0].PkScript, 1,
+			confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
 			currentHeight, true,
 		)
 		if err != nil {
@@ -595,14 +585,15 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// confirms.
 		//
 		// TODO(roasbeef): make blocking here?
-		b.wg.Add(1)
+		b.Wg.Add(1)
 		go func() {
-			b.wg.Done()
+			defer confCancel()
+			defer b.Wg.Done()
 
 			select {
 			// TODO(roasbeef): need to listen on Done instead?
 			case b.confEvent <- (<-confNtfn.Confirmed):
-			case <-b.quit:
+			case <-b.Quit:
 				return
 			}
 		}()
@@ -617,7 +608,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// log.
 	case BatchStateConfirmed:
 		confInfo := b.confInfo
-		ctx, cancel := b.withCtxQuit()
+		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 
 		// Now that the minting transaction has been confirmed, we'll
@@ -659,7 +650,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			b.batchKey, BatchStateFinalized, BatchStateFinalized)
 
 		// TODO(roasbeef): confirmed should just be the final state?
-		ctx, cancel := b.withCtxQuit()
+		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 		err := b.cfg.Log.UpdateBatchState(
 			ctx, b.cfg.Batch.BatchKey.PubKey, BatchStateFinalized,
