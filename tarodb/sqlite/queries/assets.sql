@@ -104,7 +104,9 @@ INSERT INTO genesis_points(
     prev_out
 ) VALUES (
     ?
-) RETURNING genesis_id;
+) ON CONFLICT
+    DO UPDATE SET prev_out = EXCLUDED.prev_out
+RETURNING genesis_id;
 
 -- name: InsertAssetFamilyKey :one
 INSERT INTO asset_families (
