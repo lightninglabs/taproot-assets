@@ -157,13 +157,14 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer, err := newRPCServer(
+	var err error
+	s.rpcServer, err = newRPCServer(
 		s.cfg.SignalInterceptor, interceptorChain, s.cfg,
 	)
 	if err != nil {
 		return mkErr("unable to create rpc server: %v", err)
 	}
-	err = rpcServer.RegisterWithGrpcServer(grpcServer)
+	err = s.rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
 		return mkErr("error registering gRPC server: %v", err)
 	}
@@ -179,7 +180,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// direct tarod to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
-	stopProxy, err := startRestProxy(s.cfg, rpcServer)
+	stopProxy, err := startRestProxy(s.cfg, s.rpcServer)
 	if err != nil {
 		return mkErr("error starting REST proxy: %v", err)
 	}
@@ -195,11 +196,11 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
-	if err := rpcServer.Start(); err != nil {
+	if err := s.rpcServer.Start(); err != nil {
 		return mkErr("unable to start RPC server: %v", err)
 	}
 	defer func() {
-		_ = rpcServer.Stop()
+		_ = s.rpcServer.Stop()
 	}()
 
 	// We transition the RPC state to Active, as the RPC server is up.
