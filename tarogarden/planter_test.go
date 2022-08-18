@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -53,6 +51,8 @@ type mintingTestHarness struct {
 	batchKey *keychain.KeyDescriptor
 
 	*testing.T
+
+	errChan chan error
 }
 
 // newMintingTestHarness creates a new test harness from an active minting
@@ -71,6 +71,7 @@ func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *minting
 		chain:     newMockChainBridge(),
 		keyRing:   keyRing,
 		genSigner: genSigner,
+		errChan:   make(chan error, 10),
 	}
 }
 
@@ -91,6 +92,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			GenSigner:   t.genSigner,
 		},
 		BatchTicker: t.ticker,
+		ErrChan:     t.errChan,
 	})
 	require.NoError(t, t.planter.Start())
 }
@@ -372,11 +374,23 @@ func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 // notification.
 func (t *mintingTestHarness) assertConfReqSent(tx *wire.MsgTx,
 	block *wire.MsgBlock) func() {
-	reqNo, err := chanutils.RecvOrTimeout(t.chain.confReqSignal, defaultTimeout)
+
+	reqNo, err := chanutils.RecvOrTimeout(
+		t.chain.confReqSignal, defaultTimeout,
+	)
 	require.NoError(t, err)
 
 	return func() {
 		t.chain.sendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 0, block, tx)
+	}
+}
+
+// assertNoError makes sure no error was sent on the global error channel.
+func (t *mintingTestHarness) assertNoError() {
+	select {
+	case err := <-t.errChan:
+		require.NoError(t, err)
+	default:
 	}
 }
 
@@ -427,7 +441,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// For each seedling created above, we expect a new set of keys to be
 	for i := 0; i < numSeedlings; i++ {
-		// The seedlings requires on going emission, then we'll expect an
+		// The seedlings require ongoing emission, then we'll expect an
 		// additional key to be derived.
 		t.assertKeyDerived()
 
@@ -437,7 +451,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	}
 
 	// Now that the batch has been ticked, and the caretaker started, there
-	// should no longer be an pending batch.
+	// should no longer be a pending batch.
 	t.assertNoPendingBatch()
 
 	// If we fetch the pending batch just created on disk, then it should
@@ -462,6 +476,13 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// after the transaction has been published.
 	t.refreshChainPlanter()
 
+	// Make sure any errors sent on the error channel from shutting down are
+	// drained, so we don't see them later.
+	select {
+	case <-t.errChan:
+	default:
+	}
+
 	// After the restart, the transaction should be published again.
 	t.assertTxPublished()
 
@@ -485,14 +506,17 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// the batch being finalized, and the caretaker being cleaned up.
 	sendConfNtfn()
 
+	// This time no error should be sent anywhere as we should've handled
+	// all notifications.
+	t.assertNoError()
+
 	// At this point there should be no active caretakers.
 	t.assertNumCaretakersActive(0)
 }
 
 // mintingStoreCreator is a function closure that is capable of creating a new
-// minting store. A clean up function is also returned to garbage collect the
-// old state.
-type mintingStoreCreator func() (tarogarden.MintingStore, func(), error)
+// minting store.
+type mintingStoreCreator func() (tarogarden.MintingStore, error)
 
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
@@ -516,9 +540,8 @@ func testBatchedAssetIssuance(t *testing.T, storeCreator mintingStoreCreator) {
 	t.Helper()
 
 	for _, testCase := range testCases {
-		mintingStore, cleanUp, err := storeCreator()
+		mintingStore, err := storeCreator()
 		require.NoError(t, err)
-		defer cleanUp()
 
 		t.Run(testCase.name, func(t *testing.T) {
 			mintTest := newMintingTestHarness(t, mintingStore)
@@ -541,27 +564,20 @@ func TestBatchedAssetIssuance(t *testing.T) {
 		switch mintingStoreDriver.Name {
 
 		case "sqlite3":
-			mintingStoreFunc = func() (tarogarden.MintingStore, func(), error) {
-				dir, err := ioutil.TempDir("", "sqlite-test-")
-				if err != nil {
-					t.Fatal(err)
-				}
-				dbFileName := filepath.Join(dir, "tmp.db")
+			mintingStoreFunc = func() (tarogarden.MintingStore, error) {
+				tempDir := t.TempDir()
+				dbFileName := filepath.Join(tempDir, "tmp.db")
 
 				mintingStore, err := mintingStoreDriver.New(
 					dbFileName,
 				)
 				if err != nil {
-					return nil, nil, fmt.Errorf("unable "+
+					return nil, fmt.Errorf("unable "+
 						"to create new minting "+
 						"store: %v", err)
 				}
 
-				cleanUp := func() {
-					os.RemoveAll(dir)
-				}
-
-				return mintingStore, cleanUp, nil
+				return mintingStore, nil
 			}
 		default:
 			t.Fatalf("unknown minting store: %v", mintingStoreDriver.Name)

@@ -45,6 +45,10 @@ type PlanterConfig struct {
 	// all asset requests into a new batch.
 	BatchTicker ticker.Ticker
 
+	// ErrChan is the main error channel the planter will report back
+	// critical errors to the main server.
+	ErrChan chan<- error
+
 	// TODO(roasbeef): something notification related?
 }
 
@@ -151,6 +155,7 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
+		ErrChan: c.cfg.ErrChan,
 	})
 	c.caretakers[batchKey] = caretaker
 
@@ -257,7 +262,7 @@ func freezeMintingBatch(ctx context.Context, pLog MintingStore,
 
 // gardener is responsible for collecting new potential taro asset
 // seeds/seedlings into a batch to ultimately be anchored in a genesis output
-// creating the assets from seedlings into sprouts, and eventually full grown
+// creating the assets from seedlings into sprouts, and eventually fully grown
 // assets.
 func (c *ChainPlanter) gardener() {
 	defer c.Wg.Done()
@@ -313,8 +318,8 @@ func (c *ChainPlanter) gardener() {
 			err := freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
 			cancel()
 			if err != nil {
-				// TODO(roasbeef): critical log?
-				log.Warnf("unable to freeze minting batch: %w", err)
+				c.cfg.ErrChan <- fmt.Errorf("unable to freeze "+
+					"minting batch: %w", err)
 				continue
 			}
 
@@ -322,8 +327,8 @@ func (c *ChainPlanter) gardener() {
 			// new caretaker state machine for the batch that'll
 			// drive all the seedlings do adulthood.
 			if err := caretaker.Start(); err != nil {
-				// TODO(roasbeef): critical log?
-				log.Warnf("unable to start new caretaker: %w", err)
+				c.cfg.ErrChan <- fmt.Errorf("unable to start "+
+					"new caretaker: %w", err)
 				continue
 			}
 

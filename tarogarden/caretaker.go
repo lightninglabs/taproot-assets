@@ -58,6 +58,10 @@ type BatchCaretakerConfig struct {
 	// SignalCompletion is used to signal back to the BatchPlanter that
 	// their batch has been finalized.
 	SignalCompletion func()
+
+	// ErrChan is the main error channel the caretaker will report back
+	// critical errors to the main server.
+	ErrChan chan<- error
 }
 
 // BatchCaretaker is the caretaker for a MintingBatch. It'll handle validating
@@ -133,7 +137,7 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 	var terminalState bool
 	for !terminalState {
 		// Before we attempt a state transition, make sure that we
-		// aren't trying to shutdown.
+		// aren't trying to shut down.
 		select {
 		case <-b.Quit:
 			return 0, fmt.Errorf("BatchCaretaker(%x), shutting "+
@@ -242,7 +246,7 @@ func (b *BatchCaretaker) taroCultivator() {
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
-// We need to use a dummy script as we can't know the actually script key since
+// We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
 func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, error) {
 	log.Infof("BatchCaretaker(%x): attempting to fund GenesisPacket",
@@ -585,7 +589,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// confirms.
 		//
 		// TODO(roasbeef): make blocking here?
-		// TODO(guggero): what to do on error in goroutine?
 		b.Wg.Add(1)
 		go func() {
 			defer confCancel()
@@ -598,7 +601,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					confEvent.Tx.TxHash())
 
 			case err := <-errChan:
-				log.Errorf("Error getting confirmation: %v", err)
+				b.cfg.ErrChan <- fmt.Errorf("error getting "+
+					"confirmation: %w", err)
 				return
 
 			case <-confCtx.Done():
@@ -611,12 +615,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			}
 
 			if confEvent == nil {
-				log.Warnf("Got empty confirmation event!")
+				b.cfg.ErrChan <- fmt.Errorf("got empty " +
+					"confirmation event in batch")
 				return
 			}
 
 			select {
-			// TODO(roasbeef): need to listen on Done instead?
 			case b.confEvent <- confEvent:
 
 			case <-confCtx.Done():

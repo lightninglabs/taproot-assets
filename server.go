@@ -44,8 +44,8 @@ func NewServer(cfg *Config) (*Server, error) {
 }
 
 // RunUntilShutdown runs the main Taro server loop until a signal is received
-// to shutdown the process.
-func (s *Server) RunUntilShutdown() error {
+// to shut down the process.
+func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	if atomic.AddInt32(&s.started, 1) != 1 {
 		return nil
 	}
@@ -214,6 +214,10 @@ func (s *Server) RunUntilShutdown() error {
 	// the interrupt handler.
 	select {
 	case <-s.cfg.SignalInterceptor.ShutdownChannel():
+
+	case err := <-mainErrChan:
+		return mkErr("received critical error from subsystem: %w", err)
+
 	case <-s.quit:
 	}
 	return nil
@@ -383,7 +387,7 @@ func (s *Server) Stop() error {
 	if err := s.rpcServer.Stop(); err != nil {
 		return err
 	}
-	if err := s.cfg.AssetMinter.Start(); err != nil {
+	if err := s.cfg.AssetMinter.Stop(); err != nil {
 		return err
 	}
 

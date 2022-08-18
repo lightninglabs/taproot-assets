@@ -10,6 +10,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
@@ -143,6 +144,15 @@ func main() {
 		Chain:        taroChainParams,
 	})
 
+	// This concurrent error queue can be used by every component that can
+	// raise runtime errors. Using a queue will prevent us from blocking on
+	// sending errors to it, as long as the queue is running.
+	errQueue := chanutils.NewConcurrentQueue[error](
+		chanutils.DefaultQueueSize,
+	)
+	errQueue.Start()
+	defer errQueue.Stop()
+
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
@@ -157,6 +167,7 @@ func main() {
 				),
 			},
 			BatchTicker: ticker.New(cfg.BatchMintingInterval),
+			ErrChan:     errQueue.ChanIn(),
 		}),
 		AddrBook:          addrBook,
 		SignalInterceptor: shutdownInterceptor,
@@ -187,7 +198,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = server.RunUntilShutdown()
+	err = server.RunUntilShutdown(errQueue.ChanOut())
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
