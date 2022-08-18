@@ -421,3 +421,22 @@ SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
+
+-- name: InsertAssetWitness :exec
+INSERT INTO asset_witnesses (
+    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
+    split_commitment_proof
+) VALUES (
+    ?, ?, ?, ?, ?, ?
+);
+
+-- name: FetchAssetWitnesses :many
+SELECT 
+    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
+    witness_stack, split_commitment_proof
+FROM asset_witnesses
+JOIN assets
+    ON asset_witnesses.asset_id = assets.asset_id
+WHERE (
+    assets.asset_id = sqlc.narg('asset_id') OR sqlc.narg('asset_id') IS NULL
+);
