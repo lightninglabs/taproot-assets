@@ -117,7 +117,7 @@ func NewTaroCommitmentWithRoot(version asset.Version,
 }
 
 // TapLeaf constructs a new `TapLeaf` for this `TaroCommitment`.
-func (c TaroCommitment) TapLeaf() txscript.TapLeaf {
+func (c *TaroCommitment) TapLeaf() txscript.TapLeaf {
 	rootHash := c.TreeRoot.NodeKey()
 	var rootSum [8]byte
 	binary.BigEndian.PutUint64(rootSum[:], c.TreeRoot.NodeSum())
@@ -133,7 +133,7 @@ func (c TaroCommitment) TapLeaf() txscript.TapLeaf {
 // Taro commitment), and hash it with the Taro commitment leaf to arrive at the
 // tapscript root, otherwise the Taro commitment leaf itself becomes the
 // tapscript root.
-func (c TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
+func (c *TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 	commitmentLeaf := c.TapLeaf()
 	if sibling == nil {
 		return txscript.AssembleTaprootScriptTree(commitmentLeaf).
@@ -153,7 +153,7 @@ func (c TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 // Proof computes the full TaroCommitment merkle proof for the asset leaf
 // located at `assetCommitmentKey` within the AssetCommitment located at
 // `taroCommitmentKey`.
-func (c TaroCommitment) Proof(taroCommitmentKey,
+func (c *TaroCommitment) Proof(taroCommitmentKey,
 	assetCommitmentKey [32]byte) (*asset.Asset, *Proof) {
 
 	if c.assetCommitments == nil || c.tree == nil {
@@ -188,7 +188,7 @@ func (c TaroCommitment) Proof(taroCommitmentKey,
 
 // CommittedAssets returns the set of assets committed to in the taro
 // commitment.
-func (c TaroCommitment) CommittedAssets() []*asset.Asset {
+func (c *TaroCommitment) CommittedAssets() []*asset.Asset {
 	var assets []*asset.Asset
 	for _, commitment := range c.assetCommitments {
 		committedAssets := maps.Values(commitment.Assets())
@@ -200,7 +200,7 @@ func (c TaroCommitment) CommittedAssets() []*asset.Asset {
 
 // Commitments returns the set of assetCommitments committed to in the taro
 // commitment.
-func (c TaroCommitment) Commitments() AssetCommitments {
+func (c *TaroCommitment) Commitments() AssetCommitments {
 	assetCommitments := make(AssetCommitments, len(c.assetCommitments))
 	maps.Copy(assetCommitments, c.assetCommitments)
 

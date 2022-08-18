@@ -107,8 +107,7 @@ func IsBech32MTaroPrefix(prefix string) bool {
 	return ok
 }
 
-// IsForNet returns whether or not the HRP is associated with the
-// passed network.
+// IsForNet returns whether the HRP is associated with the passed network.
 func IsForNet(hrp string, net *ChainParams) bool {
 	return hrp == net.TaroHRP
 }

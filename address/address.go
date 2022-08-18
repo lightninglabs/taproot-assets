@@ -122,10 +122,12 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 		if amt != 1 {
 			return nil, ErrInvalidAmountCollectible
 		}
+
 	case asset.Normal:
 		if amt == 0 {
 			return nil, ErrInvalidAmountNormal
 		}
+
 	default:
 		return nil, ErrUnsupportedAssetType
 	}

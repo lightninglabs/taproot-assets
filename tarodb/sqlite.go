@@ -15,8 +15,7 @@ import (
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
-
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // Register relevant drivers.
 )
 
 const (

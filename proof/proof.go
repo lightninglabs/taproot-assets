@@ -322,7 +322,7 @@ func (p *Proof) Encode(w io.Writer) error {
 	return stream.Encode(w)
 }
 
-// Encode decodes a Proof from `r`.
+// Decode decodes a Proof from `r`.
 func (p *Proof) Decode(r io.Reader) error {
 	stream, err := tlv.NewStream(p.DecodeRecords()...)
 	if err != nil {

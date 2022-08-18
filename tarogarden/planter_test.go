@@ -18,14 +18,12 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	_ "github.com/lightninglabs/taro/tarodb" // Register relevant drivers.
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
-
-	// Needed to register any relevant drivers.
-	_ "github.com/lightninglabs/taro/tarodb"
 )
 
 var defaultTimeout = time.Second * 5
