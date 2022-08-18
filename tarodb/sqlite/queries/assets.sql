@@ -131,13 +131,13 @@ INSERT INTO genesis_assets (
     ?, ?, ?, ?, ?, ?
 ) RETURNING gen_asset_id;
 
--- name: InsertNewAsset :exec
+-- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
-    amount, lock_time, relative_lock_time
+    amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?
-);
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
+) RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
 WITH genesis_info AS (
