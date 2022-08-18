@@ -498,6 +498,9 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	_, err = proofFile.Verify(ctx)
 	valid := err == nil
 
+	// TODO(roasbeef): also show additional final resting anchor
+	// information, etc?
+
 	// TODO(roasbeef): show the final resting place of the asset?
 	return &tarorpc.ProofVerifyResponse{
 		Valid: valid,
@@ -540,14 +543,23 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 
 // ImportProof attempts to import a proof file into the daemon. If succesful, a
 // new asset will be inserted on disk, spendable using the specified target
-// script key, and internaly key.
+// script key, and internal key.
 func (r *rpcServer) ImportProof(ctx context.Context,
 	in *tarorpc.ImportProofRequest) (*tarorpc.ImportProofResponse, error) {
 
-	// TODO(roasbeef): need additional annotations to know which script
-	// key to use
-	//
-	//  * look up based on pubkey?
+	// We'll perform some basic input validation before we move forward.
+	if len(in.ProofFile) == 0 {
+		return nil, fmt.Errorf("proof file must be specified")
+	}
 
-	return nil, nil
+	// Now that we know the proof file is at least present, we'll attempt
+	// to import it into the main archive.
+	err := r.cfg.ProofArchive.ImportProofs(ctx, &proof.AnnotatedProof{
+		Blob: in.ProofFile,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &tarorpc.ImportProofResponse{}, nil
 }
