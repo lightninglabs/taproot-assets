@@ -160,7 +160,7 @@ func isValidInput(input *commitment.TaroCommitment, address Taro,
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
 	// specified in the address.
 	inputCommitments := input.Commitments()
-	assetCommitment, ok := inputCommitments[address.taroCommitmentKey()]
+	assetCommitment, ok := inputCommitments[address.TaroCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingInputAsset
 	}
@@ -203,7 +203,7 @@ func (a *Taro) Net() (*ChainParams, error) {
 
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
 // family specified by a Taro address.
-func (a *Taro) taroCommitmentKey() [32]byte {
+func (a *Taro) TaroCommitmentKey() [32]byte {
 	return asset.TaroCommitmentKey(a.ID, a.FamilyKey)
 }
 
