@@ -309,7 +309,7 @@ func assertAssetsEqual(t *testing.T, a, b *commitment.TaroCommitment) {
 	// The CommittedAssets() returns values from a map, which means that
 	// order isn't guaranteed. As a result, we can't just use require.Equal
 	// on the entire thing. To get around this, we use a good ol' double
-	// for-loop to compare the values that should batch up.
+	// for-loop to compare the values that should match up.
 	var numFound int
 	memAssets := a.CommittedAssets()
 	dbAssets := b.CommittedAssets()
@@ -325,7 +325,7 @@ func assertAssetsEqual(t *testing.T, a, b *commitment.TaroCommitment) {
 
 	require.Equal(t, numFound, len(memAssets))
 
-	// Finally, we should get the exact same tapscript commitment witboth
+	// Finally, we should get the exact same tapscript commitment with both
 	// versions.
 	require.Equal(t, a.TapscriptRoot(nil), b.TapscriptRoot(nil))
 }

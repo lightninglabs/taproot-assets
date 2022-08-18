@@ -76,9 +76,12 @@ type AssetSeedling struct {
 }
 
 type AssetWitness struct {
-	TaroPrevOut          []byte
+	WitnessID            int32
 	AssetID              int32
-	AssetWitness         []byte
+	PrevOutPoint         []byte
+	PrevAssetID          []byte
+	PrevScriptKey        []byte
+	WitnessStack         []byte
 	SplitCommitmentProof []byte
 }
 
