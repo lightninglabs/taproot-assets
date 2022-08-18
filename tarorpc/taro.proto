@@ -262,6 +262,10 @@ message ExportProofRequest {
   // file?
 }
 
-message ImportProofRequest {}
+message ImportProofRequest {
+  bytes proof_file = 1;
+
+  string genesis_point = 2;
+}
 
 message ImportProofResponse {}
