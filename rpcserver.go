@@ -275,7 +275,8 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	case update := <-updates:
 		if update.Error != nil {
-			return nil, fmt.Errorf("unable to mint asset: %v", err)
+			return nil, fmt.Errorf("unable to mint asset: %w",
+				update.Error)
 		}
 
 		return &tarorpc.MintAssetResponse{
