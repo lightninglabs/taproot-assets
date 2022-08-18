@@ -119,10 +119,49 @@ func exportProof(ctx *cli.Context) error {
 		return fmt.Errorf("unable to verify file: %w", err)
 	}
 
+	// TODO(roasbeef): specify path on disk to obtain at?
+
 	printRespJSON(resp)
 	return nil
 }
 
 var importProofCommand = cli.Command{
-	Name: "import",
+	Name:        "import",
+	ShortName:   "i",
+	Description: "import a taro proof, resulting in a spendable asset",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  proofPathName,
+			Usage: "the path to the proof file on disk",
+		},
+	},
+	Action: importProof,
+}
+
+func importProof(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	switch {
+	case ctx.String(proofPathName) == "":
+
+		_ = cli.ShowCommandHelp(ctx, "import")
+		return nil
+	}
+
+	proofFile, err := os.ReadFile(proofPathName)
+	if err != nil {
+		return fmt.Errorf("unable to read file: %v", err)
+	}
+
+	resp, err := client.ImportProof(ctxc, &tarorpc.ImportProofRequest{
+		ProofFile: proofFile,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to verify file: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
 }
