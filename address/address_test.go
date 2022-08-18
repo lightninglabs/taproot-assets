@@ -65,7 +65,7 @@ func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 }
 
 func randAddress(t *testing.T, net *ChainParams, famkey bool,
-	amt *uint64, assetType asset.Type) (*AddressTaro, error) {
+	amt *uint64, assetType asset.Type) (*Taro, error) {
 
 	t.Helper()
 
@@ -91,8 +91,8 @@ func randAddress(t *testing.T, net *ChainParams, famkey bool,
 		pubKeyCopy2, amount, assetType, net)
 }
 
-func randEncodedAddress(t *testing.T, net *ChainParams, famkey bool,
-	assetType asset.Type) (*AddressTaro, string, error) {
+func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
+	assetType asset.Type) (*Taro, string, error) {
 
 	t.Helper()
 
@@ -102,15 +102,15 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famkey bool,
 	}
 
 	var familyKey *btcec.PublicKey
-	if famkey {
+	if famKey {
 		familyKey = pubKey
 	}
 
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
-	newAddr := AddressTaro{
-		Hrp:         net.TaroHRP,
+	newAddr := Taro{
+		ChainParams: net,
 		Version:     asset.Version(TaroScriptVersion),
 		ID:          hashBytes1,
 		FamilyKey:   familyKey,
@@ -125,7 +125,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famkey bool,
 	return &newAddr, encodedAddr, err
 }
 
-func assertAddressEqual(t *testing.T, a, b *AddressTaro) {
+func assertAddressEqual(t *testing.T, a, b *Taro) {
 	t.Helper()
 
 	require.Equal(t, a.Version, b.Version)
@@ -181,12 +181,12 @@ func TestNewAddress(t *testing.T) {
 
 	testCases := []struct {
 		name string
-		f    func() (*AddressTaro, error)
+		f    func() (*Taro, error)
 		err  error
 	}{
 		{
 			name: "normal address",
-			f: func() (*AddressTaro, error) {
+			f: func() (*Taro, error) {
 				return randAddress(
 					t, &TestNet3Taro, false, nil, asset.Normal,
 				)
@@ -195,7 +195,7 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "collectible address with family key",
-			f: func() (*AddressTaro, error) {
+			f: func() (*Taro, error) {
 				return randAddress(
 					t, &MainNetTaro, true, nil, asset.Collectible,
 				)
@@ -204,7 +204,7 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid normal asset value",
-			f: func() (*AddressTaro, error) {
+			f: func() (*Taro, error) {
 				zeroAmt := uint64(0)
 				return randAddress(
 					t, &TestNet3Taro, false, &zeroAmt, asset.Normal,
@@ -214,7 +214,7 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid collectible asset value",
-			f: func() (*AddressTaro, error) {
+			f: func() (*Taro, error) {
 				badAmt := uint64(2)
 				return randAddress(
 					t, &TestNet3Taro, false, &badAmt, asset.Collectible,
@@ -224,7 +224,7 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid hrp",
-			f: func() (*AddressTaro, error) {
+			f: func() (*Taro, error) {
 				return randAddress(
 					t, &invalidNet, false, nil, asset.Normal,
 				)
@@ -233,7 +233,7 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid asset type",
-			f: func() (*AddressTaro, error) {
+			f: func() (*Taro, error) {
 				pubKeyCopy1 := *pubKey
 				pubKeyCopy2 := *pubKey
 				return New(
@@ -454,7 +454,7 @@ func TestPayToAddrScript(t *testing.T) {
 func TestAddressEncoding(t *testing.T) {
 	t.Parallel()
 
-	assetAddressEncoding := func(a *AddressTaro) {
+	assetAddressEncoding := func(a *Taro) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
@@ -469,12 +469,12 @@ func TestAddressEncoding(t *testing.T) {
 
 	testCases := []struct {
 		name string
-		f    func() (*AddressTaro, string, error)
+		f    func() (*Taro, string, error)
 		err  error
 	}{
 		{
 			name: "valid address",
-			f: func() (*AddressTaro, string, error) {
+			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
 					t, &RegressionNetTaro, false, asset.Normal,
 				)
@@ -483,7 +483,7 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "family collectible",
-			f: func() (*AddressTaro, string, error) {
+			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
 					t, &SigNetTaro, true, asset.Collectible,
 				)
@@ -492,7 +492,7 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "simnet collectible",
-			f: func() (*AddressTaro, string, error) {
+			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
 					t, &SimNetTaro, false, asset.Collectible,
 				)
@@ -501,7 +501,7 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "unsupported hrp",
-			f: func() (*AddressTaro, string, error) {
+			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
 					t, &invalidNet, true, asset.Collectible,
 				)
@@ -510,7 +510,7 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "mismatched hrp",
-			f: func() (*AddressTaro, string, error) {
+			f: func() (*Taro, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
 					t, &TestNet3Taro, true, asset.Collectible,
 				)
@@ -521,7 +521,7 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "missing hrp",
-			f: func() (*AddressTaro, string, error) {
+			f: func() (*Taro, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
 					t, &TestNet3Taro, true, asset.Collectible,
 				)

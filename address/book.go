@@ -10,10 +10,10 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// AddrWithKeyInfo wraps a normal AddressTaro struct with key descriptor
+// AddrWithKeyInfo wraps a normal Taro struct with key descriptor
 // information.
 type AddrWithKeyInfo struct {
-	*AddressTaro
+	*Taro
 
 	// ScriptKeyDesc is the key desc for the script key.
 	ScriptKeyDesc keychain.KeyDescriptor
@@ -103,7 +103,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}
 	addr := AddrWithKeyInfo{
-		AddressTaro:     baseAddr,
+		Taro:            baseAddr,
 		ScriptKeyDesc:   scriptKeyDesc,
 		InternalKeyDesc: internalKeyDesc,
 	}

@@ -237,7 +237,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			}
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
-				AddressTaro: &address.AddressTaro{
+				Taro: &address.Taro{
 					Version:     asset.Version(addr.Version),
 					ID:          assetID,
 					FamilyKey:   famKey,

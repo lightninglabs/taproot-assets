@@ -38,7 +38,7 @@ type ChainParams struct {
 }
 
 // registerMtx is used to provide thread-safe access to the internal global
-// vriables.
+// variables.
 var registerMtx sync.RWMutex
 
 // Register attempts to register a new taro ChainParams with the library. If a
@@ -76,7 +76,7 @@ var (
 		TaroHRP: TestnetHRP,
 	}
 
-	// RegressionNetParams holds the chain params for regtest.
+	// RegressionNetTaro holds the chain params for regtest.
 	RegressionNetTaro = ChainParams{
 		Params:  &chaincfg.RegressionNetParams,
 		TaroHRP: RegTestHRP,
@@ -141,14 +141,19 @@ func ParamsForChain(name string) ChainParams {
 	switch name {
 	case chaincfg.MainNetParams.Name:
 		return MainNetTaro
+
 	case chaincfg.TestNet3Params.Name:
 		return TestNet3Taro
+
 	case chaincfg.RegressionNetParams.Name:
 		return RegressionNetTaro
+
 	case chaincfg.SigNetParams.Name:
 		return SigNetTaro
+
 	case chaincfg.SimNetParams.Name:
 		return SimNetTaro
+
 	default:
 		panic(fmt.Sprintf("unknown chain: %v", name))
 	}

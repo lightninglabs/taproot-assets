@@ -49,7 +49,7 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	}
 
 	return &address.AddrWithKeyInfo{
-		AddressTaro: &address.AddressTaro{
+		Taro: &address.Taro{
 			Version:     asset.Version(rand.Int31()),
 			ID:          assetID,
 			FamilyKey:   famKey,

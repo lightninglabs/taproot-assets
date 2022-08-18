@@ -366,7 +366,7 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 
 	addrs := make([]*tarorpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
-		dbAddr.Hrp = taroParams.TaroHRP
+		dbAddr.ChainParams = &taroParams
 
 		addrStr, err := dbAddr.EncodeAddress()
 		if err != nil {
