@@ -572,7 +572,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 		txHash := signedTx.TxHash()
 		confCtx, confCancel := b.WithCtxQuitNoTimeout()
-		confNtfn, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
+		confNtfn, errChan, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
 			confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
 			currentHeight, true,
 		)
@@ -585,15 +585,46 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// confirms.
 		//
 		// TODO(roasbeef): make blocking here?
+		// TODO(guggero): what to do on error in goroutine?
 		b.Wg.Add(1)
 		go func() {
 			defer confCancel()
 			defer b.Wg.Done()
 
+			var confEvent *chainntnfs.TxConfirmation
+			select {
+			case confEvent = <-confNtfn.Confirmed:
+				log.Debugf("Got chain confirmation: %v",
+					confEvent.Tx.TxHash())
+
+			case err := <-errChan:
+				log.Errorf("Error getting confirmation: %v", err)
+				return
+
+			case <-confCtx.Done():
+				log.Debugf("Skipping TX confirmation, context " +
+					"done")
+
+			case <-b.Quit:
+				log.Debugf("Skipping TX confirmation, exiting")
+				return
+			}
+
+			if confEvent == nil {
+				log.Warnf("Got empty confirmation event!")
+				return
+			}
+
 			select {
 			// TODO(roasbeef): need to listen on Done instead?
-			case b.confEvent <- (<-confNtfn.Confirmed):
+			case b.confEvent <- confEvent:
+
+			case <-confCtx.Done():
+				log.Debugf("Skipping TX confirmation, context " +
+					"done")
+
 			case <-b.Quit:
+				log.Debugf("Skipping TX confirmation, exiting")
 				return
 			}
 		}()

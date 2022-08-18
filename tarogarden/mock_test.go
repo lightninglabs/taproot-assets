@@ -131,11 +131,11 @@ func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte,
 	numConfs, heightHint uint32,
-	includeBlock bool) (*chainntnfs.ConfirmationEvent, error) {
+	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("shutting down")
+		return nil, nil, fmt.Errorf("shutting down")
 	default:
 	}
 
@@ -146,6 +146,7 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	req := &chainntnfs.ConfirmationEvent{
 		Confirmed: make(chan *chainntnfs.TxConfirmation),
 	}
+	errChan := make(chan error)
 
 	m.confReqs[m.reqCount] = req
 
@@ -154,7 +155,7 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	case <-ctx.Done():
 	}
 
-	return req, nil
+	return req, errChan, nil
 }
 
 func (m *mockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
