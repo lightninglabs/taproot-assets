@@ -74,6 +74,21 @@ func NewDefaultStore() *DefaultStore {
 	}
 }
 
+// NumBranches returns the number of stored branches.
+func (d *DefaultStore) NumBranches() int {
+	return len(d.branches)
+}
+
+// NumLeaves returns the number of stored leaves.
+func (d *DefaultStore) NumLeaves() int {
+	return len(d.leaves)
+}
+
+// NumCompactedLeaves returns the number of stored compacted leaves.
+func (d *DefaultStore) NumCompactedLeaves() int {
+	return len(d.compactedLeaves)
+}
+
 // Update updates the persistent tree in the passed update closure using the
 // update transaction.
 func (d *DefaultStore) Update(_ context.Context,

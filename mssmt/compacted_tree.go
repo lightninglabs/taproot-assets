@@ -246,9 +246,12 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 		branch = NewBranch(sibling, newNode)
 	}
 
-	err = tx.InsertBranch(branch)
-	if err != nil {
-		return nil, err
+	// Only insert this new branch if not a default one.
+	if !IsEqualNode(branch, EmptyTree[height]) {
+		err = tx.InsertBranch(branch)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return branch, nil

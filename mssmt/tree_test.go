@@ -112,6 +112,47 @@ func TestInsertion(t *testing.T) {
 	})
 }
 
+// TestReplaceWithEmptyBranch tests that a compacted tree won't add default
+// branches when whole subtrees are deleted.
+func TestReplaceWithEmptyBranch(t *testing.T) {
+	store := NewDefaultStore()
+	tree := NewCompactedTree(store)
+
+	// Generate a tree of this shape:
+	//           R
+	//          / \
+	//         1   B
+	//            / \
+	//           4   2
+	keys := [][32]byte{
+		{1}, {2}, {4},
+	}
+
+	ctx := context.TODO()
+	for _, key := range keys {
+		_, err := tree.Insert(ctx, key, randLeaf())
+		require.NoError(t, err)
+	}
+
+	// Make sure the store has all our leaves and branches.
+	require.Equal(t, 2, store.NumBranches())
+	require.Equal(t, 0, store.NumLeaves())
+	require.Equal(t, 3, store.NumCompactedLeaves())
+
+	// Now delete compacted leafs 2 and 4 which would
+	// trigger inserting a default branch in place of
+	// their parent B.
+	_, err := tree.Delete(ctx, keys[1])
+	require.NoError(t, err)
+	_, err = tree.Delete(ctx, keys[2])
+	require.NoError(t, err)
+
+	// We expect that the store only has one compacted leaf and one branch.
+	require.Equal(t, 1, store.NumBranches())
+	require.Equal(t, 0, store.NumLeaves())
+	require.Equal(t, 1, store.NumCompactedLeaves())
+}
+
 // TestReplace tests that replacing keys works as expected.
 func TestReplace(t *testing.T) {
 	const numLeaves = 1000
