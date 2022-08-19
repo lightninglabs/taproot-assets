@@ -29,6 +29,14 @@ var (
 	// ErrProofNotFound is returned when a user attempts to look up a proof
 	// based on a Locator, but we can't find it on disk.
 	ErrProofNotFound = fmt.Errorf("unable to find proof")
+
+	// ErrInvalidLocatorID is returned when a specified has an invalid
+	// asset ID.
+	ErrInvalidLocatorID = fmt.Errorf("invalid asset ID locator")
+
+	// ErrInvalidLocatorKey is returned when a specified locator script key
+	// is invalid.
+	ErrInvalidLocatorKey = fmt.Errorf("invalid script key locator")
 )
 
 // Loactor is able to uniquely identify a proof in the extended Taro Universe
@@ -85,11 +93,13 @@ type Archiver interface {
 // │  ├─ script_key1
 // │  ├─ script_key2
 type FileArchiver struct {
-	// proofPath is the directory name that we'll use as the roof for all our files.
+	// proofPath is the directory name that we'll use as the roof for all
+	// our files.
 	proofPath string
 }
 
-// NewFileArchiver creates a new file arc
+// NewFileArchiver creates a new file archive rooted at the passed specified
+// directory.
 //
 // TODO(roasbeef): use fs.FS instead?
 //
@@ -112,8 +122,14 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 // genProofFilePath generates the full proof file path based on a rootPath and
 // a valid locator. The final path is: root/assetID/scriptKey.taro
 func genProofFilePath(rootPath string, loc Locator) (string, error) {
-	if loc.AssetID == nil {
-		return "", fmt.Errorf("asset ID of locator must be populated")
+	var emptyKey btcec.PublicKey
+
+	switch {
+	case loc.AssetID == nil:
+		return "", ErrInvalidLocatorID
+
+	case loc.ScriptKey.IsEqual(&emptyKey):
+		return "", ErrInvalidLocatorKey
 	}
 
 	assetID := hex.EncodeToString(loc.AssetID[:])
@@ -135,7 +151,8 @@ func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error)
 	// disk.
 	proofPath, err := genProofFilePath(f.proofPath, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to make proof file path: %w",
+			err)
 	}
 
 	proofFile, err := os.ReadFile(proofPath)
