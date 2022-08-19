@@ -21,8 +21,8 @@ var (
 	)
 )
 
-// packBits packs a bit vector into a byte slice.
-func packBits(bits []bool) []byte {
+// PackBits packs a bit vector into a byte slice.
+func PackBits(bits []bool) []byte {
 	bytes := make([]byte, (len(bits)+8-1)/8) // Round up to nearest byte.
 	for i, isBitSet := range bits {
 		if !isBitSet {
@@ -35,8 +35,8 @@ func packBits(bits []bool) []byte {
 	return bytes
 }
 
-// unpackBits unpacks a byte slice into a bit vector.
-func unpackBits(bytes []byte) []bool {
+// UnpackBits unpacks a byte slice into a bit vector.
+func UnpackBits(bytes []byte) []bool {
 	bits := make([]bool, len(bytes)*8)
 	for i := 0; i < len(bits); i++ {
 		byteIdx := i / 8
@@ -62,7 +62,7 @@ func (p *CompressedProof) Encode(w io.Writer) error {
 		}
 	}
 
-	bitsBytes := packBits(p.Bits)
+	bitsBytes := PackBits(p.Bits)
 	_, err := w.Write(bitsBytes[:])
 	return err
 }
@@ -90,7 +90,7 @@ func (p *CompressedProof) Decode(r io.Reader) error {
 	if _, err := r.Read(bitsBytes[:]); err != nil {
 		return err
 	}
-	bits := unpackBits(bitsBytes[:])
+	bits := UnpackBits(bitsBytes[:])
 
 	*p = CompressedProof{
 		Bits:  bits,

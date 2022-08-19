@@ -1,4 +1,4 @@
-package mssmt
+package mssmt_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,8 +21,8 @@ func randMapElem[K comparable, V any](elems map[K]V) (K, V) {
 	panic("unreachable")
 }
 
-func benchmarkInsert(b *testing.B, tree Tree, leaves []treeLeaf,
-	_ map[[32]byte]*Proof) {
+func benchmarkInsert(b *testing.B, tree mssmt.Tree, leaves []treeLeaf,
+	_ map[[32]byte]*mssmt.Proof) {
 
 	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
@@ -31,8 +32,8 @@ func benchmarkInsert(b *testing.B, tree Tree, leaves []treeLeaf,
 	}
 }
 
-func benchmarkGet(b *testing.B, tree Tree, leaves []treeLeaf,
-	_ map[[32]byte]*Proof) {
+func benchmarkGet(b *testing.B, tree mssmt.Tree, leaves []treeLeaf,
+	_ map[[32]byte]*mssmt.Proof) {
 
 	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
@@ -42,8 +43,8 @@ func benchmarkGet(b *testing.B, tree Tree, leaves []treeLeaf,
 	}
 }
 
-func benchmarkMerkleProof(b *testing.B, tree Tree, leaves []treeLeaf,
-	proofs map[[32]byte]*Proof) {
+func benchmarkMerkleProof(b *testing.B, tree mssmt.Tree, leaves []treeLeaf,
+	proofs map[[32]byte]*mssmt.Proof) {
 
 	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
@@ -53,19 +54,19 @@ func benchmarkMerkleProof(b *testing.B, tree Tree, leaves []treeLeaf,
 	}
 }
 
-func benchmarkVerifyMerkleProof(b *testing.B, tree Tree, leaves []treeLeaf,
-	proofs map[[32]byte]*Proof) {
+func benchmarkVerifyMerkleProof(b *testing.B, tree mssmt.Tree,
+	leaves []treeLeaf, proofs map[[32]byte]*mssmt.Proof) {
 
 	for i := 0; i < b.N; i++ {
 		item := randElem(leaves)
-		_ = VerifyMerkleProof(
+		_ = mssmt.VerifyMerkleProof(
 			item.key, item.leaf, proofs[item.key], tree.Root(),
 		)
 	}
 }
 
-func benchmarkMerkleProofCompress(b *testing.B, _ Tree, _ []treeLeaf,
-	proofs map[[32]byte]*Proof) {
+func benchmarkMerkleProofCompress(b *testing.B, _ mssmt.Tree, _ []treeLeaf,
+	proofs map[[32]byte]*mssmt.Proof) {
 
 	for i := 0; i < b.N; i++ {
 		_, proof := randMapElem(proofs)
@@ -73,7 +74,8 @@ func benchmarkMerkleProofCompress(b *testing.B, _ Tree, _ []treeLeaf,
 	}
 }
 
-type benchmarkFunc = func(*testing.B, Tree, []treeLeaf, map[[32]byte]*Proof)
+type benchmarkFunc = func(*testing.B, mssmt.Tree, []treeLeaf,
+	map[[32]byte]*mssmt.Proof)
 
 type benchmark struct {
 	name string
@@ -92,7 +94,7 @@ var benchmarks = []benchmark{
 	newBenchmark("MerkleProofCompress", benchmarkMerkleProofCompress),
 }
 
-func benchmarkTree(b *testing.B, makeTree func() Tree) {
+func benchmarkTree(b *testing.B, makeTree func() mssmt.Tree) {
 	for _, numLeaves := range []int{10, 1_000, 100_000} {
 		leaves := randTree(numLeaves)
 
@@ -104,7 +106,7 @@ func benchmarkTree(b *testing.B, makeTree func() Tree) {
 			require.NoError(b, err)
 		}
 
-		proofs := make(map[[32]byte]*Proof, numLeaves)
+		proofs := make(map[[32]byte]*mssmt.Proof, numLeaves)
 		for _, item := range leaves {
 			proofs[item.key], err = tree.MerkleProof(ctx, item.key)
 			require.NoError(b, err)
@@ -125,7 +127,7 @@ func benchmarkTree(b *testing.B, makeTree func() Tree) {
 }
 
 func BenchmarkTree(b *testing.B) {
-	benchmarkTree(b, func() Tree {
-		return NewCompactedTree(NewDefaultStore())
+	benchmarkTree(b, func() mssmt.Tree {
+		return mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	})
 }

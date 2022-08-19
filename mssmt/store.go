@@ -141,6 +141,13 @@ func (d *DefaultStore) NumCompactedLeaves() int {
 	return len(d.compactedLeaves)
 }
 
+// Stats returns store statistics as a string (useful for debugging).
+func (d *DefaultStore) Stats() string {
+	return fmt.Sprintf("branches=%v, leaves=%v, cleaves=%v, reads=%v, "+
+		"writes=%v, deletes=%v\n", len(d.branches), len(d.leaves),
+		len(d.compactedLeaves), d.cntReads, d.cntWrites, d.cntDeletes)
+}
+
 // Update updates the persistent tree in the passed update closure using the
 // update transaction.
 func (d *DefaultStore) Update(_ context.Context,
