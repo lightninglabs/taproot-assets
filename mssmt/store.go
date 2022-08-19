@@ -3,6 +3,7 @@ package mssmt
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 // TreeStore represents a generic database interface to update or view a
@@ -50,6 +51,57 @@ type TreeStoreUpdateTx interface {
 	// DeleteCompactedLeaf deletes a compacted leaf keyed by the given
 	// NodeKey.
 	DeleteCompactedLeaf(NodeKey) error
+}
+
+// TreeStoreDriver represents a concrete driver of the main TreeStore
+// interface. A driver is identified by a globally unique string identifier,
+// along with a 'New()' method which is responsible for initializing a
+// particular TreeStore concrete implementation.
+type TreeStoreDriver struct {
+	// Name is the anme of the minting store driver.
+	Name string
+
+	// New creates a new concrete instance of the TreeStore given a set of
+	// arguments.
+	New func(args ...any) (TreeStore, error)
+}
+
+var (
+	treeStores           = make(map[string]*TreeStoreDriver)
+	treeStoreRegisterMtx sync.Mutex
+)
+
+// RegisteredTreeStores returns a slice of all currently registered minting
+// stores.
+//
+// NOTE: This function is safe for concurrent access.
+func RegisteredTreeStores() []*TreeStoreDriver {
+	treeStoreRegisterMtx.Lock()
+	defer treeStoreRegisterMtx.Unlock()
+
+	drivers := make([]*TreeStoreDriver, 0, len(treeStores))
+	for _, driver := range treeStores {
+		drivers = append(drivers, driver)
+	}
+
+	return drivers
+}
+
+// RegisterTreeStore registers a TreeStoreDriver which is capable of driving a
+// concrete TreeStore interface. In the case that this driver has already been
+// registered, an error is returned.
+//
+// NOTE: This function is safe for concurrent access.
+func RegisterTreeStore(driver *TreeStoreDriver) error {
+	treeStoreRegisterMtx.Lock()
+	defer treeStoreRegisterMtx.Unlock()
+
+	if _, ok := treeStores[driver.Name]; ok {
+		return fmt.Errorf("tree store already registered")
+	}
+
+	treeStores[driver.Name] = driver
+	return nil
 }
 
 // DefaultStore is an in-memory implementation of the TreeStore interface.
