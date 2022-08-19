@@ -182,14 +182,16 @@ var _ Archiver = (*FileArchiver)(nil)
 // attempts to use them either as a look-aside cache, or a write through cache
 // for all incoming requests.
 type MultiArchiver struct {
-	backends []Archiver
+	proofVerifier Verifier
+	backends      []Archiver
 }
 
 // NewMultiArchiver creates a new MultiArchiver based on the set of specified
 // backends.
-func NewMultiArchiver(backends ...Archiver) *MultiArchiver {
+func NewMultiArchiver(verifier Verifier, backends ...Archiver) *MultiArchiver {
 	return &MultiArchiver{
-		backends: backends,
+		proofVerifier: verifier,
+		backends:      backends,
 	}
 }
 
@@ -234,12 +236,9 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 		proof := proof
 
 		// First, we'll decode and then also verify the proof.
-		var proofFile File
-		err := proofFile.Decode(bytes.NewReader(proof.Blob))
-		if err != nil {
-			return fmt.Errorf("unable to parse proof: %w", err)
-		}
-		finalStateTransition, err := proofFile.Verify(ctx)
+		finalStateTransition, err := m.proofVerifier.Verify(
+			ctx, bytes.NewReader(proof.Blob),
+		)
 		if err != nil {
 			return fmt.Errorf("unable to verify proof: %w", err)
 		}

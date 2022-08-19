@@ -2,7 +2,6 @@ package proof
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -100,39 +99,6 @@ type AssetSnapshot struct {
 	// ScriptRoot is the Taro commitment root committed to using the above
 	// internal key in the Anchor transaction.
 	ScriptRoot *commitment.TaroCommitment
-}
-
-// Verify attempts to verify a full proof file starting from the asset's
-// genesis.
-//
-// The passed context can be used to exit early from the inner proof
-// verification loop.
-//
-// TODO(roasbeef): pass in the expected genesis point here?
-func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	var prev *AssetSnapshot
-	for _, proof := range f.Proofs {
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		result, err := proof.Verify(ctx, prev)
-		if err != nil {
-			return nil, err
-		}
-		prev = result
-	}
-
-	return prev, nil
 }
 
 // encodeNoChecksum encodes the proof file into `w` without its checksum.

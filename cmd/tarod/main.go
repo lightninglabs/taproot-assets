@@ -180,8 +180,10 @@ func main() {
 			BatchTicker: ticker.New(cfg.BatchMintingInterval),
 			ErrChan:     errQueue.ChanIn(),
 		}),
-		AddrBook:          addrBook,
-		ProofArchive:      proof.NewMultiArchiver(assetStore, proofFileStore),
+		AddrBook: addrBook,
+		ProofArchive: proof.NewMultiArchiver(
+			&proof.BaseVerifier{}, assetStore, proofFileStore,
+		),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
