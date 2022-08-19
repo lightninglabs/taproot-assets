@@ -183,6 +183,16 @@ type BranchNode struct {
 	Right Node
 }
 
+// NewComputedBranch creates a new branch without any reference it its
+// children. This method of construction allows as to walk the tree down by
+// only fetching minimal subtrees.
+func NewComputedBranch(nodeKey NodeKey, sum uint64) *BranchNode {
+	return &BranchNode{
+		nodeKey: &nodeKey,
+		sum:     &sum,
+	}
+}
+
 // NewBranch constructs a new branch backed by its left and right children.
 func NewBranch(left, right Node) *BranchNode {
 	return &BranchNode{
