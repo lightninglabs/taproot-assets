@@ -101,12 +101,6 @@ func insertInternalKey(ctx context.Context, a AddrBook,
 func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 	addrs ...address.AddrWithKeyInfo) error {
 
-	// Before we start below, we'll grab a creation time that'll be used
-	// for all the addresses below
-	//
-	// TODO(roasbeef): use a diff time for each address?
-	creationTime := time.Now()
-
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		// For each of the addresses listed, we'll insert the two new
@@ -142,7 +136,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				TaprootKeyID: taprootKeyID,
 				Amount:       int64(addr.Amount),
 				AssetType:    int16(addr.Type),
-				CreationTime: creationTime,
+				CreationTime: addr.CreationTime,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert addr: %w",
@@ -237,7 +231,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			}
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
-				AddressTaro: &address.AddressTaro{
+				Taro: &address.Taro{
 					Version:     asset.Version(addr.Version),
 					ID:          assetID,
 					FamilyKey:   famKey,
@@ -248,6 +242,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				},
 				ScriptKeyDesc:   scriptKeyDesc,
 				InternalKeyDesc: internalKeyDesc,
+				CreationTime:    addr.CreationTime,
 			})
 		}
 

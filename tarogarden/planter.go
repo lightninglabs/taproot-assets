@@ -45,6 +45,10 @@ type PlanterConfig struct {
 	// all asset requests into a new batch.
 	BatchTicker ticker.Ticker
 
+	// ErrChan is the main error channel the planter will report back
+	// critical errors to the main server.
+	ErrChan chan<- error
+
 	// TODO(roasbeef): something notification related?
 }
 
@@ -121,19 +125,23 @@ type ChainPlanter struct {
 	// the planter will come across.
 	stateReqs chan stateRequest
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	// ContextGuard provides a wait group and main quit channel that can be
+	// used to create guarded contexts.
+	*chanutils.ContextGuard
 }
 
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
 func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
 		cfg:               cfg,
-		quit:              make(chan struct{}),
 		caretakers:        make(map[BatchKey]*BatchCaretaker),
 		completionSignals: make(chan BatchKey),
 		seedlingReqs:      make(chan *Seedling),
 		stateReqs:         make(chan stateRequest),
+		ContextGuard: &chanutils.ContextGuard{
+			DefaultTimeout: DefaultTimeout,
+			Quit:           make(chan struct{}),
+		},
 	}
 }
 
@@ -147,34 +155,11 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
+		ErrChan: c.cfg.ErrChan,
 	})
 	c.caretakers[batchKey] = caretaker
 
 	return caretaker
-}
-
-// withCtxQuit is used to create a cancellable context that will be cancelled
-// if the main quit signal is triggered.
-//
-// TODO(roasbeef): instead make this into a single global context?
-func (c *ChainPlanter) withCtxQuit() (context.Context, func()) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	c.wg.Add(1)
-	go func() {
-		c.wg.Done()
-
-		select {
-		case <-c.quit:
-			cancel()
-			return
-
-		case <-ctx.Done():
-			return
-		}
-	}()
-
-	return ctx, cancel
 }
 
 // Start starts the ChainPlanter and any goroutines it needs to carry out its
@@ -194,7 +179,7 @@ func (c *ChainPlanter) Start() error {
 		// TODO(roasbeef): instead do RBF here? so only a single
 		// pending batch at at time? but would end up changing
 		// assetIDs.
-		ctx, cancel := c.withCtxQuit()
+		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		nonFinalBatches, err := c.cfg.Log.FetchNonFinalBatches(ctx)
 		if err != nil {
@@ -222,7 +207,7 @@ func (c *ChainPlanter) Start() error {
 		// With all the caretakers for each minting batch launched,
 		// we'll start up the main gardener goroutine so we can accept
 		// new minting requests.
-		c.wg.Add(1)
+		c.Wg.Add(1)
 		go c.gardener()
 	})
 
@@ -235,8 +220,8 @@ func (c *ChainPlanter) Stop() error {
 	c.stopOnce.Do(func() {
 		log.Infof("Stopping ChainPlanter")
 
-		close(c.quit)
-		c.wg.Wait()
+		close(c.Quit)
+		c.Wg.Wait()
 	})
 
 	return stopErr
@@ -277,10 +262,10 @@ func freezeMintingBatch(ctx context.Context, pLog MintingStore,
 
 // gardener is responsible for collecting new potential taro asset
 // seeds/seedlings into a batch to ultimately be anchored in a genesis output
-// creating the assets from seedlings into sprouts, and eventually full grown
+// creating the assets from seedlings into sprouts, and eventually fully grown
 // assets.
 func (c *ChainPlanter) gardener() {
-	defer c.wg.Done()
+	defer c.Wg.Done()
 
 	// When this exits due to the quit signal, we also want to stop all the
 	// active caretakers as well.
@@ -291,9 +276,9 @@ func (c *ChainPlanter) gardener() {
 	// TODO(roasbeef): use top level ticker.Force instead?
 	batchTicker := make(chan time.Time, 1)
 
-	c.wg.Add(1)
+	c.Wg.Add(1)
 	go func() {
-		defer c.wg.Done()
+		defer c.Wg.Done()
 
 		// Forward any ticks from the main ticker into this channel.
 		// This lets us trigger manual ticks, but also make sure we're
@@ -303,11 +288,11 @@ func (c *ChainPlanter) gardener() {
 
 			select {
 			case batchTicker <- tick:
-			case <-c.quit:
+			case <-c.Quit:
 				return
 			}
 
-		case <-c.quit:
+		case <-c.Quit:
 			return
 		}
 	}()
@@ -329,12 +314,12 @@ func (c *ChainPlanter) gardener() {
 			// At this point, we have a non-empty batch, so we'll
 			// first finalize it on disk. This means no further
 			// seedlings can be added to this batch.
-			ctx, cancel := c.withCtxQuit()
-			defer cancel()
+			ctx, cancel := c.WithCtxQuit()
 			err := freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+			cancel()
 			if err != nil {
-				// TODO(roasbeef): critical log?
-				log.Warnf("unable to freeze minting batch: %w", err)
+				c.cfg.ErrChan <- fmt.Errorf("unable to freeze "+
+					"minting batch: %w", err)
 				continue
 			}
 
@@ -342,8 +327,8 @@ func (c *ChainPlanter) gardener() {
 			// new caretaker state machine for the batch that'll
 			// drive all the seedlings do adulthood.
 			if err := caretaker.Start(); err != nil {
-				// TODO(roasbeef): critical log?
-				log.Warnf("unable to start new caretaker: %w", err)
+				c.cfg.ErrChan <- fmt.Errorf("unable to start "+
+					"new caretaker: %w", err)
 				continue
 			}
 
@@ -358,11 +343,10 @@ func (c *ChainPlanter) gardener() {
 			// After some basic validation, prepare the asset
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
-			ctx, cancel := c.withCtxQuit()
+			ctx, cancel := c.WithCtxQuit()
 			batchNow, err := c.prepTaroSeedling(ctx, req)
+			cancel()
 			if err != nil {
-				cancel()
-
 				// Something went wrong, so then an error
 				// update back to the caller.
 				req.updates <- SeedlingUpdate{
@@ -389,8 +373,6 @@ func (c *ChainPlanter) gardener() {
 			// instance, which'll prompt the finalization of the
 			// current batch.
 			if batchNow {
-				cancel()
-
 				log.Infof("Forcing new batch for %v", req)
 				batchTicker <- time.Time{}
 			}
@@ -427,7 +409,7 @@ func (c *ChainPlanter) gardener() {
 				req.Resolve(len(c.caretakers))
 			}
 
-		case <-c.quit:
+		case <-c.Quit:
 			return
 		}
 	}
@@ -442,7 +424,7 @@ func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 		reqType: reqTypePendingBatch,
 	}
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.quit) {
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -458,7 +440,7 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 		reqType: reqTypeNumActiveBatches,
 	}
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.quit) {
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return 0, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -504,7 +486,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 				req.AssetName: req,
 			},
 		}
-		ctx, cancel := c.withCtxQuit()
+		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
@@ -529,7 +511,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		}
 
 		// Now that we know the seedling is ok, we'll write it to disk.
-		ctx, cancel := c.withCtxQuit()
+		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err := c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
@@ -557,7 +539,7 @@ func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) 
 
 	// Attempt to send the new request, or exit if the quit channel
 	// triggered first.
-	if !chanutils.SendOrQuit(c.seedlingReqs, req, c.quit) {
+	if !chanutils.SendOrQuit(c.seedlingReqs, req, c.Quit) {
 		return nil, fmt.Errorf("planter shutting down")
 	}
 

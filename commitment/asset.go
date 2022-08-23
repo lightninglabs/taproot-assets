@@ -206,7 +206,7 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 
 // Root computes the root identifier required to commit to this specific asset
 // commitment within the outer commitment, also known as the Taro commitment.
-func (c AssetCommitment) Root() [sha256.Size]byte {
+func (c *AssetCommitment) Root() [sha256.Size]byte {
 	left := c.TreeRoot.Left.NodeKey()
 	right := c.TreeRoot.Right.NodeKey()
 
@@ -220,13 +220,13 @@ func (c AssetCommitment) Root() [sha256.Size]byte {
 
 // TaroCommitmentKey computes the insertion key for this specific asset
 // commitment to include in the Taro commitment MS-SMT.
-func (c AssetCommitment) TaroCommitmentKey() [32]byte {
+func (c *AssetCommitment) TaroCommitmentKey() [32]byte {
 	return c.AssetID
 }
 
 // TaroCommitmentLeaf computes the leaf node for this specific asset commitment
 // to include in the Taro commitment MS-SMT.
-func (c AssetCommitment) TaroCommitmentLeaf() *mssmt.LeafNode {
+func (c *AssetCommitment) TaroCommitmentLeaf() *mssmt.LeafNode {
 	root := c.Root()
 	sum := c.TreeRoot.NodeSum()
 
@@ -239,7 +239,7 @@ func (c AssetCommitment) TaroCommitmentLeaf() *mssmt.LeafNode {
 
 // AssetProof computes the AssetCommitment merkle proof for the asset leaf
 // located at `key`. A `nil` asset is returned if the asset is not committed to.
-func (c AssetCommitment) AssetProof(key [32]byte) (*asset.Asset, *mssmt.Proof) {
+func (c *AssetCommitment) AssetProof(key [32]byte) (*asset.Asset, *mssmt.Proof) {
 	if c.tree == nil {
 		panic("missing tree to compute proofs")
 	}
@@ -247,7 +247,7 @@ func (c AssetCommitment) AssetProof(key [32]byte) (*asset.Asset, *mssmt.Proof) {
 }
 
 // Assets returns the set of assets committed to in the asset commitment.
-func (c AssetCommitment) Assets() CommittedAssets {
+func (c *AssetCommitment) Assets() CommittedAssets {
 	assets := make(CommittedAssets, len(c.assets))
 	maps.Copy(assets, c.assets)
 

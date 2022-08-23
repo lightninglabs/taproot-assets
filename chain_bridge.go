@@ -18,7 +18,7 @@ type LndRpcChainBridge struct {
 	lnd *lndclient.LndServices
 }
 
-// NewRpcLndChainBridge creates a new chain bridge from an active lnd services
+// NewLndRpcChainBridge creates a new chain bridge from an active lnd services
 // client.
 func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 	return &LndRpcChainBridge{
@@ -31,7 +31,7 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte,
 	numConfs, heightHint uint32,
-	includeBlock bool) (*chainntnfs.ConfirmationEvent, error) {
+	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	var opts []lndclient.NotifierOption
 	if includeBlock {
@@ -39,19 +39,21 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	confChan, _, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
+	confChan, errChan, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
 		ctx, txid, pkScript, int32(numConfs), int32(heightHint),
 		opts...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to register for conf: %w", err)
+		cancel()
+
+		return nil, nil, fmt.Errorf("unable to register for conf: %w",
+			err)
 	}
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: confChan,
 		Cancel:    cancel,
-	}, nil
+	}, errChan, nil
 }
 
 // CurrentHeight return the current height of the main chain.

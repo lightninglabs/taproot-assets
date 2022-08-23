@@ -48,7 +48,7 @@ func unpackBits(bytes []byte) []bool {
 }
 
 // Encode encodes the compressed proof into the provided Writer.
-func (p CompressedProof) Encode(w io.Writer) error {
+func (p *CompressedProof) Encode(w io.Writer) error {
 	if err := binary.Write(w, byteOrder, uint16(len(p.Nodes))); err != nil {
 		return err
 	}

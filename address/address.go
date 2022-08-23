@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -23,7 +23,7 @@ var (
 		"address: unsupported HRP value",
 	)
 
-	// ErrMistmatchedHRP is an error returned when we attempt to decode a
+	// ErrMismatchedHRP is an error returned when we attempt to decode a
 	// Taro address with an HRP that does not match the expected network.
 	ErrMismatchedHRP = errors.New(
 		"address: network mismatch",
@@ -54,14 +54,16 @@ var (
 		"address: unsupported asset type",
 	)
 
-	// ErrMissingInputAsset is an error returned when we attempt to spend to a
-	// Taro address from an input that does not contain the matching asset.
+	// ErrMissingInputAsset is an error returned when we attempt to spend to
+	// a Taro address from an input that does not contain the matching
+	// asset.
 	ErrMissingInputAsset = errors.New(
 		"address: Input does not contain requested asset",
 	)
 
-	// ErrInsufficientInputAsset is an error returned when we attempt to spend
-	// to a Taro address from an input that contains insufficient asset funds.
+	// ErrInsufficientInputAsset is an error returned when we attempt to
+	// spend to a Taro address from an input that contains insufficient
+	// asset funds.
 	ErrInsufficientInputAsset = errors.New(
 		"address: Input asset value is insufficient",
 	)
@@ -72,13 +74,12 @@ const (
 	TaroScriptVersion uint8 = 0
 )
 
-// AddressTaro represents a Taro address. Taro addresses specify an asset,
-// pubkey, and amount.
-type AddressTaro struct {
-	// HRP is the human-readable part for Bech32m encoded Taro addresses.
-	//
-	// TODO(roasbeef): replace w/ the chain cfg params intead?
-	Hrp string
+// Taro represents a Taro address. Taro addresses specify an asset, pubkey, and
+// amount.
+type Taro struct {
+	// ChainParams is the reference to the chain parameters that were used
+	// to encode the Taro addresses.
+	ChainParams *ChainParams
 
 	// Version is the Taro version of the asset.
 	Version asset.Version
@@ -110,9 +111,8 @@ type AddressTaro struct {
 
 // New creates an address for receiving a Taro asset.
 func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
-	internalKey btcec.PublicKey, amt uint64,
-	assetType asset.Type, net *ChainParams,
-) (*AddressTaro, error) {
+	internalKey btcec.PublicKey, amt uint64, assetType asset.Type,
+	net *ChainParams) (*Taro, error) {
 
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
@@ -122,10 +122,12 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 		if amt != 1 {
 			return nil, ErrInvalidAmountCollectible
 		}
+
 	case asset.Normal:
 		if amt == 0 {
 			return nil, ErrInvalidAmountNormal
 		}
+
 	default:
 		return nil, ErrUnsupportedAssetType
 	}
@@ -134,8 +136,8 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 		return nil, ErrUnsupportedHRP
 	}
 
-	payload := AddressTaro{
-		Hrp:         net.TaroHRP,
+	payload := Taro{
+		ChainParams: net,
 		Version:     asset.V0,
 		ID:          id,
 		FamilyKey:   familyKey,
@@ -149,18 +151,18 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 
 // isValidInput verifies that the Taro commitment of the input contains an
 // asset that could be spent to the given Taro address.
-func isValidInput(input *commitment.TaroCommitment, address AddressTaro,
+func isValidInput(input *commitment.TaroCommitment, address Taro,
 	inputScriptKey btcec.PublicKey, net *ChainParams) (*asset.Asset, error) {
 
 	// The input and address networks must match.
-	if !IsForNet(address.Hrp, net) {
+	if !IsForNet(address.ChainParams.TaroHRP, net) {
 		return nil, ErrMismatchedHRP
 	}
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
 	// specified in the address.
 	inputCommitments := input.Commitments()
-	assetCommitment, ok := inputCommitments[address.taroCommitmentKey()]
+	assetCommitment, ok := inputCommitments[address.TaroCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingInputAsset
 	}
@@ -185,8 +187,8 @@ func isValidInput(input *commitment.TaroCommitment, address AddressTaro,
 }
 
 // Copy returns a deep copy of an Address.
-func (a AddressTaro) Copy() *AddressTaro {
-	addressCopy := a
+func (a *Taro) Copy() *Taro {
+	addressCopy := *a
 
 	if a.FamilyKey != nil {
 		famKey := *a.FamilyKey
@@ -197,13 +199,13 @@ func (a AddressTaro) Copy() *AddressTaro {
 }
 
 // Net returns the ChainParams struct matching the Taro address network.
-func (a *AddressTaro) Net() (*ChainParams, error) {
-	return Net(a.Hrp)
+func (a *Taro) Net() (*ChainParams, error) {
+	return Net(a.ChainParams.TaroHRP)
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
 // family specified by a Taro address.
-func (a *AddressTaro) taroCommitmentKey() [32]byte {
+func (a *Taro) TaroCommitmentKey() [32]byte {
 	return asset.TaroCommitmentKey(a.ID, a.FamilyKey)
 }
 
@@ -219,15 +221,12 @@ func PayToAddrScript(internalKey btcec.PublicKey, sibling *chainhash.Hash,
 		&internalKey, tapscriptRoot[:],
 	)
 
-	return txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(outputKey)).
-		Script()
+	return vm.PayToTaprootScript(outputKey)
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
 // address at runtime.
-func (a AddressTaro) EncodeRecords() []tlv.Record {
+func (a *Taro) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 7)
 	records = append(records, newAddressVersionRecord(&a.Version))
 	records = append(records, newAddressIDRecord(&a.ID))
@@ -249,7 +248,7 @@ func (a AddressTaro) EncodeRecords() []tlv.Record {
 
 // DecodeRecords provides all records known for an address for proper
 // decoding.
-func (a *AddressTaro) DecodeRecords() []tlv.Record {
+func (a *Taro) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		newAddressVersionRecord(&a.Version),
 		newAddressIDRecord(&a.ID),
@@ -262,7 +261,7 @@ func (a *AddressTaro) DecodeRecords() []tlv.Record {
 }
 
 // Encode encodes an address into a TLV stream.
-func (a AddressTaro) Encode(w io.Writer) error {
+func (a *Taro) Encode(w io.Writer) error {
 	stream, err := tlv.NewStream(a.EncodeRecords()...)
 	if err != nil {
 		return err
@@ -271,7 +270,7 @@ func (a AddressTaro) Encode(w io.Writer) error {
 }
 
 // Decode decodes an address from a TLV stream.
-func (a *AddressTaro) Decode(r io.Reader) error {
+func (a *Taro) Decode(r io.Reader) error {
 	stream, err := tlv.NewStream(a.DecodeRecords()...)
 	if err != nil {
 		return err
@@ -280,7 +279,7 @@ func (a *AddressTaro) Decode(r io.Reader) error {
 }
 
 // EncodeAddress returns a bech32m string encoding of a Taro address.
-func (a AddressTaro) EncodeAddress() (string, error) {
+func (a *Taro) EncodeAddress() (string, error) {
 	var buf bytes.Buffer
 	if err := a.Encode(&buf); err != nil {
 		return "", err
@@ -294,8 +293,8 @@ func (a AddressTaro) EncodeAddress() (string, error) {
 	}
 
 	// Check that our address is targeting a supported network.
-	if IsBech32MTaroPrefix(a.Hrp + "1") {
-		bech, err := bech32.EncodeM(a.Hrp, converted)
+	if IsBech32MTaroPrefix(a.ChainParams.TaroHRP + "1") {
+		bech, err := bech32.EncodeM(a.ChainParams.TaroHRP, converted)
 		if err != nil {
 			return "", err
 		}
@@ -307,7 +306,7 @@ func (a AddressTaro) EncodeAddress() (string, error) {
 
 // DecodeAddress parses a bech32m encoded Taro address string and
 // returns the HRP and address TLV.
-func DecodeAddress(addr string, net *ChainParams) (*AddressTaro, error) {
+func DecodeAddress(addr string, net *ChainParams) (*Taro, error) {
 	// Bech32m encoded Taro addresses start with a human-readable part
 	// (hrp) followed by '1'. For Bitcoin mainnet the hrp is "taro", and
 	// for testnet it is "tarot". If the address string has a prefix that
@@ -347,13 +346,13 @@ func DecodeAddress(addr string, net *ChainParams) (*AddressTaro, error) {
 		return nil, err
 	}
 
-	var a AddressTaro
+	var a Taro
 	buf := bytes.NewBuffer(converted)
 	if err := a.Decode(buf); err != nil {
 		return nil, err
 	}
 
-	a.Hrp = hrp
+	a.ChainParams = net
 
 	return &a, nil
 }

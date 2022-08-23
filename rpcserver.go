@@ -15,10 +15,10 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -275,7 +275,8 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	case update := <-updates:
 		if update.Error != nil {
-			return nil, fmt.Errorf("unable to mint asset: %v", err)
+			return nil, fmt.Errorf("unable to mint asset: %w",
+				update.Error)
 		}
 
 		return &tarorpc.MintAssetResponse{
@@ -366,7 +367,7 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 
 	addrs := make([]*tarorpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
-		dbAddr.Hrp = taroParams.TaroHRP
+		dbAddr.ChainParams = &taroParams
 
 		addrStr, err := dbAddr.EncodeAddress()
 		if err != nil {

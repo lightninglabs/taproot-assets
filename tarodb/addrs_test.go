@@ -49,7 +49,7 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	}
 
 	return &address.AddrWithKeyInfo{
-		AddressTaro: &address.AddressTaro{
+		Taro: &address.Taro{
 			Version:     asset.Version(rand.Int31()),
 			ID:          assetID,
 			FamilyKey:   famKey,
@@ -72,6 +72,30 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 			},
 			PubKey: internalKey.PubKey(),
 		},
+		CreationTime: time.Now(),
+	}
+}
+
+// assertEqualAddrs makes sure the given actual addresses match the expected
+// ones.
+func assertEqualAddrs(t *testing.T, expected, actual []address.AddrWithKeyInfo) {
+	require.Len(t, actual, len(expected))
+	for idx := range actual {
+		// Time values cannot be compared based on their struct contents
+		// since the same time can be represented in different ways.
+		// We compare the addresses without the timestamps and then
+		// compare the unix timestamps separately.
+		actualTime := actual[idx].CreationTime
+		expectedTime := expected[idx].CreationTime
+
+		actual[idx].CreationTime = time.Time{}
+		expected[idx].CreationTime = time.Time{}
+
+		require.Equal(t, expected[idx], actual[idx])
+		require.Equal(t, expectedTime.Unix(), actualTime.Unix())
+
+		actual[idx].CreationTime = actualTime
+		expected[idx].CreationTime = expectedTime
 	}
 }
 
@@ -100,7 +124,7 @@ func TestAddressInsertion(t *testing.T) {
 
 	// The returned addresses should match up exactly.
 	require.Len(t, dbAddrs, numAddrs)
-	require.Equal(t, addrs, dbAddrs)
+	assertEqualAddrs(t, addrs, dbAddrs)
 }
 
 // TestAddressQuery tests that we're able to properly retrieve rows based on

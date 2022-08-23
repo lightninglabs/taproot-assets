@@ -19,7 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
-	"github.com/lightninglabs/taro/build"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"

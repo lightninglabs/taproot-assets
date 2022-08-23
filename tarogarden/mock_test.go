@@ -129,13 +129,12 @@ func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 }
 
 func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	txid *chainhash.Hash, pkScript []byte,
-	numConfs, heightHint uint32,
-	includeBlock bool) (*chainntnfs.ConfirmationEvent, error) {
+	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
+	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("shutting down")
+		return nil, nil, fmt.Errorf("shutting down")
 	default:
 	}
 
@@ -146,6 +145,7 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	req := &chainntnfs.ConfirmationEvent{
 		Confirmed: make(chan *chainntnfs.TxConfirmation),
 	}
+	errChan := make(chan error)
 
 	m.confReqs[m.reqCount] = req
 
@@ -154,19 +154,23 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	case <-ctx.Done():
 	}
 
-	return req, nil
+	return req, errChan, nil
 }
 
 func (m *mockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
 
-func (m *mockChainBridge) PublishTransaction(ctx context.Context, tx *wire.MsgTx) error {
+func (m *mockChainBridge) PublishTransaction(ctx context.Context,
+	tx *wire.MsgTx) error {
+
 	m.publishReq <- tx
 	return nil
 }
 
-func (m *mockChainBridge) EstimateFee(ctx context.Context, confTarget uint32) (chainfee.SatPerKWeight, error) {
+func (m *mockChainBridge) EstimateFee(ctx context.Context,
+	confTarget uint32) (chainfee.SatPerKWeight, error) {
+
 	select {
 	case m.feeEstimateSignal <- struct{}{}:
 
@@ -233,7 +237,9 @@ func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
 	return desc, nil
 }
 
-func (m *mockKeyRing) DeriveKey(ctx context.Context, keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+func (m *mockKeyRing) DeriveKey(ctx context.Context,
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
 	select {
 	case <-ctx.Done():
 		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")

@@ -221,9 +221,7 @@ func inputPrevOutFetcher(version asset.ScriptVersion,
 	case asset.ScriptV0:
 		// TODO(roasbeef): lift and combine w/ computeTaprootScript
 		var err error
-		pkScript, err = computeTaprootScript(
-			schnorr.SerializePubKey(scriptKey),
-		)
+		pkScript, err = PayToTaprootScript(scriptKey)
 		if err != nil {
 			return nil, err
 		}

@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -92,8 +92,5 @@ func (m *MintingBatch) genesisScript() ([]byte, error) {
 		return nil, err
 	}
 
-	return txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(mintingOutputKey)).
-		Script()
+	return vm.PayToTaprootScript(mintingOutputKey)
 }

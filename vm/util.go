@@ -1,6 +1,11 @@
 package vm
 
-import "github.com/lightninglabs/taro/asset"
+import (
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightninglabs/taro/asset"
+)
 
 // HasGenesisWitness determines whether an asset has a valid genesis witness,
 // which should only have one input with a zero PrevID and empty witness and
@@ -30,4 +35,12 @@ func HasSplitCommitmentWitness(asset *asset.Asset) bool {
 
 	return witness.PrevID != nil && len(witness.TxWitness) == 0 &&
 		witness.SplitCommitment != nil
+}
+
+// PayToTaprootScript creates a pk script for a pay-to-taproot output key.
+func PayToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
+	return txscript.NewScriptBuilder().
+		AddOp(txscript.OP_1).
+		AddData(schnorr.SerializePubKey(taprootKey)).
+		Script()
 }

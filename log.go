@@ -2,9 +2,9 @@ package taro
 
 import (
 	"github.com/btcsuite/btclog"
-	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 )
 

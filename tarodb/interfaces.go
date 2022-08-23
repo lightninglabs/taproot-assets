@@ -2,8 +2,15 @@ package tarodb
 
 import (
 	"context"
+	"time"
 
 	"github.com/lightninglabs/taro/tarodb/sqlite"
+)
+
+var (
+	// DefaultStoreTimeout is the default timeout used for any interaction
+	// with the storage/database.
+	DefaultStoreTimeout = time.Second * 10
 )
 
 // TxOptions represents a set of options one can use to control what type of

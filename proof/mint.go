@@ -67,7 +67,7 @@ func encodeAsProofFile(proof *Proof) (Blob, error) {
 	return b.Bytes(), nil
 }
 
-// NewMintingProof takes a set of minting parameters, and produces a series of
+// NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
 //

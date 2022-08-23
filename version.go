@@ -3,7 +3,7 @@
 // Heavily inspired by https://github.com/btcsuite/btcd/blob/master/version.go
 // Copyright (C) 2015-2022 The Lightning Network Developers
 
-package build
+package taro
 
 import (
 	"fmt"
