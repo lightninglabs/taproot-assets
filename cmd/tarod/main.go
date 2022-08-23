@@ -203,7 +203,7 @@ func main() {
 			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,
 			AssetStore:   assetStore,
-			TaroAddrBook: taroAddrBook,
+			TaroAddrBook: tarodbAddrBook,
 		},
 	})
 	if err != nil {
