@@ -1,3 +1,6 @@
+//go:build !race
+// +build !race
+
 package mssmt_test
 
 import (
