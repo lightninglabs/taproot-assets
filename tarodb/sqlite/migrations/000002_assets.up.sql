@@ -164,13 +164,17 @@ CREATE TABLE IF NOT EXISTS assets (
 -- asset. This then references the script key of an asset, creation a one to
 -- many relationship.
 CREATE TABLE IF NOT EXISTS asset_witnesses (
-    taro_prev_out BLOB PRIMARY KEY,
+    witness_id INTEGER PRIMARY KEY,
 
-    -- TODO(roasbeef): need to ref asset_id as well?
-    -- likely want to fully unroll
-    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
+    asset_id INTEGER NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
 
-    asset_witness BLOB,
+    prev_out_point BLOB NOT NULL,
+
+    prev_asset_id BLOB NOT NULL,
+
+    prev_script_key BLOB NOT NULL,
+
+    witness_stack BLOB NOT NULL,
 
     split_commitment_proof BLOB
 );
@@ -182,7 +186,7 @@ CREATE TABLE IF NOT EXISTS asset_proofs (
     -- proof file that already exists.
     asset_id INTEGER NOT NULL REFERENCES assets(asset_id) UNIQUE,
 
-    -- TODO(roasbef): store the merkle root sepraretly? then can refre back to
+    -- TODO(roasbef): store the merkle root separately? then can refer back to
     -- for all other files
 
     proof_file BLOB NOT NULL

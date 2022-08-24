@@ -309,7 +309,7 @@ func assertAssetsEqual(t *testing.T, a, b *commitment.TaroCommitment) {
 	// The CommittedAssets() returns values from a map, which means that
 	// order isn't guaranteed. As a result, we can't just use require.Equal
 	// on the entire thing. To get around this, we use a good ol' double
-	// for-loop to compare the values that should batch up.
+	// for-loop to compare the values that should match up.
 	var numFound int
 	memAssets := a.CommittedAssets()
 	dbAssets := b.CommittedAssets()
@@ -325,7 +325,7 @@ func assertAssetsEqual(t *testing.T, a, b *commitment.TaroCommitment) {
 
 	require.Equal(t, numFound, len(memAssets))
 
-	// Finally, we should get the exact same tapscript commitment witboth
+	// Finally, we should get the exact same tapscript commitment with both
 	// versions.
 	require.Equal(t, a.TapscriptRoot(nil), b.TapscriptRoot(nil))
 }
@@ -508,7 +508,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
 
-	// Now that the batch has bee committed on disk, we should be able to
+	// Now that the batch has been committed on disk, we should be able to
 	// obtain all the proofs we just committed.
 	diskProofs, err := confAssets.FetchAssetProofs(ctx)
 	require.NoError(t, err)

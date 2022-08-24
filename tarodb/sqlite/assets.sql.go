@@ -410,7 +410,7 @@ WITH genesis_info AS (
     WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
-    version, internal_keys.raw_key AS script_key_raw, 
+    assets.asset_id, version, internal_keys.raw_key AS script_key_raw, 
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
@@ -435,6 +435,7 @@ JOIN chain_txns txns
 `
 
 type FetchAllAssetsRow struct {
+	AssetID            int32
 	Version            int32
 	ScriptKeyRaw       []byte
 	ScriptKeyFam       int32
@@ -448,7 +449,7 @@ type FetchAllAssetsRow struct {
 	Amount             int64
 	LockTime           sql.NullInt32
 	RelativeLockTime   sql.NullInt32
-	AssetID            []byte
+	AssetID_2          []byte
 	AssetTag           string
 	MetaData           []byte
 	GenesisOutputIndex int32
@@ -475,6 +476,7 @@ func (q *Queries) FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, erro
 	for rows.Next() {
 		var i FetchAllAssetsRow
 		if err := rows.Scan(
+			&i.AssetID,
 			&i.Version,
 			&i.ScriptKeyRaw,
 			&i.ScriptKeyFam,
@@ -488,7 +490,7 @@ func (q *Queries) FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, erro
 			&i.Amount,
 			&i.LockTime,
 			&i.RelativeLockTime,
-			&i.AssetID,
+			&i.AssetID_2,
 			&i.AssetTag,
 			&i.MetaData,
 			&i.GenesisOutputIndex,
@@ -566,6 +568,57 @@ func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, 
 	for rows.Next() {
 		var i FetchAssetProofsRow
 		if err := rows.Scan(&i.ScriptKey, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
+SELECT 
+    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
+    witness_stack, split_commitment_proof
+FROM asset_witnesses
+JOIN assets
+    ON asset_witnesses.asset_id = assets.asset_id
+WHERE (
+    assets.asset_id = $1 OR $1 IS NULL
+)
+`
+
+type FetchAssetWitnessesRow struct {
+	AssetID              int32
+	PrevOutPoint         []byte
+	PrevAssetID          []byte
+	PrevScriptKey        []byte
+	WitnessStack         []byte
+	SplitCommitmentProof []byte
+}
+
+func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetWitnesses, assetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetWitnessesRow
+	for rows.Next() {
+		var i FetchAssetWitnessesRow
+		if err := rows.Scan(
+			&i.AssetID,
+			&i.PrevOutPoint,
+			&i.PrevAssetID,
+			&i.PrevScriptKey,
+			&i.WitnessStack,
+			&i.SplitCommitmentProof,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1169,22 +1222,63 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 	return err
 }
 
+const insertAssetWitness = `-- name: InsertAssetWitness :exec
+INSERT INTO asset_witnesses (
+    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
+    split_commitment_proof
+) VALUES (
+    ?, ?, ?, ?, ?, ?
+)
+`
+
+type InsertAssetWitnessParams struct {
+	AssetID              int32
+	PrevOutPoint         []byte
+	PrevAssetID          []byte
+	PrevScriptKey        []byte
+	WitnessStack         []byte
+	SplitCommitmentProof []byte
+}
+
+func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error {
+	_, err := q.db.ExecContext(ctx, insertAssetWitness,
+		arg.AssetID,
+		arg.PrevOutPoint,
+		arg.PrevAssetID,
+		arg.PrevScriptKey,
+		arg.WitnessStack,
+		arg.SplitCommitmentProof,
+	)
+	return err
+}
+
 const insertChainTx = `-- name: InsertChainTx :one
 INSERT INTO chain_txns (
-    txid, raw_tx
+    txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
-    ?, ?
-)
+    $1, $2, $3,
+    $4, $5
+) ON CONFLICT
+    DO UPDATE SET txid = EXCLUDED.txid
 RETURNING txn_id
 `
 
 type InsertChainTxParams struct {
-	Txid  []byte
-	RawTx []byte
+	Txid        []byte
+	RawTx       []byte
+	BlockHeight sql.NullInt32
+	BlockHash   []byte
+	TxIndex     sql.NullInt32
 }
 
 func (q *Queries) InsertChainTx(ctx context.Context, arg InsertChainTxParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertChainTx, arg.Txid, arg.RawTx)
+	row := q.db.QueryRowContext(ctx, insertChainTx,
+		arg.Txid,
+		arg.RawTx,
+		arg.BlockHeight,
+		arg.BlockHash,
+		arg.TxIndex,
+	)
 	var txn_id int32
 	err := row.Scan(&txn_id)
 	return txn_id, err
@@ -1226,7 +1320,9 @@ INSERT INTO genesis_points(
     prev_out
 ) VALUES (
     ?
-) RETURNING genesis_id
+) ON CONFLICT
+    DO UPDATE SET prev_out = EXCLUDED.prev_out
+RETURNING genesis_id
 `
 
 func (q *Queries) InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error) {
@@ -1239,7 +1335,11 @@ func (q *Queries) InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32
 const insertInternalKey = `-- name: InsertInternalKey :one
 INSERT INTO internal_keys (
     raw_key, key_family, key_index
-) VALUES (?, ?, ?) RETURNING key_id
+) VALUES (
+    ?, ?, ?
+) ON CONFLICT
+    DO UPDATE SET raw_key = EXCLUDED.raw_key
+RETURNING key_id
 `
 
 type InsertInternalKeyParams struct {
@@ -1291,13 +1391,13 @@ func (q *Queries) InsertManagedUTXO(ctx context.Context, arg InsertManagedUTXOPa
 	return utxo_id, err
 }
 
-const insertNewAsset = `-- name: InsertNewAsset :exec
+const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
-    amount, lock_time, relative_lock_time
+    amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?
-)
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
+) RETURNING asset_id
 `
 
 type InsertNewAssetParams struct {
@@ -1309,10 +1409,11 @@ type InsertNewAssetParams struct {
 	Amount           int64
 	LockTime         sql.NullInt32
 	RelativeLockTime sql.NullInt32
+	AnchorUtxoID     sql.NullInt32
 }
 
-func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewAsset,
+func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, insertNewAsset,
 		arg.Version,
 		arg.ScriptKeyID,
 		arg.AssetID,
@@ -1321,8 +1422,11 @@ func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) 
 		arg.Amount,
 		arg.LockTime,
 		arg.RelativeLockTime,
+		arg.AnchorUtxoID,
 	)
-	return err
+	var asset_id int32
+	err := row.Scan(&asset_id)
+	return asset_id, err
 }
 
 const newMintingBatch = `-- name: NewMintingBatch :exec

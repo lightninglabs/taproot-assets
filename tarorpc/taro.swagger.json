@@ -366,6 +366,9 @@
         }
       }
     },
+    "tarorpcImportProofResponse": {
+      "type": "object"
+    },
     "tarorpcListAssetResponse": {
       "type": "object",
       "properties": {
@@ -435,6 +438,26 @@
         },
         "asset_type": {
           "$ref": "#/definitions/tarorpcAssetType"
+        }
+      }
+    },
+    "tarorpcProofFile": {
+      "type": "object",
+      "properties": {
+        "raw_proof": {
+          "type": "string",
+          "format": "byte"
+        },
+        "genesis_point": {
+          "type": "string"
+        }
+      }
+    },
+    "tarorpcProofVerifyResponse": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean"
         }
       }
     },

@@ -1,7 +1,11 @@
 -- name: InsertInternalKey :one
 INSERT INTO internal_keys (
     raw_key, key_family, key_index
-) VALUES (?, ?, ?) RETURNING key_id;
+) VALUES (
+    ?, ?, ?
+) ON CONFLICT
+    DO UPDATE SET raw_key = EXCLUDED.raw_key
+RETURNING key_id;
 
 -- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
@@ -99,7 +103,9 @@ INSERT INTO genesis_points(
     prev_out
 ) VALUES (
     ?
-) RETURNING genesis_id;
+) ON CONFLICT
+    DO UPDATE SET prev_out = EXCLUDED.prev_out
+RETURNING genesis_id;
 
 -- name: InsertAssetFamilyKey :one
 INSERT INTO asset_families (
@@ -124,13 +130,13 @@ INSERT INTO genesis_assets (
     ?, ?, ?, ?, ?, ?
 ) RETURNING gen_asset_id;
 
--- name: InsertNewAsset :exec
+-- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
-    amount, lock_time, relative_lock_time
+    amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?
-);
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
+) RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
 WITH genesis_info AS (
@@ -219,7 +225,7 @@ WITH genesis_info AS (
     WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
-    version, internal_keys.raw_key AS script_key_raw, 
+    assets.asset_id, version, internal_keys.raw_key AS script_key_raw, 
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
@@ -289,10 +295,12 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: InsertChainTx :one
 INSERT INTO chain_txns (
-    txid, raw_tx
+    txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
-    ?, ?
-)
+    sqlc.narg('txid'), sqlc.narg('raw_tx'), sqlc.narg('block_height'),
+    sqlc.narg('block_hash'), sqlc.narg('tx_index')
+) ON CONFLICT
+    DO UPDATE SET txid = EXCLUDED.txid
 RETURNING txn_id;
 
 -- name: FetchChainTx :one
@@ -421,3 +429,22 @@ SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
+
+-- name: InsertAssetWitness :exec
+INSERT INTO asset_witnesses (
+    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
+    split_commitment_proof
+) VALUES (
+    ?, ?, ?, ?, ?, ?
+);
+
+-- name: FetchAssetWitnesses :many
+SELECT 
+    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
+    witness_stack, split_commitment_proof
+FROM asset_witnesses
+JOIN assets
+    ON asset_witnesses.asset_id = assets.asset_id
+WHERE (
+    assets.asset_id = sqlc.narg('asset_id') OR sqlc.narg('asset_id') IS NULL
+);

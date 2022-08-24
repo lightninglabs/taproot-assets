@@ -28,6 +28,7 @@ type Querier interface {
 	FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, error)
 	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
+	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt32) ([]Asset, error)
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the faily key fields if an asset
@@ -49,12 +50,13 @@ type Querier interface {
 	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
+	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertChainTx(ctx context.Context, arg InsertChainTxParams) (int32, error)
 	InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error)
 	InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 	InsertInternalKey(ctx context.Context, arg InsertInternalKeyParams) (int32, error)
 	InsertManagedUTXO(ctx context.Context, arg InsertManagedUTXOParams) (int32, error)
-	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) error
+	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	UpdateAssetProof(ctx context.Context, arg UpdateAssetProofParams) error

@@ -3,6 +3,8 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -26,6 +28,14 @@ type (
 	// AssetProofI is identical to AssetProof but is used for the case
 	// where the proofs for a specific asset are fetched.
 	AssetProofI = sqlite.FetchAssetProofRow
+
+	// PrevInput stores the full input information including the prev out,
+	// and also the witness information itself.
+	PrevInput = sqlite.InsertAssetWitnessParams
+
+	// AssetWitness is the full prev input for an asset that also couples
+	// along the asset ID that the witness belong to.
+	AssetWitness = sqlite.FetchAssetWitnessesRow
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
@@ -42,6 +52,51 @@ type ActiveAssetsStore interface {
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
 		scriptKey []byte) (AssetProofI, error)
+
+	// InsertGenesisPoint inserts a new genesis point on disk, and returns
+	// the primary key.
+	InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
+
+	// InsertGenesisAsset inserts a new genesis asset (the base asset info)
+	// into the DB.
+	//
+	// TODO(roasbeef): hybrid version of the main tx interface that an
+	// accept two diff storage interfaces?
+	//
+	//  * or use a sort of mix-in type?
+	InsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
+
+	// InsertInternalKey inserts a new internal key into the database.
+	InsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+
+	// InsertAssetFamilySig inserts a new asset family sig into the DB.
+	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
+
+	// InsertAssetFamilyKey inserts a new family key on disk, and returns
+	// the primary key.
+	InsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32, error)
+
+	// InsertNewAsset inserts a new asset on disk.
+	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
+
+	// InsertChainTx insets a new chain tx into the DB.
+	InsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+
+	// InsertManagedUTXO adds a new managed UTXO to disk.
+	InsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
+
+	// UpdateAssetProof inserts a new asset proofon disk. If one already
+	// exists, then the proof file is updated in place.
+	UpdateAssetProof(ctx context.Context,
+		arg sqlite.UpdateAssetProofParams) error
+
+	// InsertAssetWitness inserts a new prev input for an asset into the
+	// database.
+	InsertAssetWitness(context.Context, PrevInput) error
+
+	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
+	// on disk (NULL param), or the witness for a given asset ID.
+	FetchAssetWitnesses(context.Context, sql.NullInt32) ([]AssetWitness, error)
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -84,14 +139,126 @@ type ChainAsset struct {
 	AnchorOutpoint wire.OutPoint
 }
 
+// fetchAssetWitnesses attempts to fetch all the asset witnesses that belong to
+// the set of passed asset IDs.
+func fetchAssetWitnesses(ctx context.Context,
+	db ActiveAssetsStore, assetIDs []int32) (map[int32][]AssetWitness, error) {
+
+	assetWitnesses := make(map[int32][]AssetWitness)
+	for _, assetID := range assetIDs {
+		witnesses, err := db.FetchAssetWitnesses(
+			ctx, sqlInt32(assetID),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		assetWitnesses[assetID] = witnesses
+	}
+
+	return assetWitnesses, nil
+}
+
+// parseAssetWitness maps a witness stored in the database to something we can
+// use directly.
+func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
+	var (
+		op      wire.OutPoint
+		witness asset.Witness
+	)
+
+	err := readOutPoint(
+		bytes.NewReader(input.PrevOutPoint), 0, 0, &op,
+	)
+	if err != nil {
+		return witness, fmt.Errorf("unable to "+
+			"read outpoint: %w", err)
+	}
+
+	var (
+		zeroKey   [32]byte
+		scriptKey btcec.PublicKey
+	)
+	if !bytes.Equal(zeroKey[:], input.PrevScriptKey[1:]) {
+		prevKey, err := btcec.ParsePubKey(input.PrevScriptKey)
+		if err != nil {
+			return witness, fmt.Errorf("unable to decode key: %w", err)
+		}
+		scriptKey = *prevKey
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], input.PrevAssetID)
+	witness.PrevID = &asset.PrevID{
+		OutPoint:  op,
+		ID:        assetID,
+		ScriptKey: scriptKey,
+	}
+
+	var buf [8]byte
+
+	if len(input.WitnessStack) != 0 {
+		err = asset.TxWitnessDecoder(
+			bytes.NewReader(input.WitnessStack),
+			&witness.TxWitness, &buf,
+			uint64(len(input.WitnessStack)),
+		)
+		if err != nil {
+			return witness, fmt.Errorf("unable to decode "+
+				"witness: %w", err)
+		}
+	}
+
+	if len(input.SplitCommitmentProof) != 0 {
+		err := asset.SplitCommitmentDecoder(
+			bytes.NewReader(input.SplitCommitmentProof),
+			&witness.SplitCommitment, &buf,
+			uint64(len(input.SplitCommitmentProof)),
+		)
+		if err != nil {
+			return witness, fmt.Errorf("unable to decode split "+
+				"commitment: %w", err)
+		}
+	}
+
+	return witness, nil
+}
+
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
-//
-// TODO(roasbeef): specify if proof file should be retrieved as well?
 func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) {
 
-	dbAssets, err := a.db.FetchAllAssets(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read db assets: %v", err)
+	var (
+		dbAssets []ConfirmedAsset
+
+		assetWitnesses map[int32][]AssetWitness
+
+		err error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// First, we'll fetch all the assets we know of on disk.
+		dbAssets, err = q.FetchAllAssets(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to read db assets: %v", err)
+		}
+
+		assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
+			return a.AssetID
+		})
+
+		// With all the assets obtained, we'll now do a second query to
+		// obtain all the witnesses we know of for each asset.
+		assetWitnesses, err = fetchAssetWitnesses(ctx, q, assetIDs)
+		if err != nil {
+			return fmt.Errorf("unable to fetch asset "+
+				"witnesses: %w", err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
 	}
 
 	chainAssets := make([]*ChainAsset, len(dbAssets))
@@ -187,6 +354,27 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
 				"%v", err)
+		}
+
+		// With the asset created, we'll now emplace the set of
+		// witnesses for the asset itself. If this is a genesis asset,
+		// then it won't have a set of witnesses.
+		assetInputs, ok := assetWitnesses[sprout.AssetID]
+		if ok {
+			assetSprout.PrevWitnesses = make(
+				[]asset.Witness, 0, len(assetInputs),
+			)
+			for _, input := range assetInputs {
+				witness, err := parseAssetWitness(input)
+				if err != nil {
+					return nil, fmt.Errorf("unable to "+
+						"parse witness: %w", err)
+				}
+
+				assetSprout.PrevWitnesses = append(
+					assetSprout.PrevWitnesses, witness,
+				)
+			}
 		}
 
 		anchorTx := wire.NewMsgTx(2)
@@ -292,3 +480,311 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 
 	return proofs, nil
 }
+
+// FetchProof fetches a proof for an asset uniquely idenfitied by the passed
+// ProofIdentifier.
+//
+// NOTE: This implements the proof.ArchiveBackend interface.
+func (a *AssetStore) FetchProof(ctx context.Context,
+	locator proof.Locator) (proof.Blob, error) {
+
+	// We don't need anything else but the script key since we have an
+	// on-disk index for all proofs we store.
+	scriptKey := locator.ScriptKey
+
+	var diskProof proof.Blob
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		assetProof, err := q.FetchAssetProof(
+			ctx, scriptKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch asset "+
+				"proof: %w", err)
+		}
+
+		diskProof = assetProof.ProofFile
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, proof.ErrProofNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return diskProof, nil
+}
+
+// insertAssetWitnesses attempts to insert the set of asset witnesses in to the
+// database, referencing the passed asset primary key.
+func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
+	db ActiveAssetsStore, assetID int32, inputs []asset.Witness) error {
+
+	var buf [8]byte
+	for _, input := range inputs {
+		prevID := input.PrevID
+
+		var b bytes.Buffer
+		err := wire.WriteOutPoint(&b, 0, 0, &prevID.OutPoint)
+		if err != nil {
+			return fmt.Errorf("unable to write outpoint: %w", err)
+		}
+
+		prevOut := b.Bytes()
+
+		var witnessStack []byte
+		if len(input.TxWitness) != 0 {
+			var b bytes.Buffer
+			err = asset.TxWitnessEncoder(&b, &input.TxWitness, &buf)
+			if err != nil {
+				return fmt.Errorf("unable to encode "+
+					"witness: %w", err)
+			}
+
+			witnessStack = make([]byte, b.Len())
+			copy(witnessStack, b.Bytes())
+		}
+
+		var splitCommitmentProof []byte
+
+		if input.SplitCommitment != nil {
+			var b bytes.Buffer
+			err := asset.SplitCommitmentEncoder(
+				&b, &input.SplitCommitment, &buf,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to encode split "+
+					"commitment: %w", err)
+			}
+
+			splitCommitmentProof = make([]byte, b.Len())
+			copy(splitCommitmentProof, b.Bytes())
+		}
+
+		prevScriptKey := prevID.ScriptKey.SerializeCompressed()
+		err = db.InsertAssetWitness(ctx, PrevInput{
+			AssetID:              assetID,
+			PrevOutPoint:         prevOut,
+			PrevAssetID:          prevID.ID[:],
+			PrevScriptKey:        prevScriptKey,
+			WitnessStack:         witnessStack,
+			SplitCommitmentProof: splitCommitmentProof,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert witness: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// importAssetFromProof imports a new asset into the database based on the
+// information associated with the annotated proofs. This will result in a new
+// asset inserted on disk, with all dependencies such as the asset witnesses
+// inserted along the way.
+//
+// TODO(roasbeef): reduce duplication w/ pending asset store
+func (a *AssetStore) importAssetFromProof(ctx context.Context,
+	db ActiveAssetsStore, proof *proof.AnnotatedProof) error {
+
+	// TODO(roasbeef): below needs to be updated to support asset splits
+
+	// We already know where this lives on-chain, so we can go ahead and
+	// insert the chain information now.
+	//
+	// From the final asset snapshot, we'll obtain the final "resting
+	// place" of the asset and insert that into the DB.
+	var anchorTxBuf bytes.Buffer
+	if err := proof.AnchorTx.Serialize(&anchorTxBuf); err != nil {
+		return err
+	}
+	anchorTXID := proof.AnchorTx.TxHash()
+	chainTXID, err := db.InsertChainTx(ctx, ChainTx{
+		Txid:        anchorTXID[:],
+		RawTx:       anchorTxBuf.Bytes(),
+		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
+		BlockHash:   proof.AnchorBlockHash[:],
+		TxIndex:     sqlInt32(proof.AnchorTxIndex),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert chain tx: %w", err)
+	}
+
+	anchorOutput := proof.AnchorTx.TxOut[proof.OutputIndex]
+	anchorPoint, err := encodeOutpoint(wire.OutPoint{
+		Hash:  anchorTXID,
+		Index: proof.OutputIndex,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to encode outpoint: %w", err)
+	}
+
+	// Before we import the managed UTXO below, we'll make sure to insert
+	// the internal key, though it might already exist here.
+	_, err = db.InsertInternalKey(ctx, InternalKey{
+		RawKey: proof.InternalKey.SerializeCompressed(),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert internal key: %w", err)
+	}
+
+	// Next, we'll insert the managed UTXO that points to the output in our
+	// control for the specified asset.
+	//
+	// TODO(roasbeef): also need to store sibling hash here?
+	tapscriptRoot := proof.ScriptRoot.TapscriptRoot(nil)
+	utxoID, err := db.InsertManagedUTXO(ctx, RawManagedUTXO{
+		RawKey:   proof.InternalKey.SerializeCompressed(),
+		Outpoint: anchorPoint,
+		AmtSats:  anchorOutput.Value,
+		TaroRoot: tapscriptRoot[:],
+		TxnID:    chainTXID,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert managed utxo: %w", err)
+	}
+
+	newAsset := proof.Asset
+
+	genesisPoint, err := encodeOutpoint(
+		newAsset.Genesis.FirstPrevOut,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to encode genesis point: %w", err)
+	}
+
+	// Next, we'll attempt to import the genesis point for this asset.
+	// This might already exist if we have the same assetID/keyFamily.
+	genesisPointID, err := db.InsertGenesisPoint(ctx, genesisPoint)
+	if err != nil {
+		return fmt.Errorf("unable to insert genesis "+
+			"point: %w", err)
+	}
+
+	// Next, we'll insert the genesis_asset row which holds the base
+	// information for this asset.
+	assetID := newAsset.ID()
+	genAssetID, err := db.InsertGenesisAsset(ctx, GenesisAsset{
+		AssetID:        assetID[:],
+		AssetTag:       newAsset.Genesis.Tag,
+		MetaData:       newAsset.Genesis.Metadata,
+		OutputIndex:    int32(newAsset.Genesis.OutputIndex),
+		AssetType:      int16(newAsset.Type),
+		GenesisPointID: genesisPointID,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert genesis asset: %w", err)
+	}
+
+	// With the base asset information inserted, we we'll now add the
+	// information for the asset family
+	//
+	// TODO(roasbeef): sig here doesn't actually matter?
+	//   * don't have the key desc information here neccesrily
+	//   * inserting the fam key rn, which is ok as its external w/ no key
+	//     desc info
+	var sqlFamilySigID sql.NullInt32
+	familyKey := newAsset.FamilyKey
+	if familyKey != nil {
+		keyID, err := db.InsertInternalKey(ctx, InternalKey{
+			RawKey: familyKey.FamKey.SerializeCompressed(),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert internal key: %w", err)
+		}
+		assetKey := AssetFamilyKey{
+			TweakedFamKey:  familyKey.FamKey.SerializeCompressed(),
+			InternalKeyID:  keyID,
+			GenesisPointID: genesisPointID,
+		}
+		famID, err := db.InsertAssetFamilyKey(ctx, assetKey)
+		if err != nil {
+			return fmt.Errorf("unable to insert family key: %w", err)
+		}
+		famSigID, err := db.InsertAssetFamilySig(ctx, AssetFamSig{
+			GenesisSig: familyKey.Sig.Serialize(),
+			GenAssetID: genAssetID,
+			KeyFamID:   famID,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert fam sig: %w", err)
+		}
+
+		sqlFamilySigID = sqlInt32(famSigID)
+	}
+
+	// With the family key information inserted, we'll now insert the
+	// internal key we'll be using for the script key itself.
+	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
+	scriptKeyID, err := db.InsertInternalKey(ctx, InternalKey{
+		RawKey:    scriptKeyBytes,
+		KeyFamily: int32(newAsset.ScriptKey.Family),
+		KeyIndex:  int32(newAsset.ScriptKey.Index),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert internal key: %w", err)
+	}
+
+	// With all the dependent data inserted, we can now insert the base
+	// asset information itself.
+	assetPrimary, err := db.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
+		AssetID:          genAssetID,
+		Version:          int32(newAsset.Version),
+		ScriptKeyID:      scriptKeyID,
+		AssetFamilySigID: sqlFamilySigID,
+		ScriptVersion:    int32(newAsset.ScriptVersion),
+		Amount:           int64(newAsset.Amount),
+		LockTime:         sqlInt32(newAsset.LockTime),
+		RelativeLockTime: sqlInt32(newAsset.RelativeLockTime),
+		AnchorUtxoID:     sqlInt32(utxoID),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert "+
+			"asset: %w", err)
+	}
+
+	// Now that we have the asset inserted, we'll also insert all the
+	// witness data associated with the asset in a new row.
+	err = a.insertAssetWitnesses(
+		ctx, db, assetPrimary, newAsset.PrevWitnesses,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert asset witness: %w", err)
+	}
+
+	// As a final step, we'll insert the proof file we used to generate all
+	// the above information.
+	return db.UpdateAssetProof(ctx, ProofUpdate{
+		RawKey:    scriptKeyBytes,
+		ProofFile: proof.Blob,
+	})
+}
+
+// ImportProofs attempts to store fully populated proofs on disk. The previous
+// outpoint of the first state transition will be used as the Genesis point.
+// The final resting place of the asset will be used as the script key itself.
+//
+// NOTE: This implements the proof.ArchiveBackend interface.
+func (a *AssetStore) ImportProofs(ctx context.Context,
+	proofs ...*proof.AnnotatedProof) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		for _, proof := range proofs {
+			err := a.importAssetFromProof(ctx, q, proof)
+			if err != nil {
+				return fmt.Errorf("unable to import asset: %w",
+					err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// A compile-time constant to ensure that AssetStore meets the proof.Archiver
+// interface.
+var _ proof.Archiver = (*AssetStore)(nil)

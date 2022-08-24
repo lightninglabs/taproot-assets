@@ -45,6 +45,25 @@ service Taro {
   represents the asset it wants to receive.
   */
   rpc DecodeAddr(Addr) returns (Asset);
+
+  /* tarocli: `proofs verify`
+  VerifyProof attempts to verify a given proof file that claims to be anchored
+  at the specified genesis point.
+  */
+  rpc VerifyProof(ProofFile) returns (ProofVerifyResponse);
+
+  /* tarocli: `proofs export`
+  ExportProof exports the latest raw proof file acnhored at the specified
+  script_key.
+  */
+  rpc ExportProof(ExportProofRequest) returns (ProofFile);
+
+  /* tarocli: `proofs import`
+  ImportProof attempts to import a proof file into the daemon. If succesful, a
+  new asset will be inserted on disk, spendable using the specified target
+  script key, and internaly key.
+  */
+  rpc ImportProof(ImportProofRequest) returns (ImportProofResponse);
 }
 
 enum AssetType {
@@ -226,3 +245,27 @@ message NewAddrRequest {
 
   AssetType asset_type = 4;
 }
+
+message ProofFile {
+  bytes raw_proof = 1;
+
+  string genesis_point = 2;
+}
+
+message ProofVerifyResponse { bool valid = 1; }
+
+message ExportProofRequest {
+  bytes asset_id = 1;
+  bytes script_key = 2;
+
+  // TODO(roasbeef): specify information to make new state transition in proof
+  // file?
+}
+
+message ImportProofRequest {
+  bytes proof_file = 1;
+
+  string genesis_point = 2;
+}
+
+message ImportProofResponse {}

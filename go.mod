@@ -17,9 +17,9 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.0.0
-	github.com/lightninglabs/lndclient v0.16.0-0
+	github.com/lightninglabs/lndclient v1.0.1-0.20220811073604-95ccd28c2159
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
-	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20220714125147-af97b8f877c2
+	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20220811013818-559160e95cf9
 	github.com/lightningnetwork/lnd/cert v1.1.1
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.0.3
@@ -121,6 +121,7 @@ require (
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02 // indirect
@@ -173,7 +174,3 @@ require (
 	modernc.org/token v1.0.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
-
-replace github.com/lightningnetwork/lnd => github.com/roasbeef/lnd v0.2.1-alpha.0.20220802025933-89dc75cd900c
-
-replace github.com/lightninglabs/lndclient => github.com/roasbeef/lndclient v1.0.1-0.20220802030840-ac5d0cc1a799

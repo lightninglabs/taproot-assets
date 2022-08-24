@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"io"
+	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
@@ -91,4 +92,19 @@ func noError1[T any, Q any](t *testing.T, f func(Q) (T, error), args Q) T {
 	v, err := f(args)
 	require.NoError(t, err)
 	return v
+}
+
+// fMap takes an input slice, ans applies the function f to each element,
+// yielding a new slice.
+func fMap[T1, T2 any](s []T1, f func(T1) T2) []T2 {
+	r := make([]T2, len(s))
+	for i, v := range s {
+		r[i] = f(v)
+	}
+	return r
+}
+
+// randInt makes a random integer of the specified type.
+func randInt[T constraints.Integer]() T {
+	return T(rand.Int63())
 }

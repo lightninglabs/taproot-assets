@@ -2,7 +2,6 @@ package proof
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -11,8 +10,11 @@ import (
 	"io/ioutil"
 	"math"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -71,39 +73,32 @@ type AssetSnapshot struct {
 
 	// OutPoint is the outpoint that commits to the asset specified above.
 	OutPoint wire.OutPoint
-}
 
-// Verify attempts to verify a full proof file starting from the asset's
-// genesis.
-//
-// The passed context can be used to exit early from the inner proof
-// verification loop.
-//
-// TODO(roasbeef): pass in the expected genesis point here?
-func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
+	// AnchorBlockHash is the block hash that anchors the Bitcoin
+	// transaction for this Taro state transition.
+	AnchorBlockHash chainhash.Hash
 
-	var prev *AssetSnapshot
-	for _, proof := range f.Proofs {
+	// AnchorBlockHeight is the height of the block hash above.
+	AnchorBlockHeight uint32
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
+	// AnchorTxIndex is the transaction index within the above block where
+	// the AnchorTx can be found.
+	AnchorTxIndex uint32
 
-		result, err := proof.Verify(ctx, prev)
-		if err != nil {
-			return nil, err
-		}
-		prev = result
-	}
+	// AnchorTx is the transaction that commits to the above asset.
+	AnchorTx *wire.MsgTx
 
-	return prev, nil
+	// OutputIndex is the output index in the above transaction that
+	// commits to the output.
+	OutputIndex uint32
+
+	// InternalKey is the internal key used to commit to the above asset in
+	// the AnchorTx.
+	InternalKey *btcec.PublicKey
+
+	// ScriptRoot is the Taro commitment root committed to using the above
+	// internal key in the Anchor transaction.
+	ScriptRoot *commitment.TaroCommitment
 }
 
 // encodeNoChecksum encodes the proof file into `w` without its checksum.

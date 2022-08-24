@@ -141,7 +141,7 @@ type PendingAssetStore interface {
 	InsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32, error)
 
 	// InsertNewAsset inserts a new asset on disk.
-	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) error
+	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
@@ -589,6 +589,18 @@ func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
 	})
 }
 
+// encodeOutpoint encodes the outpoint point in Bitcoin wire format, returning
+// the final result.
+func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
+	var b bytes.Buffer
+	err := wire.WriteOutPoint(&b, 0, 0, &outPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
+}
+
 // AddSproutsToBatch updates a batch with the passed batch transaction and also
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
@@ -600,11 +612,11 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	// assets committed to within the root commitment specified.
 	assets := assetRoot.CommittedAssets()
 
-	var genesisPointBuf bytes.Buffer
-	genesisPoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	err := wire.WriteOutPoint(&genesisPointBuf, 0, 0, &genesisPoint)
+	genesisPoint, err := encodeOutpoint(
+		genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to encode genesis point: %w", err)
 	}
 
 	rawBatchKey := batchKey.SerializeCompressed()
@@ -613,9 +625,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll insert the component that ties together all the
 		// assets in this batch: the genesis point.
-		genesisPointID, err := q.InsertGenesisPoint(
-			ctx, genesisPointBuf.Bytes(),
-		)
+		genesisPointID, err := q.InsertGenesisPoint(ctx, genesisPoint)
 		if err != nil {
 			return fmt.Errorf("unable to insert genesis "+
 				"point: %w", err)
@@ -706,7 +716,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 				return fmt.Errorf("unable to insert internal "+
 					"key: %w", err)
 			}
-			err = q.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
+			_, err = q.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
 				AssetID:          genAssetID,
 				Version:          int32(asset.Version),
 				ScriptKeyID:      scriptKeyID,
