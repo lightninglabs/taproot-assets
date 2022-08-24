@@ -1258,7 +1258,8 @@ INSERT INTO chain_txns (
 ) VALUES (
     $1, $2, $3,
     $4, $5
-)
+) ON CONFLICT
+    DO UPDATE SET txid = EXCLUDED.txid
 RETURNING txn_id
 `
 

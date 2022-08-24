@@ -7,7 +7,6 @@ INSERT INTO internal_keys (
     DO UPDATE SET key_id = EXCLUDED.key_id
 RETURNING key_id;
 
-
 -- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
     batch_state, batch_id, creation_time_unix
@@ -300,7 +299,8 @@ INSERT INTO chain_txns (
 ) VALUES (
     sqlc.narg('txid'), sqlc.narg('raw_tx'), sqlc.narg('block_height'),
     sqlc.narg('block_hash'), sqlc.narg('tx_index')
-)
+) ON CONFLICT
+    DO UPDATE SET txid = EXCLUDED.txid
 RETURNING txn_id;
 
 -- name: FetchChainTx :one

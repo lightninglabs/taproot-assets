@@ -286,18 +286,34 @@ func TestImportAssetProof(t *testing.T) {
 	// We'll now insert the internal key information as well as the script
 	// key ahead of time to reflect the address creation that happens
 	// elsewhere.
-	_, err = db.InsertInternalKey(context.Background(), InternalKey{
+	ctx := context.Background()
+	_, err = db.InsertInternalKey(ctx, InternalKey{
 		RawKey:    proof.InternalKey.SerializeCompressed(),
 		KeyFamily: randInt[int32](),
 		KeyIndex:  randInt[int32](),
 	})
 	require.NoError(t, err)
-	_, err = db.InsertInternalKey(context.Background(), InternalKey{
+	_, err = db.InsertInternalKey(ctx, InternalKey{
 		RawKey:    testAsset.ScriptKey.PubKey.SerializeCompressed(),
 		KeyFamily: int32(testAsset.ScriptKey.Family),
 		KeyIndex:  int32(testAsset.ScriptKey.Index),
 	})
 	require.NoError(t, err)
+
+	// We'll add the chain transaction of the proof now to simulate a
+	// batched transfer on a higher layer.
+	var anchorTxBuf bytes.Buffer
+	err = proof.AnchorTx.Serialize(&anchorTxBuf)
+	require.NoError(t, err)
+	anchorTXID := proof.AnchorTx.TxHash()
+	_, err = db.InsertChainTx(ctx, ChainTx{
+		Txid:        anchorTXID[:],
+		RawTx:       anchorTxBuf.Bytes(),
+		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
+		BlockHash:   proof.AnchorBlockHash[:],
+		TxIndex:     sqlInt32(proof.AnchorTxIndex),
+	})
+	require.NoError(t, err, "unable to insert chain tx: %w", err)
 
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
