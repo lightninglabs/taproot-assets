@@ -4,7 +4,7 @@ INSERT INTO internal_keys (
 ) VALUES (
     ?, ?, ?
 ) ON CONFLICT
-    DO UPDATE SET key_id = EXCLUDED.key_id
+    DO UPDATE SET raw_key = EXCLUDED.raw_key
 RETURNING key_id;
 
 -- name: NewMintingBatch :exec

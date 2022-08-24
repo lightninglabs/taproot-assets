@@ -343,3 +343,35 @@ func TestImportAssetProof(t *testing.T) {
 	require.Equal(t, proof.OutPoint, dbAsset.AnchorOutpoint)
 	require.Equal(t, proof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
 }
+
+// TestInternalKeyUpsert tests that if we insert an internal key that's a
+// duplicate, the it works and we get the primary key of the key that was
+// already inserted.
+func TestInternalKeyUpsert(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create a new instance of the database.
+	_, _, db, cleanUp := newAssetStore(t)
+	defer cleanUp()
+
+	testKey := randPubKey(t)
+
+	// Now we'll insert two internal keys that are the same. We should get
+	// the same resposne back (the primary key) for both of them.
+	ctx := context.Background()
+	k1, err := db.InsertInternalKey(ctx, InternalKey{
+		RawKey:    testKey.SerializeCompressed(),
+		KeyFamily: 1,
+		KeyIndex:  2,
+	})
+	require.NoError(t, err)
+
+	k2, err := db.InsertInternalKey(ctx, InternalKey{
+		RawKey:    testKey.SerializeCompressed(),
+		KeyFamily: 1,
+		KeyIndex:  2,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, k1, k2)
+}
