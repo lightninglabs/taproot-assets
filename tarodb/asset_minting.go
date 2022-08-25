@@ -791,20 +791,18 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 
 	rawBatchKey := batchKey.SerializeCompressed()
 
-	var anchorPointBuf bytes.Buffer
 	anchorOutput := rawGenTx.TxOut[anchorOutputIndex]
 	anchorPoint := wire.OutPoint{
 		Hash:  rawGenTx.TxHash(),
 		Index: anchorOutputIndex,
 	}
-	err = wire.WriteOutPoint(&anchorPointBuf, 0, 0, &anchorPoint)
+	anchorOutpoint, err := encodeOutpoint(anchorPoint)
 	if err != nil {
 		return err
 	}
 
-	var genesisPointBuf bytes.Buffer
 	genesisPoint := genesisPkt.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	err = wire.WriteOutPoint(&genesisPointBuf, 0, 0, &genesisPoint)
+	genesisOutpoint, err := encodeOutpoint(genesisPoint)
 	if err != nil {
 		return err
 	}
@@ -841,7 +839,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// this is where all the assets will be anchored within.
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
 			RawKey:   rawBatchKey,
-			Outpoint: anchorPointBuf.Bytes(),
+			Outpoint: anchorOutpoint,
 			AmtSats:  anchorOutput.Value,
 			TaroRoot: taroScriptRoot,
 			TxnID:    chainTXID,
@@ -854,7 +852,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// the assets created in a prior step to also reference this
 		// managed UTXO.
 		err = q.AnchorPendingAssets(ctx, AssetAnchor{
-			PrevOut:      genesisPointBuf.Bytes(),
+			PrevOut:      genesisOutpoint,
 			AnchorUtxoID: sqlInt32(utxoID),
 		})
 		if err != nil {
@@ -864,7 +862,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Next, we'll anchor the genesis point to point to the chain
 		// transaction we inserted above.
 		if err := q.AnchorGenesisPoint(ctx, GenesisPointAnchor{
-			PrevOut:    genesisPointBuf.Bytes(),
+			PrevOut:    genesisOutpoint,
 			AnchorTxID: sqlInt32(chainTXID),
 		}); err != nil {
 			return fmt.Errorf("unable to anchor genesis tx: %w", err)

@@ -530,13 +530,10 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 	for _, input := range inputs {
 		prevID := input.PrevID
 
-		var b bytes.Buffer
-		err := wire.WriteOutPoint(&b, 0, 0, &prevID.OutPoint)
+		prevOutpoint, err := encodeOutpoint(prevID.OutPoint)
 		if err != nil {
 			return fmt.Errorf("unable to write outpoint: %w", err)
 		}
-
-		prevOut := b.Bytes()
 
 		var witnessStack []byte
 		if len(input.TxWitness) != 0 {
@@ -570,7 +567,7 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 		prevScriptKey := prevID.ScriptKey.SerializeCompressed()
 		err = db.InsertAssetWitness(ctx, PrevInput{
 			AssetID:              assetID,
-			PrevOutPoint:         prevOut,
+			PrevOutPoint:         prevOutpoint,
 			PrevAssetID:          prevID.ID[:],
 			PrevScriptKey:        prevScriptKey,
 			WitnessStack:         witnessStack,
