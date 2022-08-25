@@ -297,10 +297,14 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 INSERT INTO chain_txns (
     txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
-    sqlc.narg('txid'), sqlc.narg('raw_tx'), sqlc.narg('block_height'),
-    sqlc.narg('block_hash'), sqlc.narg('tx_index')
-) ON CONFLICT
-    DO UPDATE SET txid = EXCLUDED.txid
+    ?, ?, sqlc.narg('block_height'), sqlc.narg('block_hash'),
+    sqlc.narg('tx_index')
+) ON CONFLICT (txid)
+    -- Not a NOP but instead update any nullable fields that aren't null in the
+    -- args.
+    DO UPDATE SET block_height = IFNULL(EXCLUDED.block_height, block_height),
+                  block_hash = IFNULL(EXCLUDED.block_hash, block_hash),
+                  tx_index = IFNULL(EXCLUDED.tx_index, tx_index)
 RETURNING txn_id;
 
 -- name: FetchChainTx :one

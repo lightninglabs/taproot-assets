@@ -1417,10 +1417,14 @@ const upsertChainTx = `-- name: UpsertChainTx :one
 INSERT INTO chain_txns (
     txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
-    $1, $2, $3,
-    $4, $5
-) ON CONFLICT
-    DO UPDATE SET txid = EXCLUDED.txid
+    ?, ?, ?, ?,
+    ?
+) ON CONFLICT (txid)
+    -- Not a NOP but instead update any nullable fields that aren't null in the
+    -- args.
+    DO UPDATE SET block_height = IFNULL(EXCLUDED.block_height, block_height),
+                  block_hash = IFNULL(EXCLUDED.block_hash, block_hash),
+                  tx_index = IFNULL(EXCLUDED.tx_index, tx_index)
 RETURNING txn_id
 `
 

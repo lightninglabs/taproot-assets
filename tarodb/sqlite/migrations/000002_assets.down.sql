@@ -3,7 +3,6 @@ DROP TABLE IF EXISTS assets;
 DROP TABLE IF EXISTS asset_proofs;
 DROP TABLE IF EXISTS asset_minting_state;
 DROP TABLE IF EXISTS chain_txns;
-DROP INDEX IF EXISTS txid;
 DROP TABLE IF EXISTS genesis_points;
 DROP INDEX IF EXISTS gen_points;
 DROP TABLE IF EXISTS genesis_assets;

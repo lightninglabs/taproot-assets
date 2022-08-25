@@ -5,9 +5,9 @@
 CREATE TABLE IF NOT EXISTS chain_txns (
     txn_id INTEGER PRIMARY KEY,
 
-    txid BLOB UNIQUE,
+    txid BLOB UNIQUE NOT NULL,
 
-    raw_tx BLOB,
+    raw_tx BLOB NOT NULL,
 
     block_height INTEGER,
 
@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS chain_txns (
 
     tx_index INTEGER 
 );
-CREATE INDEX IF NOT EXISTS txid on chain_txns(txid);
 
 -- genesis_points stores all genesis_points relevant to tardo, which is the
 -- first outpoint of the transaction that mints assets. This table stores the
