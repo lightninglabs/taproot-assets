@@ -12,6 +12,13 @@ cmd/tarod/tarod
 tarocli-debug
 tarod-debug
 
+/itest/lnd-itest
+/itest/btcd-itest
+/itest/regtest/*
+/itest/.backendlogs/*
+/itest/.minerlogs/*
+/itest/tarod-itest
+
 # Test binary, built with `go test -c`
 *.test
 

@@ -170,7 +170,7 @@ func isValidInput(input *commitment.TaroCommitment, address Taro,
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		address.ID, &inputScriptKey, address.FamilyKey,
+		address.ID, &inputScriptKey, address.FamilyKey == nil,
 	)
 	inputAsset, _ := assetCommitment.AssetProof(assetCommitmentKey)
 	if inputAsset == nil {

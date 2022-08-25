@@ -90,6 +90,7 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 		prevAssetWitness.PrevID.ID, newAsset.FamilyKey,
 		newAsset.Genesis.Tag, prevAsset,
 	) {
+
 		return newErrKind(ErrIDMismatch)
 	}
 
@@ -154,6 +155,7 @@ func (vm *Engine) validateSplit() error {
 		locator.Hash(), splitLeaf, &witness.SplitCommitment.Proof,
 		vm.newAsset.SplitCommitmentRoot,
 	) {
+
 		return newErrKind(ErrInvalidSplitCommitmentProof)
 	}
 

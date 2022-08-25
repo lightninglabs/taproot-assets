@@ -29,7 +29,6 @@ func randOp(t *testing.T) wire.OutPoint {
 }
 
 func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
-
 	metadata := make([]byte, randInt[int]()%32+1)
 	_, err := rand.Read(metadata)
 	require.NoError(t, err)
@@ -111,7 +110,6 @@ func randSplitCommit(t *testing.T,
 }
 
 func randAsset(t *testing.T) *asset.Asset {
-
 	genesis := randGenesis(t, asset.Normal)
 
 	famPriv := randPrivKey(t)

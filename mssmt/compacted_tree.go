@@ -127,7 +127,6 @@ func (t *CompactedTree) merge(height int, key1 [32]byte, leaf1 *LeafNode,
 	}
 
 	return parent
-
 }
 
 // insert inserts the key at the current height either by adding a new compacted

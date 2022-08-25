@@ -66,7 +66,8 @@ func (m *mockWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet, mi
 	return pkt, nil
 }
 
-func (m *mockWalletAnchor) SignAndFinalizePsbt(ctx context.Context, pkt *psbt.Packet) (*psbt.Packet, error) {
+func (m *mockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
+	pkt *psbt.Packet) (*psbt.Packet, error) {
 
 	select {
 	case <-ctx.Done():

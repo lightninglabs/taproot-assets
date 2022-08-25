@@ -18,6 +18,7 @@ func HasGenesisWitness(asset *asset.Asset) bool {
 	witness := asset.PrevWitnesses[0]
 	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
 		witness.SplitCommitment != nil {
+
 		return false
 	}
 

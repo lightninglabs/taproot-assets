@@ -506,7 +506,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}, nil
 }
 
-// ExportProof exports the latest raw proof file acnhored at the specified
+// ExportProof exports the latest raw proof file anchored at the specified
 // script_key.
 func (r *rpcServer) ExportProof(ctx context.Context,
 	in *tarorpc.ExportProofRequest) (*tarorpc.ProofFile, error) {
@@ -527,7 +527,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 	var assetID asset.ID
 	copy(assetID[:], in.AssetId)
 
-	proof, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
+	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
 	})
@@ -536,11 +536,11 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 	}
 
 	return &tarorpc.ProofFile{
-		RawProof: proof,
+		RawProof: proofBlob,
 	}, nil
 }
 
-// ImportProof attempts to import a proof file into the daemon. If succesful, a
+// ImportProof attempts to import a proof file into the daemon. If successful, a
 // new asset will be inserted on disk, spendable using the specified target
 // script key, and internal key.
 func (r *rpcServer) ImportProof(ctx context.Context,

@@ -100,6 +100,7 @@ func randSeedlingMintingBatch(t *testing.T,
 
 func assertBatchState(t *testing.T, batch *tarogarden.MintingBatch,
 	state tarogarden.BatchState) {
+
 	require.Equal(t, state, batch.BatchState)
 }
 
@@ -369,7 +370,6 @@ func TestAddSproutsToBatch(t *testing.T) {
 	assertBatchState(t, mintingBatches[0], tarogarden.BatchStateCommitted)
 	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
-
 }
 
 func addRandAssets(t *testing.T, ctx context.Context,

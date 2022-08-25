@@ -206,7 +206,7 @@ type Witness struct {
 
 // EncodeRecords determines the non-nil records to include when encoding an
 // asset witness at runtime.
-func (w Witness) EncodeRecords() []tlv.Record {
+func (w *Witness) EncodeRecords() []tlv.Record {
 	var records []tlv.Record
 	if w.PrevID != nil {
 		records = append(records, NewWitnessPrevIDRecord(&w.PrevID))
@@ -235,7 +235,7 @@ func (w *Witness) DecodeRecords() []tlv.Record {
 }
 
 // Encode encodes an asset witness into a TLV stream.
-func (w Witness) Encode(writer io.Writer) error {
+func (w *Witness) Encode(writer io.Writer) error {
 	stream, err := tlv.NewStream(w.EncodeRecords()...)
 	if err != nil {
 		return err
@@ -367,7 +367,7 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	return tweakedPrivKey.PubKey(), sig, nil
 }
 
-// A compile time assertion to ensure RawKeyGenesisSigner meets the
+// A compile-time assertion to ensure RawKeyGenesisSigner meets the
 // GenesisSigner interface.
 var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 
@@ -469,7 +469,7 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
 // asset family within a TaroCommitment.
 //
-// NOTE: This function is also used outside of the asset package.
+// NOTE: This function is also used outside the asset package.
 func TaroCommitmentKey(assetID ID, familyKey *btcec.PublicKey) [32]byte {
 	if familyKey == nil {
 		return assetID
@@ -479,7 +479,7 @@ func TaroCommitmentKey(assetID ID, familyKey *btcec.PublicKey) [32]byte {
 
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
 // asset family within a TaroCommitment.
-func (a Asset) TaroCommitmentKey() [32]byte {
+func (a *Asset) TaroCommitmentKey() [32]byte {
 	if a.FamilyKey == nil {
 		return TaroCommitmentKey(a.Genesis.ID(), nil)
 	}
@@ -489,10 +489,11 @@ func (a Asset) TaroCommitmentKey() [32]byte {
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
 // within a Taro AssetCommitment.
 //
-// NOTE: This function is also used outside of the asset package.
+// NOTE: This function is also used outside the asset package.
 func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
-	familyKey *btcec.PublicKey) [32]byte {
-	if familyKey == nil {
+	issuanceDisabled bool) [32]byte {
+
+	if issuanceDisabled {
 		return sha256.Sum256(schnorr.SerializePubKey(scriptKey))
 	}
 
@@ -504,18 +505,16 @@ func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
 
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
 // within a Taro AssetCommitment.
-func (a Asset) AssetCommitmentKey() [32]byte {
-	if a.FamilyKey == nil {
-		return AssetCommitmentKey(a.Genesis.ID(), a.ScriptKey.PubKey, nil)
-	}
+func (a *Asset) AssetCommitmentKey() [32]byte {
+	issuanceDisabled := a.FamilyKey == nil
 	return AssetCommitmentKey(
-		a.Genesis.ID(), a.ScriptKey.PubKey, &a.FamilyKey.FamKey,
+		a.Genesis.ID(), a.ScriptKey.PubKey, issuanceDisabled,
 	)
 }
 
 // Copy returns a deep copy of an Asset.
-func (a Asset) Copy() *Asset {
-	assetCopy := a
+func (a *Asset) Copy() *Asset {
+	assetCopy := *a
 
 	// Perform a deep copy of all pointer data types.
 	assetCopy.Genesis.Metadata = make([]byte, len(a.Genesis.Metadata))
@@ -573,7 +572,7 @@ func (a Asset) Copy() *Asset {
 
 // EncodeRecords determines the non-nil records to include when encoding an
 // asset at runtime.
-func (a Asset) EncodeRecords() []tlv.Record {
+func (a *Asset) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 11)
 	records = append(records, NewLeafVersionRecord(&a.Version))
 	records = append(records, NewLeafGenesisRecord(&a.Genesis))
@@ -624,7 +623,7 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 }
 
 // Encode encodes an asset into a TLV stream.
-func (a Asset) Encode(w io.Writer) error {
+func (a *Asset) Encode(w io.Writer) error {
 	stream, err := tlv.NewStream(a.EncodeRecords()...)
 	if err != nil {
 		return err

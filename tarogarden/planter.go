@@ -519,7 +519,6 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		if err != nil {
 			return false, err
 		}
-
 	}
 
 	// Now that we have the batch committed to disk, we'll return back to

@@ -180,7 +180,6 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 
 	var assetsMtx sync.Mutex
 	for _, inputProof := range p.AdditionalInputs {
-
 		inputProof := inputProof
 
 		errGroup.Go(func() error {
@@ -287,7 +286,6 @@ func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
 
 	var prev *AssetSnapshot
 	for _, proof := range f.Proofs {
-
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()

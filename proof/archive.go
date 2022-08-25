@@ -106,7 +106,6 @@ type FileArchiver struct {
 // TODO(roasbeef): option to memory map these instead? then don't need to lug
 // around large blobs in user space as much
 func NewFileArchiver(dirName string) (*FileArchiver, error) {
-
 	// First, we'll make sure our main proof directory has already been
 	// created.
 	proofPath := filepath.Join(dirName, ProofDirName)

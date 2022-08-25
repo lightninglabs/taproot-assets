@@ -68,7 +68,6 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 			// At this point, each input MUST have a prev ID.
 			if input.PrevID == nil {
 				return nil, nil, newErrKind(ErrNoInputs)
-
 			}
 
 			// The set of prev assets are similar to the prev

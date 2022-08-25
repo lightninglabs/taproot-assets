@@ -226,7 +226,6 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
 func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) {
-
 	var (
 		dbAssets []ConfirmedAsset
 
