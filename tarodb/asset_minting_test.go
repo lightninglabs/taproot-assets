@@ -540,7 +540,7 @@ func TestDuplicateFamilyKey(t *testing.T) {
 	keyDesc, _ := randKeyDesc(t)
 	rawKey := keyDesc.PubKey.SerializeCompressed()
 
-	keyID, err := db.InsertInternalKey(ctx, InternalKey{
+	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    rawKey,
 		KeyFamily: int32(keyDesc.Family),
 		KeyIndex:  int32(keyDesc.Index),
@@ -550,7 +550,7 @@ func TestDuplicateFamilyKey(t *testing.T) {
 	// Before we can insert the family key, we also need to insert a valid
 	// genesis point as well. We'll just use the key again as uniqueness is
 	// what matters.
-	genesisPointID, err := db.InsertGenesisPoint(ctx, rawKey)
+	genesisPointID, err := db.UpsertGenesisPoint(ctx, rawKey)
 	require.NoError(t, err)
 
 	// We'll just use the same family key here as it doesn't really matter
@@ -560,12 +560,12 @@ func TestDuplicateFamilyKey(t *testing.T) {
 		InternalKeyID:  keyID,
 		GenesisPointID: genesisPointID,
 	}
-	famID, err := db.InsertAssetFamilyKey(ctx, assetKey)
+	famID, err := db.UpsertAssetFamilyKey(ctx, assetKey)
 	require.NoError(t, err)
 
 	// Now we'll try to insert that same key family again. We should get no
 	// error, and the same famID back.
-	famID2, err := db.InsertAssetFamilyKey(ctx, assetKey)
+	famID2, err := db.UpsertAssetFamilyKey(ctx, assetKey)
 	require.NoError(t, err)
 	require.Equal(t, famID, famID2)
 }

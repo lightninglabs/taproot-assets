@@ -25,9 +25,9 @@ type (
 	BatchStateUpdate = sqlite.UpdateMintingBatchStateParams
 
 	// InternalKey holds the arguments to update an internal key.
-	InternalKey = sqlite.InsertInternalKeyParams
+	InternalKey = sqlite.UpsertInternalKeyParams
 
-	//  AssetSeedlingShell holds the components of a seedling asset.
+	// AssetSeedlingShell holds the components of a seedling asset.
 	AssetSeedlingShell = sqlite.InsertAssetSeedlingParams
 
 	// AssetSeedlingItem is used to insert a seedling into an asset based
@@ -51,7 +51,7 @@ type (
 	MintingBatchTuple = sqlite.UpdateMintingBatchStateParams
 
 	// AssetFamilyKey is used to insert a new asset key family into the DB.
-	AssetFamilyKey = sqlite.InsertAssetFamilyKeyParams
+	AssetFamilyKey = sqlite.UpsertAssetFamilyKeyParams
 
 	// BatchChainUpdate is used to update a batch with the minting
 	// transaction associated with it.
@@ -74,7 +74,7 @@ type (
 	GenesisPointAnchor = sqlite.AnchorGenesisPointParams
 
 	// ChainTx is used to insert a new chain tx on disk.
-	ChainTx = sqlite.InsertChainTxParams
+	ChainTx = sqlite.UpsertChainTxParams
 
 	// ChainTxConf is used to mark a chain tx as being confirmed.
 	ChainTxConf = sqlite.ConfirmChainTxParams
@@ -94,15 +94,16 @@ type (
 	MintingBatchInit = sqlite.NewMintingBatchParams
 
 	// ProofUpdate is used to update a proof file on disk.
-	ProofUpdate = sqlite.UpdateAssetProofParams
+	ProofUpdate = sqlite.UpsertAssetProofParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlite.Querier interface that
 // contains only the methods needed to drive the process of batching and
 // creating a new set of assets.
 type PendingAssetStore interface {
-	// InsertInternalKey inserts a new internal key into the database.
-	InsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+	// UpsertInternalKey inserts a new or updates an existing internal key
+	// into the database.
+	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
 
 	// NewMintingBatch creates a new minting batch.
 	NewMintingBatch(ctx context.Context, arg MintingBatchInit) error
@@ -132,13 +133,14 @@ type PendingAssetStore interface {
 	// of the batch they're included in.
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
 
-	// InsertGenesisPoint inserts a new genesis point on disk, and returns
-	// the primary key.
-	InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
+	// UpsertGenesisPoint inserts a new or updates an existing genesis point
+	// on disk, and returns the primary key.
+	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 
-	// InsertAssetFamilyKey inserts a new family key on disk, and returns
-	// the primary key.
-	InsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32, error)
+	// UpsertAssetFamilyKey inserts a new or updates an existing family key
+	// on disk, and returns the primary key.
+	UpsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32,
+		error)
 
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
@@ -162,8 +164,9 @@ type PendingAssetStore interface {
 	// that mints the associated assets on disk.
 	AnchorGenesisPoint(ctx context.Context, arg GenesisPointAnchor) error
 
-	// InsertChainTx insets a new chain tx into the DB.
-	InsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+	// UpsertChainTx inserts a new or updates an existing chain tx into the
+	// DB.
+	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
 
 	// ConfirmChainTx confirms an existing chain tx.
 	ConfirmChainTx(ctx context.Context, arg ChainTxConf) error
@@ -179,12 +182,12 @@ type PendingAssetStore interface {
 	// batch.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout, error)
 
-	// UpdateAssetProof inserts a new asset proofon disk. If one already
-	// exists, then the proof file is updated in place.
+	// UpsertAssetProof inserts a new or updates an existing asset proof on
+	// disk.
 	//
 	// TODO(roasbeef): move somewhere else??
-	UpdateAssetProof(ctx context.Context,
-		arg sqlite.UpdateAssetProofParams) error
+	UpsertAssetProof(ctx context.Context,
+		arg sqlite.UpsertAssetProofParams) error
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore
@@ -245,7 +248,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll need to insert a new internal key which'll act
 		// as the foreign key our batch references.
-		batchID, err := q.InsertInternalKey(ctx, InternalKey{
+		batchID, err := q.UpsertInternalKey(ctx, InternalKey{
 			RawKey:    newBatch.BatchKey.PubKey.SerializeCompressed(),
 			KeyFamily: int32(newBatch.BatchKey.Family),
 			KeyIndex:  int32(newBatch.BatchKey.Index),
@@ -625,7 +628,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll insert the component that ties together all the
 		// assets in this batch: the genesis point.
-		genesisPointID, err := q.InsertGenesisPoint(ctx, genesisPoint)
+		genesisPointID, err := q.UpsertGenesisPoint(ctx, genesisPoint)
 		if err != nil {
 			return fmt.Errorf("unable to insert genesis "+
 				"point: %w", err)
@@ -661,7 +664,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 				// we'll also need to insert an internal key
 				// which will be referenced by the key family.
 				familyKey := asset.FamilyKey
-				keyID, err := q.InsertInternalKey(ctx, InternalKey{
+				keyID, err := q.UpsertInternalKey(ctx, InternalKey{
 					RawKey:    familyKey.RawKey.PubKey.SerializeCompressed(),
 					KeyFamily: int32(familyKey.RawKey.Family),
 					KeyIndex:  int32(familyKey.RawKey.Index),
@@ -675,7 +678,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 					InternalKeyID:  keyID,
 					GenesisPointID: genesisPointID,
 				}
-				famID, err := q.InsertAssetFamilyKey(ctx, assetKey)
+				famID, err := q.UpsertAssetFamilyKey(ctx, assetKey)
 				if err != nil {
 					return fmt.Errorf("unable to insert "+
 						"family key: %w", err)
@@ -707,7 +710,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			// Just like above, we'll also need to insert a new
 			// internal key which will be used later to look up the
 			// key needed to spend this asset.
-			scriptKeyID, err := q.InsertInternalKey(ctx, InternalKey{
+			scriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 				RawKey:    asset.ScriptKey.PubKey.SerializeCompressed(),
 				KeyFamily: int32(asset.ScriptKey.Family),
 				KeyIndex:  int32(asset.ScriptKey.Index),
@@ -824,7 +827,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Before we can insert a managed UTXO, we'll need to insert a
 		// chain transaction, as that chain transaction will be
 		// referenced by the managed UTXO.
-		chainTXID, err := q.InsertChainTx(ctx, ChainTx{
+		chainTXID, err := q.UpsertChainTx(ctx, ChainTx{
 			Txid:  genTXID[:],
 			RawTx: txBuf.Bytes(),
 		})
@@ -909,7 +912,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		// As a final act, we'll now insert the proof files for each of
 		// the assets that were fully confirmed with this block.
 		for scriptKey, proofBlob := range mintingProofs {
-			err := q.UpdateAssetProof(ctx, ProofUpdate{
+			err := q.UpsertAssetProof(ctx, ProofUpdate{
 				RawKey:    scriptKey.SerializeCompressed(),
 				ProofFile: proofBlob,
 			})

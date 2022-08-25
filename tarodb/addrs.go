@@ -38,8 +38,9 @@ type AddrBook interface {
 	// InsertAddr inserts a new address into the database.
 	InsertAddr(ctx context.Context, arg NewAddr) (int32, error)
 
-	// InsertInternalKey inserts a new internal key into the database.
-	InsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+	// UpsertInternalKey inserts a new or updates an existing internal key
+	// into the database and returns the primary key.
+	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -90,7 +91,7 @@ func NewTaroAddressBook(db BatchedAddrBook) *TaroAddressBook {
 func insertInternalKey(ctx context.Context, a AddrBook,
 	desc keychain.KeyDescriptor) (int32, error) {
 
-	return a.InsertInternalKey(ctx, InternalKey{
+	return a.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    desc.PubKey.SerializeCompressed(),
 		KeyFamily: int32(desc.Family),
 		KeyIndex:  int32(desc.Index),

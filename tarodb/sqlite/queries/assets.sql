@@ -1,4 +1,4 @@
--- name: InsertInternalKey :one
+-- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
     raw_key, key_family, key_index
 ) VALUES (
@@ -98,7 +98,7 @@ SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
--- name: InsertGenesisPoint :one
+-- name: UpsertGenesisPoint :one
 INSERT INTO genesis_points(
     prev_out
 ) VALUES (
@@ -107,7 +107,7 @@ INSERT INTO genesis_points(
     DO UPDATE SET prev_out = EXCLUDED.prev_out
 RETURNING genesis_id;
 
--- name: InsertAssetFamilyKey :one
+-- name: UpsertAssetFamilyKey :one
 INSERT INTO asset_families (
     tweaked_fam_key, internal_key_id, genesis_point_id 
 ) VALUES (
@@ -293,7 +293,7 @@ UPDATE asset_minting_batches
 SET minting_tx_psbt = ?
 WHERE batch_id in (SELECT batch_id FROM target_batch);
 
--- name: InsertChainTx :one
+-- name: UpsertChainTx :one
 INSERT INTO chain_txns (
     txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
@@ -390,7 +390,7 @@ UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
 WHERE txn_id in (SELECT txn_id FROm target_txn);
 
--- name: UpdateAssetProof :exec
+-- name: UpsertAssetProof :exec
 WITH target_asset(asset_id) AS (
     SELECT asset_id
     FROM assets

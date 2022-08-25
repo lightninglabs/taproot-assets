@@ -1108,29 +1108,6 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 	return items, nil
 }
 
-const insertAssetFamilyKey = `-- name: InsertAssetFamilyKey :one
-INSERT INTO asset_families (
-    tweaked_fam_key, internal_key_id, genesis_point_id 
-) VALUES (
-    ?, ?, ?
-) ON CONFLICT 
-    DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
-RETURNING family_id
-`
-
-type InsertAssetFamilyKeyParams struct {
-	TweakedFamKey  []byte
-	InternalKeyID  int32
-	GenesisPointID int32
-}
-
-func (q *Queries) InsertAssetFamilyKey(ctx context.Context, arg InsertAssetFamilyKeyParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetFamilyKey, arg.TweakedFamKey, arg.InternalKeyID, arg.GenesisPointID)
-	var family_id int32
-	err := row.Scan(&family_id)
-	return family_id, err
-}
-
 const insertAssetFamilySig = `-- name: InsertAssetFamilySig :one
 INSERT INTO asset_family_sigs (
     genesis_sig, gen_asset_id, key_fam_id
@@ -1252,38 +1229,6 @@ func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitness
 	return err
 }
 
-const insertChainTx = `-- name: InsertChainTx :one
-INSERT INTO chain_txns (
-    txid, raw_tx, block_height, block_hash, tx_index
-) VALUES (
-    $1, $2, $3,
-    $4, $5
-) ON CONFLICT
-    DO UPDATE SET txid = EXCLUDED.txid
-RETURNING txn_id
-`
-
-type InsertChainTxParams struct {
-	Txid        []byte
-	RawTx       []byte
-	BlockHeight sql.NullInt32
-	BlockHash   []byte
-	TxIndex     sql.NullInt32
-}
-
-func (q *Queries) InsertChainTx(ctx context.Context, arg InsertChainTxParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertChainTx,
-		arg.Txid,
-		arg.RawTx,
-		arg.BlockHeight,
-		arg.BlockHash,
-		arg.TxIndex,
-	)
-	var txn_id int32
-	err := row.Scan(&txn_id)
-	return txn_id, err
-}
-
 const insertGenesisAsset = `-- name: InsertGenesisAsset :one
 INSERT INTO genesis_assets (
     asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
@@ -1313,46 +1258,6 @@ func (q *Queries) InsertGenesisAsset(ctx context.Context, arg InsertGenesisAsset
 	var gen_asset_id int32
 	err := row.Scan(&gen_asset_id)
 	return gen_asset_id, err
-}
-
-const insertGenesisPoint = `-- name: InsertGenesisPoint :one
-INSERT INTO genesis_points(
-    prev_out
-) VALUES (
-    ?
-) ON CONFLICT
-    DO UPDATE SET prev_out = EXCLUDED.prev_out
-RETURNING genesis_id
-`
-
-func (q *Queries) InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertGenesisPoint, prevOut)
-	var genesis_id int32
-	err := row.Scan(&genesis_id)
-	return genesis_id, err
-}
-
-const insertInternalKey = `-- name: InsertInternalKey :one
-INSERT INTO internal_keys (
-    raw_key, key_family, key_index
-) VALUES (
-    ?, ?, ?
-) ON CONFLICT
-    DO UPDATE SET raw_key = EXCLUDED.raw_key
-RETURNING key_id
-`
-
-type InsertInternalKeyParams struct {
-	RawKey    []byte
-	KeyFamily int32
-	KeyIndex  int32
-}
-
-func (q *Queries) InsertInternalKey(ctx context.Context, arg InsertInternalKeyParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
-	var key_id int32
-	err := row.Scan(&key_id)
-	return key_id, err
 }
 
 const insertManagedUTXO = `-- name: InsertManagedUTXO :one
@@ -1445,32 +1350,6 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 	return err
 }
 
-const updateAssetProof = `-- name: UpdateAssetProof :exec
-WITH target_asset(asset_id) AS (
-    SELECT asset_id
-    FROM assets
-    JOIN internal_keys keys
-        ON keys.key_id = assets.script_key_id
-    WHERE keys.raw_key = ?
-)
-INSERT INTO asset_proofs (
-    asset_id, proof_file
-) VALUES (
-    (SELECT asset_id FROM target_asset), ?
-) ON CONFLICT 
-    DO UPDATE SET proof_file = EXCLUDED.proof_file
-`
-
-type UpdateAssetProofParams struct {
-	RawKey    []byte
-	ProofFile []byte
-}
-
-func (q *Queries) UpdateAssetProof(ctx context.Context, arg UpdateAssetProofParams) error {
-	_, err := q.db.ExecContext(ctx, updateAssetProof, arg.RawKey, arg.ProofFile)
-	return err
-}
-
 const updateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
 WITH target_batch AS (
     SELECT batch_id
@@ -1519,4 +1398,125 @@ type UpdateMintingBatchStateParams struct {
 func (q *Queries) UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error {
 	_, err := q.db.ExecContext(ctx, updateMintingBatchState, arg.RawKey, arg.BatchState)
 	return err
+}
+
+const upsertAssetFamilyKey = `-- name: UpsertAssetFamilyKey :one
+INSERT INTO asset_families (
+    tweaked_fam_key, internal_key_id, genesis_point_id 
+) VALUES (
+    ?, ?, ?
+) ON CONFLICT 
+    DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
+RETURNING family_id
+`
+
+type UpsertAssetFamilyKeyParams struct {
+	TweakedFamKey  []byte
+	InternalKeyID  int32
+	GenesisPointID int32
+}
+
+func (q *Queries) UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertAssetFamilyKey, arg.TweakedFamKey, arg.InternalKeyID, arg.GenesisPointID)
+	var family_id int32
+	err := row.Scan(&family_id)
+	return family_id, err
+}
+
+const upsertAssetProof = `-- name: UpsertAssetProof :exec
+WITH target_asset(asset_id) AS (
+    SELECT asset_id
+    FROM assets
+    JOIN internal_keys keys
+        ON keys.key_id = assets.script_key_id
+    WHERE keys.raw_key = ?
+)
+INSERT INTO asset_proofs (
+    asset_id, proof_file
+) VALUES (
+    (SELECT asset_id FROM target_asset), ?
+) ON CONFLICT 
+    DO UPDATE SET proof_file = EXCLUDED.proof_file
+`
+
+type UpsertAssetProofParams struct {
+	RawKey    []byte
+	ProofFile []byte
+}
+
+func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.RawKey, arg.ProofFile)
+	return err
+}
+
+const upsertChainTx = `-- name: UpsertChainTx :one
+INSERT INTO chain_txns (
+    txid, raw_tx, block_height, block_hash, tx_index
+) VALUES (
+    $1, $2, $3,
+    $4, $5
+) ON CONFLICT
+    DO UPDATE SET txid = EXCLUDED.txid
+RETURNING txn_id
+`
+
+type UpsertChainTxParams struct {
+	Txid        []byte
+	RawTx       []byte
+	BlockHeight sql.NullInt32
+	BlockHash   []byte
+	TxIndex     sql.NullInt32
+}
+
+func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertChainTx,
+		arg.Txid,
+		arg.RawTx,
+		arg.BlockHeight,
+		arg.BlockHash,
+		arg.TxIndex,
+	)
+	var txn_id int32
+	err := row.Scan(&txn_id)
+	return txn_id, err
+}
+
+const upsertGenesisPoint = `-- name: UpsertGenesisPoint :one
+INSERT INTO genesis_points(
+    prev_out
+) VALUES (
+    ?
+) ON CONFLICT
+    DO UPDATE SET prev_out = EXCLUDED.prev_out
+RETURNING genesis_id
+`
+
+func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertGenesisPoint, prevOut)
+	var genesis_id int32
+	err := row.Scan(&genesis_id)
+	return genesis_id, err
+}
+
+const upsertInternalKey = `-- name: UpsertInternalKey :one
+INSERT INTO internal_keys (
+    raw_key, key_family, key_index
+) VALUES (
+    ?, ?, ?
+) ON CONFLICT
+    DO UPDATE SET raw_key = EXCLUDED.raw_key
+RETURNING key_id
+`
+
+type UpsertInternalKeyParams struct {
+	RawKey    []byte
+	KeyFamily int32
+	KeyIndex  int32
+}
+
+func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
+	var key_id int32
+	err := row.Scan(&key_id)
+	return key_id, err
 }

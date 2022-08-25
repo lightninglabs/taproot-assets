@@ -53,9 +53,9 @@ type ActiveAssetsStore interface {
 	FetchAssetProof(ctx context.Context,
 		scriptKey []byte) (AssetProofI, error)
 
-	// InsertGenesisPoint inserts a new genesis point on disk, and returns
-	// the primary key.
-	InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
+	// UpsertGenesisPoint inserts a new or updates an existing genesis point
+	// on disk, and returns the primary key.
+	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 
 	// InsertGenesisAsset inserts a new genesis asset (the base asset info)
 	// into the DB.
@@ -66,29 +66,32 @@ type ActiveAssetsStore interface {
 	//  * or use a sort of mix-in type?
 	InsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
 
-	// InsertInternalKey inserts a new internal key into the database.
-	InsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+	// UpsertInternalKey inserts a new or updates an existing internal key
+	// into the database.
+	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
 
 	// InsertAssetFamilySig inserts a new asset family sig into the DB.
 	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
 
-	// InsertAssetFamilyKey inserts a new family key on disk, and returns
-	// the primary key.
-	InsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32, error)
+	// UpsertAssetFamilyKey inserts a new or updates an existing family key
+	// on disk, and returns the primary key.
+	UpsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32,
+		error)
 
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
 
-	// InsertChainTx insets a new chain tx into the DB.
-	InsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+	// UpsertChainTx inserts a new or updates an existing chain tx into the
+	// DB.
+	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
 
 	// InsertManagedUTXO adds a new managed UTXO to disk.
 	InsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
 
-	// UpdateAssetProof inserts a new asset proofon disk. If one already
-	// exists, then the proof file is updated in place.
-	UpdateAssetProof(ctx context.Context,
-		arg sqlite.UpdateAssetProofParams) error
+	// UpsertAssetProof inserts a new or updates an existing asset proof on
+	// disk.
+	UpsertAssetProof(ctx context.Context,
+		arg sqlite.UpsertAssetProofParams) error
 
 	// InsertAssetWitness inserts a new prev input for an asset into the
 	// database.
@@ -601,7 +604,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return err
 	}
 	anchorTXID := proof.AnchorTx.TxHash()
-	chainTXID, err := db.InsertChainTx(ctx, ChainTx{
+	chainTXID, err := db.UpsertChainTx(ctx, ChainTx{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
 		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
@@ -623,7 +626,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	// Before we import the managed UTXO below, we'll make sure to insert
 	// the internal key, though it might already exist here.
-	_, err = db.InsertInternalKey(ctx, InternalKey{
+	_, err = db.UpsertInternalKey(ctx, InternalKey{
 		RawKey: proof.InternalKey.SerializeCompressed(),
 	})
 	if err != nil {
@@ -657,7 +660,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	// Next, we'll attempt to import the genesis point for this asset.
 	// This might already exist if we have the same assetID/keyFamily.
-	genesisPointID, err := db.InsertGenesisPoint(ctx, genesisPoint)
+	genesisPointID, err := db.UpsertGenesisPoint(ctx, genesisPoint)
 	if err != nil {
 		return fmt.Errorf("unable to insert genesis "+
 			"point: %w", err)
@@ -688,7 +691,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	var sqlFamilySigID sql.NullInt32
 	familyKey := newAsset.FamilyKey
 	if familyKey != nil {
-		keyID, err := db.InsertInternalKey(ctx, InternalKey{
+		keyID, err := db.UpsertInternalKey(ctx, InternalKey{
 			RawKey: familyKey.FamKey.SerializeCompressed(),
 		})
 		if err != nil {
@@ -699,7 +702,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 			InternalKeyID:  keyID,
 			GenesisPointID: genesisPointID,
 		}
-		famID, err := db.InsertAssetFamilyKey(ctx, assetKey)
+		famID, err := db.UpsertAssetFamilyKey(ctx, assetKey)
 		if err != nil {
 			return fmt.Errorf("unable to insert family key: %w", err)
 		}
@@ -718,7 +721,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	// With the family key information inserted, we'll now insert the
 	// internal key we'll be using for the script key itself.
 	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
-	scriptKeyID, err := db.InsertInternalKey(ctx, InternalKey{
+	scriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    scriptKeyBytes,
 		KeyFamily: int32(newAsset.ScriptKey.Family),
 		KeyIndex:  int32(newAsset.ScriptKey.Index),
@@ -756,7 +759,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	// As a final step, we'll insert the proof file we used to generate all
 	// the above information.
-	return db.UpdateAssetProof(ctx, ProofUpdate{
+	return db.UpsertAssetProof(ctx, ProofUpdate{
 		RawKey:    scriptKeyBytes,
 		ProofFile: proof.Blob,
 	})

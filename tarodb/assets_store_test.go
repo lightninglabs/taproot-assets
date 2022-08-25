@@ -285,13 +285,13 @@ func TestImportAssetProof(t *testing.T) {
 	// key ahead of time to reflect the address creation that happens
 	// elsewhere.
 	ctx := context.Background()
-	_, err = db.InsertInternalKey(ctx, InternalKey{
+	_, err = db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    proof.InternalKey.SerializeCompressed(),
 		KeyFamily: randInt[int32](),
 		KeyIndex:  randInt[int32](),
 	})
 	require.NoError(t, err)
-	_, err = db.InsertInternalKey(ctx, InternalKey{
+	_, err = db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    testAsset.ScriptKey.PubKey.SerializeCompressed(),
 		KeyFamily: int32(testAsset.ScriptKey.Family),
 		KeyIndex:  int32(testAsset.ScriptKey.Index),
@@ -304,7 +304,7 @@ func TestImportAssetProof(t *testing.T) {
 	err = proof.AnchorTx.Serialize(&anchorTxBuf)
 	require.NoError(t, err)
 	anchorTXID := proof.AnchorTx.TxHash()
-	_, err = db.InsertChainTx(ctx, ChainTx{
+	_, err = db.UpsertChainTx(ctx, ChainTx{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
 		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
@@ -343,8 +343,8 @@ func TestImportAssetProof(t *testing.T) {
 }
 
 // TestInternalKeyUpsert tests that if we insert an internal key that's a
-// duplicate, the it works and we get the primary key of the key that was
-// already inserted.
+// duplicate, it works and we get the primary key of the key that was already
+// inserted.
 func TestInternalKeyUpsert(t *testing.T) {
 	t.Parallel()
 
@@ -355,16 +355,16 @@ func TestInternalKeyUpsert(t *testing.T) {
 	testKey := randPubKey(t)
 
 	// Now we'll insert two internal keys that are the same. We should get
-	// the same resposne back (the primary key) for both of them.
+	// the same response back (the primary key) for both of them.
 	ctx := context.Background()
-	k1, err := db.InsertInternalKey(ctx, InternalKey{
+	k1, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    testKey.SerializeCompressed(),
 		KeyFamily: 1,
 		KeyIndex:  2,
 	})
 	require.NoError(t, err)
 
-	k2, err := db.InsertInternalKey(ctx, InternalKey{
+	k2, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    testKey.SerializeCompressed(),
 		KeyFamily: 1,
 		KeyIndex:  2,
