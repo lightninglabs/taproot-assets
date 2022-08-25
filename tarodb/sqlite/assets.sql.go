@@ -1369,7 +1369,9 @@ INSERT INTO asset_families (
     tweaked_fam_key, internal_key_id, genesis_point_id 
 ) VALUES (
     ?, ?, ?
-) ON CONFLICT 
+) ON CONFLICT (tweaked_fam_key)
+    -- This is not a NOP, update the genesis point ID in case it wasn't set
+    -- before.
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING family_id
 `
@@ -1399,7 +1401,8 @@ INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
     (SELECT asset_id FROM target_asset), ?
-) ON CONFLICT 
+) ON CONFLICT (asset_id)
+    -- This is not a NOP, update the proof file in case it wasn't set before.
     DO UPDATE SET proof_file = EXCLUDED.proof_file
 `
 
@@ -1454,7 +1457,8 @@ INSERT INTO genesis_points(
     prev_out
 ) VALUES (
     ?
-) ON CONFLICT
+) ON CONFLICT (prev_out)
+    -- This is a NOP, prev_out is the unique field that caused the conflict.
     DO UPDATE SET prev_out = EXCLUDED.prev_out
 RETURNING genesis_id
 `
@@ -1471,7 +1475,8 @@ INSERT INTO internal_keys (
     raw_key, key_family, key_index
 ) VALUES (
     ?, ?, ?
-) ON CONFLICT
+) ON CONFLICT (raw_key)
+    -- This is a NOP, raw_key is the unique field that caused the conflict.
     DO UPDATE SET raw_key = EXCLUDED.raw_key
 RETURNING key_id
 `
