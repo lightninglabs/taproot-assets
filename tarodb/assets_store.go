@@ -85,8 +85,9 @@ type ActiveAssetsStore interface {
 	// DB.
 	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
 
-	// InsertManagedUTXO adds a new managed UTXO to disk.
-	InsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
+	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
+	// to disk and returns the primary key.
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
@@ -638,7 +639,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	//
 	// TODO(roasbeef): also need to store sibling hash here?
 	tapscriptRoot := proof.ScriptRoot.TapscriptRoot(nil)
-	utxoID, err := db.InsertManagedUTXO(ctx, RawManagedUTXO{
+	utxoID, err := db.UpsertManagedUTXO(ctx, RawManagedUTXO{
 		RawKey:   proof.InternalKey.SerializeCompressed(),
 		Outpoint: anchorPoint,
 		AmtSats:  anchorOutput.Value,

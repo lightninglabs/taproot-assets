@@ -308,7 +308,7 @@ SELECT *
 FROM chain_txns
 WHERE txid = ?;
 
--- name: InsertManagedUTXO :one
+-- name: UpsertManagedUTXO :one
 WITH target_key(key_id) AS (
     SELECT key_id
     FROM internal_keys
@@ -318,7 +318,11 @@ INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
 ) VALUES (
     ?, ?, (SELECT key_id FROM target_key), ?, ?, ?
-) RETURNING utxo_id;
+) ON CONFLICT (outpoint)
+   -- Not a NOP but instead update any nullable fields that aren't null in the
+   -- args.
+   DO UPDATE SET tapscript_sibling = IFNULL(EXCLUDED.tapscript_sibling, tapscript_sibling)
+RETURNING utxo_id;
 
 -- name: FetchManagedUTXO :one
 SELECT *

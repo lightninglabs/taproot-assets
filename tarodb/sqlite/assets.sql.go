@@ -1260,42 +1260,6 @@ func (q *Queries) InsertGenesisAsset(ctx context.Context, arg InsertGenesisAsset
 	return gen_asset_id, err
 }
 
-const insertManagedUTXO = `-- name: InsertManagedUTXO :one
-WITH target_key(key_id) AS (
-    SELECT key_id
-    FROM internal_keys
-    WHERE raw_key = ?
-)
-INSERT INTO managed_utxos (
-    outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
-) VALUES (
-    ?, ?, (SELECT key_id FROM target_key), ?, ?, ?
-) RETURNING utxo_id
-`
-
-type InsertManagedUTXOParams struct {
-	RawKey           []byte
-	Outpoint         []byte
-	AmtSats          int64
-	TapscriptSibling []byte
-	TaroRoot         []byte
-	TxnID            int32
-}
-
-func (q *Queries) InsertManagedUTXO(ctx context.Context, arg InsertManagedUTXOParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertManagedUTXO,
-		arg.RawKey,
-		arg.Outpoint,
-		arg.AmtSats,
-		arg.TapscriptSibling,
-		arg.TaroRoot,
-		arg.TxnID,
-	)
-	var utxo_id int32
-	err := row.Scan(&utxo_id)
-	return utxo_id, err
-}
-
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
@@ -1519,4 +1483,44 @@ func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyPa
 	var key_id int32
 	err := row.Scan(&key_id)
 	return key_id, err
+}
+
+const upsertManagedUTXO = `-- name: UpsertManagedUTXO :one
+WITH target_key(key_id) AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE raw_key = ?
+)
+INSERT INTO managed_utxos (
+    outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
+) VALUES (
+    ?, ?, (SELECT key_id FROM target_key), ?, ?, ?
+) ON CONFLICT (outpoint)
+   -- Not a NOP but instead update any nullable fields that aren't null in the
+   -- args.
+   DO UPDATE SET tapscript_sibling = IFNULL(EXCLUDED.tapscript_sibling, tapscript_sibling)
+RETURNING utxo_id
+`
+
+type UpsertManagedUTXOParams struct {
+	RawKey           []byte
+	Outpoint         []byte
+	AmtSats          int64
+	TapscriptSibling []byte
+	TaroRoot         []byte
+	TxnID            int32
+}
+
+func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertManagedUTXO,
+		arg.RawKey,
+		arg.Outpoint,
+		arg.AmtSats,
+		arg.TapscriptSibling,
+		arg.TaroRoot,
+		arg.TxnID,
+	)
+	var utxo_id int32
+	err := row.Scan(&utxo_id)
+	return utxo_id, err
 }

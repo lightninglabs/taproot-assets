@@ -14,7 +14,6 @@ DROP TABLE IF EXISTS asset_families;
 DROP INDEX IF EXISTS fam_key_index;
 DROP TABLE IF EXISTS asset_family_sigs;
 DROP TABLE IF EXISTS managed_utxos;
-DROP INDEX IF EXISTS coin_index;
 DROP TABLE IF EXISTS assets;
 DROP TABLE IF EXISTS asset_witnesses;
 DROP TABLE IF EXISTS asset_proofs;

@@ -103,14 +103,14 @@ CREATE TABLE IF NOT EXISTS asset_family_sigs (
     key_fam_id INTEGER NOT NULL REFERENCES asset_families(family_id)
 );
 
--- managed_utxos is the set of UTXOs managed by tarod. These UTXOs many commit
+-- managed_utxos is the set of UTXOs managed by tarod. These UTXOs may commit
 -- to several assets. These UTXOs are also always imported into the backing
 -- wallet, so the wallet is able to keep track of the amount of sats that are
 -- used to anchor Taro assets.
 CREATE TABLE IF NOT EXISTS managed_utxos (
     utxo_id INTEGER PRIMARY KEY,
 
-    outpoint BLOB,
+    outpoint BLOB UNIQUE NOT NULL,
 
     -- TODO(roasbeef): need to make these INT instead then interpolate due to
     -- 64 bit issues?
@@ -118,14 +118,13 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
 
     internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
-    tapscript_sibling BLOB NOT NULL,
+    tapscript_sibling BLOB,
 
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
     taro_root BLOB NOT NULL,
 
     txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id)
 );
-CREATE INDEX IF NOT EXISTS coin_index on managed_utxos (outpoint);
 
 -- assets is the main table that stores (or references) the complete asset
 -- information. This represents the latest state of any given asset, as it also

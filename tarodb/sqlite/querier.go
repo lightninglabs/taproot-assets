@@ -51,7 +51,6 @@ type Querier interface {
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error)
-	InsertManagedUTXO(ctx context.Context, arg InsertManagedUTXOParams) (int32, error)
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
@@ -62,6 +61,7 @@ type Querier interface {
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error)
+	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error)
 }
 
 var _ Querier = (*Queries)(nil)

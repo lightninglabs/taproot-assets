@@ -63,7 +63,7 @@ type (
 
 	// RawManagedUTXO is used to insert a new managed UTXO into the
 	// database.
-	RawManagedUTXO = sqlite.InsertManagedUTXOParams
+	RawManagedUTXO = sqlite.UpsertManagedUTXOParams
 
 	// AssetAnchor is used to bind assets on disk with the transaction that
 	// will create them on-chain.
@@ -153,8 +153,9 @@ type PendingAssetStore interface {
 	// batch.
 	UpdateBatchGenesisTx(ctx context.Context, arg GenesisTxUpdate) error
 
-	// InsertManagedUTXO adds a new managed UTXO to disk.
-	InsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
+	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
+	// to disk and returns the primary key.
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
 
 	// AnchorPendingAssets associated an asset on disk with the transaction
 	// that once confirmed will mint the asset.
@@ -838,7 +839,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Now that the genesis tx has been updated within the main
 		// batch, we'll create a new managed UTXO for this batch as
 		// this is where all the assets will be anchored within.
-		utxoID, err := q.InsertManagedUTXO(ctx, RawManagedUTXO{
+		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
 			RawKey:   rawBatchKey,
 			Outpoint: anchorPointBuf.Bytes(),
 			AmtSats:  anchorOutput.Value,
