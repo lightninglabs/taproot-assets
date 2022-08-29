@@ -38,7 +38,7 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 	//
 	// TODO(roasbeef): this already contains the sum, so can just use it
 	// directly?
-	rootKey := root.NodeKey()
+	rootKey := root.NodeHash()
 
 	// Map this to: nodeHash || nodeSum.
 	h := sha256.New()
@@ -123,7 +123,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 		// In this case, we already have an MS-SMT over the set of
 		// outputs created, so we'll map this into a normal taproot
 		// (segwit v1) script.
-		rootKey := asset.SplitCommitmentRoot.NodeKey()
+		rootKey := asset.SplitCommitmentRoot.NodeHash()
 		pkScript, err := computeTaprootScript(rootKey[:])
 		if err != nil {
 			return nil, err
@@ -173,7 +173,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 		return nil, err
 	}
 
-	rootKey := tree.Root().NodeKey()
+	rootKey := tree.Root().NodeHash()
 	pkScript, err := computeTaprootScript(rootKey[:])
 	if err != nil {
 		return nil, err

@@ -48,7 +48,7 @@ func assertNodesEq(t *testing.T, expected mssmt.Node, node mssmt.Node) {
 func deleteNode(t *testing.T, tx mssmt.TreeStoreUpdateTx, node mssmt.Node) {
 	t.Helper()
 
-	hashKey := node.NodeKey()
+	hashKey := node.NodeHash()
 
 	switch n := node.(type) {
 	case *mssmt.BranchNode:
@@ -165,7 +165,7 @@ func TestTreeDeletion(t *testing.T) {
 						t, tx.InsertBranch(test.branch),
 					)
 
-					rootKey := test.branch.NodeKey()
+					rootKey := test.branch.NodeHash()
 
 					// First make sure we inserted our test
 					// branch correctly.
@@ -551,7 +551,7 @@ func TestTreeInsertion(t *testing.T) {
 						for _, branch := range level {
 							n1, n2, err := tx.GetChildren(
 								test.root+i,
-								branch.NodeKey(),
+								branch.NodeHash(),
 							)
 
 							require.NoError(t, err)

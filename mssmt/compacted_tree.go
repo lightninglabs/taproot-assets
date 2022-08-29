@@ -46,7 +46,7 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 	current := t.root
 
 	for i := 0; i <= lastBitIndex; i++ {
-		left, right, err := tx.GetChildren(i, current.NodeKey())
+		left, right, err := tx.GetChildren(i, current.NodeHash())
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +157,7 @@ func (t *CompactedTree) merge(tx TreeStoreUpdateTx, height int, key1 [32]byte,
 func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	height int, root *BranchNode, leaf *LeafNode) (*BranchNode, error) {
 
-	left, right, err := tx.GetChildren(height, root.NodeKey())
+	left, right, err := tx.GetChildren(height, root.NodeHash())
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 
 	case *CompactedLeafNode:
 		// First delete the old leaf.
-		err = tx.DeleteCompactedLeaf(node.NodeKey())
+		err = tx.DeleteCompactedLeaf(node.NodeHash())
 		if err != nil {
 			return nil, err
 		}
@@ -232,7 +232,7 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 
 	// Delete the old root.
 	if root != EmptyTree[height] {
-		err = tx.DeleteBranch(root.NodeKey())
+		err = tx.DeleteBranch(root.NodeHash())
 		if err != nil {
 			return nil, err
 		}
@@ -325,7 +325,7 @@ func (t *CompactedTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
 		var err error
 		_, err = t.walkDown(
 			tx, &key, func(i int, _, sibling, _ Node) error {
-				sibling.NodeKey()
+				sibling.NodeHash()
 				proof[MaxTreeLevels-1-i] = sibling
 				return nil
 			},

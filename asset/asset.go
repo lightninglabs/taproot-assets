@@ -554,7 +554,7 @@ func (a *Asset) Copy() *Asset {
 
 	if a.SplitCommitmentRoot != nil {
 		assetCopy.SplitCommitmentRoot = mssmt.NewComputedNode(
-			a.SplitCommitmentRoot.NodeKey(),
+			a.SplitCommitmentRoot.NodeHash(),
 			a.SplitCommitmentRoot.NodeSum(),
 		)
 	}

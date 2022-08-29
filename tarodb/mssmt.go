@@ -132,14 +132,14 @@ type taroTreeStoreTx struct {
 	dbTx TreeStore
 }
 
-// InsertBranch stores a new branch keyed by its NodeKey.
+// InsertBranch stores a new branch keyed by its NodeHash.
 func (t *taroTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
-	nodeKey := branch.NodeKey()
-	lHashKey := branch.Left.NodeKey()
-	rHashKey := branch.Right.NodeKey()
+	hashKey := branch.NodeHash()
+	lHashKey := branch.Left.NodeHash()
+	rHashKey := branch.Right.NodeHash()
 
 	if err := t.dbTx.InsertBranch(t.ctx, NewBranch{
-		HashKey:  nodeKey[:],
+		HashKey:  hashKey[:],
 		LHashKey: lHashKey[:],
 		RHashKey: rHashKey[:],
 		Sum:      int64(branch.NodeSum()),
@@ -150,12 +150,12 @@ func (t *taroTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
 	return nil
 }
 
-// InsertLeaf stores a new leaf keyed by its NodeKey (not the insertion key).
+// InsertLeaf stores a new leaf keyed by its NodeHash (not the insertion key).
 func (t *taroTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
-	nodeKey := leaf.NodeKey()
+	hashKey := leaf.NodeHash()
 
 	if err := t.dbTx.InsertLeaf(t.ctx, NewLeaf{
-		HashKey: nodeKey[:],
+		HashKey: hashKey[:],
 		Value:   leaf.Value,
 		Sum:     int64(leaf.NodeSum()),
 	}); err != nil {
@@ -166,15 +166,15 @@ func (t *taroTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
 }
 
 // InsertCompactedLeaf stores a new compacted leaf keyed by its
-// NodeKey (not the insertion key).
+// NodeHash (not the insertion key).
 func (t *taroTreeStoreTx) InsertCompactedLeaf(
 	leaf *mssmt.CompactedLeafNode) error {
 
-	nodeKey := leaf.NodeKey()
+	hashKey := leaf.NodeHash()
 	key := leaf.Key()
 
 	if err := t.dbTx.InsertCompactedLeaf(t.ctx, NewCompactedLeaf{
-		HashKey: nodeKey[:],
+		HashKey: hashKey[:],
 		Key:     key[:],
 		Value:   leaf.Value,
 		Sum:     int64(leaf.NodeSum()),
@@ -185,20 +185,20 @@ func (t *taroTreeStoreTx) InsertCompactedLeaf(
 	return nil
 }
 
-// DeleteBranch deletes the branch node keyed by the given NodeKey.
-func (t *taroTreeStoreTx) DeleteBranch(hashKey mssmt.NodeKey) error {
+// DeleteBranch deletes the branch node keyed by the given NodeHash.
+func (t *taroTreeStoreTx) DeleteBranch(hashKey mssmt.NodeHash) error {
 	_, err := t.dbTx.DeleteNode(t.ctx, hashKey[:])
 	return err
 }
 
-// DeleteLeaf deletes the leaf node keyed by the given NodeKey.
-func (t *taroTreeStoreTx) DeleteLeaf(hashKey mssmt.NodeKey) error {
+// DeleteLeaf deletes the leaf node keyed by the given NodeHash.
+func (t *taroTreeStoreTx) DeleteLeaf(hashKey mssmt.NodeHash) error {
 	_, err := t.dbTx.DeleteNode(t.ctx, hashKey[:])
 	return err
 }
 
-// DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeKey.
-func (t *taroTreeStoreTx) DeleteCompactedLeaf(hashKey mssmt.NodeKey) error {
+// DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeHash.
+func (t *taroTreeStoreTx) DeleteCompactedLeaf(hashKey mssmt.NodeHash) error {
 	_, err := t.dbTx.DeleteNode(t.ctx, hashKey[:])
 	return err
 }
@@ -217,8 +217,8 @@ func newKey(data []byte) ([32]byte, error) {
 }
 
 // GetChildren returns the left and right child of the node keyed by the given
-// NodeKey.
-func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeKey) (
+// NodeHash.
+func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
 	mssmt.Node, mssmt.Node, error) {
 
 	dbRows, err := t.dbTx.FetchChildren(t.ctx, hashKey[:])
@@ -257,8 +257,9 @@ func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeKey) (
 			leaf := mssmt.NewLeafNode(
 				row.Value, uint64(row.Sum),
 			)
-			// Precompute the node key.
-			leaf.NodeKey()
+
+			// Precompute the node hash key.
+			leaf.NodeHash()
 
 			// We store the key for compacted leafs.
 			if row.Key != nil {

@@ -55,7 +55,7 @@ func (p Proof) Compress() *CompressedProof {
 	for i, node := range p.Nodes {
 		// The proof nodes start at the leaf, while the EmptyTree starts
 		// at the root.
-		if node.NodeKey() == EmptyTree[MaxTreeLevels-i].NodeKey() {
+		if node.NodeHash() == EmptyTree[MaxTreeLevels-i].NodeHash() {
 			bits[i] = true
 		} else {
 			nodes = append(nodes, node)

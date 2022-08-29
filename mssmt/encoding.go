@@ -53,7 +53,7 @@ func (p *CompressedProof) Encode(w io.Writer) error {
 		return err
 	}
 	for _, node := range p.Nodes {
-		key := node.NodeKey()
+		key := node.NodeHash()
 		if _, err := w.Write(key[:]); err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func (p *CompressedProof) Decode(r io.Reader) error {
 		if err := binary.Read(r, byteOrder, &sum); err != nil {
 			return err
 		}
-		nodes = append(nodes, NewComputedNode(NodeKey(keyBytes), sum))
+		nodes = append(nodes, NewComputedNode(NodeHash(keyBytes), sum))
 	}
 
 	var bitsBytes [MaxTreeLevels / 8]byte

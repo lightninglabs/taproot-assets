@@ -17,19 +17,19 @@ var (
 	EmptyLeafNode = NewLeafNode(nil, 0)
 )
 
-// NodeKey represents the key of a MS-SMT node.
-type NodeKey [hashSize]byte
+// NodeHash represents the key of a MS-SMT node.
+type NodeHash [hashSize]byte
 
-// String returns a NodeKey as a hex-encoded string.
-func (k NodeKey) String() string {
+// String returns a NodeHash as a hex-encoded string.
+func (k NodeHash) String() string {
 	return hex.EncodeToString(k[:])
 }
 
 // Node represents a MS-SMT node. A node can either be a leaf or a branch.
 type Node interface {
-	// NodeKey returns the unique identifier for a MS-SMT node. It
+	// NodeHash returns the unique identifier for a MS-SMT node. It
 	// represents the hash of the node committing to its internal data.
-	NodeKey() NodeKey
+	NodeHash() NodeHash
 
 	// NodeSum returns the sum commitment of the node.
 	NodeSum() uint64
@@ -38,17 +38,17 @@ type Node interface {
 	Copy() Node
 }
 
-// IsEqualNode determines whether a and b are equal based on their NodeKey and
+// IsEqualNode determines whether a and b are equal based on their NodeHash and
 // NodeSum.
 func IsEqualNode(a, b Node) bool {
-	return a.NodeKey() == b.NodeKey() && a.NodeSum() == b.NodeSum()
+	return a.NodeHash() == b.NodeHash() && a.NodeSum() == b.NodeSum()
 }
 
 // LeafNode represents a leaf node within a MS-SMT. Leaf nodes commit to a value
 // and some integer value (the sum) associated with the value.
 type LeafNode struct {
-	// Cached nodeKey instance to prevent redundant computations.
-	nodeKey *NodeKey
+	// Cached nodeHash instance to prevent redundant computations.
+	nodeHash *NodeHash
 
 	Value []byte
 	sum   uint64
@@ -62,18 +62,18 @@ func NewLeafNode(value []byte, sum uint64) *LeafNode {
 	}
 }
 
-// NodeKey returns the unique identifier for a MS-SMT node. It represents the
+// NodeHash returns the unique identifier for a MS-SMT node. It represents the
 // hash of the leaf committing to its internal data.
-func (n *LeafNode) NodeKey() NodeKey {
-	if n.nodeKey != nil {
-		return *n.nodeKey
+func (n *LeafNode) NodeHash() NodeHash {
+	if n.nodeHash != nil {
+		return *n.nodeHash
 	}
 
 	h := sha256.New()
 	h.Write(n.Value)
 	_ = binary.Write(h, binary.BigEndian, n.sum)
-	n.nodeKey = (*NodeKey)(h.Sum(nil))
-	return *n.nodeKey
+	n.nodeHash = (*NodeHash)(h.Sum(nil))
+	return *n.nodeHash
 }
 
 // NodeSum returns the sum commitment of the leaf node.
@@ -88,19 +88,19 @@ func (n *LeafNode) IsEmpty() bool {
 
 // Copy returns a deep copy of the leaf node.
 func (n *LeafNode) Copy() Node {
-	var nodeKeyCopy *NodeKey
-	if n.nodeKey != nil {
-		nodeKeyCopy = new(NodeKey)
-		*nodeKeyCopy = *n.nodeKey
+	var nodeHashCopy *NodeHash
+	if n.nodeHash != nil {
+		nodeHashCopy = new(NodeHash)
+		*nodeHashCopy = *n.nodeHash
 	}
 
 	valueCopy := make([]byte, 0, len(n.Value))
 	copy(valueCopy, n.Value)
 
 	return &LeafNode{
-		nodeKey: nodeKeyCopy,
-		Value:   valueCopy,
-		sum:     n.sum,
+		nodeHash: nodeHashCopy,
+		Value:    valueCopy,
+		sum:      n.sum,
 	}
 }
 
@@ -112,9 +112,9 @@ type CompactedLeafNode struct {
 	// key holds the leaf's key.
 	key [32]byte
 
-	// compactedNodeKey holds the topmost (omitted) node's nodekey in the
+	// compactedNodeHash holds the topmost (omitted) node's node hash in the
 	// subtree.
-	compactedNodeKey NodeKey
+	compactedNodeHash NodeHash
 }
 
 // newCompactedLeafNode creates a new compacted leaf at the passed height with
@@ -130,20 +130,20 @@ func NewCompactedLeafNode(height int, key *[32]byte,
 			current = NewBranch(EmptyTree[i+1], current)
 		}
 	}
-	nodeKey := current.NodeKey()
+	nodeHash := current.NodeHash()
 
 	node := &CompactedLeafNode{
-		LeafNode:         leaf,
-		key:              *key,
-		compactedNodeKey: nodeKey,
+		LeafNode:          leaf,
+		key:               *key,
+		compactedNodeHash: nodeHash,
 	}
 
 	return node
 }
 
-// NodeKey returns the compacted subtree's node key.
-func (c *CompactedLeafNode) NodeKey() NodeKey {
-	return c.compactedNodeKey
+// NodeHash returns the compacted subtree's node hash.
+func (c *CompactedLeafNode) NodeHash() NodeHash {
+	return c.compactedNodeHash
 }
 
 // Key returns the leaf key.
@@ -176,8 +176,8 @@ func (c *CompactedLeafNode) Extract(height int) Node {
 // values.
 type BranchNode struct {
 	// Cached instances to prevent redundant computations.
-	nodeKey *NodeKey
-	sum     *uint64
+	nodeHash *NodeHash
+	sum      *uint64
 
 	Left  Node
 	Right Node
@@ -186,10 +186,10 @@ type BranchNode struct {
 // NewComputedBranch creates a new branch without any reference it its
 // children. This method of construction allows as to walk the tree down by
 // only fetching minimal subtrees.
-func NewComputedBranch(nodeKey NodeKey, sum uint64) *BranchNode {
+func NewComputedBranch(nodeHash NodeHash, sum uint64) *BranchNode {
 	return &BranchNode{
-		nodeKey: &nodeKey,
-		sum:     &sum,
+		nodeHash: &nodeHash,
+		sum:      &sum,
 	}
 }
 
@@ -201,22 +201,22 @@ func NewBranch(left, right Node) *BranchNode {
 	}
 }
 
-// NodeKey returns the unique identifier for a MS-SMT node. It represents the
+// NodeHash returns the unique identifier for a MS-SMT node. It represents the
 // hash of the branch committing to its internal data.
-func (n *BranchNode) NodeKey() NodeKey {
-	if n.nodeKey != nil {
-		return *n.nodeKey
+func (n *BranchNode) NodeHash() NodeHash {
+	if n.nodeHash != nil {
+		return *n.nodeHash
 	}
 
-	left := n.Left.NodeKey()
-	right := n.Right.NodeKey()
+	left := n.Left.NodeHash()
+	right := n.Right.NodeHash()
 
 	h := sha256.New()
 	h.Write(left[:])
 	h.Write(right[:])
 	_ = binary.Write(h, binary.BigEndian, n.NodeSum())
-	n.nodeKey = (*NodeKey)(h.Sum(nil))
-	return *n.nodeKey
+	n.nodeHash = (*NodeHash)(h.Sum(nil))
+	return *n.nodeHash
 }
 
 // NodeSum returns the sum commitment of the branch's left and right children.
@@ -233,10 +233,10 @@ func (n *BranchNode) NodeSum() uint64 {
 // Copy returns a deep copy of the branch node, with its children returned as
 // `ComputedNode`.
 func (n *BranchNode) Copy() Node {
-	var nodeKeyCopy *NodeKey
-	if n.nodeKey != nil {
-		nodeKeyCopy = new(NodeKey)
-		*nodeKeyCopy = *n.nodeKey
+	var nodeHashCopy *NodeHash
+	if n.nodeHash != nil {
+		nodeHashCopy = new(NodeHash)
+		*nodeHashCopy = *n.nodeHash
 	}
 
 	var sumCopy *uint64
@@ -246,29 +246,29 @@ func (n *BranchNode) Copy() Node {
 	}
 
 	return &BranchNode{
-		nodeKey: nodeKeyCopy,
-		Left:    NewComputedNode(n.Left.NodeKey(), n.Left.NodeSum()),
-		Right:   NewComputedNode(n.Right.NodeKey(), n.Right.NodeSum()),
-		sum:     sumCopy,
+		nodeHash: nodeHashCopy,
+		Left:     NewComputedNode(n.Left.NodeHash(), n.Left.NodeSum()),
+		Right:    NewComputedNode(n.Right.NodeHash(), n.Right.NodeSum()),
+		sum:      sumCopy,
 	}
 }
 
-// ComputedNode is a node within a MS-SMT that has already had its NodeKey and
+// ComputedNode is a node within a MS-SMT that has already had its NodeHash and
 // NodeSum computed, i.e., its preimage is not available.
 type ComputedNode struct {
-	key NodeKey
-	sum uint64
+	hash NodeHash
+	sum  uint64
 }
 
 // NewComputedNode instantiates a new computed node.
-func NewComputedNode(key NodeKey, sum uint64) ComputedNode {
-	return ComputedNode{key: key, sum: sum}
+func NewComputedNode(hash NodeHash, sum uint64) ComputedNode {
+	return ComputedNode{hash: hash, sum: sum}
 }
 
-// NodeKey returns the unique identifier for a MS-SMT node. It represents the
+// NodeHash returns the unique identifier for a MS-SMT node. It represents the
 // hash of the node committing to its internal data.
-func (n ComputedNode) NodeKey() NodeKey {
-	return n.key
+func (n ComputedNode) NodeHash() NodeHash {
+	return n.hash
 }
 
 // NodeSum returns the sum commitment of the node.
@@ -279,7 +279,7 @@ func (n ComputedNode) NodeSum() uint64 {
 // Copy returns a deep copy of the branch node.
 func (n ComputedNode) Copy() Node {
 	return ComputedNode{
-		key: n.key,
-		sum: n.sum,
+		hash: n.hash,
+		sum:  n.sum,
 	}
 }
