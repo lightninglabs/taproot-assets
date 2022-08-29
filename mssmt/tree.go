@@ -73,7 +73,7 @@ func bitIndex(idx uint8, key *[hashSize]byte) byte {
 
 // Type alias for closures to be invoked at every iteration of walking through a
 // tree.
-type iterFunc = func(height uint8, current, sibling, parent Node) error
+type iterFunc = func(height int, current, sibling, parent Node) error
 
 // walkDown walks down the tree from the root node to the leaf indexed by `key`.
 // The leaf node found is returned.
@@ -94,7 +94,7 @@ func (t *FullTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 			next, sibling = right, left
 		}
 		if iter != nil {
-			err := iter(uint8(i), next, sibling, current)
+			err := iter(i, next, sibling, current)
 			if err != nil {
 				return nil, err
 			}
@@ -120,7 +120,7 @@ func walkUp(key *[hashSize]byte, start *LeafNode, siblings []Node,
 			parent = NewBranch(sibling, current)
 		}
 		if iter != nil {
-			err := iter(uint8(i), current, sibling, parent)
+			err := iter(i, current, sibling, parent)
 			if err != nil {
 				return nil, err
 			}
@@ -140,7 +140,7 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	prevParents := make([]NodeKey, MaxTreeLevels)
 	siblings := make([]Node, MaxTreeLevels)
 	_, err := t.walkDown(
-		tx, key, func(i uint8, _, sibling, parent Node) error {
+		tx, key, func(i int, _, sibling, parent Node) error {
 			prevParents[MaxTreeLevels-1-i] = parent.NodeKey()
 			siblings[MaxTreeLevels-1-i] = sibling
 			return nil
@@ -153,7 +153,7 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	// back up to the root, updating any stale and new intermediate branch
 	// nodes.
 	root, err := walkUp(
-		key, leaf, siblings, func(i uint8, _, _, parent Node) error {
+		key, leaf, siblings, func(i int, _, _, parent Node) error {
 			// Replace the old parent with the new one. Our store
 			// should never track empty branches.
 			prevParent := prevParents[MaxTreeLevels-1-i]
@@ -257,7 +257,7 @@ func (t *FullTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
 	proof := make([]Node, MaxTreeLevels)
 	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
 		_, err := t.walkDown(
-			tx, &key, func(i uint8, _, sibling, _ Node) error {
+			tx, &key, func(i int, _, sibling, _ Node) error {
 				proof[MaxTreeLevels-1-i] = sibling
 				return nil
 			},

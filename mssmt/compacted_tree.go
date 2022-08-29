@@ -69,9 +69,7 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 			// passed key.
 			for j := i; j <= lastBitIndex; j++ {
 				if iter != nil {
-					err := iter(
-						uint8(j), next, sibling, current,
-					)
+					err := iter(j, next, sibling, current)
 					if err != nil {
 						return nil, err
 					}
@@ -94,7 +92,7 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 
 		default:
 			if iter != nil {
-				err := iter(uint8(i), next, sibling, current)
+				err := iter(i, next, sibling, current)
 				if err != nil {
 					return nil, err
 				}
@@ -323,7 +321,7 @@ func (t *CompactedTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
 	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
 		var err error
 		_, err = t.walkDown(
-			tx, &key, func(i uint8, _, sibling, _ Node) error {
+			tx, &key, func(i int, _, sibling, _ Node) error {
 				sibling.NodeKey()
 				proof[MaxTreeLevels-1-i] = sibling
 				return nil
