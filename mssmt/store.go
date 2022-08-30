@@ -22,8 +22,8 @@ type TreeStore interface {
 // persistent tree transaction.
 type TreeStoreViewTx interface {
 	// GetChildren returns the left and right child of the node keyed by
-	// the given NodeKey.
-	GetChildren(int, NodeKey) (Node, Node, error)
+	// the given NodeHash.
+	GetChildren(int, NodeHash) (Node, Node, error)
 }
 
 // TreeStoreUpdateTx is an interface encompassing all methods of an updating
@@ -31,26 +31,26 @@ type TreeStoreViewTx interface {
 type TreeStoreUpdateTx interface {
 	TreeStoreViewTx
 
-	// InsertBranch stores a new branch keyed by its NodeKey.
+	// InsertBranch stores a new branch keyed by its NodeHash.
 	InsertBranch(*BranchNode) error
 
-	// InsertLeaf stores a new leaf keyed by its NodeKey (not the insertion
+	// InsertLeaf stores a new leaf keyed by its NodeHash (not the insertion
 	// key).
 	InsertLeaf(*LeafNode) error
 
 	// InsertCompactedLeaf stores a new compacted leaf keyed by its
-	// NodeKey (not the insertion key).
+	// NodeHash (not the insertion key).
 	InsertCompactedLeaf(*CompactedLeafNode) error
 
-	// DeleteBranch deletes the branch node keyed by the given NodeKey.
-	DeleteBranch(NodeKey) error
+	// DeleteBranch deletes the branch node keyed by the given NodeHash.
+	DeleteBranch(NodeHash) error
 
-	// DeleteLeaf deletes the leaf node keyed by the given NodeKey.
-	DeleteLeaf(NodeKey) error
+	// DeleteLeaf deletes the leaf node keyed by the given NodeHash.
+	DeleteLeaf(NodeHash) error
 
 	// DeleteCompactedLeaf deletes a compacted leaf keyed by the given
-	// NodeKey.
-	DeleteCompactedLeaf(NodeKey) error
+	// NodeHash.
+	DeleteCompactedLeaf(NodeHash) error
 }
 
 // TreeStoreDriver represents a concrete driver of the main TreeStore
@@ -106,9 +106,9 @@ func RegisterTreeStore(driver *TreeStoreDriver) error {
 
 // DefaultStore is an in-memory implementation of the TreeStore interface.
 type DefaultStore struct {
-	branches        map[NodeKey]*BranchNode
-	leaves          map[NodeKey]*LeafNode
-	compactedLeaves map[NodeKey]*CompactedLeafNode
+	branches        map[NodeHash]*BranchNode
+	leaves          map[NodeHash]*LeafNode
+	compactedLeaves map[NodeHash]*CompactedLeafNode
 
 	cntReads   int
 	cntWrites  int
@@ -120,9 +120,9 @@ var _ TreeStore = (*DefaultStore)(nil)
 // NewDefaultStore initializes a new DefaultStore.
 func NewDefaultStore() *DefaultStore {
 	return &DefaultStore{
-		branches:        make(map[NodeKey]*BranchNode),
-		leaves:          make(map[NodeKey]*LeafNode),
-		compactedLeaves: make(map[NodeKey]*CompactedLeafNode),
+		branches:        make(map[NodeHash]*BranchNode),
+		leaves:          make(map[NodeHash]*LeafNode),
+		compactedLeaves: make(map[NodeHash]*CompactedLeafNode),
 	}
 }
 
@@ -164,49 +164,49 @@ func (d *DefaultStore) View(_ context.Context,
 	return view(d)
 }
 
-// InsertBranch stores a new branch keyed by its NodeKey.
+// InsertBranch stores a new branch keyed by its NodeHash.
 func (d *DefaultStore) InsertBranch(branch *BranchNode) error {
-	d.branches[branch.NodeKey()] = branch
+	d.branches[branch.NodeHash()] = branch
 	d.cntWrites++
 
 	return nil
 }
 
-// InsertLeaf stores a new leaf keyed by its NodeKey.
+// InsertLeaf stores a new leaf keyed by its NodeHash.
 func (d *DefaultStore) InsertLeaf(leaf *LeafNode) error {
-	d.leaves[leaf.NodeKey()] = leaf
+	d.leaves[leaf.NodeHash()] = leaf
 	d.cntWrites++
 
 	return nil
 }
 
-// InsertCompactedLeaf stores a new compacted leaf keyed by its NodeKey (not
+// InsertCompactedLeaf stores a new compacted leaf keyed by its NodeHash (not
 // the insertion key).
 func (d *DefaultStore) InsertCompactedLeaf(leaf *CompactedLeafNode) error {
-	d.compactedLeaves[leaf.NodeKey()] = leaf
+	d.compactedLeaves[leaf.NodeHash()] = leaf
 	d.cntWrites++
 
 	return nil
 }
 
-// DeleteBranch deletes the branch node keyed by the given NodeKey.
-func (d *DefaultStore) DeleteBranch(key NodeKey) error {
+// DeleteBranch deletes the branch node keyed by the given NodeHash.
+func (d *DefaultStore) DeleteBranch(key NodeHash) error {
 	delete(d.branches, key)
 	d.cntDeletes++
 
 	return nil
 }
 
-// DeleteLeaf deletes the leaf node keyed by the given NodeKey.
-func (d *DefaultStore) DeleteLeaf(key NodeKey) error {
+// DeleteLeaf deletes the leaf node keyed by the given NodeHash.
+func (d *DefaultStore) DeleteLeaf(key NodeHash) error {
 	delete(d.leaves, key)
 	d.cntDeletes++
 
 	return nil
 }
 
-// DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeKey.
-func (d *DefaultStore) DeleteCompactedLeaf(key NodeKey) error {
+// DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeHash.
+func (d *DefaultStore) DeleteCompactedLeaf(key NodeHash) error {
 	delete(d.compactedLeaves, key)
 	d.cntDeletes++
 
@@ -214,12 +214,12 @@ func (d *DefaultStore) DeleteCompactedLeaf(key NodeKey) error {
 }
 
 // GetChildren returns the left and right child of the node keyed by the given
-// NodeKey.
-func (d *DefaultStore) GetChildren(height int, key NodeKey) (
+// NodeHash.
+func (d *DefaultStore) GetChildren(height int, key NodeHash) (
 	Node, Node, error) {
 
-	getNode := func(height uint, key NodeKey) Node {
-		if key == EmptyTree[height].NodeKey() {
+	getNode := func(height uint, key NodeHash) Node {
+		if key == EmptyTree[height].NodeHash() {
 			return EmptyTree[height]
 		}
 		if branch, ok := d.branches[key]; ok {
@@ -238,8 +238,8 @@ func (d *DefaultStore) GetChildren(height int, key NodeKey) (
 	node := getNode(uint(height), key)
 	switch node := node.(type) {
 	case *BranchNode:
-		return getNode(uint(height)+1, node.Left.NodeKey()),
-			getNode(uint(height)+1, node.Right.NodeKey()), nil
+		return getNode(uint(height)+1, node.Left.NodeHash()),
+			getNode(uint(height)+1, node.Right.NodeHash()), nil
 
 	default:
 		return nil, nil, fmt.Errorf("unexpected node type %T with "+

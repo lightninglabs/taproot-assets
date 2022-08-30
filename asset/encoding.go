@@ -429,7 +429,7 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 
 func SplitCommitmentRootEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*mssmt.Node); ok {
-		key := [32]byte((*t).NodeKey())
+		key := [32]byte((*t).NodeHash())
 		if err := tlv.EBytes32(w, &key, buf); err != nil {
 			return err
 		}

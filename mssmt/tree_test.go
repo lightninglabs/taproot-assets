@@ -272,17 +272,17 @@ func testHistoryIndependence(t *testing.T, makeStore makeTestTreeStoreFunc) {
 	}
 
 	// The root hash and sum of both full trees should be the same.
-	require.Equal(t, tree1.Root().NodeKey(), tree2.Root().NodeKey())
+	require.Equal(t, tree1.Root().NodeHash(), tree2.Root().NodeHash())
 	require.Equal(t, tree1.Root().NodeSum(), tree2.Root().NodeSum())
 
 	// Similarly for the compacted trees.
-	require.Equal(t, smolTree1.Root().NodeKey(), smolTree2.Root().NodeKey())
+	require.Equal(t, smolTree1.Root().NodeHash(), smolTree2.Root().NodeHash())
 	require.Equal(t, smolTree1.Root().NodeSum(), smolTree2.Root().NodeSum())
 
 	// Now check that the full tree has the same root as the compacted tree.
 	// Due to transitivity this also means that all roots and sums are the
 	// same.
-	require.Equal(t, tree1.Root().NodeKey(), smolTree1.Root().NodeKey())
+	require.Equal(t, tree1.Root().NodeHash(), smolTree1.Root().NodeHash())
 	require.Equal(t, tree1.Root().NodeSum(), smolTree1.Root().NodeSum())
 }
 
@@ -406,8 +406,8 @@ func testProofEqulity(t *testing.T, tree1, tree2 mssmt.Tree, leaves []treeLeaf) 
 		require.Equal(t, len(proof1.Nodes), len(proof2.Nodes))
 		for i := range proof1.Nodes {
 			require.Equal(t,
-				proof1.Nodes[i].NodeKey(),
-				proof2.Nodes[i].NodeKey(),
+				proof1.Nodes[i].NodeHash(),
+				proof2.Nodes[i].NodeHash(),
 			)
 			require.Equal(t,
 				proof1.Nodes[i].NodeSum(),

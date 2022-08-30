@@ -136,7 +136,7 @@ func NewTaroCommitmentWithRoot(version asset.Version,
 
 // TapLeaf constructs a new `TapLeaf` for this `TaroCommitment`.
 func (c *TaroCommitment) TapLeaf() txscript.TapLeaf {
-	rootHash := c.TreeRoot.NodeKey()
+	rootHash := c.TreeRoot.NodeHash()
 	var rootSum [8]byte
 	binary.BigEndian.PutUint64(rootSum[:], c.TreeRoot.NodeSum())
 	leafParts := [][]byte{

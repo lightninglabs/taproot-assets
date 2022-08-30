@@ -19,7 +19,7 @@ var (
 func init() {
 	// Force the calculation of the node key for the empty node. This will
 	// ensure the value is fully cached for the loop below.
-	EmptyLeafNode.NodeKey()
+	EmptyLeafNode.NodeHash()
 
 	// Initialize the empty MS-SMT by starting from an empty leaf and
 	// hashing all the way up to the root.
@@ -32,7 +32,7 @@ func init() {
 		// don't do this, then concurrent callers will attempt to
 		// read/populate this value causing a race condition.
 		branch := NewBranch(EmptyTree[i+1], EmptyTree[i+1])
-		branch.NodeKey()
+		branch.NodeHash()
 
 		EmptyTree[i] = branch
 	}
@@ -65,7 +65,7 @@ func (t *FullTree) Root() *BranchNode {
 	return t.root.(*BranchNode)
 }
 
-// bitIndex returns the bit found at `idx` for a NodeKey.
+// bitIndex returns the bit found at `idx` for a NodeHash.
 func bitIndex(idx uint8, key *[hashSize]byte) byte {
 	byteVal := key[idx/8]
 	return (byteVal >> (idx % 8)) & 1
@@ -82,7 +82,7 @@ func (t *FullTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 
 	current := t.root
 	for i := 0; i <= lastBitIndex; i++ {
-		left, right, err := tx.GetChildren(i, current.NodeKey())
+		left, right, err := tx.GetChildren(i, current.NodeHash())
 		if err != nil {
 			return nil, err
 		}
@@ -137,11 +137,11 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 
 	// As we walk down to the leaf node, we'll keep track of the sibling
 	// and parent for each node we visit.
-	prevParents := make([]NodeKey, MaxTreeLevels)
+	prevParents := make([]NodeHash, MaxTreeLevels)
 	siblings := make([]Node, MaxTreeLevels)
 	_, err := t.walkDown(
 		tx, key, func(i int, _, sibling, parent Node) error {
-			prevParents[MaxTreeLevels-1-i] = parent.NodeKey()
+			prevParents[MaxTreeLevels-1-i] = parent.NodeHash()
 			siblings[MaxTreeLevels-1-i] = sibling
 			return nil
 		})
@@ -157,14 +157,14 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 			// Replace the old parent with the new one. Our store
 			// should never track empty branches.
 			prevParent := prevParents[MaxTreeLevels-1-i]
-			if prevParent != EmptyTree[i].NodeKey() {
+			if prevParent != EmptyTree[i].NodeHash() {
 				err := tx.DeleteBranch(prevParent)
 				if err != nil {
 					return err
 				}
 			}
 
-			if parent.NodeKey() != EmptyTree[i].NodeKey() {
+			if parent.NodeHash() != EmptyTree[i].NodeHash() {
 				err := tx.InsertBranch(parent.(*BranchNode))
 				if err != nil {
 					return err

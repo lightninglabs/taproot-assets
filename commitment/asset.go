@@ -222,8 +222,8 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 // Root computes the root identifier required to commit to this specific asset
 // commitment within the outer commitment, also known as the Taro commitment.
 func (c *AssetCommitment) Root() [sha256.Size]byte {
-	left := c.TreeRoot.Left.NodeKey()
-	right := c.TreeRoot.Right.NodeKey()
+	left := c.TreeRoot.Left.NodeHash()
+	right := c.TreeRoot.Right.NodeHash()
 
 	h := sha256.New()
 	_, _ = h.Write(c.AssetID[:])
