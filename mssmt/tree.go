@@ -1,5 +1,7 @@
 package mssmt
 
+import "context"
+
 const (
 	// MaxTreeLevels represents the depth of the MS-SMT.
 	MaxTreeLevels = hashSize * 8
@@ -43,7 +45,7 @@ func init() {
 // proofs of invalid merkle sum commitments.
 type FullTree struct {
 	root  Node
-	store Store
+	store TreeStore
 }
 
 var _ Tree = (*FullTree)(nil)
@@ -51,7 +53,7 @@ var _ Tree = (*FullTree)(nil)
 // NewFullTree initializes an empty MS-SMT backed by `store`. As a result,
 // `store` will only maintain non-empty relevant nodes, i.e., stale parents are
 // deleted and empty nodes are never stored.
-func NewFullTree(store Store) *FullTree {
+func NewFullTree(store TreeStore) *FullTree {
 	return &FullTree{
 		root:  EmptyTree[0],
 		store: store,
@@ -71,14 +73,20 @@ func bitIndex(idx uint8, key *[hashSize]byte) byte {
 
 // Type alias for closures to be invoked at every iteration of walking through a
 // tree.
-type iterFunc = func(height uint8, current, sibling, parent Node)
+type iterFunc = func(height int, current, sibling, parent Node) error
 
 // walkDown walks down the tree from the root node to the leaf indexed by `key`.
 // The leaf node found is returned.
-func (t *FullTree) walkDown(key *[hashSize]byte, iter iterFunc) *LeafNode {
+func (t *FullTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
+	iter iterFunc) (*LeafNode, error) {
+
 	current := t.root
 	for i := 0; i <= lastBitIndex; i++ {
-		left, right := t.store.GetChildren(uint8(i), current.NodeKey())
+		left, right, err := tx.GetChildren(i, current.NodeKey())
+		if err != nil {
+			return nil, err
+		}
+
 		var next, sibling Node
 		if bitIndex(uint8(i), key) == 0 {
 			next, sibling = left, right
@@ -86,17 +94,21 @@ func (t *FullTree) walkDown(key *[hashSize]byte, iter iterFunc) *LeafNode {
 			next, sibling = right, left
 		}
 		if iter != nil {
-			iter(uint8(i), next, sibling, current)
+			err := iter(i, next, sibling, current)
+			if err != nil {
+				return nil, err
+			}
 		}
 		current = next
 	}
-	return current.(*LeafNode)
+
+	return current.(*LeafNode), nil
 }
 
 // walkUp walks up from the `start` leaf node up to the root with the help of
 // `siblings`. The root branch node computed is returned.
 func walkUp(key *[hashSize]byte, start *LeafNode, siblings []Node,
-	iter iterFunc) *BranchNode {
+	iter iterFunc) (*BranchNode, error) {
 
 	var current Node = start
 	for i := lastBitIndex; i >= 0; i-- {
@@ -108,76 +120,155 @@ func walkUp(key *[hashSize]byte, start *LeafNode, siblings []Node,
 			parent = NewBranch(sibling, current)
 		}
 		if iter != nil {
-			iter(uint8(i), current, sibling, parent)
+			err := iter(i, current, sibling, parent)
+			if err != nil {
+				return nil, err
+			}
 		}
 		current = parent
 	}
-	return current.(*BranchNode)
+
+	return current.(*BranchNode), nil
 }
 
 // insert inserts a leaf node at the given key within the MS-SMT.
-func (t *FullTree) insert(key *[hashSize]byte, leaf *LeafNode) *FullTree {
-	// As we walk down to the leaf node, we'll keep track of the sibling and
-	// parent for each node we visit.
+func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
+	leaf *LeafNode) (*BranchNode, error) {
+
+	// As we walk down to the leaf node, we'll keep track of the sibling
+	// and parent for each node we visit.
 	prevParents := make([]NodeKey, MaxTreeLevels)
 	siblings := make([]Node, MaxTreeLevels)
-	_ = t.walkDown(key, func(i uint8, _, sibling, parent Node) {
-		prevParents[MaxTreeLevels-1-i] = parent.NodeKey()
-		siblings[MaxTreeLevels-1-i] = sibling
-	})
+	_, err := t.walkDown(
+		tx, key, func(i int, _, sibling, parent Node) error {
+			prevParents[MaxTreeLevels-1-i] = parent.NodeKey()
+			siblings[MaxTreeLevels-1-i] = sibling
+			return nil
+		})
+	if err != nil {
+		return nil, err
+	}
 
 	// Now that we've arrived at the leaf node, we'll need to work our way
 	// back up to the root, updating any stale and new intermediate branch
 	// nodes.
-	root := walkUp(key, leaf, siblings, func(i uint8, _, _, parent Node) {
-		// Replace the old parent with the new one. Our store should
-		// never track empty branches.
-		prevParent := prevParents[MaxTreeLevels-1-i]
-		if prevParent != EmptyTree[i].NodeKey() {
-			t.store.DeleteBranch(prevParent)
-		}
-		if parent.NodeKey() != EmptyTree[i].NodeKey() {
-			t.store.InsertBranch(parent.(*BranchNode))
-		}
-	})
+	root, err := walkUp(
+		key, leaf, siblings, func(i int, _, _, parent Node) error {
+			// Replace the old parent with the new one. Our store
+			// should never track empty branches.
+			prevParent := prevParents[MaxTreeLevels-1-i]
+			if prevParent != EmptyTree[i].NodeKey() {
+				err := tx.DeleteBranch(prevParent)
+				if err != nil {
+					return err
+				}
+			}
+
+			if parent.NodeKey() != EmptyTree[i].NodeKey() {
+				err := tx.InsertBranch(parent.(*BranchNode))
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// With our new root updated, we can update the leaf node within the
 	// store. If we've inserted an empty leaf, then the leaf node found at
 	// the given key is being deleted, otherise it's being inserted.
 	if leaf.IsEmpty() {
-		t.store.DeleteLeaf(*key)
+		if err := tx.DeleteLeaf(*key); err != nil {
+			return nil, err
+		}
 	} else {
-		t.store.InsertLeaf(leaf)
+		if err := tx.InsertLeaf(leaf); err != nil {
+			return nil, err
+		}
 	}
-	t.root = root
-	return t
+
+	return root, nil
 }
 
 // Insert inserts a leaf node at the given key within the MS-SMT.
-func (t *FullTree) Insert(key [hashSize]byte, leaf *LeafNode) Tree {
-	return t.insert(&key, leaf)
+func (t *FullTree) Insert(ctx context.Context, key [hashSize]byte,
+	leaf *LeafNode) (Tree, error) {
+
+	var root Node
+	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		var err error
+		root, err = t.insert(tx, &key, leaf)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	t.root = root
+	return t, nil
 }
 
 // Delete deletes the leaf node found at the given key within the MS-SMT.
-func (t *FullTree) Delete(key [hashSize]byte) Tree {
-	return t.insert(&key, EmptyLeafNode)
+func (t *FullTree) Delete(ctx context.Context, key [hashSize]byte) (
+	Tree, error) {
+
+	var root Node
+	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		var err error
+		root, err = t.insert(tx, &key, EmptyLeafNode)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	t.root = root
+	return t, nil
 }
 
 // Get returns the leaf node found at the given key within the MS-SMT.
-func (t *FullTree) Get(key [hashSize]byte) *LeafNode {
-	return t.walkDown(&key, nil)
+func (t *FullTree) Get(ctx context.Context, key [hashSize]byte) (
+	*LeafNode, error) {
+
+	var leaf *LeafNode
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		var err error
+		leaf, err = t.walkDown(tx, &key, nil)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return leaf, nil
 }
 
 // MerkleProof generates a merkle proof for the leaf node found at the given key
 // within the MS-SMT. If a leaf node does not exist at the given key, then the
 // proof should be considered a non-inclusion proof. This is noted by the
 // returned `Proof` containing an empty leaf.
-func (t *FullTree) MerkleProof(key [hashSize]byte) *Proof {
+func (t *FullTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
+	*Proof, error) {
+
 	proof := make([]Node, MaxTreeLevels)
-	_ = t.walkDown(&key, func(i uint8, _, sibling, _ Node) {
-		proof[MaxTreeLevels-1-i] = sibling
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		_, err := t.walkDown(
+			tx, &key, func(i int, _, sibling, _ Node) error {
+				proof[MaxTreeLevels-1-i] = sibling
+				return nil
+			},
+		)
+		return err
 	})
-	return NewProof(proof)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewProof(proof), nil
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the

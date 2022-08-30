@@ -329,17 +329,24 @@ func TestAddressValidInput(t *testing.T) {
 	// Sender TaroCommitments for each asset.
 	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
 	require.NoError(t, err)
-	inputAsset1TaroTree := commitment.NewTaroCommitment(inputAsset1AssetTree)
+	inputAsset1TaroTree, err := commitment.NewTaroCommitment(
+		inputAsset1AssetTree,
+	)
+	require.NoError(t, err)
 	inputAsset1CollectFamilyAssetTree, err := commitment.NewAssetCommitment(
 		inputAsset1collectFamily,
 	)
 	require.NoError(t, err)
-	inputAsset1CollectFamilyTaroTree := commitment.NewTaroCommitment(
+	inputAsset1CollectFamilyTaroTree, err := commitment.NewTaroCommitment(
 		inputAsset1CollectFamilyAssetTree,
 	)
+	require.NoError(t, err)
 	inputAsset2AssetTree, err := commitment.NewAssetCommitment(inputAsset2)
 	require.NoError(t, err)
-	inputAsset2TaroTree := commitment.NewTaroCommitment(inputAsset2AssetTree)
+	inputAsset2TaroTree, err := commitment.NewTaroCommitment(
+		inputAsset2AssetTree,
+	)
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name string
@@ -446,7 +453,10 @@ func TestPayToAddrScript(t *testing.T) {
 	require.NoError(t, err)
 	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
 	require.NoError(t, err)
-	inputAsset1TaroTree := commitment.NewTaroCommitment(inputAsset1AssetTree)
+	inputAsset1TaroTree, err := commitment.NewTaroCommitment(
+		inputAsset1AssetTree,
+	)
+	require.NoError(t, err)
 
 	scriptNoSibling, err := PayToAddrScript(
 		*receiverPubKey1, nil, *inputAsset1TaroTree,

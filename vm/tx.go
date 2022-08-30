@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 
@@ -64,6 +65,10 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		// insert that into a new SMT, with the key being the hash of
 		// the prevID pointer, and the value being the leaf itself.
 		inputsConsumed := make(map[asset.PrevID]struct{}, len(prevAssets))
+
+		// TODO(bhandras): thread the context through.
+		ctx := context.TODO()
+
 		for _, input := range newAsset.PrevWitnesses {
 			// At this point, each input MUST have a prev ID.
 			if input.PrevID == nil {
@@ -86,7 +91,10 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 			if err != nil {
 				return nil, nil, err
 			}
-			_ = inputTree.Insert(key, leaf)
+			_, err = inputTree.Insert(ctx, key, leaf)
+			if err != nil {
+				return nil, nil, err
+			}
 
 			inputsConsumed[*input.PrevID] = struct{}{}
 		}
@@ -158,8 +166,14 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 		return nil, err
 	}
 	outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-	rootKey := outputTree.Insert(key, leaf).Root().NodeKey()
 
+	// TODO(bhandras): thread the context through.
+	tree, err := outputTree.Insert(context.TODO(), key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	rootKey := tree.Root().NodeKey()
 	pkScript, err := computeTaprootScript(rootKey[:])
 	if err != nil {
 		return nil, err

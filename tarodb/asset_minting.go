@@ -486,7 +486,12 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetCommitments[i] = assetCommitment
 	}
 
-	return commitment.NewTaroCommitment(assetCommitments...), nil
+	taroCommitment, err := commitment.NewTaroCommitment(assetCommitments...)
+	if err != nil {
+		return nil, err
+	}
+
+	return taroCommitment, nil
 }
 
 // FetchNonFinalBatches fetches all the batches that aren't fully finalized on

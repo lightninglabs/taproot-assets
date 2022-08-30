@@ -93,5 +93,10 @@ func Mint(genesis asset.Genesis, familyKey *asset.FamilyKey,
 	if err != nil {
 		return nil, nil, err
 	}
-	return NewTaroCommitment(assetCommitment), assets, nil
+	taroCommitment, err := NewTaroCommitment(assetCommitment)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return taroCommitment, assets, nil
 }

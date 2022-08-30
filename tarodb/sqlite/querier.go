@@ -19,6 +19,7 @@ type Querier interface {
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	DeleteNode(ctx context.Context, hashKey []byte) (int64, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	// TODO(roasbeef): identical to the above but no batch, how to combine?
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
@@ -36,6 +37,8 @@ type Querier interface {
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
+	FetchChildren(ctx context.Context, hashKey []byte) ([]FetchChildrenRow, error)
+	FetchChildrenSelfJoin(ctx context.Context, hashKey []byte) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt32) (GenesisPoint, error)
 	FetchManagedUTXO(ctx context.Context, txnID int32) (ManagedUtxo, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
@@ -50,7 +53,10 @@ type Querier interface {
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
+	InsertBranch(ctx context.Context, arg InsertBranchParams) error
+	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error)
+	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error

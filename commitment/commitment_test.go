@@ -250,9 +250,10 @@ func TestNewAssetCommitment(t *testing.T) {
 				require.NotZero(t, commitment.TaroCommitmentKey())
 
 				for _, asset := range assets {
-					asset, _ = commitment.AssetProof(
+					asset, _, err = commitment.AssetProof(
 						asset.AssetCommitmentKey(),
 					)
+					require.NoError(t, err)
 					require.NotNil(t, asset)
 				}
 			}
@@ -427,21 +428,21 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 
 		t.Helper()
 		for _, asset := range assets {
-			proofAsset, proof := commitment.Proof(
+			proofAsset, proof, err := commitment.Proof(
 				asset.TaroCommitmentKey(),
 				asset.AssetCommitmentKey(),
 			)
+			require.NoError(t, err)
 			require.Equal(t, includesAsset, proofAsset != nil)
+
 			if includesAssetFamily {
 				require.NotNil(t, proof.AssetProof)
 			} else {
 				require.Nil(t, proof.AssetProof)
 			}
 
-			var (
-				taroCommitment *TaroCommitment
-				err            error
-			)
+			var taroCommitment *TaroCommitment
+
 			if includesAsset && includesAssetFamily {
 				taroCommitment, err = proof.DeriveByAssetInclusion(
 					asset,
@@ -809,9 +810,10 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 0:
 					assets := soloAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					proofAsset, _ := familyAssetCommitment.AssetProof(
+					proofAsset, _, err := familyAssetCommitment.AssetProof(
 						asset.AssetCommitmentKey(),
 					)
+					require.NoError(t, err)
 					require.Nil(t, proofAsset)
 
 				// Fresh asset commitment.
@@ -826,9 +828,10 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 2:
 					assets := familyAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					proofAsset, _ := familyAssetCommitment.AssetProof(
+					proofAsset, _, err := familyAssetCommitment.AssetProof(
 						asset.AssetCommitmentKey(),
 					)
+					require.NoError(t, err)
 					assertAssetEqual(t, proofAsset, asset)
 				}
 			}
@@ -861,8 +864,9 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	commitmentKey2 := assetCommitment2.TaroCommitmentKey()
 
 	// Mint a new Taro commitment with only the first assetCommitment.
-	commitment := NewTaroCommitment(assetCommitment1)
-	copyOfCommitment := NewTaroCommitment(assetCommitment1)
+	commitment, err := NewTaroCommitment(assetCommitment1)
+	require.NoError(t, err)
+	copyOfCommitment, err := NewTaroCommitment(assetCommitment1)
 	require.NoError(t, err)
 
 	// Check that the assetCommitment map has only the first assetCommitment.
@@ -872,10 +876,11 @@ func TestUpdateTaroCommitment(t *testing.T) {
 
 	// Verify commitment deletion with an empty assetCommitment map
 	// and a proof of non inclusion.
-	commitment.Update(assetCommitment1, true)
-	proofAsset1, _ := commitment.Proof(
+	require.NoError(t, commitment.Update(assetCommitment1, true))
+	proofAsset1, _, err := commitment.Proof(
 		commitmentKey1, asset1.AssetCommitmentKey(),
 	)
+	require.NoError(t, err)
 	require.Nil(t, proofAsset1)
 
 	assetCommitments = commitment.Commitments()
@@ -883,10 +888,11 @@ func TestUpdateTaroCommitment(t *testing.T) {
 
 	// Verify commitment insertion with a proof of inclusion and checking the
 	// assetCommitment map for the inserted assetCommitment.
-	copyOfCommitment.Update(assetCommitment2, false)
-	proofAsset2, _ := copyOfCommitment.Proof(
+	require.NoError(t, copyOfCommitment.Update(assetCommitment2, false))
+	proofAsset2, _, err := copyOfCommitment.Proof(
 		commitmentKey2, asset2.AssetCommitmentKey(),
 	)
+	require.NoError(t, err)
 	assertAssetEqual(t, proofAsset2, asset2)
 
 	assetCommitments = copyOfCommitment.Commitments()

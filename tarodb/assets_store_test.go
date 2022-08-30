@@ -239,7 +239,8 @@ func TestImportAssetProof(t *testing.T) {
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
 	require.NoError(t, err)
 
-	taroRoot := commitment.NewTaroCommitment(assetRoot)
+	taroRoot, err := commitment.NewTaroCommitment(assetRoot)
+	require.NoError(t, err)
 
 	// With our asset created, we can now create the AnnotatedProof we use
 	// to import assets into the database.

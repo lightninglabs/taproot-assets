@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -159,7 +160,12 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 		if err != nil {
 			return nil, err
 		}
-		tree.Insert(key, leaf)
+
+		// TODO(bhandras): thread the context through.
+		_, err = tree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	commitment.TreeRoot = tree.Root()
@@ -186,8 +192,14 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 
 	key := asset.AssetCommitmentKey()
 
+	// TODO(bhandras): thread the context through.
+	ctx := context.TODO()
+
 	if deletion {
-		c.tree.Delete(key)
+		_, err := c.tree.Delete(ctx, key)
+		if err != nil {
+			return err
+		}
 		c.TreeRoot = c.tree.Root()
 		delete(c.assets, key)
 		return nil
@@ -198,7 +210,10 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 		return err
 	}
 
-	c.tree.Insert(key, leaf)
+	_, err = c.tree.Insert(ctx, key, leaf)
+	if err != nil {
+		return err
+	}
 	c.TreeRoot = c.tree.Root()
 	c.assets[key] = asset
 	return nil
@@ -239,11 +254,20 @@ func (c *AssetCommitment) TaroCommitmentLeaf() *mssmt.LeafNode {
 
 // AssetProof computes the AssetCommitment merkle proof for the asset leaf
 // located at `key`. A `nil` asset is returned if the asset is not committed to.
-func (c *AssetCommitment) AssetProof(key [32]byte) (*asset.Asset, *mssmt.Proof) {
+func (c *AssetCommitment) AssetProof(key [32]byte) (
+	*asset.Asset, *mssmt.Proof, error) {
+
 	if c.tree == nil {
 		panic("missing tree to compute proofs")
 	}
-	return c.assets[key], c.tree.MerkleProof(key)
+
+	// TODO(bhandras): thread the context through.
+	proof, err := c.tree.MerkleProof(context.TODO(), key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return c.assets[key], proof, nil
 }
 
 // Assets returns the set of assets committed to in the asset commitment.

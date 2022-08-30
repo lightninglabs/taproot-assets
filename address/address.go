@@ -172,7 +172,11 @@ func isValidInput(input *commitment.TaroCommitment, address Taro,
 	assetCommitmentKey := asset.AssetCommitmentKey(
 		address.ID, &inputScriptKey, address.FamilyKey == nil,
 	)
-	inputAsset, _ := assetCommitment.AssetProof(assetCommitmentKey)
+	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
+	if err != nil {
+		return nil, err
+	}
+
 	if inputAsset == nil {
 		return nil, ErrMissingInputAsset
 	}
