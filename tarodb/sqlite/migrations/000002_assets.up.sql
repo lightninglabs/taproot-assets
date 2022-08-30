@@ -5,9 +5,9 @@
 CREATE TABLE IF NOT EXISTS chain_txns (
     txn_id INTEGER PRIMARY KEY,
 
-    txid BLOB UNIQUE,
+    txid BLOB UNIQUE NOT NULL,
 
-    raw_tx BLOB,
+    raw_tx BLOB NOT NULL,
 
     block_height INTEGER,
 
@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS chain_txns (
 
     tx_index INTEGER 
 );
-CREATE INDEX IF NOT EXISTS txid on chain_txns(txid);
 
 -- genesis_points stores all genesis_points relevant to tardo, which is the
 -- first outpoint of the transaction that mints assets. This table stores the
@@ -29,7 +28,6 @@ CREATE TABLE IF NOT EXISTS genesis_points (
 
     anchor_tx_id INTEGER REFERENCES chain_txns(txn_id)
 );
-CREATE INDEX IF NOT EXISTS gen_points on genesis_points(prev_out);
 
 -- genesis_assets stores the base information for a given asset. This includes
 -- all the information needed to derive the assetID for an asset. This table
@@ -62,13 +60,12 @@ CREATE TABLE IF NOT EXISTS internal_keys (
 
     -- We'll always store the full 33-byte key on disk, to make sure we're
     -- retaining full information.
-    raw_key BLOB UNIQUE NOT NULL UNIQUE CHECK(length(raw_key) == 33),
+    raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) == 33),
 
     key_family INTEGER NOT NULL,
 
     key_index INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS key_index on internal_keys (raw_key);
 
 -- asset_families stores information related to the asset family key for a
 -- given asset. This includes the raw tweaked_fam_key, which is the result of
@@ -85,7 +82,6 @@ CREATE TABLE IF NOT EXISTS asset_families (
 
     genesis_point_id INTEGER NOT NULL REFERENCES genesis_points(genesis_id)
 );
-CREATE INDEX IF NOT EXISTS fam_key_index on asset_families (tweaked_fam_key);
 
 -- asset_family_sigs stores the set of signatures for an asset family key. Each
 -- time a family key is used (creation of an initial asset, and then all on
@@ -103,14 +99,14 @@ CREATE TABLE IF NOT EXISTS asset_family_sigs (
     key_fam_id INTEGER NOT NULL REFERENCES asset_families(family_id)
 );
 
--- managed_utxos is the set of UTXOs managed by tarod. These UTXOs many commit
+-- managed_utxos is the set of UTXOs managed by tarod. These UTXOs may commit
 -- to several assets. These UTXOs are also always imported into the backing
 -- wallet, so the wallet is able to keep track of the amount of sats that are
 -- used to anchor Taro assets.
 CREATE TABLE IF NOT EXISTS managed_utxos (
     utxo_id INTEGER PRIMARY KEY,
 
-    outpoint BLOB,
+    outpoint BLOB UNIQUE NOT NULL,
 
     -- TODO(roasbeef): need to make these INT instead then interpolate due to
     -- 64 bit issues?
@@ -118,14 +114,13 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
 
     internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
-    tapscript_sibling BLOB NOT NULL,
+    tapscript_sibling BLOB,
 
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
     taro_root BLOB NOT NULL,
 
     txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id)
 );
-CREATE INDEX IF NOT EXISTS coin_index on managed_utxos (outpoint);
 
 -- assets is the main table that stores (or references) the complete asset
 -- information. This represents the latest state of any given asset, as it also

@@ -46,22 +46,22 @@ type Querier interface {
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error)
-	InsertAssetFamilyKey(ctx context.Context, arg InsertAssetFamilyKeyParams) (int32, error)
 	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
-	InsertChainTx(ctx context.Context, arg InsertChainTxParams) (int32, error)
 	InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error)
-	InsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
-	InsertInternalKey(ctx context.Context, arg InsertInternalKeyParams) (int32, error)
-	InsertManagedUTXO(ctx context.Context, arg InsertManagedUTXOParams) (int32, error)
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
-	UpdateAssetProof(ctx context.Context, arg UpdateAssetProofParams) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
+	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)
+	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
+	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)
+	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
+	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error)
+	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -1,9 +1,10 @@
--- name: InsertInternalKey :one
+-- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
     raw_key, key_family, key_index
 ) VALUES (
     ?, ?, ?
-) ON CONFLICT
+) ON CONFLICT (raw_key)
+    -- This is a NOP, raw_key is the unique field that caused the conflict.
     DO UPDATE SET raw_key = EXCLUDED.raw_key
 RETURNING key_id;
 
@@ -98,21 +99,24 @@ SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
--- name: InsertGenesisPoint :one
+-- name: UpsertGenesisPoint :one
 INSERT INTO genesis_points(
     prev_out
 ) VALUES (
     ?
-) ON CONFLICT
+) ON CONFLICT (prev_out)
+    -- This is a NOP, prev_out is the unique field that caused the conflict.
     DO UPDATE SET prev_out = EXCLUDED.prev_out
 RETURNING genesis_id;
 
--- name: InsertAssetFamilyKey :one
+-- name: UpsertAssetFamilyKey :one
 INSERT INTO asset_families (
     tweaked_fam_key, internal_key_id, genesis_point_id 
 ) VALUES (
     ?, ?, ?
-) ON CONFLICT 
+) ON CONFLICT (tweaked_fam_key)
+    -- This is not a NOP, update the genesis point ID in case it wasn't set
+    -- before.
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING family_id;
 
@@ -293,14 +297,18 @@ UPDATE asset_minting_batches
 SET minting_tx_psbt = ?
 WHERE batch_id in (SELECT batch_id FROM target_batch);
 
--- name: InsertChainTx :one
+-- name: UpsertChainTx :one
 INSERT INTO chain_txns (
     txid, raw_tx, block_height, block_hash, tx_index
 ) VALUES (
-    sqlc.narg('txid'), sqlc.narg('raw_tx'), sqlc.narg('block_height'),
-    sqlc.narg('block_hash'), sqlc.narg('tx_index')
-) ON CONFLICT
-    DO UPDATE SET txid = EXCLUDED.txid
+    ?, ?, sqlc.narg('block_height'), sqlc.narg('block_hash'),
+    sqlc.narg('tx_index')
+) ON CONFLICT (txid)
+    -- Not a NOP but instead update any nullable fields that aren't null in the
+    -- args.
+    DO UPDATE SET block_height = IFNULL(EXCLUDED.block_height, block_height),
+                  block_hash = IFNULL(EXCLUDED.block_hash, block_hash),
+                  tx_index = IFNULL(EXCLUDED.tx_index, tx_index)
 RETURNING txn_id;
 
 -- name: FetchChainTx :one
@@ -308,7 +316,7 @@ SELECT *
 FROM chain_txns
 WHERE txid = ?;
 
--- name: InsertManagedUTXO :one
+-- name: UpsertManagedUTXO :one
 WITH target_key(key_id) AS (
     SELECT key_id
     FROM internal_keys
@@ -318,7 +326,11 @@ INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
 ) VALUES (
     ?, ?, (SELECT key_id FROM target_key), ?, ?, ?
-) RETURNING utxo_id;
+) ON CONFLICT (outpoint)
+   -- Not a NOP but instead update any nullable fields that aren't null in the
+   -- args.
+   DO UPDATE SET tapscript_sibling = IFNULL(EXCLUDED.tapscript_sibling, tapscript_sibling)
+RETURNING utxo_id;
 
 -- name: FetchManagedUTXO :one
 SELECT *
@@ -390,7 +402,7 @@ UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
 WHERE txn_id in (SELECT txn_id FROm target_txn);
 
--- name: UpdateAssetProof :exec
+-- name: UpsertAssetProof :exec
 WITH target_asset(asset_id) AS (
     SELECT asset_id
     FROM assets
@@ -402,7 +414,8 @@ INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
     (SELECT asset_id FROM target_asset), ?
-) ON CONFLICT 
+) ON CONFLICT (asset_id)
+    -- This is not a NOP, update the proof file in case it wasn't set before.
     DO UPDATE SET proof_file = EXCLUDED.proof_file;
 
 -- name: FetchAssetProofs :many
