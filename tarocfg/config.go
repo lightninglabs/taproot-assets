@@ -100,7 +100,7 @@ var (
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor: 0,
 		AppMinor: 15,
-		AppPatch: 0,
+		AppPatch: 99,
 
 		// We don't actually require the invoicesrpc calls. But if we
 		// try to use lndclient on an lnd that doesn't have it enabled,
