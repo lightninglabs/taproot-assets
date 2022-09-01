@@ -1,6 +1,7 @@
 package taroscript
 
 import (
+	"encoding/hex"
 	"math/rand"
 	"testing"
 
@@ -288,6 +289,182 @@ func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
 	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
 	require.Equal(t, a.ScriptKey, b.ScriptKey)
 	require.Equal(t, a.FamilyKey, b.FamilyKey)
+}
+
+func checkPreparedSplitSpend(t *testing.T, spend *SpendDelta, addr address.Taro,
+	prevInput asset.PrevID, scriptKey btcec.PublicKey) {
+
+	t.Helper()
+
+	require.NotNil(t, spend.SplitCommitment)
+	require.Equal(t, *spend.NewAsset.ScriptKey.PubKey, scriptKey)
+	require.Equal(
+		t, spend.NewAsset.Amount,
+		spend.InputAssets[prevInput].Amount-addr.Amount,
+	)
+
+	receiverStateKey := addr.AssetCommitmentKey()
+	receiverLocator, ok := spend.Locators[receiverStateKey]
+	require.True(t, ok)
+	receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
+	require.True(t, ok)
+	require.Equal(t, receiverAsset.Asset.Amount, addr.Amount)
+	require.Equal(t, *receiverAsset.Asset.ScriptKey.PubKey, addr.ScriptKey)
+}
+
+func checkPreparedCompleteSpend(t *testing.T, spend *SpendDelta,
+	addr address.Taro, prevInput asset.PrevID) {
+
+	t.Helper()
+
+	require.Nil(t, spend.SplitCommitment)
+	require.Equal(t, *spend.NewAsset.ScriptKey.PubKey, addr.ScriptKey)
+	require.Equal(t, *spend.NewAsset.PrevWitnesses[0].PrevID, prevInput)
+	require.Nil(t, spend.NewAsset.PrevWitnesses[0].TxWitness)
+	require.Nil(t, spend.NewAsset.PrevWitnesses[0].SplitCommitment)
+}
+
+// TestPrepareAssetSplitSpend tests the creating of split commitment data with
+// different sets of split locators. The validity of locators is assumed to be
+// checked earlier via areValidIndexes().
+func TestPrepareAssetSplitSpend(t *testing.T) {
+	t.Parallel()
+
+	prepareAssetSplitSpendTestCases := []struct {
+		name string
+		f    func() error
+		err  error
+	}{
+		{
+			name: "asset split with custom locators",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset2InputAssets,
+				}
+
+				spenderStateKey := asset.AssetCommitmentKey(
+					state.asset2.ID(),
+					&state.spenderScriptKey, true,
+				)
+				receiverStateKey := state.address1StateKey
+
+				spend.Locators = make(SpendLocators)
+				spend.Locators[spenderStateKey] = commitment.
+					SplitLocator{OutputIndex: 0}
+				spend.Locators[receiverStateKey] = commitment.
+					SplitLocator{OutputIndex: 2}
+				spendPrepared, err := prepareAssetSplitSpend(
+					state.address1, state.asset2PrevID,
+					state.spenderScriptKey, spend,
+				)
+				require.NoError(t, err)
+
+				checkPreparedSplitSpend(
+					t, spendPrepared, state.address1,
+					state.asset2PrevID,
+					state.spenderScriptKey,
+				)
+				return nil
+			},
+			err: nil,
+		},
+		{
+			name: "asset split with mock locators",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset2InputAssets,
+				}
+				spendPrepared, err := prepareAssetSplitSpend(
+					state.address1, state.asset2PrevID,
+					state.spenderScriptKey, spend,
+				)
+				require.NoError(t, err)
+
+				checkPreparedSplitSpend(
+					t, spendPrepared, state.address1,
+					state.asset2PrevID,
+					state.spenderScriptKey,
+				)
+				return nil
+			},
+			err: nil,
+		},
+	}
+
+	for _, testCase := range prepareAssetSplitSpendTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f()
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+// TestPrepareAssetCompleteSpend tests the two cases where an asset is spent
+// completely, asserting that new asset leaves are correctly created.
+func TestPrepareAssetCompleteSpend(t *testing.T) {
+	t.Parallel()
+
+	prepareAssetCompleteSpendTestCases := []struct {
+		name string
+		f    func() error
+		err  error
+	}{
+		{
+			name: "collectible with family key",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.
+						asset1CollectFamilyInputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1CollectFamily,
+					state.asset1CollectFamilyPrevID, spend,
+				)
+				checkPreparedCompleteSpend(
+					t, spendPrepared,
+					state.address1CollectFamily,
+					state.asset1CollectFamilyPrevID,
+				)
+				return nil
+			},
+			err: nil,
+		},
+		{
+			name: "normal asset without split",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				checkPreparedCompleteSpend(
+					t, spendPrepared, state.address1,
+					state.asset1PrevID,
+				)
+				return nil
+			},
+			err: nil,
+		},
+	}
+
+	for _, testCase := range prepareAssetCompleteSpendTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f()
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
 }
 
 // TestValidIndexes tests various sets of asset locators to assert that we can

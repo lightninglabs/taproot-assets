@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -35,11 +36,74 @@ var (
 
 )
 
+// SpendDelta stores the information needed to prepare new asset leaves or a
+// split commitment, and validated a spend with the Taro VM. SpendDelta is also
+// used to create the final TaroCommitments for each receiver.
+type SpendDelta struct {
+	// NewAsset is the Asset that will be validated by the Taro VM.
+	// In the case of an asset split, it is the root locator that also
+	// contains the split commitment. Otherwise, it is the asset that will
+	// be sent to the receiver.
+	NewAsset asset.Asset
+
+	// InputAssets maps asset PrevIDs to Assets being spent by the sender.
+	InputAssets commitment.InputSet
+
+	// Locators maps AssetCommitmentKeys for all receivers to splitLocators.
+	// The locators are used to create split commitments, and store indexes
+	// for each receiver's corresponding Bitcoin output.
+	Locators SpendLocators
+
+	// SplitCommitment contains all data needed to validate and commit to an
+	// asset split.
+
+	// NOTE: This is nil unless the InputAsset is being split.
+	SplitCommitment *commitment.SplitCommitment
+}
+
 // SpendLocators stores a split locators for each receiver, keyed by their
 // AssetCommitmentKey. These locators are used to create split commitments and
 // the final PSBT for the transfer. AssetCommitmentKeys are unique to each asset
 // and each receiver due to the inclusion of the receiver's ScriptKey.
 type SpendLocators = map[[32]byte]commitment.SplitLocator
+
+// Copy returns a deep copy of a SpendDelta.
+func (s *SpendDelta) Copy() SpendDelta {
+	// Copy the fields that are not maps directly; the other fields must
+	// maintain their nil-ness, and therefore require an extra check.
+	newDelta := SpendDelta{
+		NewAsset:        *s.NewAsset.Copy(),
+		SplitCommitment: s.SplitCommitment,
+	}
+
+	if s.InputAssets != nil {
+		inputAssets := make(commitment.InputSet)
+		maps.Copy(inputAssets, s.InputAssets)
+		newDelta.InputAssets = inputAssets
+	}
+
+	if s.Locators != nil {
+		locators := make(SpendLocators)
+		maps.Copy(locators, s.Locators)
+		newDelta.Locators = locators
+	}
+
+	return newDelta
+}
+
+// createDummyLocators creates a set of split locators with continuous output
+// indexes, starting for 0. These mock locators are used for initial split
+// commitment validation, and are the default for the final PSBT.
+func createDummyLocators(stateKeys [][32]byte) SpendLocators {
+	locators := make(SpendLocators)
+	for i := uint32(0); i < uint32(len(stateKeys)); i++ {
+		index := i
+		locators[stateKeys[i]] = commitment.SplitLocator{
+			OutputIndex: index,
+		}
+	}
+	return locators
+}
 
 // areValidIndexes checks a set of split locators to check for the minimum
 // number of locators, and tests if the locators could be used for a Taro-only
@@ -119,5 +183,90 @@ func isValidInput(input commitment.TaroCommitment,
 	}
 
 	return inputAsset, needsSplit, nil
+}
+
+// TODO(jhb): This assumes only 2 split outputs / 1 receiver; needs update
+// to support multiple receivers.
+// prepareAssetSplitSpend computes a split commitment with the given input and
+// spend information. Input MUST be checked as valid beforehand, and locators
+// MUST be checked for validity beforehand if provided.
+func prepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
+	scriptKey btcec.PublicKey, delta SpendDelta) (*SpendDelta, error) {
+
+	updatedDelta := delta.Copy()
+
+	// Generate the keys used to look up split locators for each receiver.
+	senderStateKey := asset.AssetCommitmentKey(
+		addr.ID, &scriptKey, addr.FamilyKey == nil,
+	)
+	receiverStateKey := addr.AssetCommitmentKey()
+
+	// TODO(jhb): Handle change of 0 amount / splits with no change.
+	// If no locators are provided, we create a split with mock locators
+	// to verify that the desired split is possible. We can later regenerate
+	// a split with the final output indexes.
+	if updatedDelta.Locators == nil {
+		updatedDelta.Locators = createDummyLocators(
+			[][32]byte{senderStateKey, receiverStateKey},
+		)
+	}
+
+	senderLocator := updatedDelta.Locators[senderStateKey]
+	receiverLocator := updatedDelta.Locators[receiverStateKey]
+
+	inputAsset := updatedDelta.InputAssets[prevInput]
+
+	// Populate the remaining fields in the splitLocators before generating
+	// the splitCommitment.
+	senderLocator.AssetID = addr.ID
+	senderLocator.ScriptKey = scriptKey
+	senderLocator.Amount = inputAsset.Amount - addr.Amount
+	updatedDelta.Locators[senderStateKey] = senderLocator
+
+	receiverLocator.AssetID = addr.ID
+	receiverLocator.ScriptKey = addr.ScriptKey
+	receiverLocator.Amount = addr.Amount
+	updatedDelta.Locators[receiverStateKey] = receiverLocator
+
+	splitCommitment, err := commitment.NewSplitCommitment(
+		inputAsset, prevInput.OutPoint,
+		&senderLocator, &receiverLocator,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	updatedDelta.NewAsset = *splitCommitment.RootAsset
+	updatedDelta.InputAssets = splitCommitment.PrevAssets
+	updatedDelta.SplitCommitment = splitCommitment
+
+	return &updatedDelta, nil
+}
+
+// prepareAssetCompleteSpend computes a new asset leaf for spends that
+// fully consume the input, i.e. collectibles or an equal-valued send. Input
+// MUST be checked as valid beforehand.
+func prepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
+	delta SpendDelta) *SpendDelta {
+
+	updatedDelta := delta.Copy()
+
+	newAsset := updatedDelta.InputAssets[prevInput].Copy()
+	newAsset.ScriptKey.PubKey = &addr.ScriptKey
+
+	// Record the PrevID of the input asset in a Witness for the new asset.
+	// This Witness still needs a valid signature for the new asset
+	// to be valid.
+	newAsset.PrevWitnesses = []asset.Witness{
+		{
+			PrevID:          &prevInput,
+			TxWitness:       nil,
+			SplitCommitment: nil,
+		},
+	}
+
+	updatedDelta.NewAsset = *newAsset
+
+	return &updatedDelta
 }
 
