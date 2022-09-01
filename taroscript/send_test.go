@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
@@ -460,6 +462,92 @@ func checkSpendCommitments(t *testing.T, senderKey, receiverKey [32]byte,
 			true, true, true,
 		)
 	}
+}
+
+func checkSpendOutputs(t *testing.T, addr address.Taro,
+	internalKey, scriptKey btcec.PublicKey,
+	senderAsset, receiverAsset *asset.Asset,
+	commitments SpendCommitments, locators SpendLocators,
+	spendingPsbt *psbt.Packet, isSplit bool) {
+
+	t.Helper()
+
+	// Build a TaprootProof for each receiver to prove inclusion
+	// or exclusion for each output.
+	senderStateKey := asset.AssetCommitmentKey(
+		addr.ID, &scriptKey, addr.FamilyKey == nil,
+	)
+	senderIndex := locators[senderStateKey].OutputIndex
+	senderTaroTree := commitments[senderStateKey]
+	senderProofAsset, senderTaroProof, err := senderTaroTree.Proof(
+		senderAsset.TaroCommitmentKey(),
+		senderAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	if senderProofAsset != nil {
+		assertAssetEqual(t, senderAsset, senderProofAsset)
+	}
+	senderProof := &proof.TaprootProof{
+		OutputIndex: senderIndex,
+		InternalKey: &internalKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof:              *senderTaroProof,
+			TapSiblingPreimage: nil,
+		},
+		TapscriptProof: nil,
+	}
+
+	receiverStateKey := addr.AssetCommitmentKey()
+	receiverIndex := locators[receiverStateKey].OutputIndex
+	receiverTaroTree := commitments[receiverStateKey]
+	receiverProofAsset, receiverTaroProof, err := receiverTaroTree.Proof(
+		receiverAsset.TaroCommitmentKey(),
+		receiverAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	assertAssetEqual(t, receiverAsset, receiverProofAsset)
+	receiverProof := &proof.TaprootProof{
+		OutputIndex: receiverIndex,
+		InternalKey: &addr.InternalKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof:              *receiverTaroProof,
+			TapSiblingPreimage: nil,
+		},
+		TapscriptProof: nil,
+	}
+
+	// The sender proof should prove inclusion of the split commitment root
+	// if there was an asset split, and exclusion of the input asset
+	// otherwise.
+	var senderProofKey *btcec.PublicKey
+	if isSplit {
+		senderProofKey, _, err = senderProof.DeriveByAssetInclusion(
+			senderAsset,
+		)
+		require.NoError(t, err)
+	} else {
+		senderProofKey, err = senderProof.DeriveByAssetExclusion(
+			senderAsset.AssetCommitmentKey(),
+			senderAsset.TaroCommitmentKey(),
+		)
+		require.NoError(t, err)
+	}
+
+	receiverProofKey, _, err := receiverProof.DeriveByAssetInclusion(
+		receiverAsset,
+	)
+	require.NoError(t, err)
+
+	senderPsbtKey := spendingPsbt.UnsignedTx.TxOut[senderIndex].PkScript[2:]
+	receiverPsbtKey := spendingPsbt.UnsignedTx.TxOut[receiverIndex].
+		PkScript[2:]
+
+	require.Equal(
+		t, schnorr.SerializePubKey(receiverProofKey), receiverPsbtKey,
+	)
+	require.Equal(
+		t, schnorr.SerializePubKey(senderProofKey), senderPsbtKey,
+	)
 }
 
 // TestPrepareAssetSplitSpend tests the creating of split commitment data with
@@ -1031,6 +1119,277 @@ func TestCreateSpendCommitments(t *testing.T) {
 	}
 
 	for _, testCase := range createSpendCommitmentsTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f()
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+// TestCreateSpendOutputs tests edge cases around creating Bitcoin outputs
+// that embed TaroCommitments.
+func TestCreateSpendOutputs(t *testing.T) {
+	t.Parallel()
+
+	createSpendOutputsTestCases := []struct {
+		name string
+		f    func() error
+		err  error
+	}{
+		{
+			name: "missing change commitment",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				require.NoError(t, err)
+
+				spendCommitments, err := createSpendCommitments(
+					state.asset1TaroTree,
+					state.asset1PrevID, *spendCompleted,
+					state.address1, state.spenderScriptKey,
+				)
+				require.NoError(t, err)
+
+				senderStateKey := asset.AssetCommitmentKey(
+					state.address1.ID,
+					&state.spenderScriptKey, true,
+				)
+				delete(spendCommitments, senderStateKey)
+				_, err = createSpendOutputs(
+					state.address1, spendCompleted.Locators,
+					state.spenderPubKey,
+					state.spenderScriptKey,
+					spendCommitments,
+				)
+				return err
+			},
+			err: ErrMissingTaroCommitment,
+		},
+		{
+			name: "missing receciver commitment",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				require.NoError(t, err)
+
+				spendCommitments, err := createSpendCommitments(
+					state.asset1TaroTree,
+					state.asset1PrevID, *spendCompleted,
+					state.address1, state.spenderScriptKey,
+				)
+				require.NoError(t, err)
+
+				receiverStateKey := state.address1StateKey
+				delete(spendCommitments, receiverStateKey)
+				_, err = createSpendOutputs(
+					state.address1, spendCompleted.Locators,
+					state.spenderPubKey,
+					state.spenderScriptKey,
+					spendCommitments,
+				)
+				return err
+			},
+			err: ErrMissingTaroCommitment,
+		},
+		{
+			name: "collectible with family key",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.
+						asset1CollectFamilyInputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1CollectFamily,
+					state.asset1CollectFamilyPrevID, spend,
+				)
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1CollectFamilyPrevID,
+					*spendPrepared,
+				)
+				require.NoError(t, err)
+
+				spendCommitments, err := createSpendCommitments(
+					state.asset1CollectFamilyTaroTree,
+					state.asset1CollectFamilyPrevID,
+					*spendCompleted,
+					state.address1CollectFamily,
+					state.spenderScriptKey,
+				)
+				require.NoError(t, err)
+
+				senderStateKey := asset.AssetCommitmentKey(
+					state.address1.ID,
+					&state.spenderScriptKey, false,
+				)
+				receiverStateKey := state.
+					address1CollectFamilyStateKey
+				spendCompleted.Locators = createDummyLocators(
+					[][32]byte{
+						senderStateKey,
+						receiverStateKey,
+					},
+				)
+				spendPsbt, err := createSpendOutputs(
+					state.address1CollectFamily,
+					spendCompleted.Locators,
+					state.spenderPubKey,
+					state.spenderScriptKey,
+					spendCommitments,
+				)
+				require.NoError(t, err)
+
+				senderAsset := spendCompleted.
+					InputAssets[state.
+					asset1CollectFamilyPrevID]
+				checkSpendOutputs(
+					t, state.address1CollectFamily,
+					state.spenderPubKey,
+					state.spenderScriptKey,
+					senderAsset, &spendCompleted.NewAsset,
+					spendCommitments,
+					spendCompleted.Locators,
+					spendPsbt, false,
+				)
+				return nil
+			},
+			err: nil,
+		},
+		{
+			name: "normal asset without split",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1,
+					state.asset1PrevID, spend,
+				)
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				require.NoError(t, err)
+
+				spendCommitments, err := createSpendCommitments(
+					state.asset1TaroTree,
+					state.asset1PrevID, *spendCompleted,
+					state.address1, state.spenderScriptKey,
+				)
+				require.NoError(t, err)
+
+				senderStateKey := asset.AssetCommitmentKey(
+					state.address1.ID,
+					&state.spenderScriptKey, true,
+				)
+				receiverStateKey := state.address1StateKey
+				spendCompleted.Locators = createDummyLocators(
+					[][32]byte{
+						senderStateKey,
+						receiverStateKey,
+					},
+				)
+				spendPsbt, err := createSpendOutputs(
+					state.address1, spendCompleted.Locators,
+					state.spenderPubKey,
+					state.spenderScriptKey,
+					spendCommitments,
+				)
+				require.NoError(t, err)
+
+				senderAsset := spendCompleted.
+					InputAssets[state.asset1PrevID]
+				checkSpendOutputs(
+					t, state.address1, state.spenderPubKey,
+					state.spenderScriptKey,
+					senderAsset, &spendCompleted.NewAsset,
+					spendCommitments,
+					spendCompleted.Locators,
+					spendPsbt, false,
+				)
+				return nil
+			},
+			err: nil,
+		},
+		{
+			name: "asset split",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset2InputAssets,
+				}
+				spendPrepared, err := prepareAssetSplitSpend(
+					state.address1, state.asset2PrevID,
+					state.spenderScriptKey, spend,
+				)
+				require.NoError(t, err)
+
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset2PrevID, *spendPrepared,
+				)
+				require.NoError(t, err)
+
+				spendCommitments, err := createSpendCommitments(
+					state.asset2TaroTree,
+					state.asset2PrevID, *spendCompleted,
+					state.address1, state.spenderScriptKey,
+				)
+				require.NoError(t, err)
+
+				receiverStateKey := state.address1StateKey
+				receiverLocator := spendCompleted.
+					Locators[receiverStateKey]
+				receiverAsset := spendCompleted.SplitCommitment.
+					SplitAssets[receiverLocator].Asset
+				spendPsbt, err := createSpendOutputs(
+					state.address1, spendCompleted.Locators,
+					state.spenderPubKey,
+					state.spenderScriptKey,
+					spendCommitments,
+				)
+				require.NoError(t, err)
+
+				checkSpendOutputs(
+					t, state.address1, state.spenderPubKey,
+					state.spenderScriptKey,
+					&spendCompleted.NewAsset,
+					&receiverAsset, spendCommitments,
+					spendCompleted.Locators,
+					spendPsbt, true,
+				)
+				return nil
+			},
+			err: nil,
+		},
+	}
+
+	for _, testCase := range createSpendOutputsTestCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			err := testCase.f()
 			require.ErrorIs(t, err, testCase.err)

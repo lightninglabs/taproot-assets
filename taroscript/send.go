@@ -2,9 +2,12 @@ package taroscript
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -48,6 +51,20 @@ var (
 		"send: Asset commitment not found",
 	)
 
+	// ErrMissingTaroCommitment is an error returned when we attempt to
+	// look up a Taro commitment in a map and the specified commitment
+	// is not found.
+	ErrMissingTaroCommitment = errors.New(
+		"send: Taro commitment not found",
+	)
+)
+
+const (
+	// DummyAmtSats is the default amount of sats we'll use in Bitcoin
+	// outputs embedding Taro commitments. This value just needs to be
+	// greater than dust, and we assume that this value is updated to match
+	// the input asset bearing UTXOs before finalizing the transfer TX.
+	DummyAmtSats = btcutil.Amount(1_000)
 )
 
 // SpendDelta stores the information needed to prepare new asset leaves or a
@@ -108,6 +125,17 @@ func (s *SpendDelta) Copy() SpendDelta {
 	}
 
 	return newDelta
+}
+
+// createDummyOutput creates a new Bitcoin transaction output that is later
+// used to embed a Taro commitment.
+func createDummyOutput() *wire.TxOut {
+	// The dummy PkScript is the same size as an encoded P2TR output.
+	newOutput := wire.TxOut{
+		Value:    int64(DummyAmtSats),
+		PkScript: make([]byte, 34),
+	}
+	return &newOutput
 }
 
 // createDummyLocators creates a set of split locators with continuous output
@@ -460,5 +488,66 @@ func createSpendCommitments(inputCommitment commitment.TaroCommitment,
 	commitments[receiverStateKey] = *receiverTaroCommitment
 
 	return commitments, nil
+}
+
+// createSpendOutputs creates a PSBT with outputs embedding TaroCommitments
+// involved in an asset send. The sender must attach the Bitcoin input holding
+// the corresponding Taro input asset to this PSBT before finalizing the TX.
+// Locators MUST be checked beforehand.
+func createSpendOutputs(addr address.Taro, locators SpendLocators,
+	internalKey, scriptKey btcec.PublicKey,
+	commitments SpendCommitments) (*psbt.Packet, error) {
+
+	// Fetch the TaroCommitment for both sender and receiver.
+	senderStateKey := asset.AssetCommitmentKey(
+		addr.ID, &scriptKey, addr.FamilyKey == nil,
+	)
+	receiverStateKey := addr.AssetCommitmentKey()
+
+	senderCommitment, ok := commitments[senderStateKey]
+	if !ok {
+		return nil, ErrMissingTaroCommitment
+	}
+	receiverCommitment, ok := commitments[receiverStateKey]
+	if !ok {
+		return nil, ErrMissingTaroCommitment
+	}
+
+	// Create the scripts corresponding to each receiver's TaroCommitment.
+
+	// NOTE: We currently default to the Taro commitment having no sibling
+	// in the Tapscript tree. Any sibling would need to be checked to verify
+	// that it is not also a Taro commitment.
+	receiverScript, err := address.PayToAddrScript(
+		addr.InternalKey, nil, receiverCommitment,
+	)
+	if err != nil {
+		return nil, err
+	}
+	senderScript, err := address.PayToAddrScript(
+		internalKey, nil, senderCommitment,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(jhb): Update to create enough outputs to fit the
+	// locator with the largest output index.
+	// Create a template PSBT with two outputs, both above the dust limit.
+	txTemplate := wire.NewMsgTx(2)
+	txTemplate.AddTxOut(createDummyOutput())
+	txTemplate.AddTxOut(createDummyOutput())
+	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	// Embed the TaroCommitments in their respective transaction outputs.
+	senderIndex := locators[senderStateKey].OutputIndex
+	spendPkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
+	receiverIndex := locators[receiverStateKey].OutputIndex
+	spendPkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
+
+	return spendPkt, nil
 }
 
