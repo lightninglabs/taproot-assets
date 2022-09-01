@@ -35,6 +35,19 @@ var (
 		"send: Output indexes not starting at 0 and continuous",
 	)
 
+	// ErrMissingSplitAsset is an error returned when we attempt to look up
+	// a split asset in a map and the specified asset is not found.
+	ErrMissingSplitAsset = errors.New(
+		"send: split asset not found",
+	)
+
+	// ErrMissingAssetCommitment is an error returned when we attempt to
+	// look up an Asset commitment in a map and the specified commitment
+	// is not found.
+	ErrMissingAssetCommitment = errors.New(
+		"send: Asset commitment not found",
+	)
+
 )
 
 // SpendDelta stores the information needed to prepare new asset leaves or a
@@ -61,6 +74,11 @@ type SpendDelta struct {
 	// NOTE: This is nil unless the InputAsset is being split.
 	SplitCommitment *commitment.SplitCommitment
 }
+
+// SpendCommitments stores the Taro commitment for each receiver
+// (including the sender), which is needed to create
+// the final PSBT for the transfer.
+type SpendCommitments = map[[32]byte]commitment.TaroCommitment
 
 // SpendLocators stores a split locators for each receiver, keyed by their
 // AssetCommitmentKey. These locators are used to create split commitments and
@@ -338,5 +356,109 @@ func completeAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
 	updatedDelta.NewAsset = *validatedAsset
 
 	return &updatedDelta, nil
+}
+
+// createSpendCommitments creates the final set of TaroCommitments representing
+// the asset send. The input TaroCommitment must become a valid change
+// commitment by removing the input asset and adding the root split asset
+// if present. The receiver TaroCommitment must include the output asset.
+func createSpendCommitments(inputCommitment commitment.TaroCommitment,
+	prevInput asset.PrevID, spend SpendDelta, addr address.Taro,
+	senderScriptKey btcec.PublicKey) (SpendCommitments, error) {
+
+	// Store TaroCommitments keyed by the public key of the receiver.
+	commitments := make(SpendCommitments, len(spend.Locators))
+
+	inputAsset := spend.InputAssets[prevInput]
+
+	// Remove the spent Asset from the AssetCommitment of the sender.
+	// Fail if the input AssetCommitment or Asset were not in the
+	// input TaroCommitment.
+	inputCommitments := inputCommitment.Commitments()
+	senderCommitment, ok :=
+		inputCommitments[inputAsset.TaroCommitmentKey()]
+	if !ok {
+		return nil, ErrMissingAssetCommitment
+	}
+
+	inputAssets := senderCommitment.Assets()
+	_, ok = inputAssets[inputAsset.AssetCommitmentKey()]
+	if !ok {
+		return nil, ErrMissingInputAsset
+	}
+
+	if err := senderCommitment.Update(inputAsset, true); err != nil {
+		return nil, err
+	}
+
+	receiverStateKey := addr.AssetCommitmentKey()
+
+	var (
+		senderStateKey     [32]byte
+		receiverCommitment *commitment.AssetCommitment
+	)
+
+	// If there was no asset split, the validated asset should be used to
+	// build an AssetCommitment for the receiver.
+	if spend.SplitCommitment == nil {
+		senderStateKey = asset.AssetCommitmentKey(
+			addr.ID, &senderScriptKey, addr.FamilyKey == nil,
+		)
+		var err error
+		receiverCommitment, err = commitment.NewAssetCommitment(
+			&spend.NewAsset,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// If the input asset was split, the validated asset is the
+		// root asset for the split, and should be included in the
+		// AssetCommitment of the sender.
+		senderStateKey = spend.NewAsset.AssetCommitmentKey()
+
+		err := senderCommitment.Update(&spend.NewAsset, false)
+		if err != nil {
+			return nil, err
+		}
+
+		// Fetch the receiver asset from the split commitment and
+		// build an AssetCommitment for the receiver.
+		receiverLocator := spend.Locators[receiverStateKey]
+		receiverAsset, ok := spend.SplitCommitment.
+			SplitAssets[receiverLocator]
+		if !ok {
+			return nil, ErrMissingSplitAsset
+		}
+
+		receiverCommitment, err = commitment.NewAssetCommitment(
+			&receiverAsset.Asset,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
+	// AssetCommitment entirely when possible.
+	// Update the TaroCommitment of the sender.
+	senderTaroCommitment := inputCommitment
+	err := senderTaroCommitment.Update(senderCommitment, false)
+	if err != nil {
+		return nil, err
+	}
+
+	commitments[senderStateKey] = senderTaroCommitment
+
+	// Create a Taro tree for the receiver.
+	receiverTaroCommitment, err := commitment.
+		NewTaroCommitment(receiverCommitment)
+	if err != nil {
+		return nil, err
+	}
+
+	commitments[receiverStateKey] = *receiverTaroCommitment
+
+	return commitments, nil
 }
 
