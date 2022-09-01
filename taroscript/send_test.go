@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -324,6 +325,26 @@ func checkPreparedCompleteSpend(t *testing.T, spend *SpendDelta,
 	require.Nil(t, spend.NewAsset.PrevWitnesses[0].SplitCommitment)
 }
 
+func checkValidateSpend(t *testing.T, a, b *asset.Asset, split bool) {
+	t.Helper()
+
+	require.Equal(t, a.Version, b.Version)
+	require.Equal(t, a.Genesis, b.Genesis)
+	require.Equal(t, a.Type, b.Type)
+	require.Equal(t, a.Amount, b.Amount)
+	require.Equal(t, a.LockTime, b.LockTime)
+	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
+	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
+	require.NotNil(t, b.PrevWitnesses[0].TxWitness)
+	if split {
+		require.NotNil(t, b.SplitCommitmentRoot)
+	}
+
+	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
+	require.Equal(t, *a.ScriptKey.PubKey, *b.ScriptKey.PubKey)
+	require.Equal(t, a.FamilyKey, b.FamilyKey)
+}
+
 // TestPrepareAssetSplitSpend tests the creating of split commitment data with
 // different sets of split locators. The validity of locators is assumed to be
 // checked earlier via areValidIndexes().
@@ -457,6 +478,176 @@ func TestPrepareAssetCompleteSpend(t *testing.T) {
 	}
 
 	for _, testCase := range prepareAssetCompleteSpendTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f()
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+// TestCompleteAssetSpend tests edge cases around signing a witness for
+// an asset transfer and validating that transfer with the Taro VM.
+func TestCompleteAssetSpend(t *testing.T) {
+	t.Parallel()
+
+	completeAssetSpendTestCases := []struct {
+		name string
+		f    func() error
+		err  error
+	}{
+		{
+			name: "validate with invalid InputAsset",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				spendPrepared.InputAssets[state.asset1PrevID].
+					Genesis = state.genesis1collect
+				_, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				spendPrepared.InputAssets[state.asset1PrevID].
+					Genesis = state.genesis1
+				return err
+			},
+			err: vm.Error{Kind: vm.ErrIDMismatch},
+		},
+		{
+			name: "validate with invalid NewAsset",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				spendPrepared.NewAsset.PrevWitnesses[0].PrevID =
+					&asset.PrevID{}
+				_, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				return err
+			},
+			err: vm.Error{Kind: vm.ErrNoInputs},
+		},
+		{
+			name: "validate with empty InputAssets",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				delete(
+					spendPrepared.InputAssets,
+					state.asset1PrevID,
+				)
+				_, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				return err
+			},
+			err: vm.Error{Kind: vm.ErrNoInputs},
+		},
+		{
+			name: "validate collectible with family key",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.
+						asset1CollectFamilyInputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1CollectFamily,
+					state.asset1CollectFamilyPrevID, spend,
+				)
+				unvalidatedAsset := spendPrepared.NewAsset
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1CollectFamilyPrevID,
+					*spendPrepared,
+				)
+				require.NoError(t, err)
+
+				checkValidateSpend(
+					t, &unvalidatedAsset,
+					&spendCompleted.NewAsset, false,
+				)
+				return nil
+			},
+			err: nil,
+		},
+		{
+			name: "validate normal asset without split",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset1InputAssets,
+				}
+				spendPrepared := prepareAssetCompleteSpend(
+					state.address1, state.asset1PrevID,
+					spend,
+				)
+				unvalidatedAsset := spendPrepared.NewAsset
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset1PrevID, *spendPrepared,
+				)
+				require.NoError(t, err)
+
+				checkValidateSpend(
+					t, &unvalidatedAsset,
+					&spendCompleted.NewAsset, false,
+				)
+				return nil
+			},
+		},
+		{
+			name: "validate asset split",
+			f: func() error {
+				state := initSpendScenario(t)
+				spend := SpendDelta{
+					InputAssets: state.asset2InputAssets,
+				}
+				spendPrepared, err := prepareAssetSplitSpend(
+					state.address1, state.asset2PrevID,
+					state.spenderScriptKey, spend,
+				)
+				require.NoError(t, err)
+
+				unvalidatedAsset := spendPrepared.NewAsset
+				spendCompleted, err := completeAssetSpend(
+					state.spenderPrivKey,
+					state.asset2PrevID, *spendPrepared,
+				)
+				require.NoError(t, err)
+
+				checkValidateSpend(
+					t, &unvalidatedAsset,
+					&spendCompleted.NewAsset, true,
+				)
+				return nil
+			},
+		},
+	}
+
+	for _, testCase := range completeAssetSpendTestCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			err := testCase.f()
 			require.ErrorIs(t, err, testCase.err)

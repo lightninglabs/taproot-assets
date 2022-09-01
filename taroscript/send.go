@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/vm"
 	"golang.org/x/exp/maps"
 )
 
@@ -32,7 +33,7 @@ var (
 	// are not continuous.
 	ErrInvalidOutputIndexes = errors.New(
 		"send: Output indexes not starting at 0 and continuous",
-)
+	)
 
 )
 
@@ -268,5 +269,74 @@ func prepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	updatedDelta.NewAsset = *newAsset
 
 	return &updatedDelta
+}
+
+// completeAssetSpend updates the new Asset by creating a signature
+// over the asset transfer, verifying the transfer with the Taro VM,
+// and attaching that signature to the new Asset.
+func completeAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
+	delta SpendDelta) (*SpendDelta, error) {
+
+	updatedDelta := delta.Copy()
+
+	// Create a Taro virtual transaction representing the asset transfer,
+	// and sign a witness over that virtual transaction.
+	virtualTx, _, err := vm.VirtualTx(
+		&updatedDelta.NewAsset, updatedDelta.InputAssets,
+	)
+	if err != nil {
+		return nil, err
+	}
+	inputAsset := updatedDelta.InputAssets[prevInput]
+	newWitness, err := vm.SignTaprootKeySpend(
+		privKey, virtualTx, inputAsset, 0,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a copy of the new Asset with the witness attached
+	// to use with the Taro VM.
+	validatedAsset := updatedDelta.NewAsset.Copy()
+	validatedAsset.PrevWitnesses[0].TxWitness = *newWitness
+
+	// Create an instance of the Taro VM and validate the transfer.
+	verifySpend := func(splitAsset *commitment.SplitAsset) error {
+		vm, err := vm.New(
+			validatedAsset, splitAsset, updatedDelta.InputAssets,
+		)
+		if err != nil {
+			return err
+		}
+		if err := vm.Execute(); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// If the transfer contains no asset splits, we only need to validate
+	// the new asset with its witness attached.
+	if updatedDelta.SplitCommitment == nil {
+		if err := verifySpend(nil); err != nil {
+			return nil, err
+		}
+
+		updatedDelta.NewAsset = *validatedAsset
+
+		return &updatedDelta, err
+	}
+
+	// If the transfer includes an asset split, we have to validate each
+	// split asset to ensure that our new Asset is committing to
+	// a valid SplitCommitment.
+	for _, splitAsset := range updatedDelta.SplitCommitment.SplitAssets {
+		if err := verifySpend(splitAsset); err != nil {
+			return nil, err
+		}
+	}
+
+	updatedDelta.NewAsset = *validatedAsset
+
+	return &updatedDelta, nil
 }
 
