@@ -94,7 +94,7 @@ func noError1[T any, Q any](t *testing.T, f func(Q) (T, error), args Q) T {
 	return v
 }
 
-// fMap takes an input slice, ans applies the function f to each element,
+// fMap takes an input slice, and applies the function f to each element,
 // yielding a new slice.
 func fMap[T1, T2 any](s []T1, f func(T1) T2) []T2 {
 	r := make([]T2, len(s))
