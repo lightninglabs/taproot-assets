@@ -25,9 +25,11 @@ import (
 
 // newAssetStore makes a new instance of the AssetMintingStore backed by sqlite
 // by default.
-func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore, *SqliteStore, func()) {
+func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
+	*SqliteStore) {
+
 	// First, Make a new test database.
-	db, cleanUp := newTestSqliteDB(t)
+	db := NewTestSqliteDB(t)
 
 	// TODO(roasbeef): can use another layer of type params since
 	// duplicated?
@@ -49,7 +51,7 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore, *SqliteStore,
 		db, activeTxCreator,
 	)
 	return NewAssetMintingStore(assetMintingDB), NewAssetStore(assetsDB),
-		db, cleanUp
+		db
 }
 
 // randBool rolls a random boolean.
@@ -129,8 +131,7 @@ func assertSeedlingBatchLen(t *testing.T, batches []*tarogarden.MintingBatch,
 func TestCommitMintingBatchSeedlings(t *testing.T) {
 	t.Parallel()
 
-	assetStore, _, _, cleanUp := newAssetStore(t)
-	defer cleanUp()
+	assetStore, _, _ := newAssetStore(t)
 
 	ctx := context.Background()
 	const numSeedlings = 5
@@ -342,8 +343,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	ctx := context.Background()
 	const numSeedlings = 5
-	assetStore, _, _, cleanUp := newAssetStore(t)
-	defer cleanUp()
+	assetStore, _, _ := newAssetStore(t)
 
 	// First, we'll create a new batch, then add some sample seedlings.
 	mintingBatch := randSeedlingMintingBatch(t, numSeedlings)
@@ -406,8 +406,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 func TestCommitBatchChainActions(t *testing.T) {
 	ctx := context.Background()
 	const numSeedlings = 5
-	assetStore, confAssets, db, cleanUp := newAssetStore(t)
-	defer cleanUp()
+	assetStore, confAssets, db := newAssetStore(t)
 
 	// First, we'll create a new batch, then add some sample seedlings, and
 	// then those seedlings as assets.
@@ -535,8 +534,7 @@ func TestDuplicateFamilyKey(t *testing.T) {
 
 	// First, we'll open up a new asset store, we only need the raw DB
 	// pointer, as we'll be doing some lower level access in this test.
-	_, _, db, cleanUp := newAssetStore(t)
-	defer cleanUp()
+	_, _, db := newAssetStore(t)
 
 	// Now that we have the DB, we'll insert a new random internal key, and
 	// then a key family linked to that internal key.

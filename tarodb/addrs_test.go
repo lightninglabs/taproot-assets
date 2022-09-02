@@ -15,8 +15,8 @@ import (
 )
 
 // newAddrBook makes a new instance of the TaroAddressBook book.
-func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore, func()) {
-	db, cleanUp := newTestSqliteDB(t)
+func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore) {
+	db := NewTestSqliteDB(t)
 
 	txCreator := func(tx Tx) AddrBook {
 		sqlTx, _ := tx.(*sql.Tx)
@@ -26,7 +26,7 @@ func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore, func()) {
 	addrTx := NewTransactionExecutor[AddrBook, TxOptions](
 		db, txCreator,
 	)
-	return NewTaroAddressBook(addrTx), db, cleanUp
+	return NewTaroAddressBook(addrTx), db
 }
 
 func randAddr(t *testing.T) *address.AddrWithKeyInfo {
@@ -105,8 +105,7 @@ func TestAddressInsertion(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _, cleanUp := newAddrBook(t)
-	defer cleanUp()
+	addrBook, _ := newAddrBook(t)
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
@@ -133,8 +132,7 @@ func TestAddressQuery(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _, cleanUp := newAddrBook(t)
-	defer cleanUp()
+	addrBook, _ := newAddrBook(t)
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5

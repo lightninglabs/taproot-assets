@@ -15,8 +15,7 @@ func TestRootKeyStore(t *testing.T) {
 	t.Parallel()
 
 	// First, Make a new test database.
-	db, cleanUp := newTestSqliteDB(t)
-	defer cleanUp()
+	db := NewTestSqliteDB(t)
 
 	// Make a new root key store from the database.
 	rksDB := NewTransactionExecutor[KeyStore, TxOptions](db, func(tx Tx) KeyStore {

@@ -3,6 +3,7 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -14,8 +15,6 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
-
-	"math/rand"
 )
 
 func randOp(t *testing.T) wire.OutPoint {
@@ -229,8 +228,7 @@ func TestImportAssetProof(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create a new instance of the database.
-	_, assetStore, db, cleanUp := newAssetStore(t)
-	defer cleanUp()
+	_, assetStore, db := newAssetStore(t)
 
 	// Next, we'll make a new random asset that also has a few inputs with
 	// dummy witness information.
@@ -350,8 +348,7 @@ func TestInternalKeyUpsert(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create a new instance of the database.
-	_, _, db, cleanUp := newAssetStore(t)
-	defer cleanUp()
+	_, _, db := newAssetStore(t)
 
 	testKey := randPubKey(t)
 

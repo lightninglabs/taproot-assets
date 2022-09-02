@@ -11,8 +11,8 @@ import (
 
 // newTaroTreeStore makes a new instance of the TaroTreeStore backed by sqlite
 // by default.
-func newTaroTreeStore(t *testing.T) (*TaroTreeStore, *SqliteStore, func()) {
-	db, cleanUp := newTestSqliteDB(t)
+func newTaroTreeStore(t *testing.T) (*TaroTreeStore, *SqliteStore) {
+	db := NewTestSqliteDB(t)
 
 	txCreator := func(tx Tx) TreeStore {
 		sqlTx, _ := tx.(*sql.Tx)
@@ -23,7 +23,7 @@ func newTaroTreeStore(t *testing.T) (*TaroTreeStore, *SqliteStore, func()) {
 		db, txCreator,
 	)
 
-	return NewTaroTreeStore(treeDB), db, cleanUp
+	return NewTaroTreeStore(treeDB), db
 }
 
 // assertNodesEq is a helper to check equivalency or equality based on the
@@ -146,8 +146,7 @@ func TestTreeDeletion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, _, cleanUp := newTaroTreeStore(t)
-			defer cleanUp()
+			store, _ := newTaroTreeStore(t)
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
 					require.NoError(t, tx.InsertLeaf(l1))
@@ -514,8 +513,7 @@ func TestTreeInsertion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, _, cleanUp := newTaroTreeStore(t)
-			defer cleanUp()
+			store, _ := newTaroTreeStore(t)
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
 					for _, leaf := range test.leaves {
