@@ -172,7 +172,7 @@ rpc-format:
 rpc-check: rpc
 	@$(call print, "Verifying protos.")
 	cd ./tarorpc; ../scripts/check-rest-annotations.sh
-	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
+	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with correct version"; git status; git diff; exit 1; fi
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")
