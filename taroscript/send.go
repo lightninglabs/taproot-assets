@@ -550,4 +550,3 @@ func createSpendOutputs(addr address.Taro, locators SpendLocators,
 
 	return spendPkt, nil
 }
-

@@ -38,6 +38,9 @@ issues:
     - path: _test\.go
       linters:
         - gosec
+    - path: internal/test/.*
+      linters:
+        - gosec
     # Fix false positives because of build flags in itest directory.
     - path: itest/.*
       linters:
