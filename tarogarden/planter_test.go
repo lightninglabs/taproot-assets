@@ -18,6 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/internal/test"
 	_ "github.com/lightninglabs/taro/tarodb" // Register relevant drivers.
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -32,15 +33,15 @@ var defaultTimeout = time.Second * 5
 // create succinct and fully featured unit/systems tests for the batched asset
 // minting process.
 type mintingTestHarness struct {
-	wallet *mockWalletAnchor
+	wallet *tarogarden.MockWalletAnchor
 
-	chain *mockChainBridge
+	chain *tarogarden.MockChainBridge
 
 	store tarogarden.MintingStore
 
-	keyRing *mockKeyRing
+	keyRing *tarogarden.MockKeyRing
 
-	genSigner *mockGenSigner
+	genSigner *tarogarden.MockGenSigner
 
 	ticker *ticker.Force
 
@@ -56,8 +57,8 @@ type mintingTestHarness struct {
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
 func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *mintingTestHarness {
-	keyRing := newMockKeyRing()
-	genSigner := newMockGenSigner(keyRing)
+	keyRing := tarogarden.NewMockKeyRing()
+	genSigner := tarogarden.NewMockGenSigner(keyRing)
 
 	return &mintingTestHarness{
 		T:     t,
@@ -65,8 +66,8 @@ func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *minting
 		// Use a larger internal so it'll never actually tick and only
 		// rely on our manual ticks.
 		ticker:    ticker.NewForce(time.Hour * 24),
-		wallet:    newMockWalletAnchor(),
-		chain:     newMockChainBridge(),
+		wallet:    tarogarden.NewMockWalletAnchor(),
+		chain:     tarogarden.NewMockChainBridge(),
 		keyRing:   keyRing,
 		genSigner: genSigner,
 		errChan:   make(chan error, 10),
@@ -95,11 +96,6 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 	require.NoError(t, t.planter.Start())
 }
 
-// randBool rolls a random boolean.
-func randBool() bool {
-	return rand.Int()%2 == 0
-}
-
 // newRandSeedlings creates numSeedlings amount of seedlings with random
 // initialized values.
 func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Seedling {
@@ -115,7 +111,7 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Se
 			AssetType:      asset.Type(rand.Int31n(2)),
 			AssetName:      assetName,
 			Metadata:       n[:],
-			EnableEmission: randBool(),
+			EnableEmission: test.RandBool(),
 		}
 		if seedlings[i].AssetType == asset.Normal {
 			seedlings[i].Amount = uint64(rand.Int63())
@@ -130,7 +126,7 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Se
 func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 	t.Helper()
 
-	key, err := chanutils.RecvOrTimeout(t.keyRing.reqKeys, defaultTimeout)
+	key, err := chanutils.RecvOrTimeout(t.keyRing.ReqKeys, defaultTimeout)
 	require.NoError(t, err)
 
 	return *key
@@ -212,12 +208,12 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
 	// In order to fund a transaction, we expect a call to estimate the
 	// fee, followed by a request to fund a new PSBT packet.
 	_, err := chanutils.RecvOrTimeout(
-		t.chain.feeEstimateSignal, defaultTimeout,
+		t.chain.FeeEstimateSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
 
 	pkt, err := chanutils.RecvOrTimeout(
-		t.wallet.fundPsbtSignal, defaultTimeout,
+		t.wallet.FundPsbtSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
 
@@ -334,7 +330,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 
 	// Ensure that a request to finalize the PSBt has come across.
 	_, err := chanutils.RecvOrTimeout(
-		t.wallet.signPsbtSignal, defaultTimeout,
+		t.wallet.SignPsbtSignal, defaultTimeout,
 	)
 	require.NoError(t, err, "psbt sign req not sent")
 
@@ -351,7 +347,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 	require.NoError(t, err)
 
 	importedKey, err := chanutils.RecvOrTimeout(
-		t.wallet.importPubKeySignal, defaultTimeout,
+		t.wallet.ImportPubKeySignal, defaultTimeout,
 	)
 	require.NoError(t, err, "pubkey import req not sent")
 	require.True(t, (*importedKey).IsEqual(batchKey))
@@ -362,7 +358,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 	t.Helper()
 
-	tx, err := chanutils.RecvOrTimeout(t.chain.publishReq, defaultTimeout)
+	tx, err := chanutils.RecvOrTimeout(t.chain.PublishReq, defaultTimeout)
 	require.NoError(t, err)
 
 	return *tx
@@ -375,12 +371,12 @@ func (t *mintingTestHarness) assertConfReqSent(tx *wire.MsgTx,
 	block *wire.MsgBlock) func() {
 
 	reqNo, err := chanutils.RecvOrTimeout(
-		t.chain.confReqSignal, defaultTimeout,
+		t.chain.ConfReqSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
 
 	return func() {
-		t.chain.sendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 0, block, tx)
+		t.chain.SendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 0, block, tx)
 	}
 }
 

@@ -1,4 +1,4 @@
-package tarogarden_test
+package tarogarden
 
 import (
 	"context"
@@ -11,28 +11,27 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
-type mockWalletAnchor struct {
-	fundPsbtSignal     chan *tarogarden.FundedPsbt
-	signPsbtSignal     chan struct{}
-	importPubKeySignal chan *btcec.PublicKey
+type MockWalletAnchor struct {
+	FundPsbtSignal     chan *FundedPsbt
+	SignPsbtSignal     chan struct{}
+	ImportPubKeySignal chan *btcec.PublicKey
 }
 
-func newMockWalletAnchor() *mockWalletAnchor {
-	return &mockWalletAnchor{
-		fundPsbtSignal:     make(chan *tarogarden.FundedPsbt),
-		signPsbtSignal:     make(chan struct{}),
-		importPubKeySignal: make(chan *btcec.PublicKey),
+func NewMockWalletAnchor() *MockWalletAnchor {
+	return &MockWalletAnchor{
+		FundPsbtSignal:     make(chan *FundedPsbt),
+		SignPsbtSignal:     make(chan struct{}),
+		ImportPubKeySignal: make(chan *btcec.PublicKey),
 	}
 }
 
-func (m *mockWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet, minConfs uint32,
-	feeRate chainfee.SatPerKWeight) (tarogarden.FundedPsbt, error) {
+func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
+	_ uint32, _ chainfee.SatPerKWeight) (FundedPsbt, error) {
 
 	// Take the PSBT packet and add an additional input and output to
 	// simulate the wallet funding the transaction.
@@ -56,17 +55,17 @@ func (m *mockWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet, mi
 
 	// We always have the change output be the second output, so this means
 	// the taro commitment will live in the first output.
-	pkt := tarogarden.FundedPsbt{
+	pkt := FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: 1,
 	}
 
-	m.fundPsbtSignal <- &pkt
+	m.FundPsbtSignal <- &pkt
 
 	return pkt, nil
 }
 
-func (m *mockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
+func (m *MockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 	pkt *psbt.Packet) (*psbt.Packet, error) {
 
 	select {
@@ -82,44 +81,47 @@ func (m *mockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 	select {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("shutting down")
-	case m.signPsbtSignal <- struct{}{}:
+	case m.SignPsbtSignal <- struct{}{}:
 	}
 
 	return pkt, nil
 }
 
-func (m *mockWalletAnchor) ImportPubKey(ctx context.Context, pub *btcec.PublicKey) error {
-	m.importPubKeySignal <- pub
+func (m *MockWalletAnchor) ImportPubKey(_ context.Context,
+	pub *btcec.PublicKey) error {
+
+	m.ImportPubKeySignal <- pub
+
 	return nil
 }
 
-func (m *mockWalletAnchor) UnlockInput(ctx context.Context) error {
+func (m *MockWalletAnchor) UnlockInput(_ context.Context) error {
 	return nil
 }
 
-type mockChainBridge struct {
-	feeEstimateSignal chan struct{}
-	publishReq        chan *wire.MsgTx
-	confReqSignal     chan int
+type MockChainBridge struct {
+	FeeEstimateSignal chan struct{}
+	PublishReq        chan *wire.MsgTx
+	ConfReqSignal     chan int
 
-	reqCount int
-	confReqs map[int]*chainntnfs.ConfirmationEvent
+	ReqCount int
+	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 }
 
-func newMockChainBridge() *mockChainBridge {
-	return &mockChainBridge{
-		feeEstimateSignal: make(chan struct{}),
-		publishReq:        make(chan *wire.MsgTx),
-		confReqs:          make(map[int]*chainntnfs.ConfirmationEvent),
-		confReqSignal:     make(chan int),
+func NewMockChainBridge() *MockChainBridge {
+	return &MockChainBridge{
+		FeeEstimateSignal: make(chan struct{}),
+		PublishReq:        make(chan *wire.MsgTx),
+		ConfReqs:          make(map[int]*chainntnfs.ConfirmationEvent),
+		ConfReqSignal:     make(chan int),
 	}
 }
 
-func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
+func (m *MockChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 	blockHeight, blockIndex int, block *wire.MsgBlock,
 	tx *wire.MsgTx) {
 
-	req := m.confReqs[reqNo]
+	req := m.ConfReqs[reqNo]
 	req.Confirmed <- &chainntnfs.TxConfirmation{
 		BlockHash:   blockHash,
 		BlockHeight: uint32(blockHeight),
@@ -129,9 +131,9 @@ func (m *mockChainBridge) sendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 	}
 }
 
-func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
-	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
+func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
+	_ *chainhash.Hash, _ []byte, _, _ uint32,
+	_ bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
 	case <-ctx.Done():
@@ -140,7 +142,7 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 
 	defer func() {
-		m.reqCount++
+		m.ReqCount++
 	}()
 
 	req := &chainntnfs.ConfirmationEvent{
@@ -148,32 +150,32 @@ func (m *mockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 	errChan := make(chan error)
 
-	m.confReqs[m.reqCount] = req
+	m.ConfReqs[m.ReqCount] = req
 
 	select {
-	case m.confReqSignal <- m.reqCount:
+	case m.ConfReqSignal <- m.ReqCount:
 	case <-ctx.Done():
 	}
 
 	return req, errChan, nil
 }
 
-func (m *mockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
+func (m *MockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
 
-func (m *mockChainBridge) PublishTransaction(ctx context.Context,
+func (m *MockChainBridge) PublishTransaction(_ context.Context,
 	tx *wire.MsgTx) error {
 
-	m.publishReq <- tx
+	m.PublishReq <- tx
 	return nil
 }
 
-func (m *mockChainBridge) EstimateFee(ctx context.Context,
-	confTarget uint32) (chainfee.SatPerKWeight, error) {
+func (m *MockChainBridge) EstimateFee(ctx context.Context,
+	_ uint32) (chainfee.SatPerKWeight, error) {
 
 	select {
-	case m.feeEstimateSignal <- struct{}{}:
+	case m.FeeEstimateSignal <- struct{}{}:
 
 	case <-ctx.Done():
 		return 0, fmt.Errorf("shutting down")
@@ -182,23 +184,23 @@ func (m *mockChainBridge) EstimateFee(ctx context.Context,
 	return 253, nil
 }
 
-type mockKeyRing struct {
-	famIndex keychain.KeyFamily
-	keyIndex uint32
+type MockKeyRing struct {
+	FamIndex keychain.KeyFamily
+	KeyIndex uint32
 
-	keys map[keychain.KeyLocator]*btcec.PrivateKey
+	Keys map[keychain.KeyLocator]*btcec.PrivateKey
 
-	reqKeys chan *keychain.KeyDescriptor
+	ReqKeys chan *keychain.KeyDescriptor
 }
 
-func newMockKeyRing() *mockKeyRing {
-	return &mockKeyRing{
-		keys:    make(map[keychain.KeyLocator]*btcec.PrivateKey),
-		reqKeys: make(chan *keychain.KeyDescriptor),
+func NewMockKeyRing() *MockKeyRing {
+	return &MockKeyRing{
+		Keys:    make(map[keychain.KeyLocator]*btcec.PrivateKey),
+		ReqKeys: make(chan *keychain.KeyDescriptor),
 	}
 }
 
-func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
+func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
 	select {
@@ -208,8 +210,8 @@ func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
 	}
 
 	defer func() {
-		m.famIndex++
-		m.keyIndex++
+		m.FamIndex++
+		m.KeyIndex++
 	}()
 
 	priv, err := btcec.NewPrivateKey()
@@ -218,11 +220,11 @@ func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
 	}
 
 	loc := keychain.KeyLocator{
-		Index:  m.keyIndex,
-		Family: m.famIndex,
+		Index:  m.KeyIndex,
+		Family: m.FamIndex,
 	}
 
-	m.keys[loc] = priv
+	m.Keys[loc] = priv
 
 	desc := keychain.KeyDescriptor{
 		PubKey:     priv.PubKey(),
@@ -230,7 +232,7 @@ func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
 	}
 
 	select {
-	case m.reqKeys <- &desc:
+	case m.ReqKeys <- &desc:
 	case <-ctx.Done():
 		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
 	}
@@ -238,8 +240,8 @@ func (m *mockKeyRing) DeriveNextKey(ctx context.Context,
 	return desc, nil
 }
 
-func (m *mockKeyRing) DeriveKey(ctx context.Context,
-	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+func (m *MockKeyRing) DeriveKey(ctx context.Context,
+	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
 
 	select {
 	case <-ctx.Done():
@@ -250,20 +252,20 @@ func (m *mockKeyRing) DeriveKey(ctx context.Context,
 	return keychain.KeyDescriptor{}, nil
 }
 
-type mockGenSigner struct {
-	keyRing *mockKeyRing
+type MockGenSigner struct {
+	KeyRing *MockKeyRing
 }
 
-func newMockGenSigner(keyRing *mockKeyRing) *mockGenSigner {
-	return &mockGenSigner{
-		keyRing: keyRing,
+func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
+	return &MockGenSigner{
+		KeyRing: keyRing,
 	}
 }
 
-func (m *mockGenSigner) SignGenesis(desc keychain.KeyDescriptor,
+func (m *MockGenSigner) SignGenesis(desc keychain.KeyDescriptor,
 	gen asset.Genesis) (*btcec.PublicKey, *schnorr.Signature, error) {
 
-	priv := m.keyRing.keys[desc.KeyLocator]
+	priv := m.KeyRing.Keys[desc.KeyLocator]
 	signer := asset.NewRawKeyGenesisSigner(priv)
 	return signer.SignGenesis(desc, gen)
 }
