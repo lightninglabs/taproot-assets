@@ -92,6 +92,8 @@ func testInsertion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 }
 
 func TestInsertion(t *testing.T) {
+	t.Parallel()
+
 	leaves := randTree(100)
 
 	runTest := func(name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
@@ -119,6 +121,8 @@ func TestInsertion(t *testing.T) {
 // TestReplaceWithEmptyBranch tests that a compacted tree won't add default
 // branches when whole subtrees are deleted.
 func TestReplaceWithEmptyBranch(t *testing.T) {
+	t.Parallel()
+
 	store := mssmt.NewDefaultStore()
 	tree := mssmt.NewCompactedTree(store)
 
@@ -159,6 +163,8 @@ func TestReplaceWithEmptyBranch(t *testing.T) {
 
 // TestReplace tests that replacing keys works as expected.
 func TestReplace(t *testing.T) {
+	t.Parallel()
+
 	const numLeaves = 100
 
 	leaves1 := genTreeFromRange(numLeaves)
@@ -214,6 +220,8 @@ func TestReplace(t *testing.T) {
 // that insert the keys in an arbitrary order get the same root hash in the
 // end.
 func TestHistoryIndependence(t *testing.T) {
+	t.Parallel()
+
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
 			testHistoryIndependence(t, makeStore)
@@ -289,6 +297,8 @@ func testHistoryIndependence(t *testing.T, makeStore makeTestTreeStoreFunc) {
 // TestDeletion asserts that deleting all inserted leaves of a tree results in
 // an empty tree.
 func TestDeletion(t *testing.T) {
+	t.Parallel()
+
 	leaves := randTree(100)
 
 	for storeName, makeStore := range genTestStores(t) {
@@ -447,6 +457,8 @@ func testProofEqulity(t *testing.T, tree1, tree2 mssmt.Tree, leaves []treeLeaf) 
 // TestMerkleProof asserts that merkle proofs (inclusion and non-inclusion) for
 // leaf nodes are constructed, compressed, decompressed, and verified properly.
 func TestMerkleProof(t *testing.T) {
+	t.Parallel()
+
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
 			store1, err := makeStore()
