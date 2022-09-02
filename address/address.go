@@ -53,20 +53,6 @@ var (
 	ErrUnsupportedAssetType = errors.New(
 		"address: unsupported asset type",
 	)
-
-	// ErrMissingInputAsset is an error returned when we attempt to spend to
-	// a Taro address from an input that does not contain the matching
-	// asset.
-	ErrMissingInputAsset = errors.New(
-		"address: Input does not contain requested asset",
-	)
-
-	// ErrInsufficientInputAsset is an error returned when we attempt to
-	// spend to a Taro address from an input that contains insufficient
-	// asset funds.
-	ErrInsufficientInputAsset = errors.New(
-		"address: Input asset value is insufficient",
-	)
 )
 
 const (
@@ -149,47 +135,6 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 	return &payload, nil
 }
 
-// isValidInput verifies that the Taro commitment of the input contains an
-// asset that could be spent to the given Taro address.
-func isValidInput(input *commitment.TaroCommitment, address Taro,
-	inputScriptKey btcec.PublicKey, net *ChainParams) (*asset.Asset, error) {
-
-	// The input and address networks must match.
-	if !IsForNet(address.ChainParams.TaroHRP, net) {
-		return nil, ErrMismatchedHRP
-	}
-
-	// The top-level Taro tree must have a non-empty asset tree at the leaf
-	// specified in the address.
-	inputCommitments := input.Commitments()
-	assetCommitment, ok := inputCommitments[address.TaroCommitmentKey()]
-	if !ok {
-		return nil, ErrMissingInputAsset
-	}
-
-	// The asset tree must have a non-empty Asset at the location
-	// specified by the sender's script key.
-	assetCommitmentKey := asset.AssetCommitmentKey(
-		address.ID, &inputScriptKey, address.FamilyKey == nil,
-	)
-	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
-	if err != nil {
-		return nil, err
-	}
-
-	if inputAsset == nil {
-		return nil, ErrMissingInputAsset
-	}
-
-	// For Normal assets, we also check that the input asset amount is at least
-	// as large as the amount specified in the address.
-	if inputAsset.Type == asset.Normal && inputAsset.Amount < address.Amount {
-		return nil, ErrInsufficientInputAsset
-	}
-
-	return inputAsset, nil
-}
-
 // Copy returns a deep copy of an Address.
 func (a *Taro) Copy() *Taro {
 	addressCopy := *a
@@ -211,6 +156,12 @@ func (a *Taro) Net() (*ChainParams, error) {
 // family specified by a Taro address.
 func (a *Taro) TaroCommitmentKey() [32]byte {
 	return asset.TaroCommitmentKey(a.ID, a.FamilyKey)
+}
+
+// AssetCommitmentKey is the key that maps to the asset leaf for the asset
+// specified by a Taro address.
+func (a *Taro) AssetCommitmentKey() [32]byte {
+	return asset.AssetCommitmentKey(a.ID, &a.ScriptKey, a.FamilyKey == nil)
 }
 
 // PayToAddrScript constructs a P2TR script that embeds a Taro commitment
