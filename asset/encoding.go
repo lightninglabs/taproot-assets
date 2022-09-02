@@ -338,6 +338,14 @@ func TxWitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// We won't accept anything beyond the set of max witness
+		// elements. We're being generous here, as for the bitcoin VM
+		// the true stack limit is much smaller.
+		if numItems > math.MaxUint16 {
+			return ErrTooManyInputs
+		}
+
 		witness := make(wire.TxWitness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var item []byte
