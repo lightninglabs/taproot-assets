@@ -404,24 +404,34 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 		if err := VarBytesDecoder(r, &proofBytes, buf, l); err != nil {
 			return err
 		}
+
 		var proof mssmt.CompressedProof
 		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
 			return err
 		}
+
 		var rootAssetBytes []byte
 		err := VarBytesDecoder(r, &rootAssetBytes, buf, l)
 		if err != nil {
 			return err
 		}
+
 		var rootAsset Asset
 		err = rootAsset.Decode(bytes.NewReader(rootAssetBytes))
 		if err != nil {
 			return err
 		}
+
+		fullProof, err := proof.Decompress()
+		if err != nil {
+			return err
+		}
+
 		*typ = &SplitCommitment{
-			Proof:     *proof.Decompress(),
+			Proof:     *fullProof,
 			RootAsset: rootAsset,
 		}
+
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "*SplitCommitment", l, 40)

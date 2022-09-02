@@ -1,5 +1,16 @@
 package mssmt
 
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	// ErrInvalidCompressedProof is returned when a compressed proof has an
+	// invalid combination of explicit nodes and default hash bits.
+	ErrInvalidCompressedProof = errors.New("mssmt: invalid compressed proof")
+)
+
 // Proof represents a merkle proof for a MS-SMT.
 type Proof struct {
 	// Nodes represents the siblings that should be hashed with the leaf and
@@ -67,11 +78,42 @@ func (p Proof) Compress() *CompressedProof {
 	}
 }
 
+// reducer represents a function that takes an accumulator and the value, then
+// returns a new accumulator.
+type reducer[T, V any] func(accum T, value V) T
+
+// reduces takes a slice of something, and a reducer, and produces a final
+// accumulated value.
+func reduce[T any, V any, S []V](s S, f reducer[T, V]) T {
+	var accum T
+
+	for _, x := range s {
+		accum = f(accum, x)
+	}
+
+	return accum
+}
+
 // Decompress decompresses a compressed merkle proof by replacing its bit vector
 // with the empty nodes it represents.
-func (p *CompressedProof) Decompress() *Proof {
+func (p *CompressedProof) Decompress() (*Proof, error) {
 	nextNodeIdx := 0
 	nodes := make([]Node, len(p.Bits))
+
+	// The number of 0 bits should match the number of pre-populated nodes.
+	numExpectedNodes := reduce(p.Bits, func(count int, bit bool) int {
+		if !bit {
+			return count + 1
+		}
+
+		return count
+	})
+
+	if numExpectedNodes != len(p.Nodes) {
+		return nil, fmt.Errorf("%w, num_nodes=%v, num_expected=%v",
+			ErrInvalidCompressedProof, len(p.Nodes), numExpectedNodes)
+	}
+
 	for i, bitSet := range p.Bits {
 		if bitSet {
 			// The proof nodes start at the leaf, while the
@@ -82,5 +124,6 @@ func (p *CompressedProof) Decompress() *Proof {
 			nextNodeIdx++
 		}
 	}
-	return NewProof(nodes)
+
+	return NewProof(nodes), nil
 }

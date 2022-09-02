@@ -343,7 +343,9 @@ func assertEqualProofAfterCompression(t *testing.T, proof *mssmt.Proof) {
 			require.False(t, mssmt.IsEqualNode(node, emptyNode))
 		}
 	}
-	require.Equal(t, proof, compressedProof.Decompress())
+	fullProof, err := compressedProof.Decompress()
+	require.NoError(t, err)
+	require.Equal(t, proof, fullProof)
 }
 
 func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {

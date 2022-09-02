@@ -368,7 +368,13 @@ func TreeProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
 			return err
 		}
-		*typ = *proof.Decompress()
+
+		fullProof, err := proof.Decompress()
+		if err != nil {
+			return err
+		}
+
+		*typ = *fullProof
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "mssmt.Proof")
