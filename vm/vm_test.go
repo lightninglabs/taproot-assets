@@ -20,24 +20,24 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randGenesis(t *testing.T) *asset.Genesis {
-	return &asset.Genesis{
+func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
+	return asset.Genesis{
 		FirstPrevOut: wire.OutPoint{},
 		Tag:          "",
 		Metadata:     nil,
 		OutputIndex:  rand.Uint32(),
+		Type:         assetType,
 	}
 }
 
-func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
+func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	genSigner := asset.NewRawKeyGenesisSigner(privKey)
 
 	familyKey, err := asset.DeriveFamilyKey(
-		genSigner, toKeyDesc(privKey.PubKey()),
-		genesis,
+		genSigner, toKeyDesc(privKey.PubKey()), genesis,
 	)
 	require.NoError(t, err)
 
@@ -55,40 +55,27 @@ func randAsset(t *testing.T, assetType asset.Type,
 
 	t.Helper()
 
-	genesis := randGenesis(t)
+	genesis := randGenesis(t, assetType)
 	familyKey := randFamilyKey(t, genesis)
 
+	var units uint64
 	switch assetType {
 	case asset.Normal:
-		units := rand.Uint64() + 1
-		asset := asset.New(
-			genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
-		)
-		return asset
+		units = rand.Uint64() + 1
 
 	case asset.Collectible:
-		asset := asset.NewCollectible(
-			genesis, 0, 0, toKeyDesc(&scriptKey), familyKey,
-		)
-		return asset
+		units = 1
 
 	default:
 		t.Fatal("unhandled asset type", assetType)
 		return nil // unreachable
 	}
-}
 
-func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
-	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
-
-	t.Helper()
-	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
-	sigHash, err := InputKeySpendSigHash(virtualTxCopy, input, idx)
+	a, err := asset.New(
+		genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
+	)
 	require.NoError(t, err)
-	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
-	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
-	require.NoError(t, err)
-	return wire.TxWitness{sig.Serialize()}
+	return a
 }
 
 func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
@@ -168,9 +155,9 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	inputs := commitment.InputSet{*prevID: genesisAsset}
 	virtualTx, _, err := VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
-	newAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
-		t, *privKey, virtualTx, genesisAsset, 0,
-	)
+	newWitness, err := SignTaprootKeySpend(*privKey, virtualTx, genesisAsset, 0)
+	require.NoError(t, err)
+	newAsset.PrevWitnesses[0].TxWitness = *newWitness
 
 	return newAsset, nil, inputs
 }
@@ -233,9 +220,11 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	}
 	virtualTx, _, err := VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
-	newAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
-		t, *privKey1, virtualTx, genesisAsset1, 0,
+	newWitness, err := SignTaprootKeySpend(
+		*privKey1, virtualTx, genesisAsset1, 0,
 	)
+	require.NoError(t, err)
+	newAsset.PrevWitnesses[0].TxWitness = *newWitness
 	newAsset.PrevWitnesses[1].TxWitness = genTaprootScriptSpend(
 		t, *privKey2, virtualTx, genesisAsset2, 1, tapTree, &tapLeaf,
 	)
@@ -281,9 +270,9 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		splitCommitment.RootAsset, splitCommitment.PrevAssets,
 	)
 	require.NoError(t, err)
-	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
-		t, *privKey, virtualTx, genesisAsset, 0,
-	)
+	newWitness, err := SignTaprootKeySpend(*privKey, virtualTx, genesisAsset, 0)
+	require.NoError(t, err)
+	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = *newWitness
 
 	return splitCommitment.RootAsset, splitCommitment.SplitAssets,
 		splitCommitment.PrevAssets

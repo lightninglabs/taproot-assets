@@ -18,7 +18,7 @@ env:
   GOPATH: /home/runner/work/go
   GO111MODULE: on
 
-  GO_VERSION: '^1.18.0'
+  GO_VERSION: '1.18.4'
 
 jobs:
   #######################
@@ -103,3 +103,44 @@ jobs:
         with:
           path-to-profile: coverage.txt
           parallel: true
+
+  ########################
+  # run integration tests
+  ########################
+  integration-test:
+    name: run itests
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: go cache
+        uses: actions/cache@v1
+        with:
+          path: /home/runner/work/go
+          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
+            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
+            taro-${{ runner.os }}-go-
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v2
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: run itest
+        run: make itest
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        run: 7z a logs-itest.zip itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v2.2.4
+        if: ${{ failure() }}
+        with:
+          name: logs-itest
+          path: logs-itest.zip
+          retention-days: 5

@@ -3,6 +3,7 @@ package commitment
 import (
 	"math/rand"
 	"testing"
+	"testing/quick"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -19,17 +20,18 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randGenesis(t *testing.T) *asset.Genesis {
+func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
 	t.Helper()
-	return &asset.Genesis{
+	return asset.Genesis{
 		FirstPrevOut: wire.OutPoint{},
 		Tag:          "",
 		Metadata:     nil,
 		OutputIndex:  rand.Uint32(),
+		Type:         assetType,
 	}
 }
 
-func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
+func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 	t.Helper()
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -60,49 +62,86 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 	}
 }
 
-func randAsset(t *testing.T, genesis *asset.Genesis, familyKey *asset.FamilyKey,
-	assetType asset.Type) *asset.Asset {
+func randAsset(t *testing.T, genesis asset.Genesis,
+	familyKey *asset.FamilyKey) *asset.Asset {
 
 	t.Helper()
 
 	pubKey := randKey(t).PubKey()
+	units := rand.Uint64() + 1
 
-	switch assetType {
+	switch genesis.Type {
 	case asset.Normal:
-		units := rand.Uint64() + 1
-		return asset.New(
-			genesis, units, 0, 0,
-			keychain.KeyDescriptor{
-				PubKey: pubKey,
-			},
-			familyKey,
-		)
+
 	case asset.Collectible:
-		return asset.NewCollectible(
-			genesis, 0, 0,
-			keychain.KeyDescriptor{
-				PubKey: pubKey,
-			},
-			familyKey,
-		)
+		units = 1
+
 	default:
-		t.Fatal("unhandled asset type", assetType)
+		t.Fatal("unhandled asset type", genesis.Type)
 		return nil // unreachable
 	}
+
+	a, err := asset.New(
+		genesis, units, 0, 0,
+		keychain.KeyDescriptor{
+			PubKey: pubKey,
+		},
+		familyKey,
+	)
+	require.NoError(t, err)
+	return a
+}
+
+// TestFamilyKeyIsEqual tests that FamilyKey.IsEqual is correct.
+func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
+	t.Helper()
+
+	require.Equal(t, a.Version, b.Version)
+	require.Equal(t, a.Genesis, b.Genesis)
+	require.Equal(t, a.Type, b.Type)
+	require.Equal(t, a.Amount, b.Amount)
+	require.Equal(t, a.LockTime, b.LockTime)
+	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
+	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
+	for i := range a.PrevWitnesses {
+		witA, witB := a.PrevWitnesses[i], b.PrevWitnesses[i]
+		require.Equal(t, witA.PrevID, witB.PrevID)
+		require.Equal(t, witA.TxWitness, witB.TxWitness)
+		splitA, splitB := witA.SplitCommitment, witB.SplitCommitment
+		if witA.SplitCommitment != nil && witB.SplitCommitment != nil {
+			require.Equal(
+				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
+			)
+			for i := range splitA.Proof.Nodes {
+				nodeA := splitA.Proof.Nodes[i]
+				nodeB := splitB.Proof.Nodes[i]
+				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
+			}
+			require.Equal(t, splitA.RootAsset, splitB.RootAsset)
+		} else {
+			require.Equal(t, splitA, splitB)
+		}
+	}
+	require.Equal(t, a.SplitCommitmentRoot, b.SplitCommitmentRoot)
+	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
+	require.Equal(t, a.ScriptKey, b.ScriptKey)
+	require.Equal(t, a.FamilyKey, b.FamilyKey)
 }
 
 // TestNewAssetCommitment tests edge cases around NewAssetCommitment.
 func TestNewAssetCommitment(t *testing.T) {
 	t.Parallel()
 
-	genesis1 := randGenesis(t)
-	genesis2 := randGenesis(t)
+	genesis1 := randGenesis(t, asset.Normal)
+	genesis1Collectible := randGenesis(t, asset.Collectible)
+	genesis2 := randGenesis(t, asset.Normal)
 	familyKey1 := randFamilyKey(t, genesis1)
+	familyKey1Collectible := randFamilyKey(t, genesis1Collectible)
 	familyKey2 := randFamilyKey(t, genesis2)
-	copyOfFamilyKey1 := &asset.FamilyKey{
-		RawKey: familyKey1.RawKey,
-		FamKey: familyKey1.FamKey,
-		Sig:    familyKey1.Sig,
+	copyOfFamilyKey1Collectible := &asset.FamilyKey{
+		RawKey: familyKey1Collectible.RawKey,
+		FamKey: familyKey1Collectible.FamKey,
+		Sig:    familyKey1Collectible.Sig,
 	}
 
 	testCases := []struct {
@@ -114,8 +153,8 @@ func TestNewAssetCommitment(t *testing.T) {
 			name: "family key mismatch",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
-					randAsset(t, genesis1, familyKey1, asset.Normal),
-					randAsset(t, genesis1, familyKey2, asset.Normal),
+					randAsset(t, genesis1, familyKey1),
+					randAsset(t, genesis1, familyKey2),
 				}
 			},
 			err: ErrAssetFamilyKeyMismatch,
@@ -124,8 +163,8 @@ func TestNewAssetCommitment(t *testing.T) {
 			name: "no family key asset id mismatch",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
-					randAsset(t, genesis1, nil, asset.Normal),
-					randAsset(t, genesis2, nil, asset.Normal),
+					randAsset(t, genesis1, nil),
+					randAsset(t, genesis2, nil),
 				}
 			},
 			err: ErrAssetGenesisMismatch,
@@ -134,28 +173,67 @@ func TestNewAssetCommitment(t *testing.T) {
 			name: "same family key asset id mismatch",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
-					randAsset(t, genesis1, familyKey1, asset.Normal),
-					randAsset(t, genesis2, familyKey1, asset.Normal),
+					randAsset(t, genesis1, familyKey1),
+					randAsset(t, genesis2, familyKey1),
 				}
 			},
-			err: nil,
+			err: ErrAssetGenesisInvalidSig,
 		},
 		{
 			name: "duplicate script key",
 			f: func() []*asset.Asset {
-				asset1 := randAsset(t, genesis1, familyKey1, asset.Normal)
-				asset2 := randAsset(t, genesis1, familyKey1, asset.Normal)
+				asset1 := randAsset(t, genesis1, familyKey1)
+				asset2 := randAsset(t, genesis1, familyKey1)
 				asset1.ScriptKey = asset2.ScriptKey
 				return []*asset.Asset{asset1, asset2}
 			},
 			err: ErrAssetDuplicateScriptKey,
 		},
 		{
-			name: "valid asset commitment",
+			name: "valid normal asset commitment with family key",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
-					randAsset(t, genesis1, familyKey1, asset.Normal),
-					randAsset(t, genesis1, copyOfFamilyKey1, asset.Collectible),
+					randAsset(t, genesis1, familyKey1),
+					randAsset(t, genesis1, familyKey1),
+				}
+			},
+			err: nil,
+		},
+		{
+			name: "valid collectible asset commitment with " +
+				"family key",
+			f: func() []*asset.Asset {
+				return []*asset.Asset{
+					randAsset(
+						t, genesis1Collectible,
+						familyKey1Collectible,
+					),
+					randAsset(
+						t, genesis1Collectible,
+						copyOfFamilyKey1Collectible,
+					),
+				}
+			},
+			err: nil,
+		},
+		{
+			name: "valid normal asset commitment without family " +
+				"key",
+			f: func() []*asset.Asset {
+				return []*asset.Asset{
+					randAsset(t, genesis1, nil),
+					randAsset(t, genesis1, nil),
+				}
+			},
+			err: nil,
+		},
+		{
+			name: "valid collectible asset commitment without " +
+				"family key",
+			f: func() []*asset.Asset {
+				return []*asset.Asset{
+					randAsset(t, genesis1Collectible, nil),
+					randAsset(t, genesis1Collectible, nil),
 				}
 			},
 			err: nil,
@@ -168,10 +246,14 @@ func TestNewAssetCommitment(t *testing.T) {
 			commitment, err := NewAssetCommitment(assets...)
 			require.Equal(t, testCase.err, err)
 			if testCase.err == nil {
+				// Ensure that the Taro commitment was properly set.
+				require.NotZero(t, commitment.TaroCommitmentKey())
+
 				for _, asset := range assets {
-					asset, _ = commitment.AssetProof(
+					asset, _, err = commitment.AssetProof(
 						asset.AssetCommitmentKey(),
 					)
+					require.NoError(t, err)
 					require.NotNil(t, asset)
 				}
 			}
@@ -186,19 +268,21 @@ func TestNewAssetCommitment(t *testing.T) {
 func TestMintTaroCommitment(t *testing.T) {
 	t.Parallel()
 
-	genesis := randGenesis(t)
-	familyKey := randFamilyKey(t, genesis)
+	genesisNormal := randGenesis(t, asset.Normal)
+	genesisCollectible := randGenesis(t, asset.Collectible)
 	pubKey := keychain.KeyDescriptor{
 		PubKey: randKey(t).PubKey(),
 	}
 
 	testCases := []struct {
 		name  string
+		g     asset.Genesis
 		f     func() *AssetDetails
 		valid bool
 	}{
 		{
 			name: "normal with nil amount",
+			g:    genesisNormal,
 			f: func() *AssetDetails {
 				return &AssetDetails{
 					Type:             asset.Normal,
@@ -212,6 +296,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "normal with zero amount",
+			g:    genesisNormal,
 			f: func() *AssetDetails {
 				zero := uint64(0)
 				return &AssetDetails{
@@ -226,6 +311,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "normal with amount",
+			g:    genesisNormal,
 			f: func() *AssetDetails {
 				amount := uint64(10)
 				return &AssetDetails{
@@ -240,6 +326,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "collectible with invalid amount",
+			g:    genesisCollectible,
 			f: func() *AssetDetails {
 				two := uint64(2)
 				return &AssetDetails{
@@ -254,6 +341,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "collectible with nil amount",
+			g:    genesisCollectible,
 			f: func() *AssetDetails {
 				return &AssetDetails{
 					Type:             asset.Collectible,
@@ -267,6 +355,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "collectible with one amount",
+			g:    genesisCollectible,
 			f: func() *AssetDetails {
 				one := uint64(1)
 				return &AssetDetails{
@@ -281,6 +370,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "invalid asset type",
+			g:    randGenesis(t, asset.Type(255)),
 			f: func() *AssetDetails {
 				return &AssetDetails{
 					Type:             asset.Type(255),
@@ -297,7 +387,8 @@ func TestMintTaroCommitment(t *testing.T) {
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			details := testCase.f()
-			_, _, err := Mint(genesis, familyKey, details)
+			familyKey := randFamilyKey(t, testCase.g)
+			_, _, err := Mint(testCase.g, familyKey, details)
 			if testCase.valid {
 				require.NoError(t, err)
 			} else {
@@ -320,7 +411,7 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	const assetType = asset.Normal
 	const numAssets = 5
 
-	genesis1 := randGenesis(t)
+	genesis1 := randGenesis(t, assetType)
 	familyKey1 := randFamilyKey(t, genesis1)
 	assetDetails := make([]*AssetDetails, 0, numAssets)
 	for i := 0; i < numAssets; i++ {
@@ -337,21 +428,21 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 
 		t.Helper()
 		for _, asset := range assets {
-			proofAsset, proof := commitment.Proof(
+			proofAsset, proof, err := commitment.Proof(
 				asset.TaroCommitmentKey(),
 				asset.AssetCommitmentKey(),
 			)
+			require.NoError(t, err)
 			require.Equal(t, includesAsset, proofAsset != nil)
+
 			if includesAssetFamily {
 				require.NotNil(t, proof.AssetProof)
 			} else {
 				require.Nil(t, proof.AssetProof)
 			}
 
-			var (
-				taroCommitment *TaroCommitment
-				err            error
-			)
+			var taroCommitment *TaroCommitment
+
 			if includesAsset && includesAssetFamily {
 				taroCommitment, err = proof.DeriveByAssetInclusion(
 					asset,
@@ -387,7 +478,7 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	// not included in the above Taro commitment (non-inclusion proofs).
 	// We'll reuse the same asset details, except we'll mint them with a
 	// distinct genesis and family key.
-	genesis2 := randGenesis(t)
+	genesis2 := randGenesis(t, assetType)
 	familyKey2 := randFamilyKey(t, genesis2)
 	_, nonExistentAssetFamily, err := Mint(
 		genesis2, familyKey2, assetDetails...,
@@ -402,8 +493,10 @@ func TestSplitCommitment(t *testing.T) {
 	t.Parallel()
 
 	outPoint := wire.OutPoint{}
-	genesis := randGenesis(t)
-	familyKey := randFamilyKey(t, genesis)
+	genesisNormal := randGenesis(t, asset.Normal)
+	genesisCollectible := randGenesis(t, asset.Collectible)
+	familyKeyNormal := randFamilyKey(t, genesisNormal)
+	familyKeyCollectible := randFamilyKey(t, genesisCollectible)
 
 	testCases := []struct {
 		name string
@@ -414,11 +507,12 @@ func TestSplitCommitment(t *testing.T) {
 			name: "invalid asset input type",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
-					t, genesis, familyKey, asset.Collectible,
+					t, genesisCollectible,
+					familyKeyCollectible,
 				)
 				root := &SplitLocator{
 					OutputIndex: 0,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisCollectible.ID(),
 					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      input.Amount,
 				}
@@ -430,11 +524,11 @@ func TestSplitCommitment(t *testing.T) {
 			name: "locator duplicate output index",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
-					t, genesis, familyKey, asset.Normal,
+					t, genesisNormal, familyKeyNormal,
 				)
 				root := &SplitLocator{
 					OutputIndex: 0,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      input.Amount,
 				}
@@ -447,18 +541,18 @@ func TestSplitCommitment(t *testing.T) {
 			name: "invalid split amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
-					t, genesis, familyKey, asset.Normal,
+					t, genesisNormal, familyKeyNormal,
 				)
 				splitAmount := input.Amount / 4
 				root := &SplitLocator{
 					OutputIndex: 0,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      splitAmount,
 				}
 				external := []*SplitLocator{{
 					OutputIndex: 1,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      splitAmount,
 				}}
@@ -470,25 +564,25 @@ func TestSplitCommitment(t *testing.T) {
 			name: "single input split commitment",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
-					t, genesis, familyKey, asset.Normal,
+					t, genesisNormal, familyKeyNormal,
 				)
 				input.Amount = 3
 
 				root := &SplitLocator{
 					OutputIndex: 0,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      1,
 				}
 				external := []*SplitLocator{{
 					OutputIndex: 1,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *randKey(t).PubKey(),
 					Amount:      1,
 				}, {
 
 					OutputIndex: 2,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *randKey(t).PubKey(),
 					Amount:      1,
 				}}
@@ -501,13 +595,13 @@ func TestSplitCommitment(t *testing.T) {
 			name: "no external splits",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
-					t, genesis, familyKey, asset.Normal,
+					t, genesisNormal, familyKeyNormal,
 				)
 				input.Amount = 3
 
 				root := &SplitLocator{
 					OutputIndex: 0,
-					AssetID:     genesis.ID(),
+					AssetID:     genesisNormal.ID(),
 					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      1,
 				}
@@ -534,7 +628,7 @@ func TestSplitCommitment(t *testing.T) {
 			// InputSet.
 			prevID := asset.PrevID{
 				OutPoint:  outPoint,
-				ID:        genesis.ID(),
+				ID:        input.Genesis.ID(),
 				ScriptKey: *input.ScriptKey.PubKey,
 			}
 			require.Contains(t, split.PrevAssets, prevID)
@@ -581,4 +675,227 @@ func TestSplitCommitment(t *testing.T) {
 			return
 		}
 	}
+}
+
+// TestTaroCommitmentPopulation tests a series of invariants related to the
+// Taro commitment key.
+func TestTaroCommitmentKeyPopulation(t *testing.T) {
+	type assetDescription struct {
+		HasFamilyKey  bool
+		IsCollectible bool
+	}
+	mainScenario := func(assetDesc assetDescription) bool {
+		var assetType asset.Type
+		if assetDesc.IsCollectible {
+			assetType = asset.Collectible
+		}
+
+		genesis := randGenesis(t, assetType)
+
+		var familyKey *asset.FamilyKey
+		if assetDesc.HasFamilyKey {
+			familyKey = randFamilyKey(t, genesis)
+		}
+
+		a := randAsset(t, genesis, familyKey)
+		commitment, err := NewAssetCommitment(a)
+		require.NoError(t, err)
+
+		// The Taro commitment key value MUST always be set for the
+		// commitment to be well-formed.
+		var zero [32]byte
+		if commitment.TaroCommitmentKey() == zero {
+			t.Log("commitment has blank taro commitment key!")
+			return false
+		}
+
+		return true
+	}
+	require.NoError(t, quick.Check(mainScenario, nil))
+}
+
+// TestUpdateAssetCommitment asserts that we can properly insert and remove
+// assets from an AssetCommitment. It also tests that we reject assets that
+// could not be included in the AssetCommitment.
+func TestUpdateAssetCommitment(t *testing.T) {
+	t.Parallel()
+
+	genesis1 := randGenesis(t, asset.Normal)
+	genesis2 := randGenesis(t, asset.Normal)
+	genesis1collect := genesis1
+	genesis1collect.Type = asset.Collectible
+	familyKey1 := randFamilyKey(t, genesis1)
+	familyKey2 := randFamilyKey(t, genesis2)
+	copyOfFamilyKey1 := &asset.FamilyKey{
+		RawKey: familyKey1.RawKey,
+		FamKey: familyKey1.FamKey,
+		Sig:    familyKey1.Sig,
+	}
+
+	assetWithFamily := randAsset(t, genesis1, familyKey1)
+	assetNoFamily := randAsset(t, genesis2, nil)
+	copyOfAssetNoFamily := assetNoFamily.Copy()
+
+	// Create two AssetCommitments, both including one asset.
+	// One AssetCommitment includes an asset with a family key.
+	familyAssetCommitment, err := NewAssetCommitment(assetWithFamily)
+	require.NoError(t, err)
+	soloAssetCommitment, err := NewAssetCommitment(assetNoFamily)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name      string
+		f         func() (*asset.Asset, error)
+		numAssets int
+		err       error
+	}{
+		{
+			name: "family key mismatch",
+			f: func() (*asset.Asset, error) {
+				mismatchedAsset := randAsset(t, genesis1, familyKey2)
+				return nil, familyAssetCommitment.Update(mismatchedAsset, false)
+			},
+			numAssets: 0,
+			err:       ErrAssetFamilyKeyMismatch,
+		},
+		{
+			name: "genesis mismatch",
+			f: func() (*asset.Asset, error) {
+				mismatchedAsset := randAsset(t, genesis2, nil)
+				return nil, familyAssetCommitment.Update(mismatchedAsset, false)
+			},
+			numAssets: 0,
+			err:       ErrAssetGenesisMismatch,
+		},
+		{
+			name: "fresh asset commitment",
+			f: func() (*asset.Asset, error) {
+				return assetWithFamily, nil
+			},
+			numAssets: 1,
+			err:       nil,
+		},
+		{
+			name: "insertion of collectible with family key",
+			f: func() (*asset.Asset, error) {
+				newAsset := randAsset(t, genesis1collect, copyOfFamilyKey1)
+				return newAsset, familyAssetCommitment.Update(newAsset, false)
+			},
+			numAssets: 2,
+			err:       nil,
+		},
+		{
+			name: "deletion with no family key",
+			f: func() (*asset.Asset, error) {
+				return copyOfAssetNoFamily, soloAssetCommitment.Update(
+					copyOfAssetNoFamily, true,
+				)
+			},
+			numAssets: 0,
+			err:       nil,
+		},
+	}
+
+	for _, testCase := range testCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			asset, err := testCase.f()
+			require.Equal(t, testCase.err, err)
+
+			// Verify the number of assets in the updated AssetCommitment,
+			// as well as the inlcusion of an inserted asset or non-inclusion
+			// of a deleted asset.
+			if testCase.err == nil {
+				switch testCase.numAssets {
+				// Deletion with no family key.
+				case 0:
+					assets := soloAssetCommitment.Assets()
+					require.Equal(t, len(assets), testCase.numAssets)
+					proofAsset, _, err := familyAssetCommitment.AssetProof(
+						asset.AssetCommitmentKey(),
+					)
+					require.NoError(t, err)
+					require.Nil(t, proofAsset)
+
+				// Fresh asset commitment.
+				case 1:
+					assets := familyAssetCommitment.Assets()
+					require.Equal(t, len(assets), testCase.numAssets)
+					assertAssetEqual(
+						t, assets[asset.AssetCommitmentKey()], asset,
+					)
+
+				// insertion of collectible with family key.
+				case 2:
+					assets := familyAssetCommitment.Assets()
+					require.Equal(t, len(assets), testCase.numAssets)
+					proofAsset, _, err := familyAssetCommitment.AssetProof(
+						asset.AssetCommitmentKey(),
+					)
+					require.NoError(t, err)
+					assertAssetEqual(t, proofAsset, asset)
+				}
+			}
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+// TestUpdateTaroCommitment asserts that we can properly insert and remove
+// assetCommitments from a TaroCommitment.
+func TestUpdateTaroCommitment(t *testing.T) {
+	t.Parallel()
+
+	// Create two assets with different geneses and familyKeys, to ensure
+	// they are not in the same AssetCommitment.
+	genesis1 := randGenesis(t, asset.Normal)
+	genesis2 := randGenesis(t, asset.Normal)
+	familyKey1 := randFamilyKey(t, genesis1)
+	familyKey2 := randFamilyKey(t, genesis2)
+
+	asset1 := randAsset(t, genesis1, familyKey1)
+	asset2 := randAsset(t, genesis2, familyKey2)
+	assetCommitment1, err := NewAssetCommitment(asset1)
+	require.NoError(t, err)
+	commitmentKey1 := assetCommitment1.TaroCommitmentKey()
+	assetCommitment2, err := NewAssetCommitment(asset2)
+	require.NoError(t, err)
+	commitmentKey2 := assetCommitment2.TaroCommitmentKey()
+
+	// Mint a new Taro commitment with only the first assetCommitment.
+	commitment, err := NewTaroCommitment(assetCommitment1)
+	require.NoError(t, err)
+	copyOfCommitment, err := NewTaroCommitment(assetCommitment1)
+	require.NoError(t, err)
+
+	// Check that the assetCommitment map has only the first assetCommitment.
+	assetCommitments := commitment.Commitments()
+	require.Equal(t, len(assetCommitments), 1)
+	require.Equal(t, assetCommitments[commitmentKey1], assetCommitment1)
+
+	// Verify commitment deletion with an empty assetCommitment map
+	// and a proof of non inclusion.
+	require.NoError(t, commitment.Update(assetCommitment1, true))
+	proofAsset1, _, err := commitment.Proof(
+		commitmentKey1, asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	require.Nil(t, proofAsset1)
+
+	assetCommitments = commitment.Commitments()
+	require.Equal(t, len(assetCommitments), 0)
+
+	// Verify commitment insertion with a proof of inclusion and checking the
+	// assetCommitment map for the inserted assetCommitment.
+	require.NoError(t, copyOfCommitment.Update(assetCommitment2, false))
+	proofAsset2, _, err := copyOfCommitment.Proof(
+		commitmentKey2, asset2.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	assertAssetEqual(t, proofAsset2, asset2)
+
+	assetCommitments = copyOfCommitment.Commitments()
+	require.Equal(t, len(assetCommitments), 2)
+	require.Equal(t, assetCommitments[commitmentKey2], assetCommitment2)
 }

@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -23,6 +25,10 @@ var (
 	// tapscript tree.
 	TaroMarker = sha256.Sum256([]byte(taroMarkerTag))
 )
+
+// AssetCommitments is the set of assetCommitments backing a TaroCommitment.
+// The map is keyed by the AssetCommitment's TaroCommitmentKey.
+type AssetCommitments map[[32]byte]*AssetCommitment
 
 // TaroCommitment represents the outer MS-SMT within the Taro protocol
 // committing to a set of asset commitments. Asset commitments, which are
@@ -41,29 +47,35 @@ type TaroCommitment struct {
 	//
 	// NOTE: This is nil when TaroCommitment is constructed with
 	// NewTaroCommitmentWithRoot.
-	tree *mssmt.Tree
+	tree mssmt.Tree
 
 	// assetCommitments is the set of asset commitments found within the
 	// tree above.
 	//
 	// NOTE: This is nil when TaroCommitment is constructed with
 	// NewTaroCommitmentWithRoot.
-	assetCommitments map[[32]byte]*AssetCommitment
+	assetCommitments AssetCommitments
 }
 
 // NewTaroCommitment creates a new Taro commitment for the given asset
 // commitments capable of computing merkle proofs.
-func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
+func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 	maxVersion := asset.V0
-	tree := mssmt.NewTree(mssmt.NewDefaultStore())
-	assetCommitments := make(map[[32]byte]*AssetCommitment, len(assets))
+	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	assetCommitments := make(AssetCommitments, len(assets))
 	for _, asset := range assets {
 		if asset.Version > maxVersion {
 			maxVersion = asset.Version
 		}
 		key := asset.TaroCommitmentKey()
 		leaf := asset.TaroCommitmentLeaf()
-		tree.Insert(key, leaf)
+
+		// TODO(bhandras): thread the context through.
+		_, err := tree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return nil, err
+		}
+
 		assetCommitments[key] = asset
 	}
 	return &TaroCommitment{
@@ -71,7 +83,41 @@ func NewTaroCommitment(assets ...*AssetCommitment) *TaroCommitment {
 		TreeRoot:         tree.Root(),
 		assetCommitments: assetCommitments,
 		tree:             tree,
+	}, nil
+}
+
+// Update modifies one entry in the TaroCommitment by inserting or deleting
+// it in the inner MS-SMT and adding or deleting it in the internal
+// AssetCommitment map.
+func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
+	if asset == nil {
+		// TODO(jhb): Concrete error types
+		panic("taro commitment update is missing asset commitment")
 	}
+
+	key := asset.TaroCommitmentKey()
+
+	// TODO(bhandras): thread the context through.
+	if deletion {
+		_, err := c.tree.Delete(context.TODO(), key)
+		if err != nil {
+			return err
+		}
+
+		c.TreeRoot = c.tree.Root()
+		delete(c.assetCommitments, key)
+	} else {
+		leaf := asset.TaroCommitmentLeaf()
+		_, err := c.tree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return err
+		}
+
+		c.TreeRoot = c.tree.Root()
+		c.assetCommitments[key] = asset
+	}
+
+	return nil
 }
 
 // NewTaroCommitmentWithRoot creates a new Taro commitment backed by the root
@@ -89,8 +135,8 @@ func NewTaroCommitmentWithRoot(version asset.Version,
 }
 
 // TapLeaf constructs a new `TapLeaf` for this `TaroCommitment`.
-func (c TaroCommitment) TapLeaf() txscript.TapLeaf {
-	rootHash := c.TreeRoot.NodeKey()
+func (c *TaroCommitment) TapLeaf() txscript.TapLeaf {
+	rootHash := c.TreeRoot.NodeHash()
 	var rootSum [8]byte
 	binary.BigEndian.PutUint64(rootSum[:], c.TreeRoot.NodeSum())
 	leafParts := [][]byte{
@@ -105,7 +151,7 @@ func (c TaroCommitment) TapLeaf() txscript.TapLeaf {
 // Taro commitment), and hash it with the Taro commitment leaf to arrive at the
 // tapscript root, otherwise the Taro commitment leaf itself becomes the
 // tapscript root.
-func (c TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
+func (c *TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 	commitmentLeaf := c.TapLeaf()
 	if sibling == nil {
 		return txscript.AssembleTaprootScriptTree(commitmentLeaf).
@@ -125,16 +171,24 @@ func (c TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 // Proof computes the full TaroCommitment merkle proof for the asset leaf
 // located at `assetCommitmentKey` within the AssetCommitment located at
 // `taroCommitmentKey`.
-func (c TaroCommitment) Proof(taroCommitmentKey,
-	assetCommitmentKey [32]byte) (*asset.Asset, *Proof) {
+func (c *TaroCommitment) Proof(taroCommitmentKey,
+	assetCommitmentKey [32]byte) (*asset.Asset, *Proof, error) {
 
 	if c.assetCommitments == nil || c.tree == nil {
 		panic("missing asset commitments to compute proofs")
 	}
 
+	// TODO(bhandras): thread the context through.
+	merkleProof, err := c.tree.MerkleProof(
+		context.TODO(), taroCommitmentKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	proof := &Proof{
-		TaroProof: &TaroProof{
-			Proof:   *c.tree.MerkleProof(taroCommitmentKey),
+		TaroProof: TaroProof{
+			Proof:   *merkleProof,
 			Version: c.Version,
 		},
 	}
@@ -143,30 +197,45 @@ func (c TaroCommitment) Proof(taroCommitmentKey,
 	// as is.
 	assetCommitment, ok := c.assetCommitments[taroCommitmentKey]
 	if !ok {
-		return nil, proof
+		return nil, proof, nil
 	}
 
 	// Otherwise, compute the AssetProof and include it in the result. It's
 	// possible for the asset to not be found, leading to a non-inclusion
 	// proof.
-	asset, assetProof := assetCommitment.AssetProof(assetCommitmentKey)
+	asset, assetProof, err := assetCommitment.AssetProof(assetCommitmentKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	proof.AssetProof = &AssetProof{
 		Proof:   *assetProof,
 		Version: assetCommitment.Version,
 		AssetID: assetCommitment.AssetID,
 	}
-	return asset, proof
+
+	return asset, proof, nil
 }
 
 // CommittedAssets returns the set of assets committed to in the taro
 // commitment.
-func (c TaroCommitment) CommittedAssets() []*asset.Asset {
+func (c *TaroCommitment) CommittedAssets() []*asset.Asset {
 	var assets []*asset.Asset
 	for _, commitment := range c.assetCommitments {
-		assets = append(assets, commitment.Assets()...)
+		committedAssets := maps.Values(commitment.Assets())
+		assets = append(assets, committedAssets...)
 	}
 
 	return assets
+}
+
+// Commitments returns the set of assetCommitments committed to in the taro
+// commitment.
+func (c *TaroCommitment) Commitments() AssetCommitments {
+	assetCommitments := make(AssetCommitments, len(c.assetCommitments))
+	maps.Copy(assetCommitments, c.assetCommitments)
+
+	return assetCommitments
 }
 
 // tapBranchHash takes the tap hashes of the left and right nodes and hashes

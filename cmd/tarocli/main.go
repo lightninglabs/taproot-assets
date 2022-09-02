@@ -15,7 +15,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightninglabs/taro/build"
+	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -230,7 +230,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 func main() {
 	app := cli.NewApp()
 	app.Name = "tarocli"
-	app.Version = build.Version() + " commit=" + build.Commit
+	app.Version = taro.Version() + " commit=" + taro.Commit
 	app.Usage = "control plane for your Taro Daemon (tarod)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -301,6 +301,9 @@ func main() {
 		debugLevelCommand,
 		profileSubCommand,
 	}
+	app.Commands = append(app.Commands, assetsCommands...)
+	app.Commands = append(app.Commands, addrCommands...)
+	app.Commands = append(app.Commands, proofCommands...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

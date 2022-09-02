@@ -9,11 +9,24 @@ tarod-debug
 cmd/tarocli/tarocli
 cmd/tarod/tarod
 
+tarocli-debug
+tarod-debug
+
+/itest/lnd-itest
+/itest/btcd-itest
+/itest/regtest/*
+/itest/.backendlogs/*
+/itest/.minerlogs/*
+/itest/tarod-itest
+
 # Test binary, built with `go test -c`
 *.test
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Sed backup files.
+*.bak
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

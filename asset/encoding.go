@@ -219,7 +219,10 @@ func GenesisEncoder(w io.Writer, val any, buf *[8]byte) error {
 		if err := VarBytesEncoder(w, &t.Metadata, buf); err != nil {
 			return err
 		}
-		return tlv.EUint32T(w, t.OutputIndex, buf)
+		if err := tlv.EUint32T(w, t.OutputIndex, buf); err != nil {
+			return err
+		}
+		return TypeEncoder(w, &t.Type, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "Genesis")
 }
@@ -241,6 +244,10 @@ func GenesisDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 			return err
 		}
 		err = tlv.DUint32(r, &genesis.OutputIndex, buf, 4)
+		if err != nil {
+			return err
+		}
+		err = TypeDecoder(r, &genesis.Type, buf, 1)
 		if err != nil {
 			return err
 		}
@@ -422,7 +429,7 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 
 func SplitCommitmentRootEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*mssmt.Node); ok {
-		key := [32]byte((*t).NodeKey())
+		key := [32]byte((*t).NodeHash())
 		if err := tlv.EBytes32(w, &key, buf); err != nil {
 			return err
 		}
@@ -455,7 +462,6 @@ func ScriptVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-
 	if typ, ok := val.(*ScriptVersion); ok {
 		var t uint16
 		if err := tlv.DUint16(r, &t, buf, l); err != nil {

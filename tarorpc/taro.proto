@@ -29,22 +29,243 @@ service Taro {
   sub-system.
   */
   rpc DebugLevel(DebugLevelRequest) returns (DebugLevelResponse);
+
+  /* tarocli: `addrs query`
+  QueryTaroAddrs queries the set of Taro addresses stored in the database.
+  */
+  rpc QueryAddrs(QueryAddrRequest) returns (QueryAddrResponse);
+
+  /* tarocli: `addrs new`
+  NewAddr makes a new address from the set of request params.
+  */
+  rpc NewAddr(NewAddrRequest) returns (Addr);
+
+  /* tarocli: `addrs decode`
+  DecodeAddr decode a Taro address into a partial asset message that
+  represents the asset it wants to receive.
+  */
+  rpc DecodeAddr(Addr) returns (Asset);
+
+  /* tarocli: `proofs verify`
+  VerifyProof attempts to verify a given proof file that claims to be anchored
+  at the specified genesis point.
+  */
+  rpc VerifyProof(ProofFile) returns (ProofVerifyResponse);
+
+  /* tarocli: `proofs export`
+  ExportProof exports the latest raw proof file acnhored at the specified
+  script_key.
+  */
+  rpc ExportProof(ExportProofRequest) returns (ProofFile);
+
+  /* tarocli: `proofs import`
+  ImportProof attempts to import a proof file into the daemon. If succesful, a
+  new asset will be inserted on disk, spendable using the specified target
+  script key, and internaly key.
+  */
+  rpc ImportProof(ImportProofRequest) returns (ImportProofResponse);
 }
 
-message MintAssetRequest {}
+enum AssetType {
+  /*
+  Indicates that an asset is capable of being split/merged, with each of the
+  units being fungible, even across a key asset ID boundary (assuming the
+  key family is the same).
+  */
+  NORMAL = 0;
 
-message MintAssetResponse {}
+  /*
+  Indicates that an asset is a collectible, meaning that each of the other
+  items under the same key family are not fully fungible with each other.
+  Collectibles also cannot be split or merged.
+  */
+  COLLECTIBLE = 1;
+}
+message MintAssetRequest {
+  // The type of the asset to be created.
+  AssetType asset_type = 1;
+
+  // The name, or "tag" of the asset. This will affect the final asset ID.
+  string name = 2;
+
+  /*
+  An opaque blob that resents metadata related to the asset. This will affect
+  the final asset ID.
+  */
+  bytes meta_data = 3;
+
+  /*
+  The total amount of units of the new asset that should be created. If the
+  AssetType is Collectible, then this field cannot be set.
+  */
+  int64 amount = 4;
+
+  /*
+  If true, then the asset will be created with a key family, which allows for
+  future asset issuance.
+  */
+  bool enable_emission = 5;
+
+  /*
+  If true, then a batch will be created immediately. Otherwise the asset
+  creation transaction may be batched with other pending minting requests.
+  */
+  bool skip_batch = 6;
+}
+
+message MintAssetResponse {
+  /*
+  A public key serialized in compressed format that can be used to uniquely
+  identify a pending minting batch. Responses that share the same key will be
+  batched into the same minting transaction.
+  */
+  bytes batch_key = 1;
+}
 
 message ListAssetRequest {}
 
-message ListAssetResponse {}
+message AnchorInfo {
+  // The transaction that anchors the Taro commitment where the asset resides.
+  bytes anchor_tx = 1;
+
+  // The txid of the above transaction.
+  bytes anchor_txid = 2;
+
+  // The block hash the contains the anchor transaction above.
+  bytes anchor_block_hash = 3;
+
+  // The outpoint (txid:vout) that stores the Taro commitment.
+  string anchor_outpoint = 4;
+}
+
+message GenesisInfo {
+  // The version of the Taro asset.
+  int32 version = 1;
+
+  // The first outpoint of the transaction that created the asset (txid:vout).
+  string genesis_point = 2;
+
+  // The name of the asset.
+  string name = 3;
+
+  // The opaque meta data of the asset.
+  bytes meta = 4;
+
+  // The asset ID that uniquely identifies the asset.
+  bytes asset_id = 5;
+}
+
+message AssetFamily {
+  // The raw family key which is a normal public key.
+  bytes raw_family_key = 1;
+
+  /*
+  The tweaked family key, which is derived based on the genesis point and also
+  asset type.
+  */
+  bytes tweaked_family_key = 2;
+
+  // A signature over the genesis point using the above key.
+  bytes asset_id_sig = 3;
+}
+
+message Asset {
+  // The base genesis information of an asset. This information never changes.
+  GenesisInfo asset_genesis = 1;
+
+  // The type of the asset.
+  AssetType asset_type = 2;
+
+  // The total amount of the asset stored in this Taro UTXO.
+  int64 amount = 4;
+
+  // An optional locktime, as with Bitcoin transactions.
+  int32 lock_time = 5;
+
+  // An optional relative lock time, same as Bitcoin transactions.
+  int32 relative_lock_time = 6;
+
+  // The version of the script, only version 0 is defined at present.
+  int32 script_version = 7;
+
+  // The script key of the asset, which can be spent under Taproot semantics.
+  bytes script_key = 9;
+
+  // The information related to the key family of an asset (if it exists).
+  AssetFamily asset_family = 10;
+
+  // Describes where in the chain the asset is currently anchored.
+  AnchorInfo chain_anchor = 11;
+}
+
+message ListAssetResponse { repeated Asset assets = 1; }
 
 message StopRequest {}
 
 message StopResponse {}
 
 message DebugLevelRequest {
+  // If true, all the valid debug sub-systems will be returned.
   bool show = 1;
+
   string level_spec = 2;
 }
 message DebugLevelResponse { string sub_systems = 1; }
+
+message Addr { string addr = 1; }
+
+message QueryAddrRequest {
+  /*
+  If set, then only addresses created after this Unix timestamp will be
+  returned.
+  */
+  int64 created_after = 1;
+
+  /*
+  If set, then only addresses created before this Unix timestamp will be
+  returned.
+  */
+  int64 created_before = 2;
+
+  // The max number of addresses that should be returned.
+  int32 limit = 3;
+
+  // The offset from the addresses that should be returned.
+  int32 offset = 4;
+}
+
+message QueryAddrResponse { repeated Addr addrs = 1; }
+
+message NewAddrRequest {
+  bytes asset_id = 1;
+
+  bytes fam_key = 2;
+
+  int64 amt = 3;
+
+  AssetType asset_type = 4;
+}
+
+message ProofFile {
+  bytes raw_proof = 1;
+
+  string genesis_point = 2;
+}
+
+message ProofVerifyResponse { bool valid = 1; }
+
+message ExportProofRequest {
+  bytes asset_id = 1;
+  bytes script_key = 2;
+
+  // TODO(roasbeef): specify information to make new state transition in proof
+  // file?
+}
+
+message ImportProofRequest {
+  bytes proof_file = 1;
+
+  string genesis_point = 2;
+}
+
+message ImportProofResponse {}

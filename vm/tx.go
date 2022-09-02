@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 
@@ -37,7 +38,7 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 	//
 	// TODO(roasbeef): this already contains the sum, so can just use it
 	// directly?
-	rootKey := root.NodeKey()
+	rootKey := root.NodeHash()
 
 	// Map this to: nodeHash || nodeSum.
 	h := sha256.New()
@@ -53,22 +54,25 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 // input prevout's hash is the root of a MS-SMT committing to all inputs of a
 // state transition.
 func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
-	*wire.TxIn, *mssmt.Tree, error) {
+	*wire.TxIn, mssmt.Tree, error) {
 
 	// Genesis assets shouldn't have any inputs committed, so they'll have
 	// an empty input tree.
-	isGenesisAsset := isValidGenesisWitness(newAsset)
-	inputTree := mssmt.NewTree(mssmt.NewDefaultStore())
+	isGenesisAsset := HasGenesisWitness(newAsset)
+	inputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	if !isGenesisAsset {
 		// For each input we'll locate the asset UTXO beign spent, then
 		// insert that into a new SMT, with the key being the hash of
 		// the prevID pointer, and the value being the leaf itself.
 		inputsConsumed := make(map[asset.PrevID]struct{}, len(prevAssets))
+
+		// TODO(bhandras): thread the context through.
+		ctx := context.TODO()
+
 		for _, input := range newAsset.PrevWitnesses {
 			// At this point, each input MUST have a prev ID.
 			if input.PrevID == nil {
 				return nil, nil, newErrKind(ErrNoInputs)
-
 			}
 
 			// The set of prev assets are similar to the prev
@@ -87,7 +91,10 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 			if err != nil {
 				return nil, nil, err
 			}
-			_ = inputTree.Insert(key, leaf)
+			_, err = inputTree.Insert(ctx, key, leaf)
+			if err != nil {
+				return nil, nil, err
+			}
 
 			inputsConsumed[*input.PrevID] = struct{}{}
 		}
@@ -116,7 +123,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 		// In this case, we already have an MS-SMT over the set of
 		// outputs created, so we'll map this into a normal taproot
 		// (segwit v1) script.
-		rootKey := asset.SplitCommitmentRoot.NodeKey()
+		rootKey := asset.SplitCommitmentRoot.NodeHash()
 		pkScript, err := computeTaprootScript(rootKey[:])
 		if err != nil {
 			return nil, err
@@ -158,9 +165,15 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	if err != nil {
 		return nil, err
 	}
-	outputTree := mssmt.NewTree(mssmt.NewDefaultStore())
-	rootKey := outputTree.Insert(key, leaf).Root().NodeKey()
+	outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 
+	// TODO(bhandras): thread the context through.
+	tree, err := outputTree.Insert(context.TODO(), key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	rootKey := tree.Root().NodeHash()
 	pkScript, err := computeTaprootScript(rootKey[:])
 	if err != nil {
 		return nil, err
@@ -171,7 +184,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 // VirtualTx constructs the virtual transaction that enables the movement of an
 // asset representing an asset state transition.
 func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
-	*wire.MsgTx, *mssmt.Tree, error) {
+	*wire.MsgTx, mssmt.Tree, error) {
 
 	// We'll start by mapping all inputs into a MS-SMT.
 	txIn, inputTree, err := virtualTxIn(newAsset, prevAssets)
@@ -221,9 +234,7 @@ func inputPrevOutFetcher(version asset.ScriptVersion,
 	case asset.ScriptV0:
 		// TODO(roasbeef): lift and combine w/ computeTaprootScript
 		var err error
-		pkScript, err = computeTaprootScript(
-			schnorr.SerializePubKey(scriptKey),
-		)
+		pkScript, err = PayToTaprootScript(scriptKey)
 		if err != nil {
 			return nil, err
 		}
@@ -271,4 +282,23 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 		sigHashes, txscript.SigHashDefault, virtualTxCopy, zeroIndex,
 		prevOutFetcher, *tapLeaf,
 	)
+}
+
+// SignTaprootKeySpend computes a signature over a Taro virtual transaction
+// spending a Taro input through the key path. This signature is attached
+// to a Taro output asset before state transition validation.
+func SignTaprootKeySpend(privKey btcec.PrivateKey, virtualTx *wire.MsgTx,
+	input *asset.Asset, idx uint32) (*wire.TxWitness, error) {
+
+	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
+	sigHash, err := InputKeySpendSigHash(virtualTxCopy, input, idx)
+	if err != nil {
+		return nil, err
+	}
+	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
+	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
+	if err != nil {
+		return nil, err
+	}
+	return &wire.TxWitness{sig.Serialize()}, nil
 }

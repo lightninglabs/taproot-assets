@@ -19,10 +19,6 @@ type CompressedProof struct {
 	// Nodes represents the non-empty siblings that should be hashed with
 	// the leaf and its parents to arrive at the root of the MS-SMT.
 	Nodes []Node
-
-	// nextNodeIdx is the index of the next node to include in a
-	// decompressed proof.
-	nextNodeIdx int
 }
 
 // NewProof initializes a new merkle proof for the given leaf node.
@@ -34,10 +30,13 @@ func NewProof(nodes []Node) *Proof {
 
 // Root returns the root node obtained by walking up the tree.
 func (p Proof) Root(key [32]byte, leaf *LeafNode) *BranchNode {
-	return walkUp(&key, leaf, p.Nodes, nil)
+	// Note that we don't need to check the error here since the only point
+	// where the error could come from is the passed iterator which is nil.
+	node, _ := walkUp(&key, leaf, p.Nodes, nil)
+	return node
 }
 
-// Proof returns a deep copy of the proof.
+// Copy returns a deep copy of the proof.
 func (p Proof) Copy() *Proof {
 	nodesCopy := make([]Node, 0, len(p.Nodes))
 	for _, node := range p.Nodes {
@@ -56,7 +55,7 @@ func (p Proof) Compress() *CompressedProof {
 	for i, node := range p.Nodes {
 		// The proof nodes start at the leaf, while the EmptyTree starts
 		// at the root.
-		if node.NodeKey() == EmptyTree[MaxTreeLevels-i].NodeKey() {
+		if node.NodeHash() == EmptyTree[MaxTreeLevels-i].NodeHash() {
 			bits[i] = true
 		} else {
 			nodes = append(nodes, node)
@@ -68,22 +67,10 @@ func (p Proof) Compress() *CompressedProof {
 	}
 }
 
-// resetNodeIdx resets the node index back to the start.
-func (p *CompressedProof) resetNodeIdx() {
-	p.nextNodeIdx = 0
-}
-
-// nextNode pops the next node from the proof stack.
-func (p *CompressedProof) nextNode() Node {
-	nextNode := p.Nodes[p.nextNodeIdx]
-	p.nextNodeIdx++
-	return nextNode
-}
-
 // Decompress decompresses a compressed merkle proof by replacing its bit vector
 // with the empty nodes it represents.
 func (p *CompressedProof) Decompress() *Proof {
-	p.resetNodeIdx()
+	nextNodeIdx := 0
 	nodes := make([]Node, len(p.Bits))
 	for i, bitSet := range p.Bits {
 		if bitSet {
@@ -91,7 +78,8 @@ func (p *CompressedProof) Decompress() *Proof {
 			// EmptyTree starts at the root.
 			nodes[i] = EmptyTree[MaxTreeLevels-i]
 		} else {
-			nodes[i] = p.nextNode()
+			nodes[i] = p.Nodes[nextNodeIdx]
+			nextNodeIdx++
 		}
 	}
 	return NewProof(nodes)

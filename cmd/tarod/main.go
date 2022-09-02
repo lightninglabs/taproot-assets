@@ -1,16 +1,14 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
 	"runtime/pprof"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/lightninglabs/taro"
-	"github.com/lightninglabs/taro/tarodb"
-	"github.com/lightningnetwork/lnd"
+	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/tarocfg"
 	"github.com/lightningnetwork/lnd/signal"
 )
 
@@ -24,7 +22,7 @@ func main() {
 
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
-	cfg, cfgLogger, err := LoadConfig(shutdownInterceptor)
+	cfg, cfgLogger, err := tarocfg.LoadConfig(shutdownInterceptor)
 	if err != nil {
 		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
 			// Print error if not due to help request.
@@ -35,18 +33,6 @@ func main() {
 
 		// Help was requested, exit normally.
 		os.Exit(0)
-	}
-
-	// Given the config above, grab the TLS config which includes the set
-	// of dial options, and also the listeners we'll use to listen on the
-	// RPC system.
-	serverOpts, restDialOpts, restListen, err := getTLSConfig(
-		cfg, cfgLogger,
-	)
-	if err != nil {
-		err := fmt.Errorf("unable to load TLS credentials: %v", err)
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
 	}
 
 	// Enable http profiling server if requested.
@@ -72,57 +58,25 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	// Now that we know where the databse will live, we'll go ahead and
-	// open up the default implementation of it.
-	cfgLogger.Infof("Opening sqlite3 database at: %v", cfg.DatabaseFileName)
-	db, err := tarodb.NewSqliteStore(&tarodb.SqliteConfig{
-		DatabaseFileName: cfg.DatabaseFileName,
-		CreateTables:     true,
-	})
+	// This concurrent error queue can be used by every component that can
+	// raise runtime errors. Using a queue will prevent us from blocking on
+	// sending errors to it, as long as the queue is running.
+	errQueue := chanutils.NewConcurrentQueue[error](
+		chanutils.DefaultQueueSize,
+	)
+	errQueue.Start()
+	defer errQueue.Stop()
+
+	server, err := tarocfg.CreateServerFromConfig(
+		cfg, cfgLogger, shutdownInterceptor, errQueue.ChanIn(),
+	)
 	if err != nil {
-		err := fmt.Sprintf("unable to open database: %v", err)
-		cfgLogger.Errorf(err)
+		err := fmt.Errorf("error creating server: %v", err)
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.KeyStore {
-
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
-	server, err := taro.NewServer(&taro.Config{
-		DebugLevel:        cfg.DebugLevel,
-		ChainParams:       cfg.ActiveNetParams,
-		SignalInterceptor: shutdownInterceptor,
-		LogWriter:         cfg.LogWriter,
-		RPCConfig: &taro.RPCConfig{
-			LisCfg:         &lnd.ListenerCfg{},
-			RPCListeners:   cfg.rpcListeners,
-			RESTListeners:  cfg.restListeners,
-			GrpcServerOpts: serverOpts,
-			RestDialOpts:   restDialOpts,
-			RestListenFunc: restListen,
-			WSPingInterval: cfg.RpcConf.WSPingInterval,
-			WSPongWait:     cfg.RpcConf.WSPongWait,
-			RestCORS:       cfg.RpcConf.RestCORS,
-			NoMacaroons:    cfg.RpcConf.NoMacaroons,
-			MacaroonPath:   cfg.RpcConf.MacaroonPath,
-		},
-		DatabaseConfig: &taro.DatabaseConfig{
-			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
-		},
-	})
-	if err != nil {
-		err := fmt.Errorf("unable to start server: %v", err)
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	err = server.RunUntilShutdown()
+	err = server.RunUntilShutdown(errQueue.ChanOut())
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

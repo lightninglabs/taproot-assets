@@ -2,33 +2,13 @@ DEV_TAGS = dev
 RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
 LOG_TAGS =
 TEST_FLAGS =
-ITEST_FLAGS = 
-EXEC_SUFFIX =
+ITEST_FLAGS = -logoutput -goroutinedump
 COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
-NUM_ITEST_TRANCHES = 4
-ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 POSTGRES_START_DELAY = 5
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
 DEV_TAGS += $(RPC_TAGS)
-endif
-
-# Scale the number of parallel running itest tranches.
-ifneq ($(tranches),)
-NUM_ITEST_TRANCHES = $(tranches)
-ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
-endif
-
-# Give the ability to run the same tranche multiple times at the same time.
-ifneq ($(parallel),)
-ITEST_PARALLELISM = $(parallel)
-endif
-
-# Windows needs to append a .exe suffix to all executable files, otherwise it
-# won't run them.
-ifneq ($(windows),)
-EXEC_SUFFIX = .exe
 endif
 
 # If specific package is being unit tested, construct the full name of the
@@ -47,7 +27,12 @@ endif
 
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
-TEST_FLAGS += -test.run="TestLightningNetworkDaemon/tranche.*/.*-of-.*/.*/$(icase)"
+TEST_FLAGS += -test.run="TestTaroDaemon/$(icase)"
+endif
+
+# Don't delete the data directories of nodes.
+ifneq ($(nodelete),)
+ITEST_FLAGS += -nodelete
 endif
 
 # Run itests with specified db backend.
@@ -111,4 +96,4 @@ backend = btcd
 endif
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
+ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest itest $(backend)

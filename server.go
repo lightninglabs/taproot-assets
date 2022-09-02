@@ -10,9 +10,9 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/build"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -44,8 +44,8 @@ func NewServer(cfg *Config) (*Server, error) {
 }
 
 // RunUntilShutdown runs the main Taro server loop until a signal is received
-// to shutdown the process.
-func (s *Server) RunUntilShutdown() error {
+// to shut down the process.
+func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	if atomic.AddInt32(&s.started, 1) != 1 {
 		return nil
 	}
@@ -66,8 +66,8 @@ func (s *Server) RunUntilShutdown() error {
 
 	// Show version at startup.
 	srvrLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
-		"debuglevel=%s", build.Version(), build.Commit,
-		build.Deployment, build.LoggingType, s.cfg.DebugLevel)
+		"debuglevel=%s", Version(), Commit, build.Deployment,
+		build.LoggingType, s.cfg.DebugLevel)
 
 	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
 
@@ -157,13 +157,14 @@ func (s *Server) RunUntilShutdown() error {
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer, err := newRPCServer(
+	var err error
+	s.rpcServer, err = newRPCServer(
 		s.cfg.SignalInterceptor, interceptorChain, s.cfg,
 	)
 	if err != nil {
 		return mkErr("unable to create rpc server: %v", err)
 	}
-	err = rpcServer.RegisterWithGrpcServer(grpcServer)
+	err = s.rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
 		return mkErr("error registering gRPC server: %v", err)
 	}
@@ -179,7 +180,7 @@ func (s *Server) RunUntilShutdown() error {
 	// direct tarod to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
-	stopProxy, err := startRestProxy(s.cfg, rpcServer)
+	stopProxy, err := startRestProxy(s.cfg, s.rpcServer)
 	if err != nil {
 		return mkErr("error starting REST proxy: %v", err)
 	}
@@ -188,13 +189,18 @@ func (s *Server) RunUntilShutdown() error {
 	// TODO(roasbeef): make macaroons service, needs the lnd APIs present
 	// an abstracted
 
+	// First, we'll start the main batched asset minter.
+	if err := s.cfg.AssetMinter.Start(); err != nil {
+		return mkErr("unable to start asset minter: %v", err)
+	}
+
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
-	if err := rpcServer.Start(); err != nil {
+	if err := s.rpcServer.Start(); err != nil {
 		return mkErr("unable to start RPC server: %v", err)
 	}
 	defer func() {
-		_ = rpcServer.Stop()
+		_ = s.rpcServer.Stop()
 	}()
 
 	// We transition the RPC state to Active, as the RPC server is up.
@@ -203,10 +209,16 @@ func (s *Server) RunUntilShutdown() error {
 	// We transition the server state to Active, as the server is up.
 	interceptorChain.SetServerActive()
 
+	srvrLog.Infof("Taro Daemon fully active!")
+
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
 	select {
 	case <-s.cfg.SignalInterceptor.ShutdownChannel():
+
+	case err := <-mainErrChan:
+		return mkErr("received critical error from subsystem: %w", err)
+
 	case <-s.quit:
 	}
 	return nil
@@ -374,6 +386,9 @@ func (s *Server) Stop() error {
 	// TODO(roasbeef): stop all other sub-systems
 
 	if err := s.rpcServer.Stop(); err != nil {
+		return err
+	}
+	if err := s.cfg.AssetMinter.Stop(); err != nil {
 		return err
 	}
 
