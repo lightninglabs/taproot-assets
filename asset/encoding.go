@@ -13,6 +13,12 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+var (
+	// ErrTooManyInputs is returned when an asset TLV atempts to reference
+	// too many inputs.
+	ErrTooManyInputs = errors.New("witnesses: witness elements")
+)
+
 func VarIntEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*uint64); ok {
 		return tlv.WriteVarInt(w, *t, buf)
@@ -358,6 +364,15 @@ func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// We use a varint, but will practically limit the number of
+		// witnesses to a sane number.
+		//
+		// TODO(roasbeef): just use a uint8 here?
+		if numItems > math.MaxUint16 {
+			return fmt.Errorf("%w: %v", ErrTooManyInputs, numItems)
+		}
+
 		*typ = make([]Witness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
