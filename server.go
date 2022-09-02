@@ -59,8 +59,9 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	}()
 
 	mkErr := func(format string, args ...interface{}) error {
+		logFormat := strings.ReplaceAll(format, "%w", "%v")
 		srvrLog.Errorf("Shutting down because error in main "+
-			"method: "+format, args...)
+			"method: "+logFormat, args...)
 		return fmt.Errorf(format, args...)
 	}
 
