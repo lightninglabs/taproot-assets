@@ -3,7 +3,10 @@ package asset
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"io"
+	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -17,6 +20,10 @@ var (
 	// ErrTooManyInputs is returned when an asset TLV atempts to reference
 	// too many inputs.
 	ErrTooManyInputs = errors.New("witnesses: witness elements")
+
+	// ErrByteSliceTooLarge is returned when an encoded byte slice is too
+	// large.
+	ErrByteSliceTooLarge = errors.New("bytes: too large")
 )
 
 func VarIntEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -54,6 +61,14 @@ func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// We'll limit all decoded byte slices to prevent memory blow
+		// ups or panics.
+		if bytesLen > math.MaxUint32 {
+			return fmt.Errorf("%w: %v", ErrByteSliceTooLarge,
+				bytesLen)
+		}
+
 		var bytes []byte
 		if err := tlv.DVarBytes(r, &bytes, buf, bytesLen); err != nil {
 			return err
