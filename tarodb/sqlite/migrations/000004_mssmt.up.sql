@@ -32,3 +32,13 @@ CREATE TABLE IF NOT EXISTS mssmt_nodes (
 CREATE INDEX IF NOT EXISTS mssmt_nodes_l_hash_key_idx ON mssmt_nodes (l_hash_key);
 CREATE INDEX IF NOT EXISTS mssmt_nodes_r_hash_key_idx ON mssmt_nodes (r_hash_key);
 
+CREATE TABLE IF NOT EXISTS mssmt_roots (
+    -- namespace allows us to store several root hash pointers for distinct
+    -- trees.
+    namespace VARCHAR NOT NULL PRIMARY KEY,
+
+    -- root_hash points to the root hash node of the MS-SMT tree.
+    root_hash BLOB NOT NULL,
+
+    FOREIGN KEY (namespace, root_hash) REFERENCES mssmt_nodes (namespace, hash_key) ON DELETE CASCADE
+);

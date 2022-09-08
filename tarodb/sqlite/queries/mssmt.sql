@@ -47,3 +47,18 @@ WITH subtree AS (
 
 -- name: DeleteNode :execrows
 DELETE FROM mssmt_nodes WHERE hash_key=? AND namespace=?; 
+
+-- name: FetchRootNode :one
+SELECT nodes.*
+FROM mssmt_nodes nodes
+JOIN mssmt_roots roots
+    ON roots.root_hash = nodes.hash_key AND
+        roots.namespace = ?;
+
+-- name: UpsertRootNode :exec
+INSERT INTO mssmt_roots (
+    root_hash, namespace
+) VALUES (
+    ?, ?
+) ON CONFLICT (namespace)
+    DO UPDATE SET root_hash = EXCLUDED.root_hash;
