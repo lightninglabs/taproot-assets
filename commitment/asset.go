@@ -168,7 +168,11 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 		}
 	}
 
-	commitment.TreeRoot = tree.Root()
+	commitment.TreeRoot, err = tree.Root(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+
 	commitment.tree = tree
 	return commitment, nil
 }
@@ -200,7 +204,12 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 		if err != nil {
 			return err
 		}
-		c.TreeRoot = c.tree.Root()
+
+		c.TreeRoot, err = c.tree.Root(ctx)
+		if err != nil {
+			return err
+		}
+
 		delete(c.assets, key)
 		return nil
 	}
@@ -214,7 +223,12 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 	if err != nil {
 		return err
 	}
-	c.TreeRoot = c.tree.Root()
+
+	c.TreeRoot, err = c.tree.Root(ctx)
+	if err != nil {
+		return err
+	}
+
 	c.assets[key] = asset
 	return nil
 }

@@ -24,12 +24,22 @@ type TreeStoreViewTx interface {
 	// GetChildren returns the left and right child of the node keyed by
 	// the given NodeHash.
 	GetChildren(int, NodeHash) (Node, Node, error)
+
+	// RootNode returns the root node of the tree.
+	RootNode() (Node, error)
 }
 
 // TreeStoreUpdateTx is an interface encompassing all methods of an updating
 // persistent tree transaction.
 type TreeStoreUpdateTx interface {
 	TreeStoreViewTx
+
+	// UpdateRoot updates the index that points to the root node for the
+	// persistent tree.
+	//
+	// NOTE: For some implementations this may be a noop, as the index of
+	// the backing storage is able to track the root node easily.
+	UpdateRoot(*BranchNode) error
 
 	// InsertBranch stores a new branch keyed by its NodeHash.
 	InsertBranch(*BranchNode) error
@@ -110,6 +120,8 @@ type DefaultStore struct {
 	leaves          map[NodeHash]*LeafNode
 	compactedLeaves map[NodeHash]*CompactedLeafNode
 
+	root *BranchNode
+
 	cntReads   int
 	cntWrites  int
 	cntDeletes int
@@ -162,6 +174,25 @@ func (d *DefaultStore) View(_ context.Context,
 	view func(tx TreeStoreViewTx) error) error {
 
 	return view(d)
+}
+
+// UpdateRoot updates the index that points to the root node for the persistent
+// tree.
+//
+// NOTE: For some implementations this may be a noop, as the index of the
+// backing storage is able to track the root node easily.
+func (d *DefaultStore) UpdateRoot(node *BranchNode) error {
+	d.root = node
+	return nil
+}
+
+// RootNode returns the root node of the tree.
+func (d *DefaultStore) RootNode() (Node, error) {
+	if d.root == nil {
+		return EmptyTree[0], nil
+	}
+
+	return d.root, nil
 }
 
 // InsertBranch stores a new branch keyed by its NodeHash.

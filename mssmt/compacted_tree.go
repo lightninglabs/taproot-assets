@@ -9,7 +9,6 @@ import "context"
 // greatly reduce storage access resulting in more performant access when used
 // for large trees.
 type CompactedTree struct {
-	root  Node
 	store TreeStore
 }
 
@@ -18,14 +17,23 @@ var _ Tree = (*CompactedTree)(nil)
 // NewCompactedTree initializes an empty MS-SMT backed by `store`.
 func NewCompactedTree(store TreeStore) *CompactedTree {
 	return &CompactedTree{
-		root:  EmptyTree[0],
 		store: store,
 	}
 }
 
 // Root returns the root node of the MS-SMT.
-func (t *CompactedTree) Root() *BranchNode {
-	return t.root.(*BranchNode)
+func (t *CompactedTree) Root(ctx context.Context) (*BranchNode, error) {
+	var root Node
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		var err error
+		root, err = tx.RootNode()
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return root.(*BranchNode), nil
 }
 
 // stepOrder orders the passed branches according to our path given the key and
@@ -43,7 +51,10 @@ func stepOrder(height int, key *[32]byte, left, right Node) (Node, Node) {
 func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 	iter iterFunc) (*LeafNode, error) {
 
-	current := t.root
+	current, err := tx.RootNode()
+	if err != nil {
+		return nil, err
+	}
 
 	for i := 0; i <= lastBitIndex; i++ {
 		left, right, err := tx.GetChildren(i, current.NodeHash())
@@ -261,17 +272,25 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 	leaf *LeafNode) (Tree, error) {
 
-	var root Node
-	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		var err error
-		root, err = t.insert(tx, &key, 0, t.root.(*BranchNode), leaf)
-		return err
+	dbErr := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+
+		root, err := t.insert(
+			tx, &key, 0, currentRoot.(*BranchNode), leaf,
+		)
+		if err != nil {
+			return err
+		}
+
+		return tx.UpdateRoot(root)
 	})
-	if err != nil {
-		return nil, err
+	if dbErr != nil {
+		return nil, dbErr
 	}
 
-	t.root = root
 	return t, nil
 }
 
@@ -279,19 +298,25 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 func (t *CompactedTree) Delete(ctx context.Context, key [hashSize]byte) (
 	Tree, error) {
 
-	var root Node
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		var err error
-		root, err = t.insert(
-			tx, &key, 0, t.root.(*BranchNode), EmptyLeafNode,
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+
+		root, err := t.insert(
+			tx, &key, 0, currentRoot.(*BranchNode), EmptyLeafNode,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+
+		return tx.UpdateRoot(root)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	t.root = root
 	return t, nil
 }
 

@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"context"
+
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -307,7 +309,11 @@ func (vm *Engine) Execute() error {
 	}
 
 	// Enforce that assets aren't being inflated.
-	if inputTree.Root().NodeSum() != uint64(virtualTx.TxOut[0].Value) {
+	treeRoot, err := inputTree.Root(context.Background())
+	if err != nil {
+		return err
+	}
+	if treeRoot.NodeSum() != uint64(virtualTx.TxOut[0].Value) {
 		return newErrKind(ErrAmountMismatch)
 	}
 
