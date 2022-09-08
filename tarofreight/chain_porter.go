@@ -25,6 +25,8 @@ const (
 
 	// TODO(jhb): Preceding states for input lookup given address input
 
+	SendStateCommitmentSelect
+
 	SendStateValidatedInput
 
 	SendStatePreparedSplit
@@ -44,11 +46,11 @@ const (
 
 // Config for an instance of the ChainPorter
 type ChainPorterConfig struct {
-	// TODO(roasbeef): doesn't need to be there? all items here just
-	// interfaces?
-
 	// Will need to modify Signer and maybe WalletAnchor?
 	// tarogarden.GardenKit
+
+	// CoinSelector...
+	CoinSelector CommitmentSelector
 }
 
 // AssetParcel...
@@ -158,6 +160,9 @@ type sendPackage struct {
 
 	PrevAsset asset.Asset
 
+	// PrevTaroTree...
+	//
+	// TODO(roasbeef): should be filled in by coin selection
 	PrevTaroTree commitment.TaroCommitment
 
 	Locators taroscript.SpendLocators
@@ -275,8 +280,45 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// TODO(roasbef): add coin select case
-	//   * need update closure -- need mutex abstraction?
+	// At this point we have the initial package information populated, so
+	// we'll perform coin selection to see if the send request is even
+	// possible at all.
+	case SendStateCommitmentSelect:
+		// We need to find a commitment that has enough assets to
+		// satisfy this send request. We'll map the address to a set of
+		// constraints, so we can use that to do Taro asset coin
+		// selection.
+		//
+		// TODO(roasbeef): should be able to support multiple inputs
+		constraints := &CommitmentConstraints{
+			FamilyKey: currentPkg.Address.FamilyKey,
+			ID:        currentPkg.Address.ID,
+			Amt:       currentPkg.Address.Amount,
+			AssetType: currentPkg.Address.Type,
+		}
+		assetInput, err := p.cfg.CoinSelector.SelectCommitment(
+			constraints,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// At this point, we have a valid "coin" to spend in the
+		// commitment, so we'll update teh relevant information in the
+		// send package.
+		//
+		// TODO(roasbeef): still need to add family key to PrevID.
+		currentPkg.PrevTaroTree = assetInput.Commitment
+		currentPkg.PrevID = asset.PrevID{
+			OutPoint:  assetInput.AnchorPoint,
+			ID:        assetInput.Asset.ID(),
+			ScriptKey: *assetInput.Asset.ScriptKey.PubKey,
+		}
+		currentPkg.PrevAsset = assetInput.Asset
+
+		currentPkg.SendState = SendStateValidatedInput
+
+		return &currentPkg, nil
 
 	// validate input
 	case SendStateValidatedInput:
