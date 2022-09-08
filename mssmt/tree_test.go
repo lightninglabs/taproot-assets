@@ -339,7 +339,6 @@ func TestDeletion(t *testing.T) {
 				)
 			})
 		})
-
 	}
 }
 

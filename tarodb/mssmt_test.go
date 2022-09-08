@@ -564,7 +564,6 @@ func TestTreeInsertion(t *testing.T) {
 			require.NoError(t, store.View(context.Background(),
 				func(tx mssmt.TreeStoreViewTx) error {
 					for i, level := range test.branches {
-
 						for _, branch := range level {
 							n1, n2, err := tx.GetChildren(
 								test.root+i,
