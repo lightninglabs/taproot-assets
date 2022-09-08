@@ -113,6 +113,7 @@ type GenesisPoint struct {
 type InternalKey struct {
 	KeyID     int32
 	RawKey    []byte
+	Tweak     []byte
 	KeyFamily int32
 	KeyIndex  int32
 }
