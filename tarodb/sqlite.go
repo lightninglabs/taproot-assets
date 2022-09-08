@@ -4,10 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -15,6 +13,7 @@ import (
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )
 
@@ -147,29 +146,20 @@ func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (Tx, error) {
 	return s.DB.BeginTx(ctx, &sqlOptions)
 }
 
-// newTestSqliteDB is a helper function that creates
-func newTestSqliteDB(t *testing.T) (*SqliteStore, func()) {
-	dir, err := ioutil.TempDir("", "sqlite-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-
+// NewTestSqliteDB is a helper function that creates
+func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
-	dbFileName := filepath.Join(dir, "tmp.db")
+	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		DatabaseFileName: dbFileName,
 		CreateTables:     true,
 	})
-	if err != nil {
-		os.RemoveAll(dir)
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	cleanUp := func() {
-		sqlDB.DB.Close()
-		os.RemoveAll(dir)
-	}
+	t.Cleanup(func() {
+		require.NoError(t, sqlDB.DB.Close())
+	})
 
-	return sqlDB, cleanUp
+	return sqlDB
 }

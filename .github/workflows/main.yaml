@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - "master"
+      - "main"
   pull_request:
     branches:
       - "*"
@@ -36,6 +36,16 @@ jobs:
 
       - name: Generate sql models
         run: make sqlc
+
+  rpc-check:
+    name: RPC check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: Generate RPC stubs and check REST annotations
+        run: make rpc-check
 
   ########################
   # Format, compilation and lint check

@@ -50,13 +50,13 @@ type TaroClient interface {
 	//at the specified genesis point.
 	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*ProofVerifyResponse, error)
 	// tarocli: `proofs export`
-	//ExportProof exports the latest raw proof file acnhored at the specified
+	//ExportProof exports the latest raw proof file anchored at the specified
 	//script_key.
 	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
 	// tarocli: `proofs import`
-	//ImportProof attempts to import a proof file into the daemon. If succesful, a
-	//new asset will be inserted on disk, spendable using the specified target
-	//script key, and internaly key.
+	//ImportProof attempts to import a proof file into the daemon. If successful,
+	//a new asset will be inserted on disk, spendable using the specified target
+	//script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 }
 
@@ -194,13 +194,13 @@ type TaroServer interface {
 	//at the specified genesis point.
 	VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error)
 	// tarocli: `proofs export`
-	//ExportProof exports the latest raw proof file acnhored at the specified
+	//ExportProof exports the latest raw proof file anchored at the specified
 	//script_key.
 	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
 	// tarocli: `proofs import`
-	//ImportProof attempts to import a proof file into the daemon. If succesful, a
-	//new asset will be inserted on disk, spendable using the specified target
-	//script key, and internaly key.
+	//ImportProof attempts to import a proof file into the daemon. If successful,
+	//a new asset will be inserted on disk, spendable using the specified target
+	//script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	mustEmbedUnimplementedTaroServer()
 }
