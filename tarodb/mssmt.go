@@ -3,6 +3,8 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/lightninglabs/taro/mssmt"
@@ -31,6 +33,8 @@ type (
 	// ChildQuery wraps the args we need to fetch the children of a node.
 	ChildQuery = sqlite.FetchChildrenParams
 
+	// UpdateRoot wraps the args we need to update a root node.
+	UpdateRoot = sqlite.UpsertRootNodeParams
 )
 
 // TreeStore is a sub-set of the main sqlite.Querier interface that contains
@@ -52,6 +56,14 @@ type TreeStore interface {
 	// DeleteNode deletes a node (can be either branch, leaf of compacted
 	// leaf) from the store.
 	DeleteNode(ctx context.Context, n DelNode) (int64, error)
+
+	// FetchRootNode fetches the root node for the specified namespace.
+	FetchRootNode(ctx context.Context,
+		namespace string) (sqlite.MssmtNode, error)
+
+	// UpsertRootNode allows us to update the root node in place for a
+	// given namespace.
+	UpsertRootNode(ctx context.Context, arg UpdateRoot) error
 }
 
 type TreeStoreTxOptions struct {
@@ -321,4 +333,52 @@ func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
 	}
 
 	return left, right, nil
+}
+
+// RootNode returns the root nodes of the MS-SMT. If the tree has no elements,
+// then a nil node is returned.
+func (t *taroTreeStoreTx) RootNode() (mssmt.Node, error) {
+	var root mssmt.Node
+
+	rootNode, err := t.dbTx.FetchRootNode(t.ctx, t.namespace)
+	switch {
+	// If there're no rows, then this means it's an empty tree, so we
+	// return the root empty node.
+	case errors.Is(err, sql.ErrNoRows):
+		return mssmt.EmptyTree[0], nil
+
+	case err != nil:
+		return nil, err
+	}
+
+	nodeHash, err := newKey(rootNode.HashKey)
+	if err != nil {
+		return nil, err
+	}
+
+	root = mssmt.NewComputedBranch(nodeHash, uint64(rootNode.Sum))
+
+	return root, nil
+}
+
+// UpdateRoot updates the index that points to the root node for the persistent
+// tree.
+func (t *taroTreeStoreTx) UpdateRoot(rootNode *mssmt.BranchNode) error {
+	rootHash := rootNode.NodeHash()
+
+	// We'll do a sanity check here to ensure that we're not trying to
+	// insert a root hash. This might happen when we delete all the items
+	// in a tree.
+	//
+	// If we try to insert this, then the foreign key constraint will fail,
+	// as empty hashes are never stored (root would point to a node not in
+	// the DB).
+	if rootHash == mssmt.EmptyTree[0].NodeHash() {
+		return nil
+	}
+
+	return t.dbTx.UpsertRootNode(t.ctx, UpdateRoot{
+		RootHash:  rootHash[:],
+		Namespace: t.namespace,
+	})
 }
