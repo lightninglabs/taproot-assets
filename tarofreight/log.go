@@ -1,11 +1,11 @@
-package taroscript
+package tarofreight
 
 import (
 	"github.com/btcsuite/btclog"
 )
 
 // Subsystem defines the logging code for this subsystem.
-const Subsystem = "SEND"
+const Subsystem = "FRHT"
 
 // log is a logger that is initialized with no output filters.  This
 // means the package will not perform any logging by default until the caller

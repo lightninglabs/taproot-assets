@@ -1,4 +1,4 @@
-package taroscript
+package tarofreight
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunPorter(t *testing.T) {
+func TestRunChainPorter(t *testing.T) {
 	t.Helper()
 
 	state := initSpendScenario(t)
@@ -27,13 +27,13 @@ func TestRunPorter(t *testing.T) {
 	porterComplete := make(chan bool)
 	porterErr := make(chan error)
 
-	porterCfg := PorterConfig{
+	porterCfg := ChainPorterConfig{
 		Package:        porterPackage,
 		CompletionChan: porterComplete,
 		ErrChan:        porterErr,
 	}
 
-	porter := NewPorter(&porterCfg)
+	porter := NewChainPorter(&porterCfg)
 
 	err := porter.Start()
 	require.NoError(t, err)

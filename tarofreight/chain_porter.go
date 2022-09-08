@@ -1,4 +1,4 @@
-package taroscript
+package tarofreight
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taroscript"
 )
 
 // enum to define each stage of an asset send
@@ -65,7 +66,7 @@ type SendPackage struct {
 
 	PrevTaroTree commitment.TaroCommitment
 
-	Locators SpendLocators
+	Locators taroscript.SpendLocators
 
 	// signal if we need to recompute the send
 	LocatorsUpdated bool
@@ -77,16 +78,16 @@ type SendPackage struct {
 	Address address.Taro
 
 	// nil at start, then reassigned to match current state
-	SendDelta *SpendDelta
+	SendDelta *taroscript.SpendDelta
 
-	SendCommitments SpendCommitments
+	SendCommitments taroscript.SpendCommitments
 
 	// TODO(jhb): Wrap the PSBT with extra data?
 	SendPacket *psbt.Packet
 }
 
-// Config for an instance of the Porter
-type PorterConfig struct {
+// Config for an instance of the ChainPorter
+type ChainPorterConfig struct {
 	// current package
 	Package SendPackage
 
@@ -99,19 +100,19 @@ type PorterConfig struct {
 	ErrChan chan<- error
 }
 
-type Porter struct {
+type ChainPorter struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	cfg *PorterConfig
+	cfg *ChainPorterConfig
 
 	// confEvent + confInfo
 
 	*chanutils.ContextGuard
 }
 
-func NewPorter(cfg *PorterConfig) *Porter {
-	return &Porter{
+func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
+	return &ChainPorter{
 		cfg: cfg,
 		ContextGuard: &chanutils.ContextGuard{
 			DefaultTimeout: tarogarden.DefaultTimeout,
@@ -120,7 +121,7 @@ func NewPorter(cfg *PorterConfig) *Porter {
 	}
 }
 
-func (p *Porter) Start() error {
+func (p *ChainPorter) Start() error {
 	var startErr error
 	p.startOnce.Do(func() {
 		p.Wg.Add(1)
@@ -129,7 +130,7 @@ func (p *Porter) Start() error {
 	return startErr
 }
 
-func (p *Porter) Stop() error {
+func (p *ChainPorter) Stop() error {
 	var stopErr error
 	p.stopOnce.Do(func() {
 		close(p.Quit)
@@ -139,8 +140,8 @@ func (p *Porter) Stop() error {
 	return stopErr
 }
 
-func (p *Porter) advanceStateUntil(currentState, targetState SendState) error {
-	log.Infof("Porter advancing from state=%v to state=%v",
+func (p *ChainPorter) advanceStateUntil(currentState, targetState SendState) error {
+	log.Infof("ChainPorter advancing from state=%v to state=%v",
 		currentState, targetState)
 
 	var terminalState bool
@@ -174,7 +175,7 @@ func (p *Porter) advanceStateUntil(currentState, targetState SendState) error {
 }
 
 // main state machine goroutine; advance state, wait for TX confirmation
-func (p *Porter) taroPorter() {
+func (p *ChainPorter) taroPorter() {
 	defer p.Wg.Done()
 
 	// TODO(jhb): Handle restart
@@ -192,7 +193,7 @@ func (p *Porter) taroPorter() {
 
 // goroutine func
 
-func (p *Porter) stateStep(currentState SendState) (SendState, error) {
+func (p *ChainPorter) stateStep(currentState SendState) (SendState, error) {
 	// big ol' switch statement
 	switch currentState {
 	// init state
@@ -203,7 +204,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 		if p.cfg.Package.ChainParams == nil {
 			return 0, fmt.Errorf("network for send unspecified")
 		}
-		initSpend := SpendDelta{
+		initSpend := taroscript.SpendDelta{
 			InputAssets: make(commitment.InputSet),
 		}
 		p.cfg.Package.SendDelta = &initSpend
@@ -217,7 +218,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 		return SendStateValidatedInput, nil
 	// validate input
 	case SendStateValidatedInput:
-		inputAsset, needsSplit, err := isValidInput(
+		inputAsset, needsSplit, err := taroscript.IsValidInput(
 			p.cfg.Package.PrevTaroTree, p.cfg.Package.Address,
 			p.cfg.Package.PrevID.ScriptKey,
 			*p.cfg.Package.ChainParams)
@@ -234,7 +235,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 		}
 	// prepare split send
 	case SendStatePreparedSplit:
-		preparedSpend, err := prepareAssetSplitSpend(
+		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
 			p.cfg.Package.Address, p.cfg.Package.PrevID,
 			p.cfg.Package.ScriptKey, *p.cfg.Package.SendDelta,
 		)
@@ -246,7 +247,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 		return SendStateSigned, nil
 	// prepare complete send
 	case SendStatePreparedComplete:
-		preparedSpend := prepareAssetCompleteSpend(
+		preparedSpend := taroscript.PrepareAssetCompleteSpend(
 			p.cfg.Package.Address, p.cfg.Package.PrevID,
 			*p.cfg.Package.SendDelta,
 		)
@@ -255,7 +256,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 		return SendStateSigned, nil
 	// sign / complete the send
 	case SendStateSigned:
-		completedSpend, err := completeAssetSpend(
+		completedSpend, err := taroscript.CompleteAssetSpend(
 			p.cfg.Package.PrivKey, p.cfg.Package.PrevID,
 			*p.cfg.Package.SendDelta,
 		)
@@ -267,7 +268,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 		return SendStateCommitmentsUpdated, nil
 	// update commitments, check if we updated locators
 	case SendStateCommitmentsUpdated:
-		SpendCommitments, err := createSpendCommitments(
+		SpendCommitments, err := taroscript.CreateSpendCommitments(
 			p.cfg.Package.PrevTaroTree, p.cfg.Package.PrevID,
 			*p.cfg.Package.SendDelta, p.cfg.Package.Address,
 			p.cfg.Package.ScriptKey,
@@ -285,7 +286,9 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 
 	// validate new locators and jump back to send preparation
 	case SendStateValidatedLocators:
-		validLocators, err := areValidIndexes(p.cfg.Package.Locators)
+		validLocators, err := taroscript.AreValidIndexes(
+			p.cfg.Package.Locators,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -313,7 +316,7 @@ func (p *Porter) stateStep(currentState SendState) (SendState, error) {
 
 	// create PSBT outputs
 	case SendStateCommitted:
-		sendPacket, err := createSpendOutputs(
+		sendPacket, err := taroscript.CreateSpendOutputs(
 			p.cfg.Package.Address, p.cfg.Package.SendDelta.Locators,
 			p.cfg.Package.InternalKey, p.cfg.Package.ScriptKey,
 			p.cfg.Package.SendCommitments,
