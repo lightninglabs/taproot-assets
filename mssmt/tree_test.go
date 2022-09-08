@@ -96,7 +96,7 @@ func TestInsertion(t *testing.T) {
 
 	leaves := randTree(100)
 
-	runTest := func(name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
+	runTest := func(t *testing.T, name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
 		makeStore makeTestTreeStoreFunc) {
 
 		t.Run(name, func(t *testing.T) {
@@ -112,8 +112,8 @@ func TestInsertion(t *testing.T) {
 
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
-			runTest("full SMT", makeFullTree, makeStore)
-			runTest("smol SMT", makeSmolTree, makeStore)
+			runTest(t, "full SMT", makeFullTree, makeStore)
+			runTest(t, "smol SMT", makeSmolTree, makeStore)
 		})
 	}
 }
@@ -210,6 +210,8 @@ func TestReplace(t *testing.T) {
 
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
+			t.Parallel()
+
 			runTest(t, "full SMT", makeFullTree, makeStore)
 			runTest(t, "smol SMT", makeSmolTree, makeStore)
 		})
@@ -224,6 +226,8 @@ func TestHistoryIndependence(t *testing.T) {
 
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
+			t.Parallel()
+
 			testHistoryIndependence(t, makeStore)
 		})
 	}
@@ -314,6 +318,8 @@ func TestDeletion(t *testing.T) {
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
 			t.Run("full SMT", func(t *testing.T) {
+				t.Parallel()
+
 				store, err := makeStore()
 				require.NoError(t, err)
 
@@ -321,9 +327,10 @@ func TestDeletion(t *testing.T) {
 					leaves, mssmt.NewFullTree(store),
 				)
 			})
-		})
-		t.Run(storeName, func(t *testing.T) {
+
 			t.Run("smol SMT", func(t *testing.T) {
+				t.Parallel()
+
 				store, err := makeStore()
 				require.NoError(t, err)
 
@@ -332,6 +339,7 @@ func TestDeletion(t *testing.T) {
 				)
 			})
 		})
+
 	}
 }
 
