@@ -24,6 +24,13 @@ type (
 
 	// StoredNode is a type alias for an arbitrary child of an mssmt branch.
 	StoredNode = sqlite.FetchChildrenRow
+
+	// DelNode wraps the args we need to delete a node.
+	DelNode = sqlite.DeleteNodeParams
+
+	// ChildQuery wraps the args we need to fetch the children of a node.
+	ChildQuery = sqlite.FetchChildrenParams
+
 )
 
 // TreeStore is a sub-set of the main sqlite.Querier interface that contains
@@ -40,11 +47,11 @@ type TreeStore interface {
 
 	// FetchChildren fetches the children (at most two currently) of the
 	// passed branch hash key.
-	FetchChildren(ctx context.Context, hashKey []byte) ([]StoredNode, error)
+	FetchChildren(ctx context.Context, c ChildQuery) ([]StoredNode, error)
 
 	// DeleteNode deletes a node (can be either branch, leaf of compacted
 	// leaf) from the store.
-	DeleteNode(ctx context.Context, hashKey []byte) (int64, error)
+	DeleteNode(ctx context.Context, n DelNode) (int64, error)
 }
 
 type TreeStoreTxOptions struct {
@@ -66,7 +73,7 @@ func NewTreeStoreReadTx() TreeStoreTxOptions {
 	}
 }
 
-// BatchedAddrBook is a version of the AddrBook that's capable of batched
+// BatchedTreeStore is a version of the AddrBook that's capable of batched
 // database operations.
 type BatchedTreeStore interface {
 	TreeStore
@@ -74,15 +81,20 @@ type BatchedTreeStore interface {
 	BatchedTx[TreeStore, TxOptions]
 }
 
+// TaroTreeStore is an persistent MS-SMT implementation backed by a live SQL
+// database.
 type TaroTreeStore struct {
-	db BatchedTreeStore
+	db        BatchedTreeStore
+	namespace string
 }
 
-// NewTaroAddressBook creates a new TaroAddressBook instance given a open
-// BatchedAddrBook storage backend.
-func NewTaroTreeStore(db BatchedTreeStore) *TaroTreeStore {
+// NewTaroAddressBook creates a new TaroTreeStore instance given a open
+// BatchedTreeStore storage backend. The namespace argument is required, as it
+// allow us to store several distinct trees on disk in the same table.
+func NewTaroTreeStore(db BatchedTreeStore, namespace string) *TaroTreeStore {
 	return &TaroTreeStore{
-		db: db,
+		db:        db,
+		namespace: namespace,
 	}
 }
 
@@ -95,8 +107,9 @@ func (t *TaroTreeStore) Update(ctx context.Context,
 
 	txBody := func(dbTx TreeStore) error {
 		updateTx := &taroTreeStoreTx{
-			ctx:  ctx,
-			dbTx: dbTx,
+			ctx:       ctx,
+			dbTx:      dbTx,
+			namespace: t.namespace,
 		}
 
 		return update(updateTx)
@@ -113,8 +126,9 @@ func (t *TaroTreeStore) View(ctx context.Context,
 
 	txBody := func(dbTx TreeStore) error {
 		viewTx := &taroTreeStoreTx{
-			ctx:  ctx,
-			dbTx: dbTx,
+			ctx:       ctx,
+			dbTx:      dbTx,
+			namespace: t.namespace,
 		}
 
 		return update(viewTx)
@@ -128,8 +142,9 @@ func (t *TaroTreeStore) View(ctx context.Context,
 }
 
 type taroTreeStoreTx struct {
-	ctx  context.Context
-	dbTx TreeStore
+	ctx       context.Context
+	dbTx      TreeStore
+	namespace string
 }
 
 // InsertBranch stores a new branch keyed by its NodeHash.
@@ -139,10 +154,11 @@ func (t *taroTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
 	rHashKey := branch.Right.NodeHash()
 
 	if err := t.dbTx.InsertBranch(t.ctx, NewBranch{
-		HashKey:  hashKey[:],
-		LHashKey: lHashKey[:],
-		RHashKey: rHashKey[:],
-		Sum:      int64(branch.NodeSum()),
+		HashKey:   hashKey[:],
+		LHashKey:  lHashKey[:],
+		RHashKey:  rHashKey[:],
+		Sum:       int64(branch.NodeSum()),
+		Namespace: t.namespace,
 	}); err != nil {
 		return fmt.Errorf("unable to insert branch: %w", err)
 	}
@@ -155,9 +171,10 @@ func (t *taroTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
 	hashKey := leaf.NodeHash()
 
 	if err := t.dbTx.InsertLeaf(t.ctx, NewLeaf{
-		HashKey: hashKey[:],
-		Value:   leaf.Value,
-		Sum:     int64(leaf.NodeSum()),
+		HashKey:   hashKey[:],
+		Value:     leaf.Value,
+		Sum:       int64(leaf.NodeSum()),
+		Namespace: t.namespace,
 	}); err != nil {
 		return fmt.Errorf("unable to insert leaf: %w", err)
 	}
@@ -174,10 +191,11 @@ func (t *taroTreeStoreTx) InsertCompactedLeaf(
 	key := leaf.Key()
 
 	if err := t.dbTx.InsertCompactedLeaf(t.ctx, NewCompactedLeaf{
-		HashKey: hashKey[:],
-		Key:     key[:],
-		Value:   leaf.Value,
-		Sum:     int64(leaf.NodeSum()),
+		HashKey:   hashKey[:],
+		Key:       key[:],
+		Value:     leaf.Value,
+		Sum:       int64(leaf.NodeSum()),
+		Namespace: t.namespace,
 	}); err != nil {
 		return fmt.Errorf("unable to insert compacted leaf: %w", err)
 	}
@@ -187,19 +205,28 @@ func (t *taroTreeStoreTx) InsertCompactedLeaf(
 
 // DeleteBranch deletes the branch node keyed by the given NodeHash.
 func (t *taroTreeStoreTx) DeleteBranch(hashKey mssmt.NodeHash) error {
-	_, err := t.dbTx.DeleteNode(t.ctx, hashKey[:])
+	_, err := t.dbTx.DeleteNode(t.ctx, DelNode{
+		HashKey:   hashKey[:],
+		Namespace: t.namespace,
+	})
 	return err
 }
 
 // DeleteLeaf deletes the leaf node keyed by the given NodeHash.
 func (t *taroTreeStoreTx) DeleteLeaf(hashKey mssmt.NodeHash) error {
-	_, err := t.dbTx.DeleteNode(t.ctx, hashKey[:])
+	_, err := t.dbTx.DeleteNode(t.ctx, DelNode{
+		HashKey:   hashKey[:],
+		Namespace: t.namespace,
+	})
 	return err
 }
 
 // DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeHash.
 func (t *taroTreeStoreTx) DeleteCompactedLeaf(hashKey mssmt.NodeHash) error {
-	_, err := t.dbTx.DeleteNode(t.ctx, hashKey[:])
+	_, err := t.dbTx.DeleteNode(t.ctx, DelNode{
+		HashKey:   hashKey[:],
+		Namespace: t.namespace,
+	})
 	return err
 }
 
@@ -221,7 +248,10 @@ func newKey(data []byte) ([32]byte, error) {
 func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
 	mssmt.Node, mssmt.Node, error) {
 
-	dbRows, err := t.dbTx.FetchChildren(t.ctx, hashKey[:])
+	dbRows, err := t.dbTx.FetchChildren(t.ctx, ChildQuery{
+		HashKey:   hashKey[:],
+		Namespace: t.namespace,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

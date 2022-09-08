@@ -11,7 +11,9 @@ import (
 
 // newTaroTreeStore makes a new instance of the TaroTreeStore backed by sqlite
 // by default.
-func newTaroTreeStore(t *testing.T) (*TaroTreeStore, *SqliteStore) {
+func newTaroTreeStore(t *testing.T,
+	namespace string) (*TaroTreeStore, *SqliteStore) {
+
 	db := NewTestSqliteDB(t)
 
 	txCreator := func(tx Tx) TreeStore {
@@ -23,7 +25,7 @@ func newTaroTreeStore(t *testing.T) (*TaroTreeStore, *SqliteStore) {
 		db, txCreator,
 	)
 
-	return NewTaroTreeStore(treeDB), db
+	return NewTaroTreeStore(treeDB, namespace), db
 }
 
 // assertNodesEq is a helper to check equivalency or equality based on the
@@ -77,7 +79,7 @@ func TestTreeDeletion(t *testing.T) {
 	k2 := [32]byte{2}
 
 	// Note that the compacted leaf's height is not stored in the database
-	// and is only set arbitarily.
+	// and is only set arbitrarily.
 	cl1 := mssmt.NewCompactedLeafNode(100, &k1, l1)
 	cl2 := mssmt.NewCompactedLeafNode(100, &k2, l2)
 
@@ -146,7 +148,8 @@ func TestTreeDeletion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, _ := newTaroTreeStore(t)
+			store, _ := newTaroTreeStore(t, test.name)
+
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
 					require.NoError(t, tx.InsertLeaf(l1))
@@ -171,13 +174,11 @@ func TestTreeDeletion(t *testing.T) {
 					n1, n2, err := tx.GetChildren(
 						test.root, rootKey,
 					)
-
 					require.NoError(t, err)
 
 					assertNodesEq(
 						t, test.branch.Left, n1,
 					)
-
 					assertNodesEq(
 						t, test.branch.Right, n2,
 					)
@@ -513,7 +514,8 @@ func TestTreeInsertion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, _ := newTaroTreeStore(t)
+			store, _ := newTaroTreeStore(t, test.name)
+
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
 					for _, leaf := range test.leaves {
@@ -546,6 +548,7 @@ func TestTreeInsertion(t *testing.T) {
 			require.NoError(t, store.View(context.Background(),
 				func(tx mssmt.TreeStoreViewTx) error {
 					for i, level := range test.branches {
+
 						for _, branch := range level {
 							n1, n2, err := tx.GetChildren(
 								test.root+i,

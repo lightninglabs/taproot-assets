@@ -133,10 +133,16 @@ type ManagedUtxo struct {
 }
 
 type MssmtNode struct {
-	HashKey  []byte
-	LHashKey []byte
-	RHashKey []byte
-	Key      []byte
-	Value    []byte
-	Sum      int64
+	HashKey   []byte
+	LHashKey  []byte
+	RHashKey  []byte
+	Key       []byte
+	Value     []byte
+	Sum       int64
+	Namespace string
+}
+
+type MssmtRoot struct {
+	Namespace string
+	RootHash  []byte
 }

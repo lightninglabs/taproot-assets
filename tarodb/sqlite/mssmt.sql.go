@@ -10,11 +10,16 @@ import (
 )
 
 const deleteNode = `-- name: DeleteNode :execrows
-DELETE FROM mssmt_nodes WHERE hash_key=?
+DELETE FROM mssmt_nodes WHERE hash_key=? AND namespace=?
 `
 
-func (q *Queries) DeleteNode(ctx context.Context, hashKey []byte) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteNode, hashKey)
+type DeleteNodeParams struct {
+	HashKey   []byte
+	Namespace string
+}
+
+func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteNode, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return 0, err
 	}
@@ -23,16 +28,16 @@ func (q *Queries) DeleteNode(ctx context.Context, hashKey []byte) (int64, error)
 
 const fetchChildren = `-- name: FetchChildren :many
 WITH RECURSIVE mssmt_branches_cte (
-    hash_key, l_hash_key, r_hash_key, key, value, sum
+    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 )
 AS (
-    SELECT r.hash_key, r.l_hash_key, r.r_hash_key, r.key, r.value, r.sum
+    SELECT r.hash_key, r.l_hash_key, r.r_hash_key, r.key, r.value, r.sum, r.namespace
     FROM mssmt_nodes r
-    WHERE r.hash_key=?
+    WHERE r.hash_key=? AND r.namespace=?
     UNION ALL
-        SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum
+        SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum, n.namespace
         FROM mssmt_nodes n, mssmt_branches_cte b
-        WHERE n.hash_key=b.l_hash_key OR n.hash_key=b.r_hash_key
+        WHERE (n.hash_key=b.l_hash_key OR n.hash_key=b.r_hash_key) AND n.namespace=b.namespace
     /*
     Limit the result set to 3 items. The first is always the root node, while
     the following 0, 1 or 2 nodes represent children of the root node. These
@@ -41,20 +46,26 @@ AS (
     entire subtrees too.
     */
     LIMIT 3
-) SELECT hash_key, l_hash_key, r_hash_key, key, value, sum FROM mssmt_branches_cte
+) SELECT hash_key, l_hash_key, r_hash_key, key, value, sum, namespace FROM mssmt_branches_cte
 `
 
-type FetchChildrenRow struct {
-	HashKey  []byte
-	LHashKey []byte
-	RHashKey []byte
-	Key      []byte
-	Value    []byte
-	Sum      int64
+type FetchChildrenParams struct {
+	HashKey   []byte
+	Namespace string
 }
 
-func (q *Queries) FetchChildren(ctx context.Context, hashKey []byte) ([]FetchChildrenRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchChildren, hashKey)
+type FetchChildrenRow struct {
+	HashKey   []byte
+	LHashKey  []byte
+	RHashKey  []byte
+	Key       []byte
+	Value     []byte
+	Sum       int64
+	Namespace string
+}
+
+func (q *Queries) FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchChildren, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +80,7 @@ func (q *Queries) FetchChildren(ctx context.Context, hashKey []byte) ([]FetchChi
 			&i.Key,
 			&i.Value,
 			&i.Sum,
+			&i.Namespace,
 		); err != nil {
 			return nil, err
 		}
@@ -85,25 +97,31 @@ func (q *Queries) FetchChildren(ctx context.Context, hashKey []byte) ([]FetchChi
 
 const fetchChildrenSelfJoin = `-- name: FetchChildrenSelfJoin :many
 WITH subtree AS (
-  SELECT hash_key, l_hash_key, r_hash_key, key, value, sum FROM mssmt_nodes r
-  WHERE r.hash_key=?
+  SELECT hash_key, l_hash_key, r_hash_key, key, value, sum, namespace FROM mssmt_nodes r
+  WHERE r.hash_key=? AND r.namespace = ?
   UNION ALL
-    SELECT c.hash_key, c.l_hash_key, c.r_hash_key, c.key, c.value, c.sum FROM mssmt_nodes c
+    SELECT c.hash_key, c.l_hash_key, c.r_hash_key, c.key, c.value, c.sum, c.namespace FROM mssmt_nodes c
     INNER JOIN subtree r ON r.l_hash_key=c.hash_key OR r.r_hash_key=c.hash_key
-) SELECT hash_key, l_hash_key, r_hash_key, key, value, sum from subtree LIMIT 3
+) SELECT hash_key, l_hash_key, r_hash_key, key, value, sum, namespace from subtree LIMIT 3
 `
 
-type FetchChildrenSelfJoinRow struct {
-	HashKey  []byte
-	LHashKey []byte
-	RHashKey []byte
-	Key      []byte
-	Value    []byte
-	Sum      int64
+type FetchChildrenSelfJoinParams struct {
+	HashKey   []byte
+	Namespace string
 }
 
-func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, hashKey []byte) ([]FetchChildrenSelfJoinRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchChildrenSelfJoin, hashKey)
+type FetchChildrenSelfJoinRow struct {
+	HashKey   []byte
+	LHashKey  []byte
+	RHashKey  []byte
+	Key       []byte
+	Value     []byte
+	Sum       int64
+	Namespace string
+}
+
+func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchChildrenSelfJoin, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +136,7 @@ func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, hashKey []byte) ([]
 			&i.Key,
 			&i.Value,
 			&i.Sum,
+			&i.Namespace,
 		); err != nil {
 			return nil, err
 		}
@@ -132,17 +151,41 @@ func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, hashKey []byte) ([]
 	return items, nil
 }
 
+const fetchRootNode = `-- name: FetchRootNode :one
+SELECT nodes.hash_key, nodes.l_hash_key, nodes.r_hash_key, nodes.key, nodes.value, nodes.sum, nodes.namespace
+FROM mssmt_nodes nodes
+JOIN mssmt_roots roots
+    ON roots.root_hash = nodes.hash_key AND
+        roots.namespace = ?
+`
+
+func (q *Queries) FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error) {
+	row := q.db.QueryRowContext(ctx, fetchRootNode, namespace)
+	var i MssmtNode
+	err := row.Scan(
+		&i.HashKey,
+		&i.LHashKey,
+		&i.RHashKey,
+		&i.Key,
+		&i.Value,
+		&i.Sum,
+		&i.Namespace,
+	)
+	return i, err
+}
+
 const insertBranch = `-- name: InsertBranch :exec
 INSERT INTO mssmt_nodes (
-    hash_key, l_hash_key, r_hash_key, key, value, sum 
-) VALUES (?, ?, ?, NULL, NULL, ?)
+    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+) VALUES (?, ?, ?, NULL, NULL, ?, ?)
 `
 
 type InsertBranchParams struct {
-	HashKey  []byte
-	LHashKey []byte
-	RHashKey []byte
-	Sum      int64
+	HashKey   []byte
+	LHashKey  []byte
+	RHashKey  []byte
+	Sum       int64
+	Namespace string
 }
 
 func (q *Queries) InsertBranch(ctx context.Context, arg InsertBranchParams) error {
@@ -151,21 +194,23 @@ func (q *Queries) InsertBranch(ctx context.Context, arg InsertBranchParams) erro
 		arg.LHashKey,
 		arg.RHashKey,
 		arg.Sum,
+		arg.Namespace,
 	)
 	return err
 }
 
 const insertCompactedLeaf = `-- name: InsertCompactedLeaf :exec
 INSERT INTO mssmt_nodes (
-    hash_key, l_hash_key, r_hash_key, key, value, sum 
-) VALUES (?, NULL, NULL, ?, ?, ?)
+    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+) VALUES (?, NULL, NULL, ?, ?, ?, ?)
 `
 
 type InsertCompactedLeafParams struct {
-	HashKey []byte
-	Key     []byte
-	Value   []byte
-	Sum     int64
+	HashKey   []byte
+	Key       []byte
+	Value     []byte
+	Sum       int64
+	Namespace string
 }
 
 func (q *Queries) InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error {
@@ -174,23 +219,49 @@ func (q *Queries) InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLe
 		arg.Key,
 		arg.Value,
 		arg.Sum,
+		arg.Namespace,
 	)
 	return err
 }
 
 const insertLeaf = `-- name: InsertLeaf :exec
 INSERT INTO mssmt_nodes (
-    hash_key, l_hash_key, r_hash_key, key, value, sum 
-) VALUES (?, NULL, NULL, NULL, ?, ?)
+    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+) VALUES (?, NULL, NULL, NULL, ?, ?, ?)
 `
 
 type InsertLeafParams struct {
-	HashKey []byte
-	Value   []byte
-	Sum     int64
+	HashKey   []byte
+	Value     []byte
+	Sum       int64
+	Namespace string
 }
 
 func (q *Queries) InsertLeaf(ctx context.Context, arg InsertLeafParams) error {
-	_, err := q.db.ExecContext(ctx, insertLeaf, arg.HashKey, arg.Value, arg.Sum)
+	_, err := q.db.ExecContext(ctx, insertLeaf,
+		arg.HashKey,
+		arg.Value,
+		arg.Sum,
+		arg.Namespace,
+	)
+	return err
+}
+
+const upsertRootNode = `-- name: UpsertRootNode :exec
+INSERT INTO mssmt_roots (
+    root_hash, namespace
+) VALUES (
+    ?, ?
+) ON CONFLICT (namespace)
+    DO UPDATE SET root_hash = EXCLUDED.root_hash
+`
+
+type UpsertRootNodeParams struct {
+	RootHash  []byte
+	Namespace string
+}
+
+func (q *Queries) UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertRootNode, arg.RootHash, arg.Namespace)
 	return err
 }
