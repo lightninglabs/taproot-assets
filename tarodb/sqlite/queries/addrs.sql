@@ -7,7 +7,8 @@ INSERT INTO addrs (
 -- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, amount, asset_type, creation_time,
-    script_keys.raw_key as raw_script_key, 
+    script_keys.raw_key as raw_script_key,
+    script_keys.tweak as script_key_tweak,
     script_keys.key_family AS script_key_family,
     script_keys.key_index AS script_key_index,
     taproot_keys.raw_key AS raw_taproot_key, 

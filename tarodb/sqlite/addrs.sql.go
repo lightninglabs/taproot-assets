@@ -13,7 +13,8 @@ import (
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, amount, asset_type, creation_time,
-    script_keys.raw_key as raw_script_key, 
+    script_keys.raw_key as raw_script_key,
+    script_keys.tweak as script_key_tweak,
     script_keys.key_family AS script_key_family,
     script_keys.key_index AS script_key_index,
     taproot_keys.raw_key AS raw_taproot_key, 
@@ -45,6 +46,7 @@ type FetchAddrsRow struct {
 	AssetType        int16
 	CreationTime     time.Time
 	RawScriptKey     []byte
+	ScriptKeyTweak   []byte
 	ScriptKeyFamily  int32
 	ScriptKeyIndex   int32
 	RawTaprootKey    []byte
@@ -74,6 +76,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.AssetType,
 			&i.CreationTime,
 			&i.RawScriptKey,
+			&i.ScriptKeyTweak,
 			&i.ScriptKeyFamily,
 			&i.ScriptKeyIndex,
 			&i.RawTaprootKey,
