@@ -3,7 +3,10 @@ package asset
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"io"
+	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -11,6 +14,16 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+var (
+	// ErrTooManyInputs is returned when an asset TLV atempts to reference
+	// too many inputs.
+	ErrTooManyInputs = errors.New("witnesses: witness elements")
+
+	// ErrByteSliceTooLarge is returned when an encoded byte slice is too
+	// large.
+	ErrByteSliceTooLarge = errors.New("bytes: too large")
 )
 
 func VarIntEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -48,6 +61,14 @@ func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// We'll limit all decoded byte slices to prevent memory blow
+		// ups or panics.
+		if bytesLen > (2<<24)-1 {
+			return fmt.Errorf("%w: %v", ErrByteSliceTooLarge,
+				bytesLen)
+		}
+
 		var bytes []byte
 		if err := tlv.DVarBytes(r, &bytes, buf, bytesLen); err != nil {
 			return err
@@ -317,6 +338,14 @@ func TxWitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// We won't accept anything beyond the set of max witness
+		// elements. We're being generous here, as for the bitcoin VM
+		// the true stack limit is much smaller.
+		if numItems > math.MaxUint16 {
+			return ErrTooManyInputs
+		}
+
 		witness := make(wire.TxWitness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var item []byte
@@ -358,6 +387,15 @@ func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// We use a varint, but will practically limit the number of
+		// witnesses to a sane number.
+		//
+		// TODO(roasbeef): just use a uint8 here?
+		if numItems > math.MaxUint16 {
+			return fmt.Errorf("%w: %v", ErrTooManyInputs, numItems)
+		}
+
 		*typ = make([]Witness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
@@ -404,24 +442,34 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 		if err := VarBytesDecoder(r, &proofBytes, buf, l); err != nil {
 			return err
 		}
+
 		var proof mssmt.CompressedProof
 		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
 			return err
 		}
+
 		var rootAssetBytes []byte
 		err := VarBytesDecoder(r, &rootAssetBytes, buf, l)
 		if err != nil {
 			return err
 		}
+
 		var rootAsset Asset
 		err = rootAsset.Decode(bytes.NewReader(rootAssetBytes))
 		if err != nil {
 			return err
 		}
+
+		fullProof, err := proof.Decompress()
+		if err != nil {
+			return err
+		}
+
 		*typ = &SplitCommitment{
-			Proof:     *proof.Decompress(),
+			Proof:     *fullProof,
 			RootAsset: rootAsset,
 		}
+
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "*SplitCommitment", l, 40)

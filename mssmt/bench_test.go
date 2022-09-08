@@ -73,7 +73,7 @@ func benchmarkMerkleProofCompress(b *testing.B, _ mssmt.Tree, _ []treeLeaf,
 
 	for i := 0; i < b.N; i++ {
 		_, proof := randMapElem(proofs)
-		_ = proof.Compress().Decompress()
+		_, _ = proof.Compress().Decompress()
 	}
 }
 

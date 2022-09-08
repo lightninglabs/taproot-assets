@@ -71,7 +71,8 @@ func TestProofEncoding(t *testing.T) {
 		require.NoError(t, err)
 		assertEqualCompressedProof(t, compressed, &decodedCompressed)
 
-		decodedProof := decodedCompressed.Decompress()
+		decodedProof, err := decodedCompressed.Decompress()
+		require.NoError(t, err)
 		assertEqualProof(t, proof, decodedProof)
 		assertEqualProof(t, proof, decodedProof.Copy())
 	}
