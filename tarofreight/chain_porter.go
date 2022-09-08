@@ -42,8 +42,102 @@ const (
 	// TODO(jhb): Following states for finalization and broadcast
 )
 
+// Config for an instance of the ChainPorter
+type ChainPorterConfig struct {
+	// TODO(roasbeef): doesn't need to be there? all items here just
+	// interfaces?
+
+	// Will need to modify Signer and maybe WalletAnchor?
+	// tarogarden.GardenKit
+}
+
+// AssetParcel...
+type AssetParcel struct {
+	// Dest...
+	Dest address.Taro
+
+	// resp...
+	//
+	// TODO(roasbeef): should be txid w/ complete send info?
+	//  * then can log in the command line, et
+	respChan chan struct{}
+
+	// errChan...
+	errChan chan error
+}
+
+// ChainPorter...
+type ChainPorter struct {
+	startOnce sync.Once
+	stopOnce  sync.Once
+
+	cfg *ChainPorterConfig
+
+	exportReqs chan *AssetParcel
+
+	// confEvent + confInfo
+
+	*chanutils.ContextGuard
+}
+
+// NewChainPorter...
+func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
+	return &ChainPorter{
+		cfg:        cfg,
+		exportReqs: make(chan *AssetParcel),
+		ContextGuard: &chanutils.ContextGuard{
+			DefaultTimeout: tarogarden.DefaultTimeout,
+			Quit:           make(chan struct{}),
+		},
+	}
+}
+
+// Start...
+func (p *ChainPorter) Start() error {
+	var startErr error
+	p.startOnce.Do(func() {
+		p.Wg.Add(1)
+		go p.taroPorter()
+	})
+	return startErr
+}
+
+// Stop...
+func (p *ChainPorter) Stop() error {
+	var stopErr error
+	p.stopOnce.Do(func() {
+		close(p.Quit)
+		p.Wg.Wait()
+	})
+
+	return stopErr
+}
+
+// RequestShipment...
+func (p *ChainPorter) RequestShipment(req *AssetParcel) (any, error) {
+	req.errChan = make(chan error, 1)
+	req.respChan = make(chan struct{}, 1)
+
+	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
+		return nil, fmt.Errorf("ChainPorter shutting down")
+	}
+
+	select {
+	case err := <-req.errChan:
+		return nil, err
+
+	case resp := <-req.respChan:
+		return resp, nil
+
+	case <-p.Quit:
+		return nil, fmt.Errorf("ChainPorter shutting down")
+	}
+}
+
+// sendPackage...
+//
 // wrapper for state carried across state transitions
-type SendPackage struct {
+type sendPackage struct {
 	SendState SendState
 
 	ChainParams *address.ChainParams
@@ -86,63 +180,39 @@ type SendPackage struct {
 	SendPacket *psbt.Packet
 }
 
-// Config for an instance of the ChainPorter
-type ChainPorterConfig struct {
-	// current package
-	Package SendPackage
+// main state machine goroutine; advance state, wait for TX confirmation
+func (p *ChainPorter) taroPorter() {
+	defer p.Wg.Done()
 
-	// Will need to modify Signer and maybe WalletAnchor?
-	// tarogarden.GardenKit
+	for {
+		select {
+		case req := <-p.exportReqs:
+			var sendPkg sendPackage
 
-	// Something else? Not sure why we need a func()
-	CompletionChan chan<- bool
+			err := p.advanceStateUntil(&sendPkg, SendStateCommitted)
+			if err != nil {
+				log.Warnf("unable to advance state machine: %v", err)
+				req.errChan <- err
+				continue
+			}
 
-	ErrChan chan<- error
-}
+			// TODO(jhb): Logic for waiting on TX confirmation
 
-type ChainPorter struct {
-	startOnce sync.Once
-	stopOnce  sync.Once
+			req.respChan <- struct{}{}
 
-	cfg *ChainPorterConfig
-
-	// confEvent + confInfo
-
-	*chanutils.ContextGuard
-}
-
-func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
-	return &ChainPorter{
-		cfg: cfg,
-		ContextGuard: &chanutils.ContextGuard{
-			DefaultTimeout: tarogarden.DefaultTimeout,
-			Quit:           make(chan struct{}),
-		},
+		case <-p.Quit:
+			return
+		}
 	}
+
 }
 
-func (p *ChainPorter) Start() error {
-	var startErr error
-	p.startOnce.Do(func() {
-		p.Wg.Add(1)
-		go p.taroPorter()
-	})
-	return startErr
-}
+// advanceStateUntil...
+func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
+	targetState SendState) error {
 
-func (p *ChainPorter) Stop() error {
-	var stopErr error
-	p.stopOnce.Do(func() {
-		close(p.Quit)
-		p.Wg.Wait()
-	})
-
-	return stopErr
-}
-
-func (p *ChainPorter) advanceStateUntil(currentState, targetState SendState) error {
 	log.Infof("ChainPorter advancing from state=%v to state=%v",
-		currentState, targetState)
+		currentPkg.SendState, targetState)
 
 	var terminalState bool
 	for !terminalState {
@@ -155,7 +225,7 @@ func (p *ChainPorter) advanceStateUntil(currentState, targetState SendState) err
 		default:
 		}
 
-		nextState, err := p.stateStep(currentState)
+		updatedPkg, err := p.stateStep(*currentPkg)
 		if err != nil {
 			return fmt.Errorf("unable to advance "+
 				"state machine: %w", err)
@@ -164,174 +234,189 @@ func (p *ChainPorter) advanceStateUntil(currentState, targetState SendState) err
 		// We've reached a terminal state once the next state is our
 		// current state (state machine loops back to the current
 		// state).
-		terminalState = nextState == currentState
+		terminalState = updatedPkg.SendState == targetState
 
-		currentState = nextState
-
-		p.cfg.Package.SendState = currentState
+		currentPkg = updatedPkg
 	}
 
 	return nil
 }
 
-// main state machine goroutine; advance state, wait for TX confirmation
-func (p *ChainPorter) taroPorter() {
-	defer p.Wg.Done()
-
-	// TODO(jhb): Handle restart
-
-	err := p.advanceStateUntil(p.cfg.Package.SendState, SendStateCommitted)
-	if err != nil {
-		log.Errorf("unable to advance state machine: %v", err)
-		return
-	}
-
-	// TODO(jhb): Logic for waiting on TX confirmation
-
-	p.cfg.CompletionChan <- true
-}
-
 // goroutine func
 
-func (p *ChainPorter) stateStep(currentState SendState) (SendState, error) {
+// stateStep...
+func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// big ol' switch statement
-	switch currentState {
+	switch currentPkg.SendState {
 	// init state
 	case SendStateInitializing:
-		// TODO(jhb): Accept input, DB access to fill out package
 		// Should get PrevID, PrevTaroTree, PrevAsset
 		// Everything should be initialized, spendDelta and PSBT are nil
-		if p.cfg.Package.ChainParams == nil {
-			return 0, fmt.Errorf("network for send unspecified")
+		//
+		// TODO(jhb): Accept input, DB access to fill out package
+		if currentPkg.ChainParams == nil {
+			return nil, fmt.Errorf("network for send unspecified")
 		}
+
 		initSpend := taroscript.SpendDelta{
 			InputAssets: make(commitment.InputSet),
 		}
-		p.cfg.Package.SendDelta = &initSpend
-		p.cfg.Package.LocatorsUpdated = false
-		if p.cfg.Package.Locators != nil {
-			p.cfg.Package.SendDelta.
-				Locators = p.cfg.Package.Locators
-		}
-		p.cfg.Package.NeedsSplit = false
 
-		return SendStateValidatedInput, nil
+		currentPkg.SendDelta = &initSpend
+		currentPkg.LocatorsUpdated = false
+
+		if currentPkg.Locators != nil {
+			currentPkg.SendDelta.Locators = currentPkg.Locators
+		}
+
+		currentPkg.NeedsSplit = false
+
+		currentPkg.SendState = SendStateValidatedInput
+
+		return &currentPkg, nil
+
+	// TODO(roasbef): add coin select case
+	//   * need update closure -- need mutex abstraction?
+
 	// validate input
 	case SendStateValidatedInput:
 		inputAsset, needsSplit, err := taroscript.IsValidInput(
-			p.cfg.Package.PrevTaroTree, p.cfg.Package.Address,
-			p.cfg.Package.PrevID.ScriptKey,
-			*p.cfg.Package.ChainParams)
+			currentPkg.PrevTaroTree, currentPkg.Address,
+			currentPkg.PrevID.ScriptKey,
+			*currentPkg.ChainParams,
+		)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		p.cfg.Package.SendDelta.
-			InputAssets[p.cfg.Package.PrevID] = inputAsset
-		p.cfg.Package.NeedsSplit = needsSplit
+
+		currentPkg.SendDelta.InputAssets[currentPkg.PrevID] = inputAsset
+
+		currentPkg.NeedsSplit = needsSplit
+
 		if needsSplit {
-			return SendStatePreparedSplit, nil
+			currentPkg.SendState = SendStatePreparedSplit
 		} else {
-			return SendStatePreparedComplete, nil
+			currentPkg.SendState = SendStatePreparedComplete
 		}
+
+		return &currentPkg, nil
+
 	// prepare split send
 	case SendStatePreparedSplit:
 		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
-			p.cfg.Package.Address, p.cfg.Package.PrevID,
-			p.cfg.Package.ScriptKey, *p.cfg.Package.SendDelta,
+			currentPkg.Address, currentPkg.PrevID,
+			currentPkg.ScriptKey, *currentPkg.SendDelta,
 		)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		p.cfg.Package.SendDelta = preparedSpend
 
-		return SendStateSigned, nil
+		currentPkg.SendDelta = preparedSpend
+
+		currentPkg.SendState = SendStateSigned
+
+		return &currentPkg, nil
+
 	// prepare complete send
 	case SendStatePreparedComplete:
 		preparedSpend := taroscript.PrepareAssetCompleteSpend(
-			p.cfg.Package.Address, p.cfg.Package.PrevID,
-			*p.cfg.Package.SendDelta,
+			currentPkg.Address, currentPkg.PrevID,
+			*currentPkg.SendDelta,
 		)
-		p.cfg.Package.SendDelta = preparedSpend
+		currentPkg.SendDelta = preparedSpend
 
-		return SendStateSigned, nil
+		currentPkg.SendState = SendStateSigned
+
+		return &currentPkg, nil
+
 	// sign / complete the send
 	case SendStateSigned:
 		completedSpend, err := taroscript.CompleteAssetSpend(
-			p.cfg.Package.PrivKey, p.cfg.Package.PrevID,
-			*p.cfg.Package.SendDelta,
+			currentPkg.PrivKey, currentPkg.PrevID,
+			*currentPkg.SendDelta,
 		)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		p.cfg.Package.SendDelta = completedSpend
 
-		return SendStateCommitmentsUpdated, nil
+		currentPkg.SendDelta = completedSpend
+
+		currentPkg.SendState = SendStateCommitmentsUpdated
+
+		return &currentPkg, nil
+
 	// update commitments, check if we updated locators
 	case SendStateCommitmentsUpdated:
 		SpendCommitments, err := taroscript.CreateSpendCommitments(
-			p.cfg.Package.PrevTaroTree, p.cfg.Package.PrevID,
-			*p.cfg.Package.SendDelta, p.cfg.Package.Address,
-			p.cfg.Package.ScriptKey,
+			currentPkg.PrevTaroTree, currentPkg.PrevID,
+			*currentPkg.SendDelta, currentPkg.Address,
+			currentPkg.ScriptKey,
 		)
 		if err != nil {
-			return 0, err
-		}
-		p.cfg.Package.SendCommitments = SpendCommitments
-
-		if p.cfg.Package.LocatorsUpdated {
-			return SendStateValidatedLocators, nil
+			return nil, err
 		}
 
-		return SendStateCommitted, nil
+		currentPkg.SendCommitments = SpendCommitments
+
+		if currentPkg.LocatorsUpdated {
+			currentPkg.SendState = SendStateValidatedLocators
+		}
+
+		currentPkg.SendState = SendStateCommitted
+
+		return &currentPkg, nil
 
 	// validate new locators and jump back to send preparation
 	case SendStateValidatedLocators:
 		validLocators, err := taroscript.AreValidIndexes(
-			p.cfg.Package.Locators,
+			currentPkg.Locators,
 		)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 
 		if !validLocators {
-			return 0, fmt.Errorf(
-				"invalid custom locators given for send",
-			)
+			return nil, fmt.Errorf("invalid custom locators " +
+				"given for send")
 		}
 
 		// update SendDelta with new locators
 		// clear other fields? May not be needed
-		p.cfg.Package.SendDelta.Locators = p.cfg.Package.Locators
-		p.cfg.Package.SendDelta.NewAsset = asset.Asset{}
-		p.cfg.Package.SendDelta.SplitCommitment = nil
+		currentPkg.SendDelta.Locators = currentPkg.Locators
+		currentPkg.SendDelta.NewAsset = asset.Asset{}
+		currentPkg.SendDelta.SplitCommitment = nil
+
 		// Unset locator update flag
-		p.cfg.Package.LocatorsUpdated = false
+		currentPkg.LocatorsUpdated = false
 
 		// jump back to send preparation
-		if p.cfg.Package.NeedsSplit {
-			return SendStatePreparedSplit, nil
+		if currentPkg.NeedsSplit {
+			currentPkg.SendState = SendStatePreparedSplit
 		} else {
-			return SendStatePreparedComplete, nil
+			currentPkg.SendState = SendStatePreparedComplete
 		}
+
+		return &currentPkg, nil
 
 	// create PSBT outputs
 	case SendStateCommitted:
 		sendPacket, err := taroscript.CreateSpendOutputs(
-			p.cfg.Package.Address, p.cfg.Package.SendDelta.Locators,
-			p.cfg.Package.InternalKey, p.cfg.Package.ScriptKey,
-			p.cfg.Package.SendCommitments,
+			currentPkg.Address, currentPkg.SendDelta.Locators,
+			currentPkg.InternalKey, currentPkg.ScriptKey,
+			currentPkg.SendCommitments,
 		)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 
-		p.cfg.Package.SendPacket = sendPacket
+		currentPkg.SendPacket = sendPacket
 
-		//terminal, return to this state
-		return SendStateCommitted, nil
+		// terminal, return to this state
+		currentPkg.SendState = SendStateCommitted
+
+		return &currentPkg, nil
 	default:
-		return SendStateInitializing, fmt.Errorf(
-			"unknown state: %v", currentState,
-		)
+		return &currentPkg, fmt.Errorf("unknown state: %v",
+			currentPkg.SendState)
 	}
 }
