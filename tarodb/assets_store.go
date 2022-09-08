@@ -261,13 +261,13 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 
 	chainAssets := make([]*ChainAsset, len(dbAssets))
 	for i, sprout := range dbAssets {
-		// First, we'll decode the script key which very asset must
-		// specify, and populate the key locator information
+		// First, we'll decode the script key which every asset must
+		// specify, and populate the key locator information.
 		scriptKeyPub, err := btcec.ParsePubKey(sprout.ScriptKeyRaw)
 		if err != nil {
 			return nil, err
 		}
-		scriptKey := keychain.KeyDescriptor{
+		scriptKeyDesc := keychain.KeyDescriptor{
 			PubKey: scriptKeyPub,
 			KeyLocator: keychain.KeyLocator{
 				Index:  uint32(sprout.ScriptKeyIndex),
@@ -344,6 +344,11 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		case asset.Collectible:
 			amount = 1
 		}
+
+		// TODO(bhandras): tweak with the script key with the stored
+		// tweak once we switch from keyspend only.
+		scriptKey := asset.NewScriptKeyBIP0086(scriptKeyDesc)
+		scriptKey.Tweak = sprout.ScriptKeyTweak
 
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
@@ -802,11 +807,12 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	// With the family key information inserted, we'll now insert the
 	// internal key we'll be using for the script key itself.
-	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
+	scriptKeyBytes := newAsset.ScriptKey.RawKey.PubKey.SerializeCompressed()
 	scriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    scriptKeyBytes,
-		KeyFamily: int32(newAsset.ScriptKey.Family),
-		KeyIndex:  int32(newAsset.ScriptKey.Index),
+		Tweak:     newAsset.ScriptKey.Tweak,
+		KeyFamily: int32(newAsset.ScriptKey.RawKey.Family),
+		KeyIndex:  int32(newAsset.ScriptKey.RawKey.Index),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to insert internal key: %w", err)

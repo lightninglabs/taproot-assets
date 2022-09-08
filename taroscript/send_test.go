@@ -129,7 +129,7 @@ func initSpendScenario(t *testing.T) spendData {
 	)
 	state.spenderScriptKey = spenderScriptKey
 	state.spenderDescriptor = keychain.KeyDescriptor{
-		PubKey: &state.spenderScriptKey,
+		PubKey: &state.spenderPubKey,
 	}
 	receiverPrivKey, receiverPubKey := btcec.PrivKeyFromBytes(key2Bytes)
 	state.receiverPrivKey = *receiverPrivKey
@@ -193,21 +193,24 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 	// Assets to cover both asset types and all three asset values.
 	asset1, err := asset.New(
 		state.genesis1, state.normalAmt1, locktime,
-		relLocktime, state.spenderDescriptor, nil,
+		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
+		nil,
 	)
 	require.NoError(t, err)
 	state.asset1 = *asset1
 
 	asset1CollectFamily, err := asset.New(
 		state.genesis1collect, state.collectAmt, locktime,
-		relLocktime, state.spenderDescriptor, &state.familyKey,
+		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
+		&state.familyKey,
 	)
 	require.NoError(t, err)
 	state.asset1CollectFamily = *asset1CollectFamily
 
 	asset2, err := asset.New(
 		state.genesis1, state.normalAmt2, locktime,
-		relLocktime, state.spenderDescriptor, nil,
+		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
+		nil,
 	)
 	require.NoError(t, err)
 	state.asset2 = *asset2
@@ -315,7 +318,7 @@ func checkPreparedSplitSpend(t *testing.T, spend *taroscript.SpendDelta,
 	t.Helper()
 
 	require.NotNil(t, spend.SplitCommitment)
-	require.Equal(t, *spend.NewAsset.ScriptKey.PubKey, scriptKey)
+	require.Equal(t, spend.NewAsset.ScriptKey.TweakedScriptKey, scriptKey)
 	require.Equal(
 		t, spend.NewAsset.Amount,
 		spend.InputAssets[prevInput].Amount-addr.Amount,
@@ -327,7 +330,9 @@ func checkPreparedSplitSpend(t *testing.T, spend *taroscript.SpendDelta,
 	receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
 	require.True(t, ok)
 	require.Equal(t, receiverAsset.Asset.Amount, addr.Amount)
-	require.Equal(t, *receiverAsset.Asset.ScriptKey.PubKey, addr.ScriptKey)
+	require.Equal(t,
+		receiverAsset.Asset.ScriptKey.TweakedScriptKey, addr.ScriptKey,
+	)
 }
 
 func checkPreparedCompleteSpend(t *testing.T, spend *taroscript.SpendDelta,
@@ -336,7 +341,9 @@ func checkPreparedCompleteSpend(t *testing.T, spend *taroscript.SpendDelta,
 	t.Helper()
 
 	require.Nil(t, spend.SplitCommitment)
-	require.Equal(t, *spend.NewAsset.ScriptKey.PubKey, addr.ScriptKey)
+	require.Equal(t,
+		spend.NewAsset.ScriptKey.TweakedScriptKey, addr.ScriptKey,
+	)
 	require.Equal(t, *spend.NewAsset.PrevWitnesses[0].PrevID, prevInput)
 	require.Nil(t, spend.NewAsset.PrevWitnesses[0].TxWitness)
 	require.Nil(t, spend.NewAsset.PrevWitnesses[0].SplitCommitment)
@@ -358,7 +365,9 @@ func checkValidateSpend(t *testing.T, a, b *asset.Asset, split bool) {
 	}
 
 	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
-	require.Equal(t, *a.ScriptKey.PubKey, *b.ScriptKey.PubKey)
+	require.Equal(t,
+		&a.ScriptKey.TweakedScriptKey, b.ScriptKey.TweakedScriptKey,
+	)
 	require.Equal(t, a.FamilyKey, b.FamilyKey)
 }
 
@@ -1599,7 +1608,8 @@ func TestPayToAddrScript(t *testing.T) {
 	receiver1Descriptor := keychain.KeyDescriptor{PubKey: receiverPubKey1}
 
 	inputAsset1, err := asset.New(
-		genesis1, uint64(normalAmt1), 1, 1, receiver1Descriptor, nil,
+		genesis1, uint64(normalAmt1), 1, 1,
+		asset.NewScriptKeyBIP0086(receiver1Descriptor), nil,
 	)
 	require.NoError(t, err)
 	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)

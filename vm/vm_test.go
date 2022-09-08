@@ -73,7 +73,8 @@ func randAsset(t *testing.T, assetType asset.Type,
 	}
 
 	a, err := asset.New(
-		genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
+		genesis, units, 0, 0, asset.NewScriptKeyTweaked(&scriptKey),
+		familyKey,
 	)
 	require.NoError(t, err)
 	return a
@@ -162,10 +163,10 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	prevID := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset.Genesis.ID(),
-		ScriptKey: *genesisAsset.ScriptKey.PubKey,
+		ScriptKey: genesisAsset.ScriptKey.TweakedScriptKey,
 	}
 	newAsset := genesisAsset.Copy()
-	newAsset.ScriptKey = toKeyDesc(randKey(t).PubKey())
+	newAsset.ScriptKey = asset.NewScriptKeyTweaked(randKey(t).PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID,
 		TxWitness:       nil,
@@ -215,17 +216,17 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	prevID1 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset1.Genesis.ID(),
-		ScriptKey: *genesisAsset1.ScriptKey.PubKey,
+		ScriptKey: genesisAsset1.ScriptKey.TweakedScriptKey,
 	}
 	prevID2 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset2.Genesis.ID(),
-		ScriptKey: *genesisAsset2.ScriptKey.PubKey,
+		ScriptKey: genesisAsset2.ScriptKey.TweakedScriptKey,
 	}
 
 	newAsset := genesisAsset1.Copy()
 	newAsset.Amount = genesisAsset1.Amount + genesisAsset2.Amount
-	newAsset.ScriptKey = toKeyDesc(randKey(t).PubKey())
+	newAsset.ScriptKey = asset.NewScriptKeyTweaked(randKey(t).PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID1,
 		TxWitness:       nil,
@@ -268,7 +269,7 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	rootLocator := &commitment.SplitLocator{
 		OutputIndex: 0,
 		AssetID:     assetID,
-		ScriptKey:   *genesisAsset.ScriptKey.PubKey,
+		ScriptKey:   genesisAsset.ScriptKey.TweakedScriptKey,
 		Amount:      1,
 	}
 	externalLocators := []*commitment.SplitLocator{{

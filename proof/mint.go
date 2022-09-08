@@ -141,7 +141,7 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 		if err != nil {
 			return nil, err
 		}
-		blobs[*newAsset.ScriptKey.PubKey] = proofBlob
+		blobs[newAsset.ScriptKey.TweakedScriptKey] = proofBlob
 	}
 
 	return blobs, nil

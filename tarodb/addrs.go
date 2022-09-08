@@ -89,10 +89,11 @@ func NewTaroAddressBook(db BatchedAddrBook) *TaroAddressBook {
 // insertInternalKey inserts a new internal key into the DB and returns the
 // primary key of the internal key.
 func insertInternalKey(ctx context.Context, a AddrBook,
-	desc keychain.KeyDescriptor) (int32, error) {
+	desc keychain.KeyDescriptor, tweak []byte) (int32, error) {
 
 	return a.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    desc.PubKey.SerializeCompressed(),
+		Tweak:     tweak,
 		KeyFamily: int32(desc.Family),
 		KeyIndex:  int32(desc.Index),
 	})
@@ -110,7 +111,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 		for _, addr := range addrs {
 			scriptKeyDesc := addr.ScriptKeyDesc
 			scriptKeyID, err := insertInternalKey(
-				ctx, db, scriptKeyDesc,
+				ctx, db, scriptKeyDesc, addr.ScriptKeyTweak,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to insert internal "+
@@ -118,7 +119,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 			}
 
 			taprootKeyID, err := insertInternalKey(
-				ctx, db, addr.InternalKeyDesc,
+				ctx, db, addr.InternalKeyDesc, nil,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to insert internal "+
@@ -242,6 +243,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					Type:        asset.Type(addr.AssetType),
 				},
 				ScriptKeyDesc:   scriptKeyDesc,
+				ScriptKeyTweak:  addr.ScriptKeyTweak,
 				InternalKeyDesc: internalKeyDesc,
 				CreationTime:    addr.CreationTime,
 			})
