@@ -147,9 +147,7 @@ type sendPackage struct {
 	// Sender, all will be mapped to the change asset leaf
 	InternalKey btcec.PublicKey
 
-	// TODO(jhb): Replace with VM signer
-	PrivKey btcec.PrivateKey
-
+	// ScriptKey...
 	ScriptKey btcec.PublicKey
 
 	// TODO(jhb): optional SpendLocators
@@ -373,6 +371,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 	// sign / complete the send
 	case SendStateSigned:
+		// TODO(roasbeef): should no longer depend on private key, and
+		// use Signer interface instead
 		completedSpend, err := taroscript.CompleteAssetSpend(
 			currentPkg.PrivKey, currentPkg.PrevID,
 			*currentPkg.SendDelta,
@@ -389,7 +389,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 	// update commitments, check if we updated locators
 	case SendStateCommitmentsUpdated:
-		SpendCommitments, err := taroscript.CreateSpendCommitments(
+		spendCommitments, err := taroscript.CreateSpendCommitments(
 			currentPkg.PrevTaroTree, currentPkg.PrevID,
 			*currentPkg.SendDelta, currentPkg.Address,
 			currentPkg.ScriptKey,
@@ -398,7 +398,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
-		currentPkg.SendCommitments = SpendCommitments
+		currentPkg.SendCommitments = spendCommitments
 
 		if currentPkg.LocatorsUpdated {
 			currentPkg.SendState = SendStateValidatedLocators
