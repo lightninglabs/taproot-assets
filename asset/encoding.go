@@ -64,7 +64,7 @@ func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 
 		// We'll limit all decoded byte slices to prevent memory blow
 		// ups or panics.
-		if bytesLen > math.MaxUint32 {
+		if bytesLen > (2<<24)-1 {
 			return fmt.Errorf("%w: %v", ErrByteSliceTooLarge,
 				bytesLen)
 		}
