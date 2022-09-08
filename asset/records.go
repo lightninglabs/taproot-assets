@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
@@ -135,10 +134,11 @@ func NewLeafScriptVersionRecord(version *ScriptVersion) tlv.Record {
 	)
 }
 
-func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
+func NewLeafScriptKeyRecord(scriptKey **ScriptKey) tlv.Record {
+	const recordSize = schnorr.PubKeyBytesLen
 	return tlv.MakeStaticRecord(
-		LeafScriptKey, scriptKey, schnorr.PubKeyBytesLen,
-		SchnorrPubKeyEncoder, SchnorrPubKeyDecoder,
+		LeafScriptKey, scriptKey, recordSize, ScriptKeyEncoder,
+		ScriptKeyDecoder,
 	)
 }
 

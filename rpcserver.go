@@ -333,7 +333,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 			LockTime:         int32(asset.LockTime),
 			RelativeLockTime: int32(asset.RelativeLockTime),
 			ScriptVersion:    int32(asset.ScriptVersion),
-			ScriptKey:        asset.ScriptKey.PubKey.SerializeCompressed(),
+			ScriptKey:        asset.ScriptKey.TweakedScriptKey.SerializeCompressed(),
 			ChainAnchor: &tarorpc.AnchorInfo{
 				AnchorTx:        anchorTxBytes,
 				AnchorTxid:      asset.AnchorTxid[:],

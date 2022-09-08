@@ -236,9 +236,7 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       1,
-		ScriptKey: keychain.KeyDescriptor{
-			PubKey: pubKey,
-		},
+		ScriptKey:           NewScriptKeyTweaked(pubKey),
 		FamilyKey: &FamilyKey{
 			FamKey: *pubKey,
 			Sig:    *sig,
@@ -264,9 +262,7 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
-		ScriptKey: keychain.KeyDescriptor{
-			PubKey: pubKey,
-		},
+		ScriptKey:           NewScriptKeyTweaked(pubKey),
 		FamilyKey: &FamilyKey{
 			FamKey: *pubKey,
 			Sig:    *sig,
@@ -315,10 +311,8 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       2,
-		ScriptKey: keychain.KeyDescriptor{
-			PubKey: pubKey,
-		},
-		FamilyKey: nil,
+		ScriptKey:           NewScriptKeyTweaked(pubKey),
+		FamilyKey:           nil,
 	})
 }
 
@@ -347,19 +341,17 @@ func TestAssetType(t *testing.T) {
 		OutputIndex: 2,
 		Type:        Collectible,
 	}
-	desc := keychain.KeyDescriptor{
-		PubKey: pubKey,
-	}
+	scriptKey := NewScriptKeyTweaked(pubKey)
 
-	normal, err := New(normalGen, 741, 0, 0, desc, nil)
+	normal, err := New(normalGen, 741, 0, 0, scriptKey, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 741, normal.Amount)
 
-	_, err = New(collectibleGen, 741, 0, 0, desc, nil)
+	_, err = New(collectibleGen, 741, 0, 0, scriptKey, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "amount must be 1 for asset")
 
-	collectible, err := New(collectibleGen, 1, 0, 0, desc, nil)
+	collectible, err := New(collectibleGen, 1, 0, 0, scriptKey, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, collectible.Amount)
 }

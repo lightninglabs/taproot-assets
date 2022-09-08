@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,9 +45,7 @@ func (f *fakeVerifier) Verify(c context.Context,
 			FamilyKey: &asset.FamilyKey{
 				FamKey: *randPubKey(f.t),
 			},
-			ScriptKey: keychain.KeyDescriptor{
-				PubKey: randPubKey(f.t),
-			},
+			ScriptKey: asset.NewScriptKeyTweaked(randPubKey(f.t)),
 		},
 	}, nil
 }

@@ -299,7 +299,7 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	updatedDelta := delta.Copy()
 
 	newAsset := updatedDelta.InputAssets[prevInput].Copy()
-	newAsset.ScriptKey.PubKey = &addr.ScriptKey
+	newAsset.ScriptKey.TweakedScriptKey = addr.ScriptKey
 
 	// Record the PrevID of the input asset in a Witness for the new asset.
 	// This Witness still needs a valid signature for the new asset

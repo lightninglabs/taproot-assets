@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -19,6 +20,9 @@ type AddrWithKeyInfo struct {
 
 	// ScriptKeyDesc is the key desc for the script key.
 	ScriptKeyDesc keychain.KeyDescriptor
+
+	// ScriptKeyTweak is a tweak that was used to tweak the ScriptKey.
+	ScriptKeyTweak []byte
 
 	// InternalKeyDesc is the key desc for the internal key.
 	InternalKeyDesc keychain.KeyDescriptor
@@ -114,6 +118,13 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
+
+	// Tweak the script key BIP0086 style (such that we only commit
+	// to the internal key when signing).
+	scriptKeyDesc.PubKey = txscript.ComputeTaprootKeyNoScript(
+		scriptKeyDesc.PubKey,
+	)
+
 	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
@@ -129,6 +140,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	addr := AddrWithKeyInfo{
 		Taro:            baseAddr,
 		ScriptKeyDesc:   scriptKeyDesc,
+		ScriptKeyTweak:  nil,
 		InternalKeyDesc: internalKeyDesc,
 		CreationTime:    time.Now(),
 	}

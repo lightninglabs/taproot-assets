@@ -321,6 +321,50 @@ func (f *FamilyKey) IsEqual(otherFamilyKey *FamilyKey) bool {
 		f.Sig.IsEqual(&otherFamilyKey.Sig)
 }
 
+// ScriptKey represents a tweaked Taproot output key encumbering the different
+// ways an asset can be spent.
+type ScriptKey struct {
+	// RawKey is the raw script key before the script key tweak is applied.
+	// We store a full key descriptor here for wallet purposes, but will
+	// only encode the raw key for the normal script leaf TLV encoding.
+	RawKey keychain.KeyDescriptor
+
+	// TweakedScriptKey is the tweaked script key.
+	TweakedScriptKey btcec.PublicKey
+
+	// Tweak is the tweak that is applied on the raw script key.
+	Tweak []byte
+}
+
+// NewScriptKeyTweaked constructs a ScriptKey with only the tweaked script key.
+func NewScriptKeyTweaked(key *btcec.PublicKey) *ScriptKey {
+	return &ScriptKey{
+		TweakedScriptKey: *key,
+	}
+}
+
+// NewScriptKeyBIP0086 constructs a ScriptKey tweaked BIP0086 style.
+func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) *ScriptKey {
+	// Tweak the script key BIP0086 style (such that we only commit
+	// to the internal key when signing).
+	tweakedPubKey := txscript.ComputeTaprootKeyNoScript(
+		rawKey.PubKey,
+	)
+
+	var err error
+	tweakedPubKey, err = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(tweakedPubKey),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	return &ScriptKey{
+		RawKey:           rawKey,
+		TweakedScriptKey: *tweakedPubKey,
+	}
+}
+
 // GenesisSigner is used to sign the assetID using the family key public key
 // for a given asset.
 type GenesisSigner interface {
@@ -429,10 +473,7 @@ type Asset struct {
 
 	// ScriptKey represents a tweaked Taproot output key encumbering the
 	// different ways an asset can be spent.
-	//
-	// We store a full key descriptor here for wallet purposes, but will
-	// only encode the raw key for the normal script leaf TLV encoding.
-	ScriptKey keychain.KeyDescriptor
+	ScriptKey *ScriptKey
 
 	// FamilyKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
@@ -442,8 +483,7 @@ type Asset struct {
 
 // New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
-	scriptKey keychain.KeyDescriptor, familyKey *FamilyKey) (*Asset,
-	error) {
+	scriptKey *ScriptKey, familyKey *FamilyKey) (*Asset, error) {
 
 	// Collectible assets can only ever be issued once.
 	if genesis.Type != Normal && amount != 1 {
@@ -512,7 +552,7 @@ func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
 func (a *Asset) AssetCommitmentKey() [32]byte {
 	issuanceDisabled := a.FamilyKey == nil
 	return AssetCommitmentKey(
-		a.Genesis.ID(), a.ScriptKey.PubKey, issuanceDisabled,
+		a.Genesis.ID(), &a.ScriptKey.TweakedScriptKey, issuanceDisabled,
 	)
 }
 
@@ -594,6 +634,20 @@ func (a *Asset) Copy() *Asset {
 		)
 	}
 
+	if a.ScriptKey != nil {
+		assetCopy.ScriptKey = &ScriptKey{
+			RawKey:           a.ScriptKey.RawKey,
+			TweakedScriptKey: a.ScriptKey.TweakedScriptKey,
+		}
+
+		if a.ScriptKey.Tweak != nil {
+			assetCopy.ScriptKey.Tweak = make(
+				[]byte, len(a.ScriptKey.Tweak),
+			)
+			copy(assetCopy.ScriptKey.Tweak, a.ScriptKey.Tweak)
+		}
+	}
+
 	if a.FamilyKey != nil {
 		assetCopy.FamilyKey = &FamilyKey{
 			RawKey: a.FamilyKey.RawKey,
@@ -632,7 +686,9 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 		))
 	}
 	records = append(records, NewLeafScriptVersionRecord(&a.ScriptVersion))
-	records = append(records, NewLeafScriptKeyRecord(&a.ScriptKey.PubKey))
+	if a.ScriptKey != nil {
+		records = append(records, NewLeafScriptKeyRecord(&a.ScriptKey))
+	}
 	if a.FamilyKey != nil {
 		records = append(records, NewLeafFamilyKeyRecord(&a.FamilyKey))
 	}
@@ -652,7 +708,7 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 		NewLeafPrevWitnessRecord(&a.PrevWitnesses),
 		NewLeafSplitCommitmentRootRecord(&a.SplitCommitmentRoot),
 		NewLeafScriptVersionRecord(&a.ScriptVersion),
-		NewLeafScriptKeyRecord(&a.ScriptKey.PubKey),
+		NewLeafScriptKeyRecord(&a.ScriptKey),
 		NewLeafFamilyKeyRecord(&a.FamilyKey),
 	}
 }

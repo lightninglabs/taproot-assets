@@ -198,7 +198,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		Amount:           opts.amt,
 		LockTime:         uint64(randInt[int32]()),
 		RelativeLockTime: uint64(randInt[int32]()),
-		ScriptKey:        opts.scriptKey,
+		ScriptKey:        asset.NewScriptKeyBIP0086(opts.scriptKey),
 	}
 
 	// 50/50 chance that we'll actually have a family key.
@@ -328,7 +328,7 @@ func TestImportAssetProof(t *testing.T) {
 	proof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
 			AssetID:   &assetID,
-			ScriptKey: *testAsset.ScriptKey.PubKey,
+			ScriptKey: testAsset.ScriptKey.TweakedScriptKey,
 		},
 		Blob: bytes.Repeat([]byte{0x0}, 100),
 		AssetSnapshot: &proof.AssetSnapshot{
@@ -358,9 +358,9 @@ func TestImportAssetProof(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = db.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    testAsset.ScriptKey.PubKey.SerializeCompressed(),
-		KeyFamily: int32(testAsset.ScriptKey.Family),
-		KeyIndex:  int32(testAsset.ScriptKey.Index),
+		RawKey:    testAsset.ScriptKey.TweakedScriptKey.SerializeCompressed(),
+		KeyFamily: int32(testAsset.ScriptKey.RawKey.Family),
+		KeyIndex:  int32(testAsset.ScriptKey.RawKey.Index),
 	})
 	require.NoError(t, err)
 
@@ -828,7 +828,9 @@ func TestAssetExportLog(t *testing.T) {
 
 		// We should find the mutated asset with its _new_ script key
 		// and amount.
-		if chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey) {
+		if chainAsset.ScriptKey.RawKey.PubKey.IsEqual(
+			newScriptKey.PubKey,
+		) {
 			require.True(t, chainAsset.Amount == uint64(newAmt))
 			mutationFound = true
 		}

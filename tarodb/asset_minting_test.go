@@ -248,7 +248,8 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		}
 
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, scriptKey, familyKey,
+			assetGen, amount, 0, 0,
+			asset.NewScriptKeyBIP0086(scriptKey), familyKey,
 		)
 		require.NoError(t, err)
 
@@ -482,7 +483,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 		_, err := rand.Read(blob[:])
 		require.NoError(t, err)
 
-		assetProofs[*asset.ScriptKey.PubKey] = blob
+		assetProofs[*asset.ScriptKey.RawKey.PubKey] = blob
 	}
 
 	// We'll now conclude the lifetime of a batch by marking it confirmed
