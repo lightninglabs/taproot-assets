@@ -15,8 +15,8 @@ const (
 // createSqliteTreeStore creates a new mssmt.TreeStore from the name of the
 // file where the sqlite DB is intended to be stored at.
 func createSqliteTreeStore(args ...any) (mssmt.TreeStore, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("only one arg accepted, %v found",
+	if len(args) != 2 {
+		return nil, fmt.Errorf("only two args accepted, %v found",
 			len(args))
 	}
 
@@ -25,6 +25,11 @@ func createSqliteTreeStore(args ...any) (mssmt.TreeStore, error) {
 	dbFileName, ok := args[0].(string)
 	if !ok {
 		return nil, fmt.Errorf("first argument must be a string")
+	}
+	namespace, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("second argument must be a string " +
+			"(the namespace)")
 	}
 
 	// TODO(bhandras): mainly used for tests so doesn't matter that creates
@@ -47,7 +52,7 @@ func createSqliteTreeStore(args ...any) (mssmt.TreeStore, error) {
 		db, txCreator,
 	)
 
-	return NewTaroTreeStore(treeDB), nil
+	return NewTaroTreeStore(treeDB, namespace), nil
 }
 
 // TODO(bhandras): also eventually register the postgres version here as well.

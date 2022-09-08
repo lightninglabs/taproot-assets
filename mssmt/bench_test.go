@@ -60,10 +60,12 @@ func benchmarkMerkleProof(b *testing.B, tree mssmt.Tree, leaves []treeLeaf,
 func benchmarkVerifyMerkleProof(b *testing.B, tree mssmt.Tree,
 	leaves []treeLeaf, proofs map[[32]byte]*mssmt.Proof) {
 
+	treeRoot, _ := tree.Root(context.Background())
+
 	for i := 0; i < b.N; i++ {
 		item := randElem(leaves)
 		_ = mssmt.VerifyMerkleProof(
-			item.key, item.leaf, proofs[item.key], tree.Root(),
+			item.key, item.leaf, proofs[item.key], treeRoot,
 		)
 	}
 }

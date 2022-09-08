@@ -109,8 +109,14 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		}
 	}
 
+	treeRoot, err := inputTree.Root(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// TODO(roasbeef): document empty hash usage here
-	prevOut := virtualTxInPrevOut(inputTree.Root())
+	prevOut := virtualTxInPrevOut(treeRoot)
+
 	return wire.NewTxIn(prevOut, nil, nil), inputTree, nil
 }
 
@@ -173,7 +179,12 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 		return nil, err
 	}
 
-	rootKey := tree.Root().NodeHash()
+	treeRoot, err := tree.Root(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	rootKey := treeRoot.NodeHash()
 	pkScript, err := computeTaprootScript(rootKey[:])
 	if err != nil {
 		return nil, err

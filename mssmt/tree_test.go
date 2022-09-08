@@ -28,7 +28,7 @@ func genTestStores(t *testing.T) map[string]makeTestTreeStoreFunc {
 					t.TempDir(), "tmp.db",
 				)
 
-				treeStore, err := driver.New(dbFileName)
+				treeStore, err := driver.New(dbFileName, "test")
 				if err != nil {
 					return nil, fmt.Errorf("unable to "+
 						"create new sqlite tree "+
@@ -96,7 +96,7 @@ func TestInsertion(t *testing.T) {
 
 	leaves := randTree(100)
 
-	runTest := func(name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
+	runTest := func(t *testing.T, name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
 		makeStore makeTestTreeStoreFunc) {
 
 		t.Run(name, func(t *testing.T) {
@@ -112,8 +112,8 @@ func TestInsertion(t *testing.T) {
 
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
-			runTest("full SMT", makeFullTree, makeStore)
-			runTest("smol SMT", makeSmolTree, makeStore)
+			runTest(t, "full SMT", makeFullTree, makeStore)
+			runTest(t, "smol SMT", makeSmolTree, makeStore)
 		})
 	}
 }
@@ -210,6 +210,8 @@ func TestReplace(t *testing.T) {
 
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
+			t.Parallel()
+
 			runTest(t, "full SMT", makeFullTree, makeStore)
 			runTest(t, "smol SMT", makeSmolTree, makeStore)
 		})
@@ -224,6 +226,8 @@ func TestHistoryIndependence(t *testing.T) {
 
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
+			t.Parallel()
+
 			testHistoryIndependence(t, makeStore)
 		})
 	}
@@ -280,18 +284,28 @@ func testHistoryIndependence(t *testing.T, makeStore makeTestTreeStoreFunc) {
 	}
 
 	// The root hash and sum of both full trees should be the same.
-	require.Equal(t, tree1.Root().NodeHash(), tree2.Root().NodeHash())
-	require.Equal(t, tree1.Root().NodeSum(), tree2.Root().NodeSum())
+	tree1Root, err := tree1.Root(ctx)
+	require.NoError(t, err)
+	tree2Root, err := tree2.Root(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, tree1Root.NodeHash(), tree2Root.NodeHash())
+	require.Equal(t, tree1Root.NodeSum(), tree2Root.NodeSum())
 
 	// Similarly for the compacted trees.
-	require.Equal(t, smolTree1.Root().NodeHash(), smolTree2.Root().NodeHash())
-	require.Equal(t, smolTree1.Root().NodeSum(), smolTree2.Root().NodeSum())
+	smol1Root, err := smolTree1.Root(ctx)
+	require.NoError(t, err)
+	smol2Root, err := smolTree2.Root(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, smol1Root.NodeHash(), smol2Root.NodeHash())
+	require.Equal(t, smol1Root.NodeSum(), smol2Root.NodeSum())
 
 	// Now check that the full tree has the same root as the compacted tree.
 	// Due to transitivity this also means that all roots and sums are the
 	// same.
-	require.Equal(t, tree1.Root().NodeHash(), smolTree1.Root().NodeHash())
-	require.Equal(t, tree1.Root().NodeSum(), smolTree1.Root().NodeSum())
+	require.Equal(t, tree1Root.NodeHash(), smol1Root.NodeHash())
+	require.Equal(t, tree1Root.NodeSum(), smol1Root.NodeSum())
 }
 
 // TestDeletion asserts that deleting all inserted leaves of a tree results in
@@ -304,6 +318,8 @@ func TestDeletion(t *testing.T) {
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
 			t.Run("full SMT", func(t *testing.T) {
+				t.Parallel()
+
 				store, err := makeStore()
 				require.NoError(t, err)
 
@@ -311,9 +327,10 @@ func TestDeletion(t *testing.T) {
 					leaves, mssmt.NewFullTree(store),
 				)
 			})
-		})
-		t.Run(storeName, func(t *testing.T) {
+
 			t.Run("smol SMT", func(t *testing.T) {
+				t.Parallel()
+
 				store, err := makeStore()
 				require.NoError(t, err)
 
@@ -332,15 +349,24 @@ func testDeletion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 		require.NoError(t, err)
 	}
 
-	require.NotEqual(t, mssmt.EmptyTree[0], tree.Root())
+	treeRoot, err := tree.Root(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, mssmt.EmptyTree[0], treeRoot)
+
 	for _, item := range leaves {
 		_, err := tree.Delete(ctx, item.key)
 		require.NoError(t, err)
+
 		emptyLeaf, err := tree.Get(ctx, item.key)
 		require.NoError(t, err)
+
 		require.True(t, emptyLeaf.IsEmpty())
 	}
-	require.True(t, mssmt.IsEqualNode(mssmt.EmptyTree[0], tree.Root()))
+
+	treeRoot, err = tree.Root(ctx)
+	require.NoError(t, err)
+
+	require.True(t, mssmt.IsEqualNode(mssmt.EmptyTree[0], treeRoot))
 }
 
 func assertEqualProofAfterCompression(t *testing.T, proof *mssmt.Proof) {
@@ -365,9 +391,13 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 		proof, err := tree.MerkleProof(ctx, item.key)
 		require.NoError(t, err)
 
+		treeRoot, err := tree.Root(ctx)
+		require.NoError(t, err)
+
 		require.True(t,
 			mssmt.VerifyMerkleProof(
-				item.key, item.leaf, proof, tree.Root()),
+				item.key, item.leaf, proof, treeRoot,
+			),
 		)
 
 		// If we alter the proof's leaf sum, then the proof should no
@@ -375,9 +405,12 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 		alteredLeaf := mssmt.NewLeafNode(
 			item.leaf.Value, item.leaf.NodeSum()+1,
 		)
+		treeRoot, err = tree.Root(ctx)
+		require.NoError(t, err)
 		require.False(t,
 			mssmt.VerifyMerkleProof(
-				item.key, alteredLeaf, proof, tree.Root()),
+				item.key, alteredLeaf, proof, treeRoot,
+			),
 		)
 
 		// If we delete the proof's leaf node from the tree, then it
@@ -385,9 +418,13 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 		_, err = tree.Delete(ctx, item.key)
 		require.NoError(t, err)
 
+		treeRoot, err = tree.Root(ctx)
+		require.NoError(t, err)
+
 		require.False(t,
 			mssmt.VerifyMerkleProof(
-				item.key, item.leaf, proof, tree.Root()),
+				item.key, item.leaf, proof, treeRoot,
+			),
 		)
 	}
 
@@ -402,12 +439,15 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 
 	assertEqualProofAfterCompression(t, proof)
 
+	treeRoot, err := tree.Root(ctx)
+	require.NoError(t, err)
+
 	require.False(t, mssmt.VerifyMerkleProof(
-		nonExistentKey, nonExistentLeaf, proof, tree.Root(),
+		nonExistentKey, nonExistentLeaf, proof, treeRoot,
 	))
 
 	require.True(t, mssmt.VerifyMerkleProof(
-		nonExistentKey, mssmt.EmptyLeafNode, proof, tree.Root(),
+		nonExistentKey, mssmt.EmptyLeafNode, proof, treeRoot,
 	))
 }
 
@@ -436,14 +476,20 @@ func testProofEqulity(t *testing.T, tree1, tree2 mssmt.Tree, leaves []treeLeaf) 
 		proof2, err := tree2.MerkleProof(ctx, item.key)
 		require.NoError(t, err)
 
+		treeRoot1, err := tree1.Root(ctx)
+		require.NoError(t, err)
+
+		treeRoot2, err := tree2.Root(ctx)
+		require.NoError(t, err)
+
 		require.True(t,
 			mssmt.VerifyMerkleProof(
-				item.key, item.leaf, proof1, tree1.Root(),
+				item.key, item.leaf, proof1, treeRoot1,
 			),
 		)
 		require.True(t,
 			mssmt.VerifyMerkleProof(
-				item.key, item.leaf, proof2, tree2.Root(),
+				item.key, item.leaf, proof2, treeRoot2,
 			),
 		)
 

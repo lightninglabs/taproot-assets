@@ -78,9 +78,15 @@ func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 
 		assetCommitments[key] = asset
 	}
+
+	root, err := tree.Root(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
 	return &TaroCommitment{
 		Version:          maxVersion,
-		TreeRoot:         tree.Root(),
+		TreeRoot:         root,
 		assetCommitments: assetCommitments,
 		tree:             tree,
 	}, nil
@@ -104,7 +110,11 @@ func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
 			return err
 		}
 
-		c.TreeRoot = c.tree.Root()
+		c.TreeRoot, err = c.tree.Root(context.TODO())
+		if err != nil {
+			return err
+		}
+
 		delete(c.assetCommitments, key)
 	} else {
 		leaf := asset.TaroCommitmentLeaf()
@@ -113,7 +123,11 @@ func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
 			return err
 		}
 
-		c.TreeRoot = c.tree.Root()
+		c.TreeRoot, err = c.tree.Root(context.TODO())
+		if err != nil {
+			return err
+		}
+
 		c.assetCommitments[key] = asset
 	}
 

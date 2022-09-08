@@ -5,7 +5,7 @@ import "context"
 // Tree is an interface defining an abstract MSSMT tree type.
 type Tree interface {
 	// Root returns the root node of the MS-SMT.
-	Root() *BranchNode
+	Root(ctx context.Context) (*BranchNode, error)
 
 	// Insert inserts a leaf node at the given key within the MS-SMT.
 	Insert(ctx context.Context, key [hashSize]byte, leaf *LeafNode) (

@@ -1,6 +1,8 @@
 package mssmt
 
-import "context"
+import (
+	"context"
+)
 
 const (
 	// MaxTreeLevels represents the depth of the MS-SMT.
@@ -44,7 +46,6 @@ func init() {
 // efficient proofs of non-inclusion, while also supporting efficient fault
 // proofs of invalid merkle sum commitments.
 type FullTree struct {
-	root  Node
 	store TreeStore
 }
 
@@ -55,14 +56,23 @@ var _ Tree = (*FullTree)(nil)
 // deleted and empty nodes are never stored.
 func NewFullTree(store TreeStore) *FullTree {
 	return &FullTree{
-		root:  EmptyTree[0],
 		store: store,
 	}
 }
 
 // Root returns the root node of the MS-SMT.
-func (t *FullTree) Root() *BranchNode {
-	return t.root.(*BranchNode)
+func (t *FullTree) Root(ctx context.Context) (*BranchNode, error) {
+	var root Node
+	err := t.store.View(ctx, func(tx TreeStoreViewTx) error {
+		var err error
+		root, err = tx.RootNode()
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return root.(*BranchNode), nil
 }
 
 // bitIndex returns the bit found at `idx` for a NodeHash.
@@ -71,8 +81,8 @@ func bitIndex(idx uint8, key *[hashSize]byte) byte {
 	return (byteVal >> (idx % 8)) & 1
 }
 
-// Type alias for closures to be invoked at every iteration of walking through a
-// tree.
+// iterFunc is a type alias for closures to be invoked at every iteration of
+// walking through a tree.
 type iterFunc = func(height int, current, sibling, parent Node) error
 
 // walkDown walks down the tree from the root node to the leaf indexed by `key`.
@@ -80,7 +90,11 @@ type iterFunc = func(height int, current, sibling, parent Node) error
 func (t *FullTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 	iter iterFunc) (*LeafNode, error) {
 
-	current := t.root
+	current, err := tx.RootNode()
+	if err != nil {
+		return nil, err
+	}
+
 	for i := 0; i <= lastBitIndex; i++ {
 		left, right, err := tx.GetChildren(i, current.NodeHash())
 		if err != nil {
@@ -198,17 +212,18 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 func (t *FullTree) Insert(ctx context.Context, key [hashSize]byte,
 	leaf *LeafNode) (Tree, error) {
 
-	var root Node
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		var err error
-		root, err = t.insert(tx, &key, leaf)
-		return err
+		root, err := t.insert(tx, &key, leaf)
+		if err != nil {
+			return err
+		}
+
+		return tx.UpdateRoot(root)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	t.root = root
 	return t, nil
 }
 
@@ -216,17 +231,18 @@ func (t *FullTree) Insert(ctx context.Context, key [hashSize]byte,
 func (t *FullTree) Delete(ctx context.Context, key [hashSize]byte) (
 	Tree, error) {
 
-	var root Node
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		var err error
-		root, err = t.insert(tx, &key, EmptyLeafNode)
-		return err
+		root, err := t.insert(tx, &key, EmptyLeafNode)
+		if err != nil {
+			return err
+		}
+
+		return tx.UpdateRoot(root)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	t.root = root
 	return t, nil
 }
 

@@ -204,8 +204,12 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	// commits to the root of the split commitment tree and should have a
 	// valid witness generated over the virtual transaction enabling the
 	// state transition.
+	var err error
 	rootAsset := splitAssets[*rootLocator].Copy()
-	rootAsset.SplitCommitmentRoot = splitTree.Root()
+	rootAsset.SplitCommitmentRoot, err = splitTree.Root(context.TODO())
+	if err != nil {
+		return nil, err
+	}
 
 	// We'll also update each asset split with it's split commitment proof.
 	for _, locator := range locators {
