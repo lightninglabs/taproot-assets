@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS internal_keys (
     -- retaining full information.
     raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) == 33),
 
+    -- An optonal tweak for the raw_key. If NULL, the raw_key may be tweaked
+    -- BIP0086 style.
+    tweak BLOB,
+
     key_family INTEGER NOT NULL,
 
     key_index INTEGER NOT NULL
