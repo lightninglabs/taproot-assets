@@ -149,10 +149,14 @@ type ChainAsset struct {
 	AnchorOutpoint wire.OutPoint
 }
 
+// assetWitnesses maps the primary key of an asset to a slice of its previous
+// input (witness) information.
+type assetWitnesses map[int32][]AssetWitness
+
 // fetchAssetWitnesses attempts to fetch all the asset witnesses that belong to
 // the set of passed asset IDs.
 func fetchAssetWitnesses(ctx context.Context,
-	db ActiveAssetsStore, assetIDs []int32) (map[int32][]AssetWitness, error) {
+	db ActiveAssetsStore, assetIDs []int32) (assetWitnesses, error) {
 
 	assetWitnesses := make(map[int32][]AssetWitness)
 	for _, assetID := range assetIDs {
@@ -238,7 +242,7 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 // the witnesses of those assets to a set of normal ChainAsset structs needed
 // by a higher level application.
 func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
-	assetWitnesses map[int32][]AssetWitness) ([]*ChainAsset, error) {
+	witnesses assetWitnesses) ([]*ChainAsset, error) {
 
 	chainAssets := make([]*ChainAsset, len(dbAssets))
 	for i, sprout := range dbAssets {
@@ -338,7 +342,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		// With the asset created, we'll now emplace the set of
 		// witnesses for the asset itself. If this is a genesis asset,
 		// then it won't have a set of witnesses.
-		assetInputs, ok := assetWitnesses[sprout.AssetID]
+		assetInputs, ok := witnesses[sprout.AssetID]
 		if ok {
 			assetSprout.PrevWitnesses = make(
 				[]asset.Witness, 0, len(assetInputs),
@@ -398,26 +402,9 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 	return chainAssets, nil
 }
 
-// AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
-// which lets us filter the results of the set of assets returned.
-type AssetQueryFilters struct {
-	tarofreighter.CommitmentConstraints
-}
-
-// FetchAllAssets fetches the set of confirmed assets stored on disk.
-func (a *AssetStore) FetchAllAssets(ctx context.Context,
-	query *AssetQueryFilters) ([]*ChainAsset, error) {
-
-	var (
-		dbAssets []ConfirmedAsset
-
-		assetWitnesses map[int32][]AssetWitness
-
-		err error
-	)
-
-	// We'll ow map the application level filtering to the type of
-	// filtering our database query understands.
+// constraintsToDbFilter maps application level constraints to the set of
+// filters we use in the SQL queries.
+func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 	var assetFilter QueryAssetFilters
 	if query != nil {
 		if query.Amt != 0 {
@@ -436,27 +423,67 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 		}
 	}
 
+	return assetFilter
+}
+
+// fetchAssetsWithWitness fetches the set of assets in the backing store based
+// on the set asset filter. A set of witnesses for each of the assets keyed by
+// the primary key of the asset is also returned.
+func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
+	assetFilter QueryAssetFilters) ([]ConfirmedAsset, assetWitnesses, error) {
+
+	// First, we'll fetch all the assets we know of on disk.
+	dbAssets, err := q.QueryAssets(ctx, assetFilter)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to read db assets: %v", err)
+	}
+
+	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
+		return a.AssetID
+	})
+
+	// With all the assets obtained, we'll now do a second query to
+	// obtain all the witnesses we know of for each asset.
+	assetWitnesses, err := fetchAssetWitnesses(ctx, q, assetIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch asset "+
+			"witnesses: %w", err)
+	}
+
+	return dbAssets, assetWitnesses, nil
+}
+
+// AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
+// which lets us filter the results of the set of assets returned.
+type AssetQueryFilters struct {
+	tarofreighter.CommitmentConstraints
+}
+
+// FetchAllAssets fetches the set of confirmed assets stored on disk.
+func (a *AssetStore) FetchAllAssets(ctx context.Context,
+	query *AssetQueryFilters) ([]*ChainAsset, error) {
+
+	var (
+		dbAssets []ConfirmedAsset
+
+		assetWitnesses map[int32][]AssetWitness
+
+		err error
+	)
+
+	// We'll now map the application level filtering to the type of
+	// filtering our database query understands.
+	assetFilter := constraintsToDbFilter(query)
+
+	// With the query constructed, we can now fetch the assets along w/
+	// their witness information.
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		// First, we'll fetch all the assets we know of on disk.
-		dbAssets, err = q.QueryAssets(ctx, assetFilter)
-		if err != nil {
-			return fmt.Errorf("unable to read db assets: %v", err)
-		}
+		dbAssets, assetWitnesses, err = fetchAssetsWithWitness(
+			ctx, q, assetFilter,
+		)
 
-		assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
-			return a.AssetID
-		})
-
-		// With all the assets obtained, we'll now do a second query to
-		// obtain all the witnesses we know of for each asset.
-		assetWitnesses, err = fetchAssetWitnesses(ctx, q, assetIDs)
-		if err != nil {
-			return fmt.Errorf("unable to fetch asset "+
-				"witnesses: %w", err)
-		}
-
-		return nil
+		return err
 	})
 	if dbErr != nil {
 		return nil, dbErr
