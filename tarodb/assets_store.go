@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -36,13 +37,18 @@ type (
 	// AssetWitness is the full prev input for an asset that also couples
 	// along the asset ID that the witness belong to.
 	AssetWitness = sqlite.FetchAssetWitnessesRow
+
+	// FetchAssetFilters lets us query assets in the database based on some
+	// set filters. This is useful to get the balance of a set of assets,
+	// or for things like coin selection.
+	FetchAssetFilters = sqlite.FetchAllAssetsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
 	// FetchAllAssets fetches the set of fully confirmed assets.
-	FetchAllAssets(ctx context.Context) ([]ConfirmedAsset, error)
+	FetchAllAssets(context.Context, FetchAssetFilters) ([]ConfirmedAsset, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -228,8 +234,16 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 	return witness, nil
 }
 
+// AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
+// which lets us filter the results of the set of assets returned.
+type AssetQueryFilters struct {
+	tarofreighter.CommitmentConstraints
+}
+
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
-func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) {
+func (a *AssetStore) FetchAllAssets(ctx context.Context,
+	query *AssetQueryFilters) ([]*ChainAsset, error) {
+
 	var (
 		dbAssets []ConfirmedAsset
 
@@ -238,10 +252,30 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context) ([]*ChainAsset, error) 
 		err error
 	)
 
+	// We'll ow map the application level filtering to the type of
+	// filtering our database query understands.
+	var assetFilter FetchAssetFilters
+	if query != nil {
+		if query.Amt != 0 {
+			assetFilter.MinAmt = sql.NullInt64{
+				Int64: int64(query.Amt),
+				Valid: true,
+			}
+		}
+		if query.AssetID != nil {
+			assetID := query.AssetID[:]
+			assetFilter.AssetIDFilter = assetID
+		}
+		if query.FamilyKey != nil {
+			famKey := query.FamilyKey.SerializeCompressed()
+			assetFilter.KeyFamFilter = famKey
+		}
+	}
+
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		// First, we'll fetch all the assets we know of on disk.
-		dbAssets, err = q.FetchAllAssets(ctx)
+		dbAssets, err = q.FetchAllAssets(ctx, assetFilter)
 		if err != nil {
 			return fmt.Errorf("unable to read db assets: %v", err)
 		}

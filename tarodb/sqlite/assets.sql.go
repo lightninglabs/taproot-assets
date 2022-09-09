@@ -394,6 +394,11 @@ WITH genesis_info AS (
     FROM genesis_assets
     JOIN genesis_points
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+    -- This filter only runs if the asset_id_filter arg was passed in. This
+    -- lets us fetch only the assets for this particular asset ID.
+    --WHERE genesis_assets.asset_id = COALESCE(sqlc.narg('asset_id_filter'), genesis_assets.asset_id)
+    WHERE length(hex($2)) == 0 OR genesis_assets.asset_id = $2
+    --WHERE genesis_assets.asset_id = genesis_assets.asset_id
 ), key_fam_info AS (
     -- This CTE is used to perform a series of joins that allow us to extract
     -- the family key information, as well as the family sigs for the series of
@@ -407,7 +412,12 @@ WITH genesis_info AS (
     JOIN internal_keys keys
         ON keys.key_id = fams.internal_key_id
     -- TODO(roasbeef): or can join do this below?
-    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
+    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info) AND
+        -- This filter only runs if the asset_id_filter arg was passed in. This
+        -- lets us fetch only the assets for this particular key family.
+       (length(hex($3)) == 0 OR fams.tweaked_fam_key = $3)
+       --fams.tweaked_fam_key = COALESCE(sqlc.narg('key_fam_filter'), fams.tweaked_fam_key)
+       --fams.tweaked_fam_key = fams.tweaked_fam_key
 )
 SELECT 
     assets.asset_id, version, internal_keys.raw_key AS script_key_raw, 
@@ -432,7 +442,16 @@ JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
+WHERE (
+    assets.amount = COALESCE($1, assets.amount)
+)
 `
+
+type FetchAllAssetsParams struct {
+	MinAmt        sql.NullInt64
+	AssetIDFilter interface{}
+	KeyFamFilter  interface{}
+}
 
 type FetchAllAssetsRow struct {
 	AssetID            int32
@@ -463,11 +482,15 @@ type FetchAllAssetsRow struct {
 
 // TODO(roasbeef): identical to the above but no batch, how to combine?
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
-// generate rows that have NULL values for the faily key fields if an asset
+// generate rows that have NULL values for the family key fields if an asset
 // doesn't have a family key. See the comment in fetchAssetSprouts for a work
 // around that needs to be used with this query until a sqlc bug is fixed.
-func (q *Queries) FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAllAssets)
+// This clause is used to select specific assets for a asset ID, general
+// channel balances, and also coin selection. We use the sqlc.narg feature to
+// make the entire statement evaluate to true, if none of these extra args are
+// specified.
+func (q *Queries) FetchAllAssets(ctx context.Context, arg FetchAllAssetsParams) ([]FetchAllAssetsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAllAssets, arg.MinAmt, arg.AssetIDFilter, arg.KeyFamFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -589,7 +612,7 @@ FROM asset_witnesses
 JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
 WHERE (
-    assets.asset_id = $1 OR $1 IS NULL
+    (assets.asset_id = $1) OR ($1 IS NULL)
 )
 `
 

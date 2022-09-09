@@ -318,7 +318,7 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(context.Background())
+	assets, err := assetStore.FetchAllAssets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 

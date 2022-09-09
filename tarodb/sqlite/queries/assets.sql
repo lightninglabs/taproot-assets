@@ -198,8 +198,7 @@ LEFT JOIN key_fam_info
 JOIN internal_keys
     ON assets.script_key_id = internal_keys.key_id;
 
--- name: FetchAllAssets :many
--- TODO(roasbeef): identical to the above but no batch, how to combine?
+-- name: QueryAssets :many
 WITH genesis_info AS (
     -- This CTE is used to fetch the base asset information from disk based on
     -- the raw key of the batch that will ultimately create this set of assets.
@@ -213,6 +212,9 @@ WITH genesis_info AS (
     FROM genesis_assets
     JOIN genesis_points
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+    -- This filter only runs if the asset_id_filter arg was passed in. This
+    -- lets us fetch only the assets for this particular asset ID.
+    WHERE length(hex(sqlc.narg('asset_id_filter'))) == 0 OR genesis_assets.asset_id = sqlc.narg('asset_id_filter')
 ), key_fam_info AS (
     -- This CTE is used to perform a series of joins that allow us to extract
     -- the family key information, as well as the family sigs for the series of
@@ -226,7 +228,10 @@ WITH genesis_info AS (
     JOIN internal_keys keys
         ON keys.key_id = fams.internal_key_id
     -- TODO(roasbeef): or can join do this below?
-    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
+    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info) AND
+        -- This filter only runs if the asset_id_filter arg was passed in. This
+        -- lets us fetch only the assets for this particular key family.
+       (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR fams.tweaked_fam_key = sqlc.narg('key_fam_filter'))
 )
 SELECT 
     assets.asset_id, version, internal_keys.raw_key AS script_key_raw, 
@@ -244,7 +249,7 @@ FROM assets
 JOIN genesis_info
     ON assets.asset_id = genesis_info.gen_asset_id
 -- We use a LEFT JOIN here as not every asset has a family key, so this'll
--- generate rows that have NULL values for the faily key fields if an asset
+-- generate rows that have NULL values for the family key fields if an asset
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info
@@ -254,7 +259,17 @@ JOIN internal_keys
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id
 JOIN chain_txns txns
-    ON utxos.txn_id = txns.txn_id;
+    ON utxos.txn_id = txns.txn_id
+-- This clause is used to select specific assets for a asset ID, general
+-- channel balances, and also coin selection. We use the sqlc.narg feature to
+-- make the entire statement evaluate to true, if none of these extra args are
+-- specified.
+WHERE (
+    assets.amount = COALESCE(sqlc.narg('min_amt'), assets.amount)
+);
+
+-- TODO(roasbeef): join on managed utxo ID
+-- * group by asset_id
 
 -- name: AllAssets :many
 SELECT * 
@@ -459,5 +474,7 @@ FROM asset_witnesses
 JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
 WHERE (
-    assets.asset_id = sqlc.narg('asset_id') OR sqlc.narg('asset_id') IS NULL
+    (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
 );
+
+-- name: AnchoredAssets

@@ -23,10 +23,14 @@ type Querier interface {
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	// TODO(roasbeef): identical to the above but no batch, how to combine?
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
-	// generate rows that have NULL values for the faily key fields if an asset
+	// generate rows that have NULL values for the family key fields if an asset
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
-	FetchAllAssets(ctx context.Context) ([]FetchAllAssetsRow, error)
+	// This clause is used to select specific assets for a asset ID, general
+	// channel balances, and also coin selection. We use the sqlc.narg feature to
+	// make the entire statement evaluate to true, if none of these extra args are
+	// specified.
+	FetchAllAssets(ctx context.Context, arg FetchAllAssetsParams) ([]FetchAllAssetsRow, error)
 	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
