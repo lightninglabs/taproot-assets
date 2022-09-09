@@ -234,69 +234,11 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 	return witness, nil
 }
 
-// AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
-// which lets us filter the results of the set of assets returned.
-type AssetQueryFilters struct {
-	tarofreighter.CommitmentConstraints
-}
-
-// FetchAllAssets fetches the set of confirmed assets stored on disk.
-func (a *AssetStore) FetchAllAssets(ctx context.Context,
-	query *AssetQueryFilters) ([]*ChainAsset, error) {
-
-	var (
-		dbAssets []ConfirmedAsset
-
-		assetWitnesses map[int32][]AssetWitness
-
-		err error
-	)
-
-	// We'll ow map the application level filtering to the type of
-	// filtering our database query understands.
-	var assetFilter QueryAssetFilters
-	if query != nil {
-		if query.Amt != 0 {
-			assetFilter.MinAmt = sql.NullInt64{
-				Int64: int64(query.Amt),
-				Valid: true,
-			}
-		}
-		if query.AssetID != nil {
-			assetID := query.AssetID[:]
-			assetFilter.AssetIDFilter = assetID
-		}
-		if query.FamilyKey != nil {
-			famKey := query.FamilyKey.SerializeCompressed()
-			assetFilter.KeyFamFilter = famKey
-		}
-	}
-
-	readOpts := NewAssetStoreReadTx()
-	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		// First, we'll fetch all the assets we know of on disk.
-		dbAssets, err = q.QueryAssets(ctx, assetFilter)
-		if err != nil {
-			return fmt.Errorf("unable to read db assets: %v", err)
-		}
-
-		assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
-			return a.AssetID
-		})
-
-		// With all the assets obtained, we'll now do a second query to
-		// obtain all the witnesses we know of for each asset.
-		assetWitnesses, err = fetchAssetWitnesses(ctx, q, assetIDs)
-		if err != nil {
-			return fmt.Errorf("unable to fetch asset "+
-				"witnesses: %w", err)
-		}
-
-		return nil
-	})
-	if dbErr != nil {
-		return nil, dbErr
-	}
+// dbAssetsToChainAssets maps a set of confirmed assets in the database, and
+// the witnesses of those assets to a set of normal ChainAsset structs needed
+// by a higher level application.
+func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
+	assetWitnesses map[int32][]AssetWitness) ([]*ChainAsset, error) {
 
 	chainAssets := make([]*ChainAsset, len(dbAssets))
 	for i, sprout := range dbAssets {
@@ -454,6 +396,73 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 	}
 
 	return chainAssets, nil
+}
+
+// AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
+// which lets us filter the results of the set of assets returned.
+type AssetQueryFilters struct {
+	tarofreighter.CommitmentConstraints
+}
+
+// FetchAllAssets fetches the set of confirmed assets stored on disk.
+func (a *AssetStore) FetchAllAssets(ctx context.Context,
+	query *AssetQueryFilters) ([]*ChainAsset, error) {
+
+	var (
+		dbAssets []ConfirmedAsset
+
+		assetWitnesses map[int32][]AssetWitness
+
+		err error
+	)
+
+	// We'll ow map the application level filtering to the type of
+	// filtering our database query understands.
+	var assetFilter QueryAssetFilters
+	if query != nil {
+		if query.Amt != 0 {
+			assetFilter.MinAmt = sql.NullInt64{
+				Int64: int64(query.Amt),
+				Valid: true,
+			}
+		}
+		if query.AssetID != nil {
+			assetID := query.AssetID[:]
+			assetFilter.AssetIDFilter = assetID
+		}
+		if query.FamilyKey != nil {
+			famKey := query.FamilyKey.SerializeCompressed()
+			assetFilter.KeyFamFilter = famKey
+		}
+	}
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// First, we'll fetch all the assets we know of on disk.
+		dbAssets, err = q.QueryAssets(ctx, assetFilter)
+		if err != nil {
+			return fmt.Errorf("unable to read db assets: %v", err)
+		}
+
+		assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
+			return a.AssetID
+		})
+
+		// With all the assets obtained, we'll now do a second query to
+		// obtain all the witnesses we know of for each asset.
+		assetWitnesses, err = fetchAssetWitnesses(ctx, q, assetIDs)
+		if err != nil {
+			return fmt.Errorf("unable to fetch asset "+
+				"witnesses: %w", err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return dbAssetsToChainAssets(dbAssets, assetWitnesses)
 }
 
 // FetchAssetProofs returns the latest proof file for either the set of target
