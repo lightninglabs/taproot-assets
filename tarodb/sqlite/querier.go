@@ -10,6 +10,8 @@ import (
 )
 
 type Querier interface {
+	// TODO(roasbeef): join on managed utxo ID
+	// * group by asset_id
 	AllAssets(ctx context.Context) ([]Asset, error)
 	AllInternalKeys(ctx context.Context) ([]InternalKey, error)
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
@@ -21,16 +23,6 @@ type Querier interface {
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
-	// TODO(roasbeef): identical to the above but no batch, how to combine?
-	// We use a LEFT JOIN here as not every asset has a family key, so this'll
-	// generate rows that have NULL values for the family key fields if an asset
-	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
-	// around that needs to be used with this query until a sqlc bug is fixed.
-	// This clause is used to select specific assets for a asset ID, general
-	// channel balances, and also coin selection. We use the sqlc.narg feature to
-	// make the entire statement evaluate to true, if none of these extra args are
-	// specified.
-	FetchAllAssets(ctx context.Context, arg FetchAllAssetsParams) ([]FetchAllAssetsRow, error)
 	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
@@ -65,6 +57,15 @@ type Querier interface {
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
+	// We use a LEFT JOIN here as not every asset has a family key, so this'll
+	// generate rows that have NULL values for the family key fields if an asset
+	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// around that needs to be used with this query until a sqlc bug is fixed.
+	// This clause is used to select specific assets for a asset ID, general
+	// channel balances, and also coin selection. We use the sqlc.narg feature to
+	// make the entire statement evaluate to true, if none of these extra args are
+	// specified.
+	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)

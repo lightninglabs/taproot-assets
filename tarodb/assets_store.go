@@ -20,7 +20,7 @@ import (
 
 type (
 	// ConfirmedAsset is an asset that has been fully confirmed on chain.
-	ConfirmedAsset = sqlite.FetchAllAssetsRow
+	ConfirmedAsset = sqlite.QueryAssetsRow
 
 	// AssetProof is the asset proof for a given asset, identified by its
 	// script key.
@@ -38,17 +38,17 @@ type (
 	// along the asset ID that the witness belong to.
 	AssetWitness = sqlite.FetchAssetWitnessesRow
 
-	// FetchAssetFilters lets us query assets in the database based on some
+	// QueryAssetFilters lets us query assets in the database based on some
 	// set filters. This is useful to get the balance of a set of assets,
 	// or for things like coin selection.
-	FetchAssetFilters = sqlite.FetchAllAssetsParams
+	QueryAssetFilters = sqlite.QueryAssetsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
-	// FetchAllAssets fetches the set of fully confirmed assets.
-	FetchAllAssets(context.Context, FetchAssetFilters) ([]ConfirmedAsset, error)
+	// QueryAssets fetches the set of fully confirmed assets.
+	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -254,7 +254,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 
 	// We'll ow map the application level filtering to the type of
 	// filtering our database query understands.
-	var assetFilter FetchAssetFilters
+	var assetFilter QueryAssetFilters
 	if query != nil {
 		if query.Amt != 0 {
 			assetFilter.MinAmt = sql.NullInt64{
@@ -275,7 +275,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		// First, we'll fetch all the assets we know of on disk.
-		dbAssets, err = q.FetchAllAssets(ctx, assetFilter)
+		dbAssets, err = q.QueryAssets(ctx, assetFilter)
 		if err != nil {
 			return fmt.Errorf("unable to read db assets: %v", err)
 		}
@@ -819,6 +819,32 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 	})
 }
 
-// A compile-time constant to ensure that AssetStore meets the proof.Archiver
+// SelectCommitment takes the set of commitment contrarians and returns an
+// AnchoredCommitment that returns all the information needed to use the
+// commitment as an input to an on chain taro transaction.
+//
+// NOTE: This implements the tarofreighter.CommitmentSelector interface.
+func (a *AssetStore) SelectCommitment(
+	ctx context.Context, constraints tarofreighter.CommitmentConstraints,
+) ([]*tarofreighter.AnchoredCommitment, error) {
+
+	// The FetchAllAssets method already implements filtering by the
+	// constraints we care about. So we simply need to convert our return
+	// type into the desired type.
+	/*matchingAssets, err := a.FetchAllAssets(ctx, &AssetQueryFilters{
+		CommitmentConstraints: constraints,
+	})
+	if err != nil {
+		return nil, err
+	}*/
+
+	return nil, nil
+}
+
+// A compile-time constraint to ensure that AssetStore meets the proof.Archiver
 // interface.
 var _ proof.Archiver = (*AssetStore)(nil)
+
+// A compile-time constraint to ensure that AssetStore meets the
+// tarofreighter.CommitmentSelector interface.
+var _ tarofreighter.CommitmentSelector = (*AssetStore)(nil)
