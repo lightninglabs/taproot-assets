@@ -257,7 +257,8 @@ LEFT JOIN key_fam_info
 JOIN internal_keys
     ON assets.script_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
-    ON assets.anchor_utxo_id = utxos.utxo_id
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+        (length(hex(sqlc.narg('anchor_point'))) == 0 OR utxos.outpoint = sqlc.narg('anchor_point'))
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 -- This clause is used to select specific assets for a asset ID, general
@@ -265,7 +266,7 @@ JOIN chain_txns txns
 -- make the entire statement evaluate to true, if none of these extra args are
 -- specified.
 WHERE (
-    assets.amount = COALESCE(sqlc.narg('min_amt'), assets.amount)
+    assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount)
 );
 
 -- TODO(roasbeef): join on managed utxo ID
@@ -349,8 +350,13 @@ RETURNING utxo_id;
 
 -- name: FetchManagedUTXO :one
 SELECT *
-from managed_utxos
-WHERE txn_id = ?;
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+WHERE (
+    txn_id = COALESCE(sqlc.narg('txn_id'), txn_id) AND
+    (length(hex(sqlc.narg('outpoint'))) == 0 OR utxos.outpoint = sqlc.narg('outpoint'))
+);
 
 -- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (
@@ -476,5 +482,3 @@ JOIN assets
 WHERE (
     (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
 );
-
--- name: AnchoredAssets

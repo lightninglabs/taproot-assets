@@ -9,13 +9,16 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
+	"golang.org/x/exp/maps"
 )
 
 type (
@@ -42,6 +45,14 @@ type (
 	// set filters. This is useful to get the balance of a set of assets,
 	// or for things like coin selection.
 	QueryAssetFilters = sqlite.QueryAssetsParams
+
+	// UtxoQuery lets us query a managed UTXO by either the transaction it
+	// references, or the outpoint.
+	UtxoQuery = sqlite.FetchManagedUTXOParams
+
+	// AnchorPoint wraps a managed UTXO along with all the auxiliary
+	// information it references.
+	AnchorPoint = sqlite.FetchManagedUTXORow
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
@@ -107,6 +118,10 @@ type ActiveAssetsStore interface {
 	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
 	// on disk (NULL param), or the witness for a given asset ID.
 	FetchAssetWitnesses(context.Context, sql.NullInt32) ([]AssetWitness, error)
+
+	// FetchManagedUTXO fetches a managed UTXO based on either the outpoint
+	// or the transaction that anchors it.
+	FetchManagedUTXO(context.Context, UtxoQuery) (AnchorPoint, error)
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -407,9 +422,9 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 	var assetFilter QueryAssetFilters
 	if query != nil {
-		if query.Amt != 0 {
+		if query.MinAmt != 0 {
 			assetFilter.MinAmt = sql.NullInt64{
-				Int64: int64(query.Amt),
+				Int64: int64(query.MinAmt),
 				Valid: true,
 			}
 		}
@@ -421,6 +436,7 @@ func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 			famKey := query.FamilyKey.SerializeCompressed()
 			assetFilter.KeyFamFilter = famKey
 		}
+		// TODO(roasbeef): only want to allow asset ID or other and not both?
 	}
 
 	return assetFilter
@@ -464,11 +480,9 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 	query *AssetQueryFilters) ([]*ChainAsset, error) {
 
 	var (
-		dbAssets []ConfirmedAsset
-
+		dbAssets       []ConfirmedAsset
 		assetWitnesses map[int32][]AssetWitness
-
-		err error
+		err            error
 	)
 
 	// We'll now map the application level filtering to the type of
@@ -855,6 +869,25 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 	})
 }
 
+// queryChainAssets queries the database for assets matching the passed filter.
+// The returned assets have all anchor and witness information populated.
+func queryChainAssets(ctx context.Context, q ActiveAssetsStore,
+	filter QueryAssetFilters) ([]*ChainAsset, error) {
+
+	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
+		ctx, q, filter,
+	)
+	if err != nil {
+		return nil, err
+	}
+	matchingAssets, err := dbAssetsToChainAssets(dbAssets, assetWitnesses)
+	if err != nil {
+		return nil, err
+	}
+
+	return matchingAssets, nil
+}
+
 // SelectCommitment takes the set of commitment contrarians and returns an
 // AnchoredCommitment that returns all the information needed to use the
 // commitment as an input to an on chain taro transaction.
@@ -864,17 +897,144 @@ func (a *AssetStore) SelectCommitment(
 	ctx context.Context, constraints tarofreighter.CommitmentConstraints,
 ) ([]*tarofreighter.AnchoredCommitment, error) {
 
-	// The FetchAllAssets method already implements filtering by the
-	// constraints we care about. So we simply need to convert our return
-	// type into the desired type.
-	/*matchingAssets, err := a.FetchAllAssets(ctx, &AssetQueryFilters{
-		CommitmentConstraints: constraints,
-	})
-	if err != nil {
-		return nil, err
-	}*/
+	var (
+		matchingAssets      []*ChainAsset
+		chainAnchorToAssets = make(map[wire.OutPoint][]*ChainAsset)
+		anchorPoints        = make(map[wire.OutPoint]AnchorPoint)
+		err                 error
+	)
 
-	return nil, nil
+	// First, we'll map the commitment constraints to our database query
+	// filters.
+	assetFilter := constraintsToDbFilter(&AssetQueryFilters{
+		constraints,
+	})
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// Now that we have the set of filters we need we'll query the
+		// DB for the set of assets that matches them.
+		matchingAssets, err = queryChainAssets(ctx, q, assetFilter)
+		if err != nil {
+			return err
+		}
+
+		// At this point, we have the set of assets that match our
+		// filter query, but we also need to be able to construct the
+		// full Taro commitment for each asset so it can be used as an
+		// input in a transaction.
+		//
+		// To obtain this, we'll first do another query to fetch all
+		// the _other_ assets that are anchored at the anchor point for
+		// each of the assets above.
+		for _, matchingAsset := range matchingAssets {
+			anchorPoint := matchingAsset.AnchorOutpoint
+			anchorPointBytes, err := encodeOutpoint(
+				matchingAsset.AnchorOutpoint,
+			)
+			if err != nil {
+				return err
+			}
+			outpointQuery := QueryAssetFilters{
+				AnchorPoint: anchorPointBytes,
+			}
+
+			anchoredAssets, err := queryChainAssets(
+				ctx, q, outpointQuery,
+			)
+			if err != nil {
+				return err
+			}
+
+			chainAnchorToAssets[anchorPoint] = anchoredAssets
+
+			// In addition to the assets anchored at the target
+			// UTXO, we'll also fetch the managed UTXO itself.
+			anchorUTXO, err := q.FetchManagedUTXO(ctx, UtxoQuery{
+				Outpoint: anchorPointBytes,
+			})
+			if err != nil {
+				return err
+			}
+
+			anchorPoints[anchorPoint] = anchorUTXO
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	// Our final query wants the complete taro commitment for each of the
+	// managed UTXOs. Some of the assets that match our query might
+	// actually be in the same Taro commitment, so we'll collect this now
+	// to de-dup things early.
+	anchorPointToCommitment := make(map[wire.OutPoint]*commitment.TaroCommitment)
+	for anchorPoint, anchoredAssets := range chainAnchorToAssets {
+		// First, we need to group each of the assets according to
+		// their asset.
+		assetsByID := make(map[asset.ID][]*asset.Asset)
+		for _, asset := range anchoredAssets {
+			assetID := asset.ID()
+			assetsByID[assetID] = append(assetsByID[assetID], asset.Asset)
+		}
+
+		// Now that we have each asset grouped by their asset ID, we
+		// can make an asset commitment for each of them.
+		assetCommitments := make(map[asset.ID]*commitment.AssetCommitment)
+		for assetID, assets := range assetsByID {
+			assetCommitment, err := commitment.NewAssetCommitment(
+				assets...,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			assetCommitments[assetID] = assetCommitment
+		}
+
+		// Finally, we'll construct the Taro commitment for this group
+		// of assets.
+		taroCommitment, err := commitment.NewTaroCommitment(
+			maps.Values(assetCommitments)...,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		anchorPointToCommitment[anchorPoint] = taroCommitment
+	}
+
+	// Now that we have all the matching assets, along w/ all the other
+	// assets that are committed in the same outpoint, we can construct our
+	// final response.
+	selectedAssets := make(
+		[]*tarofreighter.AnchoredCommitment, len(matchingAssets),
+	)
+	for i, matchingAsset := range matchingAssets {
+		// Using the anchor point of the matching asset, we can obtain
+		// the UTXO that anchors things, and then the internal key from
+		// that.
+		anchorPoint := matchingAsset.AnchorOutpoint
+
+		anchorUTXO := anchorPoints[anchorPoint]
+		internalKey, err := btcec.ParsePubKey(anchorUTXO.RawKey)
+		if err != nil {
+			return nil, err
+		}
+
+		selectedAssets[i] = &tarofreighter.AnchoredCommitment{
+			AnchorPoint:       anchorPoint,
+			AnchorOutputValue: btcutil.Amount(anchorUTXO.AmtSats),
+			InternalKey:       *internalKey,
+			TapscriptSibling:  anchorUTXO.TapscriptSibling,
+			Asset:             matchingAsset.Asset,
+			Commitment:        anchorPointToCommitment[anchorPoint],
+		}
+	}
+
+	return selectedAssets, nil
 }
 
 // A compile-time constraint to ensure that AssetStore meets the proof.Archiver

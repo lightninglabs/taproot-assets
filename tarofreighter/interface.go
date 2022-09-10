@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -24,9 +25,9 @@ type CommitmentConstraints struct {
 	// AssetID is the asset ID that needs to be satisfied.
 	AssetID *asset.ID
 
-	// Amt is the minimum amount that an asset commitment needs to hold to
-	// satisfy the constraints.
-	Amt uint64
+	// MinAmt is the minimum amount that an asset commitment needs to hold
+	// to satisfy the constraints.
+	MinAmt uint64
 }
 
 // AnchoredCommitment is the response to satisfying the set of
@@ -36,6 +37,9 @@ type AnchoredCommitment struct {
 	// AnchorPoint is the outpoint that the Commitment below is anchored on
 	// in the main chain.
 	AnchorPoint wire.OutPoint
+
+	// AnchorOutputValue is outout value of the anchor output.
+	AnchorOutputValue btcutil.Amount
 
 	// InternalKey is the internal key that's used to anchor the commitment
 	// in the above out point.

@@ -36,7 +36,7 @@ type Querier interface {
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt32) (GenesisPoint, error)
-	FetchManagedUTXO(ctx context.Context, txnID int32) (ManagedUtxo, error)
+	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByStateRow, error)

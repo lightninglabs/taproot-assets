@@ -698,14 +698,38 @@ func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sq
 }
 
 const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
-from managed_utxos
-WHERE txn_id = ?
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, key_family, key_index
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+WHERE (
+    txn_id = COALESCE($1, txn_id) AND
+    (length(hex($2)) == 0 OR utxos.outpoint = $2)
+)
 `
 
-func (q *Queries) FetchManagedUTXO(ctx context.Context, txnID int32) (ManagedUtxo, error) {
-	row := q.db.QueryRowContext(ctx, fetchManagedUTXO, txnID)
-	var i ManagedUtxo
+type FetchManagedUTXOParams struct {
+	TxnID    sql.NullInt32
+	Outpoint interface{}
+}
+
+type FetchManagedUTXORow struct {
+	UtxoID           int32
+	Outpoint         []byte
+	AmtSats          int64
+	InternalKeyID    int32
+	TapscriptSibling []byte
+	TaroRoot         []byte
+	TxnID            int32
+	KeyID            int32
+	RawKey           []byte
+	KeyFamily        int32
+	KeyIndex         int32
+}
+
+func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error) {
+	row := q.db.QueryRowContext(ctx, fetchManagedUTXO, arg.TxnID, arg.Outpoint)
+	var i FetchManagedUTXORow
 	err := row.Scan(
 		&i.UtxoID,
 		&i.Outpoint,
@@ -714,6 +738,10 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, txnID int32) (ManagedUtx
 		&i.TapscriptSibling,
 		&i.TaroRoot,
 		&i.TxnID,
+		&i.KeyID,
+		&i.RawKey,
+		&i.KeyFamily,
+		&i.KeyIndex,
 	)
 	return i, err
 }
@@ -1199,7 +1227,7 @@ WITH genesis_info AS (
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id
     -- This filter only runs if the asset_id_filter arg was passed in. This
     -- lets us fetch only the assets for this particular asset ID.
-    WHERE length(hex($2)) == 0 OR genesis_assets.asset_id = $2
+    WHERE length(hex($3)) == 0 OR genesis_assets.asset_id = $3
 ), key_fam_info AS (
     -- This CTE is used to perform a series of joins that allow us to extract
     -- the family key information, as well as the family sigs for the series of
@@ -1216,7 +1244,7 @@ WITH genesis_info AS (
     WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info) AND
         -- This filter only runs if the asset_id_filter arg was passed in. This
         -- lets us fetch only the assets for this particular key family.
-       (length(hex($3)) == 0 OR fams.tweaked_fam_key = $3)
+       (length(hex($4)) == 0 OR fams.tweaked_fam_key = $4)
 )
 SELECT 
     assets.asset_id, version, internal_keys.raw_key AS script_key_raw, 
@@ -1238,15 +1266,17 @@ LEFT JOIN key_fam_info
 JOIN internal_keys
     ON assets.script_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
-    ON assets.anchor_utxo_id = utxos.utxo_id
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+        (length(hex($1)) == 0 OR utxos.outpoint = $1)
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
-    assets.amount = COALESCE($1, assets.amount)
+    assets.amount >= COALESCE($2, assets.amount)
 )
 `
 
 type QueryAssetsParams struct {
+	AnchorPoint   interface{}
 	MinAmt        sql.NullInt64
 	AssetIDFilter interface{}
 	KeyFamFilter  interface{}
@@ -1288,7 +1318,12 @@ type QueryAssetsRow struct {
 // make the entire statement evaluate to true, if none of these extra args are
 // specified.
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssets, arg.MinAmt, arg.AssetIDFilter, arg.KeyFamFilter)
+	rows, err := q.db.QueryContext(ctx, queryAssets,
+		arg.AnchorPoint,
+		arg.MinAmt,
+		arg.AssetIDFilter,
+		arg.KeyFamFilter,
+	)
 	if err != nil {
 		return nil, err
 	}
