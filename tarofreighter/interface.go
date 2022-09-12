@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -67,4 +68,97 @@ type CommitmentSelector interface {
 	// the commitment as an input to an on chain taro transaction.
 	SelectCommitment(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
+}
+
+// AssetSpendDelta describes the mutation of an asset as part of an outbound
+// parcel (batched send). As we always require script keys to be unique, we
+// simply need to know the old script key, and the new amount.
+type AssetSpendDelta struct {
+	// OldScriptKey is the old script key that uniquely identified the
+	// spent asset on disk.
+	OldScriptKey btcec.PublicKey
+
+	// NewAmt is the new amount for the asset.
+	NewAmt uint64
+
+	// NewScriptKey is the new script key.
+	NewScriptKey btcec.PublicKey
+}
+
+// OutboundParcelDelta represents the database level delta of an outbound taro
+// parcel (outbound spend). A spend will destroy a series of assets at the old
+// anchor point, and re-create them at the new anchor point. Along the way some
+// assets may have been split or sent to others. This is reflected in the set
+// of AssetSpendDeltas.
+type OutboundParcelDelta struct {
+	// OldAnchorPoint is the old/current location of the Taro commitment
+	// that was spent as an input.
+	OldAnchorPoint wire.OutPoint
+
+	// NewAnchorPoint is the new location of the Taro commitment referenced
+	// by the OldAnchorPoint.
+	NewAnchorPoint wire.OutPoint
+
+	// NewInternalKey is the new internal key that commits to the set of
+	// assets anchored at the new outpoint.
+	NewInternalKey btcec.PublicKey
+
+	// TaroRoot is the new Taro root that commits to the set of modified
+	// and unmodified assets.
+	TaroRoot []byte
+
+	// TapscriptSibling is the tapscript sibling for the asset commitment
+	// above.
+	TapscriptSibling []byte
+
+	// AnchorTx is the new transaction that commits to the set of Taro
+	// assets found at the above NewAnchorPoint.
+	AnchorTx *wire.MsgTx
+
+	// AssetSpendDeltas describes the set of mutated assets that now live
+	// at the new anchor tx point.
+	AssetSpendDeltas []AssetSpendDelta
+
+	// TODO(roasbeef): also include pre-populated state transition blobs to
+	// append/extend for entire set of assets?
+	//  * if want to append in db, need incremental hash for proof file
+	//  digest
+}
+
+// AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
+type AssetConfirmEvent struct {
+	// AnchorPoint is the anchor point that was previously unconfirmed.
+	AnchorPoint wire.OutPoint
+
+	// BlockHash is the block hash that confirmed the above anchor point.
+	BlockHash chainhash.Hash
+
+	// BlockHeight is the height of the block hash above.
+	BlockHeight int32
+
+	// TxIndex is the location within the block that confirmed the anchor
+	// point.
+	TxIndex int32
+}
+
+// ExportLog is used to track the state of outbound taro parcels (batched
+// spends). This log is used by the ChainPorter to mark pending outbound
+// deliveries, and finally confirm the deliveries once they've been committed
+// to the main chain.
+//
+// TODO(roasbeef): also want to be able to roll back? rbf, double spends, etc,
+// etc.
+type ExportLog interface {
+	// LogPendingParcel marks an outbound parcel as pending on disk. This
+	// commits the set of chagnes to disk (the asset deltas) but doesn't
+	// mark the batched spend as being finalized.
+	//
+	// TODO(roasbeef): should actually commit the delta then only mutate
+	// things as below?
+	LogPendingParcel(*OutboundParcelDelta) error
+
+	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
+	// updates the on-chain reference information on disk to point to this
+	// new spend.
+	ConfirmParcelDelivery(*AssetConfirmEvent) error
 }
