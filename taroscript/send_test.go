@@ -762,7 +762,7 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			)
 			return err
 		},
-		err: vm.Error{Kind: vm.ErrNoInputs},
+		err: vm.ErrNoInputs,
 	},
 	{
 		name: "validate with empty InputAssets",
@@ -783,7 +783,7 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			)
 			return err
 		},
-		err: vm.Error{Kind: vm.ErrNoInputs},
+		err: taroscript.ErrNoInputs,
 	},
 	{
 		name: "validate collectible with family key",

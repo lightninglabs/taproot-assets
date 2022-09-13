@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
@@ -129,7 +130,7 @@ func (vm *Engine) validateSplit() error {
 	// TODO(roasbeef): revisit?
 	prevAsset, ok := vm.prevAssets[*witness.PrevID]
 	if !ok {
-		return newErrKind(ErrNoInputs)
+		return ErrNoInputs
 	}
 	err := matchesAssetParams(&vm.splitAsset.Asset, prevAsset, &witness)
 	if err != nil {
@@ -169,7 +170,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 
 	// We only support version 0 scripts atm.
 	if prevAsset.ScriptVersion != asset.ScriptV0 {
-		return newErrKind(ErrInvalidScriptVersion)
+		return ErrInvalidScriptVersion
 	}
 
 	// An input MUST have a prev out and also a valid witness.
@@ -202,15 +203,18 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 
 	// Update the virtual transaction input with details for the specific
 	// Taro input and proceed to validate its witness.
-	virtualTxCopy := virtualTxWithInput(
+	virtualTxCopy := taroscript.VirtualTxWithInput(
 		virtualTx, prevAsset, inputIdx, witness.TxWitness,
 	)
 
-	prevOutFetcher, err := inputPrevOutFetcher(
+	prevOutFetcher, err := taroscript.InputPrevOutFetcher(
 		prevAsset.ScriptVersion, prevAsset.ScriptKey.PubKey,
 		prevAsset.Amount,
 	)
 	if err != nil {
+		if errors.Is(err, taroscript.ErrInvalidScriptVersion) {
+			return ErrInvalidScriptVersion
+		}
 		return err
 	}
 
@@ -245,7 +249,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 	switch {
 	case len(vm.newAsset.PrevWitnesses) == 0:
-		return newErrKind(ErrNoInputs)
+		return ErrNoInputs
 
 	case vm.newAsset.Type == asset.Collectible &&
 		len(vm.newAsset.PrevWitnesses) > 1:
@@ -257,7 +261,7 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 		witness := witness
 		prevAsset, ok := vm.prevAssets[*witness.PrevID]
 		if !ok {
-			return newErrKind(ErrNoInputs)
+			return ErrNoInputs
 		}
 
 		switch prevAsset.ScriptVersion {
@@ -269,7 +273,7 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 				return err
 			}
 		default:
-			return newErrKind(ErrInvalidScriptVersion)
+			return ErrInvalidScriptVersion
 		}
 	}
 
@@ -300,8 +304,16 @@ func (vm *Engine) Execute() error {
 	// Now that we know we're not dealing with a genesis state transition,
 	// we'll map our set of asset inputs and outputs to the 1-input 1-output
 	// virtual transaction.
-	virtualTx, inputTree, err := VirtualTx(vm.newAsset, vm.prevAssets)
+	virtualTx, inputTree, err := taroscript.VirtualTx(
+		vm.newAsset, vm.prevAssets,
+	)
 	if err != nil {
+		if errors.Is(err, taroscript.ErrInputMismatch) {
+			return ErrInputMismatch
+		}
+		if errors.Is(err, taroscript.ErrNoInputs) {
+			return ErrNoInputs
+		}
 		return err
 	}
 

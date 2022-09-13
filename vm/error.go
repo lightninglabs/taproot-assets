@@ -2,23 +2,17 @@ package vm
 
 import (
 	"fmt"
+
+	"github.com/lightninglabs/taro/taroscript"
 )
 
 // ErrorKind uniquely identifies the kind of Error returned by the Taro VM.
 type ErrorKind uint8
 
 const (
-	// ErrNoInputs represents an error case where an asset undergoing a
-	// state transition does not have any or a specific input required.
-	ErrNoInputs ErrorKind = iota
-
 	// ErrNoSplitCommitment represents an error case where a split
 	// commitment root is not present when required.
-	ErrNoSplitCommitment
-
-	// ErrInputMismatch represents an error case where an asset's set of
-	// inputs mismatch the set provided to the virtual machine.
-	ErrInputMismatch
+	ErrNoSplitCommitment ErrorKind = iota
 
 	// ErrIDMismatch represents an error case where an asset, or asset
 	// split, do not match the asset genesis of their inputs.
@@ -52,10 +46,6 @@ const (
 	// virtual machine.
 	ErrInvalidTransferWitness
 
-	// ErrInvalidScriptVersion represents an error case where an asset input
-	// commits to an invalid script version.
-	ErrInvalidScriptVersion
-
 	// ErrInvalidSplitAssetType represents an error case where an asset
 	// split type is not `asset.Normal`.
 	ErrInvalidSplitAssetType
@@ -69,14 +59,26 @@ const (
 	ErrInvalidSplitCommitmentProof
 )
 
+// Wrap select errors related to virtual TX handling to provide more
+// context to callers.
+var (
+	// ErrInvalidScriptVersion represents an error case where an asset input
+	// commits to an invalid script version.
+	ErrInvalidScriptVersion = taroscript.ErrInvalidScriptVersion
+
+	// ErrInputMismatch represents an error case where an asset's set of
+	// inputs mismatch the set provided to the virtual machine.
+	ErrInputMismatch = taroscript.ErrInputMismatch
+
+	// ErrNoInputs represents an error case where an asset undergoing a
+	// state transition does not have any or a specific input required.
+	ErrNoInputs = taroscript.ErrNoInputs
+)
+
 func (k ErrorKind) String() string {
 	switch k {
-	case ErrNoInputs:
-		return "missing asset input(s)"
 	case ErrNoSplitCommitment:
 		return "missing asset split commitment root"
-	case ErrInputMismatch:
-		return "asset input(s) mismatch"
 	case ErrIDMismatch:
 		return "asset id mismatch"
 	case ErrTypeMismatch:
@@ -91,8 +93,6 @@ func (k ErrorKind) String() string {
 		return "invalid genesis state transition"
 	case ErrInvalidTransferWitness:
 		return "invalid transfer asset witness"
-	case ErrInvalidScriptVersion:
-		return "invalid script version"
 	case ErrInvalidSplitAssetType:
 		return "invalid split asset type"
 	case ErrInvalidSplitCommitmentWitness:
@@ -116,7 +116,7 @@ func newErrKind(kind ErrorKind) Error {
 }
 
 // newErrInner returns a new error with a particular kind, that wraps an
-// existing error. The inner error can be obtained via the Unwrap method .
+// existing error. The inner error can be obtained via the Unwrap method.
 func newErrInner(kind ErrorKind, inner error) Error {
 	return Error{Kind: kind, Inner: inner}
 }

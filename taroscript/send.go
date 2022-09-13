@@ -328,14 +328,14 @@ func CompleteAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
 
 	// Create a Taro virtual transaction representing the asset transfer,
 	// and sign a witness over that virtual transaction.
-	virtualTx, _, err := vm.VirtualTx(
+	virtualTx, _, err := VirtualTx(
 		&updatedDelta.NewAsset, updatedDelta.InputAssets,
 	)
 	if err != nil {
 		return nil, err
 	}
 	inputAsset := updatedDelta.InputAssets[prevInput]
-	newWitness, err := vm.SignTaprootKeySpend(
+	newWitness, err := SignTaprootKeySpend(
 		privKey, virtualTx, inputAsset, 0,
 	)
 	if err != nil {

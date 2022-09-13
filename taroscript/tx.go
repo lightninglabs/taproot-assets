@@ -1,9 +1,10 @@
-package vm
+package taroscript
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -13,6 +14,20 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
+)
+
+var (
+	// ErrNoInputs represents an error case where an asset undergoing a
+	// state transition does not have any or a specific input required.
+	ErrNoInputs = errors.New("missing asset input(s)")
+
+	// ErrInputMismatch represents an error case where an asset's set of
+	// inputs mismatch the set provided to the virtual machine.
+	ErrInputMismatch = errors.New("asset input(s) mismatch")
+
+	// ErrInvalidScriptVersion represents an error case where an asset input
+	// commits to an invalid script version.
+	ErrInvalidScriptVersion = errors.New("invalid script version")
 )
 
 const (
@@ -72,14 +87,14 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		for _, input := range newAsset.PrevWitnesses {
 			// At this point, each input MUST have a prev ID.
 			if input.PrevID == nil {
-				return nil, nil, newErrKind(ErrNoInputs)
+				return nil, nil, ErrNoInputs
 			}
 
 			// The set of prev assets are similar to the prev
 			// output fetcher used in taproot.
 			prevAsset, ok := prevAssets[*input.PrevID]
 			if !ok {
-				return nil, nil, newErrKind(ErrNoInputs)
+				return nil, nil, ErrNoInputs
 			}
 
 			// Now we'll insert his prev asset leaf into the tree.
@@ -105,7 +120,7 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		//
 		// TODO(roasbeef): make further expliit?
 		if len(inputsConsumed) != len(prevAssets) {
-			return nil, nil, newErrKind(ErrInputMismatch)
+			return nil, nil, ErrInputMismatch
 		}
 	}
 
@@ -223,7 +238,7 @@ func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 // This is used to further bind a given witness to the "true" input it spends.
 // We'll use the index of the serialized input to bind the prev index, which
 // represents the "leaf index" of the virtual input MS-SMT.
-func virtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
+func VirtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32, witness wire.TxWitness) *wire.MsgTx {
 
 	txCopy := virtualTx.Copy()
@@ -234,9 +249,9 @@ func virtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
 	return txCopy
 }
 
-// inputPrevOutFetcher returns a Taro input's `PrevOutFetcher` to be used
+// InputPrevOutFetcher returns a Taro input's `PrevOutFetcher` to be used
 // throughout signing.
-func inputPrevOutFetcher(version asset.ScriptVersion,
+func InputPrevOutFetcher(version asset.ScriptVersion,
 	scriptKey *btcec.PublicKey, amount uint64) (
 	*txscript.CannedPrevOutputFetcher, error) {
 
@@ -250,7 +265,7 @@ func inputPrevOutFetcher(version asset.ScriptVersion,
 			return nil, err
 		}
 	default:
-		return nil, newErrKind(ErrInvalidScriptVersion)
+		return nil, ErrInvalidScriptVersion
 	}
 	return txscript.NewCannedPrevOutputFetcher(pkScript, int64(amount)), nil
 }
@@ -261,8 +276,8 @@ func inputPrevOutFetcher(version asset.ScriptVersion,
 func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32) ([]byte, error) {
 
-	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
-	prevOutFetcher, err := inputPrevOutFetcher(
+	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
+	prevOutFetcher, err := InputPrevOutFetcher(
 		input.ScriptVersion, input.ScriptKey.PubKey, input.Amount,
 	)
 	if err != nil {
@@ -281,8 +296,8 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32, tapLeaf *txscript.TapLeaf) ([]byte, error) {
 
-	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
-	prevOutFetcher, err := inputPrevOutFetcher(
+	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
+	prevOutFetcher, err := InputPrevOutFetcher(
 		input.ScriptVersion, input.ScriptKey.PubKey, input.Amount,
 	)
 	if err != nil {
@@ -301,7 +316,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 func SignTaprootKeySpend(privKey btcec.PrivateKey, virtualTx *wire.MsgTx,
 	input *asset.Asset, idx uint32) (*wire.TxWitness, error) {
 
-	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
+	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
 	sigHash, err := InputKeySpendSigHash(virtualTxCopy, input, idx)
 	if err != nil {
 		return nil, err
