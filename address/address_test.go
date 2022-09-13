@@ -1,7 +1,6 @@
 package address
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -9,12 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,26 +22,6 @@ var (
 	)
 	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
 )
-
-func randKey(t *testing.T) *btcec.PrivateKey {
-	t.Helper()
-	key, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	return key
-}
-
-func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
-	t.Helper()
-
-	return asset.Genesis{
-		FirstPrevOut: wire.OutPoint{},
-		Tag:          "",
-		Metadata:     []byte{},
-		OutputIndex:  rand.Uint32(),
-		Type:         assetType,
-	}
-}
 
 func randAddress(t *testing.T, net *ChainParams, famKey bool,
 	amt *uint64, assetType asset.Type) (*Taro, error) {
@@ -215,45 +189,6 @@ func TestNewAddress(t *testing.T) {
 			return
 		}
 	}
-}
-
-// TestPayToAddrScript tests edge cases around creating a P2TR script with
-// PayToAddrScript.
-func TestPayToAddrScript(t *testing.T) {
-	t.Parallel()
-
-	normalAmt1 := 5
-	genesis1 := randGenesis(t, asset.Normal)
-	receiverKey1 := randKey(t)
-	receiverPubKey1 := receiverKey1.PubKey()
-	receiver1Descriptor := keychain.KeyDescriptor{PubKey: receiverPubKey1}
-
-	inputAsset1, err := asset.New(
-		genesis1, uint64(normalAmt1), 1, 1, receiver1Descriptor, nil,
-	)
-	require.NoError(t, err)
-	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
-	require.NoError(t, err)
-	inputAsset1TaroTree, err := commitment.NewTaroCommitment(
-		inputAsset1AssetTree,
-	)
-	require.NoError(t, err)
-
-	scriptNoSibling, err := PayToAddrScript(
-		*receiverPubKey1, nil, *inputAsset1TaroTree,
-	)
-	require.NoError(t, err)
-	require.Equal(t, scriptNoSibling[0], byte(txscript.OP_1))
-	require.Equal(t, scriptNoSibling[1], byte(sha256.Size))
-
-	sibling, err := chainhash.NewHash(hashBytes1[:])
-	require.NoError(t, err)
-	scriptWithSibling, err := PayToAddrScript(
-		*receiverPubKey1, sibling, *inputAsset1TaroTree,
-	)
-	require.NoError(t, err)
-	require.Equal(t, scriptWithSibling[0], byte(txscript.OP_1))
-	require.Equal(t, scriptWithSibling[1], byte(sha256.Size))
 }
 
 func TestAddressEncoding(t *testing.T) {

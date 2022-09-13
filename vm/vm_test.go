@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -91,8 +92,8 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	controlBlockBytes, err := controlBlock.ToBytes()
 	require.NoError(t, err)
 
-	virtualTxCopy := virtualTxWithInput(virtualTx, input, idx, nil)
-	sigHash, err := InputScriptSpendSigHash(
+	virtualTxCopy := taroscript.VirtualTxWithInput(virtualTx, input, idx, nil)
+	sigHash, err := taroscript.InputScriptSpendSigHash(
 		virtualTxCopy, input, idx, tapLeaf,
 	)
 	require.NoError(t, err)
@@ -153,9 +154,11 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	}}
 
 	inputs := commitment.InputSet{*prevID: genesisAsset}
-	virtualTx, _, err := VirtualTx(newAsset, inputs)
+	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
-	newWitness, err := SignTaprootKeySpend(*privKey, virtualTx, genesisAsset, 0)
+	newWitness, err := taroscript.SignTaprootKeySpend(
+		*privKey, virtualTx, genesisAsset, 0,
+	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = *newWitness
 
@@ -218,9 +221,9 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		*prevID1: genesisAsset1,
 		*prevID2: genesisAsset2,
 	}
-	virtualTx, _, err := VirtualTx(newAsset, inputs)
+	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
-	newWitness, err := SignTaprootKeySpend(
+	newWitness, err := taroscript.SignTaprootKeySpend(
 		*privKey1, virtualTx, genesisAsset1, 0,
 	)
 	require.NoError(t, err)
@@ -266,11 +269,13 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	)
 	require.NoError(t, err)
 
-	virtualTx, _, err := VirtualTx(
+	virtualTx, _, err := taroscript.VirtualTx(
 		splitCommitment.RootAsset, splitCommitment.PrevAssets,
 	)
 	require.NoError(t, err)
-	newWitness, err := SignTaprootKeySpend(*privKey, virtualTx, genesisAsset, 0)
+	newWitness, err := taroscript.SignTaprootKeySpend(
+		*privKey, virtualTx, genesisAsset, 0,
+	)
 	require.NoError(t, err)
 	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = *newWitness
 

@@ -8,11 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/bech32"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -162,21 +158,6 @@ func (a *Taro) TaroCommitmentKey() [32]byte {
 // specified by a Taro address.
 func (a *Taro) AssetCommitmentKey() [32]byte {
 	return asset.AssetCommitmentKey(a.ID, &a.ScriptKey, a.FamilyKey == nil)
-}
-
-// PayToAddrScript constructs a P2TR script that embeds a Taro commitment
-// by tweaking the receiver key by a Tapscript tree that contains the Taro
-// commitment root. The Taro commitment must be reconstructed by the receiver,
-// and they also need to Tapscript sibling hash used here if present.
-func PayToAddrScript(internalKey btcec.PublicKey, sibling *chainhash.Hash,
-	commitment commitment.TaroCommitment) ([]byte, error) {
-
-	tapscriptRoot := commitment.TapscriptRoot(sibling)
-	outputKey := txscript.ComputeTaprootOutputKey(
-		&internalKey, tapscriptRoot[:],
-	)
-
-	return vm.PayToTaprootScript(outputKey)
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an

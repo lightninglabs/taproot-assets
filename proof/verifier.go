@@ -147,7 +147,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	// asset's witness. If so, extract the root asset from the split asset.
 	newAsset := &p.Asset
 	var splitAsset *commitment.SplitAsset
-	if vm.HasSplitCommitmentWitness(newAsset) {
+	if newAsset.HasSplitCommitmentWitness() {
 		// In this case, an asset was created via a split, so we need
 		// to first verify that asset that created the split (the new
 		// asset).

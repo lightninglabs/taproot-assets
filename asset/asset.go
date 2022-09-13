@@ -19,6 +19,10 @@ import (
 // Version denotes the version of the Taro protocol in effect for an asset.
 type Version uint8
 
+var (
+	zeroPrevID PrevID
+)
+
 const (
 	// V0 is the initial Taro protocol version.
 	V0 Version = 0
@@ -510,6 +514,37 @@ func (a *Asset) AssetCommitmentKey() [32]byte {
 	return AssetCommitmentKey(
 		a.Genesis.ID(), a.ScriptKey.PubKey, issuanceDisabled,
 	)
+}
+
+// HasGenesisWitness determines whether an asset has a valid genesis witness,
+// which should only have one input with a zero PrevID and empty witness and
+// split commitment proof.
+func (a *Asset) HasGenesisWitness() bool {
+	if len(a.PrevWitnesses) != 1 {
+		return false
+	}
+
+	witness := a.PrevWitnesses[0]
+	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
+		witness.SplitCommitment != nil {
+
+		return false
+	}
+
+	return *witness.PrevID == zeroPrevID
+}
+
+// HasSplitCommitmentWitness returns true if an asset has a split commitment
+// witness.
+func (a *Asset) HasSplitCommitmentWitness() bool {
+	if len(a.PrevWitnesses) != 1 {
+		return false
+	}
+
+	witness := a.PrevWitnesses[0]
+
+	return witness.PrevID != nil && len(witness.TxWitness) == 0 &&
+		witness.SplitCommitment != nil
 }
 
 // Copy returns a deep copy of an Asset.
