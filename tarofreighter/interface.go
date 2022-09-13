@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // CommitmentConstraints conveys the constraints on the type of Taro asset
@@ -82,7 +83,7 @@ type AssetSpendDelta struct {
 	NewAmt uint64
 
 	// NewScriptKey is the new script key.
-	NewScriptKey btcec.PublicKey
+	NewScriptKey keychain.KeyDescriptor
 }
 
 // OutboundParcelDelta represents the database level delta of an outbound taro
@@ -101,7 +102,9 @@ type OutboundParcelDelta struct {
 
 	// NewInternalKey is the new internal key that commits to the set of
 	// assets anchored at the new outpoint.
-	NewInternalKey btcec.PublicKey
+	//
+	// TODO(roasbeef): move below fields into new struct?
+	NewInternalKey keychain.KeyDescriptor
 
 	// TaroRoot is the new Taro root that commits to the set of modified
 	// and unmodified assets.
@@ -155,10 +158,10 @@ type ExportLog interface {
 	//
 	// TODO(roasbeef): should actually commit the delta then only mutate
 	// things as below?
-	LogPendingParcel(*OutboundParcelDelta) error
+	LogPendingParcel(context.Context, *OutboundParcelDelta) error
 
 	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
 	// updates the on-chain reference information on disk to point to this
 	// new spend.
-	ConfirmParcelDelivery(*AssetConfirmEvent) error
+	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
 }

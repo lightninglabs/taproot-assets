@@ -53,6 +53,17 @@ type (
 	// AnchorPoint wraps a managed UTXO along with all the auxiliary
 	// information it references.
 	AnchorPoint = sqlite.FetchManagedUTXORow
+
+	// AssetAnchorUpdate is used to update the managed UTXO pointer when
+	// spending assets on chain.
+	AssetAnchorUpdate = sqlite.ReanchorAssetsParams
+
+	// AssetSpendDelta is used to update the script key and amount of an
+	// existing asset.
+	AssetSpendDelta = sqlite.ApplySpendDeltaParams
+
+	// AnchorTxConf identifies an unconfirmed anchor tx to confirm.
+	AnchorTxConf = sqlite.ConfirmChainAnchorTxParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
@@ -122,6 +133,22 @@ type ActiveAssetsStore interface {
 	// FetchManagedUTXO fetches a managed UTXO based on either the outpoint
 	// or the transaction that anchors it.
 	FetchManagedUTXO(context.Context, UtxoQuery) (AnchorPoint, error)
+
+	// ReanchorAssets takes an old anchor point, then updates all assets
+	// that point to that old anchor point to point to the new one.
+	ReanchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
+
+	// ApplySpendDelta applies a sped delta (new amount and script key)
+	// based on the existing script key of an asset.
+	ApplySpendDelta(ctx context.Context, arg AssetSpendDelta) error
+
+	// DeleteManagedUTXO deletes the managed utxo identified by the passed
+	// serialized outpoint.
+	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
+
+	// ConfirmChainAnchorTx marks a new anchor transaction that was
+	// previously unconfirmed as confirmed.
+	ConfirmChainAnchorTx(ctx context.Context, arg AnchorTxConf) error
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -1037,6 +1064,152 @@ func (a *AssetStore) SelectCommitment(
 	return selectedAssets, nil
 }
 
+// LogPendingParcel marks an outbound parcel as pending on disk. This commits
+// the set of changes to disk (the asset deltas) but doesn't mark the batched
+// spend as being finalized.
+//
+// TODO(roasbeef): should actually commit the delta then only mutate
+// things as below?
+func (a *AssetStore) LogPendingParcel(ctx context.Context,
+	spend *tarofreighter.OutboundParcelDelta) error {
+
+	// Before we enter the DB transaction below, we'll use this space to
+	// encode a few values outside the transaction closure.
+	newAnchorTXID := spend.AnchorTx.TxHash()
+	var txBuf bytes.Buffer
+	if err := spend.AnchorTx.Serialize(&txBuf); err != nil {
+		return err
+	}
+
+	anchorTxBytes := txBuf.Bytes()
+
+	newAnchorPointBytes, err := encodeOutpoint(spend.NewAnchorPoint)
+	if err != nil {
+		return err
+	}
+	oldAnchorPointBytes, err := encodeOutpoint(spend.OldAnchorPoint)
+	if err != nil {
+		return err
+	}
+
+	anchorIndex := spend.NewAnchorPoint.Index
+	newAnchorValue := spend.AnchorTx.TxOut[anchorIndex].Value
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		// First, we'll insert the new transaction that anchors the new
+		// anchor point (commits to the set of new outputs).
+		txnID, err := q.UpsertChainTx(ctx, ChainTx{
+			Txid:  newAnchorTXID[:],
+			RawTx: anchorTxBytes,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert new chain "+
+				"tx: %w", err)
+		}
+
+		// Now that the chain transaction been inserted, we can now
+		// insert a _new_ managed UTXO which houses the information
+		// related to the new anchor point of the transaction.
+		//
+		// Along the way, we'll need to insert the new internal key
+		// into the database as well.
+		//
+		// TODO(roasbeef): UpsertManagedUTXO only wants batch key, but
+		// know directly here
+		internalKeyBytes := spend.NewInternalKey.PubKey.SerializeCompressed()
+		_, err = q.UpsertInternalKey(ctx, InternalKey{
+			RawKey:    internalKeyBytes,
+			KeyFamily: int32(spend.NewInternalKey.Family),
+			KeyIndex:  int32(spend.NewInternalKey.Index),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert internal "+
+				"key: %w", err)
+		}
+		newUtxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
+			RawKey:           internalKeyBytes,
+			Outpoint:         newAnchorPointBytes,
+			AmtSats:          newAnchorValue,
+			TaroRoot:         spend.TaroRoot,
+			TapscriptSibling: spend.TapscriptSibling,
+			TxnID:            txnID,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert new managed "+
+				"utxo: %w", err)
+		}
+
+		// Now that we have the new managed UTXO inserted, we'll update
+		// the managed UTXO pointer for _all_ assets that were anchored
+		// by the old managed UTXO.
+		err = q.ReanchorAssets(ctx, AssetAnchorUpdate{
+			OldOutpoint:       oldAnchorPointBytes,
+			NewOutpointUtxoID: sqlInt32(newUtxoID),
+		})
+		if err != nil {
+			return err
+		}
+
+		// Before we delete the old UTXO, we'll run thru the set of
+		// AssetSpendDelta items to modify the script key and amount
+		// for the assets that were actually modified.
+		for _, assetDelta := range spend.AssetSpendDeltas {
+			// Before we can insert the new asset, we need to
+			// insert the new script key on disk.
+			scriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
+				RawKey:    assetDelta.NewScriptKey.PubKey.SerializeCompressed(),
+				KeyFamily: int32(assetDelta.NewScriptKey.Family),
+				KeyIndex:  int32(assetDelta.NewScriptKey.Index),
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert internal "+
+					"key: %w", err)
+			}
+
+			// With the script key inserted, we can now update the
+			// asset.
+			err = q.ApplySpendDelta(ctx, AssetSpendDelta{
+				NewAmount:      int64(assetDelta.NewAmt),
+				OldScriptKey:   assetDelta.OldScriptKey.SerializeCompressed(),
+				NewScriptKeyID: scriptKeyID,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to update spend delta: %w", err)
+			}
+		}
+
+		// Finally, we'll delete the old managed UTXO, as it's no
+		// longer an unspent output.
+		return q.DeleteManagedUTXO(ctx, oldAnchorPointBytes)
+	})
+}
+
+// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
+// updates the on-chain reference information on disk to point to this
+// new spend.
+func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
+	conf *tarofreighter.AssetConfirmEvent) error {
+
+	anchorPointBytes, err := encodeOutpoint(conf.AnchorPoint)
+	if err != nil {
+		return err
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		// To confirm a delivery (successful send) all we need to do is
+		// update the chain information for the transaction that
+		// anchors the new anchor point.
+		return q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
+			Outpoint:    anchorPointBytes,
+			BlockHash:   conf.BlockHash[:],
+			BlockHeight: sqlInt32(conf.BlockHeight),
+			TxIndex:     sqlInt32(conf.TxIndex),
+		})
+	})
+}
+
 // A compile-time constraint to ensure that AssetStore meets the proof.Archiver
 // interface.
 var _ proof.Archiver = (*AssetStore)(nil)
@@ -1044,3 +1217,7 @@ var _ proof.Archiver = (*AssetStore)(nil)
 // A compile-time constraint to ensure that AssetStore meets the
 // tarofreighter.CommitmentSelector interface.
 var _ tarofreighter.CommitmentSelector = (*AssetStore)(nil)
+
+// A compile-time constraint to ensure that AssetStore meets the
+// tarofreighter.ExportLog interface.
+var _ tarofreighter.ExportLog = (*AssetStore)(nil)

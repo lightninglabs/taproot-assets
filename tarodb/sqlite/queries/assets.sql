@@ -199,6 +199,7 @@ JOIN internal_keys
     ON assets.script_key_id = internal_keys.key_id;
 
 -- name: QueryAssets :many
+-- TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 WITH genesis_info AS (
     -- This CTE is used to fetch the base asset information from disk based on
     -- the raw key of the batch that will ultimately create this set of assets.
@@ -268,9 +269,6 @@ JOIN chain_txns txns
 WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount)
 );
-
--- TODO(roasbeef): join on managed utxo ID
--- * group by asset_id
 
 -- name: AllAssets :many
 SELECT * 
@@ -421,7 +419,7 @@ WITH target_txn(txn_id) AS (
 )
 UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
-WHERE txn_id in (SELECT txn_id FROm target_txn);
+WHERE txn_id in (SELECT txn_id FROM target_txn);
 
 -- name: UpsertAssetProof :exec
 WITH target_asset(asset_id) AS (
@@ -482,3 +480,41 @@ JOIN assets
 WHERE (
     (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
 );
+
+-- name: ReanchorAssets :exec
+WITH assets_to_update AS (
+    SELECT asset_id
+    FROM assets
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
+    WHERE utxos.outpoint = sqlc.arg('old_outpoint')
+)
+UPDATE assets
+SET anchor_utxo_id = sqlc.arg('new_outpoint_utxo_id')
+WHERE asset_id IN (SELECT asset_id FROM assets_to_update);
+
+-- name: ApplySpendDelta :exec
+WITH old_script_key_id AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE raw_key = @old_script_key
+)
+UPDATE assets
+SET amount = @new_amount, script_key_id = @new_script_key_id
+WHERE script_key_id in (SELECT key_id FROM old_script_key_id);
+
+-- name: DeleteManagedUTXO :exec
+DELETE FROM managed_utxos
+WHERE outpoint = ?;
+
+-- name: ConfirmChainAnchorTx :exec
+WITH target_txn(txn_id) AS (
+    SELECT chain_txns.txn_id
+    FROM chain_txns
+    JOIN managed_utxos utxos
+        ON utxos.txn_id = chain_txns.txn_id
+    WHERE utxos.outpoint = ?
+)
+UPDATE chain_txns
+SET block_height = ?, block_hash = ?, tx_index = ?
+WHERE txn_id in (SELECT txn_id FROM target_txn);

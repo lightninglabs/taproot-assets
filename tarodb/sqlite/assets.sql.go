@@ -12,13 +12,10 @@ import (
 )
 
 const allAssets = `-- name: AllAssets :many
-
 SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
 FROM assets
 `
 
-// TODO(roasbeef): join on managed utxo ID
-// * group by asset_id
 func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 	rows, err := q.db.QueryContext(ctx, allAssets)
 	if err != nil {
@@ -187,6 +184,28 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 	return err
 }
 
+const applySpendDelta = `-- name: ApplySpendDelta :exec
+WITH old_script_key_id AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE raw_key = $3
+)
+UPDATE assets
+SET amount = $1, script_key_id = $2
+WHERE assets.script_key_id in (SELECT key_id FROM old_script_key_id)
+`
+
+type ApplySpendDeltaParams struct {
+	NewAmount      int64
+	NewScriptKeyID int32
+	OldScriptKey   []byte
+}
+
+func (q *Queries) ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) error {
+	_, err := q.db.ExecContext(ctx, applySpendDelta, arg.NewAmount, arg.NewScriptKeyID, arg.OldScriptKey)
+	return err
+}
+
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
 SELECT assets.asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_id, prev_out, anchor_tx_id
 FROM assets 
@@ -351,6 +370,36 @@ func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBat
 	return err
 }
 
+const confirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
+WITH target_txn(txn_id) AS (
+    SELECT chain_txns.txn_id
+    FROM chain_txns
+    JOIN managed_utxos utxos
+        ON utxos.txn_id = chain_txns.txn_id
+    WHERE utxos.outpoint = ?
+)
+UPDATE chain_txns
+SET block_height = ?, block_hash = ?, tx_index = ?
+WHERE txn_id in (SELECT txn_id FROM target_txn)
+`
+
+type ConfirmChainAnchorTxParams struct {
+	Outpoint    []byte
+	BlockHeight sql.NullInt32
+	BlockHash   []byte
+	TxIndex     sql.NullInt32
+}
+
+func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error {
+	_, err := q.db.ExecContext(ctx, confirmChainAnchorTx,
+		arg.Outpoint,
+		arg.BlockHeight,
+		arg.BlockHash,
+		arg.TxIndex,
+	)
+	return err
+}
+
 const confirmChainTx = `-- name: ConfirmChainTx :exec
 WITH target_txn(txn_id) AS (
     SELECT anchor_tx_id
@@ -363,7 +412,7 @@ WITH target_txn(txn_id) AS (
 )
 UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
-WHERE txn_id in (SELECT txn_id FROm target_txn)
+WHERE txn_id in (SELECT txn_id FROM target_txn)
 `
 
 type ConfirmChainTxParams struct {
@@ -380,6 +429,16 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 		arg.BlockHash,
 		arg.TxIndex,
 	)
+	return err
+}
+
+const deleteManagedUTXO = `-- name: DeleteManagedUTXO :exec
+DELETE FROM managed_utxos
+WHERE outpoint = ?
+`
+
+func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteManagedUTXO, outpoint)
 	return err
 }
 
@@ -1309,6 +1368,7 @@ type QueryAssetsRow struct {
 	AnchorOutpoint     []byte
 }
 
+// TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
 // generate rows that have NULL values for the family key fields if an asset
 // doesn't have a family key. See the comment in fetchAssetSprouts for a work
@@ -1368,6 +1428,29 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		return nil, err
 	}
 	return items, nil
+}
+
+const reanchorAssets = `-- name: ReanchorAssets :exec
+WITH assets_to_update AS (
+    SELECT asset_id
+    FROM assets
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
+    WHERE utxos.outpoint = $2
+)
+UPDATE assets
+SET anchor_utxo_id = $1
+WHERE  asset_id IN (SELECT asset_id FROM assets_to_update)
+`
+
+type ReanchorAssetsParams struct {
+	NewOutpointUtxoID sql.NullInt32
+	OldOutpoint       []byte
+}
+
+func (q *Queries) ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error {
+	_, err := q.db.ExecContext(ctx, reanchorAssets, arg.NewOutpointUtxoID, arg.OldOutpoint)
+	return err
 }
 
 const updateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec

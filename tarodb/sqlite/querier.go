@@ -10,17 +10,18 @@ import (
 )
 
 type Querier interface {
-	// TODO(roasbeef): join on managed utxo ID
-	// * group by asset_id
 	AllAssets(ctx context.Context) ([]Asset, error)
 	AllInternalKeys(ctx context.Context) ([]InternalKey, error)
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
+	ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) error
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
+	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
@@ -57,6 +58,7 @@ type Querier interface {
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
+	// TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the family key fields if an asset
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
@@ -66,6 +68,7 @@ type Querier interface {
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
+	ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)
