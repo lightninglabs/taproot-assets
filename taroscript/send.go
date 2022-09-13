@@ -12,7 +12,6 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/vm"
 	"golang.org/x/exp/maps"
 )
 
@@ -322,7 +321,7 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 // asset transfer, verifying the transfer with the Taro VM, and attaching that
 // signature to the new Asset.
 func CompleteAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
-	delta SpendDelta) (*SpendDelta, error) {
+	delta SpendDelta, validator TxValidator) (*SpendDelta, error) {
 
 	updatedDelta := delta.Copy()
 
@@ -349,13 +348,10 @@ func CompleteAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
 
 	// Create an instance of the Taro VM and validate the transfer.
 	verifySpend := func(splitAsset *commitment.SplitAsset) error {
-		vm, err := vm.New(
+		err := validator.Execute(
 			validatedAsset, splitAsset, updatedDelta.InputAssets,
 		)
 		if err != nil {
-			return err
-		}
-		if err := vm.Execute(); err != nil {
 			return err
 		}
 		return nil
