@@ -152,10 +152,10 @@ func createDummyLocators(stateKeys [][32]byte) SpendLocators {
 	return locators
 }
 
-// areValidIndexes checks a set of split locators to check for the minimum
+// AreValidIndexes checks a set of split locators to check for the minimum
 // number of locators, and tests if the locators could be used for a Taro-only
 // spend, i.e. a TX that does not need other outputs added to be valid.
-func areValidIndexes(locators SpendLocators) (bool, error) {
+func AreValidIndexes(locators SpendLocators) (bool, error) {
 	// Sanity check the output indexes provided by the sender. There must be
 	// at least two indexes; one for the receiver, and one for the change
 	// commitment for the sender.
@@ -181,9 +181,9 @@ func areValidIndexes(locators SpendLocators) (bool, error) {
 	return taroOnlySpend, nil
 }
 
-// isValidInput verifies that the Taro commitment of the input contains an
+// IsValidInput verifies that the Taro commitment of the input contains an
 // asset that could be spent to the given Taro address.
-func isValidInput(input commitment.TaroCommitment,
+func IsValidInput(input commitment.TaroCommitment,
 	addr address.Taro, inputScriptKey btcec.PublicKey,
 	net address.ChainParams) (*asset.Asset, bool, error) {
 
@@ -232,12 +232,13 @@ func isValidInput(input commitment.TaroCommitment,
 	return inputAsset, needsSplit, nil
 }
 
-// TODO(jhb): This assumes only 2 split outputs / 1 receiver; needs update
-// to support multiple receivers.
-// prepareAssetSplitSpend computes a split commitment with the given input and
+// PrepareAssetSplitSpend computes a split commitment with the given input and
 // spend information. Input MUST be checked as valid beforehand, and locators
 // MUST be checked for validity beforehand if provided.
-func prepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
+//
+// TODO(jhb): This assumes only 2 split outputs / 1 receiver; needs update
+// to support multiple receivers.
+func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	scriptKey btcec.PublicKey, delta SpendDelta) (*SpendDelta, error) {
 
 	updatedDelta := delta.Copy()
@@ -290,10 +291,10 @@ func prepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	return &updatedDelta, nil
 }
 
-// prepareAssetCompleteSpend computes a new asset leaf for spends that
+// PrepareAssetCompleteSpend computes a new asset leaf for spends that
 // fully consume the input, i.e. collectibles or an equal-valued send. Input
 // MUST be checked as valid beforehand.
-func prepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
+func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	delta SpendDelta) *SpendDelta {
 
 	updatedDelta := delta.Copy()
@@ -317,10 +318,10 @@ func prepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	return &updatedDelta
 }
 
-// completeAssetSpend updates the new Asset by creating a signature
-// over the asset transfer, verifying the transfer with the Taro VM,
-// and attaching that signature to the new Asset.
-func completeAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
+// CompleteAssetSpend updates the new Asset by creating a signature over the
+// asset transfer, verifying the transfer with the Taro VM, and attaching that
+// signature to the new Asset.
+func CompleteAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
 	delta SpendDelta) (*SpendDelta, error) {
 
 	updatedDelta := delta.Copy()
@@ -386,11 +387,11 @@ func completeAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
 	return &updatedDelta, nil
 }
 
-// createSpendCommitments creates the final set of TaroCommitments representing
+// CreateSpendCommitments creates the final set of TaroCommitments representing
 // the asset send. The input TaroCommitment must become a valid change
 // commitment by removing the input asset and adding the root split asset
 // if present. The receiver TaroCommitment must include the output asset.
-func createSpendCommitments(inputCommitment commitment.TaroCommitment,
+func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 	prevInput asset.PrevID, spend SpendDelta, addr address.Taro,
 	senderScriptKey btcec.PublicKey) (SpendCommitments, error) {
 
@@ -490,11 +491,11 @@ func createSpendCommitments(inputCommitment commitment.TaroCommitment,
 	return commitments, nil
 }
 
-// createSpendOutputs creates a PSBT with outputs embedding TaroCommitments
+// CreateSpendOutputs creates a PSBT with outputs embedding TaroCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
-func createSpendOutputs(addr address.Taro, locators SpendLocators,
+func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 	internalKey, scriptKey btcec.PublicKey,
 	commitments SpendCommitments) (*psbt.Packet, error) {
 
