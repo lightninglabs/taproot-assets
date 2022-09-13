@@ -7,7 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/vm"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -92,5 +92,5 @@ func (m *MintingBatch) genesisScript() ([]byte, error) {
 		return nil, err
 	}
 
-	return vm.PayToTaprootScript(mintingOutputKey)
+	return taroscript.PayToTaprootScript(mintingOutputKey)
 }

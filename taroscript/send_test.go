@@ -1,6 +1,7 @@
 package taroscript_test
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
@@ -64,6 +66,8 @@ var (
 		"a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e" +
 			"078d",
 	)
+	hashBytes1 = [32]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 )
 
 func randKey(t *testing.T) *btcec.PrivateKey {
@@ -1572,4 +1576,43 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		},
 		err: address.ErrMismatchedHRP,
 	},
+}
+
+// TestPayToAddrScript tests edge cases around creating a P2TR script with
+// PayToAddrScript.
+func TestPayToAddrScript(t *testing.T) {
+	t.Parallel()
+
+	normalAmt1 := 5
+	genesis1 := randGenesis(t, asset.Normal)
+	receiverKey1 := randKey(t)
+	receiverPubKey1 := receiverKey1.PubKey()
+	receiver1Descriptor := keychain.KeyDescriptor{PubKey: receiverPubKey1}
+
+	inputAsset1, err := asset.New(
+		genesis1, uint64(normalAmt1), 1, 1, receiver1Descriptor, nil,
+	)
+	require.NoError(t, err)
+	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
+	require.NoError(t, err)
+	inputAsset1TaroTree, err := commitment.NewTaroCommitment(
+		inputAsset1AssetTree,
+	)
+	require.NoError(t, err)
+
+	scriptNoSibling, err := taroscript.PayToAddrScript(
+		*receiverPubKey1, nil, *inputAsset1TaroTree,
+	)
+	require.NoError(t, err)
+	require.Equal(t, scriptNoSibling[0], byte(txscript.OP_1))
+	require.Equal(t, scriptNoSibling[1], byte(sha256.Size))
+
+	sibling, err := chainhash.NewHash(hashBytes1[:])
+	require.NoError(t, err)
+	scriptWithSibling, err := taroscript.PayToAddrScript(
+		*receiverPubKey1, sibling, *inputAsset1TaroTree,
+	)
+	require.NoError(t, err)
+	require.Equal(t, scriptWithSibling[0], byte(txscript.OP_1))
+	require.Equal(t, scriptWithSibling[1], byte(sha256.Size))
 }

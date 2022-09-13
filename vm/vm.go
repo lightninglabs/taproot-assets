@@ -9,10 +9,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
-)
-
-var (
-	zeroPrevID asset.PrevID
+	"github.com/lightninglabs/taro/taroscript"
 )
 
 // Engine is a virtual machine capable of executing and verifying Taro asset
@@ -121,7 +118,7 @@ func (vm *Engine) validateSplit() error {
 
 	// Split assets should always have a single witness with a non-nil
 	// PrevID and empty TxWitness.
-	if !HasSplitCommitmentWitness(&vm.splitAsset.Asset) {
+	if !vm.splitAsset.Asset.HasSplitCommitmentWitness() {
 		return newErrKind(ErrInvalidSplitCommitmentWitness)
 	}
 	witness := vm.splitAsset.PrevWitnesses[0]
@@ -284,7 +281,7 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 func (vm *Engine) Execute() error {
 	// A genesis asset should have a single witness and a PrevID of all
 	// zeros and empty witness and split commitment proof.
-	if HasGenesisWitness(vm.newAsset) {
+	if vm.newAsset.HasGenesisWitness() {
 		if vm.splitAsset != nil || len(vm.prevAssets) > 0 {
 			return newErrKind(ErrInvalidGenesisStateTransition)
 		}

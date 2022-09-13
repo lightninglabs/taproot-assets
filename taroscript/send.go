@@ -519,13 +519,13 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 	// NOTE: We currently default to the Taro commitment having no sibling
 	// in the Tapscript tree. Any sibling would need to be checked to verify
 	// that it is not also a Taro commitment.
-	receiverScript, err := address.PayToAddrScript(
+	receiverScript, err := PayToAddrScript(
 		addr.InternalKey, nil, receiverCommitment,
 	)
 	if err != nil {
 		return nil, err
 	}
-	senderScript, err := address.PayToAddrScript(
+	senderScript, err := PayToAddrScript(
 		internalKey, nil, senderCommitment,
 	)
 	if err != nil {
