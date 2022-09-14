@@ -137,10 +137,10 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// createDummyLocators creates a set of split locators with continuous output
+// CreateDummyLocators creates a set of split locators with continuous output
 // indexes, starting for 0. These mock locators are used for initial split
 // commitment validation, and are the default for the final PSBT.
-func createDummyLocators(stateKeys [][32]byte) SpendLocators {
+func CreateDummyLocators(stateKeys [][32]byte) SpendLocators {
 	locators := make(SpendLocators)
 	for i := uint32(0); i < uint32(len(stateKeys)); i++ {
 		index := i
@@ -151,6 +151,46 @@ func createDummyLocators(stateKeys [][32]byte) SpendLocators {
 	return locators
 }
 
+// Build a template TX with dummy outputs
+// TODO(jhb): godoc
+func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
+	// Check if our locators are valid, and if we will need to add extra
+	// outputs to fill in the gaps between locators.
+	taroOnlySpend, err := AreValidIndexes(locators)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the number of outputs we need for our template TX.
+	maxOutputIndex := uint32(len(locators))
+
+	// If there is a gap in our locators, we need to find the
+	// largest output index to properly size our template TX.
+	if !taroOnlySpend {
+		maxOutputIndex = 0
+		for _, locator := range locators {
+			if locator.OutputIndex > maxOutputIndex {
+				maxOutputIndex = locator.OutputIndex
+			}
+		}
+		// Output indexes are 0-indexed, so we need to increment this
+		// to account for the 0th output.
+		maxOutputIndex++
+	}
+
+	txTemplate := wire.NewMsgTx(int32(maxOutputIndex))
+	for i := uint32(0); i < maxOutputIndex; i++ {
+		txTemplate.AddTxOut(createDummyOutput())
+	}
+
+	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	return spendPkt, nil
+}
+
 // AreValidIndexes checks a set of split locators to check for the minimum
 // number of locators, and tests if the locators could be used for a Taro-only
 // spend, i.e. a TX that does not need other outputs added to be valid.
@@ -158,6 +198,10 @@ func AreValidIndexes(locators SpendLocators) (bool, error) {
 	// Sanity check the output indexes provided by the sender. There must be
 	// at least two indexes; one for the receiver, and one for the change
 	// commitment for the sender.
+	if locators == nil {
+		return false, ErrInvalidOutputIndexes
+	}
+
 	idxCount := len(locators)
 	if idxCount < 2 {
 		return false, ErrInvalidOutputIndexes
@@ -254,7 +298,7 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	//
 	// TODO(jhb): Handle change of 0 amount / splits with no change.
 	if updatedDelta.Locators == nil {
-		updatedDelta.Locators = createDummyLocators(
+		updatedDelta.Locators = CreateDummyLocators(
 			[][32]byte{senderStateKey, receiverStateKey},
 		)
 	}
@@ -512,13 +556,13 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	return commitments, nil
 }
 
-// CreateSpendOutputs creates a PSBT with outputs embedding TaroCommitments
+// CreateSpendOutputs updates a PSBT with outputs embedding TaroCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
 func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 	internalKey, scriptKey btcec.PublicKey,
-	commitments SpendCommitments) (*psbt.Packet, error) {
+	commitments SpendCommitments, pkt *psbt.Packet) error {
 
 	// Fetch the TaroCommitment for both sender and receiver.
 	senderStateKey := asset.AssetCommitmentKey(
@@ -528,11 +572,11 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 
 	senderCommitment, ok := commitments[senderStateKey]
 	if !ok {
-		return nil, ErrMissingTaroCommitment
+		return ErrMissingTaroCommitment
 	}
 	receiverCommitment, ok := commitments[receiverStateKey]
 	if !ok {
-		return nil, ErrMissingTaroCommitment
+		return ErrMissingTaroCommitment
 	}
 
 	// Create the scripts corresponding to each receiver's TaroCommitment.
@@ -544,31 +588,20 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 		addr.InternalKey, nil, receiverCommitment,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	senderScript, err := PayToAddrScript(
 		internalKey, nil, senderCommitment,
 	)
 	if err != nil {
-		return nil, err
-	}
-
-	// TODO(jhb): Update to create enough outputs to fit the
-	// locator with the largest output index.
-	// Create a template PSBT with two outputs, both above the dust limit.
-	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(createDummyOutput())
-	txTemplate.AddTxOut(createDummyOutput())
-	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+		return err
 	}
 
 	// Embed the TaroCommitments in their respective transaction outputs.
 	senderIndex := locators[senderStateKey].OutputIndex
-	spendPkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
+	pkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
 	receiverIndex := locators[receiverStateKey].OutputIndex
-	spendPkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
+	pkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
 
-	return spendPkt, nil
+	return nil
 }
