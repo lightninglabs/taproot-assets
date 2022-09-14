@@ -1,4 +1,4 @@
-package tarofreight
+package tarofreighter
 
 import (
 	"testing"

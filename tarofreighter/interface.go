@@ -171,3 +171,12 @@ type ExportLog interface {
 	// new spend.
 	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
 }
+type ChainBridge = tarogarden.ChainBridge
+// ChainBridge...
+type WalletAnchor = tarogarden.WalletAnchor
+
+// WalletAnchor...
+
+// KeyRing...
+type KeyRing = tarogarden.KeyRing
+
