@@ -79,6 +79,25 @@ func randAsset(t *testing.T, assetType asset.Type,
 	return a
 }
 
+func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
+	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
+
+	t.Helper()
+	virtualTxCopy := taroscript.VirtualTxWithInput(
+		virtualTx, input, idx, nil,
+	)
+	sigHash, err := taroscript.InputKeySpendSigHash(
+		virtualTxCopy, input, idx,
+	)
+	require.NoError(t, err)
+
+	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
+	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
+	require.NoError(t, err)
+
+	return wire.TxWitness{sig.Serialize()}
+}
+
 func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32,
 	tapTree *txscript.IndexedTapScriptTree,
@@ -156,11 +175,11 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	inputs := commitment.InputSet{*prevID: genesisAsset}
 	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
-	newWitness, err := taroscript.SignTaprootKeySpend(
-		*privKey, virtualTx, genesisAsset, 0,
+	newWitness := genTaprootKeySpend(
+		t, *privKey, virtualTx, genesisAsset, 0,
 	)
 	require.NoError(t, err)
-	newAsset.PrevWitnesses[0].TxWitness = *newWitness
+	newAsset.PrevWitnesses[0].TxWitness = newWitness
 
 	return newAsset, nil, inputs
 }
@@ -223,11 +242,11 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	}
 	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
-	newWitness, err := taroscript.SignTaprootKeySpend(
-		*privKey1, virtualTx, genesisAsset1, 0,
+	newWitness := genTaprootKeySpend(
+		t, *privKey1, virtualTx, genesisAsset1, 0,
 	)
 	require.NoError(t, err)
-	newAsset.PrevWitnesses[0].TxWitness = *newWitness
+	newAsset.PrevWitnesses[0].TxWitness = newWitness
 	newAsset.PrevWitnesses[1].TxWitness = genTaprootScriptSpend(
 		t, *privKey2, virtualTx, genesisAsset2, 1, tapTree, &tapLeaf,
 	)
@@ -273,11 +292,11 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		splitCommitment.RootAsset, splitCommitment.PrevAssets,
 	)
 	require.NoError(t, err)
-	newWitness, err := taroscript.SignTaprootKeySpend(
-		*privKey, virtualTx, genesisAsset, 0,
+	newWitness := genTaprootKeySpend(
+		t, *privKey, virtualTx, genesisAsset, 0,
 	)
 	require.NoError(t, err)
-	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = *newWitness
+	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
 
 	return splitCommitment.RootAsset, splitCommitment.SplitAssets,
 		splitCommitment.PrevAssets

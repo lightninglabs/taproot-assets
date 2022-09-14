@@ -11,9 +11,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -79,7 +82,9 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		// For each input we'll locate the asset UTXO beign spent, then
 		// insert that into a new SMT, with the key being the hash of
 		// the prevID pointer, and the value being the leaf itself.
-		inputsConsumed := make(map[asset.PrevID]struct{}, len(prevAssets))
+		inputsConsumed := make(
+			map[asset.PrevID]struct{}, len(prevAssets),
+		)
 
 		// TODO(bhandras): thread the context through.
 		ctx := context.TODO()
@@ -249,25 +254,40 @@ func VirtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
 	return txCopy
 }
 
-// InputPrevOutFetcher returns a Taro input's `PrevOutFetcher` to be used
-// throughout signing.
-func InputPrevOutFetcher(version asset.ScriptVersion,
-	scriptKey *btcec.PublicKey, amount uint64) (
-	*txscript.CannedPrevOutputFetcher, error) {
-
+// InputAssetPrevOut returns a TxOut that represents the input asset in a
+// Taro virtual TX.
+func InputAssetPrevOut(prevAsset asset.Asset) (*wire.TxOut, error) {
 	var pkScript []byte
-	switch version {
+	switch prevAsset.ScriptVersion {
 	case asset.ScriptV0:
-		// TODO(roasbeef): lift and combine w/ computeTaprootScript
 		var err error
-		pkScript, err = PayToTaprootScript(scriptKey)
+		pkScript, err = PayToTaprootScript(prevAsset.ScriptKey.PubKey)
 		if err != nil {
 			return nil, err
 		}
+
+		return &wire.TxOut{
+			Value:    int64(prevAsset.Amount),
+			PkScript: pkScript,
+		}, nil
 	default:
 		return nil, ErrInvalidScriptVersion
 	}
-	return txscript.NewCannedPrevOutputFetcher(pkScript, int64(amount)), nil
+}
+
+// InputPrevOutFetcher returns a Taro input's `PrevOutFetcher` to be used
+// throughout signing.
+func InputPrevOutFetcher(prevAsset asset.Asset) (*txscript.CannedPrevOutputFetcher,
+	error) {
+
+	prevOut, err := InputAssetPrevOut(prevAsset)
+	if err != nil {
+		return nil, err
+	}
+
+	return txscript.NewCannedPrevOutputFetcher(
+		prevOut.PkScript, prevOut.Value,
+	), nil
 }
 
 // InputKeySpendSigHash returns the signature hash of a virtual transaction for
@@ -277,9 +297,7 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32) ([]byte, error) {
 
 	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
-	prevOutFetcher, err := InputPrevOutFetcher(
-		input.ScriptVersion, input.ScriptKey.PubKey, input.Amount,
-	)
+	prevOutFetcher, err := InputPrevOutFetcher(*input)
 	if err != nil {
 		return nil, err
 	}
@@ -297,9 +315,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32, tapLeaf *txscript.TapLeaf) ([]byte, error) {
 
 	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
-	prevOutFetcher, err := InputPrevOutFetcher(
-		input.ScriptVersion, input.ScriptKey.PubKey, input.Amount,
-	)
+	prevOutFetcher, err := InputPrevOutFetcher(*input)
 	if err != nil {
 		return nil, err
 	}
@@ -311,18 +327,32 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 }
 
 // SignTaprootKeySpend computes a signature over a Taro virtual transaction
-// spending a Taro input through the key path. This signature is attached
-// to a Taro output asset before state transition validation.
-func SignTaprootKeySpend(privKey btcec.PrivateKey, virtualTx *wire.MsgTx,
-	input *asset.Asset, idx uint32) (*wire.TxWitness, error) {
+// spending a Taro input through the key path, following BIP 86. This signature
+// is attached to a Taro output asset before state transition validation.
+func SignTaprootKeySpend(internalKey btcec.PublicKey, virtualTx *wire.MsgTx,
+	inputAsset *asset.Asset, idx int,
+	txSigner Signer) (*wire.TxWitness, error) {
 
-	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
-	sigHash, err := InputKeySpendSigHash(virtualTxCopy, input, idx)
+	// Compute a virtual prevOut from the input asset for the signer.
+	prevOut, err := InputAssetPrevOut(*inputAsset)
 	if err != nil {
 		return nil, err
 	}
-	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
-	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
+
+	// Build the signing descriptor for a BIP 86 signature over the Taro
+	// virtual TX. To follow BIP 86, no tweaks nor witness script are
+	// provided, and the untweaked internal key is used as the signing key.
+	spendDesc := lndclient.SignDescriptor{
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: &internalKey,
+		},
+		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
+		Output:     prevOut,
+		HashType:   txscript.SigHashDefault,
+		InputIndex: idx,
+	}
+
+	sig, err := txSigner.SignVirtualTx(&spendDesc, virtualTx, prevOut)
 	if err != nil {
 		return nil, err
 	}
