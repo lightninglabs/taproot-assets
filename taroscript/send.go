@@ -182,7 +182,7 @@ func AreValidIndexes(locators SpendLocators) (bool, error) {
 
 // IsValidInput verifies that the Taro commitment of the input contains an
 // asset that could be spent to the given Taro address.
-func IsValidInput(input commitment.TaroCommitment,
+func IsValidInput(input *commitment.TaroCommitment,
 	addr address.Taro, inputScriptKey btcec.PublicKey,
 	net address.ChainParams) (*asset.Asset, bool, error) {
 
@@ -410,7 +410,7 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
 // the asset send. The input TaroCommitment must become a valid change
 // commitment by removing the input asset and adding the root split asset
 // if present. The receiver TaroCommitment must include the output asset.
-func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
+func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	prevInput asset.PrevID, spend SpendDelta, addr address.Taro,
 	senderScriptKey btcec.PublicKey) (SpendCommitments, error) {
 
@@ -490,7 +490,7 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
 	// Update the TaroCommitment of the sender.
-	senderTaroCommitment := inputCommitment
+	senderTaroCommitment := *inputCommitment
 	err := senderTaroCommitment.Update(senderCommitment, false)
 	if err != nil {
 		return nil, err

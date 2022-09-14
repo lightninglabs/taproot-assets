@@ -9,6 +9,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -171,12 +173,15 @@ type ExportLog interface {
 	// new spend.
 	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
 }
+
+// ChainBridge aliases into the ChainBridge of the tarogarden package.
 type ChainBridge = tarogarden.ChainBridge
-// ChainBridge...
+
+// WalletAnchor aliases into the WalletAnchor of the tarogarden package.
 type WalletAnchor = tarogarden.WalletAnchor
 
-// WalletAnchor...
-
-// KeyRing...
+// KeyRing aliases into the KeyRing of the tarogarden package.
 type KeyRing = tarogarden.KeyRing
 
+// Signer aliases into the Signer interface of the taroscript package.
+type Signer = taroscript.Signer

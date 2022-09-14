@@ -51,6 +51,24 @@ type ChainPorterConfig struct {
 
 	// CoinSelector...
 	CoinSelector CommitmentSelector
+
+	// Signer...
+	Signer Signer
+
+	// TxValidator...
+	TxValidator taroscript.TxValidator
+
+	// ExportLog...
+	ExportLog ExportLog
+
+	// ChainBridge...
+	ChainBridge ChainBridge
+
+	// Wallet...
+	Wallet WalletAnchor
+
+	// KeyRing...
+	KeyRing KeyRing
 }
 
 // AssetParcel...
@@ -156,12 +174,8 @@ type sendPackage struct {
 	// Includes PrevScriptKey
 	PrevID asset.PrevID
 
-	PrevAsset asset.Asset
-
-	// PrevTaroTree...
-	//
-	// TODO(roasbeef): should be filled in by coin selection
-	PrevTaroTree commitment.TaroCommitment
+	// PrevAsset...
+	PrevAsset *AnchoredCommitment
 
 	Locators taroscript.SpendLocators
 
@@ -282,37 +296,46 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// we'll perform coin selection to see if the send request is even
 	// possible at all.
 	case SendStateCommitmentSelect:
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+
 		// We need to find a commitment that has enough assets to
 		// satisfy this send request. We'll map the address to a set of
 		// constraints, so we can use that to do Taro asset coin
 		// selection.
 		//
-		// TODO(roasbeef): should be able to support multiple inputs
-		constraints := &CommitmentConstraints{
+		// TODO(roasbeef): send logic assumes just one input (no
+		// merges) so we pass in the amount here to ensure we have
+		// enough to send
+		constraints := CommitmentConstraints{
 			FamilyKey: currentPkg.Address.FamilyKey,
-			ID:        currentPkg.Address.ID,
-			Amt:       currentPkg.Address.Amount,
-			AssetType: currentPkg.Address.Type,
+			AssetID:   &currentPkg.Address.ID,
+			MinAmt:    currentPkg.Address.Amount,
 		}
-		assetInput, err := p.cfg.CoinSelector.SelectCommitment(
-			constraints,
+		elgigibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
+			ctx, constraints,
 		)
 		if err != nil {
 			return nil, err
 		}
 
+		// We'll take just the first commitment here as we need enough
+		// to complete the send w/o merging inputs.
+		assetInput := elgigibleCommitments[0]
+
 		// At this point, we have a valid "coin" to spend in the
-		// commitment, so we'll update teh relevant information in the
+		// commitment, so we'll update the relevant information in the
 		// send package.
 		//
 		// TODO(roasbeef): still need to add family key to PrevID.
-		currentPkg.PrevTaroTree = assetInput.Commitment
 		currentPkg.PrevID = asset.PrevID{
-			OutPoint:  assetInput.AnchorPoint,
-			ID:        assetInput.Asset.ID(),
-			ScriptKey: *assetInput.Asset.ScriptKey.PubKey,
+			OutPoint: assetInput.AnchorPoint,
+			ID:       assetInput.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				assetInput.Asset.ScriptKey.PubKey,
+			),
 		}
-		currentPkg.PrevAsset = assetInput.Asset
+		currentPkg.PrevAsset = assetInput
 
 		currentPkg.SendState = SendStateValidatedInput
 
@@ -321,8 +344,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// validate input
 	case SendStateValidatedInput:
 		inputAsset, needsSplit, err := taroscript.IsValidInput(
-			currentPkg.PrevTaroTree, currentPkg.Address,
-			currentPkg.PrevID.ScriptKey,
+			currentPkg.PrevAsset.Commitment, currentPkg.Address,
+			*currentPkg.PrevAsset.Asset.ScriptKey.PubKey,
 			*currentPkg.ChainParams,
 		)
 		if err != nil {
@@ -371,11 +394,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 	// sign / complete the send
 	case SendStateSigned:
-		// TODO(roasbeef): should no longer depend on private key, and
-		// use Signer interface instead
 		completedSpend, err := taroscript.CompleteAssetSpend(
-			currentPkg.PrivKey, currentPkg.PrevID,
-			*currentPkg.SendDelta,
+			currentPkg.PrevAsset.InternalKey,
+			currentPkg.PrevID, *currentPkg.SendDelta,
+			p.cfg.Signer, p.cfg.TxValidator,
 		)
 		if err != nil {
 			return nil, err
@@ -390,7 +412,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// update commitments, check if we updated locators
 	case SendStateCommitmentsUpdated:
 		spendCommitments, err := taroscript.CreateSpendCommitments(
-			currentPkg.PrevTaroTree, currentPkg.PrevID,
+			currentPkg.PrevAsset.Commitment, currentPkg.PrevID,
 			*currentPkg.SendDelta, currentPkg.Address,
 			currentPkg.ScriptKey,
 		)
