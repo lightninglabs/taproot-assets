@@ -248,10 +248,11 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 
+	// If no locators are provided, we create a split with mock locators to
+	// verify that the desired split is possible. We can later regenerate a
+	// split with the final output indexes.
+	//
 	// TODO(jhb): Handle change of 0 amount / splits with no change.
-	// If no locators are provided, we create a split with mock locators
-	// to verify that the desired split is possible. We can later regenerate
-	// a split with the final output indexes.
 	if updatedDelta.Locators == nil {
 		updatedDelta.Locators = createDummyLocators(
 			[][32]byte{senderStateKey, receiverStateKey},
@@ -419,12 +420,11 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 
 	inputAsset := spend.InputAssets[prevInput]
 
-	// Remove the spent Asset from the AssetCommitment of the sender.
-	// Fail if the input AssetCommitment or Asset were not in the
-	// input TaroCommitment.
+	// Remove the spent Asset from the AssetCommitment of the sender.  Fail
+	// if the input AssetCommitment or Asset were not in the input
+	// TaroCommitment.
 	inputCommitments := inputCommitment.Commitments()
-	senderCommitment, ok :=
-		inputCommitments[inputAsset.TaroCommitmentKey()]
+	senderCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
@@ -470,11 +470,10 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 			return nil, err
 		}
 
-		// Fetch the receiver asset from the split commitment and
-		// build an AssetCommitment for the receiver.
+		// Fetch the receiver asset from the split commitment and build
+		// an AssetCommitment for the receiver.
 		receiverLocator := spend.Locators[receiverStateKey]
-		receiverAsset, ok := spend.SplitCommitment.
-			SplitAssets[receiverLocator]
+		receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
 		if !ok {
 			return nil, ErrMissingSplitAsset
 		}
@@ -487,9 +486,11 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 		}
 	}
 
+	// Update the top-level TaroCommitment of the sender. This'll
+	// effectively commit to all the new spend details.
+	//
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
-	// Update the TaroCommitment of the sender.
 	senderTaroCommitment := *inputCommitment
 	err := senderTaroCommitment.Update(senderCommitment, false)
 	if err != nil {
@@ -499,8 +500,9 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	commitments[senderStateKey] = senderTaroCommitment
 
 	// Create a Taro tree for the receiver.
-	receiverTaroCommitment, err := commitment.
-		NewTaroCommitment(receiverCommitment)
+	receiverTaroCommitment, err := commitment.NewTaroCommitment(
+		receiverCommitment,
+	)
 	if err != nil {
 		return nil, err
 	}

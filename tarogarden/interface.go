@@ -257,6 +257,8 @@ type ChainBridge interface {
 // each character and sum those. We get 438, then divide that by 2, to allow
 // use to fit this into just a 2-byte integer and to ensure compatibility with
 // the remote signer.
+//
+// TODO(roasbeef): move to taroscript?
 const TaroKeyFamily = 219
 
 // FundedPsbt represents a fully funded PSBT transaction.

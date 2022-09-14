@@ -5,13 +5,18 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // enum to define each stage of an asset send
@@ -39,7 +44,13 @@ const (
 
 	SendStateValidatedLocators
 
-	SendStateCommitted
+	SendStatePsbtFund
+
+	SendStatePsbtSign
+
+	SendStateLogCommit
+
+	SendStateBroadcast
 
 	// TODO(jhb): Following states for finalization and broadcast
 )
@@ -119,6 +130,8 @@ func (p *ChainPorter) Start() error {
 		p.Wg.Add(1)
 		go p.taroPorter()
 	})
+
+	// TODO(roasbeef): need to rebroadcast pending parcels
 	return startErr
 }
 
@@ -163,7 +176,7 @@ type sendPackage struct {
 	ChainParams *address.ChainParams
 
 	// Sender, all will be mapped to the change asset leaf
-	InternalKey btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// ScriptKey...
 	ScriptKey btcec.PublicKey
@@ -195,6 +208,11 @@ type sendPackage struct {
 
 	// TODO(jhb): Wrap the PSBT with extra data?
 	SendPacket *psbt.Packet
+
+	// FinalTx...
+	FinalTx *wire.MsgTx
+
+	OutboundPkg *OutboundParcelDelta
 }
 
 // main state machine goroutine; advance state, wait for TX confirmation
@@ -206,21 +224,110 @@ func (p *ChainPorter) taroPorter() {
 		case req := <-p.exportReqs:
 			var sendPkg sendPackage
 
-			err := p.advanceStateUntil(&sendPkg, SendStateCommitted)
+			// Advance the state machine for this package until we
+			// reach the state that we broadcast the transaction
+			// that completes the transfer.
+			err := p.advanceStateUntil(&sendPkg, SendStateBroadcast)
 			if err != nil {
 				log.Warnf("unable to advance state machine: %v", err)
 				req.errChan <- err
 				continue
 			}
 
-			// TODO(jhb): Logic for waiting on TX confirmation
-
-			req.respChan <- struct{}{}
+			// Now that we broadcaster the transaction, we'll
+			// create a goroutine that'll wait for the confirmation
+			// then update everything on disk.
+			go p.waitForPkgConfirmation(&sendPkg, req)
 
 		case <-p.Quit:
 			return
 		}
 	}
+
+}
+
+// waitForPkgConfirmation waits for the confirmation of the final transaction
+// within the delta. Once confirmed, the parcel will be marked as delivered on
+// chain, with the goroutine cleaning up its state.
+func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
+	req *AssetParcel) {
+
+	defer p.Wg.Done()
+
+	ctx, cancel := p.WithCtxQuit()
+	defer cancel()
+
+	// Before we can broadcast, we want to find out the current height to
+	// pass as a height hint.
+	currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		err := fmt.Errorf("unable to get current height: %v", err)
+		log.Error(err)
+
+		req.errChan <- err
+		return
+	}
+
+	txHash := pkg.FinalTx.TxHash()
+	confCtx, confCancel := p.WithCtxQuit()
+	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
+		confCtx, &txHash, pkg.FinalTx.TxOut[0].PkScript, 1,
+		currentHeight, true,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to register for tx conf: %v", err)
+		log.Error(err)
+
+		req.errChan <- err
+		return
+	}
+
+	// Launch a goroutine that'll notify us when the transaction confirms.
+	defer confCancel()
+
+	var confEvent *chainntnfs.TxConfirmation
+	select {
+	case confEvent = <-confNtfn.Confirmed:
+		log.Debugf("Got chain confirmation: %v",
+			confEvent.Tx.TxHash())
+
+	case err := <-errChan:
+		req.errChan <- fmt.Errorf("error getting "+
+			"confirmation: %w", err)
+		return
+
+	case <-confCtx.Done():
+		log.Debugf("Skipping TX confirmation, context " +
+			"done")
+
+	case <-p.Quit:
+		log.Debugf("Skipping TX confirmation, exiting")
+		return
+	}
+
+	if confEvent == nil {
+		req.errChan <- fmt.Errorf("got empty confirmation event in " +
+			"batch")
+		return
+	}
+
+	// At this point we have the confirmation signal, so we can mark the
+	// parcel delivery as completed in the database.
+	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
+		AnchorPoint: pkg.OutboundPkg.NewAnchorPoint,
+		BlockHash:   *confEvent.BlockHash,
+		BlockHeight: int32(confEvent.BlockHeight),
+		TxIndex:     int32(confEvent.TxIndex),
+	})
+	if err != nil {
+		err := fmt.Errorf("unable to log tx conf: %w", err)
+		log.Error(err)
+
+		req.errChan <- err
+	}
+
+	req.respChan <- struct{}{}
+	return
 
 }
 
@@ -265,12 +372,12 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// big ol' switch statement
 	switch currentPkg.SendState {
-	// init state
+
+	// In this initial state, we'll set up some initial state we need to
+	// carry out the send flow.
 	case SendStateInitializing:
-		// Should get PrevID, PrevTaroTree, PrevAsset
-		// Everything should be initialized, spendDelta and PSBT are nil
-		//
-		// TODO(jhb): Accept input, DB access to fill out package
+		// As a sanity check, make sure the chain params are properly
+		// specified.
 		if currentPkg.ChainParams == nil {
 			return nil, fmt.Errorf("network for send unspecified")
 		}
@@ -288,7 +395,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.NeedsSplit = false
 
-		currentPkg.SendState = SendStateValidatedInput
+		currentPkg.SendState = SendStateCommitmentSelect
 
 		return &currentPkg, nil
 
@@ -341,8 +448,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// validate input
+	// Now that we have our set of inputs selected, we'll validate them to
+	// make sure that they're enough to satisfy our send request.
 	case SendStateValidatedInput:
+		// We'll validate the selected input and commitment. From this
+		// we'll gain the asset that we'll use as an input and info
+		// w.r.t if we need to split or not.
 		inputAsset, needsSplit, err := taroscript.IsValidInput(
 			currentPkg.PrevAsset.Commitment, currentPkg.Address,
 			*currentPkg.PrevAsset.Asset.ScriptKey.PubKey,
@@ -354,8 +465,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.SendDelta.InputAssets[currentPkg.PrevID] = inputAsset
 
+		// If we need to split (addr amount < input amount), then we'll
+		// transition to prepare the set of splits. If not,then we can
+		// assume the splits are unnecessary.
+		//
+		// TODO(roasbeef): always need to split anyway see:
+		// https://github.com/lightninglabs/taro/issues/121
 		currentPkg.NeedsSplit = needsSplit
-
 		if needsSplit {
 			currentPkg.SendState = SendStatePreparedSplit
 		} else {
@@ -364,7 +480,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// prepare split send
+	// At this point, we know a split is required in order to complete the
+	// send, so we'll make a split with our root change output and the rest
+	// of the created outputs.
 	case SendStatePreparedSplit:
 		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
 			currentPkg.Address, currentPkg.PrevID,
@@ -380,7 +498,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// prepare complete send
+	// Alternatively, we'll enter this state when we know we don't actually
+	// need a split at all. In this case, we fully consume an input asset,
+	// so the asset created is the same asset w/ the new script key in
+	// place.
 	case SendStatePreparedComplete:
 		preparedSpend := taroscript.PrepareAssetCompleteSpend(
 			currentPkg.Address, currentPkg.PrevID,
@@ -392,8 +513,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// sign / complete the send
+	// At this point, we have everything we need to sign our _virtual_
+	// transaction on the Taro layer.
 	case SendStateSigned:
+		// Now we'll use the signer to sign all the inputs for the new
+		// taro leaves. The witness data for each input will be
+		// assigned for us.
 		completedSpend, err := taroscript.CompleteAssetSpend(
 			currentPkg.PrevAsset.InternalKey,
 			currentPkg.PrevID, *currentPkg.SendDelta,
@@ -409,7 +534,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// update commitments, check if we updated locators
+	// With our new asset (our change output) fully signed, we'll now
+	// generate the top-level Taro commitments for the sender and the
+	// receiver.
 	case SendStateCommitmentsUpdated:
 		spendCommitments, err := taroscript.CreateSpendCommitments(
 			currentPkg.PrevAsset.Commitment, currentPkg.PrevID,
@@ -422,15 +549,21 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.SendCommitments = spendCommitments
 
+		// If the locators changed, then we'll need to re-create the
+		// split commitments.
 		if currentPkg.LocatorsUpdated {
 			currentPkg.SendState = SendStateValidatedLocators
 		}
 
-		currentPkg.SendState = SendStateCommitted
+		// Otherwise, we can go straight to stamping things as we have
+		// them w/ the PSBT.
+		currentPkg.SendState = SendStatePsbtFund
 
 		return &currentPkg, nil
 
-	// validate new locators and jump back to send preparation
+	// At this point, we'll make sure our set of locators are fully valid,
+	// bailing if not. If they are, then we need to potentially circle back
+	// to re-create the split commitment.
 	case SendStateValidatedLocators:
 		validLocators, err := taroscript.AreValidIndexes(
 			currentPkg.Locators,
@@ -462,11 +595,31 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// create PSBT outputs
-	case SendStateCommitted:
+	// With all the internal Taro signing taken care of, we can now make
+	// our initial skeleton PSBT packet to send off to the wallet for
+	// funding.
+	//
+	// TODO(roasbeef): needs to add the extra input on there
+	case SendStatePsbtFund:
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+
+		// Before we can make a new packet that commits to our send,
+		// we'll need to also generate a new internal key to anchor the
+		// send itself.
+		var err error
+		currentPkg.InternalKey, err = p.cfg.KeyRing.DeriveNextKey(
+			ctx, tarogarden.TaroKeyFamily,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Now that we have the needed internal key we can construct
+		// the PSBT packet.
 		sendPacket, err := taroscript.CreateSpendOutputs(
 			currentPkg.Address, currentPkg.SendDelta.Locators,
-			currentPkg.InternalKey, currentPkg.ScriptKey,
+			*currentPkg.InternalKey.PubKey, currentPkg.ScriptKey,
 			currentPkg.SendCommitments,
 		)
 		if err != nil {
@@ -475,10 +628,123 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.SendPacket = sendPacket
 
-		// terminal, return to this state
-		currentPkg.SendState = SendStateCommitted
+		// TODO(jhb): needs to move onto signing now
+		currentPkg.SendState = SendStatePsbtSign
 
 		return &currentPkg, nil
+
+	// At this state, we have a final PSBT transaction which is fully
+	// signed. We'll write this to disk (the point of no return), then
+	// broadcast this to the network.
+	case SendStateLogCommit:
+		// Extract the final packet from the PSBT transaction (has all sigs
+		// included).
+		var err error
+		currentPkg.FinalTx, err = psbt.Extract(currentPkg.SendPacket)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO(roasbeef): assumes no split
+		senderCommitKey := currentPkg.SendDelta.NewAsset.AssetCommitmentKey()
+
+		newSenderCommitment := currentPkg.SendCommitments[senderCommitKey]
+
+		anchorOutputIndex := currentPkg.SendDelta.Locators[senderCommitKey].OutputIndex
+
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+
+		// TODO(roasbeef): assumes no sibling
+		taroRoot := newSenderCommitment.TapscriptRoot(nil)
+
+		// Before we broadcast, we'll write to disk that we have a
+		// pending outbound parcel. If we crash before this point,
+		// we'll start all over. Otherwise, we'll come back to this
+		// state to re-do the process.
+		//
+		// TODO(roasbeef); need to update proof file information,
+		// ideally the db doesn't do this directly
+		currentPkg.OutboundPkg = &OutboundParcelDelta{
+			OldAnchorPoint: currentPkg.PrevID.OutPoint,
+			NewAnchorPoint: wire.OutPoint{
+				Hash:  currentPkg.FinalTx.TxHash(),
+				Index: anchorOutputIndex,
+			},
+			NewInternalKey: currentPkg.InternalKey,
+			TaroRoot:       taroRoot[:],
+			AnchorTx:       currentPkg.FinalTx,
+			AssetSpendDeltas: []AssetSpendDelta{
+				{
+					OldScriptKey: *currentPkg.PrevAsset.Asset.ScriptKey.PubKey,
+					NewAmt:       currentPkg.SendDelta.NewAsset.Amount,
+					NewScriptKey: currentPkg.SendDelta.NewAsset.ScriptKey,
+				},
+			},
+			TapscriptSibling: currentPkg.PrevAsset.TapscriptSibling,
+		}
+		err = p.cfg.ExportLog.LogPendingParcel(
+			ctx, currentPkg.OutboundPkg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to write send pkg to "+
+				"disk: %v", err)
+		}
+
+		// We've logged the state transition to disk, so now we can
+		// move onto the broadcast phase.
+		currentPkg.SendState = SendStateBroadcast
+
+		return &currentPkg, nil
+
+	// In this terminal state, we'll broadcast the transaction to the
+	// network, then launch a goroutine to notify us on confirmation.
+	case SendStateBroadcast:
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+
+		// We'll need to extract the output public key from the tx out
+		// that does the send. We'll use this shortly below as a step
+		// before broadcast.
+		//
+		// TODO(roasbeef): cache before?
+		anchorIndex := currentPkg.OutboundPkg.NewAnchorPoint.Index
+		anchorOutput := currentPkg.FinalTx.TxOut[anchorIndex]
+		_, witProgram, err := txscript.ExtractWitnessProgramInfo(
+			anchorOutput.PkScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+		anchorOutputKey, err := schnorr.ParsePubKey(witProgram)
+		if err != nil {
+			return nil, err
+		}
+
+		// Before we broadcast the transaction to the network, we'll
+		// import the new anchor output into the wallet so it watches
+		// it for spends and also takes account of the BTC we used in
+		// the transfer.
+		err = p.cfg.Wallet.ImportPubKey(ctx, anchorOutputKey)
+		if err != nil {
+			return nil, err
+		}
+
+		// With the public key imported, we can now broadcast to the
+		// network.
+		err = p.cfg.ChainBridge.PublishTransaction(
+			ctx, currentPkg.FinalTx,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// At this point, we enter the terminal state of tx broadcast.
+		// This state can be repeated as it should be idempotent.
+		currentPkg.SendState = SendStateBroadcast
+
+		return &currentPkg, nil
+
 	default:
 		return &currentPkg, fmt.Errorf("unknown state: %v",
 			currentPkg.SendState)
