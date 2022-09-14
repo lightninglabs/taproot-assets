@@ -207,10 +207,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 		virtualTx, prevAsset, inputIdx, witness.TxWitness,
 	)
 
-	prevOutFetcher, err := taroscript.InputPrevOutFetcher(
-		prevAsset.ScriptVersion, prevAsset.ScriptKey.PubKey,
-		prevAsset.Amount,
-	)
+	prevOutFetcher, err := taroscript.InputPrevOutFetcher(*prevAsset)
 	if err != nil {
 		if errors.Is(err, taroscript.ErrInvalidScriptVersion) {
 			return ErrInvalidScriptVersion

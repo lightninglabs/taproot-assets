@@ -320,31 +320,42 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 // CompleteAssetSpend updates the new Asset by creating a signature over the
 // asset transfer, verifying the transfer with the Taro VM, and attaching that
 // signature to the new Asset.
-func CompleteAssetSpend(privKey btcec.PrivateKey, prevInput asset.PrevID,
-	delta SpendDelta, validator TxValidator) (*SpendDelta, error) {
+func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
+	delta SpendDelta, signer Signer,
+	validator TxValidator) (*SpendDelta, error) {
 
 	updatedDelta := delta.Copy()
 
-	// Create a Taro virtual transaction representing the asset transfer,
-	// and sign a witness over that virtual transaction.
+	// Create a Taro virtual transaction representing the asset transfer.
 	virtualTx, _, err := VirtualTx(
 		&updatedDelta.NewAsset, updatedDelta.InputAssets,
 	)
 	if err != nil {
 		return nil, err
 	}
-	inputAsset := updatedDelta.InputAssets[prevInput]
-	newWitness, err := SignTaprootKeySpend(
-		privKey, virtualTx, inputAsset, 0,
-	)
-	if err != nil {
-		return nil, err
-	}
 
-	// Create a copy of the new Asset with the witness attached
-	// to use with the Taro VM.
+	// For each input asset leaf, we need to produce a witness.
+	// Update the input of the virtual TX, generate a witness,
+	// and attach it to the copy of the new Asset.
 	validatedAsset := updatedDelta.NewAsset.Copy()
-	validatedAsset.PrevWitnesses[0].TxWitness = *newWitness
+	prevWitnessCount := len(updatedDelta.NewAsset.PrevWitnesses)
+
+	for idx := 0; idx < prevWitnessCount; idx++ {
+		prevAssetID := updatedDelta.NewAsset.PrevWitnesses[idx].PrevID
+		prevAsset := updatedDelta.InputAssets[*prevAssetID]
+		virtualTxCopy := VirtualTxWithInput(
+			virtualTx, prevAsset, uint32(idx), nil,
+		)
+
+		newWitness, err := SignTaprootKeySpend(
+			internalKey, virtualTxCopy, prevAsset, 0, signer,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		validatedAsset.PrevWitnesses[idx].TxWitness = *newWitness
+	}
 
 	// Create an instance of the Taro VM and validate the transfer.
 	verifySpend := func(splitAsset *commitment.SplitAsset) error {
