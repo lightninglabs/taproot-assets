@@ -64,6 +64,10 @@ const (
 	// greater than dust, and we assume that this value is updated to match
 	// the input asset bearing UTXOs before finalizing the transfer TX.
 	DummyAmtSats = btcutil.Amount(1_000)
+
+	// SendConfTarget is the confirmation target we'll use to query for
+	// a fee estimate.
+	SendConfTarget = 6
 )
 
 // SpendDelta stores the information needed to prepare new asset leaves or a
@@ -189,6 +193,22 @@ func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
 	}
 
 	return spendPkt, nil
+}
+
+// Move the change output on a funded psbt
+// TODO(jhb): godoc
+func AdjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32) {
+	// store the script and value of the change output
+	changeOutput := pkt.UnsignedTx.TxOut[changeIndex]
+	changeAmtSats := changeOutput.Value
+	changeScript := changeOutput.PkScript
+
+	// overwrite the existing change output, and restore in at the
+	// highest-index output
+	maxOutputIndex := len(pkt.UnsignedTx.TxOut) - 1
+	pkt.UnsignedTx.TxOut[changeIndex] = createDummyOutput()
+	pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeScript
+	pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeAmtSats
 }
 
 // AreValidIndexes checks a set of split locators to check for the minimum

@@ -625,25 +625,51 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// With all the internal Taro signing taken care of, we can now make
 	// our initial skeleton PSBT packet to send off to the wallet for
 	// funding.
-	//
-	// TODO(roasbeef): needs to add the extra input on there
 	case SendStatePsbtFund:
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
 
-		// Before we can make a new packet that commits to our send,
-		// we'll need to also generate a new internal key to anchor the
-		// send itself.
-		var err error
-		currentPkg.InternalKey, err = p.cfg.KeyRing.DeriveNextKey(
-			ctx, tarogarden.TaroKeyFamily,
+		// Construct our template PSBT.
+		sendPacket, err := taroscript.CreateTemplatePsbt(
+			currentPkg.SendDelta.Locators,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		// Now that we have the needed internal key we can construct
-		// the PSBT packet.
+		// Submit the template PSBT to the wallet for funding.
+		feeRate, err := p.cfg.ChainBridge.EstimateFee(
+			ctx, taroscript.SendConfTarget,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to estimate fee: %w", err)
+		}
+
+		fundedSendPacket, err := p.cfg.Wallet.FundPsbt(
+			ctx, sendPacket, 1, feeRate,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fund psbt: %w", err)
+		}
+
+		// Move the change output to the highest-index output, so that
+		// we don't overwrite it when embedding our Taro commitments.
+		//
+		// TODO(jhb): Do we need richer handling for the change output?
+		// We could reassign the change value to our Taro change output
+		// and remove the change output entirely.
+		taroscript.AdjustFundedPsbt(
+			fundedSendPacket.Pkt, fundedSendPacket.ChangeOutputIndex,
+		)
+
+		currentPkg.SendPacket = fundedSendPacket.Pkt
+
+		currentPkg.SendState = SendStatePsbtSign
+
+		return &currentPkg, nil
+
+	// TODO(jhb): add asset-bearing input and sign
+	case SendStatePsbtSign:
 		sendPacket, err := taroscript.CreateSpendOutputs(
 			currentPkg.Address, currentPkg.SendDelta.Locators,
 			*currentPkg.InternalKey.PubKey, currentPkg.ScriptKey,
@@ -655,8 +681,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.SendPacket = sendPacket
 
-		// TODO(jhb): needs to move onto signing now
-		currentPkg.SendState = SendStatePsbtSign
+		currentPkg.SendState = SendStateLogCommit
 
 		return &currentPkg, nil
 
