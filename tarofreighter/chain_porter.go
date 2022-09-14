@@ -222,7 +222,12 @@ func (p *ChainPorter) taroPorter() {
 	for {
 		select {
 		case req := <-p.exportReqs:
-			var sendPkg sendPackage
+			// Initialize a package with the destination address.
+			sendPkg := sendPackage{
+				Address: req.Dest,
+				// TODO(jhb): What is the default
+				// for ChainParams?
+			}
 
 			// Advance the state machine for this package until we
 			// reach the state that we broadcast the transaction
@@ -451,6 +456,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Now that we have our set of inputs selected, we'll validate them to
 	// make sure that they're enough to satisfy our send request.
 	case SendStateValidatedInput:
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+
 		// We'll validate the selected input and commitment. From this
 		// we'll gain the asset that we'll use as an input and info
 		// w.r.t if we need to split or not.
@@ -464,6 +472,25 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		currentPkg.SendDelta.InputAssets[currentPkg.PrevID] = inputAsset
+
+		// Before we can prepare output assets for our send, we need
+		// to generate a new internal key and script key. The script
+		// key is needed for asset change, and the internal key will
+		// anchor the send itself.
+		//
+		// TODO(jhb): ScriptKey derivation instructions
+		// should be specified in the AssetParcel
+		currentPkg.InternalKey, err = p.cfg.KeyRing.DeriveNextKey(
+			ctx, tarogarden.TaroKeyFamily,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Default to a ScriptKey that requires a BIP 86 spend.
+		currentPkg.ScriptKey = *txscript.ComputeTaprootKeyNoScript(
+			currentPkg.InternalKey.PubKey,
+		)
 
 		// If we need to split (addr amount < input amount), then we'll
 		// transition to prepare the set of splits. If not,then we can
