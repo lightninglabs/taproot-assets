@@ -64,6 +64,51 @@ type AssetParcel struct {
 	// errChan...
 	errChan chan error
 }
+
+// AssetInput...
+type AssetInput struct {
+	// PrevID...
+	PrevID asset.PrevID
+
+	// Amount...
+	Amount btcutil.Amount
+}
+
+// AssetOutput...
+type AssetOutput struct {
+	AssetInput
+
+	// NewBlob
+	NewBlob proof.Blob
+
+	// SplitCommitProof...
+	SplitCommitProof *commitment.SplitCommitment
+}
+
+// PendingParcel...
+type PendingParcel struct {
+	// NewAnchorPoint...
+	NewAnchorPoint wire.OutPoint
+
+	// OldTaroRoot...
+	OldTaroRoot []byte
+
+	// NewTaroRoot...
+	NewTaroRoot []byte
+
+	// TransferTx...
+	TransferTx *wire.MsgTx
+
+	// AssetInputs...
+	AssetInputs []AssetInput
+
+	// AssetOutputs...
+	AssetOutputs []AssetOutput
+
+	// TotalFees...
+	TotalFees btcutil.Amount
+}
+
 // sendPackage...
 type sendPackage struct {
 	// SendState...
@@ -112,4 +157,52 @@ type sendPackage struct {
 
 	// OutboundPkg...
 	OutboundPkg *OutboundParcelDelta
+}
+
+// inputAnchorPkScript...
+func (s *sendPackage) inputAnchorPkScript() ([]byte, error) {
+	taroScriptRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
+
+	anchorPubKey := txscript.ComputeTaprootOutputKey(
+		s.InputAsset.InternalKey.PubKey, taroScriptRoot[:],
+	)
+
+	return taroscript.PayToTaprootScript(anchorPubKey)
+}
+
+// addAnchorPsbtInput....
+func (s *sendPackage) addAnchorPsbtInput() error {
+	anchorPkScript, err := s.inputAnchorPkScript()
+	if err != nil {
+		return err
+	}
+
+	internalKey := s.InputAsset.InternalKey
+	bip32Derivation := &psbt.Bip32Derivation{
+		PubKey: internalKey.PubKey.SerializeCompressed(),
+		Bip32Path: []uint32{
+			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
+			keychain.CoinTypeBitcoin + hdkeychain.HardenedKeyStart,
+			uint32(internalKey.Family),
+			0,
+			uint32(internalKey.Index + hdkeychain.HardenedKeyStart),
+		},
+	}
+
+	s.SendPkt.Inputs = append(s.SendPkt.Inputs, psbt.PInput{
+		WitnessUtxo: &wire.TxOut{
+			Value:    int64(s.InputAsset.AnchorOutputValue),
+			PkScript: anchorPkScript,
+		},
+		SighashType:     txscript.SigHashDefault,
+		Bip32Derivation: []*psbt.Bip32Derivation{bip32Derivation},
+		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{{
+			XOnlyPubKey:          bip32Derivation.PubKey[1:],
+			MasterKeyFingerprint: bip32Derivation.MasterKeyFingerprint,
+			Bip32Path:            bip32Derivation.Bip32Path,
+		}},
+	})
+
+	return err
+
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -98,6 +99,9 @@ type AssetSpendDelta struct {
 // assets may have been split or sent to others. This is reflected in the set
 // of AssetSpendDeltas.
 type OutboundParcelDelta struct {
+	// InputDelta..
+	InputDelta *AnchoredCommitment
+
 	// OldAnchorPoint is the old/current location of the Taro commitment
 	// that was spent as an input.
 	OldAnchorPoint wire.OutPoint
@@ -132,6 +136,10 @@ type OutboundParcelDelta struct {
 	// append/extend for entire set of assets?
 	//  * if want to append in db, need incremental hash for proof file
 	//  digest
+
+	// BlobTransitionParams...
+	//
+	BlobTransitionParams proof.TransitionParams
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
@@ -185,3 +193,16 @@ type KeyRing = tarogarden.KeyRing
 
 // Signer aliases into the Signer interface of the taroscript package.
 type Signer = taroscript.Signer
+
+// Porter...
+type Porter interface {
+	// RequestShipment....
+	RequestShipment(req *AssetParcel) (*PendingParcel, error)
+
+	// Start signals that the asset minter should being operations.
+	Start() error
+
+	// Stop signals that the asset minter should attempt a graceful
+	// shutdown.
+	Stop() error
+}
