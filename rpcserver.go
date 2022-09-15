@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/build"
@@ -85,6 +86,10 @@ var (
 		}},
 		"/tarorpc.Taro/ImportProof": {{
 			Entity: "proofs",
+			Action: "write",
+		}},
+		"/tarorpc.Taro/SendAsset": {{
+			Entity: "assets",
 			Action: "write",
 		}},
 	}
@@ -849,4 +854,70 @@ func marshalAddrEventStatus(status address.Status) (tarorpc.AddrEventStatus,
 		return 0, fmt.Errorf("unknown address event status <%d>",
 			status)
 	}
+}
+
+// SendAsset uses a passed taro address to attempt to complete an asset send.
+// The method returns information w.r.t the on chain send, as well as the proof
+// file information the receiver needs to fully receive the asset.
+func (r *rpcServer) SendAsset(ctx context.Context,
+	in *tarorpc.SendAssetRequest) (*tarorpc.SendAssetResponse, error) {
+
+	if in.TaroAddr == "" {
+		return nil, fmt.Errorf("addr must be set")
+	}
+
+	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+	taroAddr, err := address.DecodeAddress(in.TaroAddr, &taroParams)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := r.cfg.ChainPorter.RequestShipment(&tarofreighter.AssetParcel{
+		Dest: taroAddr,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	transferTXID := resp.TransferTx.TxHash()
+
+	var txBuf bytes.Buffer
+	if err := resp.TransferTx.Serialize(&txBuf); err != nil {
+		return nil, err
+	}
+	transferTxBytes := txBuf.Bytes()
+
+	prevInputs := make([]*tarorpc.PrevInputAsset, len(resp.AssetInputs))
+	newOutputs := make([]*tarorpc.AssetOutput, len(resp.AssetOutputs))
+
+	for i, input := range resp.AssetInputs {
+		prevInputs[i] = &tarorpc.PrevInputAsset{
+			AnchorPoint: input.PrevID.OutPoint.String(),
+			AssetId:     input.PrevID.ID[:],
+			ScriptKey:   input.PrevID.ScriptKey[:],
+			Amount:      int64(input.Amount),
+		}
+	}
+	for i, output := range resp.AssetOutputs {
+		newOutputs[i] = &tarorpc.AssetOutput{
+			AnchorPoint: output.PrevID.OutPoint.String(),
+			AssetId:     output.PrevID.ID[:],
+			ScriptKey:   output.PrevID.ScriptKey[:],
+			Amount:      int64(output.Amount),
+			// TODO(roasbeef): add blob and split proof
+		}
+	}
+
+	return &tarorpc.SendAssetResponse{
+		TransferTxid:      transferTXID[:],
+		AnchorOutputIndex: int32(resp.NewAnchorPoint.Index),
+		TransferTxBytes:   transferTxBytes,
+		TaroTransfer: &tarorpc.TaroTransfer{
+			OldTaroRoot: resp.OldTaroRoot,
+			NewTaroRoot: resp.NewTaroRoot,
+			PrevInputs:  prevInputs,
+			NewOutputs:  newOutputs,
+		},
+		TotalFeeSats: 0,
+	}, nil
 }
