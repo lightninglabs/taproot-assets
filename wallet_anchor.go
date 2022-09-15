@@ -7,14 +7,12 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/tarogarden"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -93,13 +91,22 @@ func (l *LndRpcWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 	return pkt, nil
 }
 
-// ImportPubKey imports a new public key into the wallet, as a P2TR output.
-func (l *LndRpcWalletAnchor) ImportPubKey(ctx context.Context,
-	taprootKey *btcec.PublicKey) (btcutil.Address, error) {
+// ImportTaprootOutput imports a new public key into the wallet, as a P2TR
+// output.
+func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
+	pub *btcec.PublicKey) error {
 
-	tapscript := input.TapscriptFullKeyOnly(taprootKey)
+	_, err := l.lnd.WalletKit.ImportTaprootScript(
+		ctx, &waddrmgr.Tapscript{
+			Type:          waddrmgr.TaprootFullKeyOnly,
+			FullOutputKey: pub,
+		},
+	)
+	if err != nil {
+		return err
+	}
 
-	return l.lnd.WalletKit.ImportTaprootScript(ctx, tapscript)
+	return nil
 }
 
 // UnlockInput unlocks the set of target inputs after a batch is abandoned.
