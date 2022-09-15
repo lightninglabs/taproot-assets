@@ -411,6 +411,39 @@
         ]
       }
     },
+    "/v1/taro/send": {
+      "post": {
+        "summary": "tarocli: `assets send`\nSendAsset uses a passed taro address to attempt to complete an asset send.\nThe method returns information w.r.t the on chain send, as well as the\nproof file information the receiver needs to fully receive the asset.",
+        "operationId": "Taro_SendAsset",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcSendAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tarorpcSendAssetRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/stop": {
       "post": {
         "summary": "tarocli: `stop`\nStopDaemon will send a shutdown request to the interrupt handler, triggering\na graceful shutdown of the daemon.",
@@ -989,6 +1022,14 @@
           "items": {
             "$ref": "#/definitions/tarorpcAddr"
           }
+        }
+      }
+    },
+    "tarorpcSendAssetRequest": {
+      "type": "object",
+      "properties": {
+        "taro_addr": {
+          "type": "string"
         }
       }
     },
