@@ -195,22 +195,6 @@ func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
 	return spendPkt, nil
 }
 
-// Move the change output on a funded psbt
-// TODO(jhb): godoc
-func AdjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32) {
-	// store the script and value of the change output
-	changeOutput := pkt.UnsignedTx.TxOut[changeIndex]
-	changeAmtSats := changeOutput.Value
-	changeScript := changeOutput.PkScript
-
-	// overwrite the existing change output, and restore in at the
-	// highest-index output
-	maxOutputIndex := len(pkt.UnsignedTx.TxOut) - 1
-	pkt.UnsignedTx.TxOut[changeIndex] = createDummyOutput()
-	pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeScript
-	pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeAmtSats
-}
-
 // AreValidIndexes checks a set of split locators to check for the minimum
 // number of locators, and tests if the locators could be used for a Taro-only
 // spend, i.e. a TX that does not need other outputs added to be valid.
@@ -366,6 +350,9 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	// We'll now create a new copy of the old asset, swapping out the
 	// script key. We blank out the tweaked key information as this is now
 	// an external asset.
+	//
+	// TODO(roasbeef): make locators here, and make sure they exist like
+	// above
 	newAsset := updatedDelta.InputAssets[prevInput].Copy()
 	newAsset.ScriptKey.PubKey = &addr.ScriptKey
 	newAsset.ScriptKey.TweakedScriptKey = nil
@@ -600,10 +587,10 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 	}
 
 	// Create the scripts corresponding to each receiver's TaroCommitment.
-
+	//
 	// NOTE: We currently default to the Taro commitment having no sibling
-	// in the Tapscript tree. Any sibling would need to be checked to verify
-	// that it is not also a Taro commitment.
+	// in the Tapscript tree. Any sibling would need to be checked to
+	// verify that it is not also a Taro commitment.
 	receiverScript, err := PayToAddrScript(
 		addr.InternalKey, nil, receiverCommitment,
 	)
@@ -620,6 +607,7 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 	// Embed the TaroCommitments in their respective transaction outputs.
 	senderIndex := locators[senderStateKey].OutputIndex
 	pkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
+
 	receiverIndex := locators[receiverStateKey].OutputIndex
 	pkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
 
