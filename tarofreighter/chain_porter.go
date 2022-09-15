@@ -16,50 +16,10 @@ import (
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/keychain"
-)
-
-// enum to define each stage of an asset send
-type SendState uint8
-
-// Start with one state per function
-// TODO(jhb): add state transition path for modifying locators
-// State name signals the state change of the send, within the state
-const (
-	SendStateInitializing SendState = iota
-
-	// TODO(jhb): Preceding states for input lookup given address input
-
-	SendStateCommitmentSelect
-
-	SendStateValidatedInput
-
-	SendStatePreparedSplit
-
-	SendStatePreparedComplete
-
-	SendStateSigned
-
-	SendStateCommitmentsUpdated
-
-	SendStateValidatedLocators
-
-	SendStatePsbtFund
-
-	SendStatePsbtSign
-
-	SendStateLogCommit
-
-	SendStateBroadcast
-
-	// TODO(jhb): Following states for finalization and broadcast
 )
 
 // Config for an instance of the ChainPorter
 type ChainPorterConfig struct {
-	// Will need to modify Signer and maybe WalletAnchor?
-	// tarogarden.GardenKit
-
 	// CoinSelector...
 	CoinSelector CommitmentSelector
 
@@ -80,21 +40,9 @@ type ChainPorterConfig struct {
 
 	// KeyRing...
 	KeyRing KeyRing
-}
 
-// AssetParcel...
-type AssetParcel struct {
-	// Dest...
-	Dest address.Taro
-
-	// resp...
-	//
-	// TODO(roasbeef): should be txid w/ complete send info?
-	//  * then can log in the command line, et
-	respChan chan struct{}
-
-	// errChan...
-	errChan chan error
+	// ChainParams...
+	ChainParams *address.ChainParams
 }
 
 // ChainPorter...
@@ -107,7 +55,6 @@ type ChainPorter struct {
 	exportReqs chan *AssetParcel
 
 	// confEvent + confInfo
-
 	*chanutils.ContextGuard
 }
 
@@ -165,54 +112,6 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (any, error) {
 	case <-p.Quit:
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
-}
-
-// sendPackage...
-//
-// wrapper for state carried across state transitions
-type sendPackage struct {
-	SendState SendState
-
-	ChainParams *address.ChainParams
-
-	// Sender, all will be mapped to the change asset leaf
-	InternalKey keychain.KeyDescriptor
-
-	// ScriptKey...
-	ScriptKey btcec.PublicKey
-
-	// TODO(jhb): optional SpendLocators
-	// TODO(jhb): map sender state key to PrevID?
-	// TODO(jhb): map sender state key to PrevTaroTree?
-	// Includes PrevScriptKey
-	PrevID asset.PrevID
-
-	// PrevAsset...
-	PrevAsset *AnchoredCommitment
-
-	Locators taroscript.SpendLocators
-
-	// signal if we need to recompute the send
-	LocatorsUpdated bool
-
-	// signal if we need a split
-	NeedsSplit bool
-
-	// Receiver
-	Address address.Taro
-
-	// nil at start, then reassigned to match current state
-	SendDelta *taroscript.SpendDelta
-
-	SendCommitments taroscript.SpendCommitments
-
-	// TODO(jhb): Wrap the PSBT with extra data?
-	SendPacket *psbt.Packet
-
-	// FinalTx...
-	FinalTx *wire.MsgTx
-
-	OutboundPkg *OutboundParcelDelta
 }
 
 // main state machine goroutine; advance state, wait for TX confirmation
