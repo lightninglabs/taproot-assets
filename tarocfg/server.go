@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
@@ -132,8 +133,18 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				ErrChan:      mainErrChan,
 			},
 		),
-		AddrBook:          addrBook,
-		ProofArchive:      proofArchive,
+		AddrBook:     addrBook,
+		ProofArchive: proofArchive,
+		ChainPorter: tarofreighter.NewChainPorter(&tarofreighter.ChainPorterConfig{
+			CoinSelector: assetStore,
+			Signer:       taro.NewLndRpcVirtualTxSigner(lndServices),
+			TxValidator:  &taro.ValidatorV0{},
+			ExportLog:    assetStore,
+			ChainBridge:  chainBridge,
+			Wallet:       walletAnchor,
+			KeyRing:      keyRing,
+			ChainParams:  &taroChainParams,
+		}),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{

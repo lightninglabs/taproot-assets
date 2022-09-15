@@ -200,6 +200,10 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		return mkErr("unable to start asset custodian: %v", err)
 	}
 
+	if err := s.cfg.ChainPorter.Start(); err != nil {
+		return mkErr("unable to start chain porter: %v", err)
+	}
+
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	if err := s.rpcServer.Start(); err != nil {
@@ -389,8 +393,6 @@ func (s *Server) Stop() error {
 
 	srvrLog.Infof("Stopping Main Server")
 
-	// TODO(roasbeef): stop all other sub-systems
-
 	if err := s.rpcServer.Stop(); err != nil {
 		return err
 	}
@@ -398,6 +400,10 @@ func (s *Server) Stop() error {
 		return err
 	}
 	if err := s.cfg.AssetCustodian.Stop(); err != nil {
+		return err
+	}
+
+	if err := s.cfg.ChainPorter.Stop(); err != nil {
 		return err
 	}
 
