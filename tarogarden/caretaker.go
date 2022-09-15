@@ -532,7 +532,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// operations above
 		ctx, cancel = b.WithCtxQuit()
 		defer cancel()
-		_, err = b.cfg.Wallet.ImportPubKey(ctx, mintingOutputKey)
+		_, err = b.cfg.Wallet.ImportTaprootOutput(ctx, mintingOutputKey)
 		if err != nil {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}

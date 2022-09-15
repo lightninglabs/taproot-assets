@@ -288,9 +288,9 @@ type WalletAnchor interface {
 	// packet.
 	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
-	// ImportPubKey imports a new public key into the wallet, as a P2TR
-	// output.
-	ImportPubKey(context.Context, *btcec.PublicKey) (btcutil.Address, error)
+	// ImportTaprootOutput imports a new public key into the wallet, as a
+	// P2TR output.
+	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address, error)
 
 	// UnlockInput unlocks the set of target inputs after a batch is
 	// abandoned.

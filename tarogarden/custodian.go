@@ -391,7 +391,7 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
 
-	p2trAddr, err := c.cfg.WalletAnchor.ImportPubKey(
+	p2trAddr, err := c.cfg.WalletAnchor.ImportTaprootOutput(
 		ctxt, &addr.TaprootOutputKey,
 	)
 	if err != nil {

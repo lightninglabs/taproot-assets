@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -94,9 +95,9 @@ func (l *LndRpcWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 // ImportTaprootOutput imports a new public key into the wallet, as a P2TR
 // output.
 func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
-	pub *btcec.PublicKey) error {
+	pub *btcec.PublicKey) (btcutil.Address, error) {
 
-	_, err := l.lnd.WalletKit.ImportTaprootScript(
+	addr, err := l.lnd.WalletKit.ImportTaprootScript(
 		ctx, &waddrmgr.Tapscript{
 			Type:          waddrmgr.TaprootFullKeyOnly,
 			FullOutputKey: pub,
@@ -106,7 +107,7 @@ func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
 		return err
 	}
 
-	return nil
+	return addr, nil
 }
 
 // UnlockInput unlocks the set of target inputs after a batch is abandoned.
