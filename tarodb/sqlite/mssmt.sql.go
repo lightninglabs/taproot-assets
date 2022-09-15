@@ -37,7 +37,7 @@ AS (
     UNION ALL
         SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum, n.namespace
         FROM mssmt_nodes n, mssmt_branches_cte b
-        WHERE (n.hash_key=b.l_hash_key OR n.hash_key=b.r_hash_key) AND n.namespace=b.namespace
+        WHERE n.namespace=b.namespace AND (n.hash_key=b.l_hash_key OR n.hash_key=b.r_hash_key)
     /*
     Limit the result set to 3 items. The first is always the root node, while
     the following 0, 1 or 2 nodes represent children of the root node. These

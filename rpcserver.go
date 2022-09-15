@@ -302,7 +302,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
 
-	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx)
+	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
 	}

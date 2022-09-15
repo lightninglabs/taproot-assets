@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -108,22 +109,76 @@ func randSplitCommit(t *testing.T,
 	return assetSplit.SplitCommitment
 }
 
-func randAsset(t *testing.T) *asset.Asset {
-	genesis := randGenesis(t, asset.Normal)
+type assetGenOptions struct {
+	assetGen asset.Genesis
 
-	famPriv := randPrivKey(t)
+	famKeyPriv *btcec.PrivateKey
+
+	amt uint64
+
+	genesisPoint wire.OutPoint
+}
+
+func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
+	gen := randGenesis(t, asset.Normal)
+
+	return &assetGenOptions{
+		assetGen:     *gen,
+		famKeyPriv:   randPrivKey(t),
+		amt:          uint64(randInt[uint32]()),
+		genesisPoint: randOp(t),
+	}
+}
+
+type assetGenOpt func(*assetGenOptions)
+
+func withAssetGenAmt(amt uint64) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.amt = amt
+	}
+}
+
+func withAssetGenKeyFam(key *btcec.PrivateKey) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.famKeyPriv = key
+	}
+}
+
+func withAssetGenPoint(op wire.OutPoint) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.genesisPoint = op
+	}
+}
+
+func withAssetGen(g asset.Genesis) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.assetGen = g
+	}
+}
+
+func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
+	opts := defaultAssetGenOpts(t)
+	for _, optFunc := range genOpts {
+		optFunc(opts)
+	}
+
+	genesis := opts.assetGen
+	genesis.FirstPrevOut = opts.genesisPoint
+
+	famPriv := opts.famKeyPriv
+
 	genSigner := asset.NewRawKeyGenesisSigner(famPriv)
 
 	famKey, sig, err := genSigner.SignGenesis(
 		keychain.KeyDescriptor{
 			PubKey: famPriv.PubKey(),
-		}, *genesis,
+		}, genesis,
 	)
 	require.NoError(t, err)
 
 	newAsset := &asset.Asset{
-		Genesis:          *genesis,
-		Amount:           uint64(randInt[uint32]()),
+		Genesis:          genesis,
+		Amount:           opts.amt,
 		LockTime:         uint64(randInt[int32]()),
 		RelativeLockTime: uint64(randInt[int32]()),
 		ScriptKey: keychain.KeyDescriptor{
@@ -134,8 +189,9 @@ func randAsset(t *testing.T) *asset.Asset {
 			},
 		},
 	}
+
 	// 50/50 chance that we'll actually have a family key.
-	if randInt[int]()%2 == 0 {
+	if famPriv != nil && randInt[int]()%2 == 0 {
 		newAsset.FamilyKey = &asset.FamilyKey{
 			RawKey: keychain.KeyDescriptor{
 				PubKey: famKey,
@@ -318,7 +374,7 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(context.Background())
+	assets, err := assetStore.FetchAllAssets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -370,4 +426,233 @@ func TestInternalKeyUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, k1, k2)
+}
+
+type assetDesc struct {
+	assetGen    asset.Genesis
+	anchorPoint wire.OutPoint
+
+	keyFamily *btcec.PrivateKey
+
+	amt uint64
+}
+
+type assetGenerator struct {
+	assetGens []asset.Genesis
+
+	anchorTxs []*wire.MsgTx
+
+	anchorPoints     []wire.OutPoint
+	anchorPointsToTx map[wire.OutPoint]*wire.MsgTx
+
+	familyKeys []*btcec.PrivateKey
+}
+
+func newAssetGenerator(t *testing.T,
+	numAssetIDs, numFamKeys int) *assetGenerator {
+
+	anchorTxs := make([]*wire.MsgTx, numAssetIDs)
+	for i := 0; i < numAssetIDs; i++ {
+		pkScript := bytes.Repeat([]byte{byte(i)}, 34)
+		anchorTxs[i] = &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				&wire.TxIn{},
+			},
+			TxOut: []*wire.TxOut{
+				&wire.TxOut{
+					PkScript: pkScript,
+					Value:    10 * 8,
+				},
+			},
+		}
+	}
+
+	anchorPoints := make([]wire.OutPoint, numAssetIDs)
+	anchorPointsToTx := make(map[wire.OutPoint]*wire.MsgTx, numAssetIDs)
+	for i, tx := range anchorTxs {
+		tx := tx
+
+		anchorPoint := wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: 0,
+		}
+
+		anchorPoints[i] = anchorPoint
+		anchorPointsToTx[anchorPoint] = tx
+	}
+
+	assetGens := make([]asset.Genesis, numAssetIDs)
+	for i := 0; i < numAssetIDs; i++ {
+		assetGens[i] = *randGenesis(t, asset.Normal)
+	}
+
+	famKeys := make([]*btcec.PrivateKey, numFamKeys)
+	for i := 0; i < numFamKeys; i++ {
+		famKeys[i] = randPrivKey(t)
+	}
+
+	return &assetGenerator{
+		familyKeys:       famKeys,
+		assetGens:        assetGens,
+		anchorPoints:     anchorPoints,
+		anchorPointsToTx: anchorPointsToTx,
+		anchorTxs:        anchorTxs,
+	}
+}
+
+func (a *assetGenerator) genAssets(t *testing.T, assetDescs []assetDesc,
+	assetStore *AssetStore) {
+
+	ctx := context.Background()
+	for _, desc := range assetDescs {
+		opts := []assetGenOpt{
+			withAssetGenAmt(desc.amt), withAssetGenPoint(desc.anchorPoint),
+			withAssetGen(desc.assetGen),
+		}
+
+		if desc.keyFamily != nil {
+			opts = append(opts, withAssetGenKeyFam(desc.keyFamily))
+		}
+		asset := randAsset(t, opts...)
+
+		// TODO(roasbeef): should actually group them all together?
+		assetCommitment, err := commitment.NewAssetCommitment(asset)
+		require.NoError(t, err)
+		taroCommitment, err := commitment.NewTaroCommitment(assetCommitment)
+		require.NoError(t, err)
+
+		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
+
+		err = assetStore.importAssetFromProof(
+			ctx, assetStore.db, &proof.AnnotatedProof{
+				AssetSnapshot: &proof.AssetSnapshot{
+					AnchorTx:    anchorPoint,
+					InternalKey: randPubKey(t),
+					Asset:       asset,
+					ScriptRoot:  taroCommitment,
+				},
+				Blob: bytes.Repeat([]byte{1}, 100),
+			},
+		)
+		require.NoError(t, err)
+	}
+}
+
+func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
+	gen := a.assetGens[i]
+	gen.FirstPrevOut = op
+
+	id := gen.ID()
+
+	return &id
+}
+
+// TestSelectCommitment tests that the coin selection logic can properly select
+// assets from a canned set that meet the specified set of constraints.
+func TestSelectCommitment(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssetIDs = 10
+		numFamKeys  = 2
+		numAnchors  = 3
+	)
+
+	assetGen := newAssetGenerator(t, numAssetIDs, numFamKeys)
+
+	tests := []struct {
+		name string
+
+		assets []assetDesc
+
+		constraints tarofreighter.CommitmentConstraints
+
+		numAssets int
+	}{
+		// Only one asset that matches the constraints, should be the
+		// only one returned.
+		{
+			name: "single asset exact match",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+				},
+			},
+			constraints: tarofreighter.CommitmentConstraints{
+				AssetID: assetGen.bindAssetID(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 2,
+			},
+			numAssets: 1,
+		},
+
+		// Asset matches all the params, but too small of a UTXO.  only
+		// one returned.
+		{
+			name: "single asset no match min amt",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+				},
+			},
+			constraints: tarofreighter.CommitmentConstraints{
+				AssetID: assetGen.bindAssetID(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 10,
+			},
+			numAssets: 0,
+		},
+
+		// Asset ID not found on disk, no matches should be returned.
+		{
+			name: "no match wrong asset ID",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+				},
+			},
+			constraints: tarofreighter.CommitmentConstraints{
+				AssetID: assetGen.bindAssetID(
+					1, assetGen.anchorPoints[1],
+				),
+				MinAmt: 10,
+			},
+			numAssets: 0,
+		},
+	}
+
+	ctx := context.Background()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// First, we'll create a new assets store and then
+			// insert the set of assets described by the asset
+			// descs.
+			_, assetsStore, _ := newAssetStore(t)
+
+			assetGen.genAssets(t, test.assets, assetsStore)
+
+			// With the assets inserted, we'll now attempt to query
+			// for the set of matching assets based on the
+			// constraints.
+			selectedAssets, err := assetsStore.SelectCommitment(
+				ctx, test.constraints,
+			)
+			require.NoError(t, err)
+
+			// The number of selected assets should match up
+			// properly.
+			require.Equal(t, test.numAssets, len(selectedAssets))
+		})
+	}
 }
