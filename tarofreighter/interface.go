@@ -42,12 +42,12 @@ type AnchoredCommitment struct {
 	// in the main chain.
 	AnchorPoint wire.OutPoint
 
-	// AnchorOutputValue is outout value of the anchor output.
+	// AnchorOutputValue is output value of the anchor output.
 	AnchorOutputValue btcutil.Amount
 
 	// InternalKey is the internal key that's used to anchor the commitment
 	// in the above out point.
-	InternalKey btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// TapscriptSibling is the tapscript sibling of this asset. This will
 	// usually be blank.
