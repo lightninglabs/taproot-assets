@@ -95,7 +95,7 @@ func (p *ChainPorter) Stop() error {
 }
 
 // RequestShipment...
-func (p *ChainPorter) RequestShipment(req *AssetParcel) (any, error) {
+func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) {
 	req.errChan = make(chan error, 1)
 	req.respChan = make(chan *PendingParcel, 1)
 

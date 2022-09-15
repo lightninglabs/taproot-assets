@@ -187,6 +187,12 @@ func (m *MockWalletAnchor) ListTransactions(ctx context.Context, _, _ int32,
 	return m.Transactions, nil
 }
 
+func (m *MockWalletAnchor) ImportTaprootOutput(_ context.Context,
+	pub *btcec.PublicKey) error {
+
+	return nil
+}
+
 type MockChainBridge struct {
 	FeeEstimateSignal chan struct{}
 	PublishReq        chan *wire.MsgTx
