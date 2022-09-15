@@ -75,6 +75,13 @@ service Taro {
     script key, and internal key.
     */
     rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
+
+    /* tarocli: `assets send`
+    SendAsset uses a passed taro address to attempt to complete an asset send.
+    The method returns information w.r.t the on chain send, as well as the
+    proof file information the receiver needs to fully receive the asset.
+    */
+    rpc SendAsset (SendAssetRequest) returns (SendAssetResponse);
 }
 
 enum AssetType {
@@ -445,4 +452,50 @@ message AddrReceivesRequest {
 message AddrReceivesResponse {
     // The events that match the filter criteria.
     repeated AddrEvent events = 1;
+}
+
+message SendAssetRequest {
+    string taro_addr = 1;
+
+    // TODO(roasbeef): maybe in future add details re type of ProofCourier or
+    // w/e
+}
+
+message PrevInputAsset {
+    string anchor_point = 1;
+    bytes asset_id = 2;
+    bytes script_key = 3;
+    int64 amount = 4;
+}
+
+message AssetOutput {
+    string anchor_point = 1;
+    bytes asset_id = 2;
+    bytes script_key = 3;
+    int64 amount = 4;
+
+    bytes new_proof_blob = 5;
+
+    bytes split_commit_proof = 6;
+}
+
+message TaroTransfer {
+    bytes old_taro_root = 1;
+
+    bytes new_taro_root = 2;
+
+    repeated PrevInputAsset prev_inputs = 3;
+
+    repeated AssetOutput new_outputs = 4;
+}
+
+message SendAssetResponse {
+    bytes transfer_txid = 1;
+    int32 anchor_output_index = 2;
+
+    bytes transfer_tx_bytes = 3;
+
+    TaroTransfer taro_transfer = 4;
+
+    int64 total_fee_sats = 5;
 }

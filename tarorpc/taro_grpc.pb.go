@@ -65,6 +65,11 @@ type TaroClient interface {
 	//a new asset will be inserted on disk, spendable using the specified target
 	//script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
+	// tarocli: `assets send`
+	//SendAsset uses a passed taro address to attempt to complete an asset send.
+	//The method returns information w.r.t the on chain send, as well as the
+	//proof file information the receiver needs to fully receive the asset.
+	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
 }
 
 type taroClient struct {
@@ -183,6 +188,15 @@ func (c *taroClient) ImportProof(ctx context.Context, in *ImportProofRequest, op
 	return out, nil
 }
 
+func (c *taroClient) SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error) {
+	out := new(SendAssetResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/SendAsset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaroServer is the server API for Taro service.
 // All implementations must embed UnimplementedTaroServer
 // for forward compatibility
@@ -234,6 +248,11 @@ type TaroServer interface {
 	//a new asset will be inserted on disk, spendable using the specified target
 	//script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
+	// tarocli: `assets send`
+	//SendAsset uses a passed taro address to attempt to complete an asset send.
+	//The method returns information w.r.t the on chain send, as well as the
+	//proof file information the receiver needs to fully receive the asset.
+	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
 	mustEmbedUnimplementedTaroServer()
 }
 
@@ -276,6 +295,9 @@ func (UnimplementedTaroServer) ExportProof(context.Context, *ExportProofRequest)
 }
 func (UnimplementedTaroServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
+}
+func (UnimplementedTaroServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
 }
 func (UnimplementedTaroServer) mustEmbedUnimplementedTaroServer() {}
 
@@ -506,6 +528,24 @@ func _Taro_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Taro_SendAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendAssetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).SendAsset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/SendAsset",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).SendAsset(ctx, req.(*SendAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Taro_ServiceDesc is the grpc.ServiceDesc for Taro service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -560,6 +600,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ImportProof",
 			Handler:    _Taro_ImportProof_Handler,
+		},
+		{
+			MethodName: "SendAsset",
+			Handler:    _Taro_SendAsset_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -729,6 +729,34 @@
         }
       }
     },
+    "tarorpcAssetOutput": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "new_proof_blob": {
+          "type": "string",
+          "format": "byte"
+        },
+        "split_commit_proof": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
     "tarorpcAssetType": {
       "type": "string",
       "enum": [
@@ -913,6 +941,26 @@
         }
       }
     },
+    "tarorpcPrevInputAsset": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "tarorpcProofFile": {
       "type": "object",
       "properties": {
@@ -944,11 +992,60 @@
         }
       }
     },
+    "tarorpcSendAssetResponse": {
+      "type": "object",
+      "properties": {
+        "transfer_txid": {
+          "type": "string",
+          "format": "byte"
+        },
+        "anchor_output_index": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "transfer_tx_bytes": {
+          "type": "string",
+          "format": "byte"
+        },
+        "taro_transfer": {
+          "$ref": "#/definitions/tarorpcTaroTransfer"
+        },
+        "total_fee_sats": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "tarorpcStopRequest": {
       "type": "object"
     },
     "tarorpcStopResponse": {
       "type": "object"
+    },
+    "tarorpcTaroTransfer": {
+      "type": "object",
+      "properties": {
+        "old_taro_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "new_taro_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "prev_inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcPrevInputAsset"
+          }
+        },
+        "new_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetOutput"
+          }
+        }
+      }
     }
   }
 }
