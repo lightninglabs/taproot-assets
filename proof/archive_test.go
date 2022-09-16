@@ -7,10 +7,15 @@ import (
 	"math/rand"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	testTimeout = 5 * time.Second
 )
 
 func randAssetID(t *testing.T) *asset.ID {
@@ -37,7 +42,9 @@ func TestFileArchiver(t *testing.T) {
 	require.NoError(t, err)
 
 	// We'll use a fake verifier that just returns that the proof is valid.
-	archive := NewMultiArchiver(NewMockVerifier(t), fileArchive)
+	archive := NewMultiArchiver(
+		NewMockVerifier(t), testTimeout, fileArchive,
+	)
 
 	ctx := context.Background()
 

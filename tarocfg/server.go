@@ -99,6 +99,10 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	if err != nil {
 		return nil, fmt.Errorf("unable to open disk archive: %v", err)
 	}
+	proofArchive := proof.NewMultiArchiver(
+		&proof.BaseVerifier{}, tarodb.DefaultStoreTimeout,
+		assetStore, proofFileStore,
+	)
 
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
@@ -116,10 +120,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			BatchTicker: ticker.New(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,
 		}),
-		AddrBook: addrBook,
-		ProofArchive: proof.NewMultiArchiver(
-			&proof.BaseVerifier{}, assetStore, proofFileStore,
-		),
+		AddrBook:          addrBook,
+		ProofArchive:      proofArchive,
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
