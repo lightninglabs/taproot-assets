@@ -201,7 +201,7 @@ func RegisterTaroJSONCallbacks(registry map[string]func(ctx context.Context,
 	registry["tarorpc.Taro.DecodeAddr"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &Addr{}
+		req := &DecodeAddrRequest{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)

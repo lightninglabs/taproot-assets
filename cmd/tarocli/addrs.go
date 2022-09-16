@@ -201,7 +201,7 @@ func decodeAddr(ctx *cli.Context) error {
 		return nil
 	}
 
-	resp, err := client.DecodeAddr(ctxc, &tarorpc.Addr{
+	resp, err := client.DecodeAddr(ctxc, &tarorpc.DecodeAddrRequest{
 		Addr: addr,
 	})
 	if err != nil {

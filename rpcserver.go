@@ -59,15 +59,15 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/QueryTaroAddrs": {{
+		"/tarorpc.Taro/QueryAddrs": {{
 			Entity: "addresses",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/NewTaroAddr": {{
+		"/tarorpc.Taro/NewAddr": {{
 			Entity: "addresses",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/DecodeTaroAddr": {{
+		"/tarorpc.Taro/DecodeAddr": {{
 			Entity: "addresses",
 			Action: "read",
 		}},
@@ -268,8 +268,8 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 	return &tarorpc.DebugLevelResponse{}, nil
 }
 
-// MintAsset will attempts to mint the set of assets (async by default to
-// ensure proper batching) specified in the request.
+// MintAsset attempts to mint the set of assets (async by default to ensure
+// proper batching) specified in the request.
 func (r *rpcServer) MintAsset(ctx context.Context,
 	req *tarorpc.MintAssetRequest) (*tarorpc.MintAssetResponse, error) {
 
@@ -328,11 +328,13 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 			anchorTxBytes = anchorTxBuf.Bytes()
 		}
 		rpcAssets[i] = &tarorpc.Asset{
+			Version: int32(asset.Version),
 			AssetGenesis: &tarorpc.GenesisInfo{
 				GenesisPoint: asset.Genesis.FirstPrevOut.String(),
 				Name:         asset.Genesis.Tag,
 				Meta:         asset.Genesis.Metadata,
 				AssetId:      assetID[:],
+				OutputIndex:  asset.Genesis.OutputIndex,
 			},
 			AssetType:        tarorpc.AssetType(asset.Type),
 			Amount:           int64(asset.Amount),
@@ -475,10 +477,18 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	in *tarorpc.QueryAddrRequest) (*tarorpc.QueryAddrResponse, error) {
 
 	query := address.QueryParams{
-		CreatedAfter:  time.Unix(in.CreatedAfter, 0),
-		CreatedBefore: time.Unix(in.CreatedBefore, 0),
-		Limit:         in.Limit,
-		Offset:        in.Offset,
+		Limit:  in.Limit,
+		Offset: in.Offset,
+	}
+
+	// The unix time of 0 (1970-01-01) is not the same as an empty Time
+	// struct (0000-00-00). For our query to succeed, we need to set the
+	// time values the way the address book expects them.
+	if in.CreatedBefore > 0 {
+		query.CreatedBefore = time.Unix(in.CreatedBefore, 0)
+	}
+	if in.CreatedAfter > 0 {
+		query.CreatedAfter = time.Unix(in.CreatedAfter, 0)
 	}
 
 	rpcsLog.Debugf("[QueryAddrs]: addr query params: %v",
@@ -495,14 +505,10 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	addrs := make([]*tarorpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
 		dbAddr.ChainParams = &taroParams
-
-		addrStr, err := dbAddr.EncodeAddress()
+		addrs[i], err = marshalAddr(dbAddr.Taro)
 		if err != nil {
-			return nil, fmt.Errorf("unable to encode addr: %w", err)
-		}
-
-		addrs[i] = &tarorpc.Addr{
-			Addr: addrStr,
+			return nil, fmt.Errorf("unable to marshal addr: %w",
+				err)
 		}
 	}
 
@@ -547,21 +553,20 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}
 
-	// With our addr obtained, we'll encode it as a string then send off
-	// the response.
-	addrStr, err := addr.EncodeAddress()
+	// With our addr obtained, we'll marshal it as an RPC message then send
+	// off the response.
+	rpcAddr, err := marshalAddr(addr.Taro)
 	if err != nil {
-		return nil, fmt.Errorf("unable to encode addr: %w", err)
+		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
-	return &tarorpc.Addr{
-		Addr: addrStr,
-	}, nil
+
+	return rpcAddr, nil
 }
 
 // DecodeAddr decode a Taro address into a partial asset message that
 // represents the asset it wants to receive.
-func (r *rpcServer) DecodeAddr(ctx context.Context,
-	in *tarorpc.Addr) (*tarorpc.Asset, error) {
+func (r *rpcServer) DecodeAddr(_ context.Context,
+	in *tarorpc.DecodeAddrRequest) (*tarorpc.Addr, error) {
 
 	if len(in.Addr) == 0 {
 		return nil, fmt.Errorf("must specify an addr")
@@ -574,23 +579,12 @@ func (r *rpcServer) DecodeAddr(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
 
-	var famKeyBytes []byte
-	if addr.FamilyKey != nil {
-		famKeyBytes = addr.FamilyKey.SerializeCompressed()
+	rpcAddr, err := marshalAddr(addr)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
 
-	// TODO(roasbeef): display internal key somewhere?
-	return &tarorpc.Asset{
-		AssetGenesis: &tarorpc.GenesisInfo{
-			AssetId: addr.ID[:],
-		},
-		AssetFamily: &tarorpc.AssetFamily{
-			TweakedFamilyKey: famKeyBytes,
-		},
-		ScriptKey: addr.ScriptKey.SerializeCompressed(),
-		Amount:    int64(addr.Amount),
-		AssetType: tarorpc.AssetType(addr.Type),
-	}, nil
+	return rpcAddr, nil
 }
 
 // VerifyProof attempts to verify a given proof file that claims to be anchored
@@ -675,4 +669,34 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	}
 
 	return &tarorpc.ImportProofResponse{}, nil
+}
+
+// marshalAddr turns an address into its RPC counterpart.
+func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
+	addrStr, err := addr.EncodeAddress()
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode addr: %w", err)
+	}
+
+	taprootOutputKey, err := addr.TaprootOutputKey(nil)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving Taproot output key: %w",
+			err)
+	}
+
+	rpcAddr := &tarorpc.Addr{
+		Encoded:          addrStr,
+		AssetId:          addr.ID[:],
+		AssetType:        tarorpc.AssetType(addr.Type),
+		Amount:           int64(addr.Amount),
+		ScriptKey:        addr.ScriptKey.SerializeCompressed(),
+		InternalKey:      addr.InternalKey.SerializeCompressed(),
+		TaprootOutputKey: schnorr.SerializePubKey(taprootOutputKey),
+	}
+
+	if addr.FamilyKey != nil {
+		rpcAddr.FamilyKey = addr.FamilyKey.SerializeCompressed()
+	}
+
+	return rpcAddr, nil
 }

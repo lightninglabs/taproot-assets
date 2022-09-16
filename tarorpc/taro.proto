@@ -49,7 +49,7 @@ service Taro {
     DecodeAddr decode a Taro address into a partial asset message that
     represents the asset it wants to receive.
     */
-    rpc DecodeAddr (Addr) returns (Asset);
+    rpc DecodeAddr (DecodeAddrRequest) returns (Addr);
 
     /* tarocli: `proofs verify`
     VerifyProof attempts to verify a given proof file that claims to be anchored
@@ -145,20 +145,23 @@ message AnchorInfo {
 }
 
 message GenesisInfo {
-    // The version of the Taro asset.
-    int32 version = 1;
-
     // The first outpoint of the transaction that created the asset (txid:vout).
-    string genesis_point = 2;
+    string genesis_point = 1;
 
     // The name of the asset.
-    string name = 3;
+    string name = 2;
 
     // The opaque meta data of the asset.
-    bytes meta = 4;
+    bytes meta = 3;
 
     // The asset ID that uniquely identifies the asset.
-    bytes asset_id = 5;
+    bytes asset_id = 4;
+
+    /*
+    The index of the output that carries the unique Taro commitment in the
+    genesis transaction.
+    */
+    uint32 output_index = 5;
 }
 
 message AssetFamily {
@@ -176,11 +179,14 @@ message AssetFamily {
 }
 
 message Asset {
+    // The version of the Taro asset.
+    int32 version = 1;
+
     // The base genesis information of an asset. This information never changes.
-    GenesisInfo asset_genesis = 1;
+    GenesisInfo asset_genesis = 2;
 
     // The type of the asset.
-    AssetType asset_type = 2;
+    AssetType asset_type = 3;
 
     // The total amount of the asset stored in this Taro UTXO.
     int64 amount = 4;
@@ -269,7 +275,36 @@ message DebugLevelResponse {
 }
 
 message Addr {
-    string addr = 1;
+    // The bech32 encoded Taro address.
+    string encoded = 1;
+
+    // The asset ID that uniquely identifies the asset.
+    bytes asset_id = 2;
+
+    // The type of the asset.
+    AssetType asset_type = 3;
+
+    // The total amount of the asset stored in this Taro UTXO.
+    int64 amount = 4;
+
+    // The family key of the asset (if it exists)
+    bytes family_key = 5;
+
+    /*
+    The specific script key the asset must commit to in order to transfer
+    ownership to the creator of the address.
+    */
+    bytes script_key = 6;
+
+    // The internal key used for the on-chain output.
+    bytes internal_key = 7;
+
+    /*
+    The tweaked internal key that commits to the asset and represents the
+    on-chain output key the Bitcoin transaction must send to in order to
+    transfer assets described in this address.
+    */
+    bytes taproot_output_key = 8;
 }
 
 message QueryAddrRequest {
@@ -304,6 +339,10 @@ message NewAddrRequest {
     int64 amt = 3;
 
     AssetType asset_type = 4;
+}
+
+message DecodeAddrRequest {
+    string addr = 1;
 }
 
 message ProofFile {

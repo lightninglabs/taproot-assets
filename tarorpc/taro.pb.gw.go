@@ -258,7 +258,7 @@ func local_request_Taro_NewAddr_0(ctx context.Context, marshaler runtime.Marshal
 }
 
 func request_Taro_DecodeAddr_0(ctx context.Context, marshaler runtime.Marshaler, client TaroClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq Addr
+	var protoReq DecodeAddrRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -275,7 +275,7 @@ func request_Taro_DecodeAddr_0(ctx context.Context, marshaler runtime.Marshaler,
 }
 
 func local_request_Taro_DecodeAddr_0(ctx context.Context, marshaler runtime.Marshaler, server TaroServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq Addr
+	var protoReq DecodeAddrRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)

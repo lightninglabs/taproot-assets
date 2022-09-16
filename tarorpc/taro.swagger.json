@@ -112,7 +112,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcAsset"
+              "$ref": "#/definitions/tarorpcAddr"
             }
           },
           "default": {
@@ -128,7 +128,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcAddr"
+              "$ref": "#/definitions/tarorpcDecodeAddrRequest"
             }
           }
         ],
@@ -446,8 +446,43 @@
     "tarorpcAddr": {
       "type": "object",
       "properties": {
-        "addr": {
-          "type": "string"
+        "encoded": {
+          "type": "string",
+          "description": "The bech32 encoded Taro address."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType",
+          "description": "The type of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of the asset stored in this Taro UTXO."
+        },
+        "family_key": {
+          "type": "string",
+          "format": "byte",
+          "title": "The family key of the asset (if it exists)"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The specific script key the asset must commit to in order to transfer\nownership to the creator of the address."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal key used for the on-chain output."
+        },
+        "taproot_output_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked internal key that commits to the asset and represents the\non-chain output key the Bitcoin transaction must send to in order to\ntransfer assets described in this address."
         }
       }
     },
@@ -478,6 +513,11 @@
     "tarorpcAsset": {
       "type": "object",
       "properties": {
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taro asset."
+        },
         "asset_genesis": {
           "$ref": "#/definitions/tarorpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
@@ -603,6 +643,14 @@
         }
       }
     },
+    "tarorpcDecodeAddrRequest": {
+      "type": "object",
+      "properties": {
+        "addr": {
+          "type": "string"
+        }
+      }
+    },
     "tarorpcExportProofRequest": {
       "type": "object",
       "properties": {
@@ -619,11 +667,6 @@
     "tarorpcGenesisInfo": {
       "type": "object",
       "properties": {
-        "version": {
-          "type": "integer",
-          "format": "int32",
-          "description": "The version of the Taro asset."
-        },
         "genesis_point": {
           "type": "string",
           "description": "The first outpoint of the transaction that created the asset (txid:vout)."
@@ -641,6 +684,11 @@
           "type": "string",
           "format": "byte",
           "description": "The asset ID that uniquely identifies the asset."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output that carries the unique Taro commitment in the\ngenesis transaction."
         }
       }
     },
