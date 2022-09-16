@@ -293,7 +293,7 @@ func NewMockKeyRing() *MockKeyRing {
 func (m *MockKeyRing) DeriveNextTaroKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
-	return m.DeriveNextKey(ctx, tarogarden.TaroKeyFamily)
+	return m.DeriveNextKey(ctx, TaroKeyFamily)
 }
 
 func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
