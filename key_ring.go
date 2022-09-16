@@ -43,8 +43,8 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 
 // DeriveNextTaroKey attempts to derive the *next* key within the Taro key
 // family.
-func (l *LndRpcKeyRing) DeriveNextTaroKey(ctx context.Context,
-) (keychain.KeyDescriptor, error) {
+func (l *LndRpcKeyRing) DeriveNextTaroKey(
+	ctx context.Context) (keychain.KeyDescriptor, error) {
 
 	keyFam := int32(tarogarden.TaroKeyFamily)
 

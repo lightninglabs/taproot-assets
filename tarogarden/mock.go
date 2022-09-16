@@ -288,6 +288,14 @@ func NewMockKeyRing() *MockKeyRing {
 	}
 }
 
+// DeriveNextTaroKey attempts to derive the *next* key within the Taro key
+// family.
+func (m *MockKeyRing) DeriveNextTaroKey(
+	ctx context.Context) (keychain.KeyDescriptor, error) {
+
+	return m.DeriveNextKey(ctx, tarogarden.TaroKeyFamily)
+}
+
 func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
