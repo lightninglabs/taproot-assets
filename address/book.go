@@ -134,6 +134,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}
+
 	addr := AddrWithKeyInfo{
 		Taro:            baseAddr,
 		ScriptKeyTweak:  *scriptKey.TweakedScriptKey,

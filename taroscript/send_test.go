@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightninglabs/taro/vm"
@@ -1785,37 +1786,92 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 func TestPayToAddrScript(t *testing.T) {
 	t.Parallel()
 
-	normalAmt1 := 5
-	genesis1 := randGenesis(t, asset.Normal)
-	receiverKey1 := randKey(t)
-	receiverPubKey1 := receiverKey1.PubKey()
-	receiver1Descriptor := keychain.KeyDescriptor{PubKey: receiverPubKey1}
+	const (
+		normalAmt1 = 5
+		sendAmt    = 2
+	)
+	gen := randGenesis(t, asset.Normal)
+	ownerKey := randKey(t)
+	ownerScriptKey := ownerKey.PubKey()
+	ownerDescriptor := keychain.KeyDescriptor{PubKey: ownerScriptKey}
 
+	internalKey := randKey(t).PubKey()
+	recipientScriptKey := randKey(t).PubKey()
+
+	// Create an asset and derive a commitment for sending 2 of the 5 asset
+	// units.
 	inputAsset1, err := asset.New(
-		genesis1, uint64(normalAmt1), 1, 1,
-		asset.NewScriptKeyBIP0086(receiver1Descriptor), nil,
+		gen, uint64(normalAmt1), 1, 1,
+		asset.NewScriptKeyBIP0086(ownerDescriptor), nil,
 	)
 	require.NoError(t, err)
-	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
-	require.NoError(t, err)
+	inputAsset1AssetTree := sendCommitment(
+		t, inputAsset1, sendAmt, recipientScriptKey,
+	)
 	inputAsset1TaroTree, err := commitment.NewTaroCommitment(
 		inputAsset1AssetTree,
 	)
 	require.NoError(t, err)
 
 	scriptNoSibling, err := taroscript.PayToAddrScript(
-		*receiverPubKey1, nil, *inputAsset1TaroTree,
+		*internalKey, nil, *inputAsset1TaroTree,
 	)
 	require.NoError(t, err)
 	require.Equal(t, scriptNoSibling[0], byte(txscript.OP_1))
 	require.Equal(t, scriptNoSibling[1], byte(sha256.Size))
 
+	// Create an address for receiving the 2 units and make sure it matches
+	// the script above.
+	addr1, err := address.New(
+		gen.ID(), nil, *recipientScriptKey, *internalKey, sendAmt,
+		asset.Normal, &address.RegressionNetTaro,
+	)
+	require.NoError(t, err)
+
+	addrOutputKey, err := addr1.TaprootOutputKey(nil)
+	require.NoError(t, err)
+	require.Equal(
+		t, scriptNoSibling[2:], schnorr.SerializePubKey(addrOutputKey),
+	)
+
 	sibling, err := chainhash.NewHash(hashBytes1[:])
 	require.NoError(t, err)
 	scriptWithSibling, err := taroscript.PayToAddrScript(
-		*receiverPubKey1, sibling, *inputAsset1TaroTree,
+		*internalKey, sibling, *inputAsset1TaroTree,
 	)
 	require.NoError(t, err)
 	require.Equal(t, scriptWithSibling[0], byte(txscript.OP_1))
 	require.Equal(t, scriptWithSibling[1], byte(sha256.Size))
+
+	addrOutputKeySibling, err := addr1.TaprootOutputKey(sibling)
+	require.NoError(t, err)
+	require.Equal(
+		t, scriptWithSibling[2:],
+		schnorr.SerializePubKey(addrOutputKeySibling),
+	)
+}
+
+func sendCommitment(t *testing.T, a *asset.Asset, sendAmt btcutil.Amount,
+	recipientScriptKey *btcec.PublicKey) *commitment.AssetCommitment {
+
+	key := asset.AssetCommitmentKey(a.ID(), recipientScriptKey, true)
+	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	var buf bytes.Buffer
+	require.NoError(t, a.EncodeSend(&buf, sendAmt, recipientScriptKey))
+	leaf := mssmt.NewLeafNode(buf.Bytes(), uint64(sendAmt))
+
+	// We use the default, in-memory store that doesn't actually use the
+	// context.
+	updatedTree, err := tree.Insert(context.Background(), key, leaf)
+	require.NoError(t, err)
+
+	root, err := updatedTree.Root(context.Background())
+	require.NoError(t, err)
+
+	return &commitment.AssetCommitment{
+		Version:  a.Version,
+		AssetID:  a.ID(),
+		TreeRoot: root,
+	}
 }

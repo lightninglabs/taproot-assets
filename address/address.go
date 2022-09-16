@@ -2,13 +2,19 @@ package address
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/bech32"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -158,6 +164,52 @@ func (a *Taro) TaroCommitmentKey() [32]byte {
 // specified by a Taro address.
 func (a *Taro) AssetCommitmentKey() [32]byte {
 	return asset.AssetCommitmentKey(a.ID, &a.ScriptKey, a.FamilyKey == nil)
+}
+
+// TaroCommitment constructs the Taro commitment that is expected to appear on
+// chain when assets are being sent to this address.
+func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
+	key := a.AssetCommitmentKey()
+	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	var buf bytes.Buffer
+	// TODO(guggero): Create asset and encode it here.
+	leaf := mssmt.NewLeafNode(buf.Bytes(), a.Amount)
+
+	// We use the default, in-memory store that doesn't actually use the
+	// context.
+	updatedTree, err := tree.Insert(context.Background(), key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	updatedRoot, err := updatedTree.Root(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	return commitment.NewTaroCommitment(&commitment.AssetCommitment{
+		Version:  a.Version,
+		AssetID:  a.ID,
+		TreeRoot: updatedRoot,
+	})
+}
+
+// TaprootOutputKey returns the on-chain Taproot output key.
+func (a *Taro) TaprootOutputKey(sibling *chainhash.Hash) (*btcec.PublicKey,
+	error) {
+
+	c, err := a.TaroCommitment()
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive taro commitment: %w",
+			err)
+	}
+	tapscriptRoot := c.TapscriptRoot(sibling)
+	taprootOutputKey := txscript.ComputeTaprootOutputKey(
+		&a.InternalKey, tapscriptRoot[:],
+	)
+
+	return taprootOutputKey, nil
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
