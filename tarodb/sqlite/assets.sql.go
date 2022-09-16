@@ -428,7 +428,8 @@ WITH asset_info AS (
         ON assets.script_key_id = script_keys.script_key_id
     WHERE script_keys.tweaked_script_key = ?
 )
-SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id
@@ -437,12 +438,19 @@ JOIN asset_info
 type FetchAssetProofRow struct {
 	ScriptKey []byte
 	ProofFile []byte
+	AssetID   int32
+	ProofID   int32
 }
 
 func (q *Queries) FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAssetProof, tweakedScriptKey)
 	var i FetchAssetProofRow
-	err := row.Scan(&i.ScriptKey, &i.ProofFile)
+	err := row.Scan(
+		&i.ScriptKey,
+		&i.ProofFile,
+		&i.AssetID,
+		&i.ProofID,
+	)
 	return i, err
 }
 
