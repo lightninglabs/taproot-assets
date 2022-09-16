@@ -137,6 +137,39 @@
         ]
       }
     },
+    "/v1/taro/addrs/receives": {
+      "post": {
+        "summary": "tarocli: `addrs receives`\nList all receives for incoming asset transfers for addresses that were\ncreated previously.",
+        "operationId": "Taro_AddrReceives",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcAddrReceivesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tarorpcAddrReceivesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/assets": {
       "get": {
         "summary": "tarocli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
@@ -483,6 +516,83 @@
           "type": "string",
           "format": "byte",
           "description": "The tweaked internal key that commits to the asset and represents the\non-chain output key the Bitcoin transaction must send to in order to\ntransfer assets described in this address."
+        }
+      }
+    },
+    "tarorpcAddrEvent": {
+      "type": "object",
+      "properties": {
+        "creation_time_unix_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The time the event was created in unix timestamp seconds."
+        },
+        "addr": {
+          "$ref": "#/definitions/tarorpcAddr",
+          "description": "The address the event was created for."
+        },
+        "status": {
+          "$ref": "#/definitions/tarorpcAddrEventStatus",
+          "description": "The current status of the event."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint that contains the inbound asset transfer."
+        },
+        "utxo_amt_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis that were transferred on chain along with the asset.\nThis amount is independent of the requested asset amount, which can be\nlooked up on the address."
+        },
+        "taproot_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The taproot sibling hash that was used to send to the Taproot output.\nNOTE: Not yet implemented."
+        },
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height at which the on-chain output was confirmed. If this is zero, it\nmeans the output is unconfirmed."
+        },
+        "has_proof": {
+          "type": "boolean",
+          "description": "Indicates whether a proof file can be found for the address' asset ID and\nscript key."
+        }
+      }
+    },
+    "tarorpcAddrEventStatus": {
+      "type": "string",
+      "enum": [
+        "ADDR_EVENT_STATUS_UNKNOWN",
+        "ADDR_EVENT_STATUS_TRANSACTION_DETECTED",
+        "ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED",
+        "ADDR_EVENT_STATUS_PROOF_RECEIVED",
+        "ADDR_EVENT_STATUS_COMPLETED"
+      ],
+      "default": "ADDR_EVENT_STATUS_UNKNOWN"
+    },
+    "tarorpcAddrReceivesRequest": {
+      "type": "object",
+      "properties": {
+        "filter_addr": {
+          "type": "string",
+          "description": "Filter receives by a specific address. Leave empty to get all receives."
+        },
+        "filter_status": {
+          "$ref": "#/definitions/tarorpcAddrEventStatus",
+          "description": "Filter receives by a specific status. Leave empty to get all receives."
+        }
+      }
+    },
+    "tarorpcAddrReceivesResponse": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAddrEvent"
+          },
+          "description": "The events that match the filter criteria."
         }
       }
     },

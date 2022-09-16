@@ -71,6 +71,10 @@ var (
 			Entity: "addresses",
 			Action: "read",
 		}},
+		"/tarorpc.Taro/AddrReceives": {{
+			Entity: "addresses",
+			Action: "read",
+		}},
 		"/tarorpc.Taro/VerifyProof": {{
 			Entity: "proofs",
 			Action: "read",
@@ -672,6 +676,63 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	return &tarorpc.ImportProofResponse{}, nil
 }
 
+// AddrReceives lists all receives for incoming asset transfers for addresses
+// that were created previously.
+func (r *rpcServer) AddrReceives(ctx context.Context,
+	in *tarorpc.AddrReceivesRequest) (*tarorpc.AddrReceivesResponse,
+	error) {
+
+	var sqlQuery address.EventQueryParams
+
+	if len(in.FilterAddr) > 0 {
+		taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+		addr, err := address.DecodeAddress(in.FilterAddr, &taroParams)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode addr: %w", err)
+		}
+
+		taprootOutputKey, err := addr.TaprootOutputKey(nil)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving Taproot key: %w",
+				err)
+		}
+
+		sqlQuery.AddrTaprootOutputKey = schnorr.SerializePubKey(
+			taprootOutputKey,
+		)
+	}
+
+	if in.FilterStatus != tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
+		status, err := unmarshalAddrEventStatus(in.FilterStatus)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing status: %w", err)
+		}
+
+		sqlQuery.StatusFrom = &status
+		sqlQuery.StatusTo = &status
+	}
+
+	events, err := r.cfg.AddrBook.QueryEvents(ctx, sqlQuery)
+	if err != nil {
+		return nil, fmt.Errorf("error querying events: %w", err)
+	}
+
+	resp := &tarorpc.AddrReceivesResponse{
+		Events: make([]*tarorpc.AddrEvent, len(events)),
+	}
+
+	for idx, event := range events {
+		resp.Events[idx], err = marshalAddrEvent(event)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling event: %w",
+				err)
+		}
+	}
+
+	return resp, nil
+}
+
 // marshalAddr turns an address into its RPC counterpart.
 func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 	addrStr, err := addr.EncodeAddress()
@@ -700,4 +761,79 @@ func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 	}
 
 	return rpcAddr, nil
+}
+
+// marshalAddrEvent turns an address event into its RPC counterpart.
+func marshalAddrEvent(event *address.Event) (*tarorpc.AddrEvent, error) {
+	rpcAddr, err := marshalAddr(event.Addr.Taro)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling addr: %w", err)
+	}
+
+	rpcStatus, err := marshalAddrEventStatus(event.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling status: %w", err)
+	}
+
+	return &tarorpc.AddrEvent{
+		CreationTimeUnixSeconds: uint64(event.CreationTime.Unix()),
+		Addr:                    rpcAddr,
+		Status:                  rpcStatus,
+		Outpoint:                event.Outpoint.String(),
+		UtxoAmtSat:              uint64(event.Amt),
+		TaprootSibling:          event.TapscriptSibling,
+		ConfirmationHeight:      event.ConfirmationHeight,
+		HasProof:                event.HasProof,
+	}, nil
+}
+
+// unmarshalAddrEventStatus parses the RPC address event status into the native
+// counterpart.
+func unmarshalAddrEventStatus(
+	rpcStatus tarorpc.AddrEventStatus) (address.Status, error) {
+
+	switch rpcStatus {
+	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED:
+		return address.StatusTransactionDetected, nil
+
+	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED:
+		return address.StatusTransactionConfirmed, nil
+
+	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED:
+		return address.StatusProofReceived, nil
+
+	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED:
+		return address.StatusCompleted, nil
+
+	default:
+		return 0, fmt.Errorf("unknown address event status <%d>",
+			rpcStatus)
+	}
+}
+
+// marshalAddrEventStatus turns the address event status into the RPC
+// counterpart.
+func marshalAddrEventStatus(status address.Status) (tarorpc.AddrEventStatus,
+	error) {
+
+	switch status {
+	case address.StatusTransactionDetected:
+		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED,
+			nil
+
+	case address.StatusTransactionConfirmed:
+		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED,
+			nil
+
+	case address.StatusProofReceived:
+		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED,
+			nil
+
+	case address.StatusCompleted:
+		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED, nil
+
+	default:
+		return 0, fmt.Errorf("unknown address event status <%d>",
+			status)
+	}
 }

@@ -29,6 +29,10 @@ http:
       post: "/v1/taro/addrs/decode"
       body: "*"
 
+    - selector: tarorpc.Taro.AddrReceives
+      post: "/v1/taro/addrs/receives"
+      body: "*"
+
     - selector: tarorpc.Taro.VerifyProof
       post: "/v1/taro/proofs/verify"
       body: "*"

@@ -51,6 +51,12 @@ service Taro {
     */
     rpc DecodeAddr (DecodeAddrRequest) returns (Addr);
 
+    /* tarocli: `addrs receives`
+    List all receives for incoming asset transfers for addresses that were
+    created previously.
+    */
+    rpc AddrReceives (AddrReceivesRequest) returns (AddrReceivesResponse);
+
     /* tarocli: `proofs verify`
     VerifyProof attempts to verify a given proof file that claims to be anchored
     at the specified genesis point.
@@ -375,4 +381,64 @@ message ImportProofRequest {
 }
 
 message ImportProofResponse {
+}
+
+enum AddrEventStatus {
+    ADDR_EVENT_STATUS_UNKNOWN = 0;
+    ADDR_EVENT_STATUS_TRANSACTION_DETECTED = 1;
+    ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED = 2;
+    ADDR_EVENT_STATUS_PROOF_RECEIVED = 3;
+    ADDR_EVENT_STATUS_COMPLETED = 4;
+}
+
+message AddrEvent {
+    // The time the event was created in unix timestamp seconds.
+    uint64 creation_time_unix_seconds = 1;
+
+    // The address the event was created for.
+    Addr addr = 2;
+
+    // The current status of the event.
+    AddrEventStatus status = 3;
+
+    // The outpoint that contains the inbound asset transfer.
+    string outpoint = 4;
+
+    /*
+    The amount in satoshis that were transferred on chain along with the asset.
+    This amount is independent of the requested asset amount, which can be
+    looked up on the address.
+    */
+    uint64 utxo_amt_sat = 5;
+
+    /*
+    The taproot sibling hash that was used to send to the Taproot output.
+    NOTE: Not yet implemented.
+    */
+    bytes taproot_sibling = 6;
+
+    /*
+    The height at which the on-chain output was confirmed. If this is zero, it
+    means the output is unconfirmed.
+    */
+    uint32 confirmation_height = 7;
+
+    /*
+    Indicates whether a proof file can be found for the address' asset ID and
+    script key.
+    */
+    bool has_proof = 8;
+}
+
+message AddrReceivesRequest {
+    // Filter receives by a specific address. Leave empty to get all receives.
+    string filter_addr = 1;
+
+    // Filter receives by a specific status. Leave empty to get all receives.
+    AddrEventStatus filter_status = 2;
+}
+
+message AddrReceivesResponse {
+    // The events that match the filter criteria.
+    repeated AddrEvent events = 1;
 }
