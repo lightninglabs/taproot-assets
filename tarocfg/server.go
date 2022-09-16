@@ -71,7 +71,10 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
 	})
-	tarodbAddrBook := tarodb.NewTaroAddressBook(addrBookDB)
+	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
+	tarodbAddrBook := tarodb.NewTaroAddressBook(
+		addrBookDB, &taroChainParams,
+	)
 
 	lndConn, err := getLnd(
 		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
@@ -84,7 +87,6 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	keyRing := taro.NewLndRpcKeyRing(lndServices)
 	walletAnchor := taro.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := taro.NewLndRpcChainBridge(lndServices)
-	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 
 	addrBook := address.NewBook(address.BookConfig{
 		Store:        tarodbAddrBook,

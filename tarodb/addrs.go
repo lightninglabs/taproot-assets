@@ -145,14 +145,18 @@ type BatchedAddrBook interface {
 // TaroAddressBook represents a storage backend for all the Taro addresses a
 // daemon has created.
 type TaroAddressBook struct {
-	db BatchedAddrBook
+	db     BatchedAddrBook
+	params *address.ChainParams
 }
 
 // NewTaroAddressBook creates a new TaroAddressBook instance given a open
 // BatchedAddrBook storage backend.
-func NewTaroAddressBook(db BatchedAddrBook) *TaroAddressBook {
+func NewTaroAddressBook(db BatchedAddrBook,
+	params *address.ChainParams) *TaroAddressBook {
+
 	return &TaroAddressBook{
-		db: db,
+		db:     db,
+		params: params,
 	}
 }
 
@@ -337,6 +341,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					InternalKey: *internalKey,
 					Amount:      uint64(addr.Amount),
 					Type:        asset.Type(addr.AssetType),
+					ChainParams: t.params,
 				},
 				ScriptKeyTweak: asset.TweakedScriptKey{
 					RawKey: rawScriptKeyDesc,
@@ -369,7 +374,7 @@ func (t *TaroAddressBook) AddrByTaprootOutput(ctx context.Context,
 	)
 	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
 		var err error
-		addr, err = fetchAddr(ctx, db, key)
+		addr, err = fetchAddr(ctx, db, t.params, key)
 		return err
 	})
 	if err != nil {
@@ -381,7 +386,7 @@ func (t *TaroAddressBook) AddrByTaprootOutput(ctx context.Context,
 
 // fetchAddr fetches a single address identified by its taproot output key from
 // the database and populates all its fields.
-func fetchAddr(ctx context.Context, db AddrBook,
+func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	taprootOutputKey *btcec.PublicKey) (*address.AddrWithKeyInfo, error) {
 
 	dbAddr, err := db.FetchAddrByTaprootOutputKey(
@@ -449,6 +454,7 @@ func fetchAddr(ctx context.Context, db AddrBook,
 			InternalKey: *internalKey,
 			Amount:      uint64(dbAddr.Amount),
 			Type:        asset.Type(dbAddr.AssetType),
+			ChainParams: params,
 		},
 		ScriptKeyTweak: asset.TweakedScriptKey{
 			RawKey: scriptKeyDesc,
@@ -623,7 +629,9 @@ func (t *TaroAddressBook) QueryAddrEvents(
 					"output key: %w", err)
 			}
 
-			addr, err := fetchAddr(ctx, db, taprootOutputKey)
+			addr, err := fetchAddr(
+				ctx, db, t.params, taprootOutputKey,
+			)
 			if err != nil {
 				return fmt.Errorf("error fetching address: %w",
 					err)

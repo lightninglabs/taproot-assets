@@ -21,6 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	chainParams = &address.RegressionNetTaro
+)
+
 // newAddrBook makes a new instance of the TaroAddressBook book.
 func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore) {
 	db := NewTestSqliteDB(t)
@@ -33,7 +37,7 @@ func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore) {
 	addrTx := NewTransactionExecutor[AddrBook, TxOptions](
 		db, txCreator,
 	)
-	return NewTaroAddressBook(addrTx), db
+	return NewTaroAddressBook(addrTx, chainParams), db
 }
 
 func randAddr(t *testing.T) *address.AddrWithKeyInfo {
@@ -72,6 +76,7 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 			InternalKey: *internalKey.PubKey(),
 			Amount:      uint64(rand.Int63()),
 			Type:        asset.Type(rand.Int31n(2)),
+			ChainParams: chainParams,
 		},
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{

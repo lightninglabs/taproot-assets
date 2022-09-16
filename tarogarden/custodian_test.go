@@ -47,7 +47,7 @@ func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 
 	addrTx := tarodb.NewTransactionExecutor[tarodb.AddrBook,
 		tarodb.TxOptions](db, txCreator)
-	tarodbBook := tarodb.NewTaroAddressBook(addrTx)
+	tarodbBook := tarodb.NewTaroAddressBook(addrTx, chainParams)
 	book := address.NewBook(address.BookConfig{
 		Store:        tarodbBook,
 		StoreTimeout: testTimeout,
