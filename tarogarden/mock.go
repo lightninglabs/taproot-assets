@@ -6,13 +6,18 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -20,6 +25,13 @@ type MockWalletAnchor struct {
 	FundPsbtSignal     chan *FundedPsbt
 	SignPsbtSignal     chan struct{}
 	ImportPubKeySignal chan *btcec.PublicKey
+	ListUnspentSignal  chan struct{}
+	SubscribeTxSignal  chan struct{}
+	SubscribeTx        chan lndclient.Transaction
+	ListTxnsSignal     chan struct{}
+
+	Transactions  []lndclient.Transaction
+	ImportedUtxos []*lnwallet.Utxo
 }
 
 func NewMockWalletAnchor() *MockWalletAnchor {
@@ -27,6 +39,10 @@ func NewMockWalletAnchor() *MockWalletAnchor {
 		FundPsbtSignal:     make(chan *FundedPsbt),
 		SignPsbtSignal:     make(chan struct{}),
 		ImportPubKeySignal: make(chan *btcec.PublicKey),
+		ListUnspentSignal:  make(chan struct{}),
+		SubscribeTxSignal:  make(chan struct{}),
+		SubscribeTx:        make(chan lndclient.Transaction),
+		ListTxnsSignal:     make(chan struct{}),
 	}
 }
 
@@ -87,16 +103,88 @@ func (m *MockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 	return pkt, nil
 }
 
-func (m *MockWalletAnchor) ImportPubKey(_ context.Context,
-	pub *btcec.PublicKey) error {
+func (m *MockWalletAnchor) ImportPubKey(ctx context.Context,
+	pub *btcec.PublicKey) (btcutil.Address, error) {
 
-	m.ImportPubKeySignal <- pub
+	select {
+	case m.ImportPubKeySignal <- pub:
 
-	return nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("shutting down")
+	}
+
+	return btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(pub), &chaincfg.RegressionNetParams,
+	)
 }
 
 func (m *MockWalletAnchor) UnlockInput(_ context.Context) error {
 	return nil
+}
+
+// ListUnspentImportScripts lists all UTXOs of the imported Taproot scripts.
+func (m *MockWalletAnchor) ListUnspentImportScripts(
+	ctx context.Context) ([]*lnwallet.Utxo, error) {
+
+	select {
+	case m.ListUnspentSignal <- struct{}{}:
+
+	case <-ctx.Done():
+		return nil, fmt.Errorf("shutting down")
+	}
+
+	return m.ImportedUtxos, nil
+}
+
+// ImportTapscript imports a Taproot output script into the wallet to track it
+// on-chain in a watch-only manner.
+func (m *MockWalletAnchor) ImportTapscript(_ context.Context,
+	tapscript *waddrmgr.Tapscript) (btcutil.Address, error) {
+
+	taprootKey, err := tapscript.TaprootKey()
+	if err != nil {
+		return nil, err
+	}
+
+	return btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey),
+		&chaincfg.RegressionNetParams,
+	)
+}
+
+// SubscribeTransactions creates a uni-directional stream from the server to the
+// client in which any newly discovered transactions relevant to the wallet are
+// sent over.
+func (m *MockWalletAnchor) SubscribeTransactions(
+	ctx context.Context) (<-chan lndclient.Transaction, <-chan error, error) {
+
+	select {
+	case m.SubscribeTxSignal <- struct{}{}:
+
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("shutting down")
+	}
+
+	errChan := make(chan error)
+	return m.SubscribeTx, errChan, nil
+}
+
+// ListTransactions returns all known transactions of the backing lnd node. It
+// takes a start and end block height which can be used to limit the block range
+// that we query over. These values can be left as zero to include all blocks.
+// To include unconfirmed transactions in the query, endHeight must be set to
+// -1.
+func (m *MockWalletAnchor) ListTransactions(ctx context.Context, _, _ int32,
+	_ string) ([]lndclient.Transaction, error) {
+
+	select {
+	case m.ListTxnsSignal <- struct{}{}:
+
+	case <-ctx.Done():
+		return nil, fmt.Errorf("shutting down")
+	}
+
+	return m.Transactions, nil
 }
 
 type MockChainBridge struct {

@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -32,8 +37,8 @@ func NewLndRpcWalletAnchor(lnd *lndclient.LndServices) *LndRpcWalletAnchor {
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
 func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
-	minConfs uint32,
-	feeRate chainfee.SatPerKWeight) (tarogarden.FundedPsbt, error) {
+	minConfs uint32, feeRate chainfee.SatPerKWeight) (tarogarden.FundedPsbt,
+	error) {
 
 	var psbtBuf bytes.Buffer
 	if err := packet.Serialize(&psbtBuf); err != nil {
@@ -49,7 +54,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 			Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 				SatPerVbyte: uint64(feeRate.FeePerKVByte()) / 1000,
 			},
-			MinConfs: 1,
+			MinConfs: int32(minConfs),
 		},
 	)
 	if err != nil {
@@ -89,21 +94,51 @@ func (l *LndRpcWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 }
 
 // ImportPubKey imports a new public key into the wallet, as a P2TR output.
-func (l *LndRpcWalletAnchor) ImportPubKey(_ context.Context,
-	pub *btcec.PublicKey) error {
+func (l *LndRpcWalletAnchor) ImportPubKey(ctx context.Context,
+	taprootKey *btcec.PublicKey) (btcutil.Address, error) {
 
-	// TODO(roasbeef): actually need to use ImportTaprootScript here, but
-	// not yet exposed on RPC
-	//
-	//return l.lnd.WalletKit.ImportPublicKey(
-	//	context.Background(), pub, lnwallet.TaprootPubkey,
-	//)
-	return nil
+	tapscript := input.TapscriptFullKeyOnly(taprootKey)
+
+	return l.lnd.WalletKit.ImportTaprootScript(ctx, tapscript)
 }
 
 // UnlockInput unlocks the set of target inputs after a batch is abandoned.
 func (l *LndRpcWalletAnchor) UnlockInput(ctx context.Context) error {
 	return nil
+}
+
+// ListUnspentImportScripts lists all UTXOs of the imported Taproot scripts.
+func (l *LndRpcWalletAnchor) ListUnspentImportScripts(
+	ctx context.Context) ([]*lnwallet.Utxo, error) {
+
+	return l.lnd.WalletKit.ListUnspent(
+		ctx, 0, math.MaxInt32,
+		lndclient.WithUnspentAccount(waddrmgr.ImportedAddrAccountName),
+	)
+}
+
+// SubscribeTransactions creates a uni-directional stream from the server to the
+// client in which any newly discovered transactions relevant to the wallet are
+// sent over.
+func (l *LndRpcWalletAnchor) SubscribeTransactions(
+	ctx context.Context) (<-chan lndclient.Transaction, <-chan error,
+	error) {
+
+	return l.lnd.Client.SubscribeTransactions(ctx)
+}
+
+// ListTransactions returns all known transactions of the backing lnd node. It
+// takes a start and end block height which can be used to limit the block range
+// that we query over. These values can be left as zero to include all blocks.
+// To include unconfirmed transactions in the query, endHeight must be set to
+// -1.
+func (l *LndRpcWalletAnchor) ListTransactions(ctx context.Context, startHeight,
+	endHeight int32, account string) ([]lndclient.Transaction, error) {
+
+	return l.lnd.Client.ListTransactions(
+		ctx, startHeight, endHeight,
+		lndclient.WithTransactionsAccount(account),
+	)
 }
 
 // A compile time assertion to ensure LndRpcWalletAnchor meets the

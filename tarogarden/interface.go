@@ -6,13 +6,16 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -285,11 +288,29 @@ type WalletAnchor interface {
 
 	// ImportPubKey imports a new public key into the wallet, as a P2TR
 	// output.
-	ImportPubKey(context.Context, *btcec.PublicKey) error
+	ImportPubKey(context.Context, *btcec.PublicKey) (btcutil.Address, error)
 
 	// UnlockInput unlocks the set of target inputs after a batch is
 	// abandoned.
 	UnlockInput(context.Context) error
+
+	// ListUnspentImportScripts lists all UTXOs of the imported Taproot
+	// scripts.
+	ListUnspentImportScripts(ctx context.Context) ([]*lnwallet.Utxo, error)
+
+	// ListTransactions returns all known transactions of the backing lnd
+	// node. It takes a start and end block height which can be used to
+	// limit the block range that we query over. These values can be left
+	// as zero to include all blocks. To include unconfirmed transactions
+	// in the query, endHeight must be set to -1.
+	ListTransactions(ctx context.Context, startHeight, endHeight int32,
+		account string) ([]lndclient.Transaction, error)
+
+	// SubscribeTransactions creates a uni-directional stream from the
+	// server to the client in which any newly discovered transactions
+	// relevant to the wallet are sent over.
+	SubscribeTransactions(context.Context) (<-chan lndclient.Transaction,
+		<-chan error, error)
 }
 
 // KeyRing is a mirror of the keychain.KeyRing interface, with the addition of
