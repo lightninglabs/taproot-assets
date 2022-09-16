@@ -691,7 +691,7 @@ func TestAssetExportLog(t *testing.T) {
 	}
 
 	// First, we'll generate 3 assets, each all sharing the same anchor
-	// transaction, bot having distinct txids.
+	// transaction, but having distinct asset IDs.
 	const numAssets = 3
 	assetGen := newAssetGenerator(t, numAssets, 3)
 	assetGen.genAssets(t, assetsStore, []assetDesc{
@@ -770,6 +770,47 @@ func TestAssetExportLog(t *testing.T) {
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 
+	// At this point, we should be able to query for the log parcel, by
+	// looking for all unconfirmed transfers.
+	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(assetTransfers))
+
+	// We should also be able to find it based on its outpoint.
+	anchorPointBytes, err := encodeOutpoint(spendDelta.NewAnchorPoint)
+	require.NoError(t, err)
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		NewAnchorPoint: anchorPointBytes,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(assetTransfers))
+
+	// Finally, if we look for the set of confirmed transfers, nothing
+	// should be returned.
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		UnconfOnly: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(assetTransfers))
+
+	// This should also show up in the set of pending parcels.
+	parcels, err := assetsStore.PendingParcels(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(parcels))
+
+	// With the asset delta committed and verified, we'll now mark the
+	// delta as being confirmed on chain.
+	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
+	blockHeight := int32(100)
+	txIndex := int32(10)
+	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
+		AnchorPoint: spendDelta.NewAnchorPoint,
+		TxIndex:     txIndex,
+		BlockHeight: blockHeight,
+		BlockHash:   fakeBlockHash,
+	})
+	require.NoError(t, err)
+
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
 	chainAssets, err := assetsStore.FetchAllAssets(ctx, nil)
@@ -791,19 +832,6 @@ func TestAssetExportLog(t *testing.T) {
 	}
 	require.True(t, mutationFound)
 
-	// With the asset delta committed and verified, we'll now mark the
-	// delta as being confirmed on chain.
-	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
-	blockHeight := int32(100)
-	txIndex := int32(10)
-	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
-		AnchorPoint: spendDelta.NewAnchorPoint,
-		TxIndex:     txIndex,
-		BlockHeight: blockHeight,
-		BlockHash:   fakeBlockHash,
-	})
-	require.NoError(t, err)
-
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.
 	anchorTx, err := db.FetchChainTx(ctx, anchorTxHash[:])
@@ -813,4 +841,9 @@ func TestAssetExportLog(t *testing.T) {
 		t, uint32(blockHeight), extractSqlInt32[uint32](anchorTx.BlockHeight),
 	)
 	require.Equal(t, uint32(txIndex), extractSqlInt32[uint32](anchorTx.TxIndex))
+
+	// At this point, there should be no more pending parcels.
+	parcels, err = assetsStore.PendingParcels(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(parcels))
 }

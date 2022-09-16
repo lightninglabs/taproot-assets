@@ -481,28 +481,6 @@ WHERE (
     (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
 );
 
--- name: ReanchorAssets :exec
-WITH assets_to_update AS (
-    SELECT asset_id
-    FROM assets
-    JOIN managed_utxos utxos
-        ON assets.anchor_utxo_id = utxos.utxo_id
-    WHERE utxos.outpoint = sqlc.arg('old_outpoint')
-)
-UPDATE assets
-SET anchor_utxo_id = sqlc.arg('new_outpoint_utxo_id')
-WHERE asset_id IN (SELECT asset_id FROM assets_to_update);
-
--- name: ApplySpendDelta :exec
-WITH old_script_key_id AS (
-    SELECT key_id
-    FROM internal_keys
-    WHERE raw_key = @old_script_key
-)
-UPDATE assets
-SET amount = @new_amount, script_key_id = @new_script_key_id
-WHERE script_key_id in (SELECT key_id FROM old_script_key_id);
-
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
 WHERE outpoint = ?;

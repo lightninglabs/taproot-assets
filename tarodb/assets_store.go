@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -64,6 +65,24 @@ type (
 
 	// AnchorTxConf identifies an unconfirmed anchor tx to confirm.
 	AnchorTxConf = sqlite.ConfirmChainAnchorTxParams
+
+	// AssetDelta tracks the changes to an asset within the confines of a
+	// transfer
+	AssetDelta = sqlite.FetchAssetDeltasRow
+
+	// NewAssetDelta wraps the params needed to insert a new asset delta.
+	NewAssetDelta = sqlite.InsertAssetDeltaParams
+
+	// NewAssetTransfer wraps the params needed to insert a new asset
+	// transfer.
+	NewAssetTransfer = sqlite.InsertAssetTransferParams
+
+	// AssetTransfer packages information related to an asset transfer.
+	AssetTransfer = sqlite.QueryAssetTransfersRow
+
+	// TransferQuery allows callers to filter out the set of transfers
+	// based on set information.
+	TransferQuery = sqlite.QueryAssetTransfersParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
@@ -140,7 +159,7 @@ type ActiveAssetsStore interface {
 
 	// ApplySpendDelta applies a sped delta (new amount and script key)
 	// based on the existing script key of an asset.
-	ApplySpendDelta(ctx context.Context, arg AssetSpendDelta) error
+	ApplySpendDelta(ctx context.Context, arg AssetSpendDelta) (int32, error)
 
 	// DeleteManagedUTXO deletes the managed utxo identified by the passed
 	// serialized outpoint.
@@ -149,6 +168,26 @@ type ActiveAssetsStore interface {
 	// ConfirmChainAnchorTx marks a new anchor transaction that was
 	// previously unconfirmed as confirmed.
 	ConfirmChainAnchorTx(ctx context.Context, arg AnchorTxConf) error
+
+	// FetchAssetDeltas fetches the asset deltas associated with a given
+	// transfer id.
+	FetchAssetDeltas(ctx context.Context,
+		transferID int32) ([]AssetDelta, error)
+
+	// InsertAssetDelta inserts a new asset delta into the DB.
+	InsertAssetDelta(ctx context.Context, arg NewAssetDelta) error
+
+	// InsertAssetTransfer inserts a new asset transfer into the DB.
+	InsertAssetTransfer(ctx context.Context,
+		arg NewAssetTransfer) (int32, error)
+
+	// QueryAssetTransfers queries for a set of asset transfers in the db.
+	QueryAssetTransfers(ctx context.Context,
+		tranferQuery TransferQuery) ([]AssetTransfer, error)
+
+	// DeleteAssetWitnesses deletes the witnesses on disk associated with a
+	// given asset ID.
+	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -1092,12 +1131,26 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		return err
 	}
 
-	anchorIndex := spend.NewAnchorPoint.Index
-	newAnchorValue := spend.AnchorTx.TxOut[anchorIndex].Value
+	internalKeyBytes := spend.NewInternalKey.PubKey.SerializeCompressed()
+
+	// TODO(roasbeef): use clock.Clock instead
+	now := time.Now()
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		// First, we'll insert the new transaction that anchors the new
+		// First, we'll insert the new internal on disk, so we can
+		// reference it later when we go to apply the new transfer.
+		internalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
+			RawKey:    internalKeyBytes,
+			KeyFamily: int32(spend.NewInternalKey.Family),
+			KeyIndex:  int32(spend.NewInternalKey.Index),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert internal "+
+				"key: %w", err)
+		}
+
+		// Next, we'll insert the new transaction that anchors the new
 		// anchor point (commits to the set of new outputs).
 		txnID, err := q.UpsertChainTx(ctx, ChainTx{
 			Txid:  newAnchorTXID[:],
@@ -1108,54 +1161,37 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				"tx: %w", err)
 		}
 
-		// Now that the chain transaction been inserted, we can now
-		// insert a _new_ managed UTXO which houses the information
-		// related to the new anchor point of the transaction.
-		//
-		// Along the way, we'll need to insert the new internal key
-		// into the database as well.
-		//
-		// TODO(roasbeef): UpsertManagedUTXO only wants batch key, but
-		// know directly here
-		internalKeyBytes := spend.NewInternalKey.PubKey.SerializeCompressed()
-		_, err = q.UpsertInternalKey(ctx, InternalKey{
-			RawKey:    internalKeyBytes,
-			KeyFamily: int32(spend.NewInternalKey.Family),
-			KeyIndex:  int32(spend.NewInternalKey.Index),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert internal "+
-				"key: %w", err)
-		}
-		newUtxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:           internalKeyBytes,
-			Outpoint:         newAnchorPointBytes,
-			AmtSats:          newAnchorValue,
-			TaroRoot:         spend.TaroRoot,
+		// With the internal key inserted, we can now insert the asset
+		// transfer body itself.
+		transferID, err := q.InsertAssetTransfer(ctx, NewAssetTransfer{
+			OldAnchorPoint:   oldAnchorPointBytes,
+			NewAnchorPoint:   newAnchorPointBytes,
+			NewInternalKey:   internalKeyID,
+			TaroRoot:         spend.TaroRoot[:],
 			TapscriptSibling: spend.TapscriptSibling,
-			TxnID:            txnID,
+			AnchorTxID:       txnID,
+			TransferTimeUnix: now,
 		})
 		if err != nil {
-			return fmt.Errorf("unable to insert new managed "+
-				"utxo: %w", err)
+			return fmt.Errorf("unable to insert asset "+
+				"transfer: %w", err)
 		}
 
-		// Now that we have the new managed UTXO inserted, we'll update
-		// the managed UTXO pointer for _all_ assets that were anchored
-		// by the old managed UTXO.
-		err = q.ReanchorAssets(ctx, AssetAnchorUpdate{
-			OldOutpoint:       oldAnchorPointBytes,
-			NewOutpointUtxoID: sqlInt32(newUtxoID),
-		})
-		if err != nil {
-			return err
-		}
-
-		// Before we delete the old UTXO, we'll run thru the set of
-		// AssetSpendDelta items to modify the script key and amount
-		// for the assets that were actually modified.
+		// Now that the transfer itself has been inserted, we can
+		// insert the deltas associated w/ each transfer.
 		for _, assetDelta := range spend.AssetSpendDeltas {
-			// Before we can insert the new asset, we need to
+			var (
+				witnessBuf bytes.Buffer
+				buf        [8]byte
+			)
+			err := asset.WitnessEncoder(
+				&witnessBuf, &assetDelta.WitnessData, &buf,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to encode witness: %w", err)
+			}
+
+			// Before we can insert the asset delta, we need to
 			// insert the new script key on disk.
 			scriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 				RawKey:    assetDelta.NewScriptKey.PubKey.SerializeCompressed(),
@@ -1166,22 +1202,20 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				return fmt.Errorf("unable to insert internal "+
 					"key: %w", err)
 			}
-
-			// With the script key inserted, we can now update the
-			// asset.
-			err = q.ApplySpendDelta(ctx, AssetSpendDelta{
-				NewAmount:      int64(assetDelta.NewAmt),
-				OldScriptKey:   assetDelta.OldScriptKey.SerializeCompressed(),
-				NewScriptKeyID: scriptKeyID,
+			err = q.InsertAssetDelta(ctx, NewAssetDelta{
+				OldScriptKey:        assetDelta.OldScriptKey.SerializeCompressed(),
+				NewAmt:              int64(assetDelta.NewAmt),
+				NewScriptKey:        scriptKeyID,
+				SerializedWitnesses: witnessBuf.Bytes(),
+				TransferID:          transferID,
 			})
 			if err != nil {
-				return fmt.Errorf("unable to update spend delta: %w", err)
+				return fmt.Errorf("unable to insert asset "+
+					"delta: %w", err)
 			}
 		}
 
-		// Finally, we'll delete the old managed UTXO, as it's no
-		// longer an unspent output.
-		return q.DeleteManagedUTXO(ctx, oldAnchorPointBytes)
+		return nil
 	})
 }
 
@@ -1196,18 +1230,200 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		return err
 	}
 
+	anchorIndex := conf.AnchorPoint.Index
+
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		// First, we'll fetch the asset transfer based on its outpoint
+		// bytes so we can apply the delta it describes.
+		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+			NewAnchorPoint: anchorPointBytes,
+		})
+		if err != nil {
+			return err
+		}
+		assetTransfer := assetTransfers[0]
+
+		anchorTx := wire.NewMsgTx(2)
+		err = anchorTx.Deserialize(bytes.NewBuffer(
+			assetTransfer.AnchorTxBytes,
+		))
+		if err != nil {
+			return fmt.Errorf("unable to decode tx: %w", err)
+		}
+
+		anchorValue := anchorTx.TxOut[anchorIndex].Value
+
+		// Now that the chain transaction been inserted, we can now
+		// insert a _new_ managed UTXO which houses the information
+		// related to the new anchor point of the transaction.
+		newUtxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
+			RawKey:           assetTransfer.InternalKeyBytes,
+			Outpoint:         anchorPointBytes,
+			AmtSats:          anchorValue,
+			TaroRoot:         assetTransfer.TaroRoot,
+			TapscriptSibling: assetTransfer.TapscriptSibling,
+			TxnID:            assetTransfer.AnchorTxPrimaryKey,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert new managed "+
+				"utxo: %w", err)
+		}
+
+		// Now that we have the new managed UTXO inserted, we'll update
+		// the managed UTXO pointer for _all_ assets that were anchored
+		// by the old managed UTXO.
+		err = q.ReanchorAssets(ctx, AssetAnchorUpdate{
+			OldOutpoint:       assetTransfer.OldAnchorPoint,
+			NewOutpointUtxoID: sqlInt32(newUtxoID),
+		})
+		if err != nil {
+			return err
+		}
+
+		// Now that we've re-anchored all the other assets, we also
+		// need to fetch the set of deltas so we can apply to each
+		// asset.
+		assetDeltas, err := q.FetchAssetDeltas(
+			ctx, assetTransfer.TransferID,
+		)
+		if err != nil {
+			return err
+		}
+		for _, assetDelta := range assetDeltas {
+			// First, we'll apply the spend delta to update the
+			// amount and script key of all assets.
+			assetIDKey, err := q.ApplySpendDelta(ctx, AssetSpendDelta{
+				NewAmount:      int64(assetDelta.NewAmt),
+				OldScriptKey:   assetDelta.OldScriptKey,
+				NewScriptKeyID: assetDelta.NewScriptKey,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to update "+
+					"spend delta: %w", err)
+			}
+
+			// With the delta applied, we'll delete the _old_ set
+			// of witnesses, and re-insert new ones.
+			err = q.DeleteAssetWitnesses(ctx, assetIDKey)
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"witnesses: %v", err)
+			}
+
+			// With the old witnesses removed, we'll insert the new
+			// set on disk.
+			var witnessData []asset.Witness
+			err = asset.WitnessDecoder(
+				bytes.NewReader(assetDelta.SerializedWitnesses),
+				&witnessData, &[8]byte{},
+				uint64(len(assetDelta.SerializedWitnesses)),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to decode "+
+					"witness: %v", err)
+			}
+			err = a.insertAssetWitnesses(
+				ctx, q, assetIDKey, witnessData,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert asset "+
+					"witnesses: %v", err)
+			}
+		}
+
 		// To confirm a delivery (successful send) all we need to do is
 		// update the chain information for the transaction that
 		// anchors the new anchor point.
-		return q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
+		err = q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
 			Outpoint:    anchorPointBytes,
 			BlockHash:   conf.BlockHash[:],
 			BlockHeight: sqlInt32(conf.BlockHeight),
 			TxIndex:     sqlInt32(conf.TxIndex),
 		})
+		if err != nil {
+			return err
+		}
+
+		// Finally, we'll delete the old managed UTXO, as it's no
+		// longer an unspent output.
+		//
+		// TODO(roasbeef): never delete so can scan in tings?
+		return q.DeleteManagedUTXO(ctx, assetTransfer.OldAnchorPoint)
 	})
+}
+
+// PendingParcels returns the set of parcels that haven't yet been finalized.
+// This can be used to query the set of unconfirmed
+// transactions for re-broadcast.
+func (a *AssetStore) PendingParcels(ctx context.Context,
+) ([]*tarofreighter.OutboundParcelDelta, error) {
+
+	var deltas []*tarofreighter.OutboundParcelDelta
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// In this case, we want every unconfirmed transfer, so we only
+		// pass in the UnconfOnly field.
+		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+			UnconfOnly: 1,
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, xfer := range assetTransfers {
+			var oldAnchorPoint, newAnchorPoint wire.OutPoint
+			err := readOutPoint(
+				bytes.NewReader(xfer.OldAnchorPoint), 0, 0,
+				&oldAnchorPoint,
+			)
+			if err != nil {
+				return err
+			}
+			err = readOutPoint(
+				bytes.NewReader(xfer.NewAnchorPoint), 0, 0,
+				&newAnchorPoint,
+			)
+			if err != nil {
+				return err
+			}
+
+			internalKey, err := btcec.ParsePubKey(xfer.InternalKeyBytes)
+			if err != nil {
+				return err
+			}
+
+			anchorTx := wire.NewMsgTx(2)
+			err = anchorTx.Deserialize(bytes.NewBuffer(xfer.AnchorTxBytes))
+			if err != nil {
+				return fmt.Errorf("unable to decode tx: %w", err)
+			}
+
+			deltas = append(deltas, &tarofreighter.OutboundParcelDelta{
+				OldAnchorPoint: oldAnchorPoint,
+				NewAnchorPoint: newAnchorPoint,
+				NewInternalKey: keychain.KeyDescriptor{
+					PubKey: internalKey,
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(xfer.InternalKeyFam),
+						Index:  uint32(xfer.InternalKeyIndex),
+					},
+				},
+				TaroRoot:         xfer.TaroRoot,
+				TapscriptSibling: xfer.TapscriptSibling,
+				AnchorTx:         anchorTx,
+				AssetSpendDeltas: nil,
+			})
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return deltas, nil
 }
 
 // A compile-time constraint to ensure that AssetStore meets the proof.Archiver

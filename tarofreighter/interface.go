@@ -84,6 +84,9 @@ type AssetSpendDelta struct {
 
 	// NewScriptKey is the new script key.
 	NewScriptKey keychain.KeyDescriptor
+
+	// WitnessData is the new witness data for this asset.
+	WitnessData []asset.Witness
 }
 
 // OutboundParcelDelta represents the database level delta of an outbound taro
@@ -153,12 +156,14 @@ type AssetConfirmEvent struct {
 // etc.
 type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
-	// commits the set of chagnes to disk (the asset deltas) but doesn't
+	// commits the set of changes to disk (the asset deltas) but doesn't
 	// mark the batched spend as being finalized.
-	//
-	// TODO(roasbeef): should actually commit the delta then only mutate
-	// things as below?
 	LogPendingParcel(context.Context, *OutboundParcelDelta) error
+
+	// PendingParcels returns the set of parcels that haven't yet been
+	// finalized. This can be used to query the set of unconfirmed
+	// transactions for re-broadcast.
+	PendingParcels(context.Context) ([]*OutboundParcelDelta, error)
 
 	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
 	// updates the on-chain reference information on disk to point to this

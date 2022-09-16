@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS asset_proofs (
 );
 
 -- asset_seedlings are budding assets: the contain the base asset information
--- need to create an asset, but don' tyet have a genesis point.
+-- need to create an asset, but doesn't yet have a genesis point.
 CREATE TABLE IF NOT EXISTS asset_seedlings (
     seedling_id INTEGER PRIMARY KEY,
 

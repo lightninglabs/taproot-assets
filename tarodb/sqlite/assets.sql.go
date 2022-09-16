@@ -184,28 +184,6 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 	return err
 }
 
-const applySpendDelta = `-- name: ApplySpendDelta :exec
-WITH old_script_key_id AS (
-    SELECT key_id
-    FROM internal_keys
-    WHERE raw_key = $3
-)
-UPDATE assets
-SET amount = $1, script_key_id = $2
-WHERE assets.script_key_id in (SELECT key_id FROM old_script_key_id)
-`
-
-type ApplySpendDeltaParams struct {
-	NewAmount      int64
-	NewScriptKeyID int32
-	OldScriptKey   []byte
-}
-
-func (q *Queries) ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) error {
-	_, err := q.db.ExecContext(ctx, applySpendDelta, arg.NewAmount, arg.NewScriptKeyID, arg.OldScriptKey)
-	return err
-}
-
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
 SELECT assets.asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_id, prev_out, anchor_tx_id
 FROM assets 
@@ -1428,29 +1406,6 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		return nil, err
 	}
 	return items, nil
-}
-
-const reanchorAssets = `-- name: ReanchorAssets :exec
-WITH assets_to_update AS (
-    SELECT asset_id
-    FROM assets
-    JOIN managed_utxos utxos
-        ON assets.anchor_utxo_id = utxos.utxo_id
-    WHERE utxos.outpoint = $2
-)
-UPDATE assets
-SET anchor_utxo_id = $1
-WHERE  asset_id IN (SELECT asset_id FROM assets_to_update)
-`
-
-type ReanchorAssetsParams struct {
-	NewOutpointUtxoID sql.NullInt32
-	OldOutpoint       []byte
-}
-
-func (q *Queries) ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error {
-	_, err := q.db.ExecContext(ctx, reanchorAssets, arg.NewOutpointUtxoID, arg.OldOutpoint)
-	return err
 }
 
 const updateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
