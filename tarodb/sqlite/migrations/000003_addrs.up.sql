@@ -34,11 +34,16 @@ CREATE TABLE IF NOT EXISTS addrs (
     asset_type SMALLINT NOT NULL,
 
     -- creation_time is the creation time of this asset.
-    creation_time TIMESTAMP NOT NULL
+    creation_time TIMESTAMP NOT NULL,
+
+    -- managed_from is the timestamp at which the address started to be managed
+    -- by the internal wallet.
+    managed_from TIMESTAMP
 );
 
 -- We'll create some indexes over the asset ID, family key, and also creation
 -- time to speed up common queries.
 CREATE INDEX IF NOT EXISTS addr_asset_ids ON addrs (asset_id);
 CREATE INDEX IF NOT EXISTS addr_fam_keys ON addrs (fam_key);
-CREATE INDEX IF NOT EXISTS addr_timestamp ON addrs (creation_time);
+CREATE INDEX IF NOT EXISTS addr_creation_time ON addrs (creation_time);
+CREATE INDEX IF NOT EXISTS addr_managed_from ON addrs (managed_from);

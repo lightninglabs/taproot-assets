@@ -20,6 +20,7 @@ type Addr struct {
 	Amount           int64
 	AssetType        int16
 	CreationTime     time.Time
+	ManagedFrom      sql.NullTime
 }
 
 type Asset struct {

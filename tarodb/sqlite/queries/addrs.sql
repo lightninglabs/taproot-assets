@@ -7,7 +7,7 @@ INSERT INTO addrs (
 -- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, taproot_output_key, amount, asset_type,
-    creation_time,
+    creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key AS raw_script_key,
@@ -25,13 +25,14 @@ JOIN internal_keys taproot_keys
     ON addrs.taproot_key_id = taproot_keys.key_id
 WHERE creation_time >= @created_after
     AND creation_time <= @created_before
+    AND (@unmanaged_only = false OR IFNULL(managed_from, true) = @unmanaged_only) 
 ORDER BY addrs.creation_time
 LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchAddrByTaprootOutputKey :one
 SELECT
     version, asset_id, fam_key, taproot_output_key, amount, asset_type,
-    creation_time,
+    creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key as raw_script_key,
@@ -48,3 +49,13 @@ JOIN internal_keys raw_script_keys
 JOIN internal_keys taproot_keys
   ON addrs.taproot_key_id = taproot_keys.key_id
 WHERE taproot_output_key = ?;
+
+-- name: SetAddrManaged :exec
+WITH target_addr(addr_id) AS (
+    SELECT id
+    FROM addrs
+    WHERE addrs.taproot_output_key = ?
+)
+UPDATE addrs
+SET managed_from = ?
+WHERE id = (SELECT addr_id FROM target_addr);

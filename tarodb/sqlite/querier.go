@@ -83,6 +83,7 @@ type Querier interface {
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error
+	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)

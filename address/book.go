@@ -31,6 +31,10 @@ type AddrWithKeyInfo struct {
 
 	// CreationTime is the time the address was created in the database.
 	CreationTime time.Time
+
+	// ManagedAfter is the time at which the address was imported into the
+	// wallet.
+	ManagedAfter time.Time
 }
 
 // QueryParams holds the set of query params for the address book.
@@ -49,6 +53,10 @@ type QueryParams struct {
 	// Offset if set, then the final result will be offset by this many
 	// addresses.
 	Offset int32
+
+	// UnmanagedOnly is a boolean pointer indicating whether only addresses
+	// should be returned that are not yet managed by the wallet.
+	UnmanagedOnly bool
 }
 
 // Storage is the main storage interface for the address book.
@@ -64,6 +72,11 @@ type Storage interface {
 	// output key or a sql.ErrNoRows error if no such address exists.
 	AddrByTaprootOutput(ctx context.Context,
 		key *btcec.PublicKey) (*AddrWithKeyInfo, error)
+
+	// SetAddrManaged sets an address as being managed by the internal
+	// wallet.
+	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
+		managedFrom time.Time) error
 }
 
 // KeyRing is used to create script and internal keys for Taro addresses.
@@ -104,7 +117,7 @@ type Book struct {
 
 // A compile-time assertion to make sure Book satisfies the
 // chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[*AddrWithKeyInfo, *time.Time] = (*Book)(nil)
+var _ chanutils.EventPublisher[*AddrWithKeyInfo, QueryParams] = (*Book)(nil)
 
 // NewBook creates a new Book instance from the config.
 func NewBook(cfg BookConfig) *Book {
@@ -187,6 +200,14 @@ func (b *Book) AddrByTaprootOutput(ctx context.Context,
 	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
 }
 
+// SetAddrManaged sets an address as being managed by the internal
+// wallet.
+func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
+	managedFrom time.Time) error {
+
+	return b.cfg.Store.SetAddrManaged(ctx, addr, managedFrom)
+}
+
 // RegisterSubscriber adds a new subscriber for receiving events. The
 // deliverExisting boolean indicates whether already existing items should be
 // sent to the NewItemCreated channel when the subscription is started. An
@@ -195,7 +216,7 @@ func (b *Book) AddrByTaprootOutput(ctx context.Context,
 // is nil/zero/empty then all existing items will be delivered.
 func (b *Book) RegisterSubscriber(
 	receiver *chanutils.EventReceiver[*AddrWithKeyInfo],
-	deliverExisting bool, deliverFrom *time.Time) error {
+	deliverExisting bool, deliverFrom QueryParams) error {
 
 	b.subscriberMtx.Lock()
 	defer b.subscriberMtx.Unlock()
@@ -212,14 +233,7 @@ func (b *Book) RegisterSubscriber(
 	)
 	defer cancel()
 
-	// Only give us addresses created after the last one we know we already
-	// processed.
-	var queryParams QueryParams
-	if deliverFrom != nil {
-		queryParams.CreatedAfter = *deliverFrom
-	}
-
-	existingAddrs, err := b.ListAddrs(ctxt, queryParams)
+	existingAddrs, err := b.ListAddrs(ctxt, deliverFrom)
 	if err != nil {
 		return fmt.Errorf("error listing existing addresses: %w", err)
 	}

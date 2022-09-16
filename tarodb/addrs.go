@@ -31,6 +31,9 @@ type (
 	// AddrByTaprootOutput is a type alias for returning an address by its
 	// Taproot output key.
 	AddrByTaprootOutput = sqlite.FetchAddrByTaprootOutputKeyRow
+
+	// AddrManaged is a type alias for setting an address as managed.
+	AddrManaged = sqlite.SetAddrManagedParams
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -57,6 +60,10 @@ type AddrBook interface {
 
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
+
+	// SetAddrManaged sets an address as being managed by the internal
+	// wallet.
+	SetAddrManaged(ctx context.Context, arg AddrManaged) error
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -207,6 +214,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			CreatedBefore: params.CreatedBefore,
 			NumOffset:     int32(params.Offset),
 			NumLimit:      limit,
+			UnmanagedOnly: params.UnmanagedOnly,
 		})
 		if err != nil {
 			return err
@@ -290,6 +298,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				InternalKeyDesc:  internalKeyDesc,
 				TaprootOutputKey: *taprootOutputKey,
 				CreationTime:     addr.CreationTime,
+				ManagedAfter:     addr.ManagedFrom.Time,
 			})
 		}
 
@@ -402,6 +411,25 @@ func fetchAddr(ctx context.Context, db AddrBook,
 		TaprootOutputKey: *taprootOutputKey,
 		CreationTime:     dbAddr.CreationTime,
 	}, nil
+}
+
+// SetAddrManaged sets an address as being managed by the internal
+// wallet.
+func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
+	addr *address.AddrWithKeyInfo, managedFrom time.Time) error {
+
+	var writeTxOpts AddrBookTxOptions
+	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
+		return db.SetAddrManaged(ctx, AddrManaged{
+			ManagedFrom: sql.NullTime{
+				Time:  managedFrom,
+				Valid: true,
+			},
+			TaprootOutputKey: schnorr.SerializePubKey(
+				&addr.TaprootOutputKey,
+			),
+		})
+	})
 }
 
 // A compile-time assertion to ensure that TaroAddressBook meets the

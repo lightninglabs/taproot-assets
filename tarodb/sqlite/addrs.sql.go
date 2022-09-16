@@ -7,13 +7,14 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
 const fetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
 SELECT
     version, asset_id, fam_key, taproot_output_key, amount, asset_type,
-    creation_time,
+    creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key as raw_script_key,
@@ -40,6 +41,7 @@ type FetchAddrByTaprootOutputKeyRow struct {
 	Amount           int64
 	AssetType        int16
 	CreationTime     time.Time
+	ManagedFrom      sql.NullTime
 	TweakedScriptKey []byte
 	ScriptKeyTweak   []byte
 	RawScriptKey     []byte
@@ -61,6 +63,7 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 		&i.Amount,
 		&i.AssetType,
 		&i.CreationTime,
+		&i.ManagedFrom,
 		&i.TweakedScriptKey,
 		&i.ScriptKeyTweak,
 		&i.RawScriptKey,
@@ -76,7 +79,7 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, taproot_output_key, amount, asset_type,
-    creation_time,
+    creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key AS raw_script_key,
@@ -94,13 +97,15 @@ JOIN internal_keys taproot_keys
     ON addrs.taproot_key_id = taproot_keys.key_id
 WHERE creation_time >= $1
     AND creation_time <= $2
+    AND ($3 = false OR IFNULL(managed_from, true) = $3) 
 ORDER BY addrs.creation_time
-LIMIT $4 OFFSET $3
+LIMIT $5 OFFSET $4
 `
 
 type FetchAddrsParams struct {
 	CreatedAfter  time.Time
 	CreatedBefore time.Time
+	UnmanagedOnly interface{}
 	NumOffset     int32
 	NumLimit      int32
 }
@@ -113,6 +118,7 @@ type FetchAddrsRow struct {
 	Amount           int64
 	AssetType        int16
 	CreationTime     time.Time
+	ManagedFrom      sql.NullTime
 	TweakedScriptKey []byte
 	ScriptKeyTweak   []byte
 	RawScriptKey     []byte
@@ -127,6 +133,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 	rows, err := q.db.QueryContext(ctx, fetchAddrs,
 		arg.CreatedAfter,
 		arg.CreatedBefore,
+		arg.UnmanagedOnly,
 		arg.NumOffset,
 		arg.NumLimit,
 	)
@@ -145,6 +152,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.Amount,
 			&i.AssetType,
 			&i.CreationTime,
+			&i.ManagedFrom,
 			&i.TweakedScriptKey,
 			&i.ScriptKeyTweak,
 			&i.RawScriptKey,
@@ -201,4 +209,25 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, 
 	var id int32
 	err := row.Scan(&id)
 	return id, err
+}
+
+const setAddrManaged = `-- name: SetAddrManaged :exec
+WITH target_addr(addr_id) AS (
+    SELECT id
+    FROM addrs
+    WHERE addrs.taproot_output_key = ?
+)
+UPDATE addrs
+SET managed_from = ?
+WHERE id = (SELECT addr_id FROM target_addr)
+`
+
+type SetAddrManagedParams struct {
+	TaprootOutputKey []byte
+	ManagedFrom      sql.NullTime
+}
+
+func (q *Queries) SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error {
+	_, err := q.db.ExecContext(ctx, setAddrManaged, arg.TaprootOutputKey, arg.ManagedFrom)
+	return err
 }

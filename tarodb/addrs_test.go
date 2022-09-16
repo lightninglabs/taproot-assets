@@ -142,6 +142,36 @@ func TestAddressInsertion(t *testing.T) {
 		require.NoError(t, err)
 		assertEqualAddr(t, addr, *dbAddr)
 	}
+
+	// All addresses should be unmanaged at this point.
+	dbAddrs, err = addrBook.QueryAddrs(ctx, address.QueryParams{
+		UnmanagedOnly: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, dbAddrs, numAddrs)
+	assertEqualAddrs(t, addrs, dbAddrs)
+
+	// Declare the first two addresses as managed.
+	managedFrom := time.Now()
+	err = addrBook.SetAddrManaged(ctx, &dbAddrs[0], managedFrom)
+	require.NoError(t, err)
+	err = addrBook.SetAddrManaged(ctx, &dbAddrs[1], managedFrom)
+	require.NoError(t, err)
+
+	// Make sure the unmanaged are now distinct from the rest.
+	dbAddrs, err = addrBook.QueryAddrs(ctx, address.QueryParams{
+		UnmanagedOnly: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, dbAddrs, 3)
+
+	// But a query with no filter still returns all addresses.
+	dbAddrs, err = addrBook.QueryAddrs(ctx, address.QueryParams{})
+	require.NoError(t, err)
+	require.Len(t, dbAddrs, numAddrs)
+
+	require.Equal(t, managedFrom.Unix(), dbAddrs[0].ManagedAfter.Unix())
+	require.Equal(t, managedFrom.Unix(), dbAddrs[1].ManagedAfter.Unix())
 }
 
 // TestAddressQuery tests that we're able to properly retrieve rows based on
@@ -168,6 +198,7 @@ func TestAddressQuery(t *testing.T) {
 		createdBefore time.Time
 		limit         int32
 		offset        int32
+		unmanagedOnly bool
 
 		numAddrs   int
 		firstIndex int
@@ -221,6 +252,14 @@ func TestAddressQuery(t *testing.T) {
 			createdBefore: time.Now().Add(-time.Hour * 24),
 			numAddrs:      0,
 		},
+
+		// Unmanaged only, which is the full list.
+		{
+			name: "unmanaged only",
+
+			unmanagedOnly: true,
+			numAddrs:      numAddrs,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -230,6 +269,7 @@ func TestAddressQuery(t *testing.T) {
 					CreatedBefore: test.createdBefore,
 					Offset:        test.offset,
 					Limit:         test.limit,
+					UnmanagedOnly: test.unmanagedOnly,
 				},
 			)
 			require.NoError(t, err)
