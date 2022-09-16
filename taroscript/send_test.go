@@ -124,13 +124,11 @@ func initSpendScenario(t *testing.T) spendData {
 	spenderPrivKey, spenderPubKey := btcec.PrivKeyFromBytes(key1Bytes)
 	state.spenderPrivKey = *spenderPrivKey
 	state.spenderPubKey = *spenderPubKey
-	spenderScriptKey := *txscript.ComputeTaprootKeyNoScript(
-		&state.spenderPubKey,
-	)
-	state.spenderScriptKey = spenderScriptKey
 	state.spenderDescriptor = keychain.KeyDescriptor{
 		PubKey: &state.spenderPubKey,
 	}
+	spenderScriptKey := asset.NewScriptKeyBIP0086(state.spenderDescriptor)
+	state.spenderScriptKey = spenderScriptKey.TweakedScriptKey
 	receiverPrivKey, receiverPubKey := btcec.PrivKeyFromBytes(key2Bytes)
 	state.receiverPrivKey = *receiverPrivKey
 	state.receiverPubKey = *receiverPubKey
@@ -366,7 +364,7 @@ func checkValidateSpend(t *testing.T, a, b *asset.Asset, split bool) {
 
 	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
 	require.Equal(t,
-		&a.ScriptKey.TweakedScriptKey, b.ScriptKey.TweakedScriptKey,
+		a.ScriptKey.TweakedScriptKey, b.ScriptKey.TweakedScriptKey,
 	)
 	require.Equal(t, a.FamilyKey, b.FamilyKey)
 }
