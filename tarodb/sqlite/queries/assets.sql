@@ -127,12 +127,15 @@ INSERT INTO asset_family_sigs (
     ?, ?, ?
 ) RETURNING sig_id;
 
--- name: InsertGenesisAsset :one
+-- name: UpsertGenesisAsset :one
 INSERT INTO genesis_assets (
     asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
 ) VALUES (
     ?, ?, ?, ?, ?, ?
-) RETURNING gen_asset_id;
+) ON CONFLICT (asset_tag)
+    -- This is a NOP, asset_tag is the unique field that caused the conflict.
+    DO UPDATE SET asset_tag = EXCLUDED.asset_tag
+RETURNING gen_asset_id;
 
 -- name: InsertNewAsset :one
 INSERT INTO assets (

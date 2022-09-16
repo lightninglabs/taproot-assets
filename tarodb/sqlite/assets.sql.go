@@ -1169,37 +1169,6 @@ func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitness
 	return err
 }
 
-const insertGenesisAsset = `-- name: InsertGenesisAsset :one
-INSERT INTO genesis_assets (
-    asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
-) VALUES (
-    ?, ?, ?, ?, ?, ?
-) RETURNING gen_asset_id
-`
-
-type InsertGenesisAssetParams struct {
-	AssetID        []byte
-	AssetTag       string
-	MetaData       []byte
-	OutputIndex    int32
-	AssetType      int16
-	GenesisPointID int32
-}
-
-func (q *Queries) InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertGenesisAsset,
-		arg.AssetID,
-		arg.AssetTag,
-		arg.MetaData,
-		arg.OutputIndex,
-		arg.AssetType,
-		arg.GenesisPointID,
-	)
-	var gen_asset_id int32
-	err := row.Scan(&gen_asset_id)
-	return gen_asset_id, err
-}
-
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
@@ -1623,6 +1592,40 @@ func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (i
 	var txn_id int32
 	err := row.Scan(&txn_id)
 	return txn_id, err
+}
+
+const upsertGenesisAsset = `-- name: UpsertGenesisAsset :one
+INSERT INTO genesis_assets (
+    asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
+) VALUES (
+    ?, ?, ?, ?, ?, ?
+) ON CONFLICT (asset_tag)
+    -- This is a NOP, asset_tag is the unique field that caused the conflict.
+    DO UPDATE SET asset_tag = EXCLUDED.asset_tag
+RETURNING gen_asset_id
+`
+
+type UpsertGenesisAssetParams struct {
+	AssetID        []byte
+	AssetTag       string
+	MetaData       []byte
+	OutputIndex    int32
+	AssetType      int16
+	GenesisPointID int32
+}
+
+func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertGenesisAsset,
+		arg.AssetID,
+		arg.AssetTag,
+		arg.MetaData,
+		arg.OutputIndex,
+		arg.AssetType,
+		arg.GenesisPointID,
+	)
+	var gen_asset_id int32
+	err := row.Scan(&gen_asset_id)
+	return gen_asset_id, err
 }
 
 const upsertGenesisPoint = `-- name: UpsertGenesisPoint :one

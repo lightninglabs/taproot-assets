@@ -81,7 +81,7 @@ type (
 
 	// GenesisAsset is used to insert the base information of an asset into
 	// the DB.
-	GenesisAsset = sqlite.InsertGenesisAssetParams
+	GenesisAsset = sqlite.UpsertGenesisAssetParams
 
 	// AssetFamSig is used to insert the family key signature for a given
 	// asset on disk.
@@ -176,9 +176,9 @@ type PendingAssetStore interface {
 	// ConfirmChainTx confirms an existing chain tx.
 	ConfirmChainTx(ctx context.Context, arg ChainTxConf) error
 
-	// InsertGenesisAsset inserts a new genesis asset (the base asset info)
-	// into the DB.
-	InsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
+	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
+	// (the base asset info) in the DB, and returns the primary key.
+	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
 
 	// InsertAssetFamilySig inserts a new asset family sig into the DB.
 	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
@@ -655,7 +655,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			// tracks all the information that uniquely derives a
 			// given asset ID.
 			assetID := asset.Genesis.ID()
-			genAssetID, err := q.InsertGenesisAsset(ctx, GenesisAsset{
+			genAssetID, err := q.UpsertGenesisAsset(ctx, GenesisAsset{
 				AssetID:        assetID[:],
 				AssetTag:       asset.Genesis.Tag,
 				MetaData:       asset.Genesis.Metadata,

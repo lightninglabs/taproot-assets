@@ -57,7 +57,6 @@ type Querier interface {
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
-	InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error)
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
@@ -88,6 +87,7 @@ type Querier interface {
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)
+	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error)
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error)

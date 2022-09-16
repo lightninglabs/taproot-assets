@@ -124,14 +124,14 @@ type ActiveAssetsStore interface {
 	// on disk, and returns the primary key.
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 
-	// InsertGenesisAsset inserts a new genesis asset (the base asset info)
-	// into the DB.
+	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
+	// (the base asset info) in the DB, and returns the primary key.
 	//
 	// TODO(roasbeef): hybrid version of the main tx interface that an
 	// accept two diff storage interfaces?
 	//
 	//  * or use a sort of mix-in type?
-	InsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
+	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
 
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database.
@@ -967,7 +967,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	//
 	// TODO(roasbeef): should be an upsert
 	assetID := newAsset.ID()
-	genAssetID, err := db.InsertGenesisAsset(ctx, GenesisAsset{
+	genAssetID, err := db.UpsertGenesisAsset(ctx, GenesisAsset{
 		AssetID:        assetID[:],
 		AssetTag:       newAsset.Genesis.Tag,
 		MetaData:       newAsset.Genesis.Metadata,
