@@ -96,6 +96,10 @@ type (
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
+	// UpsertAssetStore houses the methods related to inserting/updating
+	// assets.
+	UpsertAssetStore
+
 	// QueryAssets fetches the set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset, error)
 
@@ -119,34 +123,6 @@ type ActiveAssetsStore interface {
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
 		scriptKey []byte) (AssetProofI, error)
-
-	// UpsertGenesisPoint inserts a new or updates an existing genesis point
-	// on disk, and returns the primary key.
-	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
-
-	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
-	// (the base asset info) in the DB, and returns the primary key.
-	//
-	// TODO(roasbeef): hybrid version of the main tx interface that an
-	// accept two diff storage interfaces?
-	//
-	//  * or use a sort of mix-in type?
-	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
-
-	// UpsertInternalKey inserts a new or updates an existing internal key
-	// into the database.
-	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
-
-	// InsertAssetFamilySig inserts a new asset family sig into the DB.
-	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
-
-	// UpsertAssetFamilyKey inserts a new or updates an existing family key
-	// on disk, and returns the primary key.
-	UpsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32,
-		error)
-
-	// InsertNewAsset inserts a new asset on disk.
-	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
@@ -208,9 +184,6 @@ type ActiveAssetsStore interface {
 	// DeleteAssetWitnesses deletes the witnesses on disk associated with a
 	// given asset ID.
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
-
-	// UpsertScriptKey inserts a new script key on disk into the DB.
-	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 }
 
 // AssetBalance holds a balance query result for a particular asset or all
@@ -883,8 +856,6 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 // information associated with the annotated proofs. This will result in a new
 // asset inserted on disk, with all dependencies such as the asset witnesses
 // inserted along the way.
-//
-// TODO(roasbeef): reduce duplication w/ pending asset store
 func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	db ActiveAssetsStore, proof *proof.AnnotatedProof) error {
 
@@ -947,150 +918,19 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	newAsset := proof.Asset
 
-	genesisPoint, err := encodeOutpoint(
-		newAsset.Genesis.FirstPrevOut,
+	// Insert/update the asset information in the database now.
+	_, assetIDs, err := upsertAssetsWithGenesis(
+		ctx, db, newAsset.Genesis.FirstPrevOut,
+		[]*asset.Asset{newAsset}, []sql.NullInt32{sqlInt32(utxoID)},
 	)
 	if err != nil {
-		return fmt.Errorf("unable to encode genesis point: %w", err)
-	}
-
-	// Next, we'll attempt to import the genesis point for this asset.
-	// This might already exist if we have the same assetID/keyFamily.
-	genesisPointID, err := db.UpsertGenesisPoint(ctx, genesisPoint)
-	if err != nil {
-		return fmt.Errorf("unable to insert genesis "+
-			"point: %w", err)
-	}
-
-	// Next, we'll insert the genesis_asset row which holds the base
-	// information for this asset.
-	//
-	// TODO(roasbeef): should be an upsert
-	assetID := newAsset.ID()
-	genAssetID, err := db.UpsertGenesisAsset(ctx, GenesisAsset{
-		AssetID:        assetID[:],
-		AssetTag:       newAsset.Genesis.Tag,
-		MetaData:       newAsset.Genesis.Metadata,
-		OutputIndex:    int32(newAsset.Genesis.OutputIndex),
-		AssetType:      int16(newAsset.Type),
-		GenesisPointID: genesisPointID,
-	})
-	if err != nil {
-		return fmt.Errorf("unable to insert genesis asset: %w", err)
-	}
-
-	// With the base asset information inserted, we we'll now add the
-	// information for the asset family
-	//
-	// TODO(roasbeef): sig here doesn't actually matter?
-	//   * don't have the key desc information here neccesrily
-	//   * inserting the fam key rn, which is ok as its external w/ no key
-	//     desc info
-	var sqlFamilySigID sql.NullInt32
-	familyKey := newAsset.FamilyKey
-	if familyKey != nil {
-		keyID, err := db.UpsertInternalKey(ctx, InternalKey{
-			RawKey: familyKey.FamKey.SerializeCompressed(),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert internal key: %w", err)
-		}
-		assetKey := AssetFamilyKey{
-			TweakedFamKey:  familyKey.FamKey.SerializeCompressed(),
-			InternalKeyID:  keyID,
-			GenesisPointID: genesisPointID,
-		}
-		famID, err := db.UpsertAssetFamilyKey(ctx, assetKey)
-		if err != nil {
-			return fmt.Errorf("unable to insert family key: %w", err)
-		}
-		famSigID, err := db.InsertAssetFamilySig(ctx, AssetFamSig{
-			GenesisSig: familyKey.Sig.Serialize(),
-			GenAssetID: genAssetID,
-			KeyFamID:   famID,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert fam sig: %w", err)
-		}
-
-		sqlFamilySigID = sqlInt32(famSigID)
-	}
-
-	var scriptKeyID int32
-	if newAsset.ScriptKey.TweakedScriptKey == nil {
-		// At this point, we only have the actual asset as read from a TLV, so
-		// we don't actually have the raw script key here. Instead, we'll use
-		// an UPSERT to trigger a conflict on the tweaked script key so we can
-		// obtain the script key ID we need here. This is for the proof
-		// import based on an addr send.
-		//
-		// TODO(roasbeef): or just fetch the one we need?
-		scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
-			TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-		})
-		if err != nil {
-			// If this fails, then we're just importing the proof
-			// to mirror the state of another node. In this case,
-			// we'll just import the key in the asset (a tweaked
-			// key) as an internal key. We can't actually use this
-			// asset, but the import will complete.
-			//
-			// TODO(roasbeef): remove after itest work
-			rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-				RawKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert internal key: %w", err)
-			}
-			scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
-				InternalKeyID:    rawScriptKeyID,
-				TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert script key: %w", err)
-			}
-		}
-	} else {
-		rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-			RawKey:    newAsset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
-			KeyFamily: int32(newAsset.ScriptKey.RawKey.Family),
-			KeyIndex:  int32(newAsset.ScriptKey.RawKey.Index),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert internal key: %w", err)
-		}
-		scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
-			InternalKeyID:    rawScriptKeyID,
-			TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-			Tweak:            newAsset.ScriptKey.Tweak,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert script key: %w", err)
-		}
-	}
-
-	// With all the dependent data inserted, we can now insert the base
-	// asset information itself.
-	assetPrimary, err := db.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
-		AssetID:          genAssetID,
-		Version:          int32(newAsset.Version),
-		ScriptKeyID:      scriptKeyID,
-		AssetFamilySigID: sqlFamilySigID,
-		ScriptVersion:    int32(newAsset.ScriptVersion),
-		Amount:           int64(newAsset.Amount),
-		LockTime:         sqlInt32(newAsset.LockTime),
-		RelativeLockTime: sqlInt32(newAsset.RelativeLockTime),
-		AnchorUtxoID:     sqlInt32(utxoID),
-	})
-	if err != nil {
-		return fmt.Errorf("unable to insert "+
-			"asset: %w", err)
+		return fmt.Errorf("error inserting asset with genesis: %w", err)
 	}
 
 	// Now that we have the asset inserted, we'll also insert all the
 	// witness data associated with the asset in a new row.
 	err = a.insertAssetWitnesses(
-		ctx, db, assetPrimary, newAsset.PrevWitnesses,
+		ctx, db, assetIDs[0], newAsset.PrevWitnesses,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to insert asset witness: %w", err)

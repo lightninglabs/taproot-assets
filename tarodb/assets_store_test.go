@@ -349,6 +349,13 @@ func TestImportAssetProof(t *testing.T) {
 	}
 	if testAsset.FamilyKey != nil {
 		testProof.FamilyKey = &testAsset.FamilyKey.FamKey
+
+		// An asset in a proof would be de-serialized from the TLV and
+		// would not contain the raw family key. We blank it out here as
+		// well in order to test that behavior. We later check that the
+		// stored internal key (raw family key) is equal to the tweaked
+		// family key.
+		testAsset.FamilyKey.RawKey.PubKey = nil
 	}
 
 	// We'll now insert the internal key information as well as the script
@@ -404,12 +411,24 @@ func TestImportAssetProof(t *testing.T) {
 	// The DB asset should match the asset we inserted exactly.
 	dbAsset := assets[0]
 
-	// Before comparison, we unset the split commitments so we can compare
+	// Before comparison, we unset the split commitments, so we can compare
 	// them directly.
 	assetWitnessEqual(t, testAsset.PrevWitnesses, dbAsset.PrevWitnesses)
 
 	dbAsset.PrevWitnesses = nil
 	testAsset.PrevWitnesses = nil
+
+	// We also need to look at the family key separately as the raw key is
+	// not stored in the proof.
+	if testAsset.FamilyKey != nil {
+		key := dbAsset.FamilyKey
+		require.Equal(t, &testAsset.FamilyKey.FamKey, key.RawKey.PubKey)
+		require.Equal(t, &key.FamKey, key.RawKey.PubKey)
+
+		// Blank them out for further comparison.
+		testAsset.FamilyKey = nil
+		dbAsset.FamilyKey = nil
+	}
 
 	require.Equal(t, testAsset, dbAsset.Asset)
 

@@ -3,7 +3,6 @@ package tarodb
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -105,9 +104,9 @@ type (
 // contains only the methods needed to drive the process of batching and
 // creating a new set of assets.
 type PendingAssetStore interface {
-	// UpsertInternalKey inserts a new or updates an existing internal key
-	// into the database.
-	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+	// UpsertAssetStore houses the methods related to inserting/updating
+	// assets.
+	UpsertAssetStore
 
 	// NewMintingBatch creates a new minting batch.
 	NewMintingBatch(ctx context.Context, arg MintingBatchInit) error
@@ -137,18 +136,6 @@ type PendingAssetStore interface {
 	// of the batch they're included in.
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
 
-	// UpsertGenesisPoint inserts a new or updates an existing genesis point
-	// on disk, and returns the primary key.
-	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
-
-	// UpsertAssetFamilyKey inserts a new or updates an existing family key
-	// on disk, and returns the primary key.
-	UpsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32,
-		error)
-
-	// InsertNewAsset inserts a new asset on disk.
-	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
-
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
 	BindMintingBatchWithTx(ctx context.Context, arg BatchChainUpdate) error
@@ -176,13 +163,6 @@ type PendingAssetStore interface {
 	// ConfirmChainTx confirms an existing chain tx.
 	ConfirmChainTx(ctx context.Context, arg ChainTxConf) error
 
-	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
-	// (the base asset info) in the DB, and returns the primary key.
-	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
-
-	// InsertAssetFamilySig inserts a new asset family sig into the DB.
-	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
-
 	// FetchAssetsForBatch fetches all the assets created by a particular
 	// batch.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout, error)
@@ -193,9 +173,6 @@ type PendingAssetStore interface {
 	// TODO(roasbeef): move somewhere else??
 	UpsertAssetProof(ctx context.Context,
 		arg sqlite.UpsertAssetProofParams) error
-
-	// UpsertScriptKey inserts a new script key on disk into the DB.
-	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore
@@ -628,131 +605,18 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	// assets committed to within the root commitment specified.
 	assets := assetRoot.CommittedAssets()
 
-	genesisPoint, err := encodeOutpoint(
-		genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to encode genesis point: %w", err)
-	}
+	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
 
 	rawBatchKey := batchKey.SerializeCompressed()
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		// First, we'll insert the component that ties together all the
-		// assets in this batch: the genesis point.
-		genesisPointID, err := q.UpsertGenesisPoint(ctx, genesisPoint)
+		genesisPointID, _, err := upsertAssetsWithGenesis(
+			ctx, q, genesisOutpoint, assets, nil,
+		)
 		if err != nil {
-			return fmt.Errorf("unable to insert genesis "+
-				"point: %w", err)
-		}
-
-		// With the genesis point inserted, we'll now insert each asset
-		// into the database. Some assets have a key family, so we'll
-		// need to insert them before we can insert the asset itself.
-		for _, asset := range assets {
-			// First, we'll insert the genesis_assets row which
-			// tracks all the information that uniquely derives a
-			// given asset ID.
-			assetID := asset.Genesis.ID()
-			genAssetID, err := q.UpsertGenesisAsset(ctx, GenesisAsset{
-				AssetID:        assetID[:],
-				AssetTag:       asset.Genesis.Tag,
-				MetaData:       asset.Genesis.Metadata,
-				OutputIndex:    int32(asset.Genesis.OutputIndex),
-				AssetType:      int16(asset.Type),
-				GenesisPointID: genesisPointID,
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert genesis "+
-					"asset: %w", err)
-			}
-
-			// This asset has as key family so we'll insert it into
-			// the database. If it doesn't exist, the UPSERT query
-			// will still return the family_id we'll need.
-			var familySigID sql.NullInt32
-			if asset.FamilyKey != nil {
-				// Before we can insert a new asset key family,
-				// we'll also need to insert an internal key
-				// which will be referenced by the key family.
-				familyKey := asset.FamilyKey
-				keyID, err := q.UpsertInternalKey(ctx, InternalKey{
-					RawKey:    familyKey.RawKey.PubKey.SerializeCompressed(),
-					KeyFamily: int32(familyKey.RawKey.Family),
-					KeyIndex:  int32(familyKey.RawKey.Index),
-				})
-				if err != nil {
-					return fmt.Errorf("unable to insert internal "+
-						"key: %w", err)
-				}
-				assetKey := AssetFamilyKey{
-					TweakedFamKey:  familyKey.FamKey.SerializeCompressed(),
-					InternalKeyID:  keyID,
-					GenesisPointID: genesisPointID,
-				}
-				famID, err := q.UpsertAssetFamilyKey(ctx, assetKey)
-				if err != nil {
-					return fmt.Errorf("unable to insert "+
-						"family key: %w", err)
-				}
-
-				// With the statement above complete, we'll now
-				// insert the asset_family_sig entry for this,
-				// which has a one to many relation ship with
-				// family keys (there can be many sigs for a
-				// family key which link together otherwise
-				// disparate asset IDs).
-				famSigID, err := q.InsertAssetFamilySig(ctx, AssetFamSig{
-					GenesisSig: familyKey.Sig.Serialize(),
-					GenAssetID: genAssetID,
-					KeyFamID:   famID,
-				})
-				if err != nil {
-					return fmt.Errorf("unable to insert "+
-						"fam sig: %w", err)
-				}
-
-				familySigID = sqlInt32(famSigID)
-			}
-
-			// With the key family potentially inserted, we'll now
-			// insert the asset itself along with the necessary set
-			// of sub tables.
-			//
-			// Just like above, we'll also need to insert a new
-			// internal key which will be used later to look up the
-			// key needed to spend this asset.
-			rawScriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
-				RawKey:    asset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
-				KeyFamily: int32(asset.ScriptKey.RawKey.Family),
-				KeyIndex:  int32(asset.ScriptKey.RawKey.Index),
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert internal "+
-					"key: %w", err)
-			}
-			scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
-				InternalKeyID:    rawScriptKeyID,
-				TweakedScriptKey: asset.ScriptKey.PubKey.SerializeCompressed(),
-				Tweak:            asset.ScriptKey.Tweak,
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert script "+
-					"key: %w", err)
-			}
-			_, err = q.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
-				AssetID:          genAssetID,
-				Version:          int32(asset.Version),
-				ScriptKeyID:      scriptKeyID,
-				AssetFamilySigID: familySigID,
-				ScriptVersion:    int32(asset.ScriptVersion),
-				Amount:           int64(asset.Amount),
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert "+
-					"asset: %w", err)
-			}
+			return fmt.Errorf("error inserting assets with "+
+				"genesis: %w", err)
 		}
 
 		// With all the assets inserted, we'll now update the
