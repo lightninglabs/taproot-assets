@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -61,6 +64,8 @@ type QueryParams struct {
 
 // Storage is the main storage interface for the address book.
 type Storage interface {
+	EventStorage
+
 	// InsertAddrs inserts a series of addresses into the database.
 	InsertAddrs(ctx context.Context, addrs ...AddrWithKeyInfo) error
 
@@ -206,6 +211,45 @@ func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 	managedFrom time.Time) error {
 
 	return b.cfg.Store.SetAddrManaged(ctx, addr, managedFrom)
+}
+
+// GetOrCreateEvent creates a new address event for the given status, address
+// and transaction. If an event for that address and transaction already exists,
+// then the status and transaction information is updated instead.
+func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
+	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
+	outputIdx uint32, tapscriptSibling *chainhash.Hash) (*Event, error) {
+
+	return b.cfg.Store.GetOrCreateEvent(
+		ctx, status, addr, walletTx, outputIdx, tapscriptSibling,
+	)
+}
+
+// GetPendingEvents returns all events that are not yet in status complete from
+// the database.
+func (b *Book) GetPendingEvents(ctx context.Context) ([]*Event, error) {
+	from := StatusTransactionDetected
+	to := StatusProofReceived
+	query := EventQueryParams{
+		StatusFrom: &from,
+		StatusTo:   &to,
+	}
+	return b.cfg.Store.QueryAddrEvents(ctx, query)
+}
+
+// QueryEvents returns all events that match the given query.
+func (b *Book) QueryEvents(ctx context.Context,
+	query EventQueryParams) ([]*Event, error) {
+
+	return b.cfg.Store.QueryAddrEvents(ctx, query)
+}
+
+// CompleteEvent updates an address event as being complete and links it with
+// the proof and asset that was imported/created for it.
+func (b *Book) CompleteEvent(ctx context.Context, event *Event,
+	status Status, anchorPoint wire.OutPoint) error {
+
+	return b.cfg.Store.CompleteEvent(ctx, event, status, anchorPoint)
 }
 
 // RegisterSubscriber adds a new subscriber for receiving events. The
