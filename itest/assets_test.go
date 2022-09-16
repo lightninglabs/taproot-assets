@@ -11,10 +11,8 @@ import (
 
 var (
 	zeroHash chainhash.Hash
-)
 
-func mintAssets(t *harnessTest) {
-	simpleAssets := []*tarorpc.MintAssetRequest{
+	simpleAssets = []*tarorpc.MintAssetRequest{
 		{
 			AssetType: tarorpc.AssetType_NORMAL,
 			Name:      "itestbuxx",
@@ -28,9 +26,7 @@ func mintAssets(t *harnessTest) {
 			Amount:    1,
 		},
 	}
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
-
-	issuableAssets := []*tarorpc.MintAssetRequest{
+	issuableAssets = []*tarorpc.MintAssetRequest{
 		{
 			AssetType:      tarorpc.AssetType_NORMAL,
 			Name:           "itestbuxx-money-printer-brrr",
@@ -46,6 +42,10 @@ func mintAssets(t *harnessTest) {
 			EnableEmission: true,
 		},
 	}
+)
+
+func mintAssets(t *harnessTest) {
+	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
 	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
 
 	// Now that all our assets have been issued, we'll use the balance
