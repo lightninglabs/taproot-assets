@@ -23,6 +23,18 @@ type Addr struct {
 	ManagedFrom      sql.NullTime
 }
 
+type AddrEvent struct {
+	ID                  int32
+	CreationTime        time.Time
+	AddrID              int32
+	Status              int16
+	ChainTxnID          int32
+	ChainTxnOutputIndex int32
+	ManagedUtxoID       int32
+	AssetProofID        sql.NullInt32
+	AssetID             sql.NullInt32
+}
+
 type Asset struct {
 	AssetID                  int32
 	Version                  int32

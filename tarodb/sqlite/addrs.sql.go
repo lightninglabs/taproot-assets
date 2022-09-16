@@ -76,6 +76,56 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 	return i, err
 }
 
+const fetchAddrEvent = `-- name: FetchAddrEvent :one
+SELECT
+    creation_time, status, asset_proof_id, asset_id,
+    chain_txns.txid as txid,
+    chain_txns.block_height as confirmation_height,
+    chain_txn_output_index as output_index,
+    managed_utxos.amt_sats as amt_sats,
+    managed_utxos.tapscript_sibling as tapscript_sibling,
+    internal_keys.raw_key as internal_key
+FROM addr_events
+LEFT JOIN chain_txns
+       ON addr_events.chain_txn_id = chain_txns.txn_id
+LEFT JOIN managed_utxos
+       ON addr_events.managed_utxo_id = managed_utxos.utxo_id
+LEFT JOIN internal_keys
+       ON managed_utxos.internal_key_id = internal_keys.key_id
+WHERE id = ?
+`
+
+type FetchAddrEventRow struct {
+	CreationTime       time.Time
+	Status             int16
+	AssetProofID       sql.NullInt32
+	AssetID            sql.NullInt32
+	Txid               []byte
+	ConfirmationHeight sql.NullInt32
+	OutputIndex        int32
+	AmtSats            sql.NullInt64
+	TapscriptSibling   []byte
+	InternalKey        []byte
+}
+
+func (q *Queries) FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAddrEvent, id)
+	var i FetchAddrEventRow
+	err := row.Scan(
+		&i.CreationTime,
+		&i.Status,
+		&i.AssetProofID,
+		&i.AssetID,
+		&i.Txid,
+		&i.ConfirmationHeight,
+		&i.OutputIndex,
+		&i.AmtSats,
+		&i.TapscriptSibling,
+		&i.InternalKey,
+	)
+	return i, err
+}
+
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, taproot_output_key, amount, asset_type,
@@ -211,6 +261,52 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, 
 	return id, err
 }
 
+const queryEventIDs = `-- name: QueryEventIDs :many
+SELECT
+    addr_events.id as event_id, addrs.taproot_output_key as taproot_output_key
+FROM addr_events
+JOIN addrs
+  ON addr_events.addr_id = addrs.id
+WHERE addr_events.status >= $1 
+  AND addr_events.status <= $2
+  AND IFNULL($3, addrs.taproot_output_key) = addrs.taproot_output_key
+ORDER by addr_events.creation_time
+`
+
+type QueryEventIDsParams struct {
+	StatusFrom     int16
+	StatusTo       int16
+	AddrTaprootKey interface{}
+}
+
+type QueryEventIDsRow struct {
+	EventID          int32
+	TaprootOutputKey []byte
+}
+
+func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryEventIDs, arg.StatusFrom, arg.StatusTo, arg.AddrTaprootKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryEventIDsRow
+	for rows.Next() {
+		var i QueryEventIDsRow
+		if err := rows.Scan(&i.EventID, &i.TaprootOutputKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setAddrManaged = `-- name: SetAddrManaged :exec
 WITH target_addr(addr_id) AS (
     SELECT id
@@ -230,4 +326,55 @@ type SetAddrManagedParams struct {
 func (q *Queries) SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error {
 	_, err := q.db.ExecContext(ctx, setAddrManaged, arg.TaprootOutputKey, arg.ManagedFrom)
 	return err
+}
+
+const upsertAddrEvent = `-- name: UpsertAddrEvent :one
+WITH target_addr(addr_id) AS (
+    SELECT id
+    FROM addrs
+    WHERE addrs.taproot_output_key = ?
+), target_chain_txn(txn_id) AS (
+    SELECT txn_id
+    FROM chain_txns
+    WHERE chain_txns.txid = ?
+)
+INSERT INTO addr_events (
+    creation_time, addr_id, status, chain_txn_id, chain_txn_output_index,
+    managed_utxo_id, asset_proof_id, asset_id
+) VALUES (
+    ?, (SELECT addr_id FROM target_addr), ?,
+    (SELECT txn_id FROM target_chain_txn), ?, ?, ?, ?
+)
+ON CONFLICT (addr_id, chain_txn_id, chain_txn_output_index)
+    DO UPDATE SET status = EXCLUDED.status,
+                  asset_proof_id = IFNULL(EXCLUDED.asset_proof_id, asset_proof_id),
+                  asset_id = IFNULL(EXCLUDED.asset_id, asset_id)
+RETURNING id
+`
+
+type UpsertAddrEventParams struct {
+	TaprootOutputKey    []byte
+	Txid                []byte
+	CreationTime        time.Time
+	Status              int16
+	ChainTxnOutputIndex int32
+	ManagedUtxoID       int32
+	AssetProofID        sql.NullInt32
+	AssetID             sql.NullInt32
+}
+
+func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertAddrEvent,
+		arg.TaprootOutputKey,
+		arg.Txid,
+		arg.CreationTime,
+		arg.Status,
+		arg.ChainTxnOutputIndex,
+		arg.ManagedUtxoID,
+		arg.AssetProofID,
+		arg.AssetID,
+	)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
 }
