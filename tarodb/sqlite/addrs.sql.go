@@ -10,10 +10,75 @@ import (
 	"time"
 )
 
+const fetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
+SELECT
+    version, asset_id, fam_key, taproot_output_key, amount, asset_type,
+    creation_time,
+    script_keys.tweaked_script_key,
+    script_keys.tweak AS script_key_tweak,
+    raw_script_keys.raw_key as raw_script_key,
+    raw_script_keys.key_family AS script_key_family,
+    raw_script_keys.key_index AS script_key_index,
+    taproot_keys.raw_key AS raw_taproot_key,
+    taproot_keys.key_family AS taproot_key_family,
+    taproot_keys.key_index AS taproot_key_index
+FROM addrs
+JOIN script_keys
+  ON addrs.script_key_id = script_keys.script_key_id
+JOIN internal_keys raw_script_keys
+  ON script_keys.internal_key_id = raw_script_keys.key_id
+JOIN internal_keys taproot_keys
+  ON addrs.taproot_key_id = taproot_keys.key_id
+WHERE taproot_output_key = ?
+`
+
+type FetchAddrByTaprootOutputKeyRow struct {
+	Version          int16
+	AssetID          []byte
+	FamKey           []byte
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
+	TweakedScriptKey []byte
+	ScriptKeyTweak   []byte
+	RawScriptKey     []byte
+	ScriptKeyFamily  int32
+	ScriptKeyIndex   int32
+	RawTaprootKey    []byte
+	TaprootKeyFamily int32
+	TaprootKeyIndex  int32
+}
+
+func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAddrByTaprootOutputKey, taprootOutputKey)
+	var i FetchAddrByTaprootOutputKeyRow
+	err := row.Scan(
+		&i.Version,
+		&i.AssetID,
+		&i.FamKey,
+		&i.TaprootOutputKey,
+		&i.Amount,
+		&i.AssetType,
+		&i.CreationTime,
+		&i.TweakedScriptKey,
+		&i.ScriptKeyTweak,
+		&i.RawScriptKey,
+		&i.ScriptKeyFamily,
+		&i.ScriptKeyIndex,
+		&i.RawTaprootKey,
+		&i.TaprootKeyFamily,
+		&i.TaprootKeyIndex,
+	)
+	return i, err
+}
+
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
-    version, asset_id, fam_key, amount, asset_type, creation_time,
-    script_keys.tweaked_script_key, script_keys.tweak AS script_key_tweak,
+    version, asset_id, fam_key, taproot_output_key, amount, asset_type,
+    creation_time,
+    script_keys.tweaked_script_key,
+    script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key AS raw_script_key,
     raw_script_keys.key_family AS script_key_family,
     raw_script_keys.key_index AS script_key_index,
@@ -44,6 +109,7 @@ type FetchAddrsRow struct {
 	Version          int16
 	AssetID          []byte
 	FamKey           []byte
+	TaprootOutputKey []byte
 	Amount           int64
 	AssetType        int16
 	CreationTime     time.Time
@@ -75,6 +141,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.Version,
 			&i.AssetID,
 			&i.FamKey,
+			&i.TaprootOutputKey,
 			&i.Amount,
 			&i.AssetType,
 			&i.CreationTime,
@@ -102,20 +169,21 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 
 const insertAddr = `-- name: InsertAddr :one
 INSERT INTO addrs (
-    version, asset_id, fam_key, script_key_id, taproot_key_id, amount, 
-    asset_type, creation_time
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+    version, asset_id, fam_key, script_key_id, taproot_key_id,
+    taproot_output_key, amount, asset_type, creation_time
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
 `
 
 type InsertAddrParams struct {
-	Version      int16
-	AssetID      []byte
-	FamKey       []byte
-	ScriptKeyID  int32
-	TaprootKeyID int32
-	Amount       int64
-	AssetType    int16
-	CreationTime time.Time
+	Version          int16
+	AssetID          []byte
+	FamKey           []byte
+	ScriptKeyID      int32
+	TaprootKeyID     int32
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
 }
 
 func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error) {
@@ -125,6 +193,7 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, 
 		arg.FamKey,
 		arg.ScriptKeyID,
 		arg.TaprootKeyID,
+		arg.TaprootOutputKey,
 		arg.Amount,
 		arg.AssetType,
 		arg.CreationTime,

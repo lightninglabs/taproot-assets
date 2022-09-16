@@ -10,15 +10,16 @@ import (
 )
 
 type Addr struct {
-	ID           int32
-	Version      int16
-	AssetID      []byte
-	FamKey       []byte
-	ScriptKeyID  int32
-	TaprootKeyID int32
-	Amount       int64
-	AssetType    int16
-	CreationTime time.Time
+	ID               int32
+	Version          int16
+	AssetID          []byte
+	FamKey           []byte
+	ScriptKeyID      int32
+	TaprootKeyID     int32
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
 }
 
 type Asset struct {

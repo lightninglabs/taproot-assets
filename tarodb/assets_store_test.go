@@ -230,12 +230,17 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		numWitness := randInt[int]() % 10
 		witnesses = make([]asset.Witness, numWitness)
 		for i := 0; i < numWitness; i++ {
+			scriptKey := asset.NewScriptKeyBIP0086(
+				keychain.KeyDescriptor{
+					PubKey: randPubKey(t),
+				},
+			)
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
 					OutPoint: randOp(t),
 					ID:       randAssetID(t),
 					ScriptKey: asset.ToSerialized(
-						randPubKey(t),
+						scriptKey.PubKey,
 					),
 				},
 				TxWitness: randWitnesses(t),

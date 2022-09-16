@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS addrs (
     -- taproot internal key to receive this asset.
     taproot_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
+    -- taproot_output_key is the tweaked taproot output key that assets must
+    -- be sent to on chain to be received, represented as a 32-byte x-only
+    -- public key.
+    taproot_output_key BLOB NOT NULL UNIQUE CHECK(length(taproot_output_key) == 32),
+
     -- amount is the amount of asset we want to receive.
     amount BIGINT NOT NULL,  
 

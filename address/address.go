@@ -55,6 +55,11 @@ var (
 	ErrUnsupportedAssetType = errors.New(
 		"address: unsupported asset type",
 	)
+
+	// ErrNoAddr is returned if no address is found in the address store.
+	ErrNoAddr = errors.New(
+		"address: no address found",
+	)
 )
 
 const (

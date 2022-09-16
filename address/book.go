@@ -25,6 +25,10 @@ type AddrWithKeyInfo struct {
 	// InternalKeyDesc is the key desc for the internal key.
 	InternalKeyDesc keychain.KeyDescriptor
 
+	// TaprootOutputKey is the tweaked taproot output key that assets must
+	// be sent to on chain to be received.
+	TaprootOutputKey btcec.PublicKey
+
 	// CreationTime is the time the address was created in the database.
 	CreationTime time.Time
 }
@@ -55,6 +59,11 @@ type Storage interface {
 	// QueryAddrs attemps to query for a set of addresses.
 	QueryAddrs(ctx context.Context,
 		params QueryParams) ([]AddrWithKeyInfo, error)
+
+	// AddrByTaprootOutput returns a single address based on its Taproot
+	// output key or a sql.ErrNoRows error if no such address exists.
+	AddrByTaprootOutput(ctx context.Context,
+		key *btcec.PublicKey) (*AddrWithKeyInfo, error)
 }
 
 // KeyRing is used to create script and internal keys for Taro addresses.
@@ -135,11 +144,18 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}
 
+	taprootOutputKey, err := baseAddr.TaprootOutputKey(nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive Taproot output key:"+
+			" %w", err)
+	}
+
 	addr := AddrWithKeyInfo{
-		Taro:            baseAddr,
-		ScriptKeyTweak:  *scriptKey.TweakedScriptKey,
-		InternalKeyDesc: internalKeyDesc,
-		CreationTime:    time.Now(),
+		Taro:             baseAddr,
+		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
+		InternalKeyDesc:  internalKeyDesc,
+		TaprootOutputKey: *taprootOutputKey,
+		CreationTime:     time.Now(),
 	}
 
 	if err := b.cfg.Store.InsertAddrs(ctx, addr); err != nil {
@@ -161,6 +177,14 @@ func (b *Book) ListAddrs(ctx context.Context,
 	params QueryParams) ([]AddrWithKeyInfo, error) {
 
 	return b.cfg.Store.QueryAddrs(ctx, params)
+}
+
+// AddrByTaprootOutput returns a single address based on its Taproot output key
+// or a sql.ErrNoRows error if no such address exists.
+func (b *Book) AddrByTaprootOutput(ctx context.Context,
+	key *btcec.PublicKey) (*AddrWithKeyInfo, error) {
+
+	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
 }
 
 // RegisterSubscriber adds a new subscriber for receiving events. The

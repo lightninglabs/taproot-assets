@@ -2,11 +2,14 @@ package tarodb
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
@@ -24,6 +27,10 @@ type (
 	// Addresses is a type alias for the full address row with key locator
 	// information.
 	Addresses = sqlite.FetchAddrsRow
+
+	// AddrByTaprootOutput is a type alias for returning an address by its
+	// Taproot output key.
+	AddrByTaprootOutput = sqlite.FetchAddrByTaprootOutputKeyRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -34,6 +41,12 @@ type AddrBook interface {
 	// FetchAddrs returns all the addresses based on the constraints of the
 	// passed AddrQuery.
 	FetchAddrs(ctx context.Context, arg AddrQuery) ([]Addresses, error)
+
+	// FetchAddrByTaprootOutputKey returns a single address based on its
+	// Taproot output key or a sql.ErrNoRows error if no such address
+	// exists.
+	FetchAddrByTaprootOutputKey(ctx context.Context,
+		arg []byte) (AddrByTaprootOutput, error)
 
 	// InsertAddr inserts a new address into the database.
 	InsertAddr(ctx context.Context, arg NewAddr) (int32, error)
@@ -146,6 +159,9 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				FamKey:       famKeyBytes,
 				ScriptKeyID:  scriptKeyID,
 				TaprootKeyID: taprootKeyID,
+				TaprootOutputKey: schnorr.SerializePubKey(
+					&addr.TaprootOutputKey,
+				),
 				Amount:       int64(addr.Amount),
 				AssetType:    int16(addr.Type),
 				CreationTime: addr.CreationTime,
@@ -249,6 +265,14 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				return err
 			}
 
+			taprootOutputKey, err := schnorr.ParsePubKey(
+				addr.TaprootOutputKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to parse taproot "+
+					"output key: %w", err)
+			}
+
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Taro: &address.Taro{
 					Version:     asset.Version(addr.Version),
@@ -263,8 +287,9 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					RawKey: rawScriptKeyDesc,
 					Tweak:  addr.ScriptKeyTweak,
 				},
-				InternalKeyDesc: internalKeyDesc,
-				CreationTime:    addr.CreationTime,
+				InternalKeyDesc:  internalKeyDesc,
+				TaprootOutputKey: *taprootOutputKey,
+				CreationTime:     addr.CreationTime,
 			})
 		}
 
@@ -275,6 +300,108 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 	}
 
 	return addrs, nil
+}
+
+// AddrByTaprootOutput returns a single address based on its Taproot output
+// key or a sql.ErrNoRows error if no such address exists.
+func (t *TaroAddressBook) AddrByTaprootOutput(ctx context.Context,
+	key *btcec.PublicKey) (*address.AddrWithKeyInfo, error) {
+
+	var (
+		addr     *address.AddrWithKeyInfo
+		readOpts = NewAddrBookReadTx()
+	)
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		var err error
+		addr, err = fetchAddr(ctx, db, key)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return addr, nil
+}
+
+// fetchAddr fetches a single address identified by its taproot output key from
+// the database and populates all its fields.
+func fetchAddr(ctx context.Context, db AddrBook,
+	taprootOutputKey *btcec.PublicKey) (*address.AddrWithKeyInfo, error) {
+
+	dbAddr, err := db.FetchAddrByTaprootOutputKey(
+		ctx, schnorr.SerializePubKey(taprootOutputKey),
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, address.ErrNoAddr
+
+	case err != nil:
+		return nil, err
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], dbAddr.AssetID)
+
+	var famKey *btcec.PublicKey
+	if dbAddr.FamKey != nil {
+		famKey, err = btcec.ParsePubKey(dbAddr.FamKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode fam key: %w",
+				err)
+		}
+	}
+
+	rawScriptKey, err := btcec.ParsePubKey(dbAddr.RawScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode script key: %w", err)
+	}
+	scriptKeyDesc := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(
+				dbAddr.ScriptKeyFamily,
+			),
+			Index: uint32(dbAddr.ScriptKeyIndex),
+		},
+		PubKey: rawScriptKey,
+	}
+
+	scriptKey, err := btcec.ParsePubKey(dbAddr.TweakedScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode script key: %w", err)
+	}
+
+	internalKey, err := btcec.ParsePubKey(dbAddr.RawTaprootKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode taproot key: %w", err)
+	}
+	internalKeyDesc := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(
+				dbAddr.TaprootKeyFamily,
+			),
+			Index: uint32(dbAddr.TaprootKeyIndex),
+		},
+		PubKey: internalKey,
+	}
+
+	return &address.AddrWithKeyInfo{
+		Taro: &address.Taro{
+			Version:     asset.Version(dbAddr.Version),
+			ID:          assetID,
+			FamilyKey:   famKey,
+			ScriptKey:   *scriptKey,
+			InternalKey: *internalKey,
+			Amount:      uint64(dbAddr.Amount),
+			Type:        asset.Type(dbAddr.AssetType),
+		},
+		ScriptKeyTweak: asset.TweakedScriptKey{
+			RawKey: scriptKeyDesc,
+			Tweak:  dbAddr.ScriptKeyTweak,
+		},
+		InternalKeyDesc:  internalKeyDesc,
+		TaprootOutputKey: *taprootOutputKey,
+		CreationTime:     dbAddr.CreationTime,
+	}, nil
 }
 
 // A compile-time assertion to ensure that TaroAddressBook meets the

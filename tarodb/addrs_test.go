@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -31,7 +32,7 @@ func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore) {
 }
 
 func randAddr(t *testing.T) *address.AddrWithKeyInfo {
-	scriptKey, err := btcec.NewPrivateKey()
+	scriptKeyPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	internalKey, err := btcec.NewPrivateKey()
@@ -49,29 +50,25 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 		famKey = famKeyPriv.PubKey()
 	}
 
-	scriptKeyPub := txscript.ComputeTaprootKeyNoScript(
-		scriptKey.PubKey(),
-	)
+	scriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+		PubKey: scriptKeyPriv.PubKey(),
+	})
+
+	taprootOutputKey, _ := schnorr.ParsePubKey(schnorr.SerializePubKey(
+		txscript.ComputeTaprootOutputKey(internalKey.PubKey(), nil),
+	))
 
 	return &address.AddrWithKeyInfo{
 		Taro: &address.Taro{
 			Version:     asset.Version(rand.Int31()),
 			ID:          assetID,
 			FamilyKey:   famKey,
-			ScriptKey:   *scriptKeyPub,
+			ScriptKey:   *scriptKey.PubKey,
 			InternalKey: *internalKey.PubKey(),
 			Amount:      uint64(rand.Int63()),
 			Type:        asset.Type(rand.Int31n(2)),
 		},
-		ScriptKeyTweak: asset.TweakedScriptKey{
-			RawKey: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(rand.Int31()),
-					Index:  uint32(rand.Int31()),
-				},
-				PubKey: scriptKey.PubKey(),
-			},
-		},
+		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{
 				Family: keychain.KeyFamily(rand.Int31()),
@@ -79,7 +76,8 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 			},
 			PubKey: internalKey.PubKey(),
 		},
-		CreationTime: time.Now(),
+		TaprootOutputKey: *taprootOutputKey,
+		CreationTime:     time.Now(),
 	}
 }
 
@@ -88,22 +86,25 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 func assertEqualAddrs(t *testing.T, expected, actual []address.AddrWithKeyInfo) {
 	require.Len(t, actual, len(expected))
 	for idx := range actual {
-		// Time values cannot be compared based on their struct contents
-		// since the same time can be represented in different ways.
-		// We compare the addresses without the timestamps and then
-		// compare the unix timestamps separately.
-		actualTime := actual[idx].CreationTime
-		expectedTime := expected[idx].CreationTime
-
-		actual[idx].CreationTime = time.Time{}
-		expected[idx].CreationTime = time.Time{}
-
-		require.Equal(t, expected[idx], actual[idx])
-		require.Equal(t, expectedTime.Unix(), actualTime.Unix())
-
-		actual[idx].CreationTime = actualTime
-		expected[idx].CreationTime = expectedTime
+		assertEqualAddr(t, expected[idx], actual[idx])
 	}
+}
+
+// assertEqualAddr makes sure the given actual address matches the expected
+// one
+func assertEqualAddr(t *testing.T, expected, actual address.AddrWithKeyInfo) {
+	// Time values cannot be compared based on their struct contents
+	// since the same time can be represented in different ways.
+	// We compare the addresses without the timestamps and then
+	// compare the unix timestamps separately.
+	actualTime := actual.CreationTime
+	expectedTime := expected.CreationTime
+
+	actual.CreationTime = time.Time{}
+	expected.CreationTime = time.Time{}
+
+	require.Equal(t, expected, actual)
+	require.Equal(t, expectedTime.Unix(), actualTime.Unix())
 }
 
 // TestAddressInsertion tests that we're always able to retrieve an address we
@@ -131,6 +132,16 @@ func TestAddressInsertion(t *testing.T) {
 	// The returned addresses should match up exactly.
 	require.Len(t, dbAddrs, numAddrs)
 	assertEqualAddrs(t, addrs, dbAddrs)
+
+	// Make sure that we can fetch each address by its Taproot output key as
+	// well.
+	for _, addr := range addrs {
+		dbAddr, err := addrBook.AddrByTaprootOutput(
+			ctx, &addr.TaprootOutputKey,
+		)
+		require.NoError(t, err)
+		assertEqualAddr(t, addr, *dbAddr)
+	}
 }
 
 // TestAddressQuery tests that we're able to properly retrieve rows based on
@@ -213,12 +224,14 @@ func TestAddressQuery(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			dbAddrs, err := addrBook.QueryAddrs(ctx, address.QueryParams{
-				CreatedAfter:  test.createdAfter,
-				CreatedBefore: test.createdBefore,
-				Offset:        test.offset,
-				Limit:         test.limit,
-			})
+			dbAddrs, err := addrBook.QueryAddrs(
+				ctx, address.QueryParams{
+					CreatedAfter:  test.createdAfter,
+					CreatedBefore: test.createdBefore,
+					Offset:        test.offset,
+					Limit:         test.limit,
+				},
+			)
 			require.NoError(t, err)
 			require.Len(t, dbAddrs, test.numAddrs)
 		})
