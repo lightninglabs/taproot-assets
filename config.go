@@ -64,6 +64,8 @@ type Config struct {
 
 	AssetMinter tarogarden.Planter
 
+	AssetCustodian *tarogarden.Custodian
+
 	AddrBook *address.Book
 
 	ProofArchive proof.Archiver

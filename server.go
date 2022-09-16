@@ -195,6 +195,11 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		return mkErr("unable to start asset minter: %v", err)
 	}
 
+	// Next, we'll start the asset custodian.
+	if err := s.cfg.AssetCustodian.Start(); err != nil {
+		return mkErr("unable to start asset custodian: %v", err)
+	}
+
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	if err := s.rpcServer.Start(); err != nil {
@@ -390,6 +395,9 @@ func (s *Server) Stop() error {
 		return err
 	}
 	if err := s.cfg.AssetMinter.Stop(); err != nil {
+		return err
+	}
+	if err := s.cfg.AssetCustodian.Stop(); err != nil {
 		return err
 	}
 

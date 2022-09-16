@@ -33,3 +33,9 @@ func SchnorrKey(t *testing.T, pubKey *btcec.PublicKey) *btcec.PublicKey {
 func RandPubKey(t *testing.T) *btcec.PublicKey {
 	return SchnorrPubKey(t, RandPrivKey(t))
 }
+
+func RandBytes(num int) []byte {
+	randBytes := make([]byte, num)
+	_, _ = rand.Read(randBytes)
+	return randBytes
+}
