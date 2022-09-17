@@ -87,11 +87,8 @@ type AssetSeedling struct {
 type AssetTransfer struct {
 	ID               int32
 	OldAnchorPoint   []byte
-	NewAnchorPoint   []byte
 	NewInternalKey   int32
-	TaroRoot         []byte
-	TapscriptSibling []byte
-	AnchorTxID       int32
+	NewAnchorUtxo    int32
 	TransferTimeUnix time.Time
 }
 

@@ -469,10 +469,10 @@ func newAssetGenerator(t *testing.T,
 		pkScript := bytes.Repeat([]byte{byte(i)}, 34)
 		anchorTxs[i] = &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				&wire.TxIn{},
+				{},
 			},
 			TxOut: []*wire.TxOut{
-				&wire.TxOut{
+				{
 					PkScript: pkScript,
 					Value:    10 * 8,
 				},
@@ -721,6 +721,7 @@ func TestAssetExportLog(t *testing.T) {
 
 	newAnchorTx := wire.NewMsgTx(2)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
+	newAnchorTx.TxIn[0].SignatureScript = []byte{}
 	newAnchorTx.AddTxOut(&wire.TxOut{
 		PkScript: bytes.Repeat([]byte{0x01}, 34),
 		Value:    1000,
@@ -793,10 +794,12 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
 
-	// This should also show up in the set of pending parcels.
+	// This should also show up in the set of pending parcels. It should
+	// also match exactly the inbound parcel we used to make the delta.
 	parcels, err := assetsStore.PendingParcels(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(parcels))
+	require.Equal(t, parcels[0], spendDelta)
 
 	// With the asset delta committed and verified, we'll now mark the
 	// delta as being confirmed on chain.

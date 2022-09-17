@@ -3,15 +3,9 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
 
     old_anchor_point BLOB NOT NULL,
 
-    new_anchor_point BLOB NOT NULL,
-
     new_internal_key INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
-    taro_root BLOB NOT NULL,
-
-    tapscript_sibling BLOB NOT NULL,
-
-    anchor_tx_id INTEGER NOT NULL REFERENCES chain_txns(txn_id),
+    new_anchor_utxo INTEGER NOT NULL REFERENCES managed_utxos(utxo_id),
 
     transfer_time_unix TIMESTAMP NOT NULL
 );

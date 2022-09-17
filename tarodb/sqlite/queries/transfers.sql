@@ -1,9 +1,8 @@
 -- name: InsertAssetTransfer :one
 INSERT INTO asset_transfers (
-    old_anchor_point, new_anchor_point, new_internal_key, taro_root,
-    tapscript_sibling, anchor_tx_id, transfer_time_unix
+    old_anchor_point, new_internal_key, new_anchor_utxo, transfer_time_unix
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?
 ) RETURNING id;
 
 -- name: InsertAssetDelta :exec
@@ -15,8 +14,8 @@ INSERT INTO asset_deltas (
 
 -- name: QueryAssetTransfers :many
 SELECT 
-    asset_transfers.old_anchor_point, asset_transfers.new_anchor_point, 
-    asset_transfers.taro_root, asset_transfers.tapscript_sibling,
+    asset_transfers.old_anchor_point, utxos.outpoint AS new_anchor_point,
+    utxos.taro_root, utxos.tapscript_sibling, utxos.utxo_id AS new_anchor_utxo_id,
     txns.raw_tx AS anchor_tx_bytes, txns.txid AS anchor_txid,
     txns.txn_id AS anchor_tx_primary_key, transfer_time_unix, 
     keys.raw_key AS internal_key_bytes, keys.key_family AS internal_key_fam,
@@ -24,8 +23,10 @@ SELECT
 FROM asset_transfers
 JOIN internal_keys keys
     ON asset_transfers.new_internal_key = keys.key_id
+JOIN managed_utxos utxos
+    ON asset_transfers.new_anchor_utxo = utxos.utxo_id
 JOIN chain_txns txns
-    ON asset_transfers.anchor_tx_id = txns.txn_id
+    ON utxos.utxo_id = txns.txn_id
 WHERE (
     -- We'll use this clause to filter out for only transfers that are
     -- unconfirmed. But only if the unconf_only field is set.
@@ -39,12 +40,16 @@ WHERE (
     -- Here we have another optional query clause to select a given transfer
     -- based on the new_anchor_point, but only if it's specified.
     (length(hex(sqlc.narg('new_anchor_point'))) == 0 OR 
-        asset_transfers.new_anchor_point = sqlc.narg('new_anchor_point'))
+        utxos.outpoint = sqlc.narg('new_anchor_point'))
 );
 
 -- name: FetchAssetDeltas :many
 SELECT  
-    deltas.old_script_key, deltas.new_amt, deltas.new_script_key, 
+    deltas.old_script_key, deltas.new_amt, 
+    deltas.new_script_key AS new_script_key_id, 
+    new_keys.raw_key AS new_script_key_bytes, 
+    new_keys.key_family AS new_script_key_family, 
+    new_keys.key_index AS new_script_key_index,
     deltas.serialized_witnesses
 FROM asset_deltas deltas
 JOIN internal_keys new_keys
