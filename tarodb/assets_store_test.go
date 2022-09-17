@@ -3,6 +3,8 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"math/rand"
 	"testing"
 
@@ -35,7 +37,7 @@ func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
 
 	return &asset.Genesis{
 		FirstPrevOut: randOp(t),
-		Tag:          "kek",
+		Tag:          hex.EncodeToString(metadata),
 		Metadata:     metadata,
 		OutputIndex:  uint32(randInt[int32]()),
 		Type:         assetType,
@@ -117,6 +119,8 @@ type assetGenOptions struct {
 	amt uint64
 
 	genesisPoint wire.OutPoint
+
+	scriptKey keychain.KeyDescriptor
 }
 
 func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
@@ -127,6 +131,13 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 		famKeyPriv:   randPrivKey(t),
 		amt:          uint64(randInt[uint32]()),
 		genesisPoint: randOp(t),
+		scriptKey: keychain.KeyDescriptor{
+			PubKey: randPubKey(t),
+			KeyLocator: keychain.KeyLocator{
+				Family: randInt[keychain.KeyFamily](),
+				Index:  uint32(randInt[int32]()),
+			},
+		},
 	}
 }
 
@@ -156,6 +167,12 @@ func withAssetGen(g asset.Genesis) assetGenOpt {
 	}
 }
 
+func withScriptKey(k keychain.KeyDescriptor) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.scriptKey = k
+	}
+}
+
 func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	opts := defaultAssetGenOpts(t)
 	for _, optFunc := range genOpts {
@@ -181,13 +198,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		Amount:           opts.amt,
 		LockTime:         uint64(randInt[int32]()),
 		RelativeLockTime: uint64(randInt[int32]()),
-		ScriptKey: keychain.KeyDescriptor{
-			PubKey: randPubKey(t),
-			KeyLocator: keychain.KeyLocator{
-				Family: randInt[keychain.KeyFamily](),
-				Index:  uint32(randInt[int32]()),
-			},
-		},
+		ScriptKey:        opts.scriptKey,
 	}
 
 	// 50/50 chance that we'll actually have a family key.
@@ -434,6 +445,8 @@ type assetDesc struct {
 
 	keyFamily *btcec.PrivateKey
 
+	scriptKey *keychain.KeyDescriptor
+
 	amt uint64
 }
 
@@ -500,8 +513,8 @@ func newAssetGenerator(t *testing.T,
 	}
 }
 
-func (a *assetGenerator) genAssets(t *testing.T, assetDescs []assetDesc,
-	assetStore *AssetStore) {
+func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
+	assetDescs []assetDesc) {
 
 	ctx := context.Background()
 	for _, desc := range assetDescs {
@@ -512,6 +525,9 @@ func (a *assetGenerator) genAssets(t *testing.T, assetDescs []assetDesc,
 
 		if desc.keyFamily != nil {
 			opts = append(opts, withAssetGenKeyFam(desc.keyFamily))
+		}
+		if desc.scriptKey != nil {
+			opts = append(opts, withScriptKey(*desc.scriptKey))
 		}
 		asset := randAsset(t, opts...)
 
@@ -640,7 +656,7 @@ func TestSelectCommitment(t *testing.T) {
 			// descs.
 			_, assetsStore, _ := newAssetStore(t)
 
-			assetGen.genAssets(t, test.assets, assetsStore)
+			assetGen.genAssets(t, assetsStore, test.assets)
 
 			// With the assets inserted, we'll now attempt to query
 			// for the set of matching assets based on the
@@ -655,4 +671,179 @@ func TestSelectCommitment(t *testing.T) {
 			require.Equal(t, test.numAssets, len(selectedAssets))
 		})
 	}
+}
+
+// TestAssetExportLog tests that were able to properly spend/transfer assets on
+// disk. This ensures we can properly commit the end result of an asset
+// transfer initiated at a higher level.
+func TestAssetExportLog(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, db := newAssetStore(t)
+	ctx := context.Background()
+
+	targetScriptKey := keychain.KeyDescriptor{
+		PubKey: randPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Family: randInt[keychain.KeyFamily](),
+			Index:  uint32(randInt[int32]()),
+		},
+	}
+
+	// First, we'll generate 3 assets, each all sharing the same anchor
+	// transaction, but having distinct asset IDs.
+	const numAssets = 3
+	assetGen := newAssetGenerator(t, numAssets, 3)
+	assetGen.genAssets(t, assetsStore, []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+
+			// This is the script key of the asset we'll be
+			// modifying.
+			scriptKey: &targetScriptKey,
+
+			amt: 16,
+		},
+		{
+			assetGen:    assetGen.assetGens[1],
+			anchorPoint: assetGen.anchorPoints[0],
+
+			amt: 10,
+		},
+		{
+			assetGen:    assetGen.assetGens[2],
+			anchorPoint: assetGen.anchorPoints[0],
+
+			amt: 6,
+		},
+	})
+
+	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx.AddTxIn(&wire.TxIn{})
+	newAnchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    1000,
+	})
+
+	newScriptKey := keychain.KeyDescriptor{
+		PubKey: randPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Family: randInt[keychain.KeyFamily](),
+			Index:  uint32(randInt[int32]()),
+		},
+	}
+	newAmt := 9
+
+	// With the assets inserted, we'll now construct the struct we'll used
+	// to commit a new spend on disk.
+	anchorTxHash := newAnchorTx.TxHash()
+	spendDelta := &tarofreighter.OutboundParcelDelta{
+		OldAnchorPoint: wire.OutPoint{
+			Hash:  assetGen.anchorTxs[0].TxHash(),
+			Index: 0,
+		},
+		NewAnchorPoint: wire.OutPoint{
+			Hash:  anchorTxHash,
+			Index: 0,
+		},
+		NewInternalKey: keychain.KeyDescriptor{
+			PubKey: randPubKey(t),
+			KeyLocator: keychain.KeyLocator{
+				Family: randInt[keychain.KeyFamily](),
+				Index:  uint32(randInt[int32]()),
+			},
+		},
+		// This can be anything since we assume the application sets it
+		// properly.
+		TaroRoot: bytes.Repeat([]byte{0x01}, 100),
+		AnchorTx: newAnchorTx,
+		// We'll actually modify only one of the assets. This simulates
+		// us create a split of the asset to send to another party.
+		AssetSpendDeltas: []tarofreighter.AssetSpendDelta{
+			{
+				OldScriptKey: *targetScriptKey.PubKey,
+				NewAmt:       uint64(newAmt),
+				NewScriptKey: newScriptKey,
+			},
+		},
+	}
+	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
+
+	// At this point, we should be able to query for the log parcel, by
+	// looking for all unconfirmed transfers.
+	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(assetTransfers))
+
+	// We should also be able to find it based on its outpoint.
+	anchorPointBytes, err := encodeOutpoint(spendDelta.NewAnchorPoint)
+	require.NoError(t, err)
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		NewAnchorPoint: anchorPointBytes,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(assetTransfers))
+
+	// Finally, if we look for the set of confirmed transfers, nothing
+	// should be returned.
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		UnconfOnly: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(assetTransfers))
+
+	// This should also show up in the set of pending parcels.
+	parcels, err := assetsStore.PendingParcels(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(parcels))
+
+	// With the asset delta committed and verified, we'll now mark the
+	// delta as being confirmed on chain.
+	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
+	blockHeight := int32(100)
+	txIndex := int32(10)
+	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
+		AnchorPoint: spendDelta.NewAnchorPoint,
+		TxIndex:     txIndex,
+		BlockHeight: blockHeight,
+		BlockHash:   fakeBlockHash,
+	})
+	require.NoError(t, err)
+
+	// We'll now fetch all the assets to verify that they were updated
+	// properly on disk.
+	chainAssets, err := assetsStore.FetchAllAssets(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, numAssets, len(chainAssets))
+
+	var mutationFound bool
+	for _, chainAsset := range chainAssets {
+		require.Equal(
+			t, spendDelta.NewAnchorPoint, chainAsset.AnchorOutpoint,
+		)
+
+		// We should find the mutated asset with its _new_ script key
+		// and amount.
+		if chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey) {
+			require.True(t, chainAsset.Amount == uint64(newAmt))
+			mutationFound = true
+		}
+	}
+	require.True(t, mutationFound)
+
+	// If we fetch the chain transaction again, then it should have the
+	// conf information populated.
+	anchorTx, err := db.FetchChainTx(ctx, anchorTxHash[:])
+	require.NoError(t, err)
+	require.Equal(t, fakeBlockHash[:], anchorTx.BlockHash[:])
+	require.Equal(
+		t, uint32(blockHeight), extractSqlInt32[uint32](anchorTx.BlockHeight),
+	)
+	require.Equal(t, uint32(txIndex), extractSqlInt32[uint32](anchorTx.TxIndex))
+
+	// At this point, there should be no more pending parcels.
+	parcels, err = assetsStore.PendingParcels(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(parcels))
 }

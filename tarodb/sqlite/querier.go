@@ -10,19 +10,22 @@ import (
 )
 
 type Querier interface {
-	// TODO(roasbeef): join on managed utxo ID
-	// * group by asset_id
 	AllAssets(ctx context.Context) ([]Asset, error)
 	AllInternalKeys(ctx context.Context) ([]InternalKey, error)
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
+	ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) (int32, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
+	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
+	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
+	FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error)
 	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
@@ -46,9 +49,11 @@ type Querier interface {
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error)
+	InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaParams) error
 	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
+	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error)
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
@@ -57,6 +62,8 @@ type Querier interface {
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
+	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
+	// TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the family key fields if an asset
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
@@ -66,6 +73,7 @@ type Querier interface {
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
+	ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)

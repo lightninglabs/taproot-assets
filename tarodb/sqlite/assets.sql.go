@@ -12,13 +12,10 @@ import (
 )
 
 const allAssets = `-- name: AllAssets :many
-
 SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
 FROM assets
 `
 
-// TODO(roasbeef): join on managed utxo ID
-// * group by asset_id
 func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 	rows, err := q.db.QueryContext(ctx, allAssets)
 	if err != nil {
@@ -351,6 +348,36 @@ func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBat
 	return err
 }
 
+const confirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
+WITH target_txn(txn_id) AS (
+    SELECT chain_txns.txn_id
+    FROM chain_txns
+    JOIN managed_utxos utxos
+        ON utxos.txn_id = chain_txns.txn_id
+    WHERE utxos.outpoint = ?
+)
+UPDATE chain_txns
+SET block_height = ?, block_hash = ?, tx_index = ?
+WHERE txn_id in (SELECT txn_id FROM target_txn)
+`
+
+type ConfirmChainAnchorTxParams struct {
+	Outpoint    []byte
+	BlockHeight sql.NullInt32
+	BlockHash   []byte
+	TxIndex     sql.NullInt32
+}
+
+func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error {
+	_, err := q.db.ExecContext(ctx, confirmChainAnchorTx,
+		arg.Outpoint,
+		arg.BlockHeight,
+		arg.BlockHash,
+		arg.TxIndex,
+	)
+	return err
+}
+
 const confirmChainTx = `-- name: ConfirmChainTx :exec
 WITH target_txn(txn_id) AS (
     SELECT anchor_tx_id
@@ -363,7 +390,7 @@ WITH target_txn(txn_id) AS (
 )
 UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
-WHERE txn_id in (SELECT txn_id FROm target_txn)
+WHERE txn_id in (SELECT txn_id FROM target_txn)
 `
 
 type ConfirmChainTxParams struct {
@@ -380,6 +407,16 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 		arg.BlockHash,
 		arg.TxIndex,
 	)
+	return err
+}
+
+const deleteManagedUTXO = `-- name: DeleteManagedUTXO :exec
+DELETE FROM managed_utxos
+WHERE outpoint = ?
+`
+
+func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteManagedUTXO, outpoint)
 	return err
 }
 
@@ -1309,6 +1346,7 @@ type QueryAssetsRow struct {
 	AnchorOutpoint     []byte
 }
 
+// TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
 // generate rows that have NULL values for the family key fields if an asset
 // doesn't have a family key. See the comment in fetchAssetSprouts for a work

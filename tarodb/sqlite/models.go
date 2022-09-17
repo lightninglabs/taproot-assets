@@ -35,6 +35,15 @@ type Asset struct {
 	AnchorUtxoID             sql.NullInt32
 }
 
+type AssetDelta struct {
+	ID                  int32
+	OldScriptKey        []byte
+	NewAmt              int64
+	NewScriptKey        int32
+	SerializedWitnesses []byte
+	TransferID          int32
+}
+
 type AssetFamily struct {
 	FamilyID       int32
 	TweakedFamKey  []byte
@@ -73,6 +82,17 @@ type AssetSeedling struct {
 	EmissionEnabled bool
 	AssetID         sql.NullInt32
 	BatchID         int32
+}
+
+type AssetTransfer struct {
+	ID               int32
+	OldAnchorPoint   []byte
+	NewAnchorPoint   []byte
+	NewInternalKey   int32
+	TaroRoot         []byte
+	TapscriptSibling []byte
+	AnchorTxID       int32
+	TransferTimeUnix time.Time
 }
 
 type AssetWitness struct {
