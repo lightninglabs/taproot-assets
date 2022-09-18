@@ -200,10 +200,13 @@ func TestAssetEncoding(t *testing.T) {
 		t.Helper()
 
 		assertAssetEqual(t, a, a.Copy())
+
 		var buf bytes.Buffer
 		require.NoError(t, a.Encode(&buf))
+
 		var b Asset
 		require.NoError(t, b.Decode(&buf))
+
 		assertAssetEqual(t, a, &b)
 	}
 
@@ -236,7 +239,7 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       1,
-		ScriptKey:           NewScriptKeyTweaked(pubKey),
+		ScriptKey:           NewScriptKey(pubKey),
 		FamilyKey: &FamilyKey{
 			FamKey: *pubKey,
 			Sig:    *sig,
@@ -262,7 +265,7 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
-		ScriptKey:           NewScriptKeyTweaked(pubKey),
+		ScriptKey:           NewScriptKey(pubKey),
 		FamilyKey: &FamilyKey{
 			FamKey: *pubKey,
 			Sig:    *sig,
@@ -311,7 +314,7 @@ func TestAssetEncoding(t *testing.T) {
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       2,
-		ScriptKey:           NewScriptKeyTweaked(pubKey),
+		ScriptKey:           NewScriptKey(pubKey),
 		FamilyKey:           nil,
 	})
 }
@@ -341,7 +344,7 @@ func TestAssetType(t *testing.T) {
 		OutputIndex: 2,
 		Type:        Collectible,
 	}
-	scriptKey := NewScriptKeyTweaked(pubKey)
+	scriptKey := NewScriptKey(pubKey)
 
 	normal, err := New(normalGen, 741, 0, 0, scriptKey, nil)
 	require.NoError(t, err)

@@ -521,33 +521,6 @@ func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "ScriptVersion", l, 2)
 }
 
-func ScriptKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**ScriptKey); ok {
-		key := &(*t).TweakedScriptKey
-		return SchnorrPubKeyEncoder(w, &key, buf)
-	}
-	return tlv.NewTypeForEncodingErr(val, "*ScriptKey")
-}
-
-func ScriptKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
-	if typ, ok := val.(**ScriptKey); ok {
-		var (
-			scriptKey       ScriptKey
-			tweakedScripKey *btcec.PublicKey
-		)
-		err := SchnorrPubKeyDecoder(
-			r, &tweakedScripKey, buf, schnorr.PubKeyBytesLen,
-		)
-		if err != nil {
-			return err
-		}
-		scriptKey.TweakedScriptKey = *tweakedScripKey
-		*typ = &scriptKey
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "*ScriptKey")
-}
-
 func FamilyKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**FamilyKey); ok {
 		key := &(*t).FamKey

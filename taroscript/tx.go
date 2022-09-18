@@ -175,9 +175,7 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	h := sha256.New()
 	_, _ = h.Write(familyKey)
 	_, _ = h.Write(assetID[:])
-	_, _ = h.Write(
-		schnorr.SerializePubKey(&asset.ScriptKey.TweakedScriptKey),
-	)
+	_, _ = h.Write(schnorr.SerializePubKey(asset.ScriptKey.PubKey))
 
 	// The new asset may have witnesses for its input(s), so make a
 	// copy and strip them out when including the asset in the tree,
@@ -263,9 +261,7 @@ func InputAssetPrevOut(prevAsset asset.Asset) (*wire.TxOut, error) {
 	switch prevAsset.ScriptVersion {
 	case asset.ScriptV0:
 		var err error
-		pkScript, err = PayToTaprootScript(
-			&prevAsset.ScriptKey.TweakedScriptKey,
-		)
+		pkScript, err = PayToTaprootScript(prevAsset.ScriptKey.PubKey)
 		if err != nil {
 			return nil, err
 		}

@@ -278,7 +278,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 				proof.FamilyKey = &finalAsset.FamilyKey.FamKey
 			}
 
-			proof.ScriptKey = finalAsset.ScriptKey.TweakedScriptKey
+			proof.ScriptKey = *finalAsset.ScriptKey.PubKey
 		}
 	}
 

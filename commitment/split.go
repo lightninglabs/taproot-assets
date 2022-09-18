@@ -121,7 +121,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	prevID := &asset.PrevID{
 		OutPoint:  outPoint,
 		ID:        input.Genesis.ID(),
-		ScriptKey: input.ScriptKey.TweakedScriptKey,
+		ScriptKey: *input.ScriptKey.PubKey,
 	}
 	if input.Type != asset.Normal {
 		return nil, ErrInvalidInputType
@@ -155,10 +155,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 
 		assetSplit := input.Copy()
 		assetSplit.Amount = locator.Amount
-		assetSplit.ScriptKey = asset.NewScriptKeyTweaked(
-			// TODO(roasbeef): other info not needed here?
-			&locator.ScriptKey,
-		)
+		assetSplit.ScriptKey = asset.NewScriptKey(&locator.ScriptKey)
 		assetSplit.PrevWitnesses = []asset.Witness{{
 			PrevID:          prevID,
 			TxWitness:       nil,

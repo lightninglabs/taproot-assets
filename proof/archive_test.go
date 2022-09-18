@@ -45,7 +45,7 @@ func (f *fakeVerifier) Verify(c context.Context,
 			FamilyKey: &asset.FamilyKey{
 				FamKey: *randPubKey(f.t),
 			},
-			ScriptKey: asset.NewScriptKeyTweaked(randPubKey(f.t)),
+			ScriptKey: asset.NewScriptKey(randPubKey(f.t)),
 		},
 	}, nil
 }

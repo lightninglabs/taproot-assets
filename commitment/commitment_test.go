@@ -82,9 +82,7 @@ func randAsset(t *testing.T, genesis asset.Genesis,
 	}
 
 	a, err := asset.New(
-		genesis, units, 0, 0,
-		asset.NewScriptKeyTweaked(pubKey),
-		familyKey,
+		genesis, units, 0, 0, asset.NewScriptKey(pubKey), familyKey,
 	)
 	require.NoError(t, err)
 	return a
@@ -511,7 +509,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisCollectible.ID(),
-					ScriptKey:   input.ScriptKey.TweakedScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      input.Amount,
 				}
 				return input, root, nil
@@ -527,7 +525,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   input.ScriptKey.TweakedScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      input.Amount,
 				}
 				external := []*SplitLocator{root}
@@ -545,13 +543,13 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   input.ScriptKey.TweakedScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      splitAmount,
 				}
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   input.ScriptKey.TweakedScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      splitAmount,
 				}}
 				return input, root, external
@@ -569,7 +567,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   input.ScriptKey.TweakedScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      1,
 				}
 				external := []*SplitLocator{{
@@ -600,7 +598,7 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   input.ScriptKey.TweakedScriptKey,
+					ScriptKey:   *input.ScriptKey.PubKey,
 					Amount:      1,
 				}
 
@@ -627,7 +625,7 @@ func TestSplitCommitment(t *testing.T) {
 			prevID := asset.PrevID{
 				OutPoint:  outPoint,
 				ID:        input.Genesis.ID(),
-				ScriptKey: input.ScriptKey.TweakedScriptKey,
+				ScriptKey: *input.ScriptKey.PubKey,
 			}
 			require.Contains(t, split.PrevAssets, prevID)
 			prevAsset := split.PrevAssets[prevID]
@@ -637,7 +635,7 @@ func TestSplitCommitment(t *testing.T) {
 			require.Equal(t, root.AssetID, split.RootAsset.Genesis.ID())
 			require.Equal(t,
 				root.ScriptKey,
-				split.RootAsset.ScriptKey.TweakedScriptKey,
+				*split.RootAsset.ScriptKey.PubKey,
 			)
 			require.Equal(t, root.Amount, split.RootAsset.Amount)
 			require.Len(t, split.RootAsset.PrevWitnesses, 1)
@@ -655,7 +653,7 @@ func TestSplitCommitment(t *testing.T) {
 				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
 				require.Equal(t,
 					l.ScriptKey,
-					splitAsset.ScriptKey.TweakedScriptKey,
+					*splitAsset.ScriptKey.PubKey,
 				)
 				require.Equal(t, l.Amount, splitAsset.Amount)
 				require.Len(t, splitAsset.PrevWitnesses, 1)

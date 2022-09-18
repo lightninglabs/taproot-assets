@@ -298,8 +298,12 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 
 	updatedDelta := delta.Copy()
 
+	// We'll now create a new copy of the old asset, swapping out the
+	// script key. We blank out the tweaked key information as this is now
+	// an external asset.
 	newAsset := updatedDelta.InputAssets[prevInput].Copy()
-	newAsset.ScriptKey.TweakedScriptKey = addr.ScriptKey
+	newAsset.ScriptKey.PubKey = &addr.ScriptKey
+	newAsset.ScriptKey.TweakedScriptKey = nil
 
 	// Record the PrevID of the input asset in a Witness for the new asset.
 	// This Witness still needs a valid signature for the new asset

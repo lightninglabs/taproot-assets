@@ -163,8 +163,15 @@ func TestProofEncoding(t *testing.T) {
 	asset := assets[0]
 	asset.FamilyKey.RawKey = keychain.KeyDescriptor{}
 
-	// Empty the raw script key, since we only serialize the tweaked pubkey.
-	asset.ScriptKey.RawKey = keychain.KeyDescriptor{}
+	// Empty the raw script key, since we only serialize the tweaked
+	// pubkey. We'll also force the main script key to be an x-only key as
+	// well.
+	asset.ScriptKey.PubKey, err = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(asset.ScriptKey.PubKey),
+	)
+	require.NoError(t, err)
+
+	asset.ScriptKey.TweakedScriptKey = nil
 
 	_, commitmentProof, err := commitment.Proof(
 		asset.TaroCommitmentKey(), asset.AssetCommitmentKey(),

@@ -72,8 +72,9 @@ func (g Genesis) MetadataHash() [sha256.Size]byte {
 }
 
 // ID serves as a unique identifier of an asset, resulting from:
-//   sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex ||
-//     assetType)
+//
+//	sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex ||
+//	  assetType)
 type ID [sha256.Size]byte
 
 // ID computes an asset's unique identifier from its metadata.
@@ -321,47 +322,54 @@ func (f *FamilyKey) IsEqual(otherFamilyKey *FamilyKey) bool {
 		f.Sig.IsEqual(&otherFamilyKey.Sig)
 }
 
-// ScriptKey represents a tweaked Taproot output key encumbering the different
-// ways an asset can be spent.
-type ScriptKey struct {
+// TweakedScriptKey is an embedded struct which is primarily used by wallets to
+// be able to keep track of the tweak of a script key along side the raw key
+// derivation information.
+type TweakedScriptKey struct {
 	// RawKey is the raw script key before the script key tweak is applied.
 	// We store a full key descriptor here for wallet purposes, but will
-	// only encode the raw key for the normal script leaf TLV encoding.
+	// only encode the pubkey above for the normal script leaf TLV
+	// encoding.
 	RawKey keychain.KeyDescriptor
 
-	// TweakedScriptKey is the tweaked script key.
-	TweakedScriptKey btcec.PublicKey
-
-	// Tweak is the tweak that is applied on the raw script key.
+	// Tweak is the tweak that is applied on the raw script key to get the
+	// public key. If this is nil, then a BIP 86 tweak is assumed.
 	Tweak []byte
 }
 
-// NewScriptKeyTweaked constructs a ScriptKey with only the tweaked script key.
-func NewScriptKeyTweaked(key *btcec.PublicKey) *ScriptKey {
-	return &ScriptKey{
-		TweakedScriptKey: *key,
+// ScriptKey represents a tweaked Taproot output key encumbering the different
+// ways an asset can be spent.
+type ScriptKey struct {
+	// PubKey is the script key that'll be encoded in the final TLV format.
+	// All signatures are checked against this script key.
+	PubKey *btcec.PublicKey
+
+	*TweakedScriptKey
+}
+
+// NewScriptKey constructs a ScriptKey with only the publicly available
+// information. This resulting key may or may not have a tweak applied to it.
+func NewScriptKey(key *btcec.PublicKey) ScriptKey {
+	return ScriptKey{
+		PubKey: key,
 	}
 }
 
-// NewScriptKeyBIP0086 constructs a ScriptKey tweaked BIP0086 style.
-func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) *ScriptKey {
-	// Tweak the script key BIP0086 style (such that we only commit
-	// to the internal key when signing).
+// NewScriptKeyBIP0086 constructs a ScriptKey tweaked BIP0086 style. The
+// resulting script key will include the specified BIP 86 tweak (no real
+// tweak), and also apply that to the final external PubKey.
+func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) ScriptKey {
+	// Tweak the script key BIP0086 style (such that we only commit to the
+	// internal key when signing).
 	tweakedPubKey := txscript.ComputeTaprootKeyNoScript(
 		rawKey.PubKey,
 	)
 
-	var err error
-	tweakedPubKey, err = schnorr.ParsePubKey(
-		schnorr.SerializePubKey(tweakedPubKey),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	return &ScriptKey{
-		RawKey:           rawKey,
-		TweakedScriptKey: *tweakedPubKey,
+	return ScriptKey{
+		PubKey: tweakedPubKey,
+		TweakedScriptKey: &TweakedScriptKey{
+			RawKey: rawKey,
+		},
 	}
 }
 
@@ -473,7 +481,7 @@ type Asset struct {
 
 	// ScriptKey represents a tweaked Taproot output key encumbering the
 	// different ways an asset can be spent.
-	ScriptKey *ScriptKey
+	ScriptKey ScriptKey
 
 	// FamilyKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
@@ -483,7 +491,7 @@ type Asset struct {
 
 // New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
-	scriptKey *ScriptKey, familyKey *FamilyKey) (*Asset, error) {
+	scriptKey ScriptKey, familyKey *FamilyKey) (*Asset, error) {
 
 	// Collectible assets can only ever be issued once.
 	if genesis.Type != Normal && amount != 1 {
@@ -552,7 +560,7 @@ func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
 func (a *Asset) AssetCommitmentKey() [32]byte {
 	issuanceDisabled := a.FamilyKey == nil
 	return AssetCommitmentKey(
-		a.Genesis.ID(), &a.ScriptKey.TweakedScriptKey, issuanceDisabled,
+		a.Genesis.ID(), a.ScriptKey.PubKey, issuanceDisabled,
 	)
 }
 
@@ -634,18 +642,15 @@ func (a *Asset) Copy() *Asset {
 		)
 	}
 
-	if a.ScriptKey != nil {
-		assetCopy.ScriptKey = &ScriptKey{
-			RawKey:           a.ScriptKey.RawKey,
-			TweakedScriptKey: a.ScriptKey.TweakedScriptKey,
-		}
+	assetCopy.ScriptKey = ScriptKey{
+		PubKey: a.ScriptKey.PubKey,
+	}
 
-		if a.ScriptKey.Tweak != nil {
-			assetCopy.ScriptKey.Tweak = make(
-				[]byte, len(a.ScriptKey.Tweak),
-			)
-			copy(assetCopy.ScriptKey.Tweak, a.ScriptKey.Tweak)
-		}
+	if a.ScriptKey.TweakedScriptKey != nil {
+		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{}
+		assetCopy.ScriptKey.RawKey = a.ScriptKey.RawKey
+		assetCopy.ScriptKey.Tweak = make([]byte, len(a.ScriptKey.Tweak))
+		copy(assetCopy.ScriptKey.Tweak, a.ScriptKey.Tweak)
 	}
 
 	if a.FamilyKey != nil {
@@ -686,9 +691,7 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 		))
 	}
 	records = append(records, NewLeafScriptVersionRecord(&a.ScriptVersion))
-	if a.ScriptKey != nil {
-		records = append(records, NewLeafScriptKeyRecord(&a.ScriptKey))
-	}
+	records = append(records, NewLeafScriptKeyRecord(&a.ScriptKey.PubKey))
 	if a.FamilyKey != nil {
 		records = append(records, NewLeafFamilyKeyRecord(&a.FamilyKey))
 	}
@@ -708,7 +711,7 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 		NewLeafPrevWitnessRecord(&a.PrevWitnesses),
 		NewLeafSplitCommitmentRootRecord(&a.SplitCommitmentRoot),
 		NewLeafScriptVersionRecord(&a.ScriptVersion),
-		NewLeafScriptKeyRecord(&a.ScriptKey),
+		NewLeafScriptKeyRecord(&a.ScriptKey.PubKey),
 		NewLeafFamilyKeyRecord(&a.FamilyKey),
 	}
 }

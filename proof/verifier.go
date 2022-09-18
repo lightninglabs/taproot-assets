@@ -165,7 +165,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 			asset.PrevID{
 				OutPoint:  p.PrevOut,
 				ID:        prev.Asset.Genesis.ID(),
-				ScriptKey: prev.Asset.ScriptKey.TweakedScriptKey,
+				ScriptKey: *prev.Asset.ScriptKey.PubKey,
 			}: prev.Asset,
 		}
 	}
@@ -193,7 +193,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 			prevID := asset.PrevID{
 				OutPoint:  result.OutPoint,
 				ID:        result.Asset.Genesis.ID(),
-				ScriptKey: result.Asset.ScriptKey.TweakedScriptKey,
+				ScriptKey: *result.Asset.ScriptKey.PubKey,
 			}
 			prevAssets[prevID] = result.Asset
 
