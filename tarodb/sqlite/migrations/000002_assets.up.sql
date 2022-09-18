@@ -62,10 +62,6 @@ CREATE TABLE IF NOT EXISTS internal_keys (
     -- retaining full information.
     raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) == 33),
 
-    -- An optonal tweak for the raw_key. If NULL, the raw_key may be tweaked
-    -- BIP0086 style.
-    tweak BLOB,
-
     key_family INTEGER NOT NULL,
 
     key_index INTEGER NOT NULL
@@ -137,6 +133,10 @@ CREATE TABLE IF NOT EXISTS assets (
     version INTEGER NOT NULL,
 
     script_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+
+    -- An optional tweak for the script_key. If NULL, the raw_key may be
+    -- tweaked BIP0086 style.
+    script_key_tweak BLOB,
 
     -- TODO(roasbeef): don't need this after all?
     asset_family_sig_id INTEGER REFERENCES asset_family_sigs(sig_id),

@@ -1,8 +1,8 @@
 -- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
-    raw_key, tweak, key_family, key_index
+    raw_key,  key_family, key_index
 ) VALUES (
-    ?, ?, ?, ?
+    ?, ?, ?
 ) ON CONFLICT (raw_key)
     -- This is a NOP, raw_key is the unique field that caused the conflict.
     DO UPDATE SET raw_key = EXCLUDED.raw_key
@@ -137,9 +137,9 @@ INSERT INTO genesis_assets (
 -- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id
+    amount, lock_time, relative_lock_time, anchor_utxo_id, script_key_tweak
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
@@ -178,8 +178,7 @@ WITH genesis_info AS (
 )
 SELECT 
     version, internal_keys.raw_key AS script_key_raw, 
-    internal_keys.tweak AS script_key_tweak,
-    internal_keys.key_family AS script_key_fam,
+    script_key_tweak, internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
     key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
@@ -237,8 +236,7 @@ WITH genesis_info AS (
 )
 SELECT 
     assets.asset_id, version, internal_keys.raw_key AS script_key_raw,
-    internal_keys.tweak AS script_key_tweak,
-    internal_keys.key_family AS script_key_fam,
+    script_key_tweak, internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
     key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,

@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS addrs (
     -- script key to be able to receive this asset.
     script_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
+    -- script_key_tweak is an optional tweak that tells us how to derive the
+    -- actual script key given the script_key_id above.
+    script_key_tweak BLOB,
+
     -- taproot_key_id points to the internal key that we'll use to serve as the
     -- taproot internal key to receive this asset.
     taproot_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),

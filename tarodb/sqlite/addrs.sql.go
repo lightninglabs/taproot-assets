@@ -13,8 +13,8 @@ import (
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, amount, asset_type, creation_time,
+    script_key_tweak,
     script_keys.raw_key AS raw_script_key,
-    script_keys.tweak AS script_key_tweak,
     script_keys.key_family AS script_key_family,
     script_keys.key_index AS script_key_index,
     taproot_keys.raw_key AS raw_taproot_key, 
@@ -45,8 +45,8 @@ type FetchAddrsRow struct {
 	Amount           int64
 	AssetType        int16
 	CreationTime     time.Time
-	RawScriptKey     []byte
 	ScriptKeyTweak   []byte
+	RawScriptKey     []byte
 	ScriptKeyFamily  int32
 	ScriptKeyIndex   int32
 	RawTaprootKey    []byte
@@ -75,8 +75,8 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.Amount,
 			&i.AssetType,
 			&i.CreationTime,
-			&i.RawScriptKey,
 			&i.ScriptKeyTweak,
+			&i.RawScriptKey,
 			&i.ScriptKeyFamily,
 			&i.ScriptKeyIndex,
 			&i.RawTaprootKey,
@@ -99,19 +99,20 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 const insertAddr = `-- name: InsertAddr :one
 INSERT INTO addrs (
     version, asset_id, fam_key, script_key_id, taproot_key_id, amount, 
-    asset_type, creation_time
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+    asset_type, creation_time, script_key_tweak
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
 `
 
 type InsertAddrParams struct {
-	Version      int16
-	AssetID      []byte
-	FamKey       []byte
-	ScriptKeyID  int32
-	TaprootKeyID int32
-	Amount       int64
-	AssetType    int16
-	CreationTime time.Time
+	Version        int16
+	AssetID        []byte
+	FamKey         []byte
+	ScriptKeyID    int32
+	TaprootKeyID   int32
+	Amount         int64
+	AssetType      int16
+	CreationTime   time.Time
+	ScriptKeyTweak []byte
 }
 
 func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error) {
@@ -124,6 +125,7 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, 
 		arg.Amount,
 		arg.AssetType,
 		arg.CreationTime,
+		arg.ScriptKeyTweak,
 	)
 	var id int32
 	err := row.Scan(&id)

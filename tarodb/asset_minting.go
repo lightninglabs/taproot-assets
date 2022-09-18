@@ -718,7 +718,6 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			// key needed to spend this asset.
 			scriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 				RawKey:    asset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
-				Tweak:     asset.ScriptKey.Tweak,
 				KeyFamily: int32(asset.ScriptKey.RawKey.Family),
 				KeyIndex:  int32(asset.ScriptKey.RawKey.Index),
 			})
@@ -730,6 +729,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 				AssetID:          genAssetID,
 				Version:          int32(asset.Version),
 				ScriptKeyID:      scriptKeyID,
+				ScriptKeyTweak:   asset.ScriptKey.Tweak,
 				AssetFamilySigID: familySigID,
 				ScriptVersion:    int32(asset.ScriptVersion),
 				Amount:           int64(asset.Amount),

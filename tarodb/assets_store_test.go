@@ -328,7 +328,7 @@ func TestImportAssetProof(t *testing.T) {
 	proof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
 			AssetID:   &assetID,
-			ScriptKey: testAsset.ScriptKey.TweakedScriptKey,
+			ScriptKey: *testAsset.ScriptKey.PubKey,
 		},
 		Blob: bytes.Repeat([]byte{0x0}, 100),
 		AssetSnapshot: &proof.AssetSnapshot{
@@ -358,7 +358,7 @@ func TestImportAssetProof(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = db.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    testAsset.ScriptKey.TweakedScriptKey.SerializeCompressed(),
+		RawKey:    testAsset.ScriptKey.PubKey.SerializeCompressed(),
 		KeyFamily: int32(testAsset.ScriptKey.RawKey.Family),
 		KeyIndex:  int32(testAsset.ScriptKey.RawKey.Index),
 	})

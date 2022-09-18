@@ -12,7 +12,7 @@ import (
 )
 
 const allAssets = `-- name: AllAssets :many
-SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
+SELECT asset_id, version, script_key_id, script_key_tweak, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
 FROM assets
 `
 
@@ -29,6 +29,7 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 			&i.AssetID,
 			&i.Version,
 			&i.ScriptKeyID,
+			&i.ScriptKeyTweak,
 			&i.AssetFamilySigID,
 			&i.ScriptVersion,
 			&i.Amount,
@@ -52,7 +53,7 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 }
 
 const allInternalKeys = `-- name: AllInternalKeys :many
-SELECT key_id, raw_key, tweak, key_family, key_index 
+SELECT key_id, raw_key, key_family, key_index 
 FROM internal_keys
 `
 
@@ -68,7 +69,6 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 		if err := rows.Scan(
 			&i.KeyID,
 			&i.RawKey,
-			&i.Tweak,
 			&i.KeyFamily,
 			&i.KeyIndex,
 		); err != nil {
@@ -86,7 +86,7 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const allMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, tweak, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
 ON asset_minting_batches.batch_id = internal_keys.key_id
@@ -101,7 +101,6 @@ type AllMintingBatchesRow struct {
 	CreationTimeUnix   time.Time
 	KeyID              int32
 	RawKey             []byte
-	Tweak              []byte
 	KeyFamily          int32
 	KeyIndex           int32
 }
@@ -124,7 +123,6 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 			&i.CreationTimeUnix,
 			&i.KeyID,
 			&i.RawKey,
-			&i.Tweak,
 			&i.KeyFamily,
 			&i.KeyIndex,
 		); err != nil {
@@ -188,7 +186,7 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 }
 
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
-SELECT assets.asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_id, prev_out, anchor_tx_id
+SELECT assets.asset_id, version, script_key_id, script_key_tweak, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_id, prev_out, anchor_tx_id
 FROM assets 
 JOIN genesis_assets 
     ON assets.asset_id = genesis_assets.gen_asset_id
@@ -201,6 +199,7 @@ type AssetsByGenesisPointRow struct {
 	AssetID                  int32
 	Version                  int32
 	ScriptKeyID              int32
+	ScriptKeyTweak           []byte
 	AssetFamilySigID         sql.NullInt32
 	ScriptVersion            int32
 	Amount                   int64
@@ -234,6 +233,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 			&i.AssetID,
 			&i.Version,
 			&i.ScriptKeyID,
+			&i.ScriptKeyTweak,
 			&i.AssetFamilySigID,
 			&i.ScriptVersion,
 			&i.Amount,
@@ -542,7 +542,7 @@ func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32
 }
 
 const fetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
-SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id
+SELECT asset_id, version, script_key_id, script_key_tweak, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id
 FROM assets
 WHERE anchor_utxo_id = ?
 `
@@ -560,6 +560,7 @@ func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.Nu
 			&i.AssetID,
 			&i.Version,
 			&i.ScriptKeyID,
+			&i.ScriptKeyTweak,
 			&i.AssetFamilySigID,
 			&i.ScriptVersion,
 			&i.Amount,
@@ -618,8 +619,7 @@ WITH genesis_info AS (
 )
 SELECT 
     version, internal_keys.raw_key AS script_key_raw, 
-    internal_keys.tweak AS script_key_tweak,
-    internal_keys.key_family AS script_key_fam,
+    script_key_tweak, internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
     key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
@@ -741,7 +741,7 @@ func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sq
 }
 
 const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, tweak, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -766,7 +766,6 @@ type FetchManagedUTXORow struct {
 	TxnID            int32
 	KeyID            int32
 	RawKey           []byte
-	Tweak            []byte
 	KeyFamily        int32
 	KeyIndex         int32
 }
@@ -784,7 +783,6 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 		&i.TxnID,
 		&i.KeyID,
 		&i.RawKey,
-		&i.Tweak,
 		&i.KeyFamily,
 		&i.KeyIndex,
 	)
@@ -792,7 +790,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 }
 
 const fetchMintingBatch = `-- name: FetchMintingBatch :one
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, tweak, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -808,7 +806,6 @@ type FetchMintingBatchRow struct {
 	CreationTimeUnix   time.Time
 	KeyID              int32
 	RawKey             []byte
-	Tweak              []byte
 	KeyFamily          int32
 	KeyIndex           int32
 }
@@ -825,7 +822,6 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 		&i.CreationTimeUnix,
 		&i.KeyID,
 		&i.RawKey,
-		&i.Tweak,
 		&i.KeyFamily,
 		&i.KeyIndex,
 	)
@@ -833,7 +829,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 }
 
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, tweak, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -849,7 +845,6 @@ type FetchMintingBatchesByInverseStateRow struct {
 	CreationTimeUnix   time.Time
 	KeyID              int32
 	RawKey             []byte
-	Tweak              []byte
 	KeyFamily          int32
 	KeyIndex           int32
 }
@@ -872,7 +867,6 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 			&i.CreationTimeUnix,
 			&i.KeyID,
 			&i.RawKey,
-			&i.Tweak,
 			&i.KeyFamily,
 			&i.KeyIndex,
 		); err != nil {
@@ -890,7 +884,7 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 }
 
 const fetchMintingBatchesByState = `-- name: FetchMintingBatchesByState :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, tweak, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -906,7 +900,6 @@ type FetchMintingBatchesByStateRow struct {
 	CreationTimeUnix   time.Time
 	KeyID              int32
 	RawKey             []byte
-	Tweak              []byte
 	KeyFamily          int32
 	KeyIndex           int32
 }
@@ -929,7 +922,6 @@ func (q *Queries) FetchMintingBatchesByState(ctx context.Context, batchState int
 			&i.CreationTimeUnix,
 			&i.KeyID,
 			&i.RawKey,
-			&i.Tweak,
 			&i.KeyFamily,
 			&i.KeyIndex,
 		); err != nil {
@@ -1211,9 +1203,9 @@ func (q *Queries) InsertGenesisAsset(ctx context.Context, arg InsertGenesisAsset
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     version, script_key_id, asset_id, asset_family_sig_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id
+    amount, lock_time, relative_lock_time, anchor_utxo_id, script_key_tweak
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING asset_id
 `
 
@@ -1227,6 +1219,7 @@ type InsertNewAssetParams struct {
 	LockTime         sql.NullInt32
 	RelativeLockTime sql.NullInt32
 	AnchorUtxoID     sql.NullInt32
+	ScriptKeyTweak   []byte
 }
 
 func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error) {
@@ -1240,6 +1233,7 @@ func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) 
 		arg.LockTime,
 		arg.RelativeLockTime,
 		arg.AnchorUtxoID,
+		arg.ScriptKeyTweak,
 	)
 	var asset_id int32
 	err := row.Scan(&asset_id)
@@ -1299,8 +1293,7 @@ WITH genesis_info AS (
 )
 SELECT 
     assets.asset_id, version, internal_keys.raw_key AS script_key_raw,
-    internal_keys.tweak AS script_key_tweak,
-    internal_keys.key_family AS script_key_fam,
+    script_key_tweak, internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
     key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
@@ -1583,9 +1576,9 @@ func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32
 
 const upsertInternalKey = `-- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
-    raw_key, tweak, key_family, key_index
+    raw_key,  key_family, key_index
 ) VALUES (
-    ?, ?, ?, ?
+    ?, ?, ?
 ) ON CONFLICT (raw_key)
     -- This is a NOP, raw_key is the unique field that caused the conflict.
     DO UPDATE SET raw_key = EXCLUDED.raw_key
@@ -1594,18 +1587,12 @@ RETURNING key_id
 
 type UpsertInternalKeyParams struct {
 	RawKey    []byte
-	Tweak     []byte
 	KeyFamily int32
 	KeyIndex  int32
 }
 
 func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, upsertInternalKey,
-		arg.RawKey,
-		arg.Tweak,
-		arg.KeyFamily,
-		arg.KeyIndex,
-	)
+	row := q.db.QueryRowContext(ctx, upsertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
 	var key_id int32
 	err := row.Scan(&key_id)
 	return key_id, err

@@ -876,7 +876,6 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	scriptKeyBytes := newAsset.ScriptKey.RawKey.PubKey.SerializeCompressed()
 	scriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    scriptKeyBytes,
-		Tweak:     newAsset.ScriptKey.Tweak,
 		KeyFamily: int32(newAsset.ScriptKey.RawKey.Family),
 		KeyIndex:  int32(newAsset.ScriptKey.RawKey.Index),
 	})
@@ -890,6 +889,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		AssetID:          genAssetID,
 		Version:          int32(newAsset.Version),
 		ScriptKeyID:      scriptKeyID,
+		ScriptKeyTweak:   newAsset.ScriptKey.Tweak,
 		AssetFamilySigID: sqlFamilySigID,
 		ScriptVersion:    int32(newAsset.ScriptVersion),
 		Amount:           int64(newAsset.Amount),
