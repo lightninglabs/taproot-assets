@@ -1,5 +1,6 @@
 DROP TABLE IF EXISTS asset_genesis;
 DROP TABLE IF EXISTS assets;
+DROP TABLE IF EXISTS asset_proofs;
 DROP TABLE IF EXISTS asset_minting_state;
 DROP TABLE IF EXISTS chain_txns;
 DROP TABLE IF EXISTS genesis_points;
