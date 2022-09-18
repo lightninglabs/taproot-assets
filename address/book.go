@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -18,11 +17,10 @@ import (
 type AddrWithKeyInfo struct {
 	*Taro
 
-	// ScriptKeyDesc is the key desc for the script key.
-	ScriptKeyDesc keychain.KeyDescriptor
-
-	// ScriptKeyTweak is a tweak that was used to tweak the ScriptKey.
-	ScriptKeyTweak []byte
+	// ScriptKeyTweak houses the wallet specific information related to a
+	// tweak key. This includes the raw key desc information along with the
+	// tweak used to create the address.
+	ScriptKeyTweak asset.TweakedScriptKey
 
 	// InternalKeyDesc is the key desc for the internal key.
 	InternalKeyDesc keychain.KeyDescriptor
@@ -114,16 +112,15 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	famKey *btcec.PublicKey, amount uint64,
 	assetType asset.Type) (*AddrWithKeyInfo, error) {
 
-	scriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
+	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
 
-	// Tweak the script key BIP0086 style (such that we only commit
-	// to the internal key when signing).
-	scriptKeyDesc.PubKey = txscript.ComputeTaprootKeyNoScript(
-		scriptKeyDesc.PubKey,
-	)
+	// Given the raw key desc for the script key, we'll map this to a BIP
+	// 86 tweaked key as by default we'll generate keys that can be used
+	// with a plain key spend.
+	scriptKey := asset.NewScriptKeyBIP0086(rawScriptKeyDesc)
 
 	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
@@ -131,7 +128,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	}
 
 	baseAddr, err := New(
-		assetID, famKey, *scriptKeyDesc.PubKey, *internalKeyDesc.PubKey,
+		assetID, famKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
 		amount, assetType, &b.cfg.Chain,
 	)
 	if err != nil {
@@ -139,8 +136,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	}
 	addr := AddrWithKeyInfo{
 		Taro:            baseAddr,
-		ScriptKeyDesc:   scriptKeyDesc,
-		ScriptKeyTweak:  nil,
+		ScriptKeyTweak:  *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: internalKeyDesc,
 		CreationTime:    time.Now(),
 	}
