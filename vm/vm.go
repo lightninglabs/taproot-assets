@@ -142,7 +142,7 @@ func (vm *Engine) validateSplit() error {
 	locator := &commitment.SplitLocator{
 		OutputIndex: vm.splitAsset.OutputIndex,
 		AssetID:     vm.splitAsset.Genesis.ID(),
-		ScriptKey:   *vm.splitAsset.ScriptKey.PubKey,
+		ScriptKey:   asset.ToSerialized(vm.splitAsset.ScriptKey.PubKey),
 		Amount:      vm.splitAsset.Amount,
 	}
 	splitNoWitness := vm.splitAsset.Copy()

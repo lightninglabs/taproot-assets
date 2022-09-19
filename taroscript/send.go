@@ -266,12 +266,12 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	// Populate the remaining fields in the splitLocators before generating
 	// the splitCommitment.
 	senderLocator.AssetID = addr.ID
-	senderLocator.ScriptKey = scriptKey
+	senderLocator.ScriptKey = asset.ToSerialized(&scriptKey)
 	senderLocator.Amount = inputAsset.Amount - addr.Amount
 	updatedDelta.Locators[senderStateKey] = senderLocator
 
 	receiverLocator.AssetID = addr.ID
-	receiverLocator.ScriptKey = addr.ScriptKey
+	receiverLocator.ScriptKey = asset.ToSerialized(&addr.ScriptKey)
 	receiverLocator.Amount = addr.Amount
 	updatedDelta.Locators[receiverStateKey] = receiverLocator
 

@@ -268,19 +268,19 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	rootLocator := &commitment.SplitLocator{
 		OutputIndex: 0,
 		AssetID:     assetID,
-		ScriptKey:   *genesisAsset.ScriptKey.PubKey,
+		ScriptKey:   asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
 		Amount:      1,
 	}
 	externalLocators := []*commitment.SplitLocator{{
 		OutputIndex: 1,
 		AssetID:     assetID,
-		ScriptKey:   *randKey(t).PubKey(),
+		ScriptKey:   asset.ToSerialized(randKey(t).PubKey()),
 		Amount:      1,
 	}, {
 
 		OutputIndex: 2,
 		AssetID:     assetID,
-		ScriptKey:   *randKey(t).PubKey(),
+		ScriptKey:   asset.ToSerialized(randKey(t).PubKey()),
 		Amount:      1,
 	}}
 	splitCommitment, err := commitment.NewSplitCommitment(

@@ -81,7 +81,7 @@ func randWitnesses(t *testing.T) wire.TxWitness {
 }
 
 func randSplitCommit(t *testing.T,
-	asset asset.Asset) *asset.SplitCommitment {
+	a asset.Asset) *asset.SplitCommitment {
 
 	// 50/50 chance there's no commitment at all.
 	if randInt[int]()%2 == 0 {
@@ -91,18 +91,18 @@ func randSplitCommit(t *testing.T,
 	rootLoc := commitment.SplitLocator{
 		OutputIndex: uint32(randInt[int32]()),
 		AssetID:     randAssetID(t),
-		Amount:      asset.Amount / 2,
-		ScriptKey:   *randPubKey(t),
+		Amount:      a.Amount / 2,
+		ScriptKey:   asset.ToSerialized(randPubKey(t)),
 	}
 	splitLoc := commitment.SplitLocator{
 		OutputIndex: uint32(randInt[int32]()),
 		AssetID:     randAssetID(t),
-		Amount:      asset.Amount / 2,
-		ScriptKey:   *randPubKey(t),
+		Amount:      a.Amount / 2,
+		ScriptKey:   asset.ToSerialized(randPubKey(t)),
 	}
 
 	split, err := commitment.NewSplitCommitment(
-		&asset, randOp(t), &rootLoc, &splitLoc,
+		&a, randOp(t), &rootLoc, &splitLoc,
 	)
 	require.NoError(t, err)
 
