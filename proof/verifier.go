@@ -139,9 +139,10 @@ func (p *Proof) verifyExclusionProofs() error {
 }
 
 // verifyAssetStateTransition verifies an asset's witnesses resulting from a
-// state transition.
+// state transition. This method returns the split asset information if this
+// state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
-	prev *AssetSnapshot) error {
+	prev *AssetSnapshot) (*commitment.SplitAsset, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -205,15 +206,15 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		})
 	}
 	if err := errGroup.Wait(); err != nil {
-		return fmt.Errorf("inputs invalid: %w", err)
+		return nil, fmt.Errorf("inputs invalid: %w", err)
 	}
 
 	// Spawn a new VM instance to verify the asset's state transition.
-	vm, err := vm.New(newAsset, splitAsset, prevAssets)
+	engine, err := vm.New(newAsset, splitAsset, prevAssets)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return vm.Execute()
+	return splitAsset, engine.Execute()
 }
 
 // Verify verifies the proof by ensuring that:
@@ -254,7 +255,8 @@ func (p *Proof) Verify(ctx context.Context,
 
 	// 4. A set of asset inputs with valid witnesses are included that
 	// satisfy the resulting state transition.
-	if err := p.verifyAssetStateTransition(ctx, prev); err != nil {
+	splitAsset, err := p.verifyAssetStateTransition(ctx, prev)
+	if err != nil {
 		return nil, err
 	}
 
@@ -271,6 +273,7 @@ func (p *Proof) Verify(ctx context.Context,
 		OutputIndex:     p.InclusionProof.OutputIndex,
 		InternalKey:     p.InclusionProof.InternalKey,
 		ScriptRoot:      taroCommitment,
+		SplitAsset:      splitAsset != nil,
 	}, nil
 }
 
