@@ -43,6 +43,10 @@ type BaseProofParams struct {
 	// TaroRoot is the asset root that commits to all assets created in the
 	// above transaction.
 	TaroRoot *commitment.TaroCommitment
+
+	// ExclusionProofs is the set of TaprootProofs proving the exclusion of
+	// any assets from all other Taproot outputs within Tx.
+	ExclusionProofs []TaprootProof
 }
 
 // MintParams holds the set of chain level information needed to make a proof
@@ -50,10 +54,6 @@ type BaseProofParams struct {
 type MintParams struct {
 	// BaseProofParams houses the basic chain level parameters needed to
 	// construct a proof.
-	//
-	// TODO(roasbeef): assumes only 2 outputs in the TX (minting output and
-	// change), need more information to make exclusion proofs for the
-	// others.
 	BaseProofParams
 
 	// GenesisPoint is the genesis outpoint (first spent outpoint in the
@@ -137,6 +137,7 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 			OutputIndex: uint32(params.OutputIndex),
 			InternalKey: params.InternalKey,
 		},
+		ExclusionProofs: params.ExclusionProofs,
 	}, nil
 }
 

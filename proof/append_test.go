@@ -41,29 +41,44 @@ func TestAppendTransition(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name      string
-		assetType asset.Type
-		amt       uint64
+		name            string
+		assetType       asset.Type
+		amt             uint64
+		withBip86Change bool
 	}{{
 		name:      "normal",
 		assetType: asset.Normal,
 		amt:       100,
 	}, {
+		name:            "normal with change",
+		assetType:       asset.Normal,
+		amt:             100,
+		withBip86Change: true,
+	}, {
 		name:      "collectible",
 		assetType: asset.Collectible,
 		amt:       1,
+	}, {
+		name:            "collectible with change",
+		assetType:       asset.Collectible,
+		amt:             1,
+		withBip86Change: true,
 	}}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(tt *testing.T) {
-			runAppendTransitionTest(tt, tc.assetType, tc.amt)
+			runAppendTransitionTest(
+				tt, tc.assetType, tc.amt, tc.withBip86Change,
+			)
 		})
 	}
 }
 
 // runAppendTransitionTest runs the test that makes sure a proof can be appended
 // to an existing proof for an asset transition of the given type and amount.
-func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64) {
+func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
+	withBip86Change bool) {
+
 	// Start with a minted genesis asset.
 	genesisProof, senderPrivKey := genRandomGenesisWithProof(
 		t, assetType, &amt,
@@ -107,6 +122,20 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64) {
 			Value:    330,
 		}},
 	}
+
+	// Add a P2TR change output to test the exclusion proof.
+	var changeInternalKey *btcec.PublicKey
+	if withBip86Change {
+		changeInternalKey = randPrivKey(t).PubKey()
+		changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
+			changeInternalKey,
+		)
+		chainTx.TxOut = append(chainTx.TxOut, &wire.TxOut{
+			PkScript: computeTaprootScript(t, changeTaprootKey),
+			Value:    333,
+		})
+	}
+
 	merkleTree := blockchain.BuildMerkleTreeStore(
 		[]*btcutil.Tx{btcutil.NewTx(chainTx)}, false,
 	)
@@ -130,6 +159,18 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64) {
 			TaroRoot:    taroCommitment,
 		},
 		NewAsset: &newAsset,
+	}
+
+	// If we added a change output before, we now also need to add the
+	// exclusion proof for it.
+	if withBip86Change {
+		transitionParams.ExclusionProofs = []TaprootProof{{
+			OutputIndex: 1,
+			InternalKey: changeInternalKey,
+			TapscriptProof: &TapscriptProof{
+				BIP86: true,
+			},
+		}}
 	}
 
 	// Append the new transition to the genesis blob.
