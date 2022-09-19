@@ -67,13 +67,13 @@ func readOutPoint(r io.Reader, pver uint32, version int32, op *wire.OutPoint) er
 	return binary.Read(r, binary.LittleEndian, &op.Index)
 }
 
-// mapKeysPtr extracts the set of keys from a map, returning pointers to the
-// specified key.
-func mapKeysPtr[K comparable, V any](m map[K]V) []*K {
-	keys := make([]*K, 0, len(m))
+// fMapKeys extracts the set of keys from a map, applies the function f to each
+// element and returns the results in a new slice.
+func fMapKeys[K comparable, V, R any](m map[K]V, f func(K) R) []R {
+	keys := make([]R, 0, len(m))
 	for k := range m {
-		k := k
-		keys = append(keys, &k)
+		r := f(k)
+		keys = append(keys, r)
 	}
 	return keys
 }

@@ -478,12 +478,12 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// For each asset created above, we'll make a fake proof file for it.
 	assetProofs := make(proof.AssetBlobs)
-	for _, asset := range assetRoot.CommittedAssets() {
+	for _, a := range assetRoot.CommittedAssets() {
 		blob := make([]byte, 100)
 		_, err := rand.Read(blob[:])
 		require.NoError(t, err)
 
-		assetProofs[*asset.ScriptKey.PubKey] = blob
+		assetProofs[asset.ToSerialized(a.ScriptKey.PubKey)] = blob
 	}
 
 	// We'll now conclude the lifetime of a batch by marking it confirmed
@@ -522,7 +522,14 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// If we look up all the proofs by their specific script key, we should
 	// get the same set of proofs.
-	scriptKeys := mapKeysPtr(assetProofs)
+	scriptKeys := fMapKeys(
+		assetProofs, func(k asset.SerializedKey) *btcec.PublicKey {
+			parsed, err := btcec.ParsePubKey(k.CopyBytes())
+			require.NoError(t, err)
+
+			return parsed
+		},
+	)
 	diskProofs, err = confAssets.FetchAssetProofs(ctx, scriptKeys...)
 	require.NoError(t, err)
 	require.Equal(t, assetProofs, diskProofs)

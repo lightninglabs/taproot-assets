@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 )
 
@@ -16,7 +17,7 @@ type Blob []byte
 // AssetBlobs is a data structure used to pass around the proof files for a
 // set of assets which may have been created in the same batched transaction.
 // This maps the script key of the asset to the serialized proof file blob.
-type AssetBlobs map[btcec.PublicKey]Blob
+type AssetBlobs map[asset.SerializedKey]Blob
 
 // MintParams holds the set of chain level information needed to make a proof
 // file for the set of assets minted in a batch.
@@ -141,7 +142,7 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 		if err != nil {
 			return nil, err
 		}
-		blobs[*newAsset.ScriptKey.PubKey] = proofBlob
+		blobs[asset.ToSerialized(newAsset.ScriptKey.PubKey)] = proofBlob
 	}
 
 	return blobs, nil

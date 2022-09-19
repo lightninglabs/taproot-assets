@@ -607,15 +607,14 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 					"proofs: %w", err)
 			}
 
-			for _, proof := range assetProofs {
-				scriptKey, err := btcec.ParsePubKey(
-					proof.ScriptKey,
-				)
+			for _, p := range assetProofs {
+				scriptKey, err := btcec.ParsePubKey(p.ScriptKey)
 				if err != nil {
 					return err
 				}
 
-				proofs[*scriptKey] = proof.ProofFile
+				serializedKey := asset.ToSerialized(scriptKey)
+				proofs[serializedKey] = p.ProofFile
 			}
 
 			return nil
@@ -629,16 +628,17 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 		// virtual rows to use
 		for _, scriptKey := range targetAssets {
 			scriptKey := scriptKey
+			serializedKey := asset.ToSerialized(scriptKey)
 
 			assetProof, err := q.FetchAssetProof(
-				ctx, scriptKey.SerializeCompressed(),
+				ctx, serializedKey[:],
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch asset "+
 					"proof: %w", err)
 			}
 
-			proofs[*scriptKey] = assetProof.ProofFile
+			proofs[serializedKey] = assetProof.ProofFile
 		}
 		return nil
 	})
