@@ -47,13 +47,14 @@ func (b *BaseVerifier) Verify(ctx context.Context,
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
 // exclusion of an asset. If the taproot proof was an inclusion proof, then the
 // TaroCommitment is returned as well.
-func (p *Proof) verifyTaprootProof(proof *TaprootProof,
-	inclusion bool) (*commitment.TaroCommitment, error) {
+func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
+	asset *asset.Asset, inclusion bool) (*commitment.TaroCommitment,
+	error) {
 
 	// Extract the final taproot key from the output including/excluding the
 	// asset, which we'll use to compare our derived key against.
 	expectedTaprootKey, err := extractTaprootKey(
-		&p.AnchorTx, proof.OutputIndex,
+		anchor, proof.OutputIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -73,7 +74,7 @@ func (p *Proof) verifyTaprootProof(proof *TaprootProof,
 	// internal key to derive the expected output key.
 	case inclusion:
 		derivedKey, taroCommitment, err = proof.DeriveByAssetInclusion(
-			&p.Asset,
+			asset,
 		)
 
 	// If the commitment proof is present, then this is actually a
@@ -82,8 +83,8 @@ func (p *Proof) verifyTaprootProof(proof *TaprootProof,
 	// present.
 	case proof.CommitmentProof != nil:
 		derivedKey, err = proof.DeriveByAssetExclusion(
-			p.Asset.AssetCommitmentKey(),
-			p.Asset.TaroCommitmentKey(),
+			asset.AssetCommitmentKey(),
+			asset.TaroCommitmentKey(),
 		)
 
 	// If this is a tapscript proof, then we want to verify that the target
@@ -105,7 +106,19 @@ func (p *Proof) verifyTaprootProof(proof *TaprootProof,
 
 // verifyInclusionProof verifies the InclusionProof is valid.
 func (p *Proof) verifyInclusionProof() (*commitment.TaroCommitment, error) {
-	return p.verifyTaprootProof(&p.InclusionProof, true)
+	return verifyTaprootProof(
+		&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
+	)
+}
+
+// verifySplitRootProof verifies the SplitRootProof is valid.
+func (p *Proof) verifySplitRootProof() error {
+	rootAsset := &p.Asset.PrevWitnesses[0].SplitCommitment.RootAsset
+	_, err := verifyTaprootProof(
+		&p.AnchorTx, p.SplitRootProof, rootAsset, true,
+	)
+
+	return err
 }
 
 // verifyExclusionProofs verifies all ExclusionProofs are valid.
@@ -124,7 +137,9 @@ func (p *Proof) verifyExclusionProofs() error {
 	// Verify all of the encoded exclusion proofs.
 	for _, exclusionProof := range p.ExclusionProofs {
 		exclusionProof := exclusionProof
-		_, err := p.verifyTaprootProof(&exclusionProof, false)
+		_, err := verifyTaprootProof(
+			&p.AnchorTx, &exclusionProof, &p.Asset, false,
+		)
 		if err != nil {
 			return err
 		}
@@ -222,8 +237,10 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 //  1. A transaction that spends the previous asset output has a valid merkle
 //     proof within a block in the chain.
 //  2. A valid inclusion proof for the resulting asset is included.
-//  3. A set of valid exclusion proofs for the resulting asset are included.
-//  4. A set of asset inputs with valid witnesses are included that satisfy the
+//  3. A valid inclusion proof for the split root, if the resulting asset
+//     is a split asset.
+//  4. A set of valid exclusion proofs for the resulting asset are included.
+//  5. A set of asset inputs with valid witnesses are included that satisfy the
 //     resulting state transition.
 func (p *Proof) Verify(ctx context.Context,
 	prev *AssetSnapshot) (*AssetSnapshot, error) {
@@ -247,13 +264,25 @@ func (p *Proof) Verify(ctx context.Context,
 		return nil, err
 	}
 
-	// 3. A set of valid exclusion proofs for the resulting asset are
+	// 3. A valid inclusion proof for the split root, if the resulting asset
+	// is a split asset.
+	if p.Asset.HasSplitCommitmentWitness() {
+		if p.SplitRootProof == nil {
+			return nil, ErrMissingSplitRootProof
+		}
+
+		if err := p.verifySplitRootProof(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 4. A set of valid exclusion proofs for the resulting asset are
 	// included.
 	if err := p.verifyExclusionProofs(); err != nil {
 		return nil, err
 	}
 
-	// 4. A set of asset inputs with valid witnesses are included that
+	// 5. A set of asset inputs with valid witnesses are included that
 	// satisfy the resulting state transition.
 	splitAsset, err := p.verifyAssetStateTransition(ctx, prev)
 	if err != nil {
