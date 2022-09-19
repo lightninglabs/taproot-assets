@@ -95,7 +95,7 @@ type BatchCaretaker struct {
 // TODO(roasbeef): rename to Cultivator?
 func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 	return &BatchCaretaker{
-		batchKey:  NewBatchKey(cfg.Batch.BatchKey.PubKey),
+		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
 		ContextGuard: &chanutils.ContextGuard{

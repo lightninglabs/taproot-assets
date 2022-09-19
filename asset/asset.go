@@ -16,6 +16,32 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// SerializedKey is a type for representing a public key, serialized in the
+// compressed, 33-byte form.
+type SerializedKey [33]byte
+
+// SchnorrSerialized returns the Schnorr serialized, x-only 32-byte
+// representation of the serialized key.
+func (s SerializedKey) SchnorrSerialized() []byte {
+	return s[1:]
+}
+
+// CopyBytes returns a copy of the underlying array as a byte slice.
+func (s SerializedKey) CopyBytes() []byte {
+	c := make([]byte, 33)
+	copy(c, s[:])
+
+	return c
+}
+
+// ToSerialized serializes a public key in its 33-byte compressed form.
+func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
+	var serialized SerializedKey
+	copy(serialized[:], pubKey.SerializeCompressed())
+
+	return serialized
+}
+
 // Version denotes the version of the Taro protocol in effect for an asset.
 type Version uint8
 
