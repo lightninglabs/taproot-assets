@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 )
 
 // TransitionParams holds the set of chain level information needed to append a
@@ -22,6 +24,17 @@ type TransitionParams struct {
 
 	// NewAsset is the new asset created by the asset transition.
 	NewAsset *asset.Asset
+
+	// RootOutputIndex is the index of the output that commits to the split
+	// root asset, if present.
+	RootOutputIndex uint32
+
+	// RootInternalKey is the internal key of the output at RootOutputIndex.
+	RootInternalKey *btcec.PublicKey
+
+	// RootTaroRoot is the commitment root that commitments to the inclusion
+	// of the root split asset at the RootOutputIndex.
+	RootTaroTree *commitment.TaroCommitment
 }
 
 // AppendTransition appends a new proof for a state transition to the given
@@ -106,6 +119,39 @@ func createTransitionProof(lastProof *Proof, params *TransitionParams) (*Proof,
 	// this minting output ONLY commits to the Taro commitment.
 	proof.InclusionProof.CommitmentProof = &CommitmentProof{
 		Proof: *assetMerkleProof,
+	}
+
+	// If the asset is a split asset, we also need to generate MS-SMT
+	// inclusion proofs that prove the existence of the split root asset.
+	if proof.Asset.HasSplitCommitmentWitness() {
+		splitAsset := proof.Asset
+		rootAsset := &splitAsset.PrevWitnesses[0].SplitCommitment.RootAsset
+
+		committedRoot, rootMerkleProof, err := params.RootTaroTree.Proof(
+			rootAsset.TaroCommitmentKey(),
+			rootAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// If the asset wasn't committed to, the proof is invalid.
+		if committedRoot == nil {
+			return nil, fmt.Errorf("no asset commitment found")
+		}
+
+		// Make sure the committed asset matches the root asset exactly.
+		if !committedRoot.DeepEqual(rootAsset) {
+			return nil, fmt.Errorf("root asset mismatch")
+		}
+
+		proof.SplitRootProof = &TaprootProof{
+			OutputIndex: params.RootOutputIndex,
+			InternalKey: params.RootInternalKey,
+			CommitmentProof: &CommitmentProof{
+				Proof: *rootMerkleProof,
+			},
+		}
 	}
 
 	return proof, nil
