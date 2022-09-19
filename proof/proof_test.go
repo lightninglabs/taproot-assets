@@ -33,7 +33,11 @@ func randPrivKey(t *testing.T) *btcec.PrivateKey {
 }
 
 func schnorrPubKey(t *testing.T, privKey *btcec.PrivateKey) *btcec.PublicKey {
-	key, err := schnorr.ParsePubKey(schnorr.SerializePubKey(privKey.PubKey()))
+	return schnorrKey(t, privKey.PubKey())
+}
+
+func schnorrKey(t *testing.T, pubKey *btcec.PublicKey) *btcec.PublicKey {
+	key, err := schnorr.ParsePubKey(schnorr.SerializePubKey(pubKey))
 	require.NoError(t, err)
 	return key
 }
@@ -238,34 +242,38 @@ func TestProofEncoding(t *testing.T) {
 	assertEqualProof(t, &proof, &decodedProof)
 }
 
-func TestGenesisProofVerification(t *testing.T) {
-	t.Parallel()
+func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
+	amt *uint64) (Proof, *btcec.PrivateKey) {
+
+	t.Helper()
 
 	genesisPrivKey := randPrivKey(t)
 	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
 		genesisPrivKey.PubKey(),
 	)
-	assetGenesis := randGenesis(t, asset.Collectible)
+	assetGenesis := randGenesis(t, assetType)
 	assetFamilyKey := randFamilyKey(t, assetGenesis)
-	commitment, assets, err := commitment.Mint(
+	taroCommitment, assets, err := commitment.Mint(
 		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
-			Type:             asset.Collectible,
-			ScriptKey:        pubToKeyDesc(genesisScriptKey),
-			Amount:           nil,
+			Type: assetType,
+			ScriptKey: pubToKeyDesc(schnorrKey(
+				t, genesisScriptKey,
+			)),
+			Amount:           amt,
 			LockTime:         0,
 			RelativeLockTime: 0,
 		},
 	)
 	require.NoError(t, err)
 	genesisAsset := assets[0]
-	_, commitmentProof, err := commitment.Proof(
+	_, commitmentProof, err := taroCommitment.Proof(
 		genesisAsset.TaroCommitmentKey(),
 		genesisAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
 	internalKey := schnorrPubKey(t, genesisPrivKey)
-	tapscriptRoot := commitment.TapscriptRoot(nil)
+	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
@@ -289,7 +297,7 @@ func TestGenesisProofVerification(t *testing.T) {
 	txMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{genesisTx}, 0)
 	require.NoError(t, err)
 
-	proof := Proof{
+	return Proof{
 		PrevOut:       genesisTx.TxIn[0].PreviousOutPoint,
 		BlockHeader:   *blockHeader,
 		AnchorTx:      *genesisTx,
@@ -306,8 +314,14 @@ func TestGenesisProofVerification(t *testing.T) {
 		},
 		ExclusionProofs:  nil,
 		AdditionalInputs: nil,
-	}
-	_, err = proof.Verify(context.Background(), nil)
+	}, genesisPrivKey
+}
+
+func TestGenesisProofVerification(t *testing.T) {
+	t.Parallel()
+
+	genesisProof, _ := genRandomGenesisWithProof(t, asset.Collectible, nil)
+	_, err := genesisProof.Verify(context.Background(), nil)
 	require.NoError(t, err)
 }
 

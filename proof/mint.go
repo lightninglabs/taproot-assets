@@ -154,7 +154,7 @@ func committedProofs(baseProof *Proof,
 		// First, we'll copy over the base proof and also set the asset
 		// within the proof itself.
 		assetProof := *baseProof
-		assetProof.Asset = *newAsset
+		assetProof.Asset = *newAsset.Copy()
 
 		// With the base information contained, we'll now need to
 		// generate our series of MS-SMT inclusion proofs that prove
