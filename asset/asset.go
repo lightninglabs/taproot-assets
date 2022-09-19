@@ -365,6 +365,13 @@ func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) ScriptKey {
 		rawKey.PubKey,
 	)
 
+	// Since we'll never query lnd for a tweaked key, it doesn't matter if
+	// we lose the parity information here. And this will only ever be
+	// serialized on chain in a 32-bit representation as well.
+	tweakedPubKey, _ = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(tweakedPubKey),
+	)
+
 	return ScriptKey{
 		PubKey: tweakedPubKey,
 		TweakedScriptKey: &TweakedScriptKey{
