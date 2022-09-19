@@ -655,6 +655,10 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
 		// the assets.
+		//
+		// TODO(guggero): Add exclusion proofs once FundPsbt actually
+		// returns a transaction with P2TR change outputs and also
+		// decorates the output with the internal key correctly.
 		mintingProofs, err := proof.NewMintingBlobs(&proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
 				Block:       confInfo.Block,
