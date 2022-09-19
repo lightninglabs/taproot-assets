@@ -309,8 +309,6 @@ func TestCustodianNewAddr(t *testing.T) {
 }
 
 func TestTransactionHandling(t *testing.T) {
-	t.Parallel()
-
 	h := newHarness(t, nil)
 
 	// Before we start the custodian, we create a few random addresses and a

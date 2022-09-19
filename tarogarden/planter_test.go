@@ -549,8 +549,6 @@ func testBatchedAssetIssuance(t *testing.T, storeCreator mintingStoreCreator) {
 // registered minting stores can be used to properly implement batched asset
 // minting.
 func TestBatchedAssetIssuance(t *testing.T) {
-	t.Parallel()
-
 	for _, mintingStoreDriver := range tarogarden.RegisteredMintingStores() {
 		var mintingStoreFunc mintingStoreCreator
 
