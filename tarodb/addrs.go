@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
@@ -42,6 +41,9 @@ type AddrBook interface {
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database and returns the primary key.
 	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+
+	// UpsertScriptKey inserts a new script key on disk into the DB.
+	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -109,12 +111,22 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 		// internal keys, then use those returned primary key IDs to
 		// returned to insert the address itself.
 		for _, addr := range addrs {
-			scriptKeyID, err := insertInternalKey(
+			rawScriptKeyID, err := insertInternalKey(
 				ctx, db, addr.ScriptKeyTweak.RawKey,
 			)
 			if err != nil {
+				fmt.Println("naaah")
 				return fmt.Errorf("unable to insert internal "+
 					"script key: %w", err)
+			}
+			scriptKeyID, err := db.UpsertScriptKey(ctx, NewScriptKey{
+				InternalKeyID:    rawScriptKeyID,
+				TweakedScriptKey: addr.ScriptKey.SerializeCompressed(),
+				Tweak:            addr.ScriptKeyTweak.Tweak,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert script "+
+					"key: %w", err)
 			}
 
 			taprootKeyID, err := insertInternalKey(
@@ -130,15 +142,14 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				famKeyBytes = addr.FamilyKey.SerializeCompressed()
 			}
 			_, err = db.InsertAddr(ctx, NewAddr{
-				Version:        int16(addr.Version),
-				AssetID:        addr.ID[:],
-				FamKey:         famKeyBytes,
-				ScriptKeyID:    scriptKeyID,
-				TaprootKeyID:   taprootKeyID,
-				Amount:         int64(addr.Amount),
-				AssetType:      int16(addr.Type),
-				CreationTime:   addr.CreationTime,
-				ScriptKeyTweak: addr.ScriptKeyTweak.Tweak,
+				Version:      int16(addr.Version),
+				AssetID:      addr.ID[:],
+				FamKey:       famKeyBytes,
+				ScriptKeyID:  scriptKeyID,
+				TaprootKeyID: taprootKeyID,
+				Amount:       int64(addr.Amount),
+				AssetType:    int16(addr.Type),
+				CreationTime: addr.CreationTime,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert addr: %w",
@@ -234,12 +245,10 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				PubKey: internalKey,
 			}
 
-			// In order to re-create the script key that we
-			// included in the original address, we'll apply the
-			// tweak here to arrive at the actual script key.
-			scriptKey := txscript.ComputeTaprootOutputKey(
-				rawScriptKey, nil,
-			)
+			scriptKey, err := btcec.ParsePubKey(addr.TweakedScriptKey)
+			if err != nil {
+				return err
+			}
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Taro: &address.Taro{

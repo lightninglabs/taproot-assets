@@ -95,6 +95,10 @@ type (
 
 	// ProofUpdate is used to update a proof file on disk.
 	ProofUpdate = sqlite.UpsertAssetProofParams
+
+	// NewScriptKey wraps the params needed to insert a new script key on
+	// disk.
+	NewScriptKey = sqlite.UpsertScriptKeyParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlite.Querier interface that
@@ -189,6 +193,9 @@ type PendingAssetStore interface {
 	// TODO(roasbeef): move somewhere else??
 	UpsertAssetProof(ctx context.Context,
 		arg sqlite.UpsertAssetProofParams) error
+
+	// UpsertScriptKey inserts a new script key on disk into the DB.
+	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore
@@ -716,7 +723,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			// Just like above, we'll also need to insert a new
 			// internal key which will be used later to look up the
 			// key needed to spend this asset.
-			scriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
+			rawScriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 				RawKey:    asset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
 				KeyFamily: int32(asset.ScriptKey.RawKey.Family),
 				KeyIndex:  int32(asset.ScriptKey.RawKey.Index),
@@ -725,11 +732,19 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 				return fmt.Errorf("unable to insert internal "+
 					"key: %w", err)
 			}
+			scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
+				InternalKeyID:    rawScriptKeyID,
+				TweakedScriptKey: asset.ScriptKey.PubKey.SerializeCompressed(),
+				Tweak:            asset.ScriptKey.Tweak,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert script "+
+					"key: %w", err)
+			}
 			_, err = q.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
 				AssetID:          genAssetID,
 				Version:          int32(asset.Version),
 				ScriptKeyID:      scriptKeyID,
-				ScriptKeyTweak:   asset.ScriptKey.Tweak,
 				AssetFamilySigID: familySigID,
 				ScriptVersion:    int32(asset.ScriptVersion),
 				Amount:           int64(asset.Amount),
@@ -918,8 +933,8 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		// the assets that were fully confirmed with this block.
 		for scriptKey, proofBlob := range mintingProofs {
 			err := q.UpsertAssetProof(ctx, ProofUpdate{
-				RawKey:    scriptKey.SerializeCompressed(),
-				ProofFile: proofBlob,
+				TweakedScriptKey: scriptKey.SerializeCompressed(),
+				ProofFile:        proofBlob,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert proof "+

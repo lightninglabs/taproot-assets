@@ -483,7 +483,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 		_, err := rand.Read(blob[:])
 		require.NoError(t, err)
 
-		assetProofs[*asset.ScriptKey.RawKey.PubKey] = blob
+		assetProofs[*asset.ScriptKey.PubKey] = blob
 	}
 
 	// We'll now conclude the lifetime of a batch by marking it confirmed

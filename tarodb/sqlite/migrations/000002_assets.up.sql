@@ -122,6 +122,23 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
     txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id)
 );
 
+CREATE TABLE IF NOT EXISTS script_keys (
+    script_key_id INTEGER PRIMARY KEY,
+
+    -- The actual internal key here that we hold the private key for. Applying
+    -- the tweak to this gives us the tweaked_script_key.
+    internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+
+    -- The script key after applying the tweak. This is what goes directly in
+    -- the asset TLV.
+    tweaked_script_key BLOB NOT NULL UNIQUE CHECK(length(tweaked_script_key) == 33),
+
+    -- An optional tweak for the script_key. If NULL, the raw_key may be
+    -- tweaked BIP0086 style.
+    tweak BLOB
+);
+CREATE INDEX IF NOT EXISTS tweaked_script_keys on script_keys(tweaked_script_key);
+
 -- assets is the main table that stores (or references) the complete asset
 -- information. This represents the latest state of any given asset, as it also
 -- references the managed_utxos table which stores the current location of the
@@ -132,11 +149,7 @@ CREATE TABLE IF NOT EXISTS assets (
 
     version INTEGER NOT NULL,
 
-    script_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
-
-    -- An optional tweak for the script_key. If NULL, the raw_key may be
-    -- tweaked BIP0086 style.
-    script_key_tweak BLOB,
+    script_key_id INTEGER NOT NULL REFERENCES script_keys(script_key_id),
 
     -- TODO(roasbeef): don't need this after all?
     asset_family_sig_id INTEGER REFERENCES asset_family_sigs(sig_id),

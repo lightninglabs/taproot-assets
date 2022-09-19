@@ -13,13 +13,13 @@ import (
 
 const applySpendDelta = `-- name: ApplySpendDelta :one
 WITH old_script_key_id AS (
-    SELECT key_id
-    FROM internal_keys
-    WHERE raw_key = $3
+    SELECT script_key_id
+    FROM script_keys
+    WHERE tweaked_script_key = $3
 )
 UPDATE assets
 SET amount = $1, script_key_id = $2
-WHERE script_key_id in (SELECT key_id FROM old_script_key_id)
+WHERE script_key_id in (SELECT script_key_id FROM old_script_key_id)
 RETURNING asset_id
 `
 
@@ -49,25 +49,31 @@ func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 const fetchAssetDeltas = `-- name: FetchAssetDeltas :many
 SELECT  
     deltas.old_script_key, deltas.new_amt, 
+    script_keys.tweaked_script_key AS new_script_key_bytes,
+    script_keys.tweak AS script_key_tweak,
     deltas.new_script_key AS new_script_key_id, 
-    new_keys.raw_key AS new_script_key_bytes, 
-    new_keys.key_family AS new_script_key_family, 
-    new_keys.key_index AS new_script_key_index,
+    internal_keys.raw_key AS new_raw_script_key_bytes,
+    internal_keys.key_family AS new_script_key_family, 
+    internal_keys.key_index AS new_script_key_index,
     deltas.serialized_witnesses
 FROM asset_deltas deltas
-JOIN internal_keys new_keys
-    ON deltas.new_script_key = new_keys.key_id
+JOIN script_keys
+    ON deltas.new_script_key = script_keys.script_key_id
+JOIN internal_keys 
+    ON script_keys.internal_key_id = internal_keys.key_id
 WHERE transfer_id = ?
 `
 
 type FetchAssetDeltasRow struct {
-	OldScriptKey        []byte
-	NewAmt              int64
-	NewScriptKeyID      int32
-	NewScriptKeyBytes   []byte
-	NewScriptKeyFamily  int32
-	NewScriptKeyIndex   int32
-	SerializedWitnesses []byte
+	OldScriptKey         []byte
+	NewAmt               int64
+	NewScriptKeyBytes    []byte
+	ScriptKeyTweak       []byte
+	NewScriptKeyID       int32
+	NewRawScriptKeyBytes []byte
+	NewScriptKeyFamily   int32
+	NewScriptKeyIndex    int32
+	SerializedWitnesses  []byte
 }
 
 func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error) {
@@ -82,8 +88,10 @@ func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]Fet
 		if err := rows.Scan(
 			&i.OldScriptKey,
 			&i.NewAmt,
-			&i.NewScriptKeyID,
 			&i.NewScriptKeyBytes,
+			&i.ScriptKeyTweak,
+			&i.NewScriptKeyID,
+			&i.NewRawScriptKeyBytes,
 			&i.NewScriptKeyFamily,
 			&i.NewScriptKeyIndex,
 			&i.SerializedWitnesses,

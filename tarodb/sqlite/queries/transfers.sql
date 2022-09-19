@@ -46,14 +46,18 @@ WHERE (
 -- name: FetchAssetDeltas :many
 SELECT  
     deltas.old_script_key, deltas.new_amt, 
+    script_keys.tweaked_script_key AS new_script_key_bytes,
+    script_keys.tweak AS script_key_tweak,
     deltas.new_script_key AS new_script_key_id, 
-    new_keys.raw_key AS new_script_key_bytes, 
-    new_keys.key_family AS new_script_key_family, 
-    new_keys.key_index AS new_script_key_index,
+    internal_keys.raw_key AS new_raw_script_key_bytes,
+    internal_keys.key_family AS new_script_key_family, 
+    internal_keys.key_index AS new_script_key_index,
     deltas.serialized_witnesses
 FROM asset_deltas deltas
-JOIN internal_keys new_keys
-    ON deltas.new_script_key = new_keys.key_id
+JOIN script_keys
+    ON deltas.new_script_key = script_keys.script_key_id
+JOIN internal_keys 
+    ON script_keys.internal_key_id = internal_keys.key_id
 WHERE transfer_id = ?;
 
 -- name: ReanchorAssets :exec
@@ -70,13 +74,13 @@ WHERE asset_id IN (SELECT asset_id FROM assets_to_update);
 
 -- name: ApplySpendDelta :one
 WITH old_script_key_id AS (
-    SELECT key_id
-    FROM internal_keys
-    WHERE raw_key = @old_script_key
+    SELECT script_key_id
+    FROM script_keys
+    WHERE tweaked_script_key = @old_script_key
 )
 UPDATE assets
 SET amount = @new_amount, script_key_id = @new_script_key_id
-WHERE script_key_id in (SELECT key_id FROM old_script_key_id)
+WHERE script_key_id in (SELECT script_key_id FROM old_script_key_id)
 RETURNING asset_id;
 
 -- name: DeleteAssetWitnesses :exec

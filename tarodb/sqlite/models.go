@@ -10,23 +10,21 @@ import (
 )
 
 type Addr struct {
-	ID             int32
-	Version        int16
-	AssetID        []byte
-	FamKey         []byte
-	ScriptKeyID    int32
-	ScriptKeyTweak []byte
-	TaprootKeyID   int32
-	Amount         int64
-	AssetType      int16
-	CreationTime   time.Time
+	ID           int32
+	Version      int16
+	AssetID      []byte
+	FamKey       []byte
+	ScriptKeyID  int32
+	TaprootKeyID int32
+	Amount       int64
+	AssetType    int16
+	CreationTime time.Time
 }
 
 type Asset struct {
 	AssetID                  int32
 	Version                  int32
 	ScriptKeyID              int32
-	ScriptKeyTweak           []byte
 	AssetFamilySigID         sql.NullInt32
 	ScriptVersion            int32
 	Amount                   int64
@@ -164,4 +162,11 @@ type MssmtNode struct {
 type MssmtRoot struct {
 	Namespace string
 	RootHash  []byte
+}
+
+type ScriptKey struct {
+	ScriptKeyID      int32
+	InternalKeyID    int32
+	TweakedScriptKey []byte
+	Tweak            []byte
 }

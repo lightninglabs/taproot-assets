@@ -161,6 +161,12 @@ func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
+	// TODO(roasbeef): modify import call, can't work as is
+	//  * proof file only contains the tweaked script key
+	//  * from that we don't know the internal key
+	//  * we can import the proof but it's useless as is, but lets this
+	//  itest work
+
 	for _, existingAsset := range assets {
 		gen := existingAsset.AssetGenesis
 		proofFile := assertAssetProofs(t.t, src, existingAsset)

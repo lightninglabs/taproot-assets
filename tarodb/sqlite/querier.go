@@ -26,7 +26,7 @@ type Querier interface {
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error)
-	FetchAssetProof(ctx context.Context, rawKey []byte) (FetchAssetProofRow, error)
+	FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt32) ([]Asset, error)
@@ -83,6 +83,7 @@ type Querier interface {
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
+	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int32, error)
 }
 
 var _ Querier = (*Queries)(nil)

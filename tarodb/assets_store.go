@@ -188,6 +188,9 @@ type ActiveAssetsStore interface {
 	// DeleteAssetWitnesses deletes the witnesses on disk associated with a
 	// given asset ID.
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
+
+	// UpsertScriptKey inserts a new script key on disk into the DB.
+	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -329,12 +332,12 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 	for i, sprout := range dbAssets {
 		// First, we'll decode the script key which every asset must
 		// specify, and populate the key locator information.
-		scriptKeyPub, err := btcec.ParsePubKey(sprout.ScriptKeyRaw)
+		rawScriptKeyPub, err := btcec.ParsePubKey(sprout.ScriptKeyRaw)
 		if err != nil {
 			return nil, err
 		}
-		scriptKeyDesc := keychain.KeyDescriptor{
-			PubKey: scriptKeyPub,
+		rawScriptKeyDesc := keychain.KeyDescriptor{
+			PubKey: rawScriptKeyPub,
 			KeyLocator: keychain.KeyLocator{
 				Index:  uint32(sprout.ScriptKeyIndex),
 				Family: keychain.KeyFamily(sprout.ScriptKeyFam),
@@ -411,10 +414,17 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			amount = 1
 		}
 
-		// TODO(bhandras): tweak with the script key with the stored
-		// tweak once we switch from keyspend only.
-		scriptKey := asset.NewScriptKeyBIP0086(scriptKeyDesc)
-		scriptKey.Tweak = sprout.ScriptKeyTweak
+		scriptKeyPub, err := btcec.ParsePubKey(sprout.TweakedScriptKey)
+		if err != nil {
+			return nil, err
+		}
+		scriptKey := asset.ScriptKey{
+			PubKey: scriptKeyPub,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: rawScriptKeyDesc,
+				Tweak:  sprout.ScriptKeyTweak,
+			},
+		}
 
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
@@ -821,6 +831,8 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	// Next, we'll insert the genesis_asset row which holds the base
 	// information for this asset.
+	//
+	// TODO(roasbeef): should be an upsert
 	assetID := newAsset.ID()
 	genAssetID, err := db.InsertGenesisAsset(ctx, GenesisAsset{
 		AssetID:        assetID[:],
@@ -871,16 +883,57 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		sqlFamilySigID = sqlInt32(famSigID)
 	}
 
-	// With the family key information inserted, we'll now insert the
-	// internal key we'll be using for the script key itself.
-	scriptKeyBytes := newAsset.ScriptKey.RawKey.PubKey.SerializeCompressed()
-	scriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    scriptKeyBytes,
-		KeyFamily: int32(newAsset.ScriptKey.RawKey.Family),
-		KeyIndex:  int32(newAsset.ScriptKey.RawKey.Index),
-	})
-	if err != nil {
-		return fmt.Errorf("unable to insert internal key: %w", err)
+	var scriptKeyID int32
+	if newAsset.ScriptKey.TweakedScriptKey == nil {
+		// At this point, we only have the actual asset as read from a TLV, so
+		// we don't actually have the raw script key here. Instead, we'll use
+		// an UPSERT to trigger a conflict on the tweaked script key so we can
+		// obtain the script key ID we need here. This is for the proof
+		// import based on an addr send.
+		//
+		// TODO(roasbeef): or just fetch the one we need?
+		scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
+			TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
+		})
+		if err != nil {
+			// If this fails, then we're just importing the proof
+			// to mirror the state of another node. In this case,
+			// we'll just import the key in the asset (a tweaked
+			// key) as an internal key. We can't actually use this
+			// asset, but the import will complete.
+			//
+			// TODO(roasbeef): remove after itest work
+			rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+				RawKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert internal key: %w", err)
+			}
+			scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
+				InternalKeyID:    rawScriptKeyID,
+				TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert script key: %w", err)
+			}
+		}
+	} else {
+		rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+			RawKey:    newAsset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
+			KeyFamily: int32(newAsset.ScriptKey.RawKey.Family),
+			KeyIndex:  int32(newAsset.ScriptKey.RawKey.Index),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert internal key: %w", err)
+		}
+		scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
+			InternalKeyID:    rawScriptKeyID,
+			TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
+			Tweak:            newAsset.ScriptKey.Tweak,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert script key: %w", err)
+		}
 	}
 
 	// With all the dependent data inserted, we can now insert the base
@@ -889,7 +942,6 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		AssetID:          genAssetID,
 		Version:          int32(newAsset.Version),
 		ScriptKeyID:      scriptKeyID,
-		ScriptKeyTweak:   newAsset.ScriptKey.Tweak,
 		AssetFamilySigID: sqlFamilySigID,
 		ScriptVersion:    int32(newAsset.ScriptVersion),
 		Amount:           int64(newAsset.Amount),
@@ -913,9 +965,10 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	// As a final step, we'll insert the proof file we used to generate all
 	// the above information.
+	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
 	return db.UpsertAssetProof(ctx, ProofUpdate{
-		RawKey:    scriptKeyBytes,
-		ProofFile: proof.Blob,
+		TweakedScriptKey: scriptKeyBytes,
+		ProofFile:        proof.Blob,
 	})
 }
 
@@ -1212,13 +1265,23 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 			// Before we can insert the asset delta, we need to
 			// insert the new script key on disk.
-			scriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
-				RawKey:    assetDelta.NewScriptKey.PubKey.SerializeCompressed(),
-				KeyFamily: int32(assetDelta.NewScriptKey.Family),
-				KeyIndex:  int32(assetDelta.NewScriptKey.Index),
+			rawScriptKey := assetDelta.NewScriptKey.RawKey
+			rawScriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
+				RawKey:    rawScriptKey.PubKey.SerializeCompressed(),
+				KeyFamily: int32(rawScriptKey.Family),
+				KeyIndex:  int32(rawScriptKey.Index),
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert internal "+
+					"key: %w", err)
+			}
+			scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
+				InternalKeyID:    rawScriptKeyID,
+				TweakedScriptKey: assetDelta.NewScriptKey.PubKey.SerializeCompressed(),
+				Tweak:            assetDelta.NewScriptKey.Tweak,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert script "+
 					"key: %w", err)
 			}
 			err = q.InsertAssetDelta(ctx, NewAssetDelta{
@@ -1413,17 +1476,29 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 				if err != nil {
 					return err
 				}
+				rawScriptKey, err := btcec.ParsePubKey(
+					delta.NewRawScriptKeyBytes,
+				)
+				if err != nil {
+					return err
+				}
 
 				spendDeltas[i] = tarofreighter.AssetSpendDelta{
 					OldScriptKey: *oldScriptKey,
 					NewAmt:       uint64(delta.NewAmt),
-					NewScriptKey: keychain.KeyDescriptor{
+					NewScriptKey: asset.ScriptKey{
 						PubKey: newScriptKey,
-						KeyLocator: keychain.KeyLocator{
-							Family: keychain.KeyFamily(delta.NewScriptKeyFamily),
-							Index: uint32(
-								delta.NewScriptKeyIndex,
-							),
+						TweakedScriptKey: &asset.TweakedScriptKey{
+							RawKey: keychain.KeyDescriptor{
+								PubKey: rawScriptKey,
+								KeyLocator: keychain.KeyLocator{
+									Family: keychain.KeyFamily(delta.NewScriptKeyFamily),
+									Index: uint32(
+										delta.NewScriptKeyIndex,
+									),
+								},
+							},
+							Tweak: delta.ScriptKeyTweak,
 						},
 					},
 					WitnessData: nil,

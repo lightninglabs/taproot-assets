@@ -120,7 +120,7 @@ type assetGenOptions struct {
 
 	genesisPoint wire.OutPoint
 
-	scriptKey keychain.KeyDescriptor
+	scriptKey asset.ScriptKey
 }
 
 func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
@@ -131,13 +131,13 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 		famKeyPriv:   randPrivKey(t),
 		amt:          uint64(randInt[uint32]()),
 		genesisPoint: randOp(t),
-		scriptKey: keychain.KeyDescriptor{
+		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 			PubKey: randPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: randInt[keychain.KeyFamily](),
 				Index:  uint32(randInt[int32]()),
 			},
-		},
+		}),
 	}
 }
 
@@ -167,7 +167,7 @@ func withAssetGen(g asset.Genesis) assetGenOpt {
 	}
 }
 
-func withScriptKey(k keychain.KeyDescriptor) assetGenOpt {
+func withScriptKey(k asset.ScriptKey) assetGenOpt {
 	return func(opt *assetGenOptions) {
 		opt.scriptKey = k
 	}
@@ -198,7 +198,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		Amount:           opts.amt,
 		LockTime:         uint64(randInt[int32]()),
 		RelativeLockTime: uint64(randInt[int32]()),
-		ScriptKey:        asset.NewScriptKeyBIP0086(opts.scriptKey),
+		ScriptKey:        opts.scriptKey,
 	}
 
 	// 50/50 chance that we'll actually have a family key.
@@ -357,10 +357,16 @@ func TestImportAssetProof(t *testing.T) {
 		KeyIndex:  randInt[int32](),
 	})
 	require.NoError(t, err)
-	_, err = db.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    testAsset.ScriptKey.PubKey.SerializeCompressed(),
+	rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    testAsset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
 		KeyFamily: int32(testAsset.ScriptKey.RawKey.Family),
 		KeyIndex:  int32(testAsset.ScriptKey.RawKey.Index),
+	})
+	require.NoError(t, err)
+	_, err = db.UpsertScriptKey(ctx, NewScriptKey{
+		InternalKeyID:    rawScriptKeyID,
+		TweakedScriptKey: testAsset.ScriptKey.PubKey.SerializeCompressed(),
+		Tweak:            nil,
 	})
 	require.NoError(t, err)
 
@@ -454,7 +460,7 @@ type assetDesc struct {
 
 	keyFamily *btcec.PrivateKey
 
-	scriptKey *keychain.KeyDescriptor
+	scriptKey *asset.ScriptKey
 
 	amt uint64
 }
@@ -691,13 +697,13 @@ func TestAssetExportLog(t *testing.T) {
 	_, assetsStore, db := newAssetStore(t)
 	ctx := context.Background()
 
-	targetScriptKey := keychain.KeyDescriptor{
+	targetScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 		PubKey: randPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Family: randInt[keychain.KeyFamily](),
 			Index:  uint32(randInt[int32]()),
 		},
-	}
+	})
 
 	// First, we'll generate 3 assets, each all sharing the same anchor
 	// transaction, but having distinct asset IDs.
@@ -736,13 +742,13 @@ func TestAssetExportLog(t *testing.T) {
 		Value:    1000,
 	})
 
-	newScriptKey := keychain.KeyDescriptor{
+	newScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 		PubKey: randPubKey(t),
 		KeyLocator: keychain.KeyLocator{
-			Family: randInt[keychain.KeyFamily](),
-			Index:  uint32(randInt[int32]()),
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
 		},
-	}
+	})
 	newAmt := 9
 
 	// With the assets inserted, we'll now construct the struct we'll used
@@ -760,7 +766,7 @@ func TestAssetExportLog(t *testing.T) {
 		NewInternalKey: keychain.KeyDescriptor{
 			PubKey: randPubKey(t),
 			KeyLocator: keychain.KeyLocator{
-				Family: randInt[keychain.KeyFamily](),
+				Family: keychain.KeyFamily(rand.Int31()),
 				Index:  uint32(randInt[int32]()),
 			},
 		},
@@ -808,7 +814,7 @@ func TestAssetExportLog(t *testing.T) {
 	parcels, err := assetsStore.PendingParcels(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(parcels))
-	require.Equal(t, parcels[0], spendDelta)
+	require.Equal(t, spendDelta, parcels[0])
 
 	// With the asset delta committed and verified, we'll now mark the
 	// delta as being confirmed on chain.
@@ -837,9 +843,7 @@ func TestAssetExportLog(t *testing.T) {
 
 		// We should find the mutated asset with its _new_ script key
 		// and amount.
-		if chainAsset.ScriptKey.RawKey.PubKey.IsEqual(
-			newScriptKey.PubKey,
-		) {
+		if chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey) {
 			require.True(t, chainAsset.Amount == uint64(newAmt))
 			mutationFound = true
 		}
