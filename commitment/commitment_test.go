@@ -623,9 +623,11 @@ func TestSplitCommitment(t *testing.T) {
 			// Verify that the asset input is well formed within the
 			// InputSet.
 			prevID := asset.PrevID{
-				OutPoint:  outPoint,
-				ID:        input.Genesis.ID(),
-				ScriptKey: *input.ScriptKey.PubKey,
+				OutPoint: outPoint,
+				ID:       input.Genesis.ID(),
+				ScriptKey: asset.ToSerialized(
+					input.ScriptKey.PubKey,
+				),
 			}
 			require.Contains(t, split.PrevAssets, prevID)
 			prevAsset := split.PrevAssets[prevID]

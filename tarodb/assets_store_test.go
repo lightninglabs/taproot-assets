@@ -232,9 +232,11 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		for i := 0; i < numWitness; i++ {
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
-					OutPoint:  randOp(t),
-					ID:        randAssetID(t),
-					ScriptKey: *randPubKey(t),
+					OutPoint: randOp(t),
+					ID:       randAssetID(t),
+					ScriptKey: asset.ToSerialized(
+						randPubKey(t),
+					),
 				},
 				TxWitness: randWitnesses(t),
 				// For simplicity we just use the base asset itself as

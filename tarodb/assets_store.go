@@ -274,15 +274,15 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 	}
 
 	var (
-		zeroKey   [32]byte
-		scriptKey btcec.PublicKey
+		zeroKey, scriptKey asset.SerializedKey
 	)
-	if !bytes.Equal(zeroKey[:], input.PrevScriptKey[1:]) {
+	if !bytes.Equal(zeroKey[:], input.PrevScriptKey) {
 		prevKey, err := btcec.ParsePubKey(input.PrevScriptKey)
 		if err != nil {
-			return witness, fmt.Errorf("unable to decode key: %w", err)
+			return witness, fmt.Errorf("unable to decode key: %w",
+				err)
 		}
-		scriptKey = *prevKey
+		scriptKey = asset.ToSerialized(prevKey)
 	}
 
 	var assetID asset.ID
@@ -729,12 +729,11 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 			copy(splitCommitmentProof, b.Bytes())
 		}
 
-		prevScriptKey := prevID.ScriptKey.SerializeCompressed()
 		err = db.InsertAssetWitness(ctx, PrevInput{
 			AssetID:              assetID,
 			PrevOutPoint:         prevOutpoint,
 			PrevAssetID:          prevID.ID[:],
-			PrevScriptKey:        prevScriptKey,
+			PrevScriptKey:        prevID.ScriptKey.CopyBytes(),
 			WitnessStack:         witnessStack,
 			SplitCommitmentProof: splitCommitmentProof,
 		})

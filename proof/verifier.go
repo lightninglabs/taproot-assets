@@ -163,9 +163,11 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	if prev != nil {
 		prevAssets = commitment.InputSet{
 			asset.PrevID{
-				OutPoint:  p.PrevOut,
-				ID:        prev.Asset.Genesis.ID(),
-				ScriptKey: *prev.Asset.ScriptKey.PubKey,
+				OutPoint: p.PrevOut,
+				ID:       prev.Asset.Genesis.ID(),
+				ScriptKey: asset.ToSerialized(
+					prev.Asset.ScriptKey.PubKey,
+				),
 			}: prev.Asset,
 		}
 	}
@@ -191,9 +193,11 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 			assetsMtx.Lock()
 			defer assetsMtx.Unlock()
 			prevID := asset.PrevID{
-				OutPoint:  result.OutPoint,
-				ID:        result.Asset.Genesis.ID(),
-				ScriptKey: *result.Asset.ScriptKey.PubKey,
+				OutPoint: result.OutPoint,
+				ID:       result.Asset.Genesis.ID(),
+				ScriptKey: asset.ToSerialized(
+					result.Asset.ScriptKey.PubKey,
+				),
 			}
 			prevAssets[prevID] = result.Asset
 

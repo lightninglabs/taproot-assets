@@ -121,7 +121,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	prevID := &asset.PrevID{
 		OutPoint:  outPoint,
 		ID:        input.Genesis.ID(),
-		ScriptKey: *input.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(input.ScriptKey.PubKey),
 	}
 	if input.Type != asset.Normal {
 		return nil, ErrInvalidInputType

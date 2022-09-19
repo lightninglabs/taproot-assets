@@ -208,6 +208,43 @@ func IDDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "ID", l, sha256.Size)
 }
 
+func SchnorrSerializedKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*SerializedKey); ok {
+		id := [33]byte(*t)
+
+		// We need the Schnorr, 32-byte x-only encoding here, skip the
+		// first byte that contains the parity information.
+		xOnly := id[1:]
+		return tlv.EVarBytes(w, &xOnly, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "SerializedKey")
+}
+
+func SchnorrSerializedKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*SerializedKey); ok {
+		// The key is stored in the Schnorr, 32-byte x-only format.
+		var keyBytes [schnorr.PubKeyBytesLen]byte
+		err := tlv.DBytes32(r, &keyBytes, buf, schnorr.PubKeyBytesLen)
+		if err != nil {
+			return err
+		}
+
+		// Handle empty key, which is not on the curve.
+		if keyBytes == [32]byte{} {
+			*typ = SerializedKey{}
+			return nil
+		}
+
+		pubKey, err := schnorr.ParsePubKey(keyBytes[:])
+		if err != nil {
+			return err
+		}
+		*typ = ToSerialized(pubKey)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "SerializedKey", l, 33)
+}
+
 func TypeEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*Type); ok {
 		return tlv.EUint8T(w, uint8(*t), buf)
@@ -286,8 +323,7 @@ func PrevIDEncoder(w io.Writer, val any, buf *[8]byte) error {
 		if err := IDEncoder(w, &(**t).ID, buf); err != nil {
 			return err
 		}
-		scriptKey := &(**t).ScriptKey
-		return SchnorrPubKeyEncoder(w, &scriptKey, buf)
+		return SchnorrSerializedKeyEncoder(w, &(**t).ScriptKey, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*PrevID")
 }
@@ -302,14 +338,11 @@ func PrevIDDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err = IDDecoder(r, &prevID.ID, buf, sha256.Size); err != nil {
 			return err
 		}
-		var scriptKey *btcec.PublicKey
-		err = SchnorrPubKeyDecoder(
-			r, &scriptKey, buf, schnorr.PubKeyBytesLen,
-		)
-		if err != nil {
+		if err = SchnorrSerializedKeyDecoder(
+			r, &prevID.ScriptKey, buf, 33,
+		); err != nil {
 			return err
 		}
-		prevID.ScriptKey = *scriptKey
 		*typ = &prevID
 		return nil
 	}

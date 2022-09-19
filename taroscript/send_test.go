@@ -220,17 +220,17 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 	state.asset1PrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
 		ID:        state.asset1.ID(),
-		ScriptKey: state.spenderScriptKey,
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 	state.asset1CollectFamilyPrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
 		ID:        state.asset1CollectFamily.ID(),
-		ScriptKey: state.spenderScriptKey,
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 	state.asset2PrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
 		ID:        state.asset2.ID(),
-		ScriptKey: state.spenderScriptKey,
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 
 	state.asset1InputAssets = commitment.InputSet{

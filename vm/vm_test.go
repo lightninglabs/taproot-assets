@@ -162,7 +162,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	prevID := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset.Genesis.ID(),
-		ScriptKey: *genesisAsset.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
 	}
 	newAsset := genesisAsset.Copy()
 	newAsset.ScriptKey = asset.NewScriptKey(randKey(t).PubKey())
@@ -215,12 +215,12 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	prevID1 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset1.Genesis.ID(),
-		ScriptKey: *genesisAsset1.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(genesisAsset1.ScriptKey.PubKey),
 	}
 	prevID2 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset2.Genesis.ID(),
-		ScriptKey: *genesisAsset2.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(genesisAsset2.ScriptKey.PubKey),
 	}
 
 	newAsset := genesisAsset1.Copy()
