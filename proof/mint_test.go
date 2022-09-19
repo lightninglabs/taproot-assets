@@ -63,16 +63,18 @@ func TestNewMintingBlobs(t *testing.T) {
 	// The NewMintingBlobs will return an error if the generated proof is
 	// invalid.
 	_, err = NewMintingBlobs(&MintParams{
-		Block: &wire.MsgBlock{
-			Header:       *blockHeader,
-			Transactions: []*wire.MsgTx{genesisTx},
+		BaseProofParams: BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *blockHeader,
+				Transactions: []*wire.MsgTx{genesisTx},
+			},
+			Tx:          genesisTx,
+			TxIndex:     0,
+			OutputIndex: 0,
+			InternalKey: internalKey,
+			TaroRoot:    commitment,
 		},
-		Tx:           genesisTx,
-		TxIndex:      0,
-		OutputIndex:  0,
-		InternalKey:  internalKey,
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
-		TaroRoot:     commitment,
 	})
 	require.NoError(t, err)
 }

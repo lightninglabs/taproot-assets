@@ -656,15 +656,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// need to create the series of proof file blobs for each of
 		// the assets.
 		mintingProofs, err := proof.NewMintingBlobs(&proof.MintParams{
-			Block:       confInfo.Block,
-			Tx:          confInfo.Tx,
-			TxIndex:     int(confInfo.TxIndex),
-			OutputIndex: int(b.anchorOutputIndex),
-			InternalKey: b.cfg.Batch.BatchKey.PubKey,
+			BaseProofParams: proof.BaseProofParams{
+				Block:       confInfo.Block,
+				Tx:          confInfo.Tx,
+				TxIndex:     int(confInfo.TxIndex),
+				OutputIndex: int(b.anchorOutputIndex),
+				InternalKey: b.cfg.Batch.BatchKey.PubKey,
+				TaroRoot:    b.cfg.Batch.RootAssetCommitment,
+			},
 			GenesisPoint: extractGenesisOutpoint(
 				b.cfg.Batch.GenesisPacket.Pkt.UnsignedTx,
 			),
-			TaroRoot: b.cfg.Batch.RootAssetCommitment,
 		})
 		if err != nil {
 			return 0, fmt.Errorf("unable to construct minting "+

@@ -19,17 +19,14 @@ type Blob []byte
 // This maps the script key of the asset to the serialized proof file blob.
 type AssetBlobs map[asset.SerializedKey]Blob
 
-// MintParams holds the set of chain level information needed to make a proof
-// file for the set of assets minted in a batch.
-type MintParams struct {
+// BaseProofParams holds the set of chain level information needed to create a
+// proof.
+type BaseProofParams struct {
 	// Block is the block that mined the transaction that minted the
 	// specified assets.
 	Block *wire.MsgBlock
 
 	// Tx is the transaction that created the assets.
-	//
-	// TODO(roasbeef): assumes only 2 outputs (minting tx and change) need
-	// more information to make exclusion proofs for the others
 	Tx *wire.MsgTx
 
 	// TxIndex is the index of the transaction within the block above.
@@ -43,13 +40,25 @@ type MintParams struct {
 	// key in the above transaction.
 	InternalKey *btcec.PublicKey
 
-	// GenesisPoint is the genesis outpoint (first spent outpoint in the
-	// transaction above).
-	GenesisPoint wire.OutPoint
-
 	// TaroRoot is the asset root that commits to all assets created in the
 	// above transaction.
 	TaroRoot *commitment.TaroCommitment
+}
+
+// MintParams holds the set of chain level information needed to make a proof
+// file for the set of assets minted in a batch.
+type MintParams struct {
+	// BaseProofParams houses the basic chain level parameters needed to
+	// construct a proof.
+	//
+	// TODO(roasbeef): assumes only 2 outputs in the TX (minting output and
+	// change), need more information to make exclusion proofs for the
+	// others.
+	BaseProofParams
+
+	// GenesisPoint is the genesis outpoint (first spent outpoint in the
+	// transaction above).
+	GenesisPoint wire.OutPoint
 }
 
 // encodeAsProofFile encodes the passed proof into a blob.
@@ -71,10 +80,43 @@ func encodeAsProofFile(proof *Proof) (Blob, error) {
 // NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
-//
-// TODO(roasbeef): move into the proof dir?
 func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
-	// First, we'll create the merkle proof for the anchor transaction.  In
+	base, err := baseProof(&params.BaseProofParams, params.GenesisPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := committedProofs(base, params.TaroRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+	blobs := make(AssetBlobs, len(proofs))
+	for key := range proofs {
+		proof := proofs[key]
+
+		// Before we encode the proof file, we'll verify that we
+		// generate a valid proof.
+		if _, err := proof.Verify(ctx, nil); err != nil {
+			return nil, fmt.Errorf("invalid proof file generated: "+
+				"%w", err)
+		}
+
+		proofBlob, err := encodeAsProofFile(proof)
+		if err != nil {
+			return nil, err
+		}
+		blobs[key] = proofBlob
+	}
+
+	return blobs, nil
+}
+
+// baseProof creates the basic proof template that contains all anchor
+// transaction related fields.
+func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
+	// First, we'll create the merkle proof for the anchor transaction. In
 	// this case, since all the assets were created in the same block, we
 	// only need a single merkle proof.
 	merkleProof, err := NewTxMerkleProof(
@@ -84,10 +126,10 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 		return nil, fmt.Errorf("unable to create merkle proof: %w", err)
 	}
 
-	// Next, we'll construct the base proof that all the assets created in
-	// this batch will share.
-	baseProof := &Proof{
-		PrevOut:       params.GenesisPoint,
+	// Now, we'll construct the base proof that all the assets created in
+	// this batch or spent in this transaction will share.
+	return &Proof{
+		PrevOut:       prevOut,
 		BlockHeader:   params.Block.Header,
 		AnchorTx:      *params.Tx,
 		TxMerkleProof: *merkleProof,
@@ -95,13 +137,19 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 			OutputIndex: uint32(params.OutputIndex),
 			InternalKey: params.InternalKey,
 		},
-	}
+	}, nil
+}
+
+// committedProofs creates a map of proofs, keyed by the script key of each of
+// the assets committed to in the Taro root of the given params.
+func committedProofs(baseProof *Proof,
+	taroRoot *commitment.TaroCommitment) (map[asset.SerializedKey]*Proof,
+	error) {
 
 	// For each asset we'll construct the asset specific proof information,
 	// then encode that as a proof file blob in the blobs map.
-	assets := params.TaroRoot.CommittedAssets()
-	blobs := make(AssetBlobs, len(assets))
-	ctx := context.Background()
+	assets := taroRoot.CommittedAssets()
+	proofs := make(map[asset.SerializedKey]*Proof, len(assets))
 	for _, newAsset := range assets {
 		// First, we'll copy over the base proof and also set the asset
 		// within the proof itself.
@@ -111,7 +159,7 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 		// With the base information contained, we'll now need to
 		// generate our series of MS-SMT inclusion proofs that prove
 		// the existence of the asset.
-		_, assetMerkleProof, err := params.TaroRoot.Proof(
+		_, assetMerkleProof, err := taroRoot.Proof(
 			newAsset.TaroCommitmentKey(),
 			newAsset.AssetCommitmentKey(),
 		)
@@ -129,21 +177,11 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 			Proof: *assetMerkleProof,
 		}
 
-		// Before we encode the proof file, we'll verify that we
-		// generate a valid proof.
-		if _, err := assetProof.Verify(ctx, nil); err != nil {
-			return nil, fmt.Errorf("invalid proof file "+
-				"generated: %v", err)
-		}
-
 		// With all the information for this asset populated, we'll
-		// make a new proof file, and encode it into raw bytes.
-		proofBlob, err := encodeAsProofFile(&assetProof)
-		if err != nil {
-			return nil, err
-		}
-		blobs[asset.ToSerialized(newAsset.ScriptKey.PubKey)] = proofBlob
+		// now reference the proof by the script key used.
+		serializedKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
+		proofs[serializedKey] = &assetProof
 	}
 
-	return blobs, nil
+	return proofs, nil
 }
