@@ -61,7 +61,8 @@ type File struct {
 // transition proofs.
 func NewFile(v Version, proofs ...Proof) File {
 	return File{
-		Proofs: proofs,
+		Version: v,
+		Proofs:  proofs,
 	}
 }
 
