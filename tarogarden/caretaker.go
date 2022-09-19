@@ -44,7 +44,7 @@ const (
 
 	// DefaultTimeout is the default timeout we use for RPC and database
 	// operations.
-	DefaultTimeout = 30 * time.Minute
+	DefaultTimeout = 30 * time.Second
 )
 
 // BatchCaretakerConfig houses all the items that the BatchCaretaker needs to
