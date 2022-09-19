@@ -88,11 +88,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Transfer the asset to a new owner.
 	recipientPrivKey := randPrivKey(t)
-	recipientScriptKey := txscript.ComputeTaprootKeyNoScript(
-		recipientPrivKey.PubKey(),
-	)
 	newAsset := *genesisProof.Asset.Copy()
-	newAsset.ScriptKey = pubToKeyDesc(schnorrKey(t, recipientScriptKey))
+	newAsset.ScriptKey = asset.NewScriptKeyBIP0086(
+		pubToKeyDesc(recipientPrivKey.PubKey()),
+	)
 	recipientTaprootInternalKey := schnorrPubKey(t, recipientPrivKey)
 
 	// Sign the new asset over to the recipient.

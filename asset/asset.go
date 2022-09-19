@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"reflect"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -200,6 +201,28 @@ type SplitCommitment struct {
 	RootAsset Asset
 }
 
+// DeepEqual returns true if this split commitment is equal with the given split
+// commitment.
+func (s *SplitCommitment) DeepEqual(o *SplitCommitment) bool {
+	if s == nil || o == nil {
+		return s == o
+	}
+
+	if len(s.Proof.Nodes) != len(o.Proof.Nodes) {
+		return false
+	}
+
+	for i := range s.Proof.Nodes {
+		nodeA := s.Proof.Nodes[i]
+		nodeB := o.Proof.Nodes[i]
+		if !mssmt.IsEqualNode(nodeA, nodeB) {
+			return false
+		}
+	}
+
+	return s.RootAsset.DeepEqual(&o.RootAsset)
+}
+
 // Witness is a nested TLV stream within the main Asset TLV stream that contains
 // the necessary data to verify the movement of an asset. All fields should be
 // nil to represent the creation of an asset, `TxWitness` and
@@ -285,6 +308,23 @@ func (w *Witness) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
+// DeepEqual returns true if this witness is equal with the given witness.
+func (w *Witness) DeepEqual(o *Witness) bool {
+	if w == nil || o == nil {
+		return w == o
+	}
+
+	if !reflect.DeepEqual(w.PrevID, o.PrevID) {
+		return false
+	}
+
+	if !reflect.DeepEqual(w.TxWitness, o.TxWitness) {
+		return false
+	}
+
+	return w.SplitCommitment.DeepEqual(o.SplitCommitment)
+}
+
 // ScriptVersion denotes the asset script versioning scheme.
 type ScriptVersion uint16
 
@@ -327,27 +367,26 @@ func (f *FamilyKey) IsEqual(otherFamilyKey *FamilyKey) bool {
 		return false
 	}
 
-	// Make sure the RawKey keylocators are equivalent.
-	if f.RawKey.KeyLocator != otherFamilyKey.RawKey.KeyLocator {
+	// Make sure the RawKey are equivalent.
+	if !EqualKeyDescriptors(f.RawKey, otherFamilyKey.RawKey) {
 		return false
 	}
 
-	if f.RawKey.PubKey != nil && otherFamilyKey.RawKey.PubKey == nil {
-		return false
-	}
-
-	if f.RawKey.PubKey == nil && otherFamilyKey.RawKey.PubKey != nil {
-		return false
-	}
-
-	// At this point either both RawKey pubkeys are nil or they should be
-	// equivalent.
-	rawKeyPubEqual := f.RawKey.PubKey == otherFamilyKey.RawKey.PubKey ||
-		f.RawKey.PubKey.IsEqual(otherFamilyKey.RawKey.PubKey)
-
-	return rawKeyPubEqual &&
-		f.FamKey.IsEqual(&otherFamilyKey.FamKey) &&
+	return f.FamKey.IsEqual(&otherFamilyKey.FamKey) &&
 		f.Sig.IsEqual(&otherFamilyKey.Sig)
+}
+
+// EqualKeyDescriptors returns true if the two key descriptors are equal.
+func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
+	if a.KeyLocator != o.KeyLocator {
+		return false
+	}
+
+	if a.PubKey == nil || o.PubKey == nil {
+		return a.PubKey == o.PubKey
+	}
+
+	return a.PubKey.IsEqual(o.PubKey)
 }
 
 // TweakedScriptKey is an embedded struct which is primarily used by wallets to
@@ -697,6 +736,55 @@ func (a *Asset) Copy() *Asset {
 	}
 
 	return &assetCopy
+}
+
+// DeepEqual returns true if this asset is equal with the given asset.
+func (a *Asset) DeepEqual(o *Asset) bool {
+	if a.Version != o.Version {
+		return false
+	}
+
+	// The ID commits to everything in the Genesis, including the type.
+	if a.ID() != o.ID() {
+		return false
+	}
+
+	if a.Amount != o.Amount {
+		return false
+	}
+	if a.LockTime != o.LockTime {
+		return false
+	}
+	if a.RelativeLockTime != o.RelativeLockTime {
+		return false
+	}
+	if a.ScriptVersion != o.ScriptVersion {
+		return false
+	}
+
+	if !mssmt.IsEqualNode(a.SplitCommitmentRoot, o.SplitCommitmentRoot) {
+		return false
+	}
+
+	if !reflect.DeepEqual(a.ScriptKey, o.ScriptKey) {
+		return false
+	}
+
+	if !a.FamilyKey.IsEqual(o.FamilyKey) {
+		return false
+	}
+
+	if len(a.PrevWitnesses) != len(o.PrevWitnesses) {
+		return false
+	}
+
+	for i := range a.PrevWitnesses {
+		if !a.PrevWitnesses[i].DeepEqual(&o.PrevWitnesses[i]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an

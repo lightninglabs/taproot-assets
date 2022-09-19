@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -252,40 +251,19 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 }
 
 func assetWitnessEqual(t *testing.T, a, b []asset.Witness) {
-	require.Equal(t, len(a), len(b))
+	t.Helper()
 
-	for i := 0; i < len(a); i++ {
+	require.Equal(t, len(a), len(b))
+	for i := range a {
 		witA := a[i]
 		witB := b[i]
 
-		require.Equal(t, witA.PrevID, witB.PrevID)
-		require.Equal(t, witA.TxWitness, witB.TxWitness)
-
-		require.Equal(
-			t, witA.SplitCommitment == nil, witB.SplitCommitment == nil,
-		)
-
-		if witA.SplitCommitment != nil {
-			var bufA, bufB bytes.Buffer
-
-			err := witA.SplitCommitment.RootAsset.Encode(&bufA)
-			require.NoError(t, err)
-
-			err = witB.SplitCommitment.RootAsset.Encode(&bufB)
-			require.NoError(t, err)
-
-			require.Equal(t, bufA.Bytes(), bufB.Bytes())
-
-			splitA := witA.SplitCommitment
-			splitB := witB.SplitCommitment
-			require.Equal(
-				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
-			)
-			for i := range splitA.Proof.Nodes {
-				nodeA := splitA.Proof.Nodes[i]
-				nodeB := splitB.Proof.Nodes[i]
-				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
-			}
+		isEqual := witA.DeepEqual(&witB)
+		// If the native equality test fails, run the one built into
+		// the "require" library, which gives us a nice diff of what's
+		// not equal.
+		if !isEqual {
+			require.Equal(t, witB, witA)
 		}
 	}
 }

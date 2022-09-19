@@ -41,6 +41,9 @@ type Node interface {
 // IsEqualNode determines whether a and b are equal based on their NodeHash and
 // NodeSum.
 func IsEqualNode(a, b Node) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
 	return a.NodeHash() == b.NodeHash() && a.NodeSum() == b.NodeSum()
 }
 

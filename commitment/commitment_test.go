@@ -88,42 +88,6 @@ func randAsset(t *testing.T, genesis asset.Genesis,
 	return a
 }
 
-// TestFamilyKeyIsEqual tests that FamilyKey.IsEqual is correct.
-func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
-	t.Helper()
-
-	require.Equal(t, a.Version, b.Version)
-	require.Equal(t, a.Genesis, b.Genesis)
-	require.Equal(t, a.Type, b.Type)
-	require.Equal(t, a.Amount, b.Amount)
-	require.Equal(t, a.LockTime, b.LockTime)
-	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
-	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
-	for i := range a.PrevWitnesses {
-		witA, witB := a.PrevWitnesses[i], b.PrevWitnesses[i]
-		require.Equal(t, witA.PrevID, witB.PrevID)
-		require.Equal(t, witA.TxWitness, witB.TxWitness)
-		splitA, splitB := witA.SplitCommitment, witB.SplitCommitment
-		if witA.SplitCommitment != nil && witB.SplitCommitment != nil {
-			require.Equal(
-				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
-			)
-			for i := range splitA.Proof.Nodes {
-				nodeA := splitA.Proof.Nodes[i]
-				nodeB := splitB.Proof.Nodes[i]
-				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
-			}
-			require.Equal(t, splitA.RootAsset, splitB.RootAsset)
-		} else {
-			require.Equal(t, splitA, splitB)
-		}
-	}
-	require.Equal(t, a.SplitCommitmentRoot, b.SplitCommitmentRoot)
-	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
-	require.Equal(t, a.ScriptKey, b.ScriptKey)
-	require.Equal(t, a.FamilyKey, b.FamilyKey)
-}
-
 // TestNewAssetCommitment tests edge cases around NewAssetCommitment.
 func TestNewAssetCommitment(t *testing.T) {
 	t.Parallel()
@@ -840,9 +804,9 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 1:
 					assets := familyAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					assertAssetEqual(
-						t, assets[asset.AssetCommitmentKey()], asset,
-					)
+					require.True(t, asset.DeepEqual(
+						assets[asset.AssetCommitmentKey()],
+					))
 
 				// insertion of collectible with family key.
 				case 2:
@@ -852,7 +816,9 @@ func TestUpdateAssetCommitment(t *testing.T) {
 						asset.AssetCommitmentKey(),
 					)
 					require.NoError(t, err)
-					assertAssetEqual(t, proofAsset, asset)
+					require.True(t, asset.DeepEqual(
+						proofAsset,
+					))
 				}
 			}
 		})
@@ -913,7 +879,7 @@ func TestUpdateTaroCommitment(t *testing.T) {
 		commitmentKey2, asset2.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
-	assertAssetEqual(t, proofAsset2, asset2)
+	require.True(t, proofAsset2.DeepEqual(asset2))
 
 	assetCommitments = copyOfCommitment.Commitments()
 	require.Equal(t, len(assetCommitments), 2)

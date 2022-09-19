@@ -257,17 +257,12 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 	t.Helper()
 
 	genesisPrivKey := randPrivKey(t)
-	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
-		genesisPrivKey.PubKey(),
-	)
 	assetGenesis := randGenesis(t, assetType)
 	assetFamilyKey := randFamilyKey(t, assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
 		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
-			Type: assetType,
-			ScriptKey: pubToKeyDesc(schnorrKey(
-				t, genesisScriptKey,
-			)),
+			Type:             assetType,
+			ScriptKey:        pubToKeyDesc(genesisPrivKey.PubKey()),
 			Amount:           amt,
 			LockTime:         0,
 			RelativeLockTime: 0,
