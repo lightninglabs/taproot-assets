@@ -507,6 +507,11 @@
         "anchor_outpoint": {
           "type": "string",
           "description": "The outpoint (txid:vout) that stores the Taro commitment."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw internal key that was used to create the anchor Taproot output key."
         }
       }
     },

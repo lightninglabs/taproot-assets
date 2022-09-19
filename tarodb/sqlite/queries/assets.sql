@@ -241,7 +241,8 @@ SELECT
     genesis_info_view.output_index AS genesis_output_index, genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
-    utxos.outpoint AS anchor_outpoint
+    utxos.outpoint AS anchor_outpoint,
+    utxo_internal_keys.raw_key AS anchor_internal_key
 FROM assets
 JOIN genesis_info_view
     ON assets.asset_id = genesis_info_view.gen_asset_id AND
@@ -263,6 +264,8 @@ JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
         (length(hex(sqlc.narg('anchor_point'))) == 0 OR 
             utxos.outpoint = sqlc.narg('anchor_point'))
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 -- This clause is used to select specific assets for a asset ID, general

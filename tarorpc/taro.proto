@@ -142,6 +142,11 @@ message AnchorInfo {
 
     // The outpoint (txid:vout) that stores the Taro commitment.
     string anchor_outpoint = 4;
+
+    /*
+    The raw internal key that was used to create the anchor Taproot output key.
+    */
+    bytes internal_key = 5;
 }
 
 message GenesisInfo {

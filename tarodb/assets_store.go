@@ -241,6 +241,10 @@ type ChainAsset struct {
 
 	// AnchorOutpoint is the outpoint that commits to the asset.
 	AnchorOutpoint wire.OutPoint
+
+	// AnchorInternalKey is the raw internal key that was used to create the
+	// anchor Taproot output key.
+	AnchorInternalKey *btcec.PublicKey
 }
 
 // assetWitnesses maps the primary key of an asset to a slice of its previous
@@ -496,12 +500,21 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 				"outpoint: %w", err)
 		}
 
+		anchorInternalKey, err := btcec.ParsePubKey(
+			sprout.AnchorInternalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse anchor "+
+				"internal key: %w", err)
+		}
+
 		chainAssets[i] = &ChainAsset{
-			Asset:           assetSprout,
-			AnchorTx:        anchorTx,
-			AnchorTxid:      anchorTx.TxHash(),
-			AnchorBlockHash: anchorBlockHash,
-			AnchorOutpoint:  anchorOutpoint,
+			Asset:             assetSprout,
+			AnchorTx:          anchorTx,
+			AnchorTxid:        anchorTx.TxHash(),
+			AnchorBlockHash:   anchorBlockHash,
+			AnchorOutpoint:    anchorOutpoint,
+			AnchorInternalKey: anchorInternalKey,
 		}
 	}
 

@@ -1300,10 +1300,6 @@ type QueryAssetBalancesByFamilyRow struct {
 	Balance       int64
 }
 
-// We use a LEFT JOIN here as not every asset has a family key, so this'll
-// generate rows that have NULL values for the family key fields if an asset
-// doesn't have a family key. See the comment in fetchAssetSprouts for a work
-// around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByFamily, keyFamFilter)
 	if err != nil {
@@ -1340,7 +1336,8 @@ SELECT
     genesis_info_view.output_index AS genesis_output_index, genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
-    utxos.outpoint AS anchor_outpoint
+    utxos.outpoint AS anchor_outpoint,
+    utxo_internal_keys.raw_key AS anchor_internal_key
 FROM assets
 JOIN genesis_info_view
     ON assets.asset_id = genesis_info_view.gen_asset_id AND
@@ -1358,6 +1355,8 @@ JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
         (length(hex($3)) == 0 OR 
             utxos.outpoint = $3)
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
@@ -1399,6 +1398,7 @@ type QueryAssetsRow struct {
 	AnchorTxid         []byte
 	AnchorBlockHash    []byte
 	AnchorOutpoint     []byte
+	AnchorInternalKey  []byte
 }
 
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
@@ -1450,6 +1450,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorTxid,
 			&i.AnchorBlockHash,
 			&i.AnchorOutpoint,
+			&i.AnchorInternalKey,
 		); err != nil {
 			return nil, err
 		}
