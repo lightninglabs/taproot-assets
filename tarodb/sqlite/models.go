@@ -163,3 +163,10 @@ type MssmtRoot struct {
 	Namespace string
 	RootHash  []byte
 }
+
+type ScriptKey struct {
+	ScriptKeyID      int32
+	InternalKeyID    int32
+	TweakedScriptKey []byte
+	Tweak            []byte
+}

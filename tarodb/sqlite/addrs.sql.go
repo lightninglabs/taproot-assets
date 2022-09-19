@@ -13,15 +13,18 @@ import (
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_id, fam_key, amount, asset_type, creation_time,
-    script_keys.raw_key AS raw_script_key, 
-    script_keys.key_family AS script_key_family,
-    script_keys.key_index AS script_key_index,
+    script_keys.tweaked_script_key, script_keys.tweak AS script_key_tweak,
+    raw_script_keys.raw_key AS raw_script_key,
+    raw_script_keys.key_family AS script_key_family,
+    raw_script_keys.key_index AS script_key_index,
     taproot_keys.raw_key AS raw_taproot_key, 
     taproot_keys.key_family AS taproot_key_family,
     taproot_keys.key_index AS taproot_key_index
 FROM addrs
-JOIN internal_keys script_keys
-    ON addrs.script_key_id = script_keys.key_id
+JOIN script_keys
+    ON addrs.script_key_id = script_keys.script_key_id
+JOIN internal_keys raw_script_keys
+    ON script_keys.internal_key_id = raw_script_keys.key_id
 JOIN internal_keys taproot_keys
     ON addrs.taproot_key_id = taproot_keys.key_id
 WHERE creation_time >= $1
@@ -44,6 +47,8 @@ type FetchAddrsRow struct {
 	Amount           int64
 	AssetType        int16
 	CreationTime     time.Time
+	TweakedScriptKey []byte
+	ScriptKeyTweak   []byte
 	RawScriptKey     []byte
 	ScriptKeyFamily  int32
 	ScriptKeyIndex   int32
@@ -73,6 +78,8 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.Amount,
 			&i.AssetType,
 			&i.CreationTime,
+			&i.TweakedScriptKey,
+			&i.ScriptKeyTweak,
 			&i.RawScriptKey,
 			&i.ScriptKeyFamily,
 			&i.ScriptKeyIndex,

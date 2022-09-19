@@ -120,7 +120,7 @@ type assetGenOptions struct {
 
 	genesisPoint wire.OutPoint
 
-	scriptKey keychain.KeyDescriptor
+	scriptKey asset.ScriptKey
 }
 
 func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
@@ -131,13 +131,13 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 		famKeyPriv:   randPrivKey(t),
 		amt:          uint64(randInt[uint32]()),
 		genesisPoint: randOp(t),
-		scriptKey: keychain.KeyDescriptor{
+		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 			PubKey: randPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: randInt[keychain.KeyFamily](),
 				Index:  uint32(randInt[int32]()),
 			},
-		},
+		}),
 	}
 }
 
@@ -167,7 +167,7 @@ func withAssetGen(g asset.Genesis) assetGenOpt {
 	}
 }
 
-func withScriptKey(k keychain.KeyDescriptor) assetGenOpt {
+func withScriptKey(k asset.ScriptKey) assetGenOpt {
 	return func(opt *assetGenOptions) {
 		opt.scriptKey = k
 	}
@@ -325,7 +325,7 @@ func TestImportAssetProof(t *testing.T) {
 		Hash:  anchorTx.TxHash(),
 		Index: 0,
 	}
-	proof := &proof.AnnotatedProof{
+	testProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
 			AssetID:   &assetID,
 			ScriptKey: *testAsset.ScriptKey.PubKey,
@@ -344,7 +344,7 @@ func TestImportAssetProof(t *testing.T) {
 		},
 	}
 	if testAsset.FamilyKey != nil {
-		proof.FamilyKey = &testAsset.FamilyKey.FamKey
+		testProof.FamilyKey = &testAsset.FamilyKey.FamKey
 	}
 
 	// We'll now insert the internal key information as well as the script
@@ -352,36 +352,44 @@ func TestImportAssetProof(t *testing.T) {
 	// elsewhere.
 	ctx := context.Background()
 	_, err = db.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    proof.InternalKey.SerializeCompressed(),
+		RawKey:    testProof.InternalKey.SerializeCompressed(),
 		KeyFamily: randInt[int32](),
 		KeyIndex:  randInt[int32](),
 	})
 	require.NoError(t, err)
-	_, err = db.UpsertInternalKey(ctx, InternalKey{
-		RawKey:    testAsset.ScriptKey.PubKey.SerializeCompressed(),
-		KeyFamily: int32(testAsset.ScriptKey.Family),
-		KeyIndex:  int32(testAsset.ScriptKey.Index),
+	rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    testAsset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
+		KeyFamily: int32(testAsset.ScriptKey.RawKey.Family),
+		KeyIndex:  int32(testAsset.ScriptKey.RawKey.Index),
+	})
+	require.NoError(t, err)
+	_, err = db.UpsertScriptKey(ctx, NewScriptKey{
+		InternalKeyID:    rawScriptKeyID,
+		TweakedScriptKey: testAsset.ScriptKey.PubKey.SerializeCompressed(),
+		Tweak:            nil,
 	})
 	require.NoError(t, err)
 
 	// We'll add the chain transaction of the proof now to simulate a
 	// batched transfer on a higher layer.
 	var anchorTxBuf bytes.Buffer
-	err = proof.AnchorTx.Serialize(&anchorTxBuf)
+	err = testProof.AnchorTx.Serialize(&anchorTxBuf)
 	require.NoError(t, err)
-	anchorTXID := proof.AnchorTx.TxHash()
+	anchorTXID := testProof.AnchorTx.TxHash()
 	_, err = db.UpsertChainTx(ctx, ChainTx{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
-		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
-		BlockHash:   proof.AnchorBlockHash[:],
-		TxIndex:     sqlInt32(proof.AnchorTxIndex),
+		BlockHeight: sqlInt32(testProof.AnchorBlockHeight),
+		BlockHash:   testProof.AnchorBlockHash[:],
+		TxIndex:     sqlInt32(testProof.AnchorTxIndex),
 	})
 	require.NoError(t, err, "unable to insert chain tx: %w", err)
 
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
-	require.NoError(t, assetStore.ImportProofs(context.Background(), proof))
+	require.NoError(
+		t, assetStore.ImportProofs(context.Background(), testProof),
+	)
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
@@ -403,9 +411,16 @@ func TestImportAssetProof(t *testing.T) {
 
 	// Finally, we'll verify all the anchor information that was inserted
 	// on disk.
-	require.Equal(t, proof.AnchorBlockHash, dbAsset.AnchorBlockHash)
-	require.Equal(t, proof.OutPoint, dbAsset.AnchorOutpoint)
-	require.Equal(t, proof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
+	require.Equal(t, testProof.AnchorBlockHash, dbAsset.AnchorBlockHash)
+	require.Equal(t, testProof.OutPoint, dbAsset.AnchorOutpoint)
+	require.Equal(t, testProof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
+
+	// We should also be able to fetch the proof we just inserted using the
+	// script key of the new asset.
+	_, err = assetStore.FetchProof(ctx, proof.Locator{
+		ScriptKey: *testAsset.ScriptKey.PubKey,
+	})
+	require.NoError(t, err)
 }
 
 // TestInternalKeyUpsert tests that if we insert an internal key that's a
@@ -445,7 +460,7 @@ type assetDesc struct {
 
 	keyFamily *btcec.PrivateKey
 
-	scriptKey *keychain.KeyDescriptor
+	scriptKey *asset.ScriptKey
 
 	amt uint64
 }
@@ -682,13 +697,13 @@ func TestAssetExportLog(t *testing.T) {
 	_, assetsStore, db := newAssetStore(t)
 	ctx := context.Background()
 
-	targetScriptKey := keychain.KeyDescriptor{
+	targetScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 		PubKey: randPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Family: randInt[keychain.KeyFamily](),
 			Index:  uint32(randInt[int32]()),
 		},
-	}
+	})
 
 	// First, we'll generate 3 assets, each all sharing the same anchor
 	// transaction, but having distinct asset IDs.
@@ -727,13 +742,13 @@ func TestAssetExportLog(t *testing.T) {
 		Value:    1000,
 	})
 
-	newScriptKey := keychain.KeyDescriptor{
+	newScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 		PubKey: randPubKey(t),
 		KeyLocator: keychain.KeyLocator{
-			Family: randInt[keychain.KeyFamily](),
-			Index:  uint32(randInt[int32]()),
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
 		},
-	}
+	})
 	newAmt := 9
 
 	// With the assets inserted, we'll now construct the struct we'll used
@@ -751,7 +766,7 @@ func TestAssetExportLog(t *testing.T) {
 		NewInternalKey: keychain.KeyDescriptor{
 			PubKey: randPubKey(t),
 			KeyLocator: keychain.KeyLocator{
-				Family: randInt[keychain.KeyFamily](),
+				Family: keychain.KeyFamily(rand.Int31()),
 				Index:  uint32(randInt[int32]()),
 			},
 		},
@@ -799,7 +814,7 @@ func TestAssetExportLog(t *testing.T) {
 	parcels, err := assetsStore.PendingParcels(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(parcels))
-	require.Equal(t, parcels[0], spendDelta)
+	require.Equal(t, spendDelta, parcels[0])
 
 	// With the asset delta committed and verified, we'll now mark the
 	// delta as being confirmed on chain.

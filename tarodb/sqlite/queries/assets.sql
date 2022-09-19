@@ -1,6 +1,6 @@
 -- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
-    raw_key, key_family, key_index
+    raw_key,  key_family, key_index
 ) VALUES (
     ?, ?, ?
 ) ON CONFLICT (raw_key)
@@ -177,8 +177,8 @@ WITH genesis_info AS (
     WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
-    version, internal_keys.raw_key AS script_key_raw, 
-    internal_keys.key_family AS script_key_fam,
+    version, script_keys.tweak, script_keys.tweaked_script_key, 
+    internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
     key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
@@ -195,8 +195,10 @@ JOIN genesis_info
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info
     ON assets.asset_id = key_fam_info.gen_asset_id
+JOIN script_keys
+    on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
-    ON assets.script_key_id = internal_keys.key_id;
+    ON script_keys.internal_key_id = internal_keys.key_id;
 
 -- name: QueryAssets :many
 -- TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
@@ -235,8 +237,9 @@ WITH genesis_info AS (
        (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR fams.tweaked_fam_key = sqlc.narg('key_fam_filter'))
 )
 SELECT 
-    assets.asset_id, version, internal_keys.raw_key AS script_key_raw, 
-    internal_keys.key_family AS script_key_fam,
+    assets.asset_id, version, script_keys.tweak AS script_key_tweak, 
+    script_keys.tweaked_script_key, 
+    internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
     key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
     key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
@@ -255,8 +258,10 @@ JOIN genesis_info
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info
     ON assets.asset_id = key_fam_info.gen_asset_id
+JOIN script_keys
+    on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
-    ON assets.script_key_id = internal_keys.key_id
+    ON script_keys.internal_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
         (length(hex(sqlc.narg('anchor_point'))) == 0 OR utxos.outpoint = sqlc.narg('anchor_point'))
@@ -425,9 +430,9 @@ WHERE txn_id in (SELECT txn_id FROM target_txn);
 WITH target_asset(asset_id) AS (
     SELECT asset_id
     FROM assets
-    JOIN internal_keys keys
-        ON keys.key_id = assets.script_key_id
-    WHERE keys.raw_key = ?
+    JOIN script_keys 
+        ON assets.script_key_id = script_keys.script_key_id
+    WHERE script_keys.tweaked_script_key = ? 
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
@@ -439,25 +444,25 @@ INSERT INTO asset_proofs (
 
 -- name: FetchAssetProofs :many
 WITH asset_info AS (
-    SELECT assets.asset_id, keys.raw_key
+    SELECT assets.asset_id, script_keys.tweaked_script_key
     FROM assets
-    JOIN internal_keys keys
-        ON keys.key_id = assets.script_key_id
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
 )
-SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
 -- name: FetchAssetProof :one
 WITH asset_info AS (
-    SELECT assets.asset_id, keys.raw_key
+    SELECT assets.asset_id, script_keys.tweaked_script_key
     FROM assets
-    JOIN internal_keys keys
-        ON keys.key_id = assets.script_key_id
-    WHERE keys.raw_key = ?
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
+    WHERE script_keys.tweaked_script_key = ?
 )
-SELECT asset_info.raw_key AS script_key, asset_proofs.proof_file
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
@@ -496,3 +501,14 @@ WITH target_txn(txn_id) AS (
 UPDATE chain_txns
 SET block_height = ?, block_hash = ?, tx_index = ?
 WHERE txn_id in (SELECT txn_id FROM target_txn);
+
+-- name: UpsertScriptKey :one
+INSERT INTO script_keys (
+    internal_key_id, tweaked_script_key, tweak
+) VALUES (
+    ?, ?, ?
+)  ON CONFLICT (tweaked_script_key)
+    -- As a NOP, we just set the script key to the one that triggered the
+    -- conflict.
+    DO UPDATE SET tweaked_script_key = EXCLUDED.tweaked_script_key
+RETURNING script_key_id;

@@ -41,6 +41,9 @@ type AddrBook interface {
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database and returns the primary key.
 	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+
+	// UpsertScriptKey inserts a new script key on disk into the DB.
+	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -108,13 +111,22 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 		// internal keys, then use those returned primary key IDs to
 		// returned to insert the address itself.
 		for _, addr := range addrs {
-			scriptKeyDesc := addr.ScriptKeyDesc
-			scriptKeyID, err := insertInternalKey(
-				ctx, db, scriptKeyDesc,
+			rawScriptKeyID, err := insertInternalKey(
+				ctx, db, addr.ScriptKeyTweak.RawKey,
 			)
 			if err != nil {
+				fmt.Println("naaah")
 				return fmt.Errorf("unable to insert internal "+
 					"script key: %w", err)
+			}
+			scriptKeyID, err := db.UpsertScriptKey(ctx, NewScriptKey{
+				InternalKeyID:    rawScriptKeyID,
+				TweakedScriptKey: addr.ScriptKey.SerializeCompressed(),
+				Tweak:            addr.ScriptKeyTweak.Tweak,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert script "+
+					"key: %w", err)
 			}
 
 			taprootKeyID, err := insertInternalKey(
@@ -201,19 +213,21 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				}
 			}
 
-			scriptKey, err := btcec.ParsePubKey(addr.RawScriptKey)
+			rawScriptKey, err := btcec.ParsePubKey(
+				addr.RawScriptKey,
+			)
 			if err != nil {
 				return fmt.Errorf("unable to decode "+
 					"script key: %w", err)
 			}
-			scriptKeyDesc := keychain.KeyDescriptor{
+			rawScriptKeyDesc := keychain.KeyDescriptor{
 				KeyLocator: keychain.KeyLocator{
 					Family: keychain.KeyFamily(
 						addr.ScriptKeyFamily,
 					),
 					Index: uint32(addr.ScriptKeyIndex),
 				},
-				PubKey: scriptKey,
+				PubKey: rawScriptKey,
 			}
 
 			internalKey, err := btcec.ParsePubKey(addr.RawTaprootKey)
@@ -231,6 +245,11 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				PubKey: internalKey,
 			}
 
+			scriptKey, err := btcec.ParsePubKey(addr.TweakedScriptKey)
+			if err != nil {
+				return err
+			}
+
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Taro: &address.Taro{
 					Version:     asset.Version(addr.Version),
@@ -241,7 +260,10 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					Amount:      uint64(addr.Amount),
 					Type:        asset.Type(addr.AssetType),
 				},
-				ScriptKeyDesc:   scriptKeyDesc,
+				ScriptKeyTweak: asset.TweakedScriptKey{
+					RawKey: rawScriptKeyDesc,
+					Tweak:  addr.ScriptKeyTweak,
+				},
 				InternalKeyDesc: internalKeyDesc,
 				CreationTime:    addr.CreationTime,
 			})

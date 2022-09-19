@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS addrs (
 
     -- script_key_id points to the internal key that we created to serve as the
     -- script key to be able to receive this asset.
-    script_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+    script_key_id INTEGER NOT NULL REFERENCES script_keys(script_key_id),
 
     -- taproot_key_id points to the internal key that we'll use to serve as the
     -- taproot internal key to receive this asset.

@@ -149,6 +149,7 @@ func TestProofEncoding(t *testing.T) {
 
 	genesis := randGenesis(t, asset.Collectible)
 	familyKey := randFamilyKey(t, genesis)
+
 	commitment, assets, err := commitment.Mint(
 		*genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
@@ -161,6 +162,17 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 	asset := assets[0]
 	asset.FamilyKey.RawKey = keychain.KeyDescriptor{}
+
+	// Empty the raw script key, since we only serialize the tweaked
+	// pubkey. We'll also force the main script key to be an x-only key as
+	// well.
+	asset.ScriptKey.PubKey, err = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(asset.ScriptKey.PubKey),
+	)
+	require.NoError(t, err)
+
+	asset.ScriptKey.TweakedScriptKey = nil
+
 	_, commitmentProof, err := commitment.Proof(
 		asset.TaroCommitmentKey(), asset.AssetCommitmentKey(),
 	)

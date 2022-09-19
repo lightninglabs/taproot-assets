@@ -82,8 +82,9 @@ type AssetSpendDelta struct {
 	// NewAmt is the new amount for the asset.
 	NewAmt uint64
 
-	// NewScriptKey is the new script key.
-	NewScriptKey keychain.KeyDescriptor
+	// NewScriptKey is the new script key. We assume BIP 86 usage when
+	// updating the script keys on disk.
+	NewScriptKey asset.ScriptKey
 
 	// WitnessData is the new witness data for this asset.
 	WitnessData []asset.Witness

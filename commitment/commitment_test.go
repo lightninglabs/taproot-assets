@@ -82,11 +82,7 @@ func randAsset(t *testing.T, genesis asset.Genesis,
 	}
 
 	a, err := asset.New(
-		genesis, units, 0, 0,
-		keychain.KeyDescriptor{
-			PubKey: pubKey,
-		},
-		familyKey,
+		genesis, units, 0, 0, asset.NewScriptKey(pubKey), familyKey,
 	)
 	require.NoError(t, err)
 	return a
@@ -637,7 +633,10 @@ func TestSplitCommitment(t *testing.T) {
 
 			// Verify that the root asset was constructed properly.
 			require.Equal(t, root.AssetID, split.RootAsset.Genesis.ID())
-			require.Equal(t, root.ScriptKey, *split.RootAsset.ScriptKey.PubKey)
+			require.Equal(t,
+				root.ScriptKey,
+				*split.RootAsset.ScriptKey.PubKey,
+			)
 			require.Equal(t, root.Amount, split.RootAsset.Amount)
 			require.Len(t, split.RootAsset.PrevWitnesses, 1)
 			require.NotNil(t, split.RootAsset.PrevWitnesses[0].PrevID)
@@ -652,7 +651,10 @@ func TestSplitCommitment(t *testing.T) {
 				splitAsset := split.SplitAssets[*l]
 
 				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
-				require.Equal(t, l.ScriptKey, *splitAsset.ScriptKey.PubKey)
+				require.Equal(t,
+					l.ScriptKey,
+					*splitAsset.ScriptKey.PubKey,
+				)
 				require.Equal(t, l.Amount, splitAsset.Amount)
 				require.Len(t, splitAsset.PrevWitnesses, 1)
 				require.NotNil(t, splitAsset.PrevWitnesses[0].PrevID)

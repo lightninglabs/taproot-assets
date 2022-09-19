@@ -44,7 +44,7 @@ const (
 
 	// DefaultTimeout is the default timeout we use for RPC and database
 	// operations.
-	DefaultTimeout = 30 * time.Second
+	DefaultTimeout = 30 * time.Minute
 )
 
 // BatchCaretakerConfig houses all the items that the BatchCaretaker needs to
@@ -351,7 +351,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, scriptKey, familyKey,
+			assetGen, amount, 0, 0,
+			asset.NewScriptKeyBIP0086(scriptKey), familyKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %v",

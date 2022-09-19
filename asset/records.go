@@ -136,8 +136,9 @@ func NewLeafScriptVersionRecord(version *ScriptVersion) tlv.Record {
 }
 
 func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
+	const recordSize = schnorr.PubKeyBytesLen
 	return tlv.MakeStaticRecord(
-		LeafScriptKey, scriptKey, schnorr.PubKeyBytesLen,
+		LeafScriptKey, scriptKey, recordSize,
 		SchnorrPubKeyEncoder, SchnorrPubKeyDecoder,
 	)
 }

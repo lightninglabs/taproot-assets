@@ -73,7 +73,7 @@ func randAsset(t *testing.T, assetType asset.Type,
 	}
 
 	a, err := asset.New(
-		genesis, units, 0, 0, toKeyDesc(&scriptKey), familyKey,
+		genesis, units, 0, 0, asset.NewScriptKey(&scriptKey), familyKey,
 	)
 	require.NoError(t, err)
 	return a
@@ -165,7 +165,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 		ScriptKey: *genesisAsset.ScriptKey.PubKey,
 	}
 	newAsset := genesisAsset.Copy()
-	newAsset.ScriptKey = toKeyDesc(randKey(t).PubKey())
+	newAsset.ScriptKey = asset.NewScriptKey(randKey(t).PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID,
 		TxWitness:       nil,
@@ -225,7 +225,7 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 
 	newAsset := genesisAsset1.Copy()
 	newAsset.Amount = genesisAsset1.Amount + genesisAsset2.Amount
-	newAsset.ScriptKey = toKeyDesc(randKey(t).PubKey())
+	newAsset.ScriptKey = asset.NewScriptKey(randKey(t).PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID1,
 		TxWitness:       nil,

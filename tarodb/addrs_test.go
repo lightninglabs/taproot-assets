@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -48,22 +49,28 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 		famKey = famKeyPriv.PubKey()
 	}
 
+	scriptKeyPub := txscript.ComputeTaprootKeyNoScript(
+		scriptKey.PubKey(),
+	)
+
 	return &address.AddrWithKeyInfo{
 		Taro: &address.Taro{
 			Version:     asset.Version(rand.Int31()),
 			ID:          assetID,
 			FamilyKey:   famKey,
-			ScriptKey:   *scriptKey.PubKey(),
+			ScriptKey:   *scriptKeyPub,
 			InternalKey: *internalKey.PubKey(),
 			Amount:      uint64(rand.Int63()),
 			Type:        asset.Type(rand.Int31n(2)),
 		},
-		ScriptKeyDesc: keychain.KeyDescriptor{
-			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamily(rand.Int31()),
-				Index:  uint32(rand.Int31()),
+		ScriptKeyTweak: asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int31()),
+					Index:  uint32(rand.Int31()),
+				},
+				PubKey: scriptKey.PubKey(),
 			},
-			PubKey: scriptKey.PubKey(),
 		},
 		InternalKeyDesc: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{

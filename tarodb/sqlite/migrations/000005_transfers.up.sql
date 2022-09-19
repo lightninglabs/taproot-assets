@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS asset_deltas (
 
     new_amt BIGINT NOT NULL,
 
-    new_script_key INTEGER NOT NULL REFERENCES internal_keys(key_id),
+    new_script_key INTEGER NOT NULL REFERENCES script_keys(script_key_id),
 
     serialized_witnesses BLOB NOT NULL,
 
