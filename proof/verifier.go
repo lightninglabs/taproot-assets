@@ -299,6 +299,7 @@ func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
 		default:
 		}
 
+		proof := proof
 		result, err := proof.Verify(ctx, prev)
 		if err != nil {
 			return nil, err
