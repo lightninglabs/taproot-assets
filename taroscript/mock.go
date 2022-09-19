@@ -21,6 +21,7 @@ func NewMockSigner(privKey *btcec.PrivateKey) *MockSigner {
 	}
 }
 
+// SignOutputRaw creates a signature for a single input.
 // Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw
 func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	signDesc *input.SignDescriptor) (*schnorr.Signature, error) {
@@ -32,12 +33,14 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 
 	switch {
 	case signDesc.SingleTweak != nil:
-		maybeTweakPrivKey = input.TweakPrivKey(privKey,
-			signDesc.SingleTweak)
+		maybeTweakPrivKey = input.TweakPrivKey(
+			privKey, signDesc.SingleTweak,
+		)
 
 	case signDesc.DoubleTweak != nil:
-		maybeTweakPrivKey = input.DeriveRevocationPrivKey(privKey,
-			signDesc.DoubleTweak)
+		maybeTweakPrivKey = input.DeriveRevocationPrivKey(
+			privKey, signDesc.DoubleTweak,
+		)
 
 	default:
 		maybeTweakPrivKey = privKey
@@ -55,26 +58,23 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		tx, signDesc.PrevOutputFetcher,
 	)
 
-	// Are we spending a script path or the key path? The API is
-	// slightly different, so we need to account for that to get the
-	// raw signature.
-	var rawSig []byte
-	var err error
+	// Are we spending a script path or the key path? The API is slightly
+	// different, so we need to account for that to get the raw signature.
+	var (
+		rawSig []byte
+		err    error
+	)
 	switch signDesc.SignMethod {
 	case input.TaprootKeySpendBIP0086SignMethod,
 		input.TaprootKeySpendSignMethod:
 
-		// This function tweaks the private key using the tap
-		// root key supplied as the tweak.
+		// This function tweaks the private key using the tap root key
+		// supplied as the tweak.
 		rawSig, err = txscript.RawTxInTaprootSignature(
 			tx, sigHashes, signDesc.InputIndex,
 			signDesc.Output.Value, signDesc.Output.PkScript,
-			signDesc.TapTweak, signDesc.HashType,
-			privKey,
+			signDesc.TapTweak, signDesc.HashType, privKey,
 		)
-		if err != nil {
-			return nil, err
-		}
 
 	case input.TaprootScriptSpendSignMethod:
 		leaf := txscript.TapLeaf{
@@ -86,20 +86,15 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 			signDesc.Output.Value, signDesc.Output.PkScript,
 			leaf, signDesc.HashType, privKey,
 		)
-		if err != nil {
-			return nil, err
-		}
 	}
-
-	sig, err := schnorr.ParseSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}
 
-	return sig, nil
+	return schnorr.ParseSignature(rawSig)
 }
 
-func (m MockSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+func (m *MockSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(

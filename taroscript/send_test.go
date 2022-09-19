@@ -57,7 +57,7 @@ type spendData struct {
 	asset1CollectFamilyTaroTree    commitment.TaroCommitment
 	asset2TaroTree                 commitment.TaroCommitment
 	validator                      taroscript.TxValidator
-	signer                         taroscript.MockSigner
+	signer                         *taroscript.MockSigner
 }
 
 var (
@@ -178,7 +178,7 @@ func initSpendScenario(t *testing.T) spendData {
 	state.validator = &taro.ValidatorV0{}
 
 	// Signer needed to generate a witness for the spend.
-	state.signer = *taroscript.NewMockSigner(&state.spenderPrivKey)
+	state.signer = taroscript.NewMockSigner(&state.spenderPrivKey)
 
 	return state
 }

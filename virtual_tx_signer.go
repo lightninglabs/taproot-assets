@@ -25,15 +25,15 @@ func NewLndRpcVirtualTxSigner(lnd *lndclient.LndServices) *LndRpcVirtualTxSigner
 
 // SignVirtualTx generates a signature according to the passed signing
 // descriptor and virtual TX.
-
-// NOTE: We currently assume the signature requested is for the BIP 86
-// spending type, and that the passed key is the internal key.
+//
+// NOTE: We currently assume the signature requested is for the BIP 86 spending
+// type, and that the passed key is the internal key.
 func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	sigs, err := l.lnd.Signer.SignOutputRaw(
-		context.Background(), tx,
-		[]*lndclient.SignDescriptor{signDesc}, []*wire.TxOut{prevOut},
+		context.Background(), tx, []*lndclient.SignDescriptor{signDesc},
+		[]*wire.TxOut{prevOut},
 	)
 	if err != nil {
 		return nil, err

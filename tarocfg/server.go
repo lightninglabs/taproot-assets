@@ -3,6 +3,7 @@ package tarocfg
 import (
 	"database/sql"
 	"fmt"
+
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"

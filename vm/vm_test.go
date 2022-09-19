@@ -83,6 +83,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
 
 	t.Helper()
+
 	virtualTxCopy := taroscript.VirtualTxWithInput(
 		virtualTx, input, idx, nil,
 	)

@@ -27,7 +27,7 @@ type TxMerkleProof struct {
 // within a block's set of transactions.
 func NewTxMerkleProof(txs []*wire.MsgTx, txIdx int) (*TxMerkleProof, error) {
 	if len(txs) <= txIdx {
-		return nil, errors.New("invalid transcation index for block")
+		return nil, errors.New("invalid transaction index for block")
 	}
 	blockTxs := make([]*btcutil.Tx, 0, len(txs))
 	for _, tx := range txs {

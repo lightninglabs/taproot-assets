@@ -70,7 +70,7 @@ func (l SplitLocator) Hash() [sha256.Size]byte {
 type SplitAsset struct {
 	asset.Asset
 
-	// OutputIndex is the index of the on-chain transcation that held the
+	// OutputIndex is the index of the on-chain transaction that held the
 	// split asset at the time of its creation.
 	OutputIndex uint32
 }
