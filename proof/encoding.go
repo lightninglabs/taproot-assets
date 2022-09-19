@@ -127,6 +127,29 @@ func TaprootProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "TaprootProof")
 }
 
+func SplitRootProofEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**TaprootProof); ok {
+		return (*t).Encode(w)
+	}
+	return tlv.NewTypeForEncodingErr(val, "TaprootProof")
+}
+
+func SplitRootProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(**TaprootProof); ok {
+		var proofBytes []byte
+		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
+			return err
+		}
+		var proof TaprootProof
+		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
+			return err
+		}
+		*typ = &proof
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "TaprootProof")
+}
+
 func TaprootProofsEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]TaprootProof); ok {
 		numProofs := uint64(len(*t))

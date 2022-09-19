@@ -129,6 +129,13 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 		)
 	}
 	require.Equal(t, expected.ExclusionProofs, actual.ExclusionProofs)
+	if expected.SplitRootProof != nil {
+		assertEqualTaprootProof(
+			t, expected.SplitRootProof, actual.SplitRootProof,
+		)
+	} else {
+		require.Nil(t, actual.SplitRootProof)
+	}
 	for i := range expected.AdditionalInputs {
 		require.Equal(
 			t, expected.AdditionalInputs[i].Version,
@@ -236,6 +243,14 @@ func TestProofEncoding(t *testing.T) {
 				TapscriptProof: &TapscriptProof{
 					BIP86: true,
 				},
+			},
+		},
+		SplitRootProof: &TaprootProof{
+			OutputIndex: 4,
+			InternalKey: randPubKey(t),
+			CommitmentProof: &CommitmentProof{
+				Proof:              *commitmentProof,
+				TapSiblingPreimage: nil,
 			},
 		},
 		AdditionalInputs: []File{},
