@@ -115,7 +115,6 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				ctx, db, addr.ScriptKeyTweak.RawKey,
 			)
 			if err != nil {
-				fmt.Println("naaah")
 				return fmt.Errorf("unable to insert internal "+
 					"script key: %w", err)
 			}

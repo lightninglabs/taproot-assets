@@ -88,42 +88,6 @@ func randAsset(t *testing.T, genesis asset.Genesis,
 	return a
 }
 
-// TestFamilyKeyIsEqual tests that FamilyKey.IsEqual is correct.
-func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
-	t.Helper()
-
-	require.Equal(t, a.Version, b.Version)
-	require.Equal(t, a.Genesis, b.Genesis)
-	require.Equal(t, a.Type, b.Type)
-	require.Equal(t, a.Amount, b.Amount)
-	require.Equal(t, a.LockTime, b.LockTime)
-	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
-	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
-	for i := range a.PrevWitnesses {
-		witA, witB := a.PrevWitnesses[i], b.PrevWitnesses[i]
-		require.Equal(t, witA.PrevID, witB.PrevID)
-		require.Equal(t, witA.TxWitness, witB.TxWitness)
-		splitA, splitB := witA.SplitCommitment, witB.SplitCommitment
-		if witA.SplitCommitment != nil && witB.SplitCommitment != nil {
-			require.Equal(
-				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
-			)
-			for i := range splitA.Proof.Nodes {
-				nodeA := splitA.Proof.Nodes[i]
-				nodeB := splitB.Proof.Nodes[i]
-				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
-			}
-			require.Equal(t, splitA.RootAsset, splitB.RootAsset)
-		} else {
-			require.Equal(t, splitA, splitB)
-		}
-	}
-	require.Equal(t, a.SplitCommitmentRoot, b.SplitCommitmentRoot)
-	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
-	require.Equal(t, a.ScriptKey, b.ScriptKey)
-	require.Equal(t, a.FamilyKey, b.FamilyKey)
-}
-
 // TestNewAssetCommitment tests edge cases around NewAssetCommitment.
 func TestNewAssetCommitment(t *testing.T) {
 	t.Parallel()
@@ -509,8 +473,10 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisCollectible.ID(),
-					ScriptKey:   *input.ScriptKey.PubKey,
-					Amount:      input.Amount,
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: input.Amount,
 				}
 				return input, root, nil
 			},
@@ -525,8 +491,10 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *input.ScriptKey.PubKey,
-					Amount:      input.Amount,
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: input.Amount,
 				}
 				external := []*SplitLocator{root}
 				return input, root, external
@@ -543,14 +511,18 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *input.ScriptKey.PubKey,
-					Amount:      splitAmount,
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: splitAmount,
 				}
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *input.ScriptKey.PubKey,
-					Amount:      splitAmount,
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: splitAmount,
 				}}
 				return input, root, external
 			},
@@ -567,20 +539,26 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *input.ScriptKey.PubKey,
-					Amount:      1,
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: 1,
 				}
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *randKey(t).PubKey(),
-					Amount:      1,
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: 1,
 				}, {
 
 					OutputIndex: 2,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *randKey(t).PubKey(),
-					Amount:      1,
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: 1,
 				}}
 
 				return input, root, external
@@ -598,8 +576,10 @@ func TestSplitCommitment(t *testing.T) {
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey:   *input.ScriptKey.PubKey,
-					Amount:      1,
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: 1,
 				}
 
 				return input, root, nil
@@ -623,9 +603,11 @@ func TestSplitCommitment(t *testing.T) {
 			// Verify that the asset input is well formed within the
 			// InputSet.
 			prevID := asset.PrevID{
-				OutPoint:  outPoint,
-				ID:        input.Genesis.ID(),
-				ScriptKey: *input.ScriptKey.PubKey,
+				OutPoint: outPoint,
+				ID:       input.Genesis.ID(),
+				ScriptKey: asset.ToSerialized(
+					input.ScriptKey.PubKey,
+				),
 			}
 			require.Contains(t, split.PrevAssets, prevID)
 			prevAsset := split.PrevAssets[prevID]
@@ -633,9 +615,9 @@ func TestSplitCommitment(t *testing.T) {
 
 			// Verify that the root asset was constructed properly.
 			require.Equal(t, root.AssetID, split.RootAsset.Genesis.ID())
-			require.Equal(t,
-				root.ScriptKey,
-				*split.RootAsset.ScriptKey.PubKey,
+			require.Equal(
+				t, root.ScriptKey[:],
+				split.RootAsset.ScriptKey.PubKey.SerializeCompressed(),
 			)
 			require.Equal(t, root.Amount, split.RootAsset.Amount)
 			require.Len(t, split.RootAsset.PrevWitnesses, 1)
@@ -651,9 +633,9 @@ func TestSplitCommitment(t *testing.T) {
 				splitAsset := split.SplitAssets[*l]
 
 				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
-				require.Equal(t,
-					l.ScriptKey,
-					*splitAsset.ScriptKey.PubKey,
+				require.Equal(
+					t, l.ScriptKey[:],
+					splitAsset.ScriptKey.PubKey.SerializeCompressed(),
 				)
 				require.Equal(t, l.Amount, splitAsset.Amount)
 				require.Len(t, splitAsset.PrevWitnesses, 1)
@@ -822,9 +804,9 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 1:
 					assets := familyAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					assertAssetEqual(
-						t, assets[asset.AssetCommitmentKey()], asset,
-					)
+					require.True(t, asset.DeepEqual(
+						assets[asset.AssetCommitmentKey()],
+					))
 
 				// insertion of collectible with family key.
 				case 2:
@@ -834,7 +816,9 @@ func TestUpdateAssetCommitment(t *testing.T) {
 						asset.AssetCommitmentKey(),
 					)
 					require.NoError(t, err)
-					assertAssetEqual(t, proofAsset, asset)
+					require.True(t, asset.DeepEqual(
+						proofAsset,
+					))
 				}
 			}
 		})
@@ -895,7 +879,7 @@ func TestUpdateTaroCommitment(t *testing.T) {
 		commitmentKey2, asset2.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
-	assertAssetEqual(t, proofAsset2, asset2)
+	require.True(t, proofAsset2.DeepEqual(asset2))
 
 	assetCommitments = copyOfCommitment.Commitments()
 	require.Equal(t, len(assetCommitments), 2)

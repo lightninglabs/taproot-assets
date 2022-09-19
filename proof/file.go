@@ -61,7 +61,8 @@ type File struct {
 // transition proofs.
 func NewFile(v Version, proofs ...Proof) File {
 	return File{
-		Proofs: proofs,
+		Version: v,
+		Proofs:  proofs,
 	}
 }
 
@@ -99,6 +100,11 @@ type AssetSnapshot struct {
 	// ScriptRoot is the Taro commitment root committed to using the above
 	// internal key in the Anchor transaction.
 	ScriptRoot *commitment.TaroCommitment
+
+	// SplitAsset is the optional indicator that the asset in the snapshot
+	// resulted from splitting an asset. If this is true then the root asset
+	// of the split can be found in the asset witness' split commitment.
+	SplitAsset bool
 }
 
 // encodeNoChecksum encodes the proof file into `w` without its checksum.

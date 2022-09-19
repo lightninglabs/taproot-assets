@@ -81,8 +81,8 @@ func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
 func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 	prevAssetWitness *asset.Witness) error {
 
-	scriptKey := prevAsset.ScriptKey.PubKey
-	if !prevAssetWitness.PrevID.ScriptKey.IsEqual(scriptKey) {
+	scriptKey := asset.ToSerialized(prevAsset.ScriptKey.PubKey)
+	if prevAssetWitness.PrevID.ScriptKey != scriptKey {
 		return newErrKind(ErrScriptKeyMismatch)
 	}
 
@@ -142,7 +142,7 @@ func (vm *Engine) validateSplit() error {
 	locator := &commitment.SplitLocator{
 		OutputIndex: vm.splitAsset.OutputIndex,
 		AssetID:     vm.splitAsset.Genesis.ID(),
-		ScriptKey:   *vm.splitAsset.ScriptKey.PubKey,
+		ScriptKey:   asset.ToSerialized(vm.splitAsset.ScriptKey.PubKey),
 		Amount:      vm.splitAsset.Amount,
 	}
 	splitNoWitness := vm.splitAsset.Copy()

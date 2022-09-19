@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"reflect"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -15,6 +16,32 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
+
+// SerializedKey is a type for representing a public key, serialized in the
+// compressed, 33-byte form.
+type SerializedKey [33]byte
+
+// SchnorrSerialized returns the Schnorr serialized, x-only 32-byte
+// representation of the serialized key.
+func (s SerializedKey) SchnorrSerialized() []byte {
+	return s[1:]
+}
+
+// CopyBytes returns a copy of the underlying array as a byte slice.
+func (s SerializedKey) CopyBytes() []byte {
+	c := make([]byte, 33)
+	copy(c, s[:])
+
+	return c
+}
+
+// ToSerialized serializes a public key in its 33-byte compressed form.
+func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
+	var serialized SerializedKey
+	copy(serialized[:], pubKey.SerializeCompressed())
+
+	return serialized
+}
 
 // Version denotes the version of the Taro protocol in effect for an asset.
 type Version uint8
@@ -148,8 +175,10 @@ type PrevID struct {
 	// TODO(roasbeef): need another ref type for assets w/ a key family?
 
 	// ScriptKey is the previous tweaked Taproot output key committing to
-	// the possible spending conditions of the asset.
-	ScriptKey btcec.PublicKey
+	// the possible spending conditions of the asset. PrevID is being used
+	// as map keys, so we want to only use data types with fixed and
+	// comparable content, which a btcec.PublicKey might not be.
+	ScriptKey SerializedKey
 }
 
 // Hash returns the SHA-256 hash of all items encapsulated by PrevID.
@@ -157,7 +186,7 @@ func (id PrevID) Hash() [sha256.Size]byte {
 	h := sha256.New()
 	_ = wire.WriteOutPoint(h, 0, 0, &id.OutPoint)
 	_, _ = h.Write(id.ID[:])
-	_, _ = h.Write(schnorr.SerializePubKey(&id.ScriptKey))
+	_, _ = h.Write(id.ScriptKey.SchnorrSerialized())
 	return *(*[sha256.Size]byte)(h.Sum(nil))
 }
 
@@ -170,6 +199,28 @@ type SplitCommitment struct {
 	// RootAsset is the asset containing the root of the split commitment
 	// tree from which the `Proof` above was computed from.
 	RootAsset Asset
+}
+
+// DeepEqual returns true if this split commitment is equal with the given split
+// commitment.
+func (s *SplitCommitment) DeepEqual(o *SplitCommitment) bool {
+	if s == nil || o == nil {
+		return s == o
+	}
+
+	if len(s.Proof.Nodes) != len(o.Proof.Nodes) {
+		return false
+	}
+
+	for i := range s.Proof.Nodes {
+		nodeA := s.Proof.Nodes[i]
+		nodeB := o.Proof.Nodes[i]
+		if !mssmt.IsEqualNode(nodeA, nodeB) {
+			return false
+		}
+	}
+
+	return s.RootAsset.DeepEqual(&o.RootAsset)
 }
 
 // Witness is a nested TLV stream within the main Asset TLV stream that contains
@@ -257,6 +308,23 @@ func (w *Witness) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
+// DeepEqual returns true if this witness is equal with the given witness.
+func (w *Witness) DeepEqual(o *Witness) bool {
+	if w == nil || o == nil {
+		return w == o
+	}
+
+	if !reflect.DeepEqual(w.PrevID, o.PrevID) {
+		return false
+	}
+
+	if !reflect.DeepEqual(w.TxWitness, o.TxWitness) {
+		return false
+	}
+
+	return w.SplitCommitment.DeepEqual(o.SplitCommitment)
+}
+
 // ScriptVersion denotes the asset script versioning scheme.
 type ScriptVersion uint16
 
@@ -299,27 +367,26 @@ func (f *FamilyKey) IsEqual(otherFamilyKey *FamilyKey) bool {
 		return false
 	}
 
-	// Make sure the RawKey keylocators are equivalent.
-	if f.RawKey.KeyLocator != otherFamilyKey.RawKey.KeyLocator {
+	// Make sure the RawKey are equivalent.
+	if !EqualKeyDescriptors(f.RawKey, otherFamilyKey.RawKey) {
 		return false
 	}
 
-	if f.RawKey.PubKey != nil && otherFamilyKey.RawKey.PubKey == nil {
-		return false
-	}
-
-	if f.RawKey.PubKey == nil && otherFamilyKey.RawKey.PubKey != nil {
-		return false
-	}
-
-	// At this point either both RawKey pubkeys are nil or they should be
-	// equivalent.
-	rawKeyPubEqual := f.RawKey.PubKey == otherFamilyKey.RawKey.PubKey ||
-		f.RawKey.PubKey.IsEqual(otherFamilyKey.RawKey.PubKey)
-
-	return rawKeyPubEqual &&
-		f.FamKey.IsEqual(&otherFamilyKey.FamKey) &&
+	return f.FamKey.IsEqual(&otherFamilyKey.FamKey) &&
 		f.Sig.IsEqual(&otherFamilyKey.Sig)
+}
+
+// EqualKeyDescriptors returns true if the two key descriptors are equal.
+func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
+	if a.KeyLocator != o.KeyLocator {
+		return false
+	}
+
+	if a.PubKey == nil || o.PubKey == nil {
+		return a.PubKey == o.PubKey
+	}
+
+	return a.PubKey.IsEqual(o.PubKey)
 }
 
 // TweakedScriptKey is an embedded struct which is primarily used by wallets to
@@ -363,6 +430,13 @@ func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) ScriptKey {
 	// internal key when signing).
 	tweakedPubKey := txscript.ComputeTaprootKeyNoScript(
 		rawKey.PubKey,
+	)
+
+	// Since we'll never query lnd for a tweaked key, it doesn't matter if
+	// we lose the parity information here. And this will only ever be
+	// serialized on chain in a 32-bit representation as well.
+	tweakedPubKey, _ = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(tweakedPubKey),
 	)
 
 	return ScriptKey{
@@ -662,6 +736,55 @@ func (a *Asset) Copy() *Asset {
 	}
 
 	return &assetCopy
+}
+
+// DeepEqual returns true if this asset is equal with the given asset.
+func (a *Asset) DeepEqual(o *Asset) bool {
+	if a.Version != o.Version {
+		return false
+	}
+
+	// The ID commits to everything in the Genesis, including the type.
+	if a.ID() != o.ID() {
+		return false
+	}
+
+	if a.Amount != o.Amount {
+		return false
+	}
+	if a.LockTime != o.LockTime {
+		return false
+	}
+	if a.RelativeLockTime != o.RelativeLockTime {
+		return false
+	}
+	if a.ScriptVersion != o.ScriptVersion {
+		return false
+	}
+
+	if !mssmt.IsEqualNode(a.SplitCommitmentRoot, o.SplitCommitmentRoot) {
+		return false
+	}
+
+	if !reflect.DeepEqual(a.ScriptKey, o.ScriptKey) {
+		return false
+	}
+
+	if !a.FamilyKey.IsEqual(o.FamilyKey) {
+		return false
+	}
+
+	if len(a.PrevWitnesses) != len(o.PrevWitnesses) {
+		return false
+	}
+
+	for i := range a.PrevWitnesses {
+		if !a.PrevWitnesses[i].DeepEqual(&o.PrevWitnesses[i]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an

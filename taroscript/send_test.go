@@ -16,7 +16,6 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightninglabs/taro/vm"
@@ -57,7 +56,7 @@ type spendData struct {
 	asset1CollectFamilyTaroTree    commitment.TaroCommitment
 	asset2TaroTree                 commitment.TaroCommitment
 	validator                      taroscript.TxValidator
-	signer                         taroscript.MockSigner
+	signer                         *taroscript.MockSigner
 }
 
 var (
@@ -178,7 +177,7 @@ func initSpendScenario(t *testing.T) spendData {
 	state.validator = &taro.ValidatorV0{}
 
 	// Signer needed to generate a witness for the spend.
-	state.signer = *taroscript.NewMockSigner(&state.spenderPrivKey)
+	state.signer = taroscript.NewMockSigner(&state.spenderPrivKey)
 
 	return state
 }
@@ -220,17 +219,17 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 	state.asset1PrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
 		ID:        state.asset1.ID(),
-		ScriptKey: state.spenderScriptKey,
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 	state.asset1CollectFamilyPrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
 		ID:        state.asset1CollectFamily.ID(),
-		ScriptKey: state.spenderScriptKey,
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 	state.asset2PrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
 		ID:        state.asset2.ID(),
-		ScriptKey: state.spenderScriptKey,
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 
 	state.asset1InputAssets = commitment.InputSet{
@@ -272,45 +271,6 @@ func updateScenarioCommitments(t *testing.T, state *spendData) {
 	require.NoError(t, err)
 	state.asset2TaroTree = *asset2TaroTree
 	require.NoError(t, err)
-}
-
-func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
-	t.Helper()
-
-	require.Equal(t, a.Version, b.Version)
-	require.Equal(t, a.Genesis, b.Genesis)
-	require.Equal(t, a.Type, b.Type)
-	require.Equal(t, a.Amount, b.Amount)
-	require.Equal(t, a.LockTime, b.LockTime)
-	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
-	require.Equal(t, len(a.PrevWitnesses), len(b.PrevWitnesses))
-
-	for i := range a.PrevWitnesses {
-		witA, witB := a.PrevWitnesses[i], b.PrevWitnesses[i]
-		require.Equal(t, witA.PrevID, witB.PrevID)
-		require.Equal(t, witA.TxWitness, witB.TxWitness)
-		splitA, splitB := witA.SplitCommitment, witB.SplitCommitment
-
-		if witA.SplitCommitment != nil && witB.SplitCommitment != nil {
-			require.Equal(
-				t, len(splitA.Proof.Nodes),
-				len(splitB.Proof.Nodes),
-			)
-			for i := range splitA.Proof.Nodes {
-				nodeA := splitA.Proof.Nodes[i]
-				nodeB := splitB.Proof.Nodes[i]
-				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
-			}
-			require.Equal(t, splitA.RootAsset, splitB.RootAsset)
-		} else {
-			require.Equal(t, splitA, splitB)
-		}
-	}
-
-	require.Equal(t, a.SplitCommitmentRoot, b.SplitCommitmentRoot)
-	require.Equal(t, a.ScriptVersion, b.ScriptVersion)
-	require.Equal(t, a.ScriptKey, b.ScriptKey)
-	require.Equal(t, a.FamilyKey, b.FamilyKey)
 }
 
 func checkPreparedSplitSpend(t *testing.T, spend *taroscript.SpendDelta,
@@ -388,7 +348,7 @@ func checkTaroCommitment(t *testing.T, assets []*asset.Asset,
 		if includesAsset {
 			// Check the included asset is equal to the one provided
 			require.NotNil(t, proofAsset)
-			assertAssetEqual(t, proofAsset, asset)
+			require.True(t, proofAsset.DeepEqual(asset))
 		} else {
 			if !matchingAsset {
 				// Check the included asset is not equal to
@@ -510,7 +470,7 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 	)
 	require.NoError(t, err)
 	if senderProofAsset != nil {
-		assertAssetEqual(t, senderAsset, senderProofAsset)
+		require.True(t, senderAsset.DeepEqual(senderProofAsset))
 	}
 	senderProof := &proof.TaprootProof{
 		OutputIndex: senderIndex,
@@ -530,7 +490,7 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 		receiverAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
-	assertAssetEqual(t, receiverAsset, receiverProofAsset)
+	require.True(t, receiverAsset.DeepEqual(receiverProofAsset))
 	receiverProof := &proof.TaprootProof{
 		OutputIndex: receiverIndex,
 		InternalKey: &addr.InternalKey,
@@ -1472,9 +1432,9 @@ func TestAddressValidInput(t *testing.T) {
 			inputAsset, checkedInputAsset, err := testCase.f(t)
 			require.ErrorIs(t, err, testCase.err)
 			if testCase.err == nil {
-				assertAssetEqual(
-					t, inputAsset, checkedInputAsset,
-				)
+				require.True(t, inputAsset.DeepEqual(
+					checkedInputAsset,
+				))
 			}
 		})
 		if !success {

@@ -137,7 +137,6 @@ CREATE TABLE IF NOT EXISTS script_keys (
     -- tweaked BIP0086 style.
     tweak BLOB
 );
-CREATE INDEX IF NOT EXISTS tweaked_script_keys on script_keys(tweaked_script_key);
 
 -- assets is the main table that stores (or references) the complete asset
 -- information. This represents the latest state of any given asset, as it also

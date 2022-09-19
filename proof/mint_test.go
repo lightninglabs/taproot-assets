@@ -26,7 +26,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	)
 	assetGenesis := randGenesis(t, asset.Collectible)
 	assetFamilyKey := randFamilyKey(t, assetGenesis)
-	commitment, _, err := commitment.Mint(
+	taroCommitment, _, err := commitment.Mint(
 		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        pubToKeyDesc(genesisScriptKey),
@@ -38,17 +38,26 @@ func TestNewMintingBlobs(t *testing.T) {
 	require.NoError(t, err)
 
 	internalKey := schnorrPubKey(t, genesisPrivKey)
-	tapscriptRoot := commitment.TapscriptRoot(nil)
+	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
 	taprootScript := computeTaprootScript(t, taprootKey)
+
+	changeInternalKey := randPrivKey(t).PubKey()
+	changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
+		changeInternalKey,
+	)
+
 	genesisTx := &wire.MsgTx{
 		Version: 2,
 		TxIn:    []*wire.TxIn{{}},
 		TxOut: []*wire.TxOut{{
 			PkScript: taprootScript,
 			Value:    330,
+		}, {
+			PkScript: computeTaprootScript(t, changeTaprootKey),
+			Value:    333,
 		}},
 	}
 
@@ -63,16 +72,25 @@ func TestNewMintingBlobs(t *testing.T) {
 	// The NewMintingBlobs will return an error if the generated proof is
 	// invalid.
 	_, err = NewMintingBlobs(&MintParams{
-		Block: &wire.MsgBlock{
-			Header:       *blockHeader,
-			Transactions: []*wire.MsgTx{genesisTx},
+		BaseProofParams: BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *blockHeader,
+				Transactions: []*wire.MsgTx{genesisTx},
+			},
+			Tx:          genesisTx,
+			TxIndex:     0,
+			OutputIndex: 0,
+			InternalKey: internalKey,
+			TaroRoot:    taroCommitment,
+			ExclusionProofs: []TaprootProof{{
+				OutputIndex: 1,
+				InternalKey: changeInternalKey,
+				TapscriptProof: &TapscriptProof{
+					BIP86: true,
+				},
+			}},
 		},
-		Tx:           genesisTx,
-		TxIndex:      0,
-		OutputIndex:  0,
-		InternalKey:  internalKey,
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
-		TaroRoot:     commitment,
 	})
 	require.NoError(t, err)
 }

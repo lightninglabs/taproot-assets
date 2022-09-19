@@ -20,7 +20,8 @@ const (
 	AssetLeafType        tlv.Type = 4
 	InclusionProofType   tlv.Type = 5
 	ExclusionProofsType  tlv.Type = 6
-	AdditionalInputsType tlv.Type = 7
+	SplitRootProofType   tlv.Type = 7
+	AdditionalInputsType tlv.Type = 8
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 1
@@ -33,6 +34,7 @@ const (
 
 	TapscriptProofTapPreimage1 tlv.Type = 0
 	TapscriptProofTapPreimage2 tlv.Type = 1
+	TapscriptProofBIP86        tlv.Type = 2
 
 	AssetProofVersionType tlv.Type = 0
 	AssetProofAssetIDType tlv.Type = 1
@@ -120,6 +122,21 @@ func ExclusionProofsRecord(proofs *[]TaprootProof) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		ExclusionProofsType, proofs, sizeFunc, TaprootProofsEncoder,
 		TaprootProofsDecoder,
+	)
+}
+
+func SplitRootProofRecord(proof **TaprootProof) tlv.Record {
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		err := SplitRootProofEncoder(&buf, proof, &[8]byte{})
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		SplitRootProofType, proof, sizeFunc, SplitRootProofEncoder,
+		SplitRootProofDecoder,
 	)
 }
 
@@ -243,6 +260,12 @@ func TapscriptProofTapPreimage2Record(preimage **TapscriptPreimage) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage2, preimage,
 		sizeFunc, TapscriptPreimageEncoder, TapscriptPreimageDecoder,
+	)
+}
+
+func TapscriptProofBIP86Record(bip86 *bool) tlv.Record {
+	return tlv.MakeStaticRecord(
+		TapscriptProofBIP86, bip86, 1, BoolEncoder, BoolDecoder,
 	)
 }
 

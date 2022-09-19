@@ -933,7 +933,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		// the assets that were fully confirmed with this block.
 		for scriptKey, proofBlob := range mintingProofs {
 			err := q.UpsertAssetProof(ctx, ProofUpdate{
-				TweakedScriptKey: scriptKey.SerializeCompressed(),
+				TweakedScriptKey: scriptKey.CopyBytes(),
 				ProofFile:        proofBlob,
 			})
 			if err != nil {

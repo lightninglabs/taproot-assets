@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -81,7 +80,7 @@ func randWitnesses(t *testing.T) wire.TxWitness {
 }
 
 func randSplitCommit(t *testing.T,
-	asset asset.Asset) *asset.SplitCommitment {
+	a asset.Asset) *asset.SplitCommitment {
 
 	// 50/50 chance there's no commitment at all.
 	if randInt[int]()%2 == 0 {
@@ -91,18 +90,18 @@ func randSplitCommit(t *testing.T,
 	rootLoc := commitment.SplitLocator{
 		OutputIndex: uint32(randInt[int32]()),
 		AssetID:     randAssetID(t),
-		Amount:      asset.Amount / 2,
-		ScriptKey:   *randPubKey(t),
+		Amount:      a.Amount / 2,
+		ScriptKey:   asset.ToSerialized(randPubKey(t)),
 	}
 	splitLoc := commitment.SplitLocator{
 		OutputIndex: uint32(randInt[int32]()),
 		AssetID:     randAssetID(t),
-		Amount:      asset.Amount / 2,
-		ScriptKey:   *randPubKey(t),
+		Amount:      a.Amount / 2,
+		ScriptKey:   asset.ToSerialized(randPubKey(t)),
 	}
 
 	split, err := commitment.NewSplitCommitment(
-		&asset, randOp(t), &rootLoc, &splitLoc,
+		&a, randOp(t), &rootLoc, &splitLoc,
 	)
 	require.NoError(t, err)
 
@@ -232,9 +231,11 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		for i := 0; i < numWitness; i++ {
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
-					OutPoint:  randOp(t),
-					ID:        randAssetID(t),
-					ScriptKey: *randPubKey(t),
+					OutPoint: randOp(t),
+					ID:       randAssetID(t),
+					ScriptKey: asset.ToSerialized(
+						randPubKey(t),
+					),
 				},
 				TxWitness: randWitnesses(t),
 				// For simplicity we just use the base asset itself as
@@ -250,40 +251,19 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 }
 
 func assetWitnessEqual(t *testing.T, a, b []asset.Witness) {
-	require.Equal(t, len(a), len(b))
+	t.Helper()
 
-	for i := 0; i < len(a); i++ {
+	require.Equal(t, len(a), len(b))
+	for i := range a {
 		witA := a[i]
 		witB := b[i]
 
-		require.Equal(t, witA.PrevID, witB.PrevID)
-		require.Equal(t, witA.TxWitness, witB.TxWitness)
-
-		require.Equal(
-			t, witA.SplitCommitment == nil, witB.SplitCommitment == nil,
-		)
-
-		if witA.SplitCommitment != nil {
-			var bufA, bufB bytes.Buffer
-
-			err := witA.SplitCommitment.RootAsset.Encode(&bufA)
-			require.NoError(t, err)
-
-			err = witB.SplitCommitment.RootAsset.Encode(&bufB)
-			require.NoError(t, err)
-
-			require.Equal(t, bufA.Bytes(), bufB.Bytes())
-
-			splitA := witA.SplitCommitment
-			splitB := witB.SplitCommitment
-			require.Equal(
-				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
-			)
-			for i := range splitA.Proof.Nodes {
-				nodeA := splitA.Proof.Nodes[i]
-				nodeB := splitB.Proof.Nodes[i]
-				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
-			}
+		isEqual := witA.DeepEqual(&witB)
+		// If the native equality test fails, run the one built into
+		// the "require" library, which gives us a nice diff of what's
+		// not equal.
+		if !isEqual {
+			require.Equal(t, witB, witA)
 		}
 	}
 }

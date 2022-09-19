@@ -21,6 +21,10 @@ var (
 	// ErrMissingExclusionProofs is an error returned upon noticing an
 	// exclusion proof for a P2TR output is missing.
 	ErrMissingExclusionProofs = errors.New("missing exclusion proof(s)")
+
+	// ErrMissingSplitRootProof is an error returned upon noticing an
+	// inclusion proof for a split root asset is missing.
+	ErrMissingSplitRootProof = errors.New("missing split root proof")
 )
 
 // Proof encodes all of the data necessary to prove a valid state transition for
@@ -54,6 +58,11 @@ type Proof struct {
 	// the resulting asset from all other Taproot outputs within AnchorTx.
 	ExclusionProofs []TaprootProof
 
+	// SplitRootProof is an optional TaprootProof needed if this asset is
+	// the result of a split. SplitRootProof proves inclusion of the root
+	// asset of the split.
+	SplitRootProof *TaprootProof
+
 	// AdditionalInputs is a nested full proof for any additional inputs
 	// found within the resulting asset.
 	AdditionalInputs []File
@@ -61,7 +70,7 @@ type Proof struct {
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
 func (p *Proof) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 8)
+	records := make([]tlv.Record, 0, 9)
 	records = append(records, PrevOutRecord(&p.PrevOut))
 	records = append(records, BlockHeaderRecord(&p.BlockHeader))
 	records = append(records, AnchorTxRecord(&p.AnchorTx))
@@ -71,6 +80,11 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 	if len(p.ExclusionProofs) > 0 {
 		records = append(records, ExclusionProofsRecord(
 			&p.ExclusionProofs,
+		))
+	}
+	if p.SplitRootProof != nil {
+		records = append(records, SplitRootProofRecord(
+			&p.SplitRootProof,
 		))
 	}
 	if len(p.AdditionalInputs) > 0 {
@@ -91,6 +105,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		AssetLeafRecord(&p.Asset),
 		InclusionProofRecord(&p.InclusionProof),
 		ExclusionProofsRecord(&p.ExclusionProofs),
+		SplitRootProofRecord(&p.SplitRootProof),
 		AdditionalInputsRecord(&p.AdditionalInputs),
 	}
 }

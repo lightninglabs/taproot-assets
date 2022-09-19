@@ -83,6 +83,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
 
 	t.Helper()
+
 	virtualTxCopy := taroscript.VirtualTxWithInput(
 		virtualTx, input, idx, nil,
 	)
@@ -162,7 +163,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	prevID := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset.Genesis.ID(),
-		ScriptKey: *genesisAsset.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
 	}
 	newAsset := genesisAsset.Copy()
 	newAsset.ScriptKey = asset.NewScriptKey(randKey(t).PubKey())
@@ -215,12 +216,12 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	prevID1 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset1.Genesis.ID(),
-		ScriptKey: *genesisAsset1.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(genesisAsset1.ScriptKey.PubKey),
 	}
 	prevID2 := &asset.PrevID{
 		OutPoint:  genesisOutPoint,
 		ID:        genesisAsset2.Genesis.ID(),
-		ScriptKey: *genesisAsset2.ScriptKey.PubKey,
+		ScriptKey: asset.ToSerialized(genesisAsset2.ScriptKey.PubKey),
 	}
 
 	newAsset := genesisAsset1.Copy()
@@ -268,19 +269,19 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	rootLocator := &commitment.SplitLocator{
 		OutputIndex: 0,
 		AssetID:     assetID,
-		ScriptKey:   *genesisAsset.ScriptKey.PubKey,
+		ScriptKey:   asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
 		Amount:      1,
 	}
 	externalLocators := []*commitment.SplitLocator{{
 		OutputIndex: 1,
 		AssetID:     assetID,
-		ScriptKey:   *randKey(t).PubKey(),
+		ScriptKey:   asset.ToSerialized(randKey(t).PubKey()),
 		Amount:      1,
 	}, {
 
 		OutputIndex: 2,
 		AssetID:     assetID,
-		ScriptKey:   *randKey(t).PubKey(),
+		ScriptKey:   asset.ToSerialized(randKey(t).PubKey()),
 		Amount:      1,
 	}}
 	splitCommitment, err := commitment.NewSplitCommitment(
