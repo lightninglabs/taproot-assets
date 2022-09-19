@@ -226,6 +226,15 @@ func TestProofEncoding(t *testing.T) {
 						SiblingPreimage: []byte{2},
 						SiblingType:     LeafPreimage,
 					},
+					BIP86: true,
+				},
+			},
+			{
+				OutputIndex:     4,
+				InternalKey:     randPubKey(t),
+				CommitmentProof: nil,
+				TapscriptProof: &TapscriptProof{
+					BIP86: true,
 				},
 			},
 		},

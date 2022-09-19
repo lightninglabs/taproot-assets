@@ -32,7 +32,7 @@ var (
 	ErrInvalidTapscriptProof = errors.New("invalid tapscript proof")
 )
 
-// TapscriptPreimageType denotes the type of a tapscript sibling preimage.
+// TapscriptPreimageType denotes the type of tapscript sibling preimage.
 type TapscriptPreimageType uint8
 
 const (
@@ -42,11 +42,9 @@ const (
 	// BranchPreimage is a pre-image that's a branch, so it's actually
 	// 64-bytes of two child pre-images.
 	BranchPreimage TapscriptPreimageType = 1
-
-	// TODO(roasbeef): add a BIP 86 type??
 )
 
-// String returns a human readable string for the TapscriptPreimageType.
+// String returns a human-readable string for the TapscriptPreimageType.
 func (t TapscriptPreimageType) String() string {
 	switch t {
 	case LeafPreimage:
@@ -60,7 +58,7 @@ func (t TapscriptPreimageType) String() string {
 	}
 }
 
-// TapSiblingPreimage wraps a pre-image byte slice with a type byte that self
+// TapscriptPreimage wraps a pre-image byte slice with a type byte that self
 // identifies what type of pre-image it is.
 type TapscriptPreimage struct {
 	// SiblingPreimage is the pre-image itself. This will be either 32 or
@@ -148,19 +146,26 @@ type TapscriptProof struct {
 	// TapPreimage2, if specified, is the pair preimage for TapPreimage1 at
 	// depth 1.
 	TapPreimage2 *TapscriptPreimage
+
+	// BIP86 indicates this is a normal BIP-86 wallet output (likely a
+	// change output) that does not commit to any script or Taro root.
+	BIP86 bool
 }
 
 // EncodeRecords returns the encoding records for TapscriptProof.
 func (p TapscriptProof) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 2)
-	records = append(records, TapscriptProofTapPreimage1Record(
-		&p.TapPreimage1,
-	))
-	if len(p.TapPreimage2.SiblingPreimage) > 0 {
+	records := make([]tlv.Record, 0, 3)
+	if p.TapPreimage1 != nil && len(p.TapPreimage1.SiblingPreimage) > 0 {
+		records = append(records, TapscriptProofTapPreimage1Record(
+			&p.TapPreimage1,
+		))
+	}
+	if p.TapPreimage2 != nil && len(p.TapPreimage2.SiblingPreimage) > 0 {
 		records = append(records, TapscriptProofTapPreimage2Record(
 			&p.TapPreimage2,
 		))
 	}
+	records = append(records, TapscriptProofBIP86Record(&p.BIP86))
 	return records
 }
 
@@ -169,6 +174,7 @@ func (p *TapscriptProof) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		TapscriptProofTapPreimage1Record(&p.TapPreimage1),
 		TapscriptProofTapPreimage2Record(&p.TapPreimage2),
+		TapscriptProofBIP86Record(&p.BIP86),
 	}
 }
 
@@ -208,8 +214,8 @@ type TaprootProof struct {
 	// TapscriptProof represents a taproot control block to prove that a
 	// taproot output is not committing to a Taro commitment.
 	//
-	// This field will be set only if the output does NOT contains a valid
-	// Taro commitment.
+	// NOTE: This field will be set only if the output does NOT contain a
+	// valid Taro commitment.
 	TapscriptProof *TapscriptProof
 }
 
@@ -410,7 +416,7 @@ func (p TaprootProof) DeriveByAssetInclusion(
 // exists within the TaroCommitment.
 //
 // There are at most two possible keys to try if each leaf preimage matches the
-// length of a branch preimage. However based on the type of the sibling
+// length of a branch preimage. However, based on the type of the sibling
 // pre-image we'll derive just a single version of it.
 func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	taroCommitmentKey [32]byte) (*btcec.PublicKey, error) {
@@ -458,13 +464,13 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 // backing a taproot output that does not include a Taro commitment.
 //
 // There are at most two possible keys to try if each leaf preimage matches the
-// length of a branch preimage. However based on the annotated type
+// length of a branch preimage. However, based on the annotated type
 // information, we only need to derive a single expected key.
 func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 	*btcec.PublicKey, error) {
 
-	var tapscriptRoot chainhash.Hash
-	// There're 3 possible cases for tapscript exclusion proofs:
+	var tapscriptRoot []byte
+	// There're 4 possible cases for tapscript exclusion proofs:
 	switch {
 	// Two pre-images are specified, and both of the pre-images are leaf
 	// hashes. In this case, the tapscript tree has two elements, with both
@@ -482,20 +488,22 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 			return nil, err
 		}
 
-		tapscriptRoot = newTapBranchHash(*leafHash1, *leafHash2)
+		rootHash := newTapBranchHash(*leafHash1, *leafHash2)
+		tapscriptRoot = rootHash[:]
 
 	// Two pre-images are specified, with both of the pre-images being a
-	// branch. In this case, we don't know how manay elements the tree has,
+	// branch. In this case, we don't know how many elements the tree has,
 	// we just care that these are actually branches and the hash up
 	// correctly.
 	case !p.TapPreimage1.IsEmpty() && !p.TapPreimage2.IsEmpty() &&
 		p.TapPreimage1.SiblingType == BranchPreimage &&
 		p.TapPreimage2.SiblingType == BranchPreimage:
 
-		tapscriptRoot = newTapBranchHash(
+		rootHash := newTapBranchHash(
 			*tapBranchHash(p.TapPreimage1.SiblingPreimage),
 			*tapBranchHash(p.TapPreimage2.SiblingPreimage),
 		)
+		tapscriptRoot = rootHash[:]
 
 	// Two pre-images are specified, with one of them being a leaf and the
 	// other being a branch. In this case, we have an un-balanced tapscript
@@ -512,9 +520,10 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 
 		branchHash := tapBranchHash(p.TapPreimage2.SiblingPreimage)
 
-		tapscriptRoot = newTapBranchHash(
+		rootHash := newTapBranchHash(
 			*leafHash, *branchHash,
 		)
+		tapscriptRoot = rootHash[:]
 
 	// Only a single pre-image was specified, and the pre-image is a leaf.
 	case !p.TapPreimage1.IsEmpty() &&
@@ -525,35 +534,28 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 			return nil, err
 		}
 
-		tapscriptRoot = *tapHash
+		tapscriptRoot = tapHash[:]
+
+	// This is a BIP-86 change output that doesn't commit to any root hash.
+	case p.BIP86:
+		tapscriptRoot = []byte{}
 
 	default:
 		// TODO(roasbeef): revisit
 		return nil, fmt.Errorf("invalid tapscript pre-images: "+
-			"%v + %v", spew.Sdump(p.TapPreimage1),
-			spew.Sdump(p.TapPreimage2))
+			"%v + %v (bip86=%v)", spew.Sdump(p.TapPreimage1),
+			spew.Sdump(p.TapPreimage2), p.BIP86)
 	}
 
 	// Now that we have the expected tapscript root, we'll derive our
 	// expected tapscript root.
-	//
-	// TODO(roasbeef): doesn't account for bip 86? need to make
-	// explicit?
 	taprootKey := txscript.ComputeTaprootOutputKey(
-		internalKey, tapscriptRoot[:],
+		internalKey, tapscriptRoot,
 	)
 
-	var err error
 	// TODO(roasbeef): same here -- just need to verify as actual
 	// control block proof?
-	taprootKey, err = schnorr.ParsePubKey(
-		schnorr.SerializePubKey(taprootKey),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return taprootKey, nil
+	return schnorr.ParsePubKey(schnorr.SerializePubKey(taprootKey))
 }
 
 // DeriveByTapscriptProof derives the possible taproot keys from a
@@ -561,7 +563,7 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 // commitment.
 //
 // NOTE: There are at most two possible keys to try if each leaf preimage
-// matches the length of a branch preimage. However we can derive only the one
+// matches the length of a branch preimage. However, we can derive only the one
 // specified in the contained proof.
 func (p TaprootProof) DeriveByTapscriptProof() (*btcec.PublicKey, error) {
 	if p.CommitmentProof != nil || p.TapscriptProof == nil {

@@ -422,3 +422,28 @@ func TapscriptPreimageDecoder(r io.Reader, val any, buf *[8]byte,
 
 	return tlv.NewTypeForDecodingErr(val, "*TapscriptPreimage", l, l)
 }
+
+func BoolEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*bool); ok {
+		var intVal uint8
+		if t != nil && *t {
+			intVal = 1
+		}
+
+		return tlv.EUint8(w, &intVal, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "bool")
+}
+
+func BoolDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*bool); ok {
+		var intVal uint8
+		if err := tlv.DUint8(r, &intVal, buf, l); err != nil {
+			return err
+		}
+
+		*typ = intVal == 1
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "bool")
+}

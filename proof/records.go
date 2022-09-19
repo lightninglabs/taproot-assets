@@ -33,6 +33,7 @@ const (
 
 	TapscriptProofTapPreimage1 tlv.Type = 0
 	TapscriptProofTapPreimage2 tlv.Type = 1
+	TapscriptProofBIP86        tlv.Type = 2
 
 	AssetProofVersionType tlv.Type = 0
 	AssetProofAssetIDType tlv.Type = 1
@@ -243,6 +244,12 @@ func TapscriptProofTapPreimage2Record(preimage **TapscriptPreimage) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage2, preimage,
 		sizeFunc, TapscriptPreimageEncoder, TapscriptPreimageDecoder,
+	)
+}
+
+func TapscriptProofBIP86Record(bip86 *bool) tlv.Record {
+	return tlv.MakeStaticRecord(
+		TapscriptProofBIP86, bip86, 1, BoolEncoder, BoolDecoder,
 	)
 }
 
