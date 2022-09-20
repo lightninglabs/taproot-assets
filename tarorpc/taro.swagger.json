@@ -619,14 +619,14 @@
       "type": "object",
       "properties": {
         "asset_balances": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/tarorpcAssetBalance"
           }
         },
         "asset_family_balances": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/tarorpcAssetFamilyBalance"
           }
         }
