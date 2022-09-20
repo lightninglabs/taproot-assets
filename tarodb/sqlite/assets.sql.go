@@ -1255,77 +1255,48 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 }
 
 const queryAssets = `-- name: QueryAssets :many
-WITH genesis_info AS (
-    -- This CTE is used to fetch the base asset information from disk based on
-    -- the raw key of the batch that will ultimately create this set of assets.
-    -- To do so, we'll need to traverse a few tables to join the set of assets
-    -- with the genesis points, then with the batches that reference this
-    -- points, to the internal key that reference the batch, then restricted
-    -- for internal keys that match our main batch key.
-    SELECT
-        gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
-        genesis_points.prev_out prev_out
-    FROM genesis_assets
-    JOIN genesis_points
-        ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-    -- This filter only runs if the asset_id_filter arg was passed in. This
-    -- lets us fetch only the assets for this particular asset ID.
-    WHERE length(hex($3)) == 0 OR genesis_assets.asset_id = $3
-), key_fam_info AS (
-    -- This CTE is used to perform a series of joins that allow us to extract
-    -- the family key information, as well as the family sigs for the series of
-    -- assets we care about. We obtain only the assets found in the batch
-    -- above, with the WHERE query at the bottom.
-    SELECT 
-        sig_id, gen_asset_id, genesis_sig, tweaked_fam_key, raw_key, key_index, key_family
-    FROM asset_family_sigs sigs
-    JOIN asset_families fams
-        ON sigs.key_fam_id = fams.family_id
-    JOIN internal_keys keys
-        ON keys.key_id = fams.internal_key_id
-    -- TODO(roasbeef): or can join do this below?
-    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info) AND
-        -- This filter only runs if the asset_id_filter arg was passed in. This
-        -- lets us fetch only the assets for this particular key family.
-       (length(hex($4)) == 0 OR fams.tweaked_fam_key = $4)
-)
-SELECT 
+SELECT
     assets.asset_id, version, script_keys.tweak AS script_key_tweak, 
     script_keys.tweaked_script_key, 
     internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
-    key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
-    key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
+    internal_keys.key_index AS script_key_index, key_fam_info_view.genesis_sig, 
+    key_fam_info_view.tweaked_fam_key, key_fam_info_view.raw_key AS fam_key_raw,
+    key_fam_info_view.key_family AS fam_key_family, key_fam_info_view.key_index AS fam_key_index,
     script_version, amount, lock_time, relative_lock_time, 
-    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_data, 
-    genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
-    genesis_info.prev_out AS genesis_prev_out,
+    genesis_info_view.asset_id, genesis_info_view.asset_tag, genesis_info_view.meta_data, 
+    genesis_info_view.output_index AS genesis_output_index, genesis_info_view.asset_type,
+    genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint
 FROM assets
-JOIN genesis_info
-    ON assets.asset_id = genesis_info.gen_asset_id
-LEFT JOIN key_fam_info
-    ON assets.asset_id = key_fam_info.gen_asset_id
+JOIN genesis_info_view
+    ON assets.asset_id = genesis_info_view.gen_asset_id AND
+        (length(hex($1)) == 0 OR 
+            genesis_info_view.asset_id = $1)
+LEFT JOIN key_fam_info_view
+    ON assets.asset_id = key_fam_info_view.gen_asset_id AND
+        (length(hex($2)) == 0 OR 
+            key_fam_info_view.tweaked_fam_key = $2)
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
-        (length(hex($1)) == 0 OR utxos.outpoint = $1)
+        (length(hex($3)) == 0 OR 
+            utxos.outpoint = $3)
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
-    assets.amount >= COALESCE($2, assets.amount)
+    assets.amount >= COALESCE($4, assets.amount)
 )
 `
 
 type QueryAssetsParams struct {
-	AnchorPoint   interface{}
-	MinAmt        sql.NullInt64
 	AssetIDFilter interface{}
 	KeyFamFilter  interface{}
+	AnchorPoint   interface{}
+	MinAmt        sql.NullInt64
 }
 
 type QueryAssetsRow struct {
@@ -1357,7 +1328,6 @@ type QueryAssetsRow struct {
 	AnchorOutpoint     []byte
 }
 
-// TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
 // generate rows that have NULL values for the family key fields if an asset
 // doesn't have a family key. See the comment in fetchAssetSprouts for a work
@@ -1368,10 +1338,10 @@ type QueryAssetsRow struct {
 // specified.
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssets,
-		arg.AnchorPoint,
-		arg.MinAmt,
 		arg.AssetIDFilter,
 		arg.KeyFamFilter,
+		arg.AnchorPoint,
+		arg.MinAmt,
 	)
 	if err != nil {
 		return nil, err

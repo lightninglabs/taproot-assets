@@ -15,3 +15,5 @@ DROP TABLE IF EXISTS asset_witnesses;
 DROP TABLE IF EXISTS asset_seedlings;
 DROP TABLE IF EXISTS asset_minting_batches;
 DROP INDEX IF EXISTS batch_state_lookup;
+DROP VIEW IF EXISTS genesis_info_view;
+DROP VIEW IF EXISTS key_fam_info_view;
