@@ -185,7 +185,9 @@ CREATE TABLE IF NOT EXISTS asset_witnesses (
 
     prev_script_key BLOB NOT NULL,
 
-    witness_stack BLOB NOT NULL,
+    -- The witness stack can be NULL for genesis assets where (for now) they
+    -- have no witnesses, but we use this to be able to detect them as such.
+    witness_stack BLOB,
 
     split_commitment_proof BLOB
 );
