@@ -1248,6 +1248,102 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 	return err
 }
 
+const queryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
+SELECT
+    genesis_info_view.asset_id, SUM(amount) balance,
+    genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type
+FROM assets
+JOIN genesis_info_view
+    ON assets.asset_id = genesis_info_view.gen_asset_id AND
+        (length(hex($1)) == 0 OR genesis_info_view.asset_id = $1)
+LEFT JOIN key_fam_info_view
+    ON assets.asset_id = key_fam_info_view.gen_asset_id
+GROUP BY assets.asset_id
+`
+
+type QueryAssetBalancesByAssetRow struct {
+	AssetID   []byte
+	Balance   int64
+	AssetTag  string
+	MetaData  []byte
+	AssetType int16
+}
+
+// We use a LEFT JOIN here as not every asset has a family key, so this'll
+// generate rows that have NULL values for the family key fields if an asset
+// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+// around that needs to be used with this query until a sqlc bug is fixed.
+func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter interface{}) ([]QueryAssetBalancesByAssetRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByAsset, assetIDFilter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetBalancesByAssetRow
+	for rows.Next() {
+		var i QueryAssetBalancesByAssetRow
+		if err := rows.Scan(
+			&i.AssetID,
+			&i.Balance,
+			&i.AssetTag,
+			&i.MetaData,
+			&i.AssetType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryAssetBalancesByFamily = `-- name: QueryAssetBalancesByFamily :many
+SELECT
+    key_fam_info_view.tweaked_fam_key, SUM(amount) balance
+FROM assets
+LEFT JOIN key_fam_info_view
+    ON assets.asset_id = key_fam_info_view.gen_asset_id AND
+        (length(hex($1)) == 0 OR key_fam_info_view.tweaked_fam_key = $1)
+GROUP BY key_fam_info_view.tweaked_fam_key
+`
+
+type QueryAssetBalancesByFamilyRow struct {
+	TweakedFamKey []byte
+	Balance       int64
+}
+
+// We use a LEFT JOIN here as not every asset has a family key, so this'll
+// generate rows that have NULL values for the family key fields if an asset
+// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+// around that needs to be used with this query until a sqlc bug is fixed.
+func (q *Queries) QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByFamily, keyFamFilter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetBalancesByFamilyRow
+	for rows.Next() {
+		var i QueryAssetBalancesByFamilyRow
+		if err := rows.Scan(&i.TweakedFamKey, &i.Balance); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const queryAssets = `-- name: QueryAssets :many
 SELECT
     assets.asset_id, version, internal_keys.raw_key AS script_key_raw,
