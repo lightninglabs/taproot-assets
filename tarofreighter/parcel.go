@@ -202,3 +202,54 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 	return err
 
 }
+
+// deliverResponse...
+func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
+	oldRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
+
+	respChan <- &PendingParcel{
+		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
+		TransferTx:     s.OutboundPkg.AnchorTx,
+		OldTaroRoot:    oldRoot[:],
+		NewTaroRoot:    s.OutboundPkg.TaroRoot,
+		AssetInputs: []AssetInput{
+			{
+				PrevID: s.InputAssetPrevID,
+				Amount: btcutil.Amount(
+					s.InputAsset.Asset.Amount,
+				),
+			},
+		},
+		AssetOutputs: []AssetOutput{
+			{
+				AssetInput: AssetInput{
+					PrevID: asset.PrevID{
+						OutPoint: s.OutboundPkg.NewAnchorPoint,
+						ID:       s.ReceiverAddr.ID,
+						ScriptKey: asset.ToSerialized(
+							s.OutboundPkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
+						),
+					},
+					Amount: btcutil.Amount(
+						s.OutboundPkg.AssetSpendDeltas[0].NewAmt,
+					),
+				},
+			},
+			{
+				AssetInput: AssetInput{
+					PrevID: asset.PrevID{
+						OutPoint: s.OutboundPkg.NewAnchorPoint,
+						ID:       s.ReceiverAddr.ID,
+						ScriptKey: asset.ToSerialized(
+							&s.ReceiverAddr.ScriptKey,
+						),
+					},
+					Amount: btcutil.Amount(
+						s.ReceiverAddr.Amount,
+					),
+				},
+			},
+		},
+		TotalFees: 0,
+	}
+}

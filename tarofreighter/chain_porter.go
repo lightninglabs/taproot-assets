@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -184,6 +183,10 @@ func (p *ChainPorter) taroPorter() {
 				continue
 			}
 
+			// With the transaction broadcast, we'll deliver a
+			// a response back to the original caller.
+			sendPkg.deliverResponse(req.respChan)
+
 			// Now that we broadcaster the transaction, we'll
 			// create a goroutine that'll wait for the confirmation
 			// then update everything on disk.
@@ -274,57 +277,6 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		log.Error(err)
 
 		req.errChan <- err
-	}
-
-	// TODO(roasbeef): this info isn't available on restart yet -- likely
-	// should add the additional information
-	//
-	//oldRoot := pkg.InputAsset.Commitment.TapscriptRoot(nil)
-
-	req.respChan <- &PendingParcel{
-		NewAnchorPoint: pkg.NewAnchorPoint,
-		TransferTx:     pkg.AnchorTx,
-		//OldTaroRoot:    oldRoot[:],
-		NewTaroRoot: pkg.TaroRoot,
-		AssetInputs: []AssetInput{
-			{
-				//PrevID: pkg.InputAssetPrevID,
-				//Amount: btcutil.Amount(
-				//	pkg.InputAsset.Asset.Amount,
-				//),
-			},
-		},
-		AssetOutputs: []AssetOutput{
-			{
-				AssetInput: AssetInput{
-					PrevID: asset.PrevID{
-						OutPoint: pkg.NewAnchorPoint,
-						//ID:       pkg.ReceiverAddr.ID,
-						ScriptKey: asset.ToSerialized(
-							pkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
-						),
-					},
-					Amount: btcutil.Amount(
-						pkg.AssetSpendDeltas[0].NewAmt,
-					),
-				},
-			},
-			{
-				AssetInput: AssetInput{
-					PrevID: asset.PrevID{
-						OutPoint: pkg.NewAnchorPoint,
-						//ID:       pkg.ReceiverAddr.ID,
-						//ScriptKey: asset.ToSerialized(
-						//&pkg.ReceiverAddr.ScriptKey,
-						//),
-					},
-					//Amount: btcutil.Amount(
-					//pkg.ReceiverAddr.Amount,
-					//),
-				},
-			},
-		},
-		TotalFees: 0,
 	}
 
 	return
