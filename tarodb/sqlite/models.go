@@ -121,6 +121,16 @@ type GenesisAsset struct {
 	GenesisPointID int32
 }
 
+type GenesisInfoView struct {
+	GenAssetID  int32
+	AssetID     []byte
+	AssetTag    string
+	MetaData    []byte
+	OutputIndex int32
+	AssetType   int16
+	PrevOut     []byte
+}
+
 type GenesisPoint struct {
 	GenesisID  int32
 	PrevOut    []byte
@@ -132,6 +142,16 @@ type InternalKey struct {
 	RawKey    []byte
 	KeyFamily int32
 	KeyIndex  int32
+}
+
+type KeyFamInfoView struct {
+	SigID         int32
+	GenAssetID    int32
+	GenesisSig    []byte
+	TweakedFamKey []byte
+	RawKey        []byte
+	KeyIndex      int32
+	KeyFamily     int32
 }
 
 type Macaroon struct {
