@@ -186,6 +186,7 @@ func (b *BatchCaretaker) taroCultivator() {
 		}
 
 		b.cfg.SignalCompletion()
+		return
 	}
 
 	// Our task as a cultivator is pretty simple: we advance our state
