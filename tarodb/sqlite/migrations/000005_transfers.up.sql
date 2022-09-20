@@ -22,5 +22,9 @@ CREATE TABLE IF NOT EXISTS asset_deltas (
 
     serialized_witnesses BLOB NOT NULL,
 
+    split_commitment_root_hash BLOB,
+
+    split_commitment_root_value BIGINT,
+
     transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id)
 );

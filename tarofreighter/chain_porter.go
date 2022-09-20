@@ -702,6 +702,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		//
 		// TODO(roasbeef); need to update proof file information,
 		// ideally the db doesn't do this directly
+		newAsset := currentPkg.SendDelta.NewAsset
 		currentPkg.OutboundPkg = &OutboundParcelDelta{
 			OldAnchorPoint: currentPkg.InputAssetPrevID.OutPoint,
 			NewAnchorPoint: wire.OutPoint{
@@ -713,10 +714,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			AnchorTx:       currentPkg.TransferTx,
 			AssetSpendDeltas: []AssetSpendDelta{
 				{
-					OldScriptKey: *currentPkg.InputAsset.Asset.ScriptKey.PubKey,
-					NewAmt:       currentPkg.SendDelta.NewAsset.Amount,
-					NewScriptKey: currentPkg.SenderScriptKey,
-					WitnessData:  currentPkg.SendDelta.NewAsset.PrevWitnesses,
+					OldScriptKey:        *currentPkg.InputAsset.Asset.ScriptKey.PubKey,
+					NewAmt:              newAsset.Amount,
+					NewScriptKey:        currentPkg.SenderScriptKey,
+					WitnessData:         newAsset.PrevWitnesses,
+					SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
 				},
 			},
 			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,

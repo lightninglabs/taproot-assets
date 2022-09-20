@@ -726,6 +726,9 @@ func TestAssetExportLog(t *testing.T) {
 	})
 	newAmt := 9
 
+	newRootHash := sha256.Sum256([]byte("kek"))
+	newRootValue := uint64(100)
+
 	// With the assets inserted, we'll now construct the struct we'll used
 	// to commit a new spend on disk.
 	anchorTxHash := newAnchorTx.TxHash()
@@ -756,6 +759,9 @@ func TestAssetExportLog(t *testing.T) {
 				OldScriptKey: *targetScriptKey.PubKey,
 				NewAmt:       uint64(newAmt),
 				NewScriptKey: newScriptKey,
+				SplitCommitmentRoot: mssmt.NewComputedNode(
+					newRootHash, newRootValue,
+				),
 			},
 		},
 	}

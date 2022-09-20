@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS assets (
 
     relative_lock_time INTEGER,
 
-    -- TODO(roasbeef): new table?
+    -- TODO(roasbeef): move into new table, then 1:1 in the new table
     split_commitment_root_hash BLOB,
 
     split_commitment_root_value BIGINT,

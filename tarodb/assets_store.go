@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 	"github.com/lightninglabs/taro/tarofreighter"
@@ -1257,6 +1258,10 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				return fmt.Errorf("unable to encode witness: %w", err)
 			}
 
+			newCommitRoot := assetDelta.SplitCommitmentRoot
+			splitRootHash := newCommitRoot.NodeHash()
+			splitRootSum := newCommitRoot.NodeSum()
+
 			// Before we can insert the asset delta, we need to
 			// insert the new script key on disk.
 			rawScriptKey := assetDelta.NewScriptKey.RawKey
@@ -1279,11 +1284,16 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 					"key: %w", err)
 			}
 			err = q.InsertAssetDelta(ctx, NewAssetDelta{
-				OldScriptKey:        assetDelta.OldScriptKey.SerializeCompressed(),
-				NewAmt:              int64(assetDelta.NewAmt),
-				NewScriptKey:        scriptKeyID,
-				SerializedWitnesses: witnessBuf.Bytes(),
-				TransferID:          transferID,
+				OldScriptKey:            assetDelta.OldScriptKey.SerializeCompressed(),
+				NewAmt:                  int64(assetDelta.NewAmt),
+				NewScriptKey:            scriptKeyID,
+				SerializedWitnesses:     witnessBuf.Bytes(),
+				TransferID:              transferID,
+				SplitCommitmentRootHash: splitRootHash[:],
+				SplitCommitmentRootValue: sql.NullInt64{
+					Int64: int64(splitRootSum),
+					Valid: true,
+				},
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
@@ -1344,9 +1354,11 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// First, we'll apply the spend delta to update the
 			// amount and script key of all assets.
 			assetIDKey, err := q.ApplySpendDelta(ctx, AssetSpendDelta{
-				NewAmount:      int64(assetDelta.NewAmt),
-				OldScriptKey:   assetDelta.OldScriptKey,
-				NewScriptKeyID: assetDelta.NewScriptKeyID,
+				NewAmount:                int64(assetDelta.NewAmt),
+				OldScriptKey:             assetDelta.OldScriptKey,
+				NewScriptKeyID:           assetDelta.NewScriptKeyID,
+				SplitCommitmentRootHash:  assetDelta.SplitCommitmentRootHash,
+				SplitCommitmentRootValue: assetDelta.SplitCommitmentRootValue,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to update "+
@@ -1477,6 +1489,9 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 					return err
 				}
 
+				var splitRootHash mssmt.NodeHash
+				copy(splitRootHash[:], delta.SplitCommitmentRootHash)
+
 				spendDeltas[i] = tarofreighter.AssetSpendDelta{
 					OldScriptKey: *oldScriptKey,
 					NewAmt:       uint64(delta.NewAmt),
@@ -1495,6 +1510,10 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 							Tweak: delta.ScriptKeyTweak,
 						},
 					},
+					SplitCommitmentRoot: mssmt.NewComputedNode(
+						splitRootHash,
+						uint64(delta.SplitCommitmentRootValue.Int64),
+					),
 					WitnessData: nil,
 				}
 			}

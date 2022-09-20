@@ -50,12 +50,14 @@ type Asset struct {
 }
 
 type AssetDelta struct {
-	ID                  int32
-	OldScriptKey        []byte
-	NewAmt              int64
-	NewScriptKey        int32
-	SerializedWitnesses []byte
-	TransferID          int32
+	ID                       int32
+	OldScriptKey             []byte
+	NewAmt                   int64
+	NewScriptKey             int32
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	TransferID               int32
 }
 
 type AssetFamily struct {

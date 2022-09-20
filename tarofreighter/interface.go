@@ -91,6 +91,10 @@ type AssetSpendDelta struct {
 
 	// WitnessData is the new witness data for this asset.
 	WitnessData []asset.Witness
+
+	// SplitCommitmentRoot is the root split commitment for this asset.
+	// This will only be set if a split was required to complete the send.
+	SplitCommitmentRoot mssmt.Node
 }
 
 // OutboundParcelDelta represents the database level delta of an outbound taro

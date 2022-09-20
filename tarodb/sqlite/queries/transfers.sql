@@ -7,9 +7,10 @@ INSERT INTO asset_transfers (
 
 -- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
-    old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id
+    old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
+    split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?
 );
 
 -- name: QueryAssetTransfers :many
@@ -52,7 +53,8 @@ SELECT
     internal_keys.raw_key AS new_raw_script_key_bytes,
     internal_keys.key_family AS new_script_key_family, 
     internal_keys.key_index AS new_script_key_index,
-    deltas.serialized_witnesses
+    deltas.serialized_witnesses, split_commitment_root_hash, 
+    split_commitment_root_value
 FROM asset_deltas deltas
 JOIN script_keys
     ON deltas.new_script_key = script_keys.script_key_id
@@ -79,7 +81,9 @@ WITH old_script_key_id AS (
     WHERE tweaked_script_key = @old_script_key
 )
 UPDATE assets
-SET amount = @new_amount, script_key_id = @new_script_key_id
+SET amount = @new_amount, script_key_id = @new_script_key_id, 
+    split_commitment_root_hash = @split_commitment_root_hash,
+    split_commitment_root_value = @split_commitment_root_value
 WHERE script_key_id in (SELECT script_key_id FROM old_script_key_id)
 RETURNING asset_id;
 
