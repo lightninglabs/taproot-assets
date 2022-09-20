@@ -473,7 +473,6 @@ func TestAddrEventCreation(t *testing.T) {
 		confirmTx(txns[idx])
 		events[idx].Status = address.StatusTransactionConfirmed
 		events[idx].ConfirmationHeight = uint32(txns[idx].BlockHeight)
-		events[idx].TapscriptSibling = nil
 
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionConfirmed,
