@@ -220,11 +220,7 @@ GROUP BY assets.asset_id;
 SELECT
     key_fam_info_view.tweaked_fam_key, SUM(amount) balance
 FROM assets
--- We use a LEFT JOIN here as not every asset has a family key, so this'll
--- generate rows that have NULL values for the family key fields if an asset
--- doesn't have a family key. See the comment in fetchAssetSprouts for a work
--- around that needs to be used with this query until a sqlc bug is fixed.
-LEFT JOIN key_fam_info_view
+JOIN key_fam_info_view
     ON assets.asset_id = key_fam_info_view.gen_asset_id AND
         (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter'))
 GROUP BY key_fam_info_view.tweaked_fam_key;

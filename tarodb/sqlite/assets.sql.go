@@ -1312,7 +1312,7 @@ const queryAssetBalancesByFamily = `-- name: QueryAssetBalancesByFamily :many
 SELECT
     key_fam_info_view.tweaked_fam_key, SUM(amount) balance
 FROM assets
-LEFT JOIN key_fam_info_view
+JOIN key_fam_info_view
     ON assets.asset_id = key_fam_info_view.gen_asset_id AND
         (length(hex($1)) == 0 OR key_fam_info_view.tweaked_fam_key = $1)
 GROUP BY key_fam_info_view.tweaked_fam_key
