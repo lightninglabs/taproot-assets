@@ -40,3 +40,6 @@ http:
     - selector: tarorpc.Taro.ImportProof
       post: "/v1/taro/proofs/import"
       body: "*"
+
+    - selector: tarorpc.Taro.ListBalances
+      get: "/v1/taro/assets/balance"

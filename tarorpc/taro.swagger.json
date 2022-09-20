@@ -191,6 +191,61 @@
         ]
       }
     },
+    "/v1/taro/assets/balance": {
+      "get": {
+        "summary": "ListBalances lists asset balances",
+        "operationId": "Taro_ListBalances",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcListBalancesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id",
+            "description": "Group results by asset IDs.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "fam_key",
+            "description": "Group results by family keys.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "asset_filter",
+            "description": "If the query results should grouped by asset ids, then an optional asset\nfilter may be provided to query balance of a specific asset.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "family_key_filter",
+            "description": "If the query results should be grouped by family keys, then an optional\nfamily key filter may be provided to query the balance of a specific\nasset family.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/debuglevel": {
       "post": {
         "summary": "tarocli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntarod. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
