@@ -103,7 +103,7 @@ func (m *MockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 	return pkt, nil
 }
 
-func (m *MockWalletAnchor) ImportPubKey(ctx context.Context,
+func (m *MockWalletAnchor) ImportTaprootOutput(ctx context.Context,
 	pub *btcec.PublicKey) (btcutil.Address, error) {
 
 	select {
@@ -185,12 +185,6 @@ func (m *MockWalletAnchor) ListTransactions(ctx context.Context, _, _ int32,
 	}
 
 	return m.Transactions, nil
-}
-
-func (m *MockWalletAnchor) ImportTaprootOutput(_ context.Context,
-	pub *btcec.PublicKey) error {
-
-	return nil
 }
 
 type MockChainBridge struct {

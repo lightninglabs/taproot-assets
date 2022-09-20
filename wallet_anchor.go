@@ -104,7 +104,7 @@ func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return addr, nil

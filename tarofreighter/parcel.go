@@ -1,7 +1,6 @@
 package tarofreighter
 
 import (
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -117,11 +116,8 @@ type sendPackage struct {
 	// SenderNewInternalKey...
 	SenderNewInternalKey keychain.KeyDescriptor
 
-	// SenderScriptKeyDesc...
-	SenderScriptKeyDesc keychain.KeyDescriptor
-
 	// SenderScriptKey...
-	SenderScriptKey *btcec.PublicKey
+	SenderScriptKey asset.ScriptKey
 
 	// TODO(jhb): optional SpendLocators
 	// TODO(jhb): map sender state key to PrevID?

@@ -248,9 +248,11 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
 			{
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
-						OutPoint:  pkg.OutboundPkg.NewAnchorPoint,
-						ID:        pkg.ReceiverAddr.ID,
-						ScriptKey: asset.ToSerialized(pkg.SenderScriptKey),
+						OutPoint: pkg.OutboundPkg.NewAnchorPoint,
+						ID:       pkg.ReceiverAddr.ID,
+						ScriptKey: asset.ToSerialized(
+							pkg.SenderScriptKey.PubKey,
+						),
 					},
 					Amount: btcutil.Amount(
 						pkg.OutboundPkg.AssetSpendDeltas[0].NewAmt,
@@ -454,7 +456,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		if err != nil {
 			return nil, err
 		}
-		currentPkg.SenderScriptKeyDesc, err = p.cfg.KeyRing.DeriveNextKey(
+		senderScriptKey, err := p.cfg.KeyRing.DeriveNextKey(
 			ctx, tarogarden.TaroKeyFamily,
 		)
 		if err != nil {
@@ -463,8 +465,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We'll assume BIP 86 everywhere, and use the tweaked key from
 		// here on out.
-		currentPkg.SenderScriptKey = txscript.ComputeTaprootKeyNoScript(
-			currentPkg.SenderScriptKeyDesc.PubKey,
+		currentPkg.SenderScriptKey = asset.NewScriptKeyBIP0086(
+			senderScriptKey,
 		)
 
 		// If we need to split (addr amount < input amount), then we'll
@@ -488,7 +490,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	case SendStatePreparedSplit:
 		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
 			*currentPkg.ReceiverAddr, currentPkg.InputAssetPrevID,
-			*currentPkg.SenderScriptKey, *currentPkg.SendDelta,
+			*currentPkg.SenderScriptKey.PubKey, *currentPkg.SendDelta,
 		)
 		if err != nil {
 			return nil, err
@@ -543,7 +545,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		spendCommitments, err := taroscript.CreateSpendCommitments(
 			currentPkg.InputAsset.Commitment,
 			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
-			*currentPkg.ReceiverAddr, *currentPkg.SenderScriptKey,
+			*currentPkg.ReceiverAddr,
+			*currentPkg.SenderScriptKey.PubKey,
 		)
 		if err != nil {
 			return nil, err
@@ -617,8 +620,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		err := taroscript.CreateSpendOutputs(
 			*currentPkg.ReceiverAddr, currentPkg.SendDelta.Locators,
 			*currentPkg.SenderNewInternalKey.PubKey,
-			*currentPkg.SenderScriptKey, currentPkg.NewOutputCommitments,
-			currentPkg.SendPkt,
+			*currentPkg.SenderScriptKey.PubKey,
+			currentPkg.NewOutputCommitments, currentPkg.SendPkt,
 		)
 		if err != nil {
 			return &currentPkg, err
@@ -661,7 +664,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Now we'll grab our new commitment, and also the output index
 		// to populate the log entry below.
 		senderCommitKey := asset.AssetCommitmentKey(
-			currentPkg.InputAssetPrevID.ID, currentPkg.SenderScriptKey,
+			currentPkg.InputAssetPrevID.ID,
+			currentPkg.SenderScriptKey.PubKey,
 			currentPkg.InputAsset.Asset.FamilyKey == nil,
 		)
 		newSenderCommitment := currentPkg.NewOutputCommitments[senderCommitKey]
@@ -706,7 +710,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				{
 					OldScriptKey: *currentPkg.InputAsset.Asset.ScriptKey.PubKey,
 					NewAmt:       currentPkg.SendDelta.NewAsset.Amount,
-					NewScriptKey: currentPkg.SenderScriptKeyDesc,
+					NewScriptKey: currentPkg.SenderScriptKey,
 				},
 			},
 			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
@@ -753,7 +757,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// import the new anchor output into the wallet so it watches
 		// it for spends and also takes account of the BTC we used in
 		// the transfer.
-		err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
+		_, err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
 		if err != nil {
 			return nil, err
 		}
