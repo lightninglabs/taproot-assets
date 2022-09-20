@@ -135,9 +135,8 @@ func NewBook(cfg BookConfig) *Book {
 }
 
 // NewAddress creates a new Taro address based on the input parameters.
-func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
-	famKey *btcec.PublicKey, amount uint64,
-	assetType asset.Type) (*AddrWithKeyInfo, error) {
+func (b *Book) NewAddress(ctx context.Context, genesis asset.Genesis,
+	famKey *btcec.PublicKey, amount uint64) (*AddrWithKeyInfo, error) {
 
 	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
@@ -155,8 +154,8 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	}
 
 	baseAddr, err := New(
-		assetID, famKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
-		amount, assetType, &b.cfg.Chain,
+		genesis, famKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
+		amount, &b.cfg.Chain,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)

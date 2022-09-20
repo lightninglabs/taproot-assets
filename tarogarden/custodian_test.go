@@ -189,8 +189,8 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 
 	genesis := asset.RandGenesis(t, assetType)
 	taro, err := address.New(
-		genesis.ID(), familyKey, *scriptKey.PubKey, pubKeyCopy2, amount,
-		assetType, &address.RegressionNetTaro,
+		genesis, familyKey, *scriptKey.PubKey, pubKeyCopy2, amount,
+		&address.RegressionNetTaro,
 	)
 	require.NoError(t, err)
 
@@ -281,7 +281,7 @@ func TestCustodianNewAddr(t *testing.T) {
 	ctx := context.Background()
 	addr := randAddr(t)
 	dbAddr, err := h.addrBook.NewAddress(
-		ctx, addr.ID, addr.FamilyKey, addr.Amount, addr.Type,
+		ctx, addr.Genesis, addr.FamilyKey, addr.Amount,
 	)
 	require.NoError(t, err)
 

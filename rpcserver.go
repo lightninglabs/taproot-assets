@@ -321,24 +321,31 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	for i, asset := range assets {
 		assetID := asset.Genesis.ID()
 
+		var bootstrapInfoBuf bytes.Buffer
+		if err := asset.Genesis.Encode(&bootstrapInfoBuf); err != nil {
+			return nil, fmt.Errorf("unable to encode genesis: %w",
+				err)
+		}
+
 		var anchorTxBytes []byte
 		if asset.AnchorTx != nil {
 			var anchorTxBuf bytes.Buffer
 			err := asset.AnchorTx.Serialize(&anchorTxBuf)
 			if err != nil {
 				return nil, fmt.Errorf("unable to serialize "+
-					"anchor tx: %v", err)
+					"anchor tx: %w", err)
 			}
 			anchorTxBytes = anchorTxBuf.Bytes()
 		}
 		rpcAssets[i] = &tarorpc.Asset{
 			Version: int32(asset.Version),
 			AssetGenesis: &tarorpc.GenesisInfo{
-				GenesisPoint: asset.Genesis.FirstPrevOut.String(),
-				Name:         asset.Genesis.Tag,
-				Meta:         asset.Genesis.Metadata,
-				AssetId:      assetID[:],
-				OutputIndex:  asset.Genesis.OutputIndex,
+				GenesisPoint:         asset.Genesis.FirstPrevOut.String(),
+				Name:                 asset.Genesis.Tag,
+				Meta:                 asset.Genesis.Metadata,
+				AssetId:              assetID[:],
+				OutputIndex:          asset.Genesis.OutputIndex,
+				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
 			},
 			AssetType:        tarorpc.AssetType(asset.Type),
 			Amount:           int64(asset.Amount),
@@ -543,16 +550,21 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		}
 	}
 
-	var assetID asset.ID
-	copy(assetID[:], in.AssetId)
+	genReader := bytes.NewReader(in.GenesisBootstrapInfo)
+	genesis, err := asset.DecodeGenesis(genReader)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode genesis bootstrap "+
+			"info: %w", err)
+	}
 
-	rpcsLog.Infof("[NewTaroAddr]: making new addr: asset_id=%x, amt=%v, type=%v",
-		assetID, in.Amt, asset.Type(in.AssetType))
+	assetID := genesis.ID()
+	rpcsLog.Infof("[NewTaroAddr]: making new addr: asset_id=%x, amt=%v, "+
+		"type=%v", assetID[:], in.Amt, asset.Type(in.AssetType))
 
 	// Now that we have all the params, we'll try to add a new address to
 	// the addr book.
 	addr, err := r.cfg.AddrBook.NewAddress(
-		ctx, assetID, famKey, uint64(in.Amt), asset.Type(in.AssetType),
+		ctx, genesis, famKey, uint64(in.Amt),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
@@ -746,9 +758,10 @@ func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 			err)
 	}
 
+	id := addr.ID()
 	rpcAddr := &tarorpc.Addr{
 		Encoded:          addrStr,
-		AssetId:          addr.ID[:],
+		AssetId:          id[:],
 		AssetType:        tarorpc.AssetType(addr.Type),
 		Amount:           int64(addr.Amount),
 		ScriptKey:        addr.ScriptKey.SerializeCompressed(),

@@ -135,18 +135,17 @@ func initSpendScenario(t *testing.T) spendData {
 	// Addesses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
 	address1, err := address.New(
-		state.genesis1.ID(), nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt1,
-		asset.Normal, &address.MainNetTaro,
+		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
+		state.normalAmt1, &address.MainNetTaro,
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
 	state.address1StateKey = state.address1.AssetCommitmentKey()
 
 	address1CollectFamily, err := address.New(
-		state.genesis1collect.ID(), &state.familyKey.FamKey,
+		state.genesis1collect, &state.familyKey.FamKey,
 		state.receiverPubKey, state.receiverPubKey, state.collectAmt,
-		asset.Collectible, &address.TestNet3Taro,
+		&address.TestNet3Taro,
 	)
 	require.NoError(t, err)
 	state.address1CollectFamily = *address1CollectFamily
@@ -154,9 +153,8 @@ func initSpendScenario(t *testing.T) spendData {
 		AssetCommitmentKey()
 
 	address2, err := address.New(
-		state.genesis1.ID(), nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt2,
-		asset.Normal, &address.MainNetTaro,
+		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
+		state.normalAmt2, &address.MainNetTaro,
 	)
 	require.NoError(t, err)
 	state.address2 = *address2
@@ -510,7 +508,7 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 	// Build a TaprootProof for each receiver to prove inclusion
 	// or exclusion for each output.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID, &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.FamilyKey == nil,
 	)
 	senderIndex := locators[senderStateKey].OutputIndex
 	senderTaroTree := commitments[senderStateKey]
@@ -1060,7 +1058,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1CollectFamily.ID,
+				state.address1CollectFamily.ID(),
 				&state.spenderScriptKey,
 				false,
 			)
@@ -1098,7 +1096,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			receiverStateKey := state.address1StateKey
@@ -1200,7 +1198,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			delete(spendCommitments, senderStateKey)
@@ -1276,7 +1274,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, false,
 			)
 			receiverStateKey := state.address1CollectFamilyStateKey
@@ -1334,7 +1332,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			receiverStateKey := state.address1StateKey
@@ -1495,7 +1493,7 @@ func TestProofVerify(t *testing.T) {
 	require.NoError(t, err)
 
 	senderStateKey := asset.AssetCommitmentKey(
-		state.address1.ID,
+		state.address1.ID(),
 		&state.spenderScriptKey, true,
 	)
 	senderTaroTree := spendCommitments[senderStateKey]
@@ -1733,9 +1731,9 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			address1testnet, err := address.New(
-				state.genesis1.ID(), nil, state.receiverPubKey,
+				state.genesis1, nil, state.receiverPubKey,
 				state.receiverPubKey, state.normalAmt1,
-				asset.Normal, &address.TestNet3Taro,
+				&address.TestNet3Taro,
 			)
 			require.NoError(t, err)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
@@ -1752,9 +1750,9 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			address1testnet, err := address.New(
-				state.genesis1.ID(), nil, state.receiverPubKey,
+				state.genesis1, nil, state.receiverPubKey,
 				state.receiverPubKey, state.normalAmt1,
-				asset.Normal, &address.TestNet3Taro,
+				&address.TestNet3Taro,
 			)
 			require.NoError(t, err)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
@@ -1783,7 +1781,9 @@ func TestPayToAddrScript(t *testing.T) {
 	ownerDescriptor := keychain.KeyDescriptor{PubKey: ownerScriptKey}
 
 	internalKey := randKey(t).PubKey()
-	recipientScriptKey := randKey(t).PubKey()
+	recipientScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+		PubKey: randKey(t).PubKey(),
+	})
 
 	// Create an asset and derive a commitment for sending 2 of the 5 asset
 	// units.
@@ -1810,8 +1810,8 @@ func TestPayToAddrScript(t *testing.T) {
 	// Create an address for receiving the 2 units and make sure it matches
 	// the script above.
 	addr1, err := address.New(
-		gen.ID(), nil, *recipientScriptKey, *internalKey, sendAmt,
-		asset.Normal, &address.RegressionNetTaro,
+		gen, nil, *recipientScriptKey.PubKey, *internalKey, sendAmt,
+		&address.RegressionNetTaro,
 	)
 	require.NoError(t, err)
 
@@ -1839,13 +1839,19 @@ func TestPayToAddrScript(t *testing.T) {
 }
 
 func sendCommitment(t *testing.T, a *asset.Asset, sendAmt btcutil.Amount,
-	recipientScriptKey *btcec.PublicKey) *commitment.AssetCommitment {
+	recipientScriptKey asset.ScriptKey) *commitment.AssetCommitment {
 
-	key := asset.AssetCommitmentKey(a.ID(), recipientScriptKey, true)
+	key := asset.AssetCommitmentKey(a.ID(), recipientScriptKey.PubKey, true)
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 
+	sendAsset := a.Copy()
+	sendAsset.Amount = uint64(sendAmt)
+	sendAsset.ScriptKey = recipientScriptKey
+	sendAsset.LockTime = 0
+	sendAsset.RelativeLockTime = 0
+
 	var buf bytes.Buffer
-	require.NoError(t, a.EncodeSend(&buf, sendAmt, recipientScriptKey))
+	require.NoError(t, sendAsset.Encode(&buf))
 	leaf := mssmt.NewLeafNode(buf.Bytes(), uint64(sendAmt))
 
 	// We use the default, in-memory store that doesn't actually use the

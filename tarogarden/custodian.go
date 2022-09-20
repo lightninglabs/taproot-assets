@@ -418,8 +418,10 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	ctxt, cancel := c.WithCtxQuit()
 	defer cancel()
+
+	id := event.Addr.ID()
 	blob, err := c.cfg.ProofArchive.FetchProof(ctxt, proof.Locator{
-		AssetID:   &event.Addr.ID,
+		AssetID:   &id,
 		FamilyKey: event.Addr.FamilyKey,
 		ScriptKey: event.Addr.ScriptKey,
 	})
@@ -540,6 +542,6 @@ func addrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
 	famKeyEqual := addr.FamilyKey != nil && famKeyNilMatch &&
 		addr.FamilyKey.IsEqual(&a.FamilyKey.FamKey)
 
-	return addr.ID == a.ID() && famKeyEqual &&
+	return addr.ID() == a.ID() && famKeyEqual &&
 		addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
 }

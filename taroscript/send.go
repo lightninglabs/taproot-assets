@@ -204,7 +204,7 @@ func IsValidInput(input commitment.TaroCommitment,
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		addr.ID, &inputScriptKey, addr.FamilyKey == nil,
+		addr.ID(), &inputScriptKey, addr.FamilyKey == nil,
 	)
 	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
 	if err != nil {
@@ -244,7 +244,7 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 
 	// Generate the keys used to look up split locators for each receiver.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID, &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.FamilyKey == nil,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 
@@ -265,12 +265,12 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 
 	// Populate the remaining fields in the splitLocators before generating
 	// the splitCommitment.
-	senderLocator.AssetID = addr.ID
+	senderLocator.AssetID = addr.ID()
 	senderLocator.ScriptKey = asset.ToSerialized(&scriptKey)
 	senderLocator.Amount = inputAsset.Amount - addr.Amount
 	updatedDelta.Locators[senderStateKey] = senderLocator
 
-	receiverLocator.AssetID = addr.ID
+	receiverLocator.AssetID = addr.ID()
 	receiverLocator.ScriptKey = asset.ToSerialized(&addr.ScriptKey)
 	receiverLocator.Amount = addr.Amount
 	updatedDelta.Locators[receiverStateKey] = receiverLocator
@@ -450,7 +450,7 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 	// build an AssetCommitment for the receiver.
 	if spend.SplitCommitment == nil {
 		senderStateKey = asset.AssetCommitmentKey(
-			addr.ID, &senderScriptKey, addr.FamilyKey == nil,
+			addr.ID(), &senderScriptKey, addr.FamilyKey == nil,
 		)
 		var err error
 		receiverCommitment, err = commitment.NewAssetCommitment(
@@ -520,7 +520,7 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 
 	// Fetch the TaroCommitment for both sender and receiver.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID, &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.FamilyKey == nil,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 

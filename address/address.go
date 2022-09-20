@@ -77,9 +77,9 @@ type Taro struct {
 	// Version is the Taro version of the asset.
 	Version asset.Version
 
-	// ID is the hash that uniquely identifies the asset requested by the
-	// receiver.
-	ID asset.ID
+	// Genesis is the receiving asset's genesis metadata which directly
+	// maps to its unique ID within the Taro protocol.
+	asset.Genesis
 
 	// FamilyKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
@@ -95,22 +95,17 @@ type Taro struct {
 
 	// Amount is the number of asset units being requested by the receiver.
 	Amount uint64
-
-	// Type uniquely identifies the type of Taro asset.
-	//
-	// TODO(roasbeef): sort of redundant w/ the asset ID?
-	Type asset.Type
 }
 
 // New creates an address for receiving a Taro asset.
-func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
-	internalKey btcec.PublicKey, amt uint64, assetType asset.Type,
+func New(genesis asset.Genesis, familyKey *btcec.PublicKey,
+	scriptKey btcec.PublicKey, internalKey btcec.PublicKey, amt uint64,
 	net *ChainParams) (*Taro, error) {
 
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
 	// have a non-zero amount. We also reject invalid asset types.
-	switch assetType {
+	switch genesis.Type {
 	case asset.Collectible:
 		if amt != 1 {
 			return nil, ErrInvalidAmountCollectible
@@ -132,12 +127,11 @@ func New(id asset.ID, familyKey *btcec.PublicKey, scriptKey btcec.PublicKey,
 	payload := Taro{
 		ChainParams: net,
 		Version:     asset.V0,
-		ID:          id,
+		Genesis:     genesis,
 		FamilyKey:   familyKey,
 		ScriptKey:   scriptKey,
 		InternalKey: internalKey,
 		Amount:      amt,
-		Type:        assetType,
 	}
 	return &payload, nil
 }
@@ -162,13 +156,13 @@ func (a *Taro) Net() (*ChainParams, error) {
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
 // family specified by a Taro address.
 func (a *Taro) TaroCommitmentKey() [32]byte {
-	return asset.TaroCommitmentKey(a.ID, a.FamilyKey)
+	return asset.TaroCommitmentKey(a.ID(), a.FamilyKey)
 }
 
 // AssetCommitmentKey is the key that maps to the asset leaf for the asset
 // specified by a Taro address.
 func (a *Taro) AssetCommitmentKey() [32]byte {
-	return asset.AssetCommitmentKey(a.ID, &a.ScriptKey, a.FamilyKey == nil)
+	return asset.AssetCommitmentKey(a.ID(), &a.ScriptKey, a.FamilyKey == nil)
 }
 
 // TaroCommitment constructs the Taro commitment that is expected to appear on
@@ -177,8 +171,32 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 	key := a.AssetCommitmentKey()
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 
+	// We first need to create an asset from the address in order to encode
+	// it in the TLV leaf.
+	var familyKey *asset.FamilyKey
+	if a.FamilyKey != nil {
+		familyKey = &asset.FamilyKey{
+			FamKey: *a.FamilyKey,
+		}
+	}
+	newAsset, err := asset.New(
+		a.Genesis, a.Amount, 0, 0, asset.NewScriptKey(&a.ScriptKey),
+		familyKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Because we don't know the witness when creating an address, it's
+	// important to set it to nil here. We'll do the same when validating
+	// the proof.
+	newAsset.PrevWitnesses = nil
+
 	var buf bytes.Buffer
-	// TODO(guggero): Create asset and encode it here.
+	if err := newAsset.Encode(&buf); err != nil {
+		return nil, err
+	}
+
 	leaf := mssmt.NewLeafNode(buf.Bytes(), a.Amount)
 
 	// We use the default, in-memory store that doesn't actually use the
@@ -193,11 +211,17 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 		return nil, err
 	}
 
-	return commitment.NewTaroCommitment(&commitment.AssetCommitment{
+	taroCommitment, err := commitment.NewTaroCommitment(&commitment.AssetCommitment{
 		Version:  a.Version,
-		AssetID:  a.ID,
+		AssetID:  a.ID(),
 		TreeRoot: updatedRoot,
 	})
+
+	addrString, _ := a.EncodeAddress()
+	hash := taroCommitment.TapscriptRoot(nil)
+	fmt.Printf("Encoded the address (%s) as %x, using internal key %x and tweak %x\n", addrString, buf.Bytes(), a.InternalKey.SerializeCompressed(), hash[:])
+
+	return taroCommitment, err
 }
 
 // TaprootOutputKey returns the on-chain Taproot output key.
@@ -220,9 +244,9 @@ func (a *Taro) TaprootOutputKey(sibling *chainhash.Hash) (*btcec.PublicKey,
 // EncodeRecords determines the non-nil records to include when encoding an
 // address at runtime.
 func (a *Taro) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 7)
+	records := make([]tlv.Record, 0, 6)
 	records = append(records, newAddressVersionRecord(&a.Version))
-	records = append(records, newAddressIDRecord(&a.ID))
+	records = append(records, newAddressGenesisRecord(&a.Genesis))
 
 	if a.FamilyKey != nil {
 		records = append(records, newAddressFamilyKeyRecord(&a.FamilyKey))
@@ -232,10 +256,6 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 	records = append(records, newAddressInternalKeyRecord(&a.InternalKey))
 	records = append(records, newAddressAmountRecord(&a.Amount))
 
-	if a.Type != asset.Normal {
-		records = append(records, newAddressTypeRecord(&a.Type))
-	}
-
 	return records
 }
 
@@ -244,12 +264,11 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 func (a *Taro) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		newAddressVersionRecord(&a.Version),
-		newAddressIDRecord(&a.ID),
+		newAddressGenesisRecord(&a.Genesis),
 		newAddressFamilyKeyRecord(&a.FamilyKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
 		newAddressInternalKeyRecord(&a.InternalKey),
 		newAddressAmountRecord(&a.Amount),
-		newAddressTypeRecord(&a.Type),
 	}
 }
 
