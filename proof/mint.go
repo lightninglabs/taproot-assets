@@ -119,6 +119,25 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 	// First, we'll create the merkle proof for the anchor transaction. In
 	// this case, since all the assets were created in the same block, we
 	// only need a single merkle proof.
+	proof, err := coreProof(params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now, we'll construct the base proof that all the assets created in
+	// this batch or spent in this transaction will share.
+	proof.PrevOut = prevOut
+	proof.InclusionProof = TaprootProof{
+		OutputIndex: uint32(params.OutputIndex),
+		InternalKey: params.InternalKey,
+	}
+	proof.ExclusionProofs = params.ExclusionProofs
+	return proof, nil
+}
+
+// coreProof creates the basic proof template that contains only fields
+// dependent on anchor transaction confirmation.
+func coreProof(params *BaseProofParams) (*Proof, error) {
 	merkleProof, err := NewTxMerkleProof(
 		params.Block.Transactions, params.TxIndex,
 	)
@@ -126,18 +145,10 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 		return nil, fmt.Errorf("unable to create merkle proof: %w", err)
 	}
 
-	// Now, we'll construct the base proof that all the assets created in
-	// this batch or spent in this transaction will share.
 	return &Proof{
-		PrevOut:       prevOut,
 		BlockHeader:   params.Block.Header,
 		AnchorTx:      *params.Tx,
 		TxMerkleProof: *merkleProof,
-		InclusionProof: TaprootProof{
-			OutputIndex: uint32(params.OutputIndex),
-			InternalKey: params.InternalKey,
-		},
-		ExclusionProofs: params.ExclusionProofs,
 	}, nil
 }
 
