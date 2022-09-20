@@ -596,15 +596,16 @@ type AssetQueryFilters struct {
 // QueryAssetBalancesByAsset queries the balances for assets or alternatively
 // for a selected one that matches the passed asset ID filter.
 func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
-	assetID *asset.ID) ([]*AssetBalance, error) {
+	assetID *asset.ID) (map[asset.ID]AssetBalance, error) {
 
-	var assetFilter interface{}
+	var assetFilter []byte
 	if assetID != nil {
 		assetFilter = assetID[:]
 	}
 
+	balances := make(map[asset.ID]AssetBalance)
+
 	readOpts := NewAssetStoreReadTx()
-	var balances []*AssetBalance
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		dbBalances, err := q.QueryAssetBalancesByAsset(ctx, assetFilter)
 		if err != nil {
@@ -612,19 +613,23 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 				"balances by asset: %w", err)
 		}
 
-		balances = make([]*AssetBalance, len(dbBalances))
-		for i, assetBalance := range dbBalances {
-			balances[i] = &AssetBalance{
+		for _, assetBalance := range dbBalances {
+			var assetID asset.ID
+			copy(assetID[:], assetBalance.AssetID[:])
+
+			assetIDBalance := AssetBalance{
 				Balance: uint64(assetBalance.Balance),
 				Tag:     assetBalance.AssetTag,
 				Type:    asset.Type(assetBalance.AssetType),
 			}
 
-			copy(balances[i].ID[:], assetBalance.AssetID)
-			balances[i].Meta = make(
+			copy(assetIDBalance.ID[:], assetBalance.AssetID)
+			assetIDBalance.Meta = make(
 				[]byte, len(assetBalance.MetaData),
 			)
-			copy(balances[i].Meta, assetBalance.MetaData)
+			copy(assetIDBalance.Meta, assetBalance.MetaData)
+
+			balances[assetID] = assetIDBalance
 		}
 
 		return err
@@ -638,17 +643,19 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 
 // QueryAssetBalancesByFamily queries the asset balances for asset families or
 // alternatively for a selected one that matches the passed filter.
-func (a *AssetStore) QueryAssetBalancesByFamily(ctx context.Context,
-	famKey *btcec.PublicKey) ([]*AssetFamilyBalance, error) {
+func (a *AssetStore) QueryAssetBalancesByFamily(
+	ctx context.Context, famKey *btcec.PublicKey,
+) (map[asset.SerializedKey]AssetFamilyBalance, error) {
 
-	var famFilter interface{}
+	var famFilter []byte
 	if famKey != nil {
 		famKeySerialized := famKey.SerializeCompressed()
 		famFilter = famKeySerialized[:]
 	}
 
+	balances := make(map[asset.SerializedKey]AssetFamilyBalance)
+
 	readOpts := NewAssetStoreReadTx()
-	var balances []*AssetFamilyBalance
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		dbBalances, err := q.QueryAssetBalancesByFamily(ctx, famFilter)
 		if err != nil {
@@ -656,16 +663,19 @@ func (a *AssetStore) QueryAssetBalancesByFamily(ctx context.Context,
 				"balances by asset: %w", err)
 		}
 
-		balances = make([]*AssetFamilyBalance, len(dbBalances))
-		for i, famBalance := range dbBalances {
+		for _, famBalance := range dbBalances {
 			var famKey *btcec.PublicKey
 			if famBalance.TweakedFamKey != nil {
-				famKey, err = schnorr.ParsePubKey(
+				famKey, err = btcec.ParsePubKey(
 					famBalance.TweakedFamKey,
 				)
+				if err != nil {
+					return err
+				}
 			}
 
-			balances[i] = &AssetFamilyBalance{
+			serializedKey := asset.ToSerialized(famKey)
+			balances[serializedKey] = AssetFamilyBalance{
 				FamKey:  famKey,
 				Balance: uint64(famBalance.Balance),
 			}
