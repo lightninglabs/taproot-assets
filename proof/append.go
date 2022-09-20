@@ -58,9 +58,13 @@ func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
 	}
 
 	lastProof := f.Proofs[len(f.Proofs)-1]
+	lastPrevOut := wire.OutPoint{
+		Hash:  lastProof.AnchorTx.TxHash(),
+		Index: lastProof.InclusionProof.OutputIndex,
+	}
 
 	// We can now create the new proof entry for the asset in the params.
-	newProof, err := createTransitionProof(&lastProof, params)
+	newProof, err := CreateTransitionProof(lastPrevOut, params)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating transition "+
 			"proof: %w", err)
@@ -84,15 +88,32 @@ func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
 	return buf.Bytes(), newProof, nil
 }
 
-// createTransitionProof creates a proof for an asset transition, based on the
-// last proof of the last asset state and the new asset in the params.
-func createTransitionProof(lastProof *Proof, params *TransitionParams) (*Proof,
-	error) {
-
-	prevOut := wire.OutPoint{
-		Hash:  lastProof.AnchorTx.TxHash(),
-		Index: lastProof.InclusionProof.OutputIndex,
+// UpdateTransitionProof computes a new transaction merkle proof from the given
+// proof parameters, and updates a proof to be anchored at the given anchor
+// transaction. This is needed to refect confirmation of an anchor transaction.
+func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
+	// We only use the block, transaction, and transaction index parameters,
+	// so we only need to check the nil-ness of the block and transaction.
+	if params.Block == nil || params.Tx == nil {
+		return fmt.Errorf("Missing block or TX to update proof")
 	}
+
+	// Recompute the proof fields that depend on anchor TX confirmation.
+	proofHeader, err := coreProof(params)
+	if err != nil {
+		return err
+	}
+
+	p.BlockHeader = proofHeader.BlockHeader
+	p.AnchorTx = proofHeader.AnchorTx
+	p.TxMerkleProof = proofHeader.TxMerkleProof
+	return nil
+}
+
+// CreateTransitionProof creates a proof for an asset transition, based on the
+// last proof of the last asset state and the new asset in the params.
+func CreateTransitionProof(prevOut wire.OutPoint,
+	params *TransitionParams) (*Proof, error) {
 
 	proof, err := baseProof(&params.BaseProofParams, prevOut)
 	if err != nil {
