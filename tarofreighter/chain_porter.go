@@ -635,7 +635,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Now that all the real outputs are in the PSBT, we'll also
 		// add our anchor input as well, since the wallet can sign for
 		// it itself.
-		currentPkg.addAnchorPsbtInput()
+		err = currentPkg.addAnchorPsbtInput()
+		if err != nil {
+			return &currentPkg, err
+		}
 
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
@@ -694,6 +697,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		taroRoot := newSenderCommitment.TapscriptRoot(
 			tapscriptSibling,
 		)
+
+		// TODO(roasbeef): get everything needed for proofs and write
+		// to disk
+		_, err = currentPkg.createProofs()
+		if err != nil {
+			return nil, err
+		}
 
 		// Before we broadcast, we'll write to disk that we have a
 		// pending outbound parcel. If we crash before this point,

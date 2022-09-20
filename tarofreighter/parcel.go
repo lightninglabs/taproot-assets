@@ -18,12 +18,9 @@ import (
 type SendState uint8
 
 // Start with one state per function
-// TODO(jhb): add state transition path for modifying locators
 // State name signals the state change of the send, within the state
 const (
 	SendStateInitializing SendState = iota
-
-	// TODO(jhb): Preceding states for input lookup given address input
 
 	SendStateCommitmentSelect
 
@@ -48,8 +45,6 @@ const (
 	SendStateBroadcast
 
 	SendStateWaitingConf
-
-	// TODO(jhb): Following states for finalization and broadcast
 )
 
 // AssetParcel...
@@ -155,6 +150,9 @@ type sendPackage struct {
 	OutboundPkg *OutboundParcelDelta
 }
 
+// Proofs for receivers keyed by scriptKey
+type SpendProofs map[asset.SerializedKey]proof.Proof
+
 // inputAnchorPkScript...
 func (s *sendPackage) inputAnchorPkScript() ([]byte, error) {
 	taroScriptRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
@@ -200,7 +198,142 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 	})
 
 	return err
+}
 
+// helper for proof creation
+func (s *sendPackage) createProofs() (SpendProofs, error) {
+	isSplit := s.SendDelta.SplitCommitment != nil
+
+	dummyParams := func() proof.TransitionParams {
+		return proof.TransitionParams{
+			BaseProofParams: proof.BaseProofParams{
+				Block:   &wire.MsgBlock{},
+				Tx:      &wire.MsgTx{},
+				TxIndex: 0,
+			},
+		}
+	}
+
+	// param objects to build proofs
+	senderParams := dummyParams()
+	receiverParams := dummyParams()
+
+	// look up taro commitments and output indexes
+	senderStateKey := asset.AssetCommitmentKey(
+		s.InputAsset.Asset.ID(),
+		s.SenderScriptKey.PubKey,
+		s.InputAsset.Asset.FamilyKey == nil,
+	)
+	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+
+	senderTaroTree := s.NewOutputCommitments[senderStateKey]
+	receiverTaroTree := s.NewOutputCommitments[receiverStateKey]
+	senderIndex := s.SendDelta.Locators[senderStateKey].OutputIndex
+	receiverIndex := s.SendDelta.Locators[receiverStateKey].OutputIndex
+
+	// compute exclusion proofs
+	// senderProof = exluding sender asset from receiver tree, vice versa
+	var (
+		senderExclusionProof   *commitment.Proof
+		receiverExclusionProof *commitment.Proof
+		err                    error
+	)
+
+	// NewAsset is root asset for sender, have to
+	// look up receiver split asset
+	if isSplit {
+		senderParams.NewAsset = &s.SendDelta.NewAsset
+
+		_, senderExclusionProof, err = receiverTaroTree.Proof(
+			s.SendDelta.NewAsset.TaroCommitmentKey(),
+			s.SendDelta.NewAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		receiverLocator := s.SendDelta.
+			Locators[receiverStateKey]
+		receiverAsset := s.SendDelta.SplitCommitment.
+			SplitAssets[receiverLocator].Asset
+		_, receiverExclusionProof, err = senderTaroTree.Proof(
+			receiverAsset.TaroCommitmentKey(),
+			receiverAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		receiverParams.NewAsset = &receiverAsset
+		// needed for root asset inclusion proof
+		receiverParams.RootOutputIndex = senderIndex
+		receiverParams.RootInternalKey = s.SenderNewInternalKey.PubKey
+		receiverParams.RootTaroTree = &senderTaroTree
+
+		// NewAsset is for receiver, need to exclude sender input asset
+	} else {
+		// TODO(jhb): NewAsset for sender proof can be empty?
+		receiverParams.NewAsset = &s.SendDelta.NewAsset
+
+		_, senderExclusionProof, err = receiverTaroTree.Proof(
+			s.InputAsset.Asset.TaroCommitmentKey(),
+			s.InputAsset.Asset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		_, receiverExclusionProof, err = senderTaroTree.Proof(
+			s.SendDelta.NewAsset.TaroCommitmentKey(),
+			s.SendDelta.NewAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// fill out rest of params
+	senderParams.OutputIndex = int(senderIndex)
+	senderParams.InternalKey = s.SenderNewInternalKey.PubKey
+	senderParams.TaroRoot = &senderTaroTree
+	senderParams.ExclusionProofs = []proof.TaprootProof{{
+		OutputIndex: receiverIndex,
+		InternalKey: &s.ReceiverAddr.InternalKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof: *senderExclusionProof,
+		},
+	}}
+
+	receiverParams.OutputIndex = int(receiverIndex)
+	receiverParams.InternalKey = &s.ReceiverAddr.InternalKey
+	receiverParams.TaroRoot = &receiverTaroTree
+	receiverParams.ExclusionProofs = []proof.TaprootProof{{
+		OutputIndex: senderIndex,
+		InternalKey: s.SenderNewInternalKey.PubKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof: *receiverExclusionProof,
+		},
+	}}
+
+	// create and store proofs
+	senderProof, err := proof.CreateTransitionProof(
+		s.InputAsset.AnchorPoint, &senderParams,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	receiverProof, err := proof.CreateTransitionProof(
+		s.InputAsset.AnchorPoint, &receiverParams,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return SpendProofs{
+		asset.ToSerialized(s.SenderScriptKey.PubKey):  *senderProof,
+		asset.ToSerialized(&s.ReceiverAddr.ScriptKey): *receiverProof,
+	}, nil
 }
 
 // deliverResponse...
