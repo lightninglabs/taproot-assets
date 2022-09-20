@@ -395,8 +395,7 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
 
 	// Update each split asset to store the root asset with the witness
 	// attached, so the receiver can verify inclusion of the root asset.
-	splitAssetKeys := maps.Keys(updatedDelta.SplitCommitment.SplitAssets)
-	for _, key := range splitAssetKeys {
+	for key := range updatedDelta.SplitCommitment.SplitAssets {
 		updatedDelta.SplitCommitment.SplitAssets[key].Asset.
 			PrevWitnesses[0].SplitCommitment.
 			RootAsset = *validatedAsset.Copy()
