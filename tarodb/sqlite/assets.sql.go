@@ -735,6 +735,39 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 	return i, err
 }
 
+const fetchGenesisByID = `-- name: FetchGenesisByID :one
+SELECT
+    asset_id, asset_tag, meta_data, output_index, asset_type,
+    genesis_points.prev_out prev_out
+FROM genesis_assets
+JOIN genesis_points
+  ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+WHERE gen_asset_id = ?
+`
+
+type FetchGenesisByIDRow struct {
+	AssetID     []byte
+	AssetTag    string
+	MetaData    []byte
+	OutputIndex int32
+	AssetType   int16
+	PrevOut     []byte
+}
+
+func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int32) (FetchGenesisByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchGenesisByID, genAssetID)
+	var i FetchGenesisByIDRow
+	err := row.Scan(
+		&i.AssetID,
+		&i.AssetTag,
+		&i.MetaData,
+		&i.OutputIndex,
+		&i.AssetType,
+		&i.PrevOut,
+	)
+	return i, err
+}
+
 const fetchGenesisPointByAnchorTx = `-- name: FetchGenesisPointByAnchorTx :one
 SELECT genesis_id, prev_out, anchor_tx_id 
 FROM genesis_points

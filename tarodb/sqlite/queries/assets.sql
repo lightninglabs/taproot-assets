@@ -413,6 +413,15 @@ SELECT *
 FROM genesis_points
 WHERE anchor_tx_id = ?;
 
+-- name: FetchGenesisByID :one
+SELECT
+    asset_id, asset_tag, meta_data, output_index, asset_type,
+    genesis_points.prev_out prev_out
+FROM genesis_assets
+JOIN genesis_points
+  ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+WHERE gen_asset_id = ?;
+
 -- name: ConfirmChainTx :exec
 WITH target_txn(txn_id) AS (
     SELECT anchor_tx_id

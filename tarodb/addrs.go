@@ -54,6 +54,9 @@ type (
 	// AddrEventID is a type alias for fetching the ID of an address event
 	// and its corresponding address.
 	AddrEventID = sqlite.QueryEventIDsRow
+
+	// Genesis is a type alias for fetching the genesis asset information.
+	Genesis = sqlite.FetchGenesisByIDRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -61,6 +64,14 @@ type (
 // also make internal keys since each address has an internal key and a script
 // key (tho they can be the same).
 type AddrBook interface {
+	// UpsertAssetStore houses the methods related to inserting/updating
+	// assets.
+	UpsertAssetStore
+
+	// FetchGenesisStore houses the methods related to fetching genesis
+	// assets.
+	FetchGenesisStore
+
 	// FetchAddrs returns all the addresses based on the constraints of the
 	// passed AddrQuery.
 	FetchAddrs(ctx context.Context, arg AddrQuery) ([]Addresses, error)
@@ -182,6 +193,23 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 		// internal keys, then use those returned primary key IDs to
 		// returned to insert the address itself.
 		for _, addr := range addrs {
+			// Make sure we have the genesis point and genesis asset
+			// stored already.
+			genesisPointID, err := upsertGenesisPoint(
+				ctx, db, addr.FirstPrevOut,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert genesis "+
+					"point: %w", err)
+			}
+			genAssetID, err := upsertGenesis(
+				ctx, db, genesisPointID, addr.Genesis,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert genesis: "+
+					"%w", err)
+			}
+
 			rawScriptKeyID, err := insertInternalKey(
 				ctx, db, addr.ScriptKeyTweak.RawKey,
 			)
@@ -212,11 +240,11 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				famKeyBytes = addr.FamilyKey.SerializeCompressed()
 			}
 			_, err = db.InsertAddr(ctx, NewAddr{
-				Version:      int16(addr.Version),
-				AssetID:      addr.ID[:],
-				FamKey:       famKeyBytes,
-				ScriptKeyID:  scriptKeyID,
-				TaprootKeyID: taprootKeyID,
+				Version:        int16(addr.Version),
+				GenesisAssetID: genAssetID,
+				FamKey:         famKeyBytes,
+				ScriptKeyID:    scriptKeyID,
+				TaprootKeyID:   taprootKeyID,
 				TaprootOutputKey: schnorr.SerializePubKey(
 					&addr.TaprootOutputKey,
 				),
@@ -275,8 +303,13 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 		// AddrWithKeyInfo struct that can be used in a general
 		// context.
 		for _, addr := range dbAddrs {
-			var assetID asset.ID
-			copy(assetID[:], addr.AssetID)
+			assetGenesis, err := fetchGenesis(
+				ctx, db, addr.GenesisAssetID,
+			)
+			if err != nil {
+				return fmt.Errorf("error fetching genesis: %w",
+					err)
+			}
 
 			var famKey *btcec.PublicKey
 			if addr.FamKey != nil {
@@ -335,12 +368,11 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Taro: &address.Taro{
 					Version:     asset.Version(addr.Version),
-					ID:          assetID,
+					Genesis:     assetGenesis,
 					FamilyKey:   famKey,
 					ScriptKey:   *scriptKey,
 					InternalKey: *internalKey,
 					Amount:      uint64(addr.Amount),
-					Type:        asset.Type(addr.AssetType),
 					ChainParams: t.params,
 				},
 				ScriptKeyTweak: asset.TweakedScriptKey{
@@ -400,8 +432,10 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		return nil, err
 	}
 
-	var assetID asset.ID
-	copy(assetID[:], dbAddr.AssetID)
+	genesis, err := fetchGenesis(ctx, db, dbAddr.GenesisAssetID)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching genesis: %w", err)
+	}
 
 	var famKey *btcec.PublicKey
 	if dbAddr.FamKey != nil {
@@ -448,12 +482,11 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	return &address.AddrWithKeyInfo{
 		Taro: &address.Taro{
 			Version:     asset.Version(dbAddr.Version),
-			ID:          assetID,
+			Genesis:     genesis,
 			FamilyKey:   famKey,
 			ScriptKey:   *scriptKey,
 			InternalKey: *internalKey,
 			Amount:      uint64(dbAddr.Amount),
-			Type:        asset.Type(dbAddr.AssetType),
 			ChainParams: params,
 		},
 		ScriptKeyTweak: asset.TweakedScriptKey{

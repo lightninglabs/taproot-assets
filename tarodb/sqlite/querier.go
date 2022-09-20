@@ -40,6 +40,7 @@ type Querier interface {
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
+	FetchGenesisByID(ctx context.Context, genAssetID int32) (FetchGenesisByIDRow, error)
 	FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt32) (GenesisPoint, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)

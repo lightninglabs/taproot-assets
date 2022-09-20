@@ -1,6 +1,7 @@
 package tarodb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -46,46 +47,76 @@ type UpsertAssetStore interface {
 		arg sqlite.InsertNewAssetParams) (int32, error)
 }
 
+// upsertGenesis imports a new genesis point into the database or returns the
+// existing ID if that point already exists.
+func upsertGenesisPoint(ctx context.Context, q UpsertAssetStore,
+	genesisOutpoint wire.OutPoint) (int32, error) {
+
+	genesisPoint, err := encodeOutpoint(genesisOutpoint)
+	if err != nil {
+		return 0, fmt.Errorf("unable to encode genesis point: %w", err)
+	}
+
+	// First, we'll insert the component that ties together all the assets
+	// in a batch: the genesis point.
+	genesisPointID, err := q.UpsertGenesisPoint(ctx, genesisPoint)
+	if err != nil {
+		return 0, fmt.Errorf("unable to insert genesis point: %w", err)
+	}
+
+	return genesisPointID, nil
+}
+
+// upsertGenesis imports a new genesis record into the database or returns the
+// existing ID of the genesis if it already exists.
+func upsertGenesis(ctx context.Context, q UpsertAssetStore,
+	genesisPointID int32, genesis asset.Genesis) (int32, error) {
+
+	// Then we'll insert the genesis_assets row which tracks all the
+	// information that uniquely derives a given asset ID.
+	assetID := genesis.ID()
+	genAssetID, err := q.UpsertGenesisAsset(ctx, GenesisAsset{
+		AssetID:        assetID[:],
+		AssetTag:       genesis.Tag,
+		MetaData:       genesis.Metadata,
+		OutputIndex:    int32(genesis.OutputIndex),
+		AssetType:      int16(genesis.Type),
+		GenesisPointID: genesisPointID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unable to insert genesis asset: %w", err)
+	}
+
+	return genAssetID, nil
+}
+
 // upsertAssetsWithGenesis imports new assets and their genesis information into
 // the database.
 func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 	genesisOutpoint wire.OutPoint, assets []*asset.Asset,
 	anchorUtxoIDs []sql.NullInt32) (int32, []int32, error) {
 
-	genesisPoint, err := encodeOutpoint(genesisOutpoint)
-	if err != nil {
-		return 0, nil, fmt.Errorf("unable to encode genesis point: %w",
-			err)
-	}
-
 	// First, we'll insert the component that ties together all the assets
-	// in this batch: the genesis point.
-	genesisPointID, err := q.UpsertGenesisPoint(ctx, genesisPoint)
+	// in a batch: the genesis point.
+	genesisPointID, err := upsertGenesisPoint(ctx, q, genesisOutpoint)
 	if err != nil {
-		return 0, nil, fmt.Errorf("unable to insert genesis point: %w",
+		return 0, nil, fmt.Errorf("unable to upsert genesis point: %w",
 			err)
 	}
 
-	// With the genesis point inserted, we'll now insert each asset into the
-	// database. Some assets have a key family, so we'll need to insert them
-	// before we can insert the asset itself.
+	// We'll now insert each asset into the database. Some assets have a key
+	// family, so we'll need to insert them before we can insert the asset
+	// itself.
 	assetIDs := make([]int32, len(assets))
 	for idx, a := range assets {
-		// First, we'll insert the genesis_assets row which
-		// tracks all the information that uniquely derives a
-		// given asset ID.
-		assetID := a.Genesis.ID()
-		genAssetID, err := q.UpsertGenesisAsset(ctx, GenesisAsset{
-			AssetID:        assetID[:],
-			AssetTag:       a.Genesis.Tag,
-			MetaData:       a.Genesis.Metadata,
-			OutputIndex:    int32(a.Genesis.OutputIndex),
-			AssetType:      int16(a.Type),
-			GenesisPointID: genesisPointID,
-		})
+		// First, we make sure the genesis asset information exists in
+		// the database.
+		genAssetID, err := upsertGenesis(
+			ctx, q, genesisPointID, a.Genesis,
+		)
 		if err != nil {
-			return 0, nil, fmt.Errorf("unable to insert genesis "+
-				"asset: %w", err)
+			return 0, nil, fmt.Errorf("unable to upsert genesis: "+
+				"%w", err)
 		}
 
 		// This asset has as key family, so we'll insert it into the
@@ -262,4 +293,43 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 	}
 
 	return scriptKeyID, nil
+}
+
+// FetchGenesisStore houses the methods related to fetching genesis assets.
+type FetchGenesisStore interface {
+	// FetchGenesisByID returns a single genesis asset by its primary key
+	// ID.
+	FetchGenesisByID(ctx context.Context, assetID int32) (Genesis, error)
+}
+
+// fetchGenesis returns a fully populated genesis record from the database,
+// identified by its primary key ID.
+func fetchGenesis(ctx context.Context, q FetchGenesisStore,
+	assetID int32) (asset.Genesis, error) {
+
+	// Now we fetch the genesis information that so far we
+	// only have the ID for in the address record.
+	gen, err := q.FetchGenesisByID(ctx, assetID)
+	if err != nil {
+		return asset.Genesis{}, fmt.Errorf("unable to fetch genesis: "+
+			"%w", err)
+	}
+
+	// Next, we'll populate the asset genesis information which
+	// includes the genesis prev out, and the other information
+	// needed to derive an asset ID.
+	var genesisPrevOut wire.OutPoint
+	err = readOutPoint(bytes.NewReader(gen.PrevOut), 0, 0, &genesisPrevOut)
+	if err != nil {
+		return asset.Genesis{}, fmt.Errorf("unable to read outpoint: "+
+			"%w", err)
+	}
+
+	return asset.Genesis{
+		FirstPrevOut: genesisPrevOut,
+		Tag:          gen.AssetTag,
+		Metadata:     gen.MetaData,
+		OutputIndex:  uint32(gen.OutputIndex),
+		Type:         asset.Type(gen.AssetType),
+	}, nil
 }

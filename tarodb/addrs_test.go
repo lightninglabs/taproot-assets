@@ -72,12 +72,11 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	return &address.AddrWithKeyInfo{
 		Taro: &address.Taro{
 			Version:     asset.Version(rand.Int31()),
-			ID:          genesis.ID(),
+			Genesis:     genesis,
 			FamilyKey:   famKey,
 			ScriptKey:   *scriptKey.PubKey,
 			InternalKey: *internalKey.PubKey(),
 			Amount:      amount,
-			Type:        genesis.Type,
 			ChainParams: chainParams,
 		},
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,

@@ -13,7 +13,7 @@ import (
 
 const fetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
 SELECT
-    version, asset_id, fam_key, taproot_output_key, amount, asset_type,
+    version, genesis_asset_id, fam_key, taproot_output_key, amount, asset_type,
     creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
@@ -35,7 +35,7 @@ WHERE taproot_output_key = ?
 
 type FetchAddrByTaprootOutputKeyRow struct {
 	Version          int16
-	AssetID          []byte
+	GenesisAssetID   int32
 	FamKey           []byte
 	TaprootOutputKey []byte
 	Amount           int64
@@ -57,7 +57,7 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 	var i FetchAddrByTaprootOutputKeyRow
 	err := row.Scan(
 		&i.Version,
-		&i.AssetID,
+		&i.GenesisAssetID,
 		&i.FamKey,
 		&i.TaprootOutputKey,
 		&i.Amount,
@@ -128,7 +128,7 @@ func (q *Queries) FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventR
 
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
-    version, asset_id, fam_key, taproot_output_key, amount, asset_type,
+    version, genesis_asset_id, fam_key, taproot_output_key, amount, asset_type,
     creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
@@ -162,7 +162,7 @@ type FetchAddrsParams struct {
 
 type FetchAddrsRow struct {
 	Version          int16
-	AssetID          []byte
+	GenesisAssetID   int32
 	FamKey           []byte
 	TaprootOutputKey []byte
 	Amount           int64
@@ -196,7 +196,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 		var i FetchAddrsRow
 		if err := rows.Scan(
 			&i.Version,
-			&i.AssetID,
+			&i.GenesisAssetID,
 			&i.FamKey,
 			&i.TaprootOutputKey,
 			&i.Amount,
@@ -227,14 +227,14 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 
 const insertAddr = `-- name: InsertAddr :one
 INSERT INTO addrs (
-    version, asset_id, fam_key, script_key_id, taproot_key_id,
+    version, genesis_asset_id, fam_key, script_key_id, taproot_key_id,
     taproot_output_key, amount, asset_type, creation_time
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
 `
 
 type InsertAddrParams struct {
 	Version          int16
-	AssetID          []byte
+	GenesisAssetID   int32
 	FamKey           []byte
 	ScriptKeyID      int32
 	TaprootKeyID     int32
@@ -247,7 +247,7 @@ type InsertAddrParams struct {
 func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error) {
 	row := q.db.QueryRowContext(ctx, insertAddr,
 		arg.Version,
-		arg.AssetID,
+		arg.GenesisAssetID,
 		arg.FamKey,
 		arg.ScriptKeyID,
 		arg.TaprootKeyID,

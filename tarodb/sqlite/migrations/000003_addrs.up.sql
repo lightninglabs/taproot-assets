@@ -7,8 +7,9 @@ CREATE TABLE IF NOT EXISTS addrs (
     -- version is the Taro script version this address support.
     version SMALLINT NOT NULL,
 
-    -- asset_id is the asset ID of the asset we want to send/recv.
-    asset_id BLOB NOT NULL,
+    -- genesis_asset_id points to the asset genesis of the asset we want to
+    -- send/recv.
+    genesis_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
 
     -- fam_key is the raw blob of the family key. For assets w/o a family key,
     -- this field will be NULL.
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS addrs (
 
 -- We'll create some indexes over the asset ID, family key, and also creation
 -- time to speed up common queries.
-CREATE INDEX IF NOT EXISTS addr_asset_ids ON addrs (asset_id);
+CREATE INDEX IF NOT EXISTS addr_asset_genesis_ids ON addrs (genesis_asset_id);
 CREATE INDEX IF NOT EXISTS addr_fam_keys ON addrs (fam_key);
 CREATE INDEX IF NOT EXISTS addr_creation_time ON addrs (creation_time);
 CREATE INDEX IF NOT EXISTS addr_managed_from ON addrs (managed_from);
