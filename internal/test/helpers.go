@@ -6,12 +6,31 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/constraints"
 )
 
 // RandBool rolls a random boolean.
 func RandBool() bool {
 	return rand.Int()%2 == 0
+}
+
+// RandInt makes a random integer of the specified type.
+func RandInt[T constraints.Integer]() T {
+	return T(rand.Int63()) // nolint:gosec
+}
+
+func RandOp(t *testing.T) wire.OutPoint {
+	t.Helper()
+
+	op := wire.OutPoint{
+		Index: uint32(RandInt[int32]()),
+	}
+	_, err := rand.Read(op.Hash[:])
+	require.NoError(t, err)
+
+	return op
 }
 
 func RandPrivKey(t *testing.T) *btcec.PrivateKey {

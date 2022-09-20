@@ -47,9 +47,11 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	internalKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	var assetID [32]byte
-	_, err = rand.Read(assetID[:])
-	require.NoError(t, err)
+	genesis := asset.RandGenesis(t, asset.Type(rand.Int31n(2)))
+	amount := uint64(rand.Int63())
+	if genesis.Type == asset.Collectible {
+		amount = 1
+	}
 
 	var famKey *btcec.PublicKey
 	if rand.Int31()%2 == 0 {
@@ -70,12 +72,12 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	return &address.AddrWithKeyInfo{
 		Taro: &address.Taro{
 			Version:     asset.Version(rand.Int31()),
-			ID:          assetID,
+			ID:          genesis.ID(),
 			FamilyKey:   famKey,
 			ScriptKey:   *scriptKey.PubKey,
 			InternalKey: *internalKey.PubKey(),
-			Amount:      uint64(rand.Int63()),
-			Type:        asset.Type(rand.Int31n(2)),
+			Amount:      amount,
+			Type:        genesis.Type,
 			ChainParams: chainParams,
 		},
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,

@@ -13,8 +13,6 @@ import (
 )
 
 var (
-	hashBytes1 = [32]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 	invalidHrp     = "bc"
 	invalidNet     = ChainParams{&chaincfg.MainNetParams, invalidHrp}
 	pubKeyBytes, _ = hex.DecodeString(
@@ -46,8 +44,9 @@ func randAddress(t *testing.T, net *ChainParams, famKey bool,
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
+	genesis := asset.RandGenesis(t, assetType)
 	return New(
-		hashBytes1, familyKey, pubKeyCopy1, pubKeyCopy2, amount,
+		genesis.ID(), familyKey, pubKeyCopy1, pubKeyCopy2, amount,
 		assetType, net,
 	)
 }
@@ -73,7 +72,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
 	newAddr := Taro{
 		ChainParams: net,
 		Version:     asset.Version(TaroScriptVersion),
-		ID:          hashBytes1,
+		ID:          asset.RandGenesis(t, assetType).ID(),
 		FamilyKey:   familyKey,
 		ScriptKey:   pubKeyCopy1,
 		InternalKey: pubKeyCopy2,
@@ -164,7 +163,8 @@ func TestNewAddress(t *testing.T) {
 				pubKeyCopy1 := *pubKey
 				pubKeyCopy2 := *pubKey
 				return New(
-					hashBytes1, nil, pubKeyCopy1, pubKeyCopy2,
+					asset.RandGenesis(t, 2).ID(), nil,
+					pubKeyCopy1, pubKeyCopy2,
 					rand.Uint64(), 2, &MainNetTaro,
 				)
 			},

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -88,18 +87,6 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
-	t.Helper()
-
-	return asset.Genesis{
-		FirstPrevOut: wire.OutPoint{},
-		Tag:          "",
-		Metadata:     []byte{},
-		OutputIndex:  rand.Uint32(),
-		Type:         assetType,
-	}
-}
-
 func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 	t.Helper()
 	privKey := randKey(t)
@@ -122,8 +109,8 @@ func initSpendScenario(t *testing.T) spendData {
 		collectAmt:      1,
 		normalAmt1:      2,
 		normalAmt2:      5,
-		genesis1:        randGenesis(t, asset.Normal),
-		genesis1collect: randGenesis(t, asset.Collectible),
+		genesis1:        asset.RandGenesis(t, asset.Normal),
+		genesis1collect: asset.RandGenesis(t, asset.Collectible),
 	}
 
 	// Keys for sender, receiver, and family. Default to keypath spend
@@ -1790,7 +1777,7 @@ func TestPayToAddrScript(t *testing.T) {
 		normalAmt1 = 5
 		sendAmt    = 2
 	)
-	gen := randGenesis(t, asset.Normal)
+	gen := asset.RandGenesis(t, asset.Normal)
 	ownerKey := randKey(t)
 	ownerScriptKey := ownerKey.PubKey()
 	ownerDescriptor := keychain.KeyDescriptor{PubKey: ownerScriptKey}

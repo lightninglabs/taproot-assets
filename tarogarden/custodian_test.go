@@ -1,7 +1,6 @@
 package tarogarden_test
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"math/rand"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
@@ -166,13 +164,6 @@ func newHarness(t *testing.T,
 	}
 }
 
-func dummyHash(val byte) chainhash.Hash {
-	var hash chainhash.Hash
-	randBytes := bytes.Repeat([]byte{val}, 32)
-	copy(hash[:], randBytes)
-	return hash
-}
-
 func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	amount := uint64(1)
 	assetType := asset.Collectible
@@ -196,10 +187,9 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	})
 	pubKeyCopy2 := *pubKey
 
-	hash := asset.ID(dummyHash(0x12))
-
+	genesis := asset.RandGenesis(t, assetType)
 	taro, err := address.New(
-		hash, familyKey, *scriptKey.PubKey, pubKeyCopy2, amount,
+		genesis.ID(), familyKey, *scriptKey.PubKey, pubKeyCopy2, amount,
 		assetType, &address.RegressionNetTaro,
 	)
 	require.NoError(t, err)
