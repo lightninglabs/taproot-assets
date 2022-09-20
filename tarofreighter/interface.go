@@ -99,9 +99,6 @@ type AssetSpendDelta struct {
 // assets may have been split or sent to others. This is reflected in the set
 // of AssetSpendDeltas.
 type OutboundParcelDelta struct {
-	// InputDelta..
-	InputDelta *AnchoredCommitment
-
 	// OldAnchorPoint is the old/current location of the Taro commitment
 	// that was spent as an input.
 	OldAnchorPoint wire.OutPoint

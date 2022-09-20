@@ -74,7 +74,26 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 func (p *ChainPorter) Start() error {
 	var startErr error
 	p.startOnce.Do(func() {
-		// TODO(roasbeef): need to rebroadcast pending parcels
+
+		// Before we re-launch the main goroutine, we'll make sure to
+		// restart any other incomplete sends that may or may not have
+		// had the transaction broadcaster.
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+		pendingParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
+		if err != nil {
+			startErr = err
+			return
+		}
+
+		// Now that we have the set of pending sends, we'll make a new
+		// goroutine that'll drive the state machine till the broadcast
+		// point (which we might be repeating), and final terminal
+		// state.
+		for _, parcel := range pendingParcels {
+			p.Wg.Add(1)
+			go p.resumePendingParcel(parcel)
+		}
 
 		p.Wg.Add(1)
 		go p.taroPorter()
@@ -115,6 +134,34 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 	}
 }
 
+// resumePendingParcel...
+//
+// TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
+//   - could move final conf into the state machien itself
+func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
+	// To resume the state machine, we'll make a skeleton of a sendPackage,
+	// basically just what we need to drive the state machine to further
+	// completion.
+	restartSendPkg := sendPackage{
+		OutboundPkg: pkg,
+		SendState:   SendStateBroadcast,
+	}
+	err := p.advanceStateUntil(&restartSendPkg, SendStateBroadcast)
+	if err != nil {
+		// TODO(roasbef): no req to send the error back to here
+		log.Warnf("unable to advance state machine: %v", err)
+		return
+	}
+
+	// Now that the transfer tx has (maybe) been rebroadcast, we'll now
+	// trigger to wait for the final package information.
+	fakeReq := &AssetParcel{
+		errChan:  make(chan error, 1),
+		respChan: make(chan *PendingParcel, 1),
+	}
+	p.waitForPkgConfirmation(pkg, fakeReq)
+}
+
 // main state machine goroutine; advance state, wait for TX confirmation
 func (p *ChainPorter) taroPorter() {
 	defer p.Wg.Done()
@@ -130,7 +177,7 @@ func (p *ChainPorter) taroPorter() {
 			// Advance the state machine for this package until we
 			// reach the state that we broadcast the transaction
 			// that completes the transfer.
-			err := p.advanceStateUntil(&sendPkg, SendStateWaitingConf)
+			err := p.advanceStateUntil(&sendPkg, SendStateBroadcast)
 			if err != nil {
 				log.Warnf("unable to advance state machine: %v", err)
 				req.errChan <- err
@@ -140,7 +187,7 @@ func (p *ChainPorter) taroPorter() {
 			// Now that we broadcaster the transaction, we'll
 			// create a goroutine that'll wait for the confirmation
 			// then update everything on disk.
-			go p.waitForPkgConfirmation(&sendPkg, req)
+			go p.waitForPkgConfirmation(sendPkg.OutboundPkg, req)
 
 		case <-p.Quit:
 			return
@@ -152,7 +199,7 @@ func (p *ChainPorter) taroPorter() {
 // waitForPkgConfirmation waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
-func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
+func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 	req *AssetParcel) {
 
 	defer p.Wg.Done()
@@ -171,10 +218,10 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
 		return
 	}
 
-	txHash := pkg.TransferTx.TxHash()
+	txHash := pkg.AnchorTx.TxHash()
 	confCtx, confCancel := p.WithCtxQuit()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		confCtx, &txHash, pkg.TransferTx.TxOut[0].PkScript, 1,
+		confCtx, &txHash, pkg.AnchorTx.TxOut[0].PkScript, 1,
 		currentHeight, true,
 	)
 	if err != nil {
@@ -217,7 +264,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint: pkg.OutboundPkg.NewAnchorPoint,
+		AnchorPoint: pkg.NewAnchorPoint,
 		BlockHash:   *confEvent.BlockHash,
 		BlockHeight: int32(confEvent.BlockHeight),
 		TxIndex:     int32(confEvent.TxIndex),
@@ -229,48 +276,51 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
 		req.errChan <- err
 	}
 
-	oldRoot := pkg.InputAsset.Commitment.TapscriptRoot(nil)
+	// TODO(roasbeef): this info isn't available on restart yet -- likely
+	// should add the additional information
+	//
+	//oldRoot := pkg.InputAsset.Commitment.TapscriptRoot(nil)
 
 	req.respChan <- &PendingParcel{
-		NewAnchorPoint: pkg.OutboundPkg.NewAnchorPoint,
-		TransferTx:     pkg.TransferTx,
-		OldTaroRoot:    oldRoot[:],
-		NewTaroRoot:    pkg.OutboundPkg.TaroRoot,
+		NewAnchorPoint: pkg.NewAnchorPoint,
+		TransferTx:     pkg.AnchorTx,
+		//OldTaroRoot:    oldRoot[:],
+		NewTaroRoot: pkg.TaroRoot,
 		AssetInputs: []AssetInput{
 			{
-				PrevID: pkg.InputAssetPrevID,
-				Amount: btcutil.Amount(
-					pkg.InputAsset.Asset.Amount,
-				),
+				//PrevID: pkg.InputAssetPrevID,
+				//Amount: btcutil.Amount(
+				//	pkg.InputAsset.Asset.Amount,
+				//),
 			},
 		},
 		AssetOutputs: []AssetOutput{
 			{
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
-						OutPoint: pkg.OutboundPkg.NewAnchorPoint,
-						ID:       pkg.ReceiverAddr.ID,
+						OutPoint: pkg.NewAnchorPoint,
+						//ID:       pkg.ReceiverAddr.ID,
 						ScriptKey: asset.ToSerialized(
-							pkg.SenderScriptKey.PubKey,
+							pkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
 						),
 					},
 					Amount: btcutil.Amount(
-						pkg.OutboundPkg.AssetSpendDeltas[0].NewAmt,
+						pkg.AssetSpendDeltas[0].NewAmt,
 					),
 				},
 			},
 			{
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
-						OutPoint: pkg.OutboundPkg.NewAnchorPoint,
-						ID:       pkg.ReceiverAddr.ID,
-						ScriptKey: asset.ToSerialized(
-							&pkg.ReceiverAddr.ScriptKey,
-						),
+						OutPoint: pkg.NewAnchorPoint,
+						//ID:       pkg.ReceiverAddr.ID,
+						//ScriptKey: asset.ToSerialized(
+						//&pkg.ReceiverAddr.ScriptKey,
+						//),
 					},
-					Amount: btcutil.Amount(
-						pkg.ReceiverAddr.Amount,
-					),
+					//Amount: btcutil.Amount(
+					//pkg.ReceiverAddr.Amount,
+					//),
 				},
 			},
 		},
@@ -278,7 +328,6 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *sendPackage,
 	}
 
 	return
-
 }
 
 // advanceStateUntil...
@@ -287,6 +336,8 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 
 	log.Infof("ChainPorter advancing from state=%v to state=%v",
 		currentPkg.SendState, targetState)
+
+	currentState := currentPkg.SendState
 
 	var terminalState bool
 	for !terminalState {
@@ -308,7 +359,9 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 		// We've reached a terminal state once the next state is our
 		// current state (state machine loops back to the current
 		// state).
-		terminalState = updatedPkg.SendState == targetState
+		terminalState = updatedPkg.SendState == currentState
+
+		currentState = updatedPkg.SendState
 
 		currentPkg = updatedPkg
 	}
@@ -741,7 +794,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		//
 		// TODO(roasbeef): cache before?
 		anchorIndex := currentPkg.OutboundPkg.NewAnchorPoint.Index
-		anchorOutput := currentPkg.TransferTx.TxOut[anchorIndex]
+		anchorOutput := currentPkg.OutboundPkg.AnchorTx.TxOut[anchorIndex]
 		_, witProgram, err := txscript.ExtractWitnessProgramInfo(
 			anchorOutput.PkScript,
 		)
@@ -771,9 +824,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
-		// At this point, we enter the terminal state of tx broadcast.
-		// This state can be repeated as it should be idempotent.
-		currentPkg.SendState = SendStateWaitingConf
+		// We'll remain in the broadcast state to hit our termination
+		// condition. The next transition will be triggered manually
+		// once the transaction confirms.
+		currentPkg.SendState = SendStateBroadcast
 
 		return &currentPkg, nil
 
