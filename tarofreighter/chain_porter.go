@@ -716,6 +716,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 					OldScriptKey: *currentPkg.InputAsset.Asset.ScriptKey.PubKey,
 					NewAmt:       currentPkg.SendDelta.NewAsset.Amount,
 					NewScriptKey: currentPkg.SenderScriptKey,
+					WitnessData:  currentPkg.SendDelta.NewAsset.PrevWitnesses,
 				},
 			},
 			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
