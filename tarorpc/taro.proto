@@ -173,6 +173,12 @@ message GenesisInfo {
     genesis transaction.
     */
     uint32 output_index = 5;
+
+    /*
+    The full genesis information encoded in a portable manner so it can be
+    easily copy/pasted for address creation.
+    */
+    bytes genesis_bootstrap_info = 6;
 }
 
 message AssetFamily {
@@ -343,13 +349,11 @@ message QueryAddrResponse {
 }
 
 message NewAddrRequest {
-    bytes asset_id = 1;
+    bytes genesis_bootstrap_info = 1;
 
     bytes fam_key = 2;
 
     int64 amt = 3;
-
-    AssetType asset_type = 4;
 }
 
 message DecodeAddrRequest {

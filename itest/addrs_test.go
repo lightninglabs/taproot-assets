@@ -43,16 +43,9 @@ func testAddresses(t *harnessTest) {
 	// virtual TX outpoints in prevID so we don't have to sign for every
 	// asset within a commitment if we only move one of them.
 	var rpcAssets []*tarorpc.Asset
-	for _, simpleAsset := range simpleAssets {
-		rpcAssets = append(rpcAssets, mintAssetsConfirmBatch(
-			t, t.tarod, []*tarorpc.MintAssetRequest{simpleAsset},
-		)...)
-	}
-	for _, issuableAsset := range issuableAssets {
-		rpcAssets = append(rpcAssets, mintAssetsConfirmBatch(
-			t, t.tarod, []*tarorpc.MintAssetRequest{issuableAsset},
-		)...)
-	}
+	rpcAssets = append(rpcAssets, mintAssetsConfirmBatch(
+		t, t.tarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
+	)...)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -73,10 +66,10 @@ func testAddresses(t *harnessTest) {
 		//
 		// TODO(guggero): Add test that sends with asset split.
 		addr, err := t.tarod.NewAddr(ctxt, &tarorpc.NewAddrRequest{
-			AssetId:   a.AssetGenesis.AssetId,
-			FamKey:    familyKey,
-			Amt:       a.Amount,
-			AssetType: a.AssetType,
+			GenesisBootstrapInfo: a.AssetGenesis.GenesisBootstrapInfo,
+			FamKey:               familyKey,
+			Amt:                  a.Amount,
+			AssetType:            a.AssetType,
 		})
 		require.NoError(t.t, err)
 		addresses = append(addresses, addr)
@@ -149,6 +142,8 @@ func testAddresses(t *harnessTest) {
 		internalKey, err := btcec.ParsePubKey(addr.InternalKey)
 		require.NoError(t.t, err)
 
+		newAsset.PrevWitnesses = nil
+
 		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
 		require.NoError(t.t, err)
 		taroCommitment, err := commitment.NewTaroCommitment(
@@ -177,23 +172,19 @@ func testAddresses(t *harnessTest) {
 		require.NotNil(t.t, proofParams.Tx)
 
 		lastProof := assertAssetProofs(t.t, t.tarod, rpcAssets[idx])
-		_, _, _ = proof.AppendTransition(
+		newBlob, _, err := proof.AppendTransition(
 			lastProof, &proof.TransitionParams{
 				BaseProofParams: proofParams,
 				NewAsset:        newAssets[idx],
 			},
 		)
-		// TODO(guggero): Fix this once we know how the inclusion proof
-		// and leaf format needs to look like when sending to an
-		// address.
-		//
-		//require.NoError(t.t, err)
-		//
-		//_, snapshot := verifyProofBlob(t.t, t.tarod, newBlob)
-		//require.Equal(
-		//	t.t, commitmentKey(t.t, rpcAssets[idx]),
-		//	snapshot.Asset.AssetCommitmentKey(),
-		//)
+		require.NoError(t.t, err)
+
+		_, snapshot := verifyProofBlob(t.t, t.tarod, newBlob)
+		require.Equal(
+			t.t, commitmentKey(t.t, rpcAssets[idx]),
+			snapshot.Asset.AssetCommitmentKey(),
+		)
 	}
 }
 
@@ -235,7 +226,9 @@ func sendAssetsToAddr(t *harnessTest, rpcInputAsset *tarorpc.Asset,
 	recipientInternalKey, err := btcec.ParsePubKey(rpcAddr.InternalKey)
 	require.NoError(t.t, err)
 
-	var familyKey *asset.FamilyKey
+	var (
+		familyKey, familyKeyNoSig *asset.FamilyKey
+	)
 	if rpcInputAsset.AssetFamily != nil {
 		rpcFamKey := rpcInputAsset.AssetFamily
 		rawKey, err := btcec.ParsePubKey(rpcFamKey.RawFamilyKey)
@@ -252,6 +245,12 @@ func sendAssetsToAddr(t *harnessTest, rpcInputAsset *tarorpc.Asset,
 			FamKey: *famKey,
 			Sig:    *famSig,
 		}
+		familyKeyNoSig = &asset.FamilyKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: rawKey,
+			},
+			FamKey: *famKey,
+		}
 	}
 
 	inputAsset, err := asset.New(
@@ -267,9 +266,8 @@ func sendAssetsToAddr(t *harnessTest, rpcInputAsset *tarorpc.Asset,
 	require.NoError(t.t, err)
 
 	newAsset, err := asset.New(
-		genesis, uint64(rpcAddr.Amount), uint64(rpcInputAsset.LockTime),
-		uint64(rpcInputAsset.RelativeLockTime),
-		asset.NewScriptKey(recipientScriptKey), familyKey,
+		genesis, uint64(rpcAddr.Amount), 0, 0,
+		asset.NewScriptKey(recipientScriptKey), familyKeyNoSig,
 	)
 	require.NoError(t.t, err)
 
