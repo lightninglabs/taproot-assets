@@ -1478,7 +1478,7 @@ func TestProofVerify(t *testing.T) {
 	require.NoError(t, err)
 
 	spendCommitments, err := taroscript.CreateSpendCommitments(
-		state.asset2TaroTree, state.asset2PrevID,
+		&state.asset2TaroTree, state.asset2PrevID,
 		*spendCompleted, state.address1,
 		state.spenderScriptKey,
 	)
@@ -1489,10 +1489,14 @@ func TestProofVerify(t *testing.T) {
 		Locators[receiverStateKey]
 	receiverAsset := spendCompleted.SplitCommitment.
 		SplitAssets[receiverLocator].Asset
-	spendPsbt, err := taroscript.CreateSpendOutputs(
+	spendPsbt, err := taroscript.CreateTemplatePsbt(
+		spendCompleted.Locators,
+	)
+	require.NoError(t, err)
+	err = taroscript.CreateSpendOutputs(
 		state.address1, spendCompleted.Locators,
 		state.spenderPubKey, state.spenderScriptKey,
-		spendCommitments,
+		spendCommitments, spendPsbt,
 	)
 	require.NoError(t, err)
 
