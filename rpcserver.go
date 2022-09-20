@@ -3,6 +3,7 @@ package taro
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -370,11 +371,13 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 	}
 
 	resp := &tarorpc.ListBalancesResponse{
-		AssetBalances: make([]*tarorpc.AssetBalance, len(balances)),
+		AssetBalances: make(map[string]*tarorpc.AssetBalance, len(balances)),
 	}
 
-	for i, balance := range balances {
-		resp.AssetBalances[i] = &tarorpc.AssetBalance{
+	for _, balance := range balances {
+		assetIDStr := hex.EncodeToString(balance.ID[:])
+
+		resp.AssetBalances[assetIDStr] = &tarorpc.AssetBalance{
 			AssetGenesis: &tarorpc.GenesisInfo{
 				// TODO(bhandras): add to the query
 				// Version:
@@ -403,17 +406,18 @@ func (r *rpcServer) listBalancesByFamilyKey(ctx context.Context,
 
 	resp := &tarorpc.ListBalancesResponse{
 		AssetFamilyBalances: make(
-			[]*tarorpc.AssetFamilyBalance, len(balances),
+			map[string]*tarorpc.AssetFamilyBalance, len(balances),
 		),
 	}
 
-	for i, balance := range balances {
+	for _, balance := range balances {
 		var famKey []byte
 		if balance.FamKey != nil {
-			famKey = schnorr.SerializePubKey(balance.FamKey)
+			famKey = balance.FamKey.SerializeCompressed()
 		}
 
-		resp.AssetFamilyBalances[i] = &tarorpc.AssetFamilyBalance{
+		famKeyString := hex.EncodeToString(famKey)
+		resp.AssetFamilyBalances[famKeyString] = &tarorpc.AssetFamilyBalance{
 			FamilyKey: famKey,
 			Balance:   int64(balance.Balance),
 		}
