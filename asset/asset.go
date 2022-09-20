@@ -236,7 +236,17 @@ func (s *SplitCommitment) DeepEqual(o *SplitCommitment) bool {
 		}
 	}
 
-	return s.RootAsset.DeepEqual(&o.RootAsset)
+	// We can't directly compare the root assets, as some non-TLV fields
+	// might be different in unit tests. To avoid introducing flakes, we
+	// only compare the encoded TLV data.
+	var bufA, bufB bytes.Buffer
+
+	// We ignore errors here, these possible errors (incorrect TLV stream
+	// being created) are covered in unit tests.
+	_ = s.RootAsset.Encode(&bufA)
+	_ = o.RootAsset.Encode(&bufB)
+
+	return bytes.Equal(bufA.Bytes(), bufB.Bytes())
 }
 
 // Witness is a nested TLV stream within the main Asset TLV stream that contains
