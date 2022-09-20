@@ -16,6 +16,11 @@ service Taro {
     */
     rpc ListAssets (ListAssetRequest) returns (ListAssetResponse);
 
+    /*
+    ListBalances lists asset balances
+    */
+    rpc ListBalances (ListBalancesRequest) returns (ListBalancesResponse);
+
     /* tarocli: `stop`
     StopDaemon will send a shutdown request to the interrupt handler, triggering
     a graceful shutdown of the daemon.
@@ -201,6 +206,50 @@ message Asset {
 
 message ListAssetResponse {
     repeated Asset assets = 1;
+}
+
+message ListBalancesRequest {
+    oneof group_by {
+        // Group results by asset IDs.
+        bool asset_id = 1;
+
+        // Group results by family keys.
+        bool fam_key = 2;
+    }
+
+    // If the query results should grouped by asset ids, then an optional asset
+    // filter may be provided to query balance of a secific asset.
+    bytes asset_filter = 3;
+
+    // If the query results should be grouped by family keys, then an optional
+    // family key filter may be provided to query the balance of a specifc
+    // asset family.
+    bytes family_key_filter = 4;
+}
+
+message AssetBalance {
+    // The base genesis information of an asset. This information never changes.
+    GenesisInfo asset_genesis = 1;
+
+    // The type of the asset.
+    AssetType asset_type = 2;
+
+    // The balance of the asset owned by the target daemon.
+    int64 balance = 3;
+}
+
+message AssetFamilyBalance {
+    // The family key or nil aggregating assets that don't have a family.
+    bytes family_key = 1;
+
+    // The total balance of the assets in the family.
+    int64 balance = 2;
+}
+
+message ListBalancesResponse {
+    repeated AssetBalance asset_balances = 1;
+
+    repeated AssetFamilyBalance asset_family_balances = 2;
 }
 
 message StopRequest {

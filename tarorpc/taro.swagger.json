@@ -466,6 +466,24 @@
         }
       }
     },
+    "tarorpcAssetBalance": {
+      "type": "object",
+      "properties": {
+        "asset_genesis": {
+          "$ref": "#/definitions/tarorpcGenesisInfo",
+          "description": "The base genesis information of an asset. This information never changes."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType",
+          "description": "The type of the asset."
+        },
+        "balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The balance of the asset owned by the target daemon."
+        }
+      }
+    },
     "tarorpcAssetFamily": {
       "type": "object",
       "properties": {
@@ -483,6 +501,21 @@
           "type": "string",
           "format": "byte",
           "description": "A signature over the genesis point using the above key."
+        }
+      }
+    },
+    "tarorpcAssetFamilyBalance": {
+      "type": "object",
+      "properties": {
+        "family_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The family key or nil aggregating assets that don't have a family."
+        },
+        "balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total balance of the assets in the family."
         }
       }
     },
@@ -578,6 +611,23 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/tarorpcAsset"
+          }
+        }
+      }
+    },
+    "tarorpcListBalancesResponse": {
+      "type": "object",
+      "properties": {
+        "asset_balances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetBalance"
+          }
+        },
+        "asset_family_balances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetFamilyBalance"
           }
         }
       }
