@@ -30,6 +30,7 @@ var (
 	assetEmissionName = "enable_emission"
 	skipBatchName     = "skip_batch"
 	groupByFamilyName = "by_family"
+	assetIDName       = "asset_id"
 )
 
 var mintAssetCommand = cli.Command{

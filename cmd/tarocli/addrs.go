@@ -51,10 +51,6 @@ var newAddrCommand = cli.Command{
 			Name:  amtName,
 			Usage: "the amt of the asset to receive",
 		},
-		cli.StringFlag{
-			Name:  assetTypeName,
-			Usage: "the type of the asset",
-		},
 	},
 	Action: newAddr,
 }
@@ -84,7 +80,6 @@ func newAddr(ctx *cli.Context) error {
 		GenesisBootstrapInfo: genInfo,
 		FamKey:               keyFam,
 		Amt:                  ctx.Int64(amtName),
-		AssetType:            parseAssetType(ctx),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)

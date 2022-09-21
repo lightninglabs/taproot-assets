@@ -558,8 +558,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	}
 
 	assetID := genesis.ID()
-	rpcsLog.Infof("[NewTaroAddr]: making new addr: asset_id=%x, amt=%v, "+
-		"type=%v", assetID[:], in.Amt, asset.Type(in.AssetType))
+	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v, "+
+		"type=%v", assetID[:], in.Amt, asset.Type(genesis.Type))
 
 	// Now that we have all the params, we'll try to add a new address to
 	// the addr book.
