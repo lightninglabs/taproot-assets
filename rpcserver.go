@@ -475,7 +475,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 		var famKey *btcec.PublicKey
 		if len(in.FamilyKeyFilter) != 0 {
 			var err error
-			famKey, err = schnorr.ParsePubKey(in.FamilyKeyFilter)
+			famKey, err = btcec.ParsePubKey(in.FamilyKeyFilter)
 			if err != nil {
 				return nil, fmt.Errorf("invalid family key "+
 					"filter: %v", err)

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 )
@@ -135,7 +134,7 @@ func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	}
 
 	assetID := hex.EncodeToString(loc.AssetID[:])
-	scriptKey := hex.EncodeToString(schnorr.SerializePubKey(&loc.ScriptKey))
+	scriptKey := hex.EncodeToString(loc.ScriptKey.SerializeCompressed())
 
 	return filepath.Join(rootPath, assetID, scriptKey+TaroFileSuffix), nil
 }
