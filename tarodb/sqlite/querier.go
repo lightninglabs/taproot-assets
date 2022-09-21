@@ -67,10 +67,6 @@ type Querier interface {
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter interface{}) ([]QueryAssetBalancesByAssetRow, error)
-	// We use a LEFT JOIN here as not every asset has a family key, so this'll
-	// generate rows that have NULL values for the family key fields if an asset
-	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
-	// around that needs to be used with this query until a sqlc bug is fixed.
 	QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error)
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll

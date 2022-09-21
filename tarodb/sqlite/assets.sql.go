@@ -1256,8 +1256,9 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 
 const queryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
 SELECT
-    genesis_info_view.asset_id, SUM(amount) balance,
-    genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type
+    genesis_info_view.asset_id, version, SUM(amount) balance,
+    genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type,
+    genesis_info_view.prev_out AS genesis_point
 FROM assets
 JOIN genesis_info_view
     ON assets.asset_id = genesis_info_view.gen_asset_id AND
@@ -1268,11 +1269,13 @@ GROUP BY assets.asset_id
 `
 
 type QueryAssetBalancesByAssetRow struct {
-	AssetID   []byte
-	Balance   int64
-	AssetTag  string
-	MetaData  []byte
-	AssetType int16
+	AssetID      []byte
+	Version      int32
+	Balance      int64
+	AssetTag     string
+	MetaData     []byte
+	AssetType    int16
+	GenesisPoint []byte
 }
 
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
@@ -1290,10 +1293,12 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter i
 		var i QueryAssetBalancesByAssetRow
 		if err := rows.Scan(
 			&i.AssetID,
+			&i.Version,
 			&i.Balance,
 			&i.AssetTag,
 			&i.MetaData,
 			&i.AssetType,
+			&i.GenesisPoint,
 		); err != nil {
 			return nil, err
 		}
@@ -1323,10 +1328,6 @@ type QueryAssetBalancesByFamilyRow struct {
 	Balance       int64
 }
 
-// We use a LEFT JOIN here as not every asset has a family key, so this'll
-// generate rows that have NULL values for the family key fields if an asset
-// doesn't have a family key. See the comment in fetchAssetSprouts for a work
-// around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByFamily, keyFamFilter)
 	if err != nil {

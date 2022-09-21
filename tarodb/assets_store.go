@@ -216,11 +216,13 @@ type ActiveAssetsStore interface {
 // AssetBalance holds a balance query result for a particular asset or all
 // assets tracked by this daemon.
 type AssetBalance struct {
-	ID      asset.ID
-	Balance uint64
-	Tag     string
-	Meta    []byte
-	Type    asset.Type
+	ID           asset.ID
+	Version      int32
+	Balance      uint64
+	Tag          string
+	Meta         []byte
+	Type         asset.Type
+	GenesisPoint wire.OutPoint
 }
 
 // AssetFamilyBalance holds abalance query result for a particular asset family
@@ -618,9 +620,18 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 			copy(assetID[:], assetBalance.AssetID[:])
 
 			assetIDBalance := AssetBalance{
+				Version: assetBalance.Version,
 				Balance: uint64(assetBalance.Balance),
 				Tag:     assetBalance.AssetTag,
 				Type:    asset.Type(assetBalance.AssetType),
+			}
+
+			err = readOutPoint(
+				bytes.NewReader(assetBalance.GenesisPoint),
+				0, 0, &assetIDBalance.GenesisPoint,
+			)
+			if err != nil {
+				return err
 			}
 
 			copy(assetIDBalance.ID[:], assetBalance.AssetID)
