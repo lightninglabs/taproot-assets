@@ -376,15 +376,13 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 
 	for _, balance := range balances {
 		assetIDStr := hex.EncodeToString(balance.ID[:])
-
 		resp.AssetBalances[assetIDStr] = &tarorpc.AssetBalance{
 			AssetGenesis: &tarorpc.GenesisInfo{
-				// TODO(bhandras): add to the query
-				// Version:
-				// GenesisPoint
-				Name:    balance.Tag,
-				Meta:    balance.Meta,
-				AssetId: balance.ID[:],
+				Version:      int32(balance.Version),
+				GenesisPoint: balance.GenesisPoint.String(),
+				Name:         balance.Tag,
+				Meta:         balance.Meta,
+				AssetId:      balance.ID[:],
 			},
 			AssetType: tarorpc.AssetType(balance.Type),
 			Balance:   int64(balance.Balance),
