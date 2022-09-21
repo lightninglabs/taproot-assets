@@ -152,20 +152,7 @@ type sendPackage struct {
 
 // inputAnchorPkScript...
 func (s *sendPackage) inputAnchorPkScript() ([]byte, []byte, error) {
-	s.InputAsset.Asset.PrevWitnesses = []asset.Witness{{
-		PrevID: &asset.ZeroPrevID,
-	}}
-
-	newCommitment, err := commitment.NewAssetCommitment(s.InputAsset.Asset)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	newTaroCommitment, err := commitment.NewTaroCommitment(newCommitment)
-	if err != nil {
-		return nil, nil, err
-	}
-	taroScriptRoot := newTaroCommitment.TapscriptRoot(nil)
+	taroScriptRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
 
 	anchorPubKey := txscript.ComputeTaprootOutputKey(
 		s.InputAsset.InternalKey.PubKey, taroScriptRoot[:],
