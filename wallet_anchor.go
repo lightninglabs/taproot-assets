@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -78,6 +79,18 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 		ChangeOutputIndex: uint32(changeIndex),
 		LockedUTXOs:       lockedUtxos,
 	}, nil
+}
+
+// SignPsbt...
+func (l *LndRpcWalletAnchor) SignPsbt(ctx context.Context,
+	packet *psbt.Packet) (*psbt.Packet, error) {
+
+	pkt, err := l.lnd.WalletKit.SignPsbt(ctx, packet)
+	if err != nil {
+		return nil, err
+	}
+
+	return pkt, nil
 }
 
 // SignAndFinalizePsbt fully signs and finalizes the target PSBT packet.
@@ -152,3 +165,5 @@ func (l *LndRpcWalletAnchor) ListTransactions(ctx context.Context, startHeight,
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
 // tarogarden.WalletAnchor interface.
 var _ tarogarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+
+var _ tarofreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)

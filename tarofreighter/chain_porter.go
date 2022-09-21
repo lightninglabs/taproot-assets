@@ -744,16 +744,29 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// Wallet.SignPsbt,
 		// (PSBT package) then MaybeFinalizeAll, then Extract
+		signedPsbt, err := p.cfg.Wallet.SignPsbt(ctx, currentPkg.SendPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sign psbt: %w", err)
+		}
+
+		err = psbt.MaybeFinalizeAll(signedPsbt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to finalize psbt: %w", err)
+		}
 
 		// With all the input and output information in the packet, we
 		// can now ask lnd to sign it, and also give us the final
 		// version.
-		currentPkg.SendPkt, err = p.cfg.Wallet.SignAndFinalizePsbt(
-			ctx, currentPkg.SendPkt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to sign psbt: %w", err)
-		}
+		/*
+			currentPkg.SendPkt, err = p.cfg.Wallet.SignAndFinalizePsbt(
+				ctx, currentPkg.SendPkt,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to sign psbt: %w", err)
+			}
+		*/
+
+		currentPkg.SendPkt = signedPsbt
 
 		currentPkg.SendState = SendStateLogCommit
 

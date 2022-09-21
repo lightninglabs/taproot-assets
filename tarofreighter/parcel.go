@@ -171,10 +171,13 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 	internalKey := s.InputAsset.InternalKey
 	bip32Derivation := &psbt.Bip32Derivation{
 		PubKey: internalKey.PubKey.SerializeCompressed(),
+		// Error from signer: lnd/lnwallet/btcwallet/signer.go#L91
 		Bip32Path: []uint32{
 			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
-			keychain.CoinTypeBitcoin + hdkeychain.HardenedKeyStart,
-			uint32(internalKey.Family),
+			// Testnet gang?
+			keychain.CoinTypeTestnet + hdkeychain.HardenedKeyStart,
+			// must be hardened
+			uint32(internalKey.Family) + uint32(hdkeychain.HardenedKeyStart),
 			0,
 			uint32(internalKey.Index + hdkeychain.HardenedKeyStart),
 		},

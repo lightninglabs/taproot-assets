@@ -3,7 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"

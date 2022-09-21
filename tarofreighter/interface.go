@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
@@ -192,17 +193,12 @@ type ExportLog interface {
 type ChainBridge = tarogarden.ChainBridge
 
 // WalletAnchor aliases into the WalletAnchor of the tarogarden package.
-type WalletAnchor = tarogarden.WalletAnchor
-
-/*
-
 type WalletAnchor interface {
 	tarogarden.WalletAnchor
 
 	// Passthrough Wallet.SignPsbt
 	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
 }
-*/
 
 // KeyRing aliases into the KeyRing of the tarogarden package.
 type KeyRing = tarogarden.KeyRing
