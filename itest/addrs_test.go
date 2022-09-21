@@ -107,8 +107,6 @@ func testAddresses(t *harnessTest) {
 	// Mine a block to make sure the events are marked as confirmed.
 	_ = mineBlocks(t, t.lndHarness, 1, len(rpcAssets))[0]
 
-	// TODO(roasbeef): call import on the new proof
-
 	// Eventually the events should be marked as confirmed.
 	err := wait.NoError(func() error {
 		resp, err := secondTarod.AddrReceives(
@@ -127,6 +125,35 @@ func testAddresses(t *harnessTest) {
 		return nil
 	}, defaultWaitTimeout/2)
 	require.NoError(t.t, err)
+
+	// To complete the transfer, we'll export the proof from the sender and
+	// import it into the receiver for each asset set.
+	for i, rpcAsset := range rpcAssets {
+		receiverAddr := addresses[i]
+
+		assetGen := rpcAsset.AssetGenesis
+
+		var proofResp *tarorpc.ProofFile
+		waitErr := wait.NoError(func() error {
+			resp, err := t.tarod.ExportProof(ctxb, &tarorpc.ExportProofRequest{
+				AssetId:   assetGen.AssetId,
+				ScriptKey: receiverAddr.ScriptKey,
+			})
+			if err != nil {
+				return err
+			}
+
+			proofResp = resp
+			return nil
+		}, defaultWaitTimeout)
+		require.NoError(t.t, waitErr)
+
+		_, err = secondTarod.ImportProof(ctxb, &tarorpc.ImportProofRequest{
+			ProofFile:    proofResp.RawProof,
+			GenesisPoint: assetGen.GenesisPoint,
+		})
+		require.NoError(t.t, err)
+	}
 
 	// And finally, they should be marked as completed with a proof
 	// available.
