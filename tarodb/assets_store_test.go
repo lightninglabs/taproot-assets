@@ -371,6 +371,10 @@ func TestImportAssetProof(t *testing.T) {
 	dbAsset.PrevWitnesses = nil
 	testAsset.PrevWitnesses = nil
 
+	witness, err := db.FetchAssetWitnesses(ctx, sqlInt32(1))
+	require.NoError(t, err)
+	require.NotEmpty(t, witness)
+
 	// We also need to look at the family key separately as the raw key is
 	// not stored in the proof.
 	if testAsset.FamilyKey != nil {

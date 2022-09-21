@@ -283,6 +283,12 @@ func fetchAssetWitnesses(ctx context.Context,
 			return nil, err
 		}
 
+		// We'll insert a nil witness for genesis asset, so we don't
+		// add it to the map, which'll give it the genesis witness.
+		if len(witnesses) == 0 {
+			continue
+		}
+
 		assetWitnesses[assetID] = witnesses
 	}
 
