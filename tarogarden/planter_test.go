@@ -49,6 +49,8 @@ type mintingTestHarness struct {
 
 	batchKey *keychain.KeyDescriptor
 
+	proofFiles *tarogarden.MockProofArchive
+
 	*testing.T
 
 	errChan chan error
@@ -89,6 +91,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			Log:         t.store,
 			KeyRing:     t.keyRing,
 			GenSigner:   t.genSigner,
+			ProofFiles:  t.proofFiles,
 		},
 		BatchTicker: t.ticker,
 		ErrChan:     t.errChan,

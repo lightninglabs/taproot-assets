@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -364,4 +365,18 @@ func (m *MockGenSigner) SignGenesis(desc keychain.KeyDescriptor,
 	priv := m.KeyRing.Keys[desc.KeyLocator]
 	signer := asset.NewRawKeyGenesisSigner(priv)
 	return signer.SignGenesis(desc, gen)
+}
+
+type MockProofArchive struct {
+}
+
+func (m *MockProofArchive) FetchProof(ctx context.Context,
+	id proof.Locator) (proof.Blob, error) {
+
+	return nil, nil
+}
+
+func (m *MockProofArchive) ImportProofs(ctx context.Context,
+	proofs ...*proof.AnnotatedProof) error {
+	return nil
 }
