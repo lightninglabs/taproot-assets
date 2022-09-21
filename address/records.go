@@ -2,6 +2,7 @@ package address
 
 import (
 	"bytes"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/asset"
@@ -29,9 +30,6 @@ const (
 
 	// addrAmountType is the TLV type of the amount of the asset.
 	addrAmountType addressTLVType = 8
-
-	// addrAssetType is the TLV type that stores the type of the asset.
-	addrAssetType addressTLVType = 9
 )
 
 func newAddressVersionRecord(version *asset.Version) tlv.Record {

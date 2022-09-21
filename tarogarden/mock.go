@@ -378,5 +378,6 @@ func (m *MockProofArchive) FetchProof(ctx context.Context,
 
 func (m *MockProofArchive) ImportProofs(ctx context.Context,
 	proofs ...*proof.AnnotatedProof) error {
+
 	return nil
 }

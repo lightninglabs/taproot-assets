@@ -430,7 +430,6 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 
 	case err != nil:
 		return fmt.Errorf("error fetching proof for event: %w", err)
-
 	}
 
 	file := &proof.File{}

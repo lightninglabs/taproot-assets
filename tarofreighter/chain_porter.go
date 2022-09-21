@@ -84,7 +84,6 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 func (p *ChainPorter) Start() error {
 	var startErr error
 	p.startOnce.Do(func() {
-
 		// Before we re-launch the main goroutine, we'll make sure to
 		// restart any other incomplete sends that may or may not have
 		// had the transaction broadcaster.
@@ -208,7 +207,6 @@ func (p *ChainPorter) taroPorter() {
 			return
 		}
 	}
-
 }
 
 // waitForPkgConfirmation waits for the confirmation of the final transaction
@@ -459,7 +457,6 @@ func adjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32,
 // stateStep...
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	switch currentPkg.SendState {
-
 	// In this initial state, we'll set up some initial state we need to
 	// carry out the send flow.
 	case SendStateInitializing:
