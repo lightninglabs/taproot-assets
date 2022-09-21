@@ -47,7 +47,9 @@ func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
 type Version uint8
 
 var (
-	zeroPrevID PrevID
+	// ZeroPrevID is the blank prev ID used for genesis assets and also
+	// asset split leaves.
+	ZeroPrevID PrevID
 )
 
 const (
@@ -679,7 +681,7 @@ func (a *Asset) HasGenesisWitness() bool {
 		return false
 	}
 
-	return *witness.PrevID == zeroPrevID
+	return *witness.PrevID == ZeroPrevID
 }
 
 // HasSplitCommitmentWitness returns true if an asset has a split commitment
