@@ -194,6 +194,16 @@ type ChainBridge = tarogarden.ChainBridge
 // WalletAnchor aliases into the WalletAnchor of the tarogarden package.
 type WalletAnchor = tarogarden.WalletAnchor
 
+/*
+
+type WalletAnchor interface {
+	tarogarden.WalletAnchor
+
+	// Passthrough Wallet.SignPsbt
+	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
+}
+*/
+
 // KeyRing aliases into the KeyRing of the tarogarden package.
 type KeyRing = tarogarden.KeyRing
 

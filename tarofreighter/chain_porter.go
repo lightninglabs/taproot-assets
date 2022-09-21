@@ -399,8 +399,9 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 
 		updatedPkg, err := p.stateStep(*currentPkg)
 		if err != nil {
-			return fmt.Errorf("unable to advance "+
-				"state machine: %w", err)
+			// return fmt.Errorf("unable to advance "+
+			// 	"state machine: %w", err)
+			return err
 		}
 
 		// We've reached a terminal state once the next state is our
@@ -625,7 +626,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// taro leaves. The witness data for each input will be
 		// assigned for us.
 		completedSpend, err := taroscript.CompleteAssetSpend(
-			*currentPkg.InputAsset.InternalKey.PubKey,
+			// TODO: change to scriptKey; worked!
+			// *currentPkg.InputAsset.InternalKey.PubKey,
+			*currentPkg.InputAsset.Asset.ScriptKey.RawKey.PubKey,
 			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
 			p.cfg.Signer, p.cfg.TxValidator,
 		)
@@ -738,6 +741,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
+
+		// Wallet.SignPsbt,
+		// (PSBT package) then MaybeFinalizeAll, then Extract
 
 		// With all the input and output information in the packet, we
 		// can now ask lnd to sign it, and also give us the final

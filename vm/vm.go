@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
@@ -198,8 +199,9 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 		//
 		// TODO(roasbeef): remove? will go thru normal sig parse
 		// checks, untested as is
+		// TODO: This is wrong
 		if len(witnessItem) == 65 {
-			_, err = schnorr.ParseSignature(witnessItem[:])
+			_, err = schnorr.ParseSignature(witnessItem[1:])
 			if err != nil {
 				// Not a valid signature, so it must be some
 				// arbitrary data push.

@@ -194,6 +194,12 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		}},
 	})
 
+	// Add a corresponding input to the unsigned TX to match the mock PSBT input.
+	s.SendPkt.UnsignedTx.TxIn = append(
+		s.SendPkt.UnsignedTx.TxIn, &wire.TxIn{
+			PreviousOutPoint: s.InputAsset.AnchorPoint,
+		})
+
 	return err
 }
 

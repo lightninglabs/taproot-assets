@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -64,12 +65,15 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, err)
 		addresses = append(addresses, addr)
 
-		assertAddrCreated(t.t, t.tarod, a, addr)
+		assertAddrCreated(t.t, secondTarod, a, addr)
+
+		sendResp := sendAssetsToAddr(t, addr)
+		fmt.Println(spew.Sdump(sendResp))
 
 		// Make sure that eventually we see a single event for the
 		// address.
 		err = wait.NoError(func() error {
-			resp, err := t.tarod.AddrReceives(
+			resp, err := secondTarod.AddrReceives(
 				ctxt, &tarorpc.AddrReceivesRequest{
 					FilterAddr: addr.Encoded,
 				},
@@ -105,7 +109,7 @@ func testAddresses(t *harnessTest) {
 
 	// Eventually the events should be marked as confirmed.
 	err := wait.NoError(func() error {
-		resp, err := t.tarod.AddrReceives(
+		resp, err := secondTarod.AddrReceives(
 			ctxt, &tarorpc.AddrReceivesRequest{},
 		)
 		require.NoError(t.t, err)
@@ -125,7 +129,7 @@ func testAddresses(t *harnessTest) {
 
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
-func sendAssetsToAddr(t *harnessTest, rpcInputAsset *tarorpc.Asset,
+func sendAssetsToAddr(t *harnessTest,
 	rpcAddr *tarorpc.Addr) *tarorpc.SendAssetResponse {
 
 	ctxb := context.Background()

@@ -436,7 +436,7 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
 
 		updatedDelta.NewAsset = *validatedAsset
 
-		return &updatedDelta, err
+		return &updatedDelta, nil
 	}
 
 	// If the transfer includes an asset split, we have to validate each
