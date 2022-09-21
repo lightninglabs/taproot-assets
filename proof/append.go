@@ -90,7 +90,7 @@ func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
 
 // UpdateTransitionProof computes a new transaction merkle proof from the given
 // proof parameters, and updates a proof to be anchored at the given anchor
-// transaction. This is needed to refect confirmation of an anchor transaction.
+// transaction. This is needed to reflect confirmation of an anchor transaction.
 func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
 	// We only use the block, transaction, and transaction index parameters,
 	// so we only need to check the nil-ness of the block and transaction.

@@ -197,11 +197,12 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 	return err
 }
 
-// Proofs for receivers keyed by scriptKey
-type SpendProofs map[asset.SerializedKey]proof.Proof
+// spendProofs is a map of the script key of each party's assets to
+// (incomplete) proof.
+type spendProofs map[asset.SerializedKey]proof.Proof
 
 // helper for proof creation
-func (s *sendPackage) createProofs() (SpendProofs, error) {
+func (s *sendPackage) createProofs() (spendProofs, error) {
 	isSplit := s.SendDelta.SplitCommitment != nil
 
 	dummyParams := func() proof.TransitionParams {
@@ -330,7 +331,7 @@ func (s *sendPackage) createProofs() (SpendProofs, error) {
 		return nil, err
 	}
 
-	return SpendProofs{
+	return spendProofs{
 		asset.ToSerialized(s.SenderScriptKey.PubKey):  *senderProof,
 		asset.ToSerialized(&s.ReceiverAddr.ScriptKey): *receiverProof,
 	}, nil

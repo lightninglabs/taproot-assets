@@ -1,6 +1,7 @@
 package tarofreighter
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -43,6 +45,9 @@ type ChainPorterConfig struct {
 
 	// ChainParams...
 	ChainParams *address.ChainParams
+
+	// AssetProofs...
+	AssetProofs proof.Archiver
 }
 
 // ChainPorter...
@@ -264,19 +269,109 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		return
 	}
 
+	// Now we'll enter the final phase of the send process, where we'll
+	// write the receiver's proof file to disk.
+	//
+	// First, we'll fetch the sender's current proof file.
+	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, proof.Locator{
+		AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
+		ScriptKey: *pkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
+	})
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+	var senderProof proof.File
+	err = senderProof.Decode(bytes.NewReader(senderFullProofBytes))
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+
+	// Now that we have the sender's proof file, we'll decode the new
+	// suffix we want to add so we can append it to the sender's file.
+	var senderProofSuffix proof.Proof
+	err = senderProofSuffix.Decode(
+		bytes.NewReader(pkg.SenderAssetProof),
+	)
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+	err = senderProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
+		Block:   confEvent.Block,
+		Tx:      confEvent.Tx,
+		TxIndex: int(confEvent.TxIndex),
+	})
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+
+	// With the proof suffix updated, we can append the proof, then encode
+	// it to get the final sender proof.
+	var updatedSenderProof bytes.Buffer
+	senderProof.Proofs = append(senderProof.Proofs, senderProofSuffix)
+	if err := senderProof.Encode(&updatedSenderProof); err != nil {
+		req.errChan <- err
+		return
+	}
+
+	// As a final step, we'll do the same for the receiver's proof as well.
+	var receiverProofSuffix proof.Proof
+	err = receiverProofSuffix.Decode(
+		bytes.NewReader(pkg.ReceiverAssetProof),
+	)
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+	err = receiverProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
+		Block:   confEvent.Block,
+		Tx:      confEvent.Tx,
+		TxIndex: int(confEvent.TxIndex),
+	})
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+
+	// Now we'll write out the final receiver proof to the on disk proof
+	// archive.
+	var updatedReceiverProof bytes.Buffer
+	senderProof.Proofs[len(senderProof.Proofs)-1] = receiverProofSuffix
+	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
+		req.errChan <- err
+		return
+	}
+	err = p.cfg.AssetProofs.ImportProofs(ctx, &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
+			ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
+		},
+		Blob: updatedReceiverProof.Bytes(),
+	})
+	if err != nil {
+		req.errChan <- err
+		return
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint: pkg.NewAnchorPoint,
-		BlockHash:   *confEvent.BlockHash,
-		BlockHeight: int32(confEvent.BlockHeight),
-		TxIndex:     int32(confEvent.TxIndex),
+		AnchorPoint:      pkg.NewAnchorPoint,
+		BlockHash:        *confEvent.BlockHash,
+		BlockHeight:      int32(confEvent.BlockHeight),
+		TxIndex:          int32(confEvent.TxIndex),
+		FinalSenderProof: updatedSenderProof.Bytes(),
 	})
 	if err != nil {
 		err := fmt.Errorf("unable to log tx conf: %w", err)
 		log.Error(err)
 
 		req.errChan <- err
+
+		return
 	}
 
 	return
@@ -699,10 +794,26 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			tapscriptSibling,
 		)
 
-		// TODO(roasbeef): get everything needed for proofs and write
-		// to disk
-		_, err = currentPkg.createProofs()
+		spendProofs, err := currentPkg.createProofs()
 		if err != nil {
+			return nil, err
+		}
+
+		// Before we write to disk, we'll make the incomplete proofs
+		// for the sender and the receiver.
+		senderAssetProof := spendProofs[asset.ToSerialized(
+			currentPkg.SenderScriptKey.PubKey,
+		)]
+		var senderProofBuf bytes.Buffer
+		if err := senderAssetProof.Encode(&senderProofBuf); err != nil {
+			return nil, err
+		}
+
+		receiverAssetProof := spendProofs[asset.ToSerialized(
+			&currentPkg.ReceiverAddr.ScriptKey,
+		)]
+		var receiverProofBuf bytes.Buffer
+		if err := receiverAssetProof.Encode(&receiverProofBuf); err != nil {
 			return nil, err
 		}
 
@@ -732,7 +843,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 					SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
 				},
 			},
-			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
+			TapscriptSibling:   currentPkg.InputAsset.TapscriptSibling,
+			SenderAssetProof:   senderProofBuf.Bytes(),
+			ReceiverAssetProof: receiverProofBuf.Bytes(),
 		}
 		err = p.cfg.ExportLog.LogPendingParcel(
 			ctx, currentPkg.OutboundPkg,
