@@ -144,7 +144,9 @@ CREATE TABLE IF NOT EXISTS script_keys (
 -- asset, along with the sibling taproot hash needed to properly reveal and
 -- spend the asset.
 CREATE TABLE IF NOT EXISTS assets (
-    asset_id INTEGER PRIMARY KEY REFERENCES genesis_assets(gen_asset_id),
+    asset_id INTEGER PRIMARY KEY,
+    
+    genesis_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
 
     version INTEGER NOT NULL,
 
@@ -168,7 +170,9 @@ CREATE TABLE IF NOT EXISTS assets (
 
     split_commitment_root_value BIGINT,
 
-    anchor_utxo_id INTEGER REFERENCES managed_utxos(utxo_id)
+    anchor_utxo_id INTEGER REFERENCES managed_utxos(utxo_id),
+    
+    UNIQUE(genesis_id, script_key_id)
 );
 
 -- asset_witnesses stores the set of input witnesses for the latest state of an
@@ -222,7 +226,7 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     emission_enabled BOOLEAN NOT NULL,
 
-    asset_id INTEGER REFERENCES genesis_assets(gen_asset_id),
+    genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id),
 
     batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id)
 );

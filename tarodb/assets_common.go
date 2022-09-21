@@ -146,7 +146,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// base asset information itself.
 		assetIDs[idx], err = q.InsertNewAsset(
 			ctx, sqlite.InsertNewAssetParams{
-				AssetID:          genAssetID,
+				GenesisID:        genAssetID,
 				Version:          int32(a.Version),
 				ScriptKeyID:      scriptKeyID,
 				AssetFamilySigID: familySigID,

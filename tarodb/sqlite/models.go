@@ -37,6 +37,7 @@ type AddrEvent struct {
 
 type Asset struct {
 	AssetID                  int32
+	GenesisID                int32
 	Version                  int32
 	ScriptKeyID              int32
 	AssetFamilySigID         sql.NullInt32
@@ -96,7 +97,7 @@ type AssetSeedling struct {
 	AssetSupply     int64
 	AssetMeta       []byte
 	EmissionEnabled bool
-	AssetID         sql.NullInt32
+	GenesisID       sql.NullInt32
 	BatchID         int32
 }
 

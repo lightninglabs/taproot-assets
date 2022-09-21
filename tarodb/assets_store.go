@@ -476,7 +476,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		// With the asset created, we'll now emplace the set of
 		// witnesses for the asset itself. If this is a genesis asset,
 		// then it won't have a set of witnesses.
-		assetInputs, ok := witnesses[sprout.AssetID]
+		assetInputs, ok := witnesses[sprout.AssetPrimaryKey]
 		if ok {
 			assetSprout.PrevWitnesses = make(
 				[]asset.Witness, 0, len(assetInputs),
@@ -583,7 +583,7 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 	}
 
 	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
-		return a.AssetID
+		return a.AssetPrimaryKey
 	})
 
 	// With all the assets obtained, we'll now do a second query to
