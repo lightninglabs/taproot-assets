@@ -187,11 +187,6 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 		return nil, err
 	}
 
-	// Because we don't know the witness when creating an address, it's
-	// important to set it to nil here. We'll do the same when validating
-	// the proof.
-	newAsset.PrevWitnesses = nil
-
 	var buf bytes.Buffer
 	if err := newAsset.Encode(&buf); err != nil {
 		return nil, err
@@ -216,10 +211,6 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 		AssetID:  a.ID(),
 		TreeRoot: updatedRoot,
 	})
-
-	addrString, _ := a.EncodeAddress()
-	hash := taroCommitment.TapscriptRoot(nil)
-	fmt.Printf("Encoded the address (%s) as %x, using internal key %x and tweak %x\n", addrString, buf.Bytes(), a.InternalKey.SerializeCompressed(), hash[:])
 
 	return taroCommitment, err
 }
