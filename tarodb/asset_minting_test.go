@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
@@ -533,6 +534,47 @@ func TestCommitBatchChainActions(t *testing.T) {
 	diskProofs, err = confAssets.FetchAssetProofs(ctx, scriptKeys...)
 	require.NoError(t, err)
 	require.Equal(t, assetProofs, diskProofs)
+
+	mintedAssets := assetRoot.CommittedAssets()
+
+	// We'll now query for the set of balances to ensure they all line up
+	// with the assets we just created.
+	assetBalances, err := confAssets.QueryBalancesByAsset(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, numSeedlings, len(assetBalances))
+
+	for _, newAsset := range mintedAssets {
+		assetBalance, ok := assetBalances[newAsset.ID()]
+		require.True(t, ok)
+
+		require.Equal(t, newAsset.Amount, assetBalance.Balance)
+	}
+
+	// We'll also now ensure that if we group by key family, then we're
+	// also able to verify the correct balances.
+	keyFamSumReducer := func(count int, asset *asset.Asset) int {
+		if asset.FamilyKey != nil {
+			return count + 1
+		}
+
+		return count
+	}
+	numKeyFams := chanutils.Reduce(mintedAssets, keyFamSumReducer)
+	assetBalancesByFam, err := confAssets.QueryAssetBalancesByFamily(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, numKeyFams, len(assetBalancesByFam))
+
+	for _, newAsset := range mintedAssets {
+		if newAsset.FamilyKey == nil {
+			continue
+		}
+
+		famKey := asset.ToSerialized(&newAsset.FamilyKey.FamKey)
+		assetBalance, ok := assetBalancesByFam[famKey]
+		require.True(t, ok)
+
+		require.Equal(t, newAsset.Amount, assetBalance.Balance)
+	}
 }
 
 // TestDuplicateFamilyKey tests that if we attempt to insert a family key with

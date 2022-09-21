@@ -3,6 +3,7 @@ package taro
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
@@ -50,6 +52,10 @@ var (
 			Action: "write",
 		}},
 		"/tarorpc.Taro/ListAssets": {{
+			Entity: "assets",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/ListBalances": {{
 			Entity: "assets",
 			Action: "read",
 		}},
@@ -354,6 +360,114 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	return &tarorpc.ListAssetResponse{
 		Assets: rpcAssets,
 	}, nil
+}
+
+func (r *rpcServer) listBalancesByAsset(ctx context.Context,
+	assetID *asset.ID) (*tarorpc.ListBalancesResponse, error) {
+
+	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list balances: %w", err)
+	}
+
+	resp := &tarorpc.ListBalancesResponse{
+		AssetBalances: make(map[string]*tarorpc.AssetBalance, len(balances)),
+	}
+
+	for _, balance := range balances {
+		assetIDStr := hex.EncodeToString(balance.ID[:])
+
+		resp.AssetBalances[assetIDStr] = &tarorpc.AssetBalance{
+			AssetGenesis: &tarorpc.GenesisInfo{
+				// TODO(bhandras): add to the query
+				// Version:
+				// GenesisPoint
+				Name:    balance.Tag,
+				Meta:    balance.Meta,
+				AssetId: balance.ID[:],
+			},
+			AssetType: tarorpc.AssetType(balance.Type),
+			Balance:   int64(balance.Balance),
+		}
+	}
+
+	return resp, nil
+}
+
+func (r *rpcServer) listBalancesByFamilyKey(ctx context.Context,
+	famKey *btcec.PublicKey) (*tarorpc.ListBalancesResponse, error) {
+
+	balances, err := r.cfg.AssetStore.QueryAssetBalancesByFamily(
+		ctx, famKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list balances: %w", err)
+	}
+
+	resp := &tarorpc.ListBalancesResponse{
+		AssetFamilyBalances: make(
+			map[string]*tarorpc.AssetFamilyBalance, len(balances),
+		),
+	}
+
+	for _, balance := range balances {
+		var famKey []byte
+		if balance.FamKey != nil {
+			famKey = balance.FamKey.SerializeCompressed()
+		}
+
+		famKeyString := hex.EncodeToString(famKey)
+		resp.AssetFamilyBalances[famKeyString] = &tarorpc.AssetFamilyBalance{
+			FamilyKey: famKey,
+			Balance:   int64(balance.Balance),
+		}
+	}
+
+	return resp, nil
+}
+
+// ListBalances lists the asset balances owned by the daemon.
+func (r *rpcServer) ListBalances(ctx context.Context,
+	in *tarorpc.ListBalancesRequest) (*tarorpc.ListBalancesResponse, error) {
+
+	switch groupBy := in.GroupBy.(type) {
+	case *tarorpc.ListBalancesRequest_AssetId:
+		if !groupBy.AssetId {
+			return nil, fmt.Errorf("invalid group_by")
+		}
+
+		var assetID *asset.ID
+		if len(in.AssetFilter) != 0 {
+			assetID = &asset.ID{}
+			if len(in.AssetFilter) != len(assetID) {
+				return nil, fmt.Errorf("invalid asset filter")
+			}
+
+			copy(assetID[:], in.AssetFilter)
+		}
+
+		return r.listBalancesByAsset(ctx, assetID)
+
+	case *tarorpc.ListBalancesRequest_FamKey:
+		if !groupBy.FamKey {
+			return nil, fmt.Errorf("invalid group_by")
+		}
+
+		var famKey *btcec.PublicKey
+		if len(in.FamilyKeyFilter) != 0 {
+			var err error
+			famKey, err = schnorr.ParsePubKey(in.FamilyKeyFilter)
+			if err != nil {
+				return nil, fmt.Errorf("invalid family key "+
+					"filter: %v", err)
+			}
+		}
+
+		return r.listBalancesByFamilyKey(ctx, famKey)
+
+	default:
+		return nil, fmt.Errorf("invalid group_by")
+	}
 }
 
 // QueryAddrs queries the set of Taro addresses stored in the database.

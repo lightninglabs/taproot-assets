@@ -250,3 +250,31 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
 CREATE INDEX IF NOT EXISTS batch_state_lookup on asset_minting_batches (batch_state);
 
 -- TODO(roasbeef): need on delete cascade for all these?
+
+-- This view is used to fetch the base asset information from disk based on
+-- the raw key of the batch that will ultimately create this set of assets.
+-- To do so, we'll need to traverse a few tables to join the set of assets
+-- with the genesis points, then with the batches that reference this
+-- points, to the internal key that reference the batch, then restricted
+-- for internal keys that match our main batch key.
+CREATE VIEW genesis_info_view AS
+    SELECT
+        gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
+        genesis_points.prev_out prev_out
+    FROM genesis_assets
+    JOIN genesis_points
+        ON genesis_assets.genesis_point_id = genesis_points.genesis_id;
+
+-- This view is used to perform a series of joins that allow us to extract
+-- the family key information, as well as the family sigs for the series of
+-- assets we care about. We obtain only the assets found in the batch
+-- above, with the WHERE query at the bottom.
+CREATE VIEW key_fam_info_view AS
+    SELECT
+        sig_id, gen_asset_id, genesis_sig, tweaked_fam_key, raw_key, key_index, key_family
+    FROM asset_family_sigs sigs
+    JOIN asset_families fams
+        ON sigs.key_fam_id = fams.family_id
+    JOIN internal_keys keys
+        ON keys.key_id = fams.internal_key_id
+    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info_view);

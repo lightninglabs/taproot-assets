@@ -48,6 +48,11 @@ func mintAssets(t *harnessTest) {
 	}
 	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
 
+	// Now that all our assets have been issued, we'll use the balance
+	// calls to ensure that we're able to retrieve the proper balance for
+	// them all.
+	assertAssetBalances(t, rpcSimpleAssets, rpcIssuableAssets)
+
 	// Make sure the proof files for the freshly minted assets can be
 	// retrieved and are fully valid.
 	var allAssets []*tarorpc.Asset
@@ -191,5 +196,66 @@ func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
 			assetTypeCheck(existingAsset.AssetType),
 			assetAnchorCheck(*anchorTxHash, *anchorBlockHash),
 		)
+	}
+}
+
+func assertAssetBalances(t *harnessTest,
+	simpleAssets, issuableAssets []*tarorpc.Asset) {
+
+	t.t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// First, we'll ensure that we're able to get the balances of all the
+	// assets grouped by their asset IDs.
+	balanceReq := &tarorpc.ListBalancesRequest_AssetId{
+		AssetId: true,
+	}
+	assetIDBalances, err := t.tarod.ListBalances(ctxt, &tarorpc.ListBalancesRequest{
+		GroupBy: balanceReq,
+	})
+	require.NoError(t.t, err)
+
+	var allAssets []*tarorpc.Asset
+	allAssets = append(allAssets, simpleAssets...)
+	allAssets = append(allAssets, issuableAssets...)
+
+	require.Equal(t.t, len(allAssets), len(assetIDBalances.AssetBalances))
+
+	for _, balance := range assetIDBalances.AssetBalances {
+		for _, rpcAsset := range allAssets {
+			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
+				require.Equal(
+					t.t, balance.Balance, rpcAsset.Amount,
+				)
+			}
+		}
+	}
+
+	// We'll also ensure that we're able to get the balance by key family
+	// for all the assets that have one specified.
+	famBalanceReq := &tarorpc.ListBalancesRequest_FamKey{
+		FamKey: true,
+	}
+	assetFamBalances, err := t.tarod.ListBalances(ctxt, &tarorpc.ListBalancesRequest{
+		GroupBy: famBalanceReq,
+	})
+	require.NoError(t.t, err)
+
+	require.Equal(
+		t.t, len(issuableAssets),
+		len(assetFamBalances.AssetFamilyBalances),
+	)
+
+	for _, balance := range assetFamBalances.AssetBalances {
+		for _, rpcAsset := range issuableAssets {
+			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
+				require.Equal(
+					t.t, balance.Balance, rpcAsset.Amount,
+				)
+			}
+		}
 	}
 }

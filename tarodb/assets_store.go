@@ -26,6 +26,14 @@ type (
 	// ConfirmedAsset is an asset that has been fully confirmed on chain.
 	ConfirmedAsset = sqlite.QueryAssetsRow
 
+	// RawAssetBalance holds a balance query result for a particular asset or all
+	// assets tracked by this daemon.
+	RawAssetBalance = sqlite.QueryAssetBalancesByAssetRow
+
+	// AssetFamilyBalance holds abalance query result for a particular asset family
+	// or all asset families tracked by this daemon.
+	RawAssetFamilyBalance = sqlite.QueryAssetBalancesByFamilyRow
+
 	// AssetProof is the asset proof for a given asset, identified by its
 	// script key.
 	AssetProof = sqlite.FetchAssetProofsRow
@@ -90,6 +98,18 @@ type (
 type ActiveAssetsStore interface {
 	// QueryAssets fetches the set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset, error)
+
+	// QueryAssetBalancesByAsset queries the balances for assets or
+	// alternatively for a selected one that matches the passed asset ID
+	// filter.
+	QueryAssetBalancesByAsset(context.Context,
+		interface{}) ([]RawAssetBalance, error)
+
+	// QueryAssetBalancesByFamily queries the asset balances for asset
+	// families or alternatively for a selected one that matches the passed
+	// filter.
+	QueryAssetBalancesByFamily(context.Context,
+		interface{}) ([]RawAssetFamilyBalance, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -191,6 +211,23 @@ type ActiveAssetsStore interface {
 
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
+}
+
+// AssetBalance holds a balance query result for a particular asset or all
+// assets tracked by this daemon.
+type AssetBalance struct {
+	ID      asset.ID
+	Balance uint64
+	Tag     string
+	Meta    []byte
+	Type    asset.Type
+}
+
+// AssetFamilyBalance holds abalance query result for a particular asset family
+// or all asset families tracked by this daemon.
+type AssetFamilyBalance struct {
+	FamKey  *btcec.PublicKey
+	Balance uint64
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -554,6 +591,103 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 // which lets us filter the results of the set of assets returned.
 type AssetQueryFilters struct {
 	tarofreighter.CommitmentConstraints
+}
+
+// QueryAssetBalancesByAsset queries the balances for assets or alternatively
+// for a selected one that matches the passed asset ID filter.
+func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
+	assetID *asset.ID) (map[asset.ID]AssetBalance, error) {
+
+	var assetFilter []byte
+	if assetID != nil {
+		assetFilter = assetID[:]
+	}
+
+	balances := make(map[asset.ID]AssetBalance)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbBalances, err := q.QueryAssetBalancesByAsset(ctx, assetFilter)
+		if err != nil {
+			return fmt.Errorf("unable to query asset "+
+				"balances by asset: %w", err)
+		}
+
+		for _, assetBalance := range dbBalances {
+			var assetID asset.ID
+			copy(assetID[:], assetBalance.AssetID[:])
+
+			assetIDBalance := AssetBalance{
+				Balance: uint64(assetBalance.Balance),
+				Tag:     assetBalance.AssetTag,
+				Type:    asset.Type(assetBalance.AssetType),
+			}
+
+			copy(assetIDBalance.ID[:], assetBalance.AssetID)
+			assetIDBalance.Meta = make(
+				[]byte, len(assetBalance.MetaData),
+			)
+			copy(assetIDBalance.Meta, assetBalance.MetaData)
+
+			balances[assetID] = assetIDBalance
+		}
+
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return balances, nil
+}
+
+// QueryAssetBalancesByFamily queries the asset balances for asset families or
+// alternatively for a selected one that matches the passed filter.
+func (a *AssetStore) QueryAssetBalancesByFamily(
+	ctx context.Context, famKey *btcec.PublicKey,
+) (map[asset.SerializedKey]AssetFamilyBalance, error) {
+
+	var famFilter []byte
+	if famKey != nil {
+		famKeySerialized := famKey.SerializeCompressed()
+		famFilter = famKeySerialized[:]
+	}
+
+	balances := make(map[asset.SerializedKey]AssetFamilyBalance)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbBalances, err := q.QueryAssetBalancesByFamily(ctx, famFilter)
+		if err != nil {
+			return fmt.Errorf("unable to query asset "+
+				"balances by asset: %w", err)
+		}
+
+		for _, famBalance := range dbBalances {
+			var famKey *btcec.PublicKey
+			if famBalance.TweakedFamKey != nil {
+				famKey, err = btcec.ParsePubKey(
+					famBalance.TweakedFamKey,
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			serializedKey := asset.ToSerialized(famKey)
+			balances[serializedKey] = AssetFamilyBalance{
+				FamKey:  famKey,
+				Balance: uint64(famBalance.Balance),
+			}
+		}
+
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return balances, nil
 }
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.

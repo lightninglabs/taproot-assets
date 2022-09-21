@@ -62,8 +62,17 @@ type Querier interface {
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
+	// We use a LEFT JOIN here as not every asset has a family key, so this'll
+	// generate rows that have NULL values for the family key fields if an asset
+	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// around that needs to be used with this query until a sqlc bug is fixed.
+	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter interface{}) ([]QueryAssetBalancesByAssetRow, error)
+	// We use a LEFT JOIN here as not every asset has a family key, so this'll
+	// generate rows that have NULL values for the family key fields if an asset
+	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// around that needs to be used with this query until a sqlc bug is fixed.
+	QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error)
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
-	// TODO(roasbeef): decompose into view to make easier to query/re-use -- same w/ above
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the family key fields if an asset
 	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
