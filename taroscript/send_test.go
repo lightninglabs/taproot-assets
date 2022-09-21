@@ -486,9 +486,14 @@ func checkSpendCommitments(t *testing.T, senderKey, receiverKey [32]byte,
 			true, true, true,
 		)
 		receiverLocator := spend.Locators[receiverKey]
-		receiverAsset, ok := spend.SplitCommitment.
-			SplitAssets[receiverLocator]
+		receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
 		require.True(t, ok)
+
+		// Before we go to compare the commitments, we'll remove the
+		// split commitment witness from the receiver asset, since the
+		// actual tree doesn't explicitly commit to this value.
+		receiverAsset.PrevWitnesses[0].SplitCommitment = nil
+
 		checkTaroCommitment(
 			t, []*asset.Asset{&receiverAsset.Asset}, &receiverTree,
 			true, true, true,
@@ -538,7 +543,12 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 		receiverAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// For this assertion, we unsent the split commitment, since the leaf
+	// in the receivers tree doesn't have this value.
+	receiverAsset.PrevWitnesses[0].SplitCommitment = nil
 	require.True(t, receiverAsset.DeepEqual(receiverProofAsset))
+
 	receiverProof := &proof.TaprootProof{
 		OutputIndex: receiverIndex,
 		InternalKey: &addr.InternalKey,

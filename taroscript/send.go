@@ -532,8 +532,16 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 			return nil, ErrMissingSplitAsset
 		}
 
+		// At this point, we have the receiver's taro commitment.
+		// However we need to blank out the split commitment proof, as
+		// the receiver doesn't know of this information yet. The final
+		// commitment will be to a leaf without the split commitment
+		// proof.
+		receiverAssetCopy := receiverAsset.Copy()
+		receiverAssetCopy.PrevWitnesses[0].SplitCommitment = nil
+
 		receiverCommitment, err = commitment.NewAssetCommitment(
-			&receiverAsset.Asset,
+			receiverAssetCopy,
 		)
 		if err != nil {
 			return nil, err

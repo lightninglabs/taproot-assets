@@ -389,6 +389,14 @@ func (p TaprootProof) DeriveByAssetInclusion(
 		return nil, nil, ErrInvalidCommitmentProof
 	}
 
+	// If this is an asset with a split commitment, then we need to verify
+	// the inclusion proof without this information. As the output of the
+	// receiver was created without this present.
+	if asset.HasSplitCommitmentWitness() {
+		asset = asset.Copy()
+		asset.PrevWitnesses[0].SplitCommitment = nil
+	}
+
 	// Use the commitment proof to go from the asset leaf all the way up to
 	// the Taro commitment root, which is then mapped to a TapLeaf and is
 	// hashed with a sibling node, if any, to derive the tapscript root and

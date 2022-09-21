@@ -222,6 +222,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	split1Asset := splitCommitment.RootAsset
 	split2Asset := &splitCommitment.SplitAssets[*split2Locator].Asset
 
+	split2AssetNoSplitProof := split2Asset.Copy()
+	split2AssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
+
 	// Sign the new (root) asset over to the recipient.
 	signAssetTransfer(
 		t, transitionProof, split1Asset, recipientPrivKey,
@@ -230,7 +233,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split1Commitment, err := commitment.NewAssetCommitment(split1Asset)
 	require.NoError(t, err)
-	split2Commitment, err := commitment.NewAssetCommitment(split2Asset)
+	split2Commitment, err := commitment.NewAssetCommitment(
+		split2AssetNoSplitProof,
+	)
 	require.NoError(t, err)
 	taro1Commitment, err := commitment.NewTaroCommitment(split1Commitment)
 	require.NoError(t, err)
