@@ -678,6 +678,25 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"proofs: %v", err)
 		}
 
+		// Before we confirm the batch, we'll also update the on disk
+		// file system as well.
+		//
+		// TODO(roasbeef): rely on the upsert here instead
+		for _, newAsset := range b.cfg.Batch.RootAssetCommitment.CommittedAssets() {
+			assetID := newAsset.ID()
+			scriptKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
+			err := b.cfg.ProofFiles.ImportProofs(ctx, &proof.AnnotatedProof{
+				Locator: proof.Locator{
+					AssetID:   &assetID,
+					ScriptKey: *newAsset.ScriptKey.PubKey,
+				},
+				Blob: mintingProofs[scriptKey],
+			})
+			if err != nil {
+				return 0, fmt.Errorf("unable to insert proofs: %v", err)
+			}
+		}
+
 		err = b.cfg.Log.MarkBatchConfirmed(
 			ctx, b.cfg.Batch.BatchKey.PubKey, confInfo.BlockHash,
 			confInfo.BlockHeight, confInfo.TxIndex, mintingProofs,

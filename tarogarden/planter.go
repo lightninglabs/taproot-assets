@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -34,6 +35,9 @@ type GardenKit struct {
 	// by the genesis point when creating assets that permit on going
 	// emission.
 	GenSigner asset.GenesisSigner
+
+	// ProofFiles stores the set of flat proof files.
+	ProofFiles proof.Archiver
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
