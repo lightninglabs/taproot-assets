@@ -358,7 +358,7 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
 						OutPoint: s.OutboundPkg.NewAnchorPoint,
-						ID:       s.ReceiverAddr.ID,
+						ID:       s.ReceiverAddr.ID(),
 						ScriptKey: asset.ToSerialized(
 							s.OutboundPkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
 						),
@@ -372,7 +372,7 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
 						OutPoint: s.OutboundPkg.NewAnchorPoint,
-						ID:       s.ReceiverAddr.ID,
+						ID:       s.ReceiverAddr.ID(),
 						ScriptKey: asset.ToSerialized(
 							&s.ReceiverAddr.ScriptKey,
 						),

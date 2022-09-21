@@ -394,9 +394,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// TODO(roasbeef): send logic assumes just one input (no
 		// merges) so we pass in the amount here to ensure we have
 		// enough to send
+		assetID := currentPkg.ReceiverAddr.ID()
 		constraints := CommitmentConstraints{
 			FamilyKey: currentPkg.ReceiverAddr.FamilyKey,
-			AssetID:   &currentPkg.ReceiverAddr.ID,
+			AssetID:   &assetID,
 			MinAmt:    currentPkg.ReceiverAddr.Amount,
 		}
 		elgigibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(

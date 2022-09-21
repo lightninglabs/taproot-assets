@@ -360,6 +360,9 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	// Record the PrevID of the input asset in a Witness for the new asset.
 	// This Witness still needs a valid signature for the new asset
 	// to be valid.
+	//
+	// TODO(roasbeef): when we fix #121, then this should also be a
+	// ZeroPrevID
 	newAsset.PrevWitnesses = []asset.Witness{
 		{
 			PrevID:          &prevInput,

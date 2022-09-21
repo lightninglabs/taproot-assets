@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 
 	"github.com/btcsuite/btcd/wire"
@@ -161,7 +162,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		}
 		assetSplit.ScriptKey = asset.NewScriptKey(scriptKey)
 		assetSplit.PrevWitnesses = []asset.Witness{{
-			PrevID:          prevID,
+			PrevID:          &asset.ZeroPrevID,
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}}
@@ -206,6 +207,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	// state transition.
 	var err error
 	rootAsset := splitAssets[*rootLocator].Copy()
+	rootAsset.PrevWitnesses[0].PrevID = prevID
 	rootAsset.SplitCommitmentRoot, err = splitTree.Root(context.TODO())
 	if err != nil {
 		return nil, err

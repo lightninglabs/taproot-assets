@@ -122,17 +122,25 @@ func (vm *Engine) validateSplit() error {
 	if !vm.splitAsset.Asset.HasSplitCommitmentWitness() {
 		return newErrKind(ErrInvalidSplitCommitmentWitness)
 	}
-	witness := vm.splitAsset.PrevWitnesses[0]
+
+	// We'll use the input of the new asset here, as the splits have a
+	// prevID of zero, as the inherit the prev ID from the root asset.
+	//
+	// TODO(roasbeef): revisit post multi input
+	rootWitness := vm.newAsset.PrevWitnesses[0]
+	splitWitness := vm.splitAsset.PrevWitnesses[0]
 
 	// The prevID of the split commitment should be the ID of the asset
 	// generating the split in the transaction.
 	//
 	// TODO(roasbeef): revisit?
-	prevAsset, ok := vm.prevAssets[*witness.PrevID]
+	prevAsset, ok := vm.prevAssets[*rootWitness.PrevID]
 	if !ok {
 		return ErrNoInputs
 	}
-	err := matchesAssetParams(&vm.splitAsset.Asset, prevAsset, &witness)
+	err := matchesAssetParams(
+		&vm.splitAsset.Asset, prevAsset, &rootWitness,
+	)
 	if err != nil {
 		return err
 	}
@@ -152,7 +160,7 @@ func (vm *Engine) validateSplit() error {
 		return err
 	}
 	if !mssmt.VerifyMerkleProof(
-		locator.Hash(), splitLeaf, &witness.SplitCommitment.Proof,
+		locator.Hash(), splitLeaf, &splitWitness.SplitCommitment.Proof,
 		vm.newAsset.SplitCommitmentRoot,
 	) {
 

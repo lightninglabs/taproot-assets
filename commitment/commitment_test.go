@@ -632,6 +632,15 @@ func TestSplitCommitment(t *testing.T) {
 				require.Contains(t, split.SplitAssets, *l)
 				splitAsset := split.SplitAssets[*l]
 
+				// If this is a leaf split, then we need to
+				// ensure that the prev ID is zero.
+				if splitAsset.SplitCommitmentRoot == nil {
+					require.Equal(
+						t, asset.ZeroPrevID,
+						*splitAsset.PrevWitnesses[0].PrevID,
+					)
+				}
+
 				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
 				require.Equal(
 					t, l.ScriptKey[:],

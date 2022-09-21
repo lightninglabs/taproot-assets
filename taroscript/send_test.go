@@ -1243,7 +1243,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			receiverStateKey := state.address1StateKey
 			delete(spendCommitments, receiverStateKey)
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			locators := taroscript.CreateDummyLocators(
