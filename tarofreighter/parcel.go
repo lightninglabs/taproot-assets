@@ -150,9 +150,6 @@ type sendPackage struct {
 	OutboundPkg *OutboundParcelDelta
 }
 
-// Proofs for receivers keyed by scriptKey
-type SpendProofs map[asset.SerializedKey]proof.Proof
-
 // inputAnchorPkScript...
 func (s *sendPackage) inputAnchorPkScript() ([]byte, error) {
 	taroScriptRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
@@ -199,6 +196,9 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 
 	return err
 }
+
+// Proofs for receivers keyed by scriptKey
+type SpendProofs map[asset.SerializedKey]proof.Proof
 
 // helper for proof creation
 func (s *sendPackage) createProofs() (SpendProofs, error) {

@@ -730,6 +730,9 @@ func TestAssetExportLog(t *testing.T) {
 	newRootHash := sha256.Sum256([]byte("kek"))
 	newRootValue := uint64(100)
 
+	senderBlob := bytes.Repeat([]byte{0x01}, 100)
+	receiverBlob := bytes.Repeat([]byte{0x02}, 100)
+
 	// With the assets inserted, we'll now construct the struct we'll used
 	// to commit a new spend on disk.
 	anchorTxHash := newAnchorTx.TxHash()
@@ -765,6 +768,8 @@ func TestAssetExportLog(t *testing.T) {
 				),
 			},
 		},
+		SenderAssetProof:   senderBlob,
+		ReceiverAssetProof: receiverBlob,
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 
@@ -803,11 +808,13 @@ func TestAssetExportLog(t *testing.T) {
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
 	blockHeight := int32(100)
 	txIndex := int32(10)
+	finalSenderBlob := bytes.Repeat([]byte{0x03}, 100)
 	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
-		AnchorPoint: spendDelta.NewAnchorPoint,
-		TxIndex:     txIndex,
-		BlockHeight: blockHeight,
-		BlockHash:   fakeBlockHash,
+		AnchorPoint:      spendDelta.NewAnchorPoint,
+		TxIndex:          txIndex,
+		BlockHeight:      blockHeight,
+		BlockHash:        fakeBlockHash,
+		FinalSenderProof: finalSenderBlob,
 	})
 	require.NoError(t, err)
 
@@ -831,6 +838,14 @@ func TestAssetExportLog(t *testing.T) {
 		}
 	}
 	require.True(t, mutationFound)
+
+	// As a final check for the asset, we'll fetch its blob to ensure it's
+	// been updated on disk.
+	diskSenderBlob, err := db.FetchAssetProof(
+		ctx, newScriptKey.PubKey.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, finalSenderBlob, diskSenderBlob.ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

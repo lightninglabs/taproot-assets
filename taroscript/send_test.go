@@ -544,8 +544,8 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 	)
 	require.NoError(t, err)
 
-	// For this assertion, we unsent the split commitment, since the leaf
-	// in the receivers tree doesn't have this value.
+	// For this assertion, we unset the split commitment, since the leaf in
+	// the receivers tree doesn't have this value.
 	receiverAsset.PrevWitnesses[0].SplitCommitment = nil
 	require.True(t, receiverAsset.DeepEqual(receiverProofAsset))
 

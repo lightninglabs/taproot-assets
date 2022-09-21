@@ -10,7 +10,6 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -134,14 +133,15 @@ type OutboundParcelDelta struct {
 	// at the new anchor tx point.
 	AssetSpendDeltas []AssetSpendDelta
 
-	// TODO(roasbeef): also include pre-populated state transition blobs to
-	// append/extend for entire set of assets?
-	//  * if want to append in db, need incremental hash for proof file
-	//  digest
+	// SenderAssetProof is the fully serialized proof of the sender which
+	// includes all the proof information other than the final chain
+	// information.
+	SenderAssetProof []byte
 
-	// BlobTransitionParams...
-	//
-	BlobTransitionParams proof.TransitionParams
+	// ReceiverBlobProof is the fully serialized proof for the receiver,
+	// which commits to the receiver's asset with the split commitment
+	// included.
+	ReceiverAssetProof []byte
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
@@ -158,6 +158,10 @@ type AssetConfirmEvent struct {
 	// TxIndex is the location within the block that confirmed the anchor
 	// point.
 	TxIndex int32
+
+	// FinalSenderProof is the final proof for the sender that includes the
+	// chain information of the final confirmation point.
+	FinalSenderProof []byte
 }
 
 // ExportLog is used to track the state of outbound taro parcels (batched

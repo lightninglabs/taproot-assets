@@ -13,6 +13,13 @@ INSERT INTO asset_deltas (
     ?, ?, ?, ?, ?, ?, ?
 );
 
+-- name: InsertSpendProofs :exec
+INSERT INTO transfer_proofs (
+   transfer_id, sender_proof, receiver_proof 
+) VALUES (
+    ?, ?, ?
+);
+
 -- name: QueryAssetTransfers :many
 SELECT 
     asset_transfers.old_anchor_point, utxos.outpoint AS new_anchor_point,
@@ -62,6 +69,11 @@ JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 WHERE transfer_id = ?;
 
+-- name: FetchSpendProofs :one
+SELECT sender_proof, receiver_proof
+FROM transfer_proofs
+WHERE transfer_id = ?;
+
 -- name: ReanchorAssets :exec
 WITH assets_to_update AS (
     SELECT asset_id
@@ -90,3 +102,7 @@ RETURNING asset_id;
 -- name: DeleteAssetWitnesses :exec
 DELETE FROM asset_witnesses
 WHERE asset_id = ?;
+
+-- name: DeleteSpendProofs :exec
+DELETE FROM transfer_proofs
+WHERE transfer_id = ?;

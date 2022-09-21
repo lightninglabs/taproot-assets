@@ -92,6 +92,10 @@ type (
 	// TransferQuery allows callers to filter out the set of transfers
 	// based on set information.
 	TransferQuery = sqlite.QueryAssetTransfersParams
+
+	// NewSpendProof is used to insert new spend proofs for the
+	// sender+receiver.
+	NewSpendProof = sqlite.InsertSpendProofsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
@@ -185,6 +189,19 @@ type ActiveAssetsStore interface {
 	// DeleteAssetWitnesses deletes the witnesses on disk associated with a
 	// given asset ID.
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
+
+	// InsertSpendProofs is used to insert the new spend proofs after a
+	// transfer into DB.
+	InsertSpendProofs(ctx context.Context, arg NewSpendProof) error
+
+	// DeleteSpendProofs is used to delete the set of proofs on disk after
+	// we apply a transfer.
+	DeleteSpendProofs(ctx context.Context, transferID int32) error
+
+	// FetchSpendProofs looks up the spend proofs for the given transfer
+	// ID.
+	FetchSpendProofs(ctx context.Context,
+		transferID int32) (sqlite.FetchSpendProofsRow, error)
 }
 
 // AssetBalance holds a balance query result for a particular asset or all
@@ -1157,6 +1174,7 @@ func (a *AssetStore) SelectCommitment(
 	return selectedAssets, nil
 }
 
+// TODO(jhb): Update for new table
 // LogPendingParcel marks an outbound parcel as pending on disk. This commits
 // the set of changes to disk (the asset deltas) but doesn't mark the batched
 // spend as being finalized.
@@ -1242,6 +1260,18 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("unable to insert asset "+
 				"transfer: %w", err)
+		}
+
+		// With the main transfer inserted, we'll also insert the proof
+		// for the sender and receiver.
+		err = q.InsertSpendProofs(ctx, NewSpendProof{
+			TransferID:    transferID,
+			SenderProof:   spend.SenderAssetProof,
+			ReceiverProof: spend.ReceiverAssetProof,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert spend "+
+				"proof: %w", err)
 		}
 
 		// Now that the transfer itself has been inserted, we can
@@ -1392,6 +1422,16 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				return fmt.Errorf("unable to insert asset "+
 					"witnesses: %v", err)
 			}
+
+			// Now we can update the asset proof for the sender for
+			// this given delta.
+			err = q.UpsertAssetProof(ctx, ProofUpdate{
+				TweakedScriptKey: assetDelta.NewScriptKeyBytes,
+				ProofFile:        conf.FinalSenderProof,
+			})
+			if err != nil {
+				return err
+			}
 		}
 
 		// To confirm a delivery (successful send) all we need to do is
@@ -1403,6 +1443,13 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			BlockHeight: sqlInt32(conf.BlockHeight),
 			TxIndex:     sqlInt32(conf.TxIndex),
 		})
+		if err != nil {
+			return err
+		}
+
+		// Before we conclude we'll remove the old proofs we were
+		// staging on disk.
+		err = q.DeleteSpendProofs(ctx, assetTransfer.TransferID)
 		if err != nil {
 			return err
 		}
@@ -1518,6 +1565,13 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 				}
 			}
 
+			// Finally, we'll also fetch the set of proofs for the
+			// sender+receiver.
+			proofs, err := q.FetchSpendProofs(ctx, xfer.TransferID)
+			if err != nil {
+				return err
+			}
+
 			deltas = append(deltas, &tarofreighter.OutboundParcelDelta{
 				OldAnchorPoint: oldAnchorPoint,
 				NewAnchorPoint: newAnchorPoint,
@@ -1528,10 +1582,12 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 						Index:  uint32(xfer.InternalKeyIndex),
 					},
 				},
-				TaroRoot:         xfer.TaroRoot,
-				TapscriptSibling: xfer.TapscriptSibling,
-				AnchorTx:         anchorTx,
-				AssetSpendDeltas: spendDeltas,
+				TaroRoot:           xfer.TaroRoot,
+				TapscriptSibling:   xfer.TapscriptSibling,
+				AnchorTx:           anchorTx,
+				AssetSpendDeltas:   spendDeltas,
+				SenderAssetProof:   proofs.SenderProof,
+				ReceiverAssetProof: proofs.ReceiverProof,
 			})
 		}
 

@@ -56,6 +56,16 @@ func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	return err
 }
 
+const deleteSpendProofs = `-- name: DeleteSpendProofs :exec
+DELETE FROM transfer_proofs
+WHERE transfer_id = ?
+`
+
+func (q *Queries) DeleteSpendProofs(ctx context.Context, transferID int32) error {
+	_, err := q.db.ExecContext(ctx, deleteSpendProofs, transferID)
+	return err
+}
+
 const fetchAssetDeltas = `-- name: FetchAssetDeltas :many
 SELECT  
     deltas.old_script_key, deltas.new_amt, 
@@ -124,6 +134,24 @@ func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]Fet
 	return items, nil
 }
 
+const fetchSpendProofs = `-- name: FetchSpendProofs :one
+SELECT sender_proof, receiver_proof
+FROM transfer_proofs
+WHERE transfer_id = ?
+`
+
+type FetchSpendProofsRow struct {
+	SenderProof   []byte
+	ReceiverProof []byte
+}
+
+func (q *Queries) FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchSpendProofs, transferID)
+	var i FetchSpendProofsRow
+	err := row.Scan(&i.SenderProof, &i.ReceiverProof)
+	return i, err
+}
+
 const insertAssetDelta = `-- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
     old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
@@ -181,6 +209,25 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 	var id int32
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertSpendProofs = `-- name: InsertSpendProofs :exec
+INSERT INTO transfer_proofs (
+   transfer_id, sender_proof, receiver_proof 
+) VALUES (
+    ?, ?, ?
+)
+`
+
+type InsertSpendProofsParams struct {
+	TransferID    int32
+	SenderProof   []byte
+	ReceiverProof []byte
+}
+
+func (q *Queries) InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) error {
+	_, err := q.db.ExecContext(ctx, insertSpendProofs, arg.TransferID, arg.SenderProof, arg.ReceiverProof)
+	return err
 }
 
 const queryAssetTransfers = `-- name: QueryAssetTransfers :many
