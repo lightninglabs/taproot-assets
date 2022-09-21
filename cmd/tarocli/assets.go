@@ -196,6 +196,9 @@ func listAssetBalances(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to list asset balances: %w", err)
 	}
+
+	printRespJSON(resp)
+	return nil
 }
 
 var sendAssetsCommand = cli.Command{
@@ -215,6 +218,10 @@ var sendAssetsCommand = cli.Command{
 }
 
 func sendAssets(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
 	switch {
 	case ctx.String(addrName) == "":
 		_ = cli.ShowCommandHelp(ctx, "sent")
