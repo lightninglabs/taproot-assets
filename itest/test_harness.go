@@ -48,7 +48,7 @@ var (
 
 const (
 	minerMempoolTimeout = lntest.MinerMempoolTimeout
-	defaultWaitTimeout  = lntest.DefaultTimeout
+	defaultWaitTimeout  = lntest.DefaultTimeout * 60
 
 	// defaultNodePort is the start of the range for listening ports of
 	// harness nodes. Ports are monotonically increasing starting from this

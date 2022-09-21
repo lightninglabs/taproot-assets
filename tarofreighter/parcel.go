@@ -233,8 +233,12 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	dummyParams := func() proof.TransitionParams {
 		return proof.TransitionParams{
 			BaseProofParams: proof.BaseProofParams{
-				Block:   &wire.MsgBlock{},
-				Tx:      &wire.MsgTx{},
+				Block: &wire.MsgBlock{
+					Transactions: []*wire.MsgTx{
+						s.TransferTx,
+					},
+				},
+				Tx:      s.TransferTx,
 				TxIndex: 0,
 			},
 		}
