@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -476,7 +475,6 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 	lastProof := file.Proofs[len(file.Proofs)-1]
 	log.Infof("Received new proof file, version=%d, num_proofs=%d",
 		file.Version, len(file.Proofs))
-	log.Debugf("Last proof in file: %v", spew.Sdump(lastProof.Asset))
 
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
@@ -538,8 +536,8 @@ func isWalletTaprootOutput(out *lnrpc.OutputDetail) bool {
 // addrMatchesAsset returns true if the given asset state (ID, family key,
 // script key) matches the state represented in the address.
 func addrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
-	famKeyNilMatch := (addr.FamilyKey != nil) == (a.FamilyKey != nil)
-	famKeyEqual := addr.FamilyKey != nil && famKeyNilMatch &&
+	famKeyNil := (addr.FamilyKey == nil) && (a.FamilyKey == nil)
+	famKeyEqual := famKeyNil ||
 		addr.FamilyKey.IsEqual(&a.FamilyKey.FamKey)
 
 	return addr.ID() == a.ID() && famKeyEqual &&
