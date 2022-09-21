@@ -1159,9 +1159,9 @@ func (a *AssetStore) SelectCommitment(
 			InternalKey: keychain.KeyDescriptor{
 				PubKey: internalKey,
 				KeyLocator: keychain.KeyLocator{
-					Index: uint32(anchorUTXO.KeyFamily),
+					Index: uint32(anchorUTXO.KeyIndex),
 					Family: keychain.KeyFamily(
-						anchorUTXO.KeyIndex,
+						anchorUTXO.KeyFamily,
 					),
 				},
 			},

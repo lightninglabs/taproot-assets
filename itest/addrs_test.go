@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -17,6 +16,7 @@ import (
 var (
 	statusDetected  = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED
 	statusConfirmed = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
+	statusCompleted = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
 )
 
 func testAddresses(t *harnessTest) {
@@ -68,7 +68,9 @@ func testAddresses(t *harnessTest) {
 		assertAddrCreated(t.t, secondTarod, a, addr)
 
 		sendResp := sendAssetsToAddr(t, addr)
-		fmt.Println(spew.Sdump(sendResp))
+		sendRespJSON, err := formatProtoJSON(sendResp)
+		require.NoError(t.t, err)
+		t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 		// Make sure that eventually we see a single event for the
 		// address.
@@ -123,7 +125,31 @@ func testAddresses(t *harnessTest) {
 		}
 
 		return nil
-	}, defaultWaitTimeout)
+	}, defaultWaitTimeout/2)
+	require.NoError(t.t, err)
+
+	// And finally, they should be marked as completed with a proof
+	// available.
+	err = wait.NoError(func() error {
+		resp, err := secondTarod.AddrReceives(
+			ctxt, &tarorpc.AddrReceivesRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, resp.Events, len(rpcAssets))
+
+		for _, event := range resp.Events {
+			if event.Status != statusCompleted {
+				return fmt.Errorf("got status %v, wanted %v",
+					resp.Events[0].Status, statusCompleted)
+			}
+
+			if !event.HasProof {
+				return fmt.Errorf("wanted proof, but was false")
+			}
+		}
+
+		return nil
+	}, defaultWaitTimeout/2)
 	require.NoError(t.t, err)
 }
 

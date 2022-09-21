@@ -151,19 +151,33 @@ type sendPackage struct {
 }
 
 // inputAnchorPkScript...
-func (s *sendPackage) inputAnchorPkScript() ([]byte, error) {
-	taroScriptRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
+func (s *sendPackage) inputAnchorPkScript() ([]byte, []byte, error) {
+	s.InputAsset.Asset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.ZeroPrevID,
+	}}
+
+	newCommitment, err := commitment.NewAssetCommitment(s.InputAsset.Asset)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	newTaroCommitment, err := commitment.NewTaroCommitment(newCommitment)
+	if err != nil {
+		return nil, nil, err
+	}
+	taroScriptRoot := newTaroCommitment.TapscriptRoot(nil)
 
 	anchorPubKey := txscript.ComputeTaprootOutputKey(
 		s.InputAsset.InternalKey.PubKey, taroScriptRoot[:],
 	)
 
-	return taroscript.PayToTaprootScript(anchorPubKey)
+	pkScript, err := taroscript.PayToTaprootScript(anchorPubKey)
+	return pkScript, taroScriptRoot[:], err
 }
 
 // addAnchorPsbtInput....
 func (s *sendPackage) addAnchorPsbtInput() error {
-	anchorPkScript, err := s.inputAnchorPkScript()
+	anchorPkScript, merkleRoot, err := s.inputAnchorPkScript()
 	if err != nil {
 		return err
 	}
@@ -175,11 +189,11 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		Bip32Path: []uint32{
 			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
 			// Testnet gang?
-			keychain.CoinTypeTestnet + hdkeychain.HardenedKeyStart,
+			s.ReceiverAddr.ChainParams.HDCoinType + hdkeychain.HardenedKeyStart,
 			// must be hardened
 			uint32(internalKey.Family) + uint32(hdkeychain.HardenedKeyStart),
 			0,
-			uint32(internalKey.Index + hdkeychain.HardenedKeyStart),
+			internalKey.Index,
 		},
 	}
 
@@ -188,8 +202,9 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 			Value:    int64(s.InputAsset.AnchorOutputValue),
 			PkScript: anchorPkScript,
 		},
-		SighashType:     txscript.SigHashDefault,
-		Bip32Derivation: []*psbt.Bip32Derivation{bip32Derivation},
+		SighashType:       txscript.SigHashDefault,
+		Bip32Derivation:   []*psbt.Bip32Derivation{bip32Derivation},
+		TaprootMerkleRoot: merkleRoot,
 		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{{
 			XOnlyPubKey:          bip32Derivation.PubKey[1:],
 			MasterKeyFingerprint: bip32Derivation.MasterKeyFingerprint,
@@ -201,7 +216,8 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 	s.SendPkt.UnsignedTx.TxIn = append(
 		s.SendPkt.UnsignedTx.TxIn, &wire.TxIn{
 			PreviousOutPoint: s.InputAsset.AnchorPoint,
-		})
+		},
+	)
 
 	return err
 }
@@ -262,8 +278,7 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 			return nil, err
 		}
 
-		receiverLocator := s.SendDelta.
-			Locators[receiverStateKey]
+		receiverLocator := s.SendDelta.Locators[receiverStateKey]
 		receiverAsset := s.SendDelta.SplitCommitment.
 			SplitAssets[receiverLocator].Asset
 		_, receiverExclusionProof, err = senderTaroTree.Proof(

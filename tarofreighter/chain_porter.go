@@ -3,6 +3,7 @@ package tarofreighter
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
@@ -48,6 +50,10 @@ type ChainPorterConfig struct {
 
 	// AssetProofs...
 	AssetProofs proof.Archiver
+
+	// ErrChan is the main error channel the custodian will report back
+	// critical errors to the main server.
+	ErrChan chan<- error
 }
 
 // ChainPorter...
@@ -150,7 +156,9 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 		OutboundPkg: pkg,
 		SendState:   SendStateBroadcast,
 	}
-	err := p.advanceStateUntil(&restartSendPkg, SendStateBroadcast)
+	_, err := p.advanceStateUntil(
+		&restartSendPkg, SendStateBroadcast,
+	)
 	if err != nil {
 		// TODO(roasbef): no req to send the error back to here
 		log.Warnf("unable to advance state machine: %v", err)
@@ -159,11 +167,7 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 
 	// Now that the transfer tx has (maybe) been rebroadcast, we'll now
 	// trigger to wait for the final package information.
-	fakeReq := &AssetParcel{
-		errChan:  make(chan error, 1),
-		respChan: make(chan *PendingParcel, 1),
-	}
-	p.waitForPkgConfirmation(pkg, fakeReq)
+	p.waitForPkgConfirmation(pkg)
 }
 
 // main state machine goroutine; advance state, wait for TX confirmation
@@ -181,7 +185,9 @@ func (p *ChainPorter) taroPorter() {
 			// Advance the state machine for this package until we
 			// reach the state that we broadcast the transaction
 			// that completes the transfer.
-			err := p.advanceStateUntil(&sendPkg, SendStateBroadcast)
+			advancedPkg, err := p.advanceStateUntil(
+				&sendPkg, SendStateBroadcast,
+			)
 			if err != nil {
 				log.Warnf("unable to advance state machine: %v", err)
 				req.errChan <- err
@@ -190,12 +196,13 @@ func (p *ChainPorter) taroPorter() {
 
 			// With the transaction broadcast, we'll deliver a
 			// a response back to the original caller.
-			sendPkg.deliverResponse(req.respChan)
+			advancedPkg.deliverResponse(req.respChan)
 
-			// Now that we broadcaster the transaction, we'll
+			// Now that we broadcast the transaction, we'll
 			// create a goroutine that'll wait for the confirmation
 			// then update everything on disk.
-			go p.waitForPkgConfirmation(sendPkg.OutboundPkg, req)
+			p.Wg.Add(1)
+			go p.waitForPkgConfirmation(advancedPkg.OutboundPkg)
 
 		case <-p.Quit:
 			return
@@ -207,22 +214,24 @@ func (p *ChainPorter) taroPorter() {
 // waitForPkgConfirmation waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
-func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
-	req *AssetParcel) {
-
+func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	defer p.Wg.Done()
 
 	ctx, cancel := p.WithCtxQuit()
 	defer cancel()
 
+	mkErr := func(format string, args ...interface{}) error {
+		logFormat := strings.ReplaceAll(format, "%w", "%v")
+		log.Errorf("Error waiting for package confirmation: "+
+			logFormat, args...)
+		return fmt.Errorf(format, args...)
+	}
+
 	// Before we can broadcast, we want to find out the current height to
 	// pass as a height hint.
 	currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
 	if err != nil {
-		err := fmt.Errorf("unable to get current height: %v", err)
-		log.Error(err)
-
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("unable to get current height: %v", err)
 		return
 	}
 
@@ -233,10 +242,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		currentHeight, true,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to register for tx conf: %v", err)
-		log.Error(err)
-
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("unable to register for tx conf: %v",
+			err)
 		return
 	}
 
@@ -246,17 +253,14 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 	var confEvent *chainntnfs.TxConfirmation
 	select {
 	case confEvent = <-confNtfn.Confirmed:
-		log.Debugf("Got chain confirmation: %v",
-			confEvent.Tx.TxHash())
+		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
 
 	case err := <-errChan:
-		req.errChan <- fmt.Errorf("error getting "+
-			"confirmation: %w", err)
+		p.cfg.ErrChan <- mkErr("error getting confirmation: %w", err)
 		return
 
 	case <-confCtx.Done():
-		log.Debugf("Skipping TX confirmation, context " +
-			"done")
+		log.Debugf("Skipping TX confirmation, context done")
 
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
@@ -264,8 +268,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 	}
 
 	if confEvent == nil {
-		req.errChan <- fmt.Errorf("got empty confirmation event in " +
-			"batch")
+		p.cfg.ErrChan <- mkErr("got empty confirmation event in batch")
 		return
 	}
 
@@ -275,27 +278,25 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 	// First, we'll fetch the sender's current proof file.
 	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, proof.Locator{
 		AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
-		ScriptKey: *pkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
+		ScriptKey: pkg.AssetSpendDeltas[0].OldScriptKey,
 	})
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error fetching proof: %v", err)
 		return
 	}
 	var senderProof proof.File
 	err = senderProof.Decode(bytes.NewReader(senderFullProofBytes))
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error decoding proof: %v", err)
 		return
 	}
 
 	// Now that we have the sender's proof file, we'll decode the new
 	// suffix we want to add so we can append it to the sender's file.
 	var senderProofSuffix proof.Proof
-	err = senderProofSuffix.Decode(
-		bytes.NewReader(pkg.SenderAssetProof),
-	)
+	err = senderProofSuffix.Decode(bytes.NewReader(pkg.SenderAssetProof))
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error decoding proof suffix: %v", err)
 		return
 	}
 	err = senderProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
@@ -304,7 +305,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		TxIndex: int(confEvent.TxIndex),
 	})
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error updating sender transition "+
+			"proof: %v", err)
 		return
 	}
 
@@ -313,7 +315,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 	var updatedSenderProof bytes.Buffer
 	senderProof.Proofs = append(senderProof.Proofs, senderProofSuffix)
 	if err := senderProof.Encode(&updatedSenderProof); err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error encoding sender proof: %v", err)
 		return
 	}
 
@@ -323,7 +325,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		bytes.NewReader(pkg.ReceiverAssetProof),
 	)
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error decoding receiver proof: %v", err)
 		return
 	}
 	err = receiverProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
@@ -332,7 +334,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		TxIndex: int(confEvent.TxIndex),
 	})
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error updating receiver transition "+
+			"proof: %v", err)
 		return
 	}
 
@@ -341,7 +344,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 	var updatedReceiverProof bytes.Buffer
 	senderProof.Proofs[len(senderProof.Proofs)-1] = receiverProofSuffix
 	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error encoding receiver proof: %v", err)
 		return
 	}
 	err = p.cfg.AssetProofs.ImportProofs(ctx, &proof.AnnotatedProof{
@@ -352,9 +355,12 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		Blob: updatedReceiverProof.Bytes(),
 	})
 	if err != nil {
-		req.errChan <- err
+		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)
 		return
 	}
+
+	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
+		len(senderProof.Proofs))
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
@@ -366,11 +372,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 		FinalSenderProof: updatedSenderProof.Bytes(),
 	})
 	if err != nil {
-		err := fmt.Errorf("unable to log tx conf: %w", err)
-		log.Error(err)
-
-		req.errChan <- err
-
+		p.cfg.ErrChan <- mkErr("unable to log tx conf: %w", err)
 		return
 	}
 
@@ -379,7 +381,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta,
 
 // advanceStateUntil...
 func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
-	targetState SendState) error {
+	targetState SendState) (*sendPackage, error) {
 
 	log.Infof("ChainPorter advancing from state=%v to state=%v",
 		currentPkg.SendState, targetState)
@@ -392,7 +394,7 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 		// aren't trying to shut down.
 		select {
 		case <-p.Quit:
-			return fmt.Errorf("Porter shutting down")
+			return nil, fmt.Errorf("porter shutting down")
 
 		default:
 		}
@@ -401,7 +403,7 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 		if err != nil {
 			// return fmt.Errorf("unable to advance "+
 			// 	"state machine: %w", err)
-			return err
+			return nil, err
 		}
 
 		// We've reached a terminal state once the next state is our
@@ -414,7 +416,7 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 		currentPkg = updatedPkg
 	}
 
-	return nil
+	return currentPkg, nil
 }
 
 // createDummyOutput creates a new Bitcoin transaction output that is later
@@ -626,8 +628,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// taro leaves. The witness data for each input will be
 		// assigned for us.
 		completedSpend, err := taroscript.CompleteAssetSpend(
-			// TODO: change to scriptKey; worked!
-			// *currentPkg.InputAsset.InternalKey.PubKey,
 			*currentPkg.InputAsset.Asset.ScriptKey.RawKey.PubKey,
 			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
 			p.cfg.Signer, p.cfg.TxValidator,
@@ -742,29 +742,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
 
-		// Wallet.SignPsbt,
-		// (PSBT package) then MaybeFinalizeAll, then Extract
+		// With all the input and output information in the packet, we
+		// can now ask lnd to sign it, and then extract the final
+		// version ourselves.
 		signedPsbt, err := p.cfg.Wallet.SignPsbt(ctx, currentPkg.SendPkt)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign psbt: %w", err)
 		}
 
+		log.Debugf("Got signed PSBT: %s", spew.Sdump(signedPsbt))
+
 		err = psbt.MaybeFinalizeAll(signedPsbt)
 		if err != nil {
 			return nil, fmt.Errorf("unable to finalize psbt: %w", err)
 		}
-
-		// With all the input and output information in the packet, we
-		// can now ask lnd to sign it, and also give us the final
-		// version.
-		/*
-			currentPkg.SendPkt, err = p.cfg.Wallet.SignAndFinalizePsbt(
-				ctx, currentPkg.SendPkt,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to sign psbt: %w", err)
-			}
-		*/
 
 		currentPkg.SendPkt = signedPsbt
 
@@ -793,9 +784,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		)
 		newSenderCommitment := currentPkg.NewOutputCommitments[senderCommitKey]
 		anchorOutputIndex := currentPkg.SendDelta.Locators[senderCommitKey].OutputIndex
-
-		ctx, cancel := p.WithCtxQuit()
-		defer cancel()
 
 		var tapscriptSibling *chainhash.Hash
 		if currentPkg.InputAsset.TapscriptSibling != nil {
@@ -866,6 +854,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			SenderAssetProof:   senderProofBuf.Bytes(),
 			ReceiverAssetProof: receiverProofBuf.Bytes(),
 		}
+
+		// Don't allow shutdown while we're attempting to store proofs.
+		ctx, cancel := p.CtxBlocking()
+		defer cancel()
+
 		err = p.cfg.ExportLog.LogPendingParcel(
 			ctx, currentPkg.OutboundPkg,
 		)
