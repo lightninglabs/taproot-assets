@@ -45,11 +45,9 @@ http:
       post: "/v1/taro/proofs/import"
       body: "*"
 
-<<<<<<< HEAD
     - selector: tarorpc.Taro.ListBalances
       get: "/v1/taro/assets/balance"
-=======
+
     - selector: tarorpc.Taro.SendAsset
       post: "/v1/taro/send"
       body: "*"
->>>>>>> aa53547 (tarofreighter: add missing send endpoint)
