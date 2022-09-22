@@ -206,7 +206,8 @@ JOIN internal_keys
 -- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, version, SUM(amount) balance,
-    genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type,
+    genesis_info_view.asset_tag, genesis_info_view.meta_data,
+    genesis_info_view.asset_type, genesis_info_view.output_index,
     genesis_info_view.prev_out AS genesis_point
 FROM assets
 JOIN genesis_info_view

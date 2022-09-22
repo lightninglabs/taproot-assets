@@ -27,12 +27,12 @@ type (
 	// ConfirmedAsset is an asset that has been fully confirmed on chain.
 	ConfirmedAsset = sqlite.QueryAssetsRow
 
-	// RawAssetBalance holds a balance query result for a particular asset or all
-	// assets tracked by this daemon.
+	// RawAssetBalance holds a balance query result for a particular asset
+	// or all assets tracked by this daemon.
 	RawAssetBalance = sqlite.QueryAssetBalancesByAssetRow
 
-	// AssetFamilyBalance holds abalance query result for a particular asset family
-	// or all asset families tracked by this daemon.
+	// RawAssetFamilyBalance holds a balance query result for a particular
+	// asset family or all asset families tracked by this daemon.
 	RawAssetFamilyBalance = sqlite.QueryAssetBalancesByFamilyRow
 
 	// AssetProof is the asset proof for a given asset, identified by its
@@ -155,7 +155,7 @@ type ActiveAssetsStore interface {
 	FetchManagedUTXO(context.Context, UtxoQuery) (AnchorPoint, error)
 
 	// ReanchorAssets takes an old anchor point, then updates all assets
-	// that point to that old anchor point to point to the new one.
+	// that point to that old anchor point-to-point to the new one.
 	ReanchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
 
 	// ApplySpendDelta applies a sped delta (new amount and script key)
@@ -214,6 +214,7 @@ type AssetBalance struct {
 	Meta         []byte
 	Type         asset.Type
 	GenesisPoint wire.OutPoint
+	OutputIndex  uint32
 }
 
 // AssetFamilyBalance holds abalance query result for a particular asset family
@@ -605,7 +606,7 @@ type AssetQueryFilters struct {
 	tarofreighter.CommitmentConstraints
 }
 
-// QueryAssetBalancesByAsset queries the balances for assets or alternatively
+// QueryBalancesByAsset queries the balances for assets or alternatively
 // for a selected one that matches the passed asset ID filter.
 func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 	assetID *asset.ID) (map[asset.ID]AssetBalance, error) {
@@ -630,10 +631,11 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 			copy(assetID[:], assetBalance.AssetID[:])
 
 			assetIDBalance := AssetBalance{
-				Version: assetBalance.Version,
-				Balance: uint64(assetBalance.Balance),
-				Tag:     assetBalance.AssetTag,
-				Type:    asset.Type(assetBalance.AssetType),
+				Version:     assetBalance.Version,
+				Balance:     uint64(assetBalance.Balance),
+				Tag:         assetBalance.AssetTag,
+				Type:        asset.Type(assetBalance.AssetType),
+				OutputIndex: uint32(assetBalance.OutputIndex),
 			}
 
 			err = readOutPoint(
@@ -664,9 +666,9 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 
 // QueryAssetBalancesByFamily queries the asset balances for asset families or
 // alternatively for a selected one that matches the passed filter.
-func (a *AssetStore) QueryAssetBalancesByFamily(
-	ctx context.Context, famKey *btcec.PublicKey,
-) (map[asset.SerializedKey]AssetFamilyBalance, error) {
+func (a *AssetStore) QueryAssetBalancesByFamily(ctx context.Context,
+	famKey *btcec.PublicKey) (map[asset.SerializedKey]AssetFamilyBalance,
+	error) {
 
 	var famFilter []byte
 	if famKey != nil {

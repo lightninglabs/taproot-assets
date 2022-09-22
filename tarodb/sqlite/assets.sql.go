@@ -1271,7 +1271,8 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 const queryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, version, SUM(amount) balance,
-    genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type,
+    genesis_info_view.asset_tag, genesis_info_view.meta_data,
+    genesis_info_view.asset_type, genesis_info_view.output_index,
     genesis_info_view.prev_out AS genesis_point
 FROM assets
 JOIN genesis_info_view
@@ -1289,6 +1290,7 @@ type QueryAssetBalancesByAssetRow struct {
 	AssetTag     string
 	MetaData     []byte
 	AssetType    int16
+	OutputIndex  int32
 	GenesisPoint []byte
 }
 
@@ -1312,6 +1314,7 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter i
 			&i.AssetTag,
 			&i.MetaData,
 			&i.AssetType,
+			&i.OutputIndex,
 			&i.GenesisPoint,
 		); err != nil {
 			return nil, err
