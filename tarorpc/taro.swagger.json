@@ -870,6 +870,11 @@
           "type": "string",
           "format": "byte",
           "description": "The full genesis information encoded in a portable manner so it can be\neasily copy/pasted for address creation."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taro commitment that created this asset."
         }
       }
     },

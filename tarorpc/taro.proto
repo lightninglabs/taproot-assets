@@ -186,6 +186,9 @@ message GenesisInfo {
     easily copy/pasted for address creation.
     */
     bytes genesis_bootstrap_info = 6;
+
+    // The version of the Taro commitment that created this asset.
+    int32 version = 7;
 }
 
 message AssetFamily {
