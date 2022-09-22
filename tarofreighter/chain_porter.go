@@ -95,8 +95,11 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 // Start kicks off the chain porter and any goroutines it needs to carry out
 // its duty.
 func (p *ChainPorter) Start() error {
+
 	var startErr error
 	p.startOnce.Do(func() {
+		log.Infof("Starting ChainPorter")
+
 		// Before we re-launch the main goroutine, we'll make sure to
 		// restart any other incomplete sends that may or may not have
 		// had the transaction broadcaster.
@@ -107,6 +110,9 @@ func (p *ChainPorter) Start() error {
 			startErr = err
 			return
 		}
+
+		log.Infof("Resuming delivery of %v pending asset parcels",
+			len(pendingParcels))
 
 		// Now that we have the set of pending sends, we'll make a new
 		// goroutine that'll drive the state machine till the broadcast
@@ -141,6 +147,8 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 	req.errChan = make(chan error, 1)
 	req.respChan = make(chan *PendingParcel, 1)
 
+	log.Infof("New asset shipment request to addr: %v", spew.Sdump(req))
+
 	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
@@ -164,6 +172,9 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 // TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
 //   - could move final conf into the state machien itself
 func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
+	log.Infof("Attempting to resume delivery to anchor_point=%v",
+		pkg.NewAnchorPoint)
+
 	// To resume the state machine, we'll make a skeleton of a sendPackage,
 	// basically just what we need to drive the state machine to further
 	// completion.
@@ -194,6 +205,10 @@ func (p *ChainPorter) taroPorter() {
 	for {
 		select {
 		case req := <-p.exportReqs:
+			log.Infof("Received to send request to: %x:%x",
+				req.Dest.ID(),
+				req.Dest.ScriptKey.SerializeCompressed())
+
 			// Initialize a package with the destination address.
 			sendPkg := sendPackage{
 				ReceiverAddr: req.Dest,
@@ -243,6 +258,10 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		return fmt.Errorf(format, args...)
 	}
 
+	txHash := pkg.AnchorTx.TxHash()
+
+	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
+
 	// Before we can broadcast, we want to find out the current height to
 	// pass as a height hint.
 	currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
@@ -251,7 +270,6 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		return
 	}
 
-	txHash := pkg.AnchorTx.TxHash()
 	confCtx, confCancel := p.WithCtxQuit()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
 		confCtx, &txHash, pkg.AnchorTx.TxOut[0].PkScript, 1,
@@ -354,6 +372,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 			"proof: %v", err)
 		return
 	}
+
+	log.Infof("Importing receiver proof into local Proof Archive")
 
 	// Now we'll write out the final receiver proof to the on disk proof
 	// archive.
@@ -522,6 +542,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
+		log.Infof("Selected %v possible asset inputs for send to %x",
+			len(elgigibleCommitments),
+			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+
 		// We'll take just the first commitment here as we need enough
 		// to complete the send w/o merging inputs.
 		assetInput := elgigibleCommitments[0]
@@ -641,6 +665,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taro layer.
 	case SendStateSigned:
+		log.Infof("Generating Taro witnesses for send to: %x",
+			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+
 		// Now we'll use the signer to sign all the inputs for the new
 		// taro leaves. The witness data for each input will be
 		// assigned for us.
@@ -672,6 +699,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		log.Infof("Constructing new Taro commitments for send to: %x",
+			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
 
 		currentPkg.NewOutputCommitments = spendCommitments
 
@@ -726,6 +756,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			fundedSendPacket.Pkt, fundedSendPacket.ChangeOutputIndex,
 			int64(currentPkg.InputAsset.AnchorOutputValue),
 		)
+
+		log.Infof("Received funded PSBT packet: %v",
+			spew.Sdump(fundedSendPacket.Pkt))
 
 		currentPkg.SendPkt = fundedSendPacket.Pkt
 
@@ -876,6 +909,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.CtxBlocking()
 		defer cancel()
 
+		log.Infof("Committing pending parcel to disk")
+
 		err = p.cfg.ExportLog.LogPendingParcel(
 			ctx, currentPkg.OutboundPkg,
 		)
@@ -922,6 +957,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		log.Infof("Broadcasting new transfer tx, taro_anchor_output=%x",
+			spew.Sdump(anchorOutput))
 
 		// With the public key imported, we can now broadcast to the
 		// network.

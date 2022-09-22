@@ -418,6 +418,10 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 	oldRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
 
+	log.Infof("Outbound parcel now pending for %x:%x, delivering "+
+		"notification", s.ReceiverAddr.ID(),
+		s.ReceiverAddr.ScriptKey.SerializeCompressed())
+
 	respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
 		TransferTx:     s.OutboundPkg.AnchorTx,
