@@ -58,6 +58,10 @@ type ChainPorterConfig struct {
 	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
 
+	// ProofCourier is used to optionally deliver the final proof to the
+	// user using an asynchronous transport mechanism.
+	ProofCourier proof.Courier[address.Taro]
+
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -171,6 +175,8 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 // TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
 //   - could move final conf into the state machien itself
 func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
+	defer p.Wg.Done()
+
 	log.Infof("Attempting to resume delivery to anchor_point=%v",
 		pkg.NewAnchorPoint)
 
@@ -382,13 +388,14 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		p.cfg.ErrChan <- mkErr("error encoding receiver proof: %v", err)
 		return
 	}
-	err = p.cfg.AssetProofs.ImportProofs(ctx, &proof.AnnotatedProof{
+	receiverProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
 			AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
 			ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
 		},
 		Blob: updatedReceiverProof.Bytes(),
-	})
+	}
+	err = p.cfg.AssetProofs.ImportProofs(ctx, receiverProof)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)
 		return
@@ -396,6 +403,35 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 
 	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
 		len(senderProof.Proofs))
+
+	// If we have a proof courier instance active, then we'll launch a new
+	// goroutine to deliver the proof to the receiver.
+	//
+	// TODO(roasbeef): move earlier?
+	if p.cfg.ProofCourier != nil {
+		p.Wg.Add(1)
+		go func() {
+			defer p.Wg.Done()
+
+			// TODO(roasbeef): should actually also serialize the
+			// addr of the remote party here
+			addr := address.Taro{
+				Genesis:   receiverProofSuffix.Asset.Genesis,
+				ScriptKey: receiverProof.ScriptKey,
+				Amount:    receiverProofSuffix.Asset.Amount,
+			}
+			ctx, cancel := p.WithCtxQuitNoTimeout()
+			defer cancel()
+			err := p.cfg.ProofCourier.DeliverProof(
+				ctx, addr, receiverProof,
+			)
+			if err != nil {
+				log.Errorf("unable to deliver proof: %v", err)
+			}
+		}()
+	}
+
+	log.Infof("Marking parcel (txid=%v) as confirmed!", txHash)
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.

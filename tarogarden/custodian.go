@@ -38,6 +38,10 @@ type CustodianConfig struct {
 	// ProofArchive is the storage backend for proofs.
 	ProofArchive *proof.MultiArchiver
 
+	// ProofCourier is used to optionally deliver the final proof to the
+	// user using an asynchronous transport mechanism.
+	ProofCourier proof.Courier[address.Taro]
+
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -312,10 +316,48 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 
 		// This is a new output, let's find out if it's for an address
 		// of ours.
-		err := c.mapToTaroAddr(walletTx, uint32(idx), op)
+		addr, err := c.mapToTaroAddr(walletTx, uint32(idx), op)
 		if err != nil {
 			return err
 		}
+
+		if c.cfg.ProofCourier == nil || addr == nil {
+			continue
+		}
+
+		// Now that we've seen this output on chain, we'll launch a
+		// goroutine to use the ProofCourier to import the proof into
+		// our local DB.
+		c.Wg.Add(1)
+		go func() {
+			defer c.Wg.Done()
+
+			ctx, cancel := c.WithCtxQuit()
+			defer cancel()
+
+			assetID := addr.ID()
+			proof, err := c.cfg.ProofCourier.ReceiveProof(
+				ctx, *addr, proof.Locator{
+					AssetID:   &assetID,
+					ScriptKey: addr.ScriptKey,
+				},
+			)
+			if err != nil {
+				log.Errorf("unable to recv proof: %v", err)
+				return
+			}
+
+			ctx, cancel = c.CtxBlocking()
+			defer cancel()
+
+			err = c.cfg.ProofArchive.ImportProofs(ctx, proof)
+			if err != nil {
+				log.Errorf("unable to import proofs: %v", err)
+				return
+			}
+
+			return
+		}()
 	}
 
 	return nil
@@ -325,11 +367,11 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 // matching address is found, an event is created for it. If an event already
 // exists, it is updated with the current transaction information.
 func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
-	outputIdx uint32, op wire.OutPoint) error {
+	outputIdx uint32, op wire.OutPoint) (*address.Taro, error) {
 
 	taprootKey, err := proof.ExtractTaprootKey(walletTx.Tx, outputIdx)
 	if err != nil {
-		return fmt.Errorf("error extracting taproot key: %w", err)
+		return nil, fmt.Errorf("error extracting taproot key: %w", err)
 	}
 
 	ctxt, cancel := c.WithCtxQuit()
@@ -339,16 +381,16 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 	// There is no Taro address that expects an asset for the given on-chain
 	// output. This probably wasn't a Taro transaction at all then.
 	case errors.Is(err, address.ErrNoAddr):
-		return nil
+		return nil, nil
 
 	case err != nil:
-		return fmt.Errorf("error querying addresses by taro key: %w",
-			err)
+		return nil, fmt.Errorf("error querying addresses by "+
+			"taro key: %w", err)
 	}
 
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
-		return fmt.Errorf("unable to encode address: %v", err)
+		return nil, fmt.Errorf("unable to encode address: %v", err)
 	}
 
 	// Make sure we have an event registered for the transaction, since it
@@ -368,13 +410,13 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 	)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("error creating event: %w", err)
+		return nil, fmt.Errorf("error creating event: %w", err)
 	}
 
 	// Let's update our cache of ongoing events.
 	c.events[op] = event
 
-	return nil
+	return addr.Taro, nil
 }
 
 // importAddrToWallet imports the given Taro address into the lnd-internal
@@ -417,6 +459,8 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	ctxt, cancel := c.WithCtxQuit()
 	defer cancel()
+
+	// TODO(roasbeef): use the courier here?
 
 	id := event.Addr.ID()
 	blob, err := c.cfg.ProofArchive.FetchProof(ctxt, proof.Locator{

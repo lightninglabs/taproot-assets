@@ -55,6 +55,10 @@ const (
 	// determine when a set of pending assets should be flushed into a new
 	// batch.
 	defaultBatchMintingInterval = time.Minute * 10
+
+	// defaultHashMailAddr is the default address we'll use to deliver
+	// optionally deliver proofs for asynchronous sends.
+	defaultHashMailAddr = "mailbox.terminal.lightning.today:443"
 )
 
 var (
@@ -185,6 +189,8 @@ type Config struct {
 
 	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
 
+	HashMailAddr string `long:"hashmailaddr" description:"The full host:port that should be used to optionally deliver proofs files for asynchronous sends"`
+
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
 
@@ -235,6 +241,7 @@ func DefaultConfig() Config {
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
+		HashMailAddr:         defaultHashMailAddr,
 	}
 }
 

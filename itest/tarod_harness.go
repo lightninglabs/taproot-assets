@@ -93,6 +93,12 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
 		return nil, err
 	}
 
+	// We'll modify the config slightly here, since we don't need to use
+	// the hashmail system for integration tests.
+	//
+	// TODO(roasbeef): make local aperture instance in future
+	finalCfg.HashMailAddr = ""
+
 	return &tarodHarness{
 		cfg:       &cfg,
 		clientCfg: finalCfg,
