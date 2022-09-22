@@ -343,3 +343,146 @@ func TestTransactionHandling(t *testing.T) {
 		return true
 	})
 }
+
+// TestAddrMatchesAsset tests that the AddrMatchesAsset function works
+// correctly.
+func TestAddrMatchesAsset(t *testing.T) {
+	t.Parallel()
+
+	randKey1, randKey2 := test.RandPubKey(t), test.RandPubKey(t)
+	randGen1 := asset.RandGenesis(t, asset.Normal)
+	randGen2 := asset.RandGenesis(t, asset.Normal)
+
+	testCases := []struct {
+		name   string
+		addr   *address.AddrWithKeyInfo
+		a      *asset.Asset
+		result bool
+	}{{
+		name: "both family keys nil",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{},
+		},
+		a: &asset.Asset{
+			ScriptKey: asset.ScriptKey{
+				PubKey: &btcec.PublicKey{},
+			},
+		},
+		result: true,
+	}, {
+		name: "no family key nil",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{
+				FamilyKey: randKey1,
+			},
+		},
+		a: &asset.Asset{
+			FamilyKey: &asset.FamilyKey{
+				FamKey: *randKey1,
+			},
+			ScriptKey: asset.ScriptKey{
+				PubKey: &btcec.PublicKey{},
+			},
+		},
+		result: true,
+	}, {
+		name: "no family key nil but mismatch",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{
+				FamilyKey: randKey1,
+			},
+		},
+		a: &asset.Asset{
+			FamilyKey: &asset.FamilyKey{
+				FamKey: *randKey2,
+			},
+			ScriptKey: asset.ScriptKey{
+				PubKey: &btcec.PublicKey{},
+			},
+		},
+		result: false,
+	}, {
+		name: "one family key nil",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{},
+		},
+		a: &asset.Asset{
+			FamilyKey: &asset.FamilyKey{
+				FamKey: *randKey1,
+			},
+			ScriptKey: asset.ScriptKey{
+				PubKey: &btcec.PublicKey{},
+			},
+		},
+		result: false,
+	}, {
+		name: "id mismatch",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{
+				FamilyKey: randKey1,
+				Genesis:   randGen1,
+			},
+		},
+		a: &asset.Asset{
+			Genesis: randGen2,
+			FamilyKey: &asset.FamilyKey{
+				FamKey: *randKey1,
+			},
+			ScriptKey: asset.ScriptKey{
+				PubKey: &btcec.PublicKey{},
+			},
+		},
+		result: false,
+	}, {
+		name: "script key mismatch",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{
+				FamilyKey: randKey1,
+				Genesis:   randGen1,
+				ScriptKey: *randKey1,
+			},
+		},
+		a: &asset.Asset{
+			Genesis: randGen1,
+			FamilyKey: &asset.FamilyKey{
+				FamKey: *randKey1,
+			},
+			ScriptKey: asset.ScriptKey{
+				PubKey: randKey2,
+			},
+		},
+		result: false,
+	}, {
+		name: "all match",
+		addr: &address.AddrWithKeyInfo{
+			Taro: &address.Taro{
+				FamilyKey: randKey1,
+				Genesis:   randGen1,
+				ScriptKey: *randKey2,
+			},
+		},
+		a: &asset.Asset{
+			Genesis: randGen1,
+			FamilyKey: &asset.FamilyKey{
+				FamKey: *randKey1,
+			},
+			ScriptKey: asset.ScriptKey{
+				PubKey: randKey2,
+			},
+		},
+		result: true,
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			require.Equal(
+				tt, tc.result, tarogarden.AddrMatchesAsset(
+					tc.addr, tc.a,
+				),
+			)
+		})
+	}
+}
