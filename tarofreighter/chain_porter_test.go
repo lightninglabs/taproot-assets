@@ -5,5 +5,5 @@ import (
 )
 
 func TestRunChainPorter(t *testing.T) {
-	t.Helper()
+	t.Parallel()
 }

@@ -114,8 +114,6 @@ type OutboundParcelDelta struct {
 
 	// NewInternalKey is the new internal key that commits to the set of
 	// assets anchored at the new outpoint.
-	//
-	// TODO(roasbeef): move below fields into new struct?
 	NewInternalKey keychain.KeyDescriptor
 
 	// TaroRoot is the new Taro root that commits to the set of modified
@@ -169,9 +167,6 @@ type AssetConfirmEvent struct {
 // spends). This log is used by the ChainPorter to mark pending outbound
 // deliveries, and finally confirm the deliveries once they've been committed
 // to the main chain.
-//
-// TODO(roasbeef): also want to be able to roll back? rbf, double spends, etc,
-// etc.
 type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
 	// commits the set of changes to disk (the asset deltas) but doesn't
@@ -196,7 +191,8 @@ type ChainBridge = tarogarden.ChainBridge
 type WalletAnchor interface {
 	tarogarden.WalletAnchor
 
-	// Passthrough Wallet.SignPsbt
+	// SignPsbt signs all the inputs it can in the passed PSBT packet,
+	// returning a new one with updated signature/witness data.
 	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
 }
 
@@ -206,9 +202,12 @@ type KeyRing = tarogarden.KeyRing
 // Signer aliases into the Signer interface of the taroscript package.
 type Signer = taroscript.Signer
 
-// Porter...
+// Porter is a high level interface that wraps the main caller execution point
+// to the ChainPorter.
 type Porter interface {
-	// RequestShipment....
+	// RequestShipment attempts to request that a new send be funneled
+	// through the chain porter. If successful, an initial response will be
+	// returned with the pending transfer information.
 	RequestShipment(req *AssetParcel) (*PendingParcel, error)
 
 	// Start signals that the asset minter should being operations.

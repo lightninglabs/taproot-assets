@@ -22,33 +22,40 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
-// Config for an instance of the ChainPorter
+// ChainPorterConfig is the main config for the chain porter.
 type ChainPorterConfig struct {
-	// CoinSelector...
+	// CoinSelector is the interface used to select input coins (assets)
+	// for the transfer.
 	CoinSelector CommitmentSelector
 
-	// Signer...
+	// Signer implements the Taro level signing we need to sign a virtual
+	// transaction.
 	Signer Signer
 
-	// TxValidator...
+	// TxValidator allows us to validate each Taro virtual transaction we
+	// create.
 	TxValidator taroscript.TxValidator
 
-	// ExportLog...
+	// ExportLog is used to log information about pending parcels to disk.
 	ExportLog ExportLog
 
-	// ChainBridge...
+	// ChainBridge is our bridge to the chain we operate on.
 	ChainBridge ChainBridge
 
-	// Wallet...
+	// Wallet is used to fund+sign PSBTs for the transfer transaction.
 	Wallet WalletAnchor
 
-	// KeyRing...
+	// KeyRing is used to generate new keys throughout the transfer
+	// process.
 	KeyRing KeyRing
 
-	// ChainParams...
+	// ChainParams is the chain params of the chain we operate on.
 	ChainParams *address.ChainParams
 
-	// AssetProofs...
+	// AssetProofs is used to write the proof files on disk for the
+	// receiver during a transfer.
+	//
+	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
 
 	// ErrChan is the main error channel the custodian will report back
@@ -56,7 +63,11 @@ type ChainPorterConfig struct {
 	ErrChan chan<- error
 }
 
-// ChainPorter...
+// ChainPorter is the main sub-system of the tarofreighter package. The porter
+// is responsible for transferring your bags (assets). This porter is
+// responsible for taking incoming delivery requests (parcels) and generating a
+// final transfer transaction along with all the proofs needed to complete the
+// transfer.
 type ChainPorter struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -68,7 +79,8 @@ type ChainPorter struct {
 	*chanutils.ContextGuard
 }
 
-// NewChainPorter...
+// NewChainPorter creates a new instance of the ChainPorter given a valid
+// config.
 func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	return &ChainPorter{
 		cfg:        cfg,
@@ -80,7 +92,8 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	}
 }
 
-// Start...
+// Start kicks off the chain porter and any goroutines it needs to carry out
+// its duty.
 func (p *ChainPorter) Start() error {
 	var startErr error
 	p.startOnce.Do(func() {
@@ -111,7 +124,7 @@ func (p *ChainPorter) Start() error {
 	return startErr
 }
 
-// Stop...
+// Stop signals that the chain porter should gracefully stop.
 func (p *ChainPorter) Stop() error {
 	var stopErr error
 	p.stopOnce.Do(func() {
@@ -122,7 +135,8 @@ func (p *ChainPorter) Stop() error {
 	return stopErr
 }
 
-// RequestShipment...
+// RequestShipment is the main external entry point to the porter. This request
+// a new transfer take place.
 func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) {
 	req.errChan = make(chan error, 1)
 	req.respChan = make(chan *PendingParcel, 1)
@@ -143,7 +157,9 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 	}
 }
 
-// resumePendingParcel...
+// resumePendingParcel attempts to resume a pending parcel. A pending parcel
+// has already had its transfer transaction broadcast. In this state, we'll
+// rebroadcast and then wait for the transfer to confirm.
 //
 // TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
 //   - could move final conf into the state machien itself
@@ -169,7 +185,9 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 	p.waitForPkgConfirmation(pkg)
 }
 
-// main state machine goroutine; advance state, wait for TX confirmation
+// taroPorter is the main goroutine of the ChainPorter. This takes in incoming
+// requests, and attempt to complete a transfer. A response is sent back to the
+// caller if a transfer can be completed. Otherwise an error is returned.
 func (p *ChainPorter) taroPorter() {
 	defer p.Wg.Done()
 
@@ -377,7 +395,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	return
 }
 
-// advanceStateUntil...
+// advanceStateUntil will advance the state machine until the next state is the
+// target state.
 func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 	targetState SendState) (*sendPackage, error) {
 
@@ -428,9 +447,9 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// adjustFundedPsbt...
-//
-// Move the change output on a funded psbt
+// adjustFundedPsbt takes a PSBT which may have used BIP 69 sorting, and
+// creates a new one with outputs shuffled such that the change output is the
+// last output.
 func adjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32,
 	anchorInputValue int64) {
 	// Store the script and value of the change output.
@@ -454,7 +473,8 @@ func adjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32,
 	pkt.UnsignedTx.TxOut[maxOutputIndex].Value += anchorInputValue
 }
 
-// stateStep...
+// stateStep attempts to step through the state machine to complete a Taro
+// transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	switch currentPkg.SendState {
 	// In this initial state, we'll set up some initial state we need to
@@ -694,7 +714,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		// TODO(roasbeef): also want to log the total fee to disk for
-		// accosting, etc.
+		// accounting, etc.
 
 		// Move the change output to the highest-index output, so that
 		// we don't overwrite it when embedding our Taro commitments.
