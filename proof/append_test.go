@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/stretchr/testify/require"
 )
@@ -96,12 +97,12 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 
 	// Transfer the asset to a new owner.
-	recipientPrivKey := randPrivKey(t)
+	recipientPrivKey := test.RandPrivKey(t)
 	newAsset := *genesisProof.Asset.Copy()
 	newAsset.ScriptKey = asset.NewScriptKeyBIP0086(
 		pubToKeyDesc(recipientPrivKey.PubKey()),
 	)
-	recipientTaprootInternalKey := schnorrPubKey(t, recipientPrivKey)
+	recipientTaprootInternalKey := test.SchnorrPubKey(t, recipientPrivKey)
 
 	// Sign the new asset over to the recipient.
 	signAssetTransfer(t, &genesisProof, &newAsset, senderPrivKey, nil)
@@ -134,7 +135,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// Add a P2TR change output to test the exclusion proof.
 	var changeInternalKey *btcec.PublicKey
 	if withBip86Change {
-		changeInternalKey = randPrivKey(t).PubKey()
+		changeInternalKey = test.RandPrivKey(t).PubKey()
 		changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
 			changeInternalKey,
 		)
@@ -196,8 +197,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	// If we want to test splitting, we do that now, as a second transfer.
-	split1PrivKey := randPrivKey(t)
-	split2PrivKey := randPrivKey(t)
+	split1PrivKey := test.RandPrivKey(t)
+	split2PrivKey := test.RandPrivKey(t)
 	transitionOutpoint := wire.OutPoint{
 		Hash:  transitionProof.AnchorTx.TxHash(),
 		Index: transitionProof.InclusionProof.OutputIndex,
@@ -221,6 +222,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	split1Asset := splitCommitment.RootAsset
 	split2Asset := &splitCommitment.SplitAssets[*split2Locator].Asset
 
+	split2AssetNoSplitProof := split2Asset.Copy()
+	split2AssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
+
 	// Sign the new (root) asset over to the recipient.
 	signAssetTransfer(
 		t, transitionProof, split1Asset, recipientPrivKey,
@@ -229,7 +233,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split1Commitment, err := commitment.NewAssetCommitment(split1Asset)
 	require.NoError(t, err)
-	split2Commitment, err := commitment.NewAssetCommitment(split2Asset)
+	split2Commitment, err := commitment.NewAssetCommitment(
+		split2AssetNoSplitProof,
+	)
 	require.NoError(t, err)
 	taro1Commitment, err := commitment.NewTaroCommitment(split1Commitment)
 	require.NoError(t, err)
@@ -238,8 +244,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	tapscript1Root := taro1Commitment.TapscriptRoot(nil)
 	tapscript2Root := taro2Commitment.TapscriptRoot(nil)
-	internalKey1 := randPubKey(t)
-	internalKey2 := randPubKey(t)
+	internalKey1 := test.RandPubKey(t)
+	internalKey2 := test.RandPubKey(t)
 	taproot1Key := txscript.ComputeTaprootOutputKey(
 		internalKey1, tapscript1Root[:],
 	)

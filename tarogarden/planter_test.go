@@ -49,6 +49,8 @@ type mintingTestHarness struct {
 
 	batchKey *keychain.KeyDescriptor
 
+	proofFiles *tarogarden.MockProofArchive
+
 	*testing.T
 
 	errChan chan error
@@ -89,6 +91,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			Log:         t.store,
 			KeyRing:     t.keyRing,
 			GenSigner:   t.genSigner,
+			ProofFiles:  t.proofFiles,
 		},
 		BatchTicker: t.ticker,
 		ErrChan:     t.errChan,
@@ -549,8 +552,6 @@ func testBatchedAssetIssuance(t *testing.T, storeCreator mintingStoreCreator) {
 // registered minting stores can be used to properly implement batched asset
 // minting.
 func TestBatchedAssetIssuance(t *testing.T) {
-	t.Parallel()
-
 	for _, mintingStoreDriver := range tarogarden.RegisteredMintingStores() {
 		var mintingStoreFunc mintingStoreCreator
 

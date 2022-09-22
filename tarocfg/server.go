@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
@@ -71,7 +72,10 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		sqlTx, _ := tx.(*sql.Tx)
 		return db.WithTx(sqlTx)
 	})
-	tarodbAddrBook := tarodb.NewTaroAddressBook(addrBookDB)
+	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
+	tarodbAddrBook := tarodb.NewTaroAddressBook(
+		addrBookDB, &taroChainParams,
+	)
 
 	lndConn, err := getLnd(
 		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
@@ -84,7 +88,6 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	keyRing := taro.NewLndRpcKeyRing(lndServices)
 	walletAnchor := taro.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := taro.NewLndRpcChainBridge(lndServices)
-	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 
 	addrBook := address.NewBook(address.BookConfig{
 		Store:        tarodbAddrBook,
@@ -99,6 +102,10 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	if err != nil {
 		return nil, fmt.Errorf("unable to open disk archive: %v", err)
 	}
+	proofArchive := proof.NewMultiArchiver(
+		&proof.BaseVerifier{}, tarodb.DefaultStoreTimeout,
+		assetStore, proofFileStore,
+	)
 
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
@@ -112,14 +119,34 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				GenSigner: taro.NewLndRpcGenSigner(
 					lndServices,
 				),
+				ProofFiles: proofFileStore,
 			},
 			BatchTicker: ticker.New(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,
 		}),
-		AddrBook: addrBook,
-		ProofArchive: proof.NewMultiArchiver(
-			&proof.BaseVerifier{}, assetStore, proofFileStore,
+		AssetCustodian: tarogarden.NewCustodian(
+			&tarogarden.CustodianConfig{
+				ChainParams:  &taroChainParams,
+				WalletAnchor: walletAnchor,
+				ChainBridge:  chainBridge,
+				AddrBook:     addrBook,
+				ProofArchive: proofArchive,
+				ErrChan:      mainErrChan,
+			},
 		),
+		AddrBook:     addrBook,
+		ProofArchive: proofArchive,
+		ChainPorter: tarofreighter.NewChainPorter(&tarofreighter.ChainPorterConfig{
+			CoinSelector: assetStore,
+			Signer:       taro.NewLndRpcVirtualTxSigner(lndServices),
+			TxValidator:  &taro.ValidatorV0{},
+			ExportLog:    assetStore,
+			ChainBridge:  chainBridge,
+			Wallet:       walletAnchor,
+			KeyRing:      keyRing,
+			ChainParams:  &taroChainParams,
+			AssetProofs:  proofFileStore,
+		}),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{

@@ -47,7 +47,11 @@ type TaroClient interface {
 	// tarocli: `addrs decode`
 	//DecodeAddr decode a Taro address into a partial asset message that
 	//represents the asset it wants to receive.
-	DecodeAddr(ctx context.Context, in *Addr, opts ...grpc.CallOption) (*Asset, error)
+	DecodeAddr(ctx context.Context, in *DecodeAddrRequest, opts ...grpc.CallOption) (*Addr, error)
+	// tarocli: `addrs receives`
+	//List all receives for incoming asset transfers for addresses that were
+	//created previously.
+	AddrReceives(ctx context.Context, in *AddrReceivesRequest, opts ...grpc.CallOption) (*AddrReceivesResponse, error)
 	// tarocli: `proofs verify`
 	//VerifyProof attempts to verify a given proof file that claims to be anchored
 	//at the specified genesis point.
@@ -61,6 +65,11 @@ type TaroClient interface {
 	//a new asset will be inserted on disk, spendable using the specified target
 	//script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
+	// tarocli: `assets send`
+	//SendAsset uses a passed taro address to attempt to complete an asset send.
+	//The method returns information w.r.t the on chain send, as well as the
+	//proof file information the receiver needs to fully receive the asset.
+	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
 }
 
 type taroClient struct {
@@ -134,9 +143,18 @@ func (c *taroClient) NewAddr(ctx context.Context, in *NewAddrRequest, opts ...gr
 	return out, nil
 }
 
-func (c *taroClient) DecodeAddr(ctx context.Context, in *Addr, opts ...grpc.CallOption) (*Asset, error) {
-	out := new(Asset)
+func (c *taroClient) DecodeAddr(ctx context.Context, in *DecodeAddrRequest, opts ...grpc.CallOption) (*Addr, error) {
+	out := new(Addr)
 	err := c.cc.Invoke(ctx, "/tarorpc.Taro/DecodeAddr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) AddrReceives(ctx context.Context, in *AddrReceivesRequest, opts ...grpc.CallOption) (*AddrReceivesResponse, error) {
+	out := new(AddrReceivesResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/AddrReceives", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +182,15 @@ func (c *taroClient) ExportProof(ctx context.Context, in *ExportProofRequest, op
 func (c *taroClient) ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error) {
 	out := new(ImportProofResponse)
 	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ImportProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error) {
+	out := new(SendAssetResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/SendAsset", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +230,11 @@ type TaroServer interface {
 	// tarocli: `addrs decode`
 	//DecodeAddr decode a Taro address into a partial asset message that
 	//represents the asset it wants to receive.
-	DecodeAddr(context.Context, *Addr) (*Asset, error)
+	DecodeAddr(context.Context, *DecodeAddrRequest) (*Addr, error)
+	// tarocli: `addrs receives`
+	//List all receives for incoming asset transfers for addresses that were
+	//created previously.
+	AddrReceives(context.Context, *AddrReceivesRequest) (*AddrReceivesResponse, error)
 	// tarocli: `proofs verify`
 	//VerifyProof attempts to verify a given proof file that claims to be anchored
 	//at the specified genesis point.
@@ -217,6 +248,11 @@ type TaroServer interface {
 	//a new asset will be inserted on disk, spendable using the specified target
 	//script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
+	// tarocli: `assets send`
+	//SendAsset uses a passed taro address to attempt to complete an asset send.
+	//The method returns information w.r.t the on chain send, as well as the
+	//proof file information the receiver needs to fully receive the asset.
+	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
 	mustEmbedUnimplementedTaroServer()
 }
 
@@ -245,8 +281,11 @@ func (UnimplementedTaroServer) QueryAddrs(context.Context, *QueryAddrRequest) (*
 func (UnimplementedTaroServer) NewAddr(context.Context, *NewAddrRequest) (*Addr, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewAddr not implemented")
 }
-func (UnimplementedTaroServer) DecodeAddr(context.Context, *Addr) (*Asset, error) {
+func (UnimplementedTaroServer) DecodeAddr(context.Context, *DecodeAddrRequest) (*Addr, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecodeAddr not implemented")
+}
+func (UnimplementedTaroServer) AddrReceives(context.Context, *AddrReceivesRequest) (*AddrReceivesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddrReceives not implemented")
 }
 func (UnimplementedTaroServer) VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VerifyProof not implemented")
@@ -256,6 +295,9 @@ func (UnimplementedTaroServer) ExportProof(context.Context, *ExportProofRequest)
 }
 func (UnimplementedTaroServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
+}
+func (UnimplementedTaroServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
 }
 func (UnimplementedTaroServer) mustEmbedUnimplementedTaroServer() {}
 
@@ -397,7 +439,7 @@ func _Taro_NewAddr_Handler(srv interface{}, ctx context.Context, dec func(interf
 }
 
 func _Taro_DecodeAddr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Addr)
+	in := new(DecodeAddrRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -409,7 +451,25 @@ func _Taro_DecodeAddr_Handler(srv interface{}, ctx context.Context, dec func(int
 		FullMethod: "/tarorpc.Taro/DecodeAddr",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TaroServer).DecodeAddr(ctx, req.(*Addr))
+		return srv.(TaroServer).DecodeAddr(ctx, req.(*DecodeAddrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_AddrReceives_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddrReceivesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).AddrReceives(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/AddrReceives",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).AddrReceives(ctx, req.(*AddrReceivesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -468,6 +528,24 @@ func _Taro_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Taro_SendAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendAssetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).SendAsset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/SendAsset",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).SendAsset(ctx, req.(*SendAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Taro_ServiceDesc is the grpc.ServiceDesc for Taro service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -508,6 +586,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Taro_DecodeAddr_Handler,
 		},
 		{
+			MethodName: "AddrReceives",
+			Handler:    _Taro_AddrReceives_Handler,
+		},
+		{
 			MethodName: "VerifyProof",
 			Handler:    _Taro_VerifyProof_Handler,
 		},
@@ -518,6 +600,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ImportProof",
 			Handler:    _Taro_ImportProof_Handler,
+		},
+		{
+			MethodName: "SendAsset",
+			Handler:    _Taro_SendAsset_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

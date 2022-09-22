@@ -11,6 +11,16 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
 );
 CREATE INDEX IF NOT EXISTS transfer_lookup on asset_transfers (transfer_time_unix);
 
+CREATE TABLE IF NOT EXISTS transfer_proofs (
+    proof_id INTEGER PRIMARY KEY,
+
+    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+
+    sender_proof BLOB NOT NULL,
+
+    receiver_proof BLOB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS asset_deltas (
     id INTEGER PRIMARY KEY,
 
@@ -21,6 +31,10 @@ CREATE TABLE IF NOT EXISTS asset_deltas (
     new_script_key INTEGER NOT NULL REFERENCES script_keys(script_key_id),
 
     serialized_witnesses BLOB NOT NULL,
+
+    split_commitment_root_hash BLOB,
+
+    split_commitment_root_value BIGINT,
 
     transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id)
 );

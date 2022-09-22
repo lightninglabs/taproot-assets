@@ -9,10 +9,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 )
 
 const (
@@ -39,7 +41,7 @@ var (
 	ErrInvalidLocatorKey = fmt.Errorf("invalid script key locator")
 )
 
-// Loactor is able to uniquely identify a proof in the extended Taro Universe
+// Locator is able to uniquely identify a proof in the extended Taro Universe
 // by a combination of the: top-level asset ID, the family key, and also the
 // script key.
 type Locator struct {
@@ -84,7 +86,7 @@ type Archiver interface {
 	ImportProofs(ctx context.Context, proofs ...*AnnotatedProof) error
 }
 
-// FileArchive implements proof Archiver backed by an on-disk file system. The
+// FileArchiver implements proof Archiver backed by an on-disk file system. The
 // archiver takes a single root directory then creates the following overlap
 // mapping:
 //
@@ -132,7 +134,7 @@ func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	}
 
 	assetID := hex.EncodeToString(loc.AssetID[:])
-	scriptKey := hex.EncodeToString(schnorr.SerializePubKey(&loc.ScriptKey))
+	scriptKey := hex.EncodeToString(loc.ScriptKey.SerializeCompressed())
 
 	return filepath.Join(rootPath, assetID, scriptKey+TaroFileSuffix), nil
 }
@@ -165,12 +167,14 @@ func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error)
 	return proofFile, nil
 }
 
-// StoreProofs attempts to store fully populated proofs on disk. The previous
+// ImportProofs attempts to store fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the Archiver interface.
-func (f *FileArchiver) ImportProofs(ctx context.Context, proofs ...*AnnotatedProof) error {
+func (f *FileArchiver) ImportProofs(ctx context.Context,
+	proofs ...*AnnotatedProof) error {
+
 	for _, proof := range proofs {
 		proofPath, err := genProofFilePath(f.proofPath, proof.Locator)
 		if err != nil {
@@ -200,14 +204,32 @@ var _ Archiver = (*FileArchiver)(nil)
 type MultiArchiver struct {
 	proofVerifier Verifier
 	backends      []Archiver
+
+	// archiveTimeout is the default timeout to use for any archive
+	// interaction.
+	archiveTimeout time.Duration
+
+	// subscribers is a map of components that want to be notified on new
+	// proofs, keyed by their subscription ID.
+	subscribers map[uint64]*chanutils.EventReceiver[Blob]
+
+	// subscriberMtx guards the subscribers map and access to the
+	// subscriptionID.
+	subscriberMtx sync.Mutex
 }
 
 // NewMultiArchiver creates a new MultiArchiver based on the set of specified
 // backends.
-func NewMultiArchiver(verifier Verifier, backends ...Archiver) *MultiArchiver {
+func NewMultiArchiver(verifier Verifier, archiveTimeout time.Duration,
+	backends ...Archiver) *MultiArchiver {
+
 	return &MultiArchiver{
-		proofVerifier: verifier,
-		backends:      backends,
+		proofVerifier:  verifier,
+		backends:       backends,
+		archiveTimeout: archiveTimeout,
+		subscribers: make(
+			map[uint64]*chanutils.EventReceiver[Blob],
+		),
 	}
 }
 
@@ -292,5 +314,78 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 		}
 	}
 
+	// Deliver each new proof to the new item queue of the subscribers.
+	m.subscriberMtx.Lock()
+	for i := range proofs {
+		for id := range m.subscribers {
+			receiver := m.subscribers[id]
+			receiver.NewItemCreated.ChanIn() <- proofs[i].Blob
+		}
+	}
+	m.subscriberMtx.Unlock()
+
 	return nil
 }
+
+// RegisterSubscriber adds a new subscriber for receiving events. The
+// deliverExisting boolean indicates whether already existing items should be
+// sent to the NewItemCreated channel when the subscription is started. An
+// optional deliverFrom can be specified to indicate from which timestamp/index/
+// marker onward existing items should be delivered on startup. If deliverFrom
+// is nil/zero/empty then all existing items will be delivered.
+func (m *MultiArchiver) RegisterSubscriber(
+	receiver *chanutils.EventReceiver[Blob],
+	deliverExisting bool, deliverFrom []*Locator) error {
+
+	m.subscriberMtx.Lock()
+	defer m.subscriberMtx.Unlock()
+
+	m.subscribers[receiver.ID()] = receiver
+
+	// No delivery of existing items requested, we're done here.
+	if !deliverExisting {
+		return nil
+	}
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), m.archiveTimeout,
+	)
+	defer cancel()
+
+	for _, loc := range deliverFrom {
+		blob, err := m.FetchProof(ctxt, *loc)
+		if err != nil {
+			return err
+		}
+
+		// Deliver the found proof to the new item queue of the
+		// subscriber.
+		receiver.NewItemCreated.ChanIn() <- blob
+	}
+
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+func (m *MultiArchiver) RemoveSubscriber(
+	subscriber *chanutils.EventReceiver[Blob]) error {
+
+	m.subscriberMtx.Lock()
+	defer m.subscriberMtx.Unlock()
+
+	_, ok := m.subscribers[subscriber.ID()]
+	if !ok {
+		return fmt.Errorf("subscriber with ID %d not found",
+			subscriber.ID())
+	}
+
+	subscriber.Stop()
+	delete(m.subscribers, subscriber.ID())
+
+	return nil
+}
+
+// A compile-time assertion to make sure MultiArchiver satisfies the
+// chanutils.EventPublisher interface.
+var _ chanutils.EventPublisher[Blob, []*Locator] = (*MultiArchiver)(nil)

@@ -5,10 +5,14 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -40,12 +44,12 @@ type AnchoredCommitment struct {
 	// in the main chain.
 	AnchorPoint wire.OutPoint
 
-	// AnchorOutputValue is outout value of the anchor output.
+	// AnchorOutputValue is output value of the anchor output.
 	AnchorOutputValue btcutil.Amount
 
 	// InternalKey is the internal key that's used to anchor the commitment
 	// in the above out point.
-	InternalKey btcec.PublicKey
+	InternalKey keychain.KeyDescriptor
 
 	// TapscriptSibling is the tapscript sibling of this asset. This will
 	// usually be blank.
@@ -88,6 +92,10 @@ type AssetSpendDelta struct {
 
 	// WitnessData is the new witness data for this asset.
 	WitnessData []asset.Witness
+
+	// SplitCommitmentRoot is the root split commitment for this asset.
+	// This will only be set if a split was required to complete the send.
+	SplitCommitmentRoot mssmt.Node
 }
 
 // OutboundParcelDelta represents the database level delta of an outbound taro
@@ -106,8 +114,6 @@ type OutboundParcelDelta struct {
 
 	// NewInternalKey is the new internal key that commits to the set of
 	// assets anchored at the new outpoint.
-	//
-	// TODO(roasbeef): move below fields into new struct?
 	NewInternalKey keychain.KeyDescriptor
 
 	// TaroRoot is the new Taro root that commits to the set of modified
@@ -126,10 +132,15 @@ type OutboundParcelDelta struct {
 	// at the new anchor tx point.
 	AssetSpendDeltas []AssetSpendDelta
 
-	// TODO(roasbeef): also include pre-populated state transition blobs to
-	// append/extend for entire set of assets?
-	//  * if want to append in db, need incremental hash for proof file
-	//  digest
+	// SenderAssetProof is the fully serialized proof of the sender which
+	// includes all the proof information other than the final chain
+	// information.
+	SenderAssetProof []byte
+
+	// ReceiverBlobProof is the fully serialized proof for the receiver,
+	// which commits to the receiver's asset with the split commitment
+	// included.
+	ReceiverAssetProof []byte
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
@@ -146,15 +157,16 @@ type AssetConfirmEvent struct {
 	// TxIndex is the location within the block that confirmed the anchor
 	// point.
 	TxIndex int32
+
+	// FinalSenderProof is the final proof for the sender that includes the
+	// chain information of the final confirmation point.
+	FinalSenderProof []byte
 }
 
 // ExportLog is used to track the state of outbound taro parcels (batched
 // spends). This log is used by the ChainPorter to mark pending outbound
 // deliveries, and finally confirm the deliveries once they've been committed
 // to the main chain.
-//
-// TODO(roasbeef): also want to be able to roll back? rbf, double spends, etc,
-// etc.
 type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
 	// commits the set of changes to disk (the asset deltas) but doesn't
@@ -170,4 +182,38 @@ type ExportLog interface {
 	// updates the on-chain reference information on disk to point to this
 	// new spend.
 	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
+}
+
+// ChainBridge aliases into the ChainBridge of the tarogarden package.
+type ChainBridge = tarogarden.ChainBridge
+
+// WalletAnchor aliases into the WalletAnchor of the tarogarden package.
+type WalletAnchor interface {
+	tarogarden.WalletAnchor
+
+	// SignPsbt signs all the inputs it can in the passed PSBT packet,
+	// returning a new one with updated signature/witness data.
+	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
+}
+
+// KeyRing aliases into the KeyRing of the tarogarden package.
+type KeyRing = tarogarden.KeyRing
+
+// Signer aliases into the Signer interface of the taroscript package.
+type Signer = taroscript.Signer
+
+// Porter is a high level interface that wraps the main caller execution point
+// to the ChainPorter.
+type Porter interface {
+	// RequestShipment attempts to request that a new send be funneled
+	// through the chain porter. If successful, an initial response will be
+	// returned with the pending transfer information.
+	RequestShipment(req *AssetParcel) (*PendingParcel, error)
+
+	// Start signals that the asset minter should being operations.
+	Start() error
+
+	// Stop signals that the asset minter should attempt a graceful
+	// shutdown.
+	Stop() error
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -64,9 +65,13 @@ type Config struct {
 
 	AssetMinter tarogarden.Planter
 
+	AssetCustodian *tarogarden.Custodian
+
 	AddrBook *address.Book
 
 	ProofArchive proof.Archiver
+
+	ChainPorter tarofreighter.Porter
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.

@@ -186,6 +186,7 @@ func (b *BatchCaretaker) taroCultivator() {
 		}
 
 		b.cfg.SignalCompletion()
+		return
 	}
 
 	// Our task as a cultivator is pretty simple: we advance our state
@@ -532,7 +533,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// operations above
 		ctx, cancel = b.WithCtxQuit()
 		defer cancel()
-		err = b.cfg.Wallet.ImportPubKey(ctx, mintingOutputKey)
+		_, err = b.cfg.Wallet.ImportTaprootOutput(ctx, mintingOutputKey)
 		if err != nil {
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
@@ -675,6 +676,25 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		if err != nil {
 			return 0, fmt.Errorf("unable to construct minting "+
 				"proofs: %v", err)
+		}
+
+		// Before we confirm the batch, we'll also update the on disk
+		// file system as well.
+		//
+		// TODO(roasbeef): rely on the upsert here instead
+		for _, newAsset := range b.cfg.Batch.RootAssetCommitment.CommittedAssets() {
+			assetID := newAsset.ID()
+			scriptKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
+			err := b.cfg.ProofFiles.ImportProofs(ctx, &proof.AnnotatedProof{
+				Locator: proof.Locator{
+					AssetID:   &assetID,
+					ScriptKey: *newAsset.ScriptKey.PubKey,
+				},
+				Blob: mintingProofs[scriptKey],
+			})
+			if err != nil {
+				return 0, fmt.Errorf("unable to insert proofs: %v", err)
+			}
 		}
 
 		err = b.cfg.Log.MarkBatchConfirmed(

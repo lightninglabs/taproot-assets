@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,7 @@ func TestNewMintingBlobs(t *testing.T) {
 
 	// First, we'll create a fake, but legit looking set of minting params
 	// to generate a proof with.
-	genesisPrivKey := randPrivKey(t)
+	genesisPrivKey := test.RandPrivKey(t)
 	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
 		genesisPrivKey.PubKey(),
 	)
@@ -37,14 +38,14 @@ func TestNewMintingBlobs(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	internalKey := schnorrPubKey(t, genesisPrivKey)
+	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
 	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
 	taprootScript := computeTaprootScript(t, taprootKey)
 
-	changeInternalKey := randPrivKey(t).PubKey()
+	changeInternalKey := test.RandPrivKey(t).PubKey()
 	changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
 		changeInternalKey,
 	)

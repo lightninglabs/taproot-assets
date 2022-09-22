@@ -171,6 +171,7 @@ func (c *TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 		return txscript.AssembleTaprootScriptTree(commitmentLeaf).
 			RootNode.TapHash()
 	}
+
 	// TODO: Expose an easy way to construct merkle proofs for this
 	// type of tree. If `sibling` is the root of a tapscript tree,
 	// then it's as simple as computing the control block for said

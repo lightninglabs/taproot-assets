@@ -6,13 +6,16 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -254,6 +257,8 @@ type ChainBridge interface {
 // each character and sum those. We get 438, then divide that by 2, to allow
 // use to fit this into just a 2-byte integer and to ensure compatibility with
 // the remote signer.
+//
+// TODO(roasbeef): move to taroscript?
 const TaroKeyFamily = 219
 
 // FundedPsbt represents a fully funded PSBT transaction.
@@ -283,13 +288,31 @@ type WalletAnchor interface {
 	// packet.
 	SignAndFinalizePsbt(context.Context, *psbt.Packet) (*psbt.Packet, error)
 
-	// ImportPubKey imports a new public key into the wallet, as a P2TR
-	// output.
-	ImportPubKey(context.Context, *btcec.PublicKey) error
+	// ImportTaprootOutput imports a new public key into the wallet, as a
+	// P2TR output.
+	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address, error)
 
 	// UnlockInput unlocks the set of target inputs after a batch is
 	// abandoned.
 	UnlockInput(context.Context) error
+
+	// ListUnspentImportScripts lists all UTXOs of the imported Taproot
+	// scripts.
+	ListUnspentImportScripts(ctx context.Context) ([]*lnwallet.Utxo, error)
+
+	// ListTransactions returns all known transactions of the backing lnd
+	// node. It takes a start and end block height which can be used to
+	// limit the block range that we query over. These values can be left
+	// as zero to include all blocks. To include unconfirmed transactions
+	// in the query, endHeight must be set to -1.
+	ListTransactions(ctx context.Context, startHeight, endHeight int32,
+		account string) ([]lndclient.Transaction, error)
+
+	// SubscribeTransactions creates a uni-directional stream from the
+	// server to the client in which any newly discovered transactions
+	// relevant to the wallet are sent over.
+	SubscribeTransactions(context.Context) (<-chan lndclient.Transaction,
+		<-chan error, error)
 }
 
 // KeyRing is a mirror of the keychain.KeyRing interface, with the addition of

@@ -15,22 +15,32 @@ const applySpendDelta = `-- name: ApplySpendDelta :one
 WITH old_script_key_id AS (
     SELECT script_key_id
     FROM script_keys
-    WHERE tweaked_script_key = $3
+    WHERE tweaked_script_key = $5
 )
 UPDATE assets
-SET amount = $1, script_key_id = $2
+SET amount = $1, script_key_id = $2, 
+    split_commitment_root_hash = $3,
+    split_commitment_root_value = $4
 WHERE script_key_id in (SELECT script_key_id FROM old_script_key_id)
 RETURNING asset_id
 `
 
 type ApplySpendDeltaParams struct {
-	NewAmount      int64
-	NewScriptKeyID int32
-	OldScriptKey   []byte
+	NewAmount                int64
+	NewScriptKeyID           int32
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	OldScriptKey             []byte
 }
 
 func (q *Queries) ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, applySpendDelta, arg.NewAmount, arg.NewScriptKeyID, arg.OldScriptKey)
+	row := q.db.QueryRowContext(ctx, applySpendDelta,
+		arg.NewAmount,
+		arg.NewScriptKeyID,
+		arg.SplitCommitmentRootHash,
+		arg.SplitCommitmentRootValue,
+		arg.OldScriptKey,
+	)
 	var asset_id int32
 	err := row.Scan(&asset_id)
 	return asset_id, err
@@ -46,6 +56,16 @@ func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	return err
 }
 
+const deleteSpendProofs = `-- name: DeleteSpendProofs :exec
+DELETE FROM transfer_proofs
+WHERE transfer_id = ?
+`
+
+func (q *Queries) DeleteSpendProofs(ctx context.Context, transferID int32) error {
+	_, err := q.db.ExecContext(ctx, deleteSpendProofs, transferID)
+	return err
+}
+
 const fetchAssetDeltas = `-- name: FetchAssetDeltas :many
 SELECT  
     deltas.old_script_key, deltas.new_amt, 
@@ -55,7 +75,8 @@ SELECT
     internal_keys.raw_key AS new_raw_script_key_bytes,
     internal_keys.key_family AS new_script_key_family, 
     internal_keys.key_index AS new_script_key_index,
-    deltas.serialized_witnesses
+    deltas.serialized_witnesses, split_commitment_root_hash, 
+    split_commitment_root_value
 FROM asset_deltas deltas
 JOIN script_keys
     ON deltas.new_script_key = script_keys.script_key_id
@@ -65,15 +86,17 @@ WHERE transfer_id = ?
 `
 
 type FetchAssetDeltasRow struct {
-	OldScriptKey         []byte
-	NewAmt               int64
-	NewScriptKeyBytes    []byte
-	ScriptKeyTweak       []byte
-	NewScriptKeyID       int32
-	NewRawScriptKeyBytes []byte
-	NewScriptKeyFamily   int32
-	NewScriptKeyIndex    int32
-	SerializedWitnesses  []byte
+	OldScriptKey             []byte
+	NewAmt                   int64
+	NewScriptKeyBytes        []byte
+	ScriptKeyTweak           []byte
+	NewScriptKeyID           int32
+	NewRawScriptKeyBytes     []byte
+	NewScriptKeyFamily       int32
+	NewScriptKeyIndex        int32
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
 }
 
 func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error) {
@@ -95,6 +118,8 @@ func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]Fet
 			&i.NewScriptKeyFamily,
 			&i.NewScriptKeyIndex,
 			&i.SerializedWitnesses,
+			&i.SplitCommitmentRootHash,
+			&i.SplitCommitmentRootValue,
 		); err != nil {
 			return nil, err
 		}
@@ -109,20 +134,41 @@ func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]Fet
 	return items, nil
 }
 
+const fetchSpendProofs = `-- name: FetchSpendProofs :one
+SELECT sender_proof, receiver_proof
+FROM transfer_proofs
+WHERE transfer_id = ?
+`
+
+type FetchSpendProofsRow struct {
+	SenderProof   []byte
+	ReceiverProof []byte
+}
+
+func (q *Queries) FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchSpendProofs, transferID)
+	var i FetchSpendProofsRow
+	err := row.Scan(&i.SenderProof, &i.ReceiverProof)
+	return i, err
+}
+
 const insertAssetDelta = `-- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
-    old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id
+    old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
+    split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?
 )
 `
 
 type InsertAssetDeltaParams struct {
-	OldScriptKey        []byte
-	NewAmt              int64
-	NewScriptKey        int32
-	SerializedWitnesses []byte
-	TransferID          int32
+	OldScriptKey             []byte
+	NewAmt                   int64
+	NewScriptKey             int32
+	SerializedWitnesses      []byte
+	TransferID               int32
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
 }
 
 func (q *Queries) InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaParams) error {
@@ -132,6 +178,8 @@ func (q *Queries) InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaPara
 		arg.NewScriptKey,
 		arg.SerializedWitnesses,
 		arg.TransferID,
+		arg.SplitCommitmentRootHash,
+		arg.SplitCommitmentRootValue,
 	)
 	return err
 }
@@ -161,6 +209,25 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 	var id int32
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertSpendProofs = `-- name: InsertSpendProofs :exec
+INSERT INTO transfer_proofs (
+   transfer_id, sender_proof, receiver_proof 
+) VALUES (
+    ?, ?, ?
+)
+`
+
+type InsertSpendProofsParams struct {
+	TransferID    int32
+	SenderProof   []byte
+	ReceiverProof []byte
+}
+
+func (q *Queries) InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) error {
+	_, err := q.db.ExecContext(ctx, insertSpendProofs, arg.TransferID, arg.SenderProof, arg.ReceiverProof)
+	return err
 }
 
 const queryAssetTransfers = `-- name: QueryAssetTransfers :many

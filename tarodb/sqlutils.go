@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"io"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
@@ -102,9 +101,4 @@ func fMap[T1, T2 any](s []T1, f func(T1) T2) []T2 {
 		r[i] = f(v)
 	}
 	return r
-}
-
-// randInt makes a random integer of the specified type.
-func randInt[T constraints.Integer]() T {
-	return T(rand.Int63()) // nolint:gosec
 }

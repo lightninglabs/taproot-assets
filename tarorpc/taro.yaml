@@ -29,6 +29,10 @@ http:
       post: "/v1/taro/addrs/decode"
       body: "*"
 
+    - selector: tarorpc.Taro.AddrReceives
+      post: "/v1/taro/addrs/receives"
+      body: "*"
+
     - selector: tarorpc.Taro.VerifyProof
       post: "/v1/taro/proofs/verify"
       body: "*"
@@ -43,3 +47,7 @@ http:
 
     - selector: tarorpc.Taro.ListBalances
       get: "/v1/taro/assets/balance"
+
+    - selector: tarorpc.Taro.SendAsset
+      post: "/v1/taro/send"
+      body: "*"

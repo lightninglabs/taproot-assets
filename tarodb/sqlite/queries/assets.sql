@@ -95,7 +95,7 @@ WITH target_batch(batch_id) AS (
     WHERE keys.raw_key = ?
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, asset_id, batch_id
+    emission_enabled, genesis_id, batch_id
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
@@ -127,16 +127,19 @@ INSERT INTO asset_family_sigs (
     ?, ?, ?
 ) RETURNING sig_id;
 
--- name: InsertGenesisAsset :one
+-- name: UpsertGenesisAsset :one
 INSERT INTO genesis_assets (
     asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
 ) VALUES (
     ?, ?, ?, ?, ?, ?
-) RETURNING gen_asset_id;
+) ON CONFLICT (asset_tag)
+    -- This is a NOP, asset_tag is the unique field that caused the conflict.
+    DO UPDATE SET asset_tag = EXCLUDED.asset_tag
+RETURNING gen_asset_id;
 
 -- name: InsertNewAsset :one
 INSERT INTO assets (
-    version, script_key_id, asset_id, asset_family_sig_id, script_version, 
+    genesis_id, version, script_key_id, asset_family_sig_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -188,13 +191,13 @@ SELECT
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
 JOIN genesis_info
-    ON assets.asset_id = genesis_info.gen_asset_id
+    ON assets.genesis_id = genesis_info.gen_asset_id
 -- We use a LEFT JOIN here as not every asset has a family key, so this'll
 -- generate rows that have NULL values for the faily key fields if an asset
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info
-    ON assets.asset_id = key_fam_info.gen_asset_id
+    ON assets.genesis_id = key_fam_info.gen_asset_id
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
@@ -206,42 +209,51 @@ SELECT
     genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type
 FROM assets
 JOIN genesis_info_view
-    ON assets.asset_id = genesis_info_view.gen_asset_id AND
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
         (length(hex(sqlc.narg('asset_id_filter'))) == 0 OR genesis_info_view.asset_id = sqlc.narg('asset_id_filter'))
 -- We use a LEFT JOIN here as not every asset has a family key, so this'll
 -- generate rows that have NULL values for the family key fields if an asset
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info_view
-    ON assets.asset_id = key_fam_info_view.gen_asset_id
-GROUP BY assets.asset_id;
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id
+GROUP BY assets.genesis_id;
 
 -- name: QueryAssetBalancesByFamily :many
 SELECT
     key_fam_info_view.tweaked_fam_key, SUM(amount) balance
 FROM assets
 JOIN key_fam_info_view
-    ON assets.asset_id = key_fam_info_view.gen_asset_id AND
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
         (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter'))
 GROUP BY key_fam_info_view.tweaked_fam_key;
 
 -- name: QueryAssets :many
 SELECT
-    assets.asset_id, version, script_keys.tweak AS script_key_tweak, 
+    assets.asset_id AS asset_primary_key, assets.genesis_id, version,
+    script_keys.tweak AS script_key_tweak, 
     script_keys.tweaked_script_key, 
-    internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index, key_fam_info_view.genesis_sig, 
-    key_fam_info_view.tweaked_fam_key, key_fam_info_view.raw_key AS fam_key_raw,
-    key_fam_info_view.key_family AS fam_key_family, key_fam_info_view.key_index AS fam_key_index,
+    internal_keys.raw_key AS script_key_raw,
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index,
+    key_fam_info_view.genesis_sig, 
+    key_fam_info_view.tweaked_fam_key,
+    key_fam_info_view.raw_key AS fam_key_raw,
+    key_fam_info_view.key_family AS fam_key_family,
+    key_fam_info_view.key_index AS fam_key_index,
     script_version, amount, lock_time, relative_lock_time, 
-    genesis_info_view.asset_id, genesis_info_view.asset_tag, genesis_info_view.meta_data, 
-    genesis_info_view.output_index AS genesis_output_index, genesis_info_view.asset_type,
+    genesis_info_view.asset_id AS asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_data, 
+    genesis_info_view.output_index AS genesis_output_index,
+    genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
-    utxos.outpoint AS anchor_outpoint
+    utxos.outpoint AS anchor_outpoint,
+    utxo_internal_keys.raw_key AS anchor_internal_key
 FROM assets
 JOIN genesis_info_view
-    ON assets.asset_id = genesis_info_view.gen_asset_id AND
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
         (length(hex(sqlc.narg('asset_id_filter'))) == 0 OR 
             genesis_info_view.asset_id = sqlc.narg('asset_id_filter'))
 -- We use a LEFT JOIN here as not every asset has a family key, so this'll
@@ -249,7 +261,7 @@ JOIN genesis_info_view
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info_view
-    ON assets.asset_id = key_fam_info_view.gen_asset_id AND
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
         (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR 
             key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter'))
 JOIN script_keys
@@ -260,6 +272,8 @@ JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
         (length(hex(sqlc.narg('anchor_point'))) == 0 OR 
             utxos.outpoint = sqlc.narg('anchor_point'))
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 -- This clause is used to select specific assets for a asset ID, general
@@ -361,7 +375,7 @@ WITH assets_to_update AS (
     SELECT script_key_id
     FROM assets 
     JOIN genesis_assets 
-        ON assets.asset_id = genesis_assets.gen_asset_id
+        ON assets.genesis_id = genesis_assets.gen_asset_id
     JOIN genesis_points
         ON genesis_points.genesis_id = genesis_assets.genesis_point_id
     WHERE prev_out = ?
@@ -374,7 +388,7 @@ WHERE script_key_id in (SELECT script_key_id FROM assets_to_update);
 SELECT *
 FROM assets 
 JOIN genesis_assets 
-    ON assets.asset_id = genesis_assets.gen_asset_id
+    ON assets.genesis_id = genesis_assets.gen_asset_id
 JOIN genesis_points
     ON genesis_points.genesis_id = genesis_assets.genesis_point_id
 WHERE prev_out = ?;
@@ -406,6 +420,15 @@ WHERE genesis_id in (SELECT genesis_id FROM target_point);
 SELECT * 
 FROM genesis_points
 WHERE anchor_tx_id = ?;
+
+-- name: FetchGenesisByID :one
+SELECT
+    asset_id, asset_tag, meta_data, output_index, asset_type,
+    genesis_points.prev_out prev_out
+FROM genesis_assets
+JOIN genesis_points
+  ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+WHERE gen_asset_id = ?;
 
 -- name: ConfirmChainTx :exec
 WITH target_txn(txn_id) AS (
@@ -457,7 +480,8 @@ WITH asset_info AS (
         ON assets.script_key_id = script_keys.script_key_id
     WHERE script_keys.tweaked_script_key = ?
 )
-SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;

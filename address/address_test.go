@@ -13,12 +13,11 @@ import (
 )
 
 var (
-	hashBytes1 = [32]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 	invalidHrp     = "bc"
 	invalidNet     = ChainParams{&chaincfg.MainNetParams, invalidHrp}
 	pubKeyBytes, _ = hex.DecodeString(
-		"a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+		"a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e" +
+			"078f",
 	)
 	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
 )
@@ -46,10 +45,8 @@ func randAddress(t *testing.T, net *ChainParams, famKey bool,
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
-	return New(
-		hashBytes1, familyKey, pubKeyCopy1, pubKeyCopy2, amount,
-		assetType, net,
-	)
+	genesis := asset.RandGenesis(t, assetType)
+	return New(genesis, familyKey, pubKeyCopy1, pubKeyCopy2, amount, net)
 }
 
 func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
@@ -73,12 +70,11 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
 	newAddr := Taro{
 		ChainParams: net,
 		Version:     asset.Version(TaroScriptVersion),
-		ID:          hashBytes1,
+		Genesis:     asset.RandGenesis(t, assetType),
 		FamilyKey:   familyKey,
 		ScriptKey:   pubKeyCopy1,
 		InternalKey: pubKeyCopy2,
 		Amount:      amount,
-		Type:        asset.Normal,
 	}
 
 	encodedAddr, err := newAddr.EncodeAddress()
@@ -157,18 +153,6 @@ func TestNewAddress(t *testing.T) {
 				)
 			},
 			err: ErrUnsupportedHRP,
-		},
-		{
-			name: "invalid asset type",
-			f: func() (*Taro, error) {
-				pubKeyCopy1 := *pubKey
-				pubKeyCopy2 := *pubKey
-				return New(
-					hashBytes1, nil, pubKeyCopy1, pubKeyCopy2,
-					rand.Uint64(), 2, &MainNetTaro,
-				)
-			},
-			err: ErrUnsupportedAssetType,
 		},
 	}
 

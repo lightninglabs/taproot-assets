@@ -59,9 +59,9 @@ func txSpendsPrevOut(tx *wire.MsgTx, prevOut *wire.OutPoint) bool {
 	return false
 }
 
-// extractTaprootKey attempts to extract a Taproot tweaked key from the output
+// ExtractTaprootKey attempts to extract a Taproot tweaked key from the output
 // found at `outputIndex`.
-func extractTaprootKey(tx *wire.MsgTx,
+func ExtractTaprootKey(tx *wire.MsgTx,
 	outputIndex uint32) (*btcec.PublicKey, error) {
 
 	if outputIndex >= uint32(len(tx.TxOut)) {

@@ -151,6 +151,13 @@ func NewLeafFamilyKeyRecord(familyKey **FamilyKey) tlv.Record {
 	)
 }
 
+func NewLeafFamilyKeyOnlyRecord(familyKey **btcec.PublicKey) tlv.Record {
+	return tlv.MakeStaticRecord(
+		LeafFamilyKey, familyKey, schnorr.PubKeyBytesLen,
+		SchnorrPubKeyEncoder, SchnorrPubKeyDecoder,
+	)
+}
+
 func NewWitnessPrevIDRecord(prevID **PrevID) tlv.Record {
 	const recordSize = 36 + sha256.Size + schnorr.PubKeyBytesLen
 	return tlv.MakeStaticRecord(

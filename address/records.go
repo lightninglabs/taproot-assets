@@ -1,7 +1,7 @@
 package address
 
 import (
-	"crypto/sha256"
+	"bytes"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -16,8 +16,8 @@ const (
 	// addrVersionType is the TLV type of the addr version.
 	addrVersionType addressTLVType = 0
 
-	// addrAssetIDType is the TLV type of the asset ID.
-	addrAssetIDType addressTLVType = 2
+	// addrAssetGenesisType is the TLV type of the asset genesis.
+	addrAssetGenesisType addressTLVType = 2
 
 	// addrFamKeyType is the TLV type of the family key of the asset.
 	addrFamKeyType addressTLVType = 3
@@ -30,9 +30,6 @@ const (
 
 	// addrAmountType is the TLV type of the amount of the asset.
 	addrAmountType addressTLVType = 8
-
-	// addrAssetType is the TLV type that stores the type of the asset.
-	addrAssetType addressTLVType = 9
 )
 
 func newAddressVersionRecord(version *asset.Version) tlv.Record {
@@ -42,10 +39,20 @@ func newAddressVersionRecord(version *asset.Version) tlv.Record {
 	)
 }
 
-func newAddressIDRecord(id *asset.ID) tlv.Record {
-	return tlv.MakeStaticRecord(
-		addrAssetIDType, id, sha256.Size, asset.IDEncoder,
-		asset.IDDecoder,
+func newAddressGenesisRecord(genesis *asset.Genesis) tlv.Record {
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := asset.GenesisEncoder(&b, genesis, &buf); err != nil {
+			panic(err)
+		}
+		return uint64(len(b.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		addrAssetGenesisType, genesis, recordSize,
+		asset.GenesisEncoder, asset.GenesisDecoder,
 	)
 }
 
@@ -77,12 +84,5 @@ func newAddressAmountRecord(amount *uint64) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		addrAmountType, amount, recordSize,
 		asset.VarIntEncoder, asset.VarIntDecoder,
-	)
-}
-
-func newAddressTypeRecord(assetType *asset.Type) tlv.Record {
-	return tlv.MakeStaticRecord(
-		addrAssetType, assetType, 1, asset.TypeEncoder,
-		asset.TypeDecoder,
 	)
 }

@@ -49,7 +49,13 @@ service Taro {
     DecodeAddr decode a Taro address into a partial asset message that
     represents the asset it wants to receive.
     */
-    rpc DecodeAddr (Addr) returns (Asset);
+    rpc DecodeAddr (DecodeAddrRequest) returns (Addr);
+
+    /* tarocli: `addrs receives`
+    List all receives for incoming asset transfers for addresses that were
+    created previously.
+    */
+    rpc AddrReceives (AddrReceivesRequest) returns (AddrReceivesResponse);
 
     /* tarocli: `proofs verify`
     VerifyProof attempts to verify a given proof file that claims to be anchored
@@ -69,6 +75,13 @@ service Taro {
     script key, and internal key.
     */
     rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
+
+    /* tarocli: `assets send`
+    SendAsset uses a passed taro address to attempt to complete an asset send.
+    The method returns information w.r.t the on chain send, as well as the
+    proof file information the receiver needs to fully receive the asset.
+    */
+    rpc SendAsset (SendAssetRequest) returns (SendAssetResponse);
 }
 
 enum AssetType {
@@ -142,23 +155,37 @@ message AnchorInfo {
 
     // The outpoint (txid:vout) that stores the Taro commitment.
     string anchor_outpoint = 4;
+
+    /*
+    The raw internal key that was used to create the anchor Taproot output key.
+    */
+    bytes internal_key = 5;
 }
 
 message GenesisInfo {
-    // The version of the Taro asset.
-    int32 version = 1;
-
     // The first outpoint of the transaction that created the asset (txid:vout).
-    string genesis_point = 2;
+    string genesis_point = 1;
 
     // The name of the asset.
-    string name = 3;
+    string name = 2;
 
     // The opaque meta data of the asset.
-    bytes meta = 4;
+    bytes meta = 3;
 
     // The asset ID that uniquely identifies the asset.
-    bytes asset_id = 5;
+    bytes asset_id = 4;
+
+    /*
+    The index of the output that carries the unique Taro commitment in the
+    genesis transaction.
+    */
+    uint32 output_index = 5;
+
+    /*
+    The full genesis information encoded in a portable manner so it can be
+    easily copy/pasted for address creation.
+    */
+    bytes genesis_bootstrap_info = 6;
 }
 
 message AssetFamily {
@@ -176,11 +203,14 @@ message AssetFamily {
 }
 
 message Asset {
+    // The version of the Taro asset.
+    int32 version = 1;
+
     // The base genesis information of an asset. This information never changes.
-    GenesisInfo asset_genesis = 1;
+    GenesisInfo asset_genesis = 2;
 
     // The type of the asset.
-    AssetType asset_type = 2;
+    AssetType asset_type = 3;
 
     // The total amount of the asset stored in this Taro UTXO.
     int64 amount = 4;
@@ -269,7 +299,36 @@ message DebugLevelResponse {
 }
 
 message Addr {
-    string addr = 1;
+    // The bech32 encoded Taro address.
+    string encoded = 1;
+
+    // The asset ID that uniquely identifies the asset.
+    bytes asset_id = 2;
+
+    // The type of the asset.
+    AssetType asset_type = 3;
+
+    // The total amount of the asset stored in this Taro UTXO.
+    int64 amount = 4;
+
+    // The family key of the asset (if it exists)
+    bytes family_key = 5;
+
+    /*
+    The specific script key the asset must commit to in order to transfer
+    ownership to the creator of the address.
+    */
+    bytes script_key = 6;
+
+    // The internal key used for the on-chain output.
+    bytes internal_key = 7;
+
+    /*
+    The tweaked internal key that commits to the asset and represents the
+    on-chain output key the Bitcoin transaction must send to in order to
+    transfer assets described in this address.
+    */
+    bytes taproot_output_key = 8;
 }
 
 message QueryAddrRequest {
@@ -297,13 +356,15 @@ message QueryAddrResponse {
 }
 
 message NewAddrRequest {
-    bytes asset_id = 1;
+    bytes genesis_bootstrap_info = 1;
 
     bytes fam_key = 2;
 
     int64 amt = 3;
+}
 
-    AssetType asset_type = 4;
+message DecodeAddrRequest {
+    string addr = 1;
 }
 
 message ProofFile {
@@ -331,4 +392,110 @@ message ImportProofRequest {
 }
 
 message ImportProofResponse {
+}
+
+enum AddrEventStatus {
+    ADDR_EVENT_STATUS_UNKNOWN = 0;
+    ADDR_EVENT_STATUS_TRANSACTION_DETECTED = 1;
+    ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED = 2;
+    ADDR_EVENT_STATUS_PROOF_RECEIVED = 3;
+    ADDR_EVENT_STATUS_COMPLETED = 4;
+}
+
+message AddrEvent {
+    // The time the event was created in unix timestamp seconds.
+    uint64 creation_time_unix_seconds = 1;
+
+    // The address the event was created for.
+    Addr addr = 2;
+
+    // The current status of the event.
+    AddrEventStatus status = 3;
+
+    // The outpoint that contains the inbound asset transfer.
+    string outpoint = 4;
+
+    /*
+    The amount in satoshis that were transferred on chain along with the asset.
+    This amount is independent of the requested asset amount, which can be
+    looked up on the address.
+    */
+    uint64 utxo_amt_sat = 5;
+
+    /*
+    The taproot sibling hash that was used to send to the Taproot output.
+    NOTE: Not yet implemented.
+    */
+    bytes taproot_sibling = 6;
+
+    /*
+    The height at which the on-chain output was confirmed. If this is zero, it
+    means the output is unconfirmed.
+    */
+    uint32 confirmation_height = 7;
+
+    /*
+    Indicates whether a proof file can be found for the address' asset ID and
+    script key.
+    */
+    bool has_proof = 8;
+}
+
+message AddrReceivesRequest {
+    // Filter receives by a specific address. Leave empty to get all receives.
+    string filter_addr = 1;
+
+    // Filter receives by a specific status. Leave empty to get all receives.
+    AddrEventStatus filter_status = 2;
+}
+
+message AddrReceivesResponse {
+    // The events that match the filter criteria.
+    repeated AddrEvent events = 1;
+}
+
+message SendAssetRequest {
+    string taro_addr = 1;
+
+    // TODO(roasbeef): maybe in future add details re type of ProofCourier or
+    // w/e
+}
+
+message PrevInputAsset {
+    string anchor_point = 1;
+    bytes asset_id = 2;
+    bytes script_key = 3;
+    int64 amount = 4;
+}
+
+message AssetOutput {
+    string anchor_point = 1;
+    bytes asset_id = 2;
+    bytes script_key = 3;
+    int64 amount = 4;
+
+    bytes new_proof_blob = 5;
+
+    bytes split_commit_proof = 6;
+}
+
+message TaroTransfer {
+    bytes old_taro_root = 1;
+
+    bytes new_taro_root = 2;
+
+    repeated PrevInputAsset prev_inputs = 3;
+
+    repeated AssetOutput new_outputs = 4;
+}
+
+message SendAssetResponse {
+    bytes transfer_txid = 1;
+    int32 anchor_output_index = 2;
+
+    bytes transfer_tx_bytes = 3;
+
+    TaroTransfer taro_transfer = 4;
+
+    int64 total_fee_sats = 5;
 }

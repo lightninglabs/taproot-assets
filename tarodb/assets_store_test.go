@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"math/rand"
 	"testing"
 
@@ -13,36 +12,13 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
-
-func randOp(t *testing.T) wire.OutPoint {
-	op := wire.OutPoint{
-		Index: uint32(randInt[int32]()),
-	}
-	_, err := rand.Read(op.Hash[:])
-	require.NoError(t, err)
-
-	return op
-}
-
-func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
-	metadata := make([]byte, randInt[int]()%32+1)
-	_, err := rand.Read(metadata)
-	require.NoError(t, err)
-
-	return &asset.Genesis{
-		FirstPrevOut: randOp(t),
-		Tag:          hex.EncodeToString(metadata),
-		Metadata:     metadata,
-		OutputIndex:  uint32(randInt[int32]()),
-		Type:         assetType,
-	}
-}
 
 func randPrivKey(t *testing.T) *btcec.PrivateKey {
 	privKey, err := btcec.NewPrivateKey()
@@ -63,7 +39,7 @@ func randAssetID(t *testing.T) asset.ID {
 }
 
 func randWitnesses(t *testing.T) wire.TxWitness {
-	numElements := randInt[int]() % 5
+	numElements := test.RandInt[int]() % 5
 	if numElements == 0 {
 		return nil
 	}
@@ -84,25 +60,25 @@ func randSplitCommit(t *testing.T,
 	a asset.Asset) *asset.SplitCommitment {
 
 	// 50/50 chance there's no commitment at all.
-	if randInt[int]()%2 == 0 {
+	if test.RandInt[int]()%2 == 0 {
 		return nil
 	}
 
 	rootLoc := commitment.SplitLocator{
-		OutputIndex: uint32(randInt[int32]()),
+		OutputIndex: uint32(test.RandInt[int32]()),
 		AssetID:     randAssetID(t),
 		Amount:      a.Amount / 2,
 		ScriptKey:   asset.ToSerialized(randPubKey(t)),
 	}
 	splitLoc := commitment.SplitLocator{
-		OutputIndex: uint32(randInt[int32]()),
+		OutputIndex: uint32(test.RandInt[int32]()),
 		AssetID:     randAssetID(t),
 		Amount:      a.Amount / 2,
 		ScriptKey:   asset.ToSerialized(randPubKey(t)),
 	}
 
 	split, err := commitment.NewSplitCommitment(
-		&a, randOp(t), &rootLoc, &splitLoc,
+		&a, test.RandOp(t), &rootLoc, &splitLoc,
 	)
 	require.NoError(t, err)
 
@@ -124,18 +100,18 @@ type assetGenOptions struct {
 }
 
 func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
-	gen := randGenesis(t, asset.Normal)
+	gen := asset.RandGenesis(t, asset.Normal)
 
 	return &assetGenOptions{
-		assetGen:     *gen,
+		assetGen:     gen,
 		famKeyPriv:   randPrivKey(t),
-		amt:          uint64(randInt[uint32]()),
-		genesisPoint: randOp(t),
+		amt:          uint64(test.RandInt[uint32]()),
+		genesisPoint: test.RandOp(t),
 		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 			PubKey: randPubKey(t),
 			KeyLocator: keychain.KeyLocator{
-				Family: randInt[keychain.KeyFamily](),
-				Index:  uint32(randInt[int32]()),
+				Family: test.RandInt[keychain.KeyFamily](),
+				Index:  uint32(test.RandInt[int32]()),
 			},
 		}),
 	}
@@ -196,13 +172,13 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	newAsset := &asset.Asset{
 		Genesis:          genesis,
 		Amount:           opts.amt,
-		LockTime:         uint64(randInt[int32]()),
-		RelativeLockTime: uint64(randInt[int32]()),
+		LockTime:         uint64(test.RandInt[int32]()),
+		RelativeLockTime: uint64(test.RandInt[int32]()),
 		ScriptKey:        opts.scriptKey,
 	}
 
 	// 50/50 chance that we'll actually have a family key.
-	if famPriv != nil && randInt[int]()%2 == 0 {
+	if famPriv != nil && test.RandInt[int]()%2 == 0 {
 		newAsset.FamilyKey = &asset.FamilyKey{
 			RawKey: keychain.KeyDescriptor{
 				PubKey: famKey,
@@ -220,22 +196,30 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	// For the witnesses, we'll flip a coin: we'll either make a genesis
 	// witness, or a set of actual witnesses.
 	var witnesses []asset.Witness
-	if randInt[int]()%2 == 0 {
+	if test.RandInt[int]()%2 == 0 {
 		witnesses = append(witnesses, asset.Witness{
 			PrevID:          &asset.PrevID{},
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		})
 	} else {
-		numWitness := randInt[int]() % 10
+		numWitness := test.RandInt[int]() % 10
+		if numWitness == 0 {
+			numWitness++
+		}
 		witnesses = make([]asset.Witness, numWitness)
 		for i := 0; i < numWitness; i++ {
+			scriptKey := asset.NewScriptKeyBIP0086(
+				keychain.KeyDescriptor{
+					PubKey: randPubKey(t),
+				},
+			)
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
-					OutPoint: randOp(t),
+					OutPoint: test.RandOp(t),
 					ID:       randAssetID(t),
 					ScriptKey: asset.ToSerialized(
-						randPubKey(t),
+						scriptKey.PubKey,
 					),
 				},
 				TxWitness: randWitnesses(t),
@@ -260,35 +244,7 @@ func assetWitnessEqual(t *testing.T, a, b []asset.Witness) {
 		witA := a[i]
 		witB := b[i]
 
-		require.Equal(t, witA.PrevID, witB.PrevID)
-		require.Equal(t, witA.TxWitness, witB.TxWitness)
-
-		require.Equal(
-			t, witA.SplitCommitment == nil, witB.SplitCommitment == nil,
-		)
-
-		if witA.SplitCommitment != nil {
-			var bufA, bufB bytes.Buffer
-
-			err := witA.SplitCommitment.RootAsset.Encode(&bufA)
-			require.NoError(t, err)
-
-			err = witB.SplitCommitment.RootAsset.Encode(&bufB)
-			require.NoError(t, err)
-
-			require.Equal(t, bufA.Bytes(), bufB.Bytes())
-
-			splitA := witA.SplitCommitment
-			splitB := witB.SplitCommitment
-			require.Equal(
-				t, len(splitA.Proof.Nodes), len(splitB.Proof.Nodes),
-			)
-			for i := range splitA.Proof.Nodes {
-				nodeA := splitA.Proof.Nodes[i]
-				nodeB := splitB.Proof.Nodes[i]
-				require.True(t, mssmt.IsEqualNode(nodeA, nodeB))
-			}
-		}
+		require.True(t, witA.DeepEqual(&witB))
 	}
 }
 
@@ -339,8 +295,8 @@ func TestImportAssetProof(t *testing.T) {
 			Asset:             testAsset,
 			OutPoint:          anchorPoint,
 			AnchorBlockHash:   blockHash,
-			AnchorBlockHeight: randInt[uint32](),
-			AnchorTxIndex:     randInt[uint32](),
+			AnchorBlockHeight: test.RandInt[uint32](),
+			AnchorTxIndex:     test.RandInt[uint32](),
 			AnchorTx:          anchorTx,
 			OutputIndex:       0,
 			InternalKey:       randPubKey(t),
@@ -349,6 +305,13 @@ func TestImportAssetProof(t *testing.T) {
 	}
 	if testAsset.FamilyKey != nil {
 		testProof.FamilyKey = &testAsset.FamilyKey.FamKey
+
+		// An asset in a proof would be de-serialized from the TLV and
+		// would not contain the raw family key. We blank it out here as
+		// well in order to test that behavior. We later check that the
+		// stored internal key (raw family key) is equal to the tweaked
+		// family key.
+		testAsset.FamilyKey.RawKey.PubKey = nil
 	}
 
 	// We'll now insert the internal key information as well as the script
@@ -357,8 +320,8 @@ func TestImportAssetProof(t *testing.T) {
 	ctx := context.Background()
 	_, err = db.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    testProof.InternalKey.SerializeCompressed(),
-		KeyFamily: randInt[int32](),
-		KeyIndex:  randInt[int32](),
+		KeyFamily: test.RandInt[int32](),
+		KeyIndex:  test.RandInt[int32](),
 	})
 	require.NoError(t, err)
 	rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
@@ -404,12 +367,24 @@ func TestImportAssetProof(t *testing.T) {
 	// The DB asset should match the asset we inserted exactly.
 	dbAsset := assets[0]
 
-	// Before comparison, we unset the split commitments so we can compare
+	// Before comparison, we unset the split commitments, so we can compare
 	// them directly.
 	assetWitnessEqual(t, testAsset.PrevWitnesses, dbAsset.PrevWitnesses)
 
 	dbAsset.PrevWitnesses = nil
 	testAsset.PrevWitnesses = nil
+
+	// We also need to look at the family key separately as the raw key is
+	// not stored in the proof.
+	if testAsset.FamilyKey != nil {
+		key := dbAsset.FamilyKey
+		require.Equal(t, &testAsset.FamilyKey.FamKey, key.RawKey.PubKey)
+		require.Equal(t, &key.FamKey, key.RawKey.PubKey)
+
+		// Blank them out for further comparison.
+		testAsset.FamilyKey = nil
+		dbAsset.FamilyKey = nil
+	}
 
 	require.Equal(t, testAsset, dbAsset.Asset)
 
@@ -515,7 +490,7 @@ func newAssetGenerator(t *testing.T,
 
 	assetGens := make([]asset.Genesis, numAssetIDs)
 	for i := 0; i < numAssetIDs; i++ {
-		assetGens[i] = *randGenesis(t, asset.Normal)
+		assetGens[i] = asset.RandGenesis(t, asset.Normal)
 	}
 
 	famKeys := make([]*btcec.PrivateKey, numFamKeys)
@@ -704,8 +679,8 @@ func TestAssetExportLog(t *testing.T) {
 	targetScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 		PubKey: randPubKey(t),
 		KeyLocator: keychain.KeyLocator{
-			Family: randInt[keychain.KeyFamily](),
-			Index:  uint32(randInt[int32]()),
+			Family: test.RandInt[keychain.KeyFamily](),
+			Index:  uint32(test.RandInt[int32]()),
 		},
 	})
 
@@ -755,6 +730,12 @@ func TestAssetExportLog(t *testing.T) {
 	})
 	newAmt := 9
 
+	newRootHash := sha256.Sum256([]byte("kek"))
+	newRootValue := uint64(100)
+
+	senderBlob := bytes.Repeat([]byte{0x01}, 100)
+	receiverBlob := bytes.Repeat([]byte{0x02}, 100)
+
 	// With the assets inserted, we'll now construct the struct we'll used
 	// to commit a new spend on disk.
 	anchorTxHash := newAnchorTx.TxHash()
@@ -771,7 +752,7 @@ func TestAssetExportLog(t *testing.T) {
 			PubKey: randPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: keychain.KeyFamily(rand.Int31()),
-				Index:  uint32(randInt[int32]()),
+				Index:  uint32(test.RandInt[int32]()),
 			},
 		},
 		// This can be anything since we assume the application sets it
@@ -785,8 +766,13 @@ func TestAssetExportLog(t *testing.T) {
 				OldScriptKey: *targetScriptKey.PubKey,
 				NewAmt:       uint64(newAmt),
 				NewScriptKey: newScriptKey,
+				SplitCommitmentRoot: mssmt.NewComputedNode(
+					newRootHash, newRootValue,
+				),
 			},
 		},
+		SenderAssetProof:   senderBlob,
+		ReceiverAssetProof: receiverBlob,
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 
@@ -825,11 +811,13 @@ func TestAssetExportLog(t *testing.T) {
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
 	blockHeight := int32(100)
 	txIndex := int32(10)
+	finalSenderBlob := bytes.Repeat([]byte{0x03}, 100)
 	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
-		AnchorPoint: spendDelta.NewAnchorPoint,
-		TxIndex:     txIndex,
-		BlockHeight: blockHeight,
-		BlockHash:   fakeBlockHash,
+		AnchorPoint:      spendDelta.NewAnchorPoint,
+		TxIndex:          txIndex,
+		BlockHeight:      blockHeight,
+		BlockHash:        fakeBlockHash,
+		FinalSenderProof: finalSenderBlob,
 	})
 	require.NoError(t, err)
 
@@ -853,6 +841,14 @@ func TestAssetExportLog(t *testing.T) {
 		}
 	}
 	require.True(t, mutationFound)
+
+	// As a final check for the asset, we'll fetch its blob to ensure it's
+	// been updated on disk.
+	diskSenderBlob, err := db.FetchAssetProof(
+		ctx, newScriptKey.PubKey.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, finalSenderBlob, diskSenderBlob.ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

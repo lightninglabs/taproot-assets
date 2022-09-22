@@ -53,7 +53,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 
 	// Extract the final taproot key from the output including/excluding the
 	// asset, which we'll use to compare our derived key against.
-	expectedTaprootKey, err := extractTaprootKey(
+	expectedTaprootKey, err := ExtractTaprootKey(
 		anchor, proof.OutputIndex,
 	)
 	if err != nil {

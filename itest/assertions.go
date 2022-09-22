@@ -157,26 +157,106 @@ func assertAssetProofs(t *testing.T, tarod *tarodHarness,
 	})
 	require.NoError(t, err)
 
-	f := &proof.File{}
-	require.NoError(t, f.Decode(bytes.NewReader(exportResp.RawProof)))
+	file, snapshot := verifyProofBlob(t, tarod, exportResp.RawProof)
 
 	assetJSON, err := formatProtoJSON(a)
 	require.NoError(t, err)
 	t.Logf("Got proof file for asset %x that contains %d proof(s), full "+
-		"asset: %s", a.AssetGenesis.AssetId, len(f.Proofs), assetJSON)
+		"asset: %s", a.AssetGenesis.AssetId, len(file.Proofs),
+		assetJSON)
 
-	snapshot, err := f.Verify(ctxt)
-	require.NoError(t, err)
 	require.Equal(
 		t, commitmentKey(t, a), snapshot.Asset.AssetCommitmentKey(),
 	)
 
+	return exportResp.RawProof
+}
+
+// verifyProofBlob parses the given proof blob into a file, verifies it and
+// returns the resulting last asset snapshot together with the parsed file.
+func verifyProofBlob(t *testing.T, tarod *tarodHarness,
+	blob proof.Blob) (*proof.File, *proof.AssetSnapshot) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	f := &proof.File{}
+	require.NoError(t, f.Decode(bytes.NewReader(blob)))
+
 	// Also make sure that the RPC can verify the proof as well.
 	verifyResp, err := tarod.VerifyProof(ctxt, &tarorpc.ProofFile{
-		RawProof: exportResp.RawProof,
+		RawProof: blob,
 	})
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)
 
-	return exportResp.RawProof
+	snapshot, err := f.Verify(ctxt)
+	require.NoError(t, err)
+
+	return f, snapshot
+}
+
+// assertAddrCreated makes sure an address was created correctly for the given
+// asset.
+func assertAddrCreated(t *testing.T, tarod *tarodHarness,
+	expected *tarorpc.Asset, actual *tarorpc.Addr) {
+
+	// Was the address created correctly?
+	assertAddr(t, expected, actual)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	decoded, err := tarod.DecodeAddr(ctxt, &tarorpc.DecodeAddrRequest{
+		Addr: actual.Encoded,
+	})
+	require.NoError(t, err)
+
+	decodedJSON, err := formatProtoJSON(decoded)
+	require.NoError(t, err)
+	t.Logf("Got address %s decoded as %v", actual.Encoded, decodedJSON)
+
+	// Does the decoded address still show everything correctly?
+	assertAddr(t, expected, decoded)
+
+	allAddrs, err := tarod.QueryAddrs(ctxt, &tarorpc.QueryAddrRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, allAddrs.Addrs)
+
+	// Can we find the address in the list of all addresses?
+	var rpcAddr *tarorpc.Addr
+	for idx := range allAddrs.Addrs {
+		if allAddrs.Addrs[idx].Encoded == actual.Encoded {
+			rpcAddr = allAddrs.Addrs[idx]
+			break
+		}
+	}
+	require.NotNil(t, rpcAddr)
+
+	// Does the address in the list contain all information we expect?
+	assertAddr(t, expected, rpcAddr)
+}
+
+// assertAddr asserts that an address contains the correct information of an
+// asset.
+func assertAddr(t *testing.T, expected *tarorpc.Asset, actual *tarorpc.Addr) {
+	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
+	require.Equal(t, expected.AssetType, actual.AssetType)
+
+	if expected.AssetFamily == nil {
+		require.Nil(t, actual.FamilyKey)
+	} else {
+		// TODO(guggero): Address 33-byte vs. 32-byte issue in encoded
+		// address vs. database.
+		require.Equal(
+			t, expected.AssetFamily.TweakedFamilyKey[1:],
+			actual.FamilyKey[1:],
+		)
+	}
+
+	// The script key must explicitly NOT be the same, as that would lead
+	// to a collision with assets that have a family key.
+	require.NotEqual(t, expected.ScriptKey, actual.ScriptKey)
 }

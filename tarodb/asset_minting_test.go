@@ -515,6 +515,11 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
 
+	// All the assets returned should have the genesis prev ID set up.
+	for _, dbAsset := range assets {
+		require.True(t, dbAsset.HasGenesisWitness())
+	}
+
 	// Now that the batch has been committed on disk, we should be able to
 	// obtain all the proofs we just committed.
 	diskProofs, err := confAssets.FetchAssetProofs(ctx)

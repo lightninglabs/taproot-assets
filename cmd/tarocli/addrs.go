@@ -25,7 +25,7 @@ var addrCommands = []cli.Command{
 }
 
 const (
-	assetIDName = "asset_id"
+	genesisBootstrapInfo = "genesis_bootstrap_info"
 
 	keyFamName = "key_fam"
 
@@ -39,8 +39,9 @@ var newAddrCommand = cli.Command{
 	Description: "Create a new Taro address to receive an asset on-chain",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  assetIDName,
-			Usage: "the asset ID of the asset to receive",
+			Name: genesisBootstrapInfo,
+			Usage: "the asset genesis bootstrap info of the " +
+				"asset to receive",
 		},
 		cli.StringFlag{
 			Name:  keyFamName,
@@ -49,10 +50,6 @@ var newAddrCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  amtName,
 			Usage: "the amt of the asset to receive",
-		},
-		cli.StringFlag{
-			Name:  assetTypeName,
-			Usage: "the type of the asset",
 		},
 	},
 	Action: newAddr,
@@ -64,14 +61,15 @@ func newAddr(ctx *cli.Context) error {
 	defer cleanUp()
 
 	switch {
-	case ctx.String(assetIDName) == "":
-		_ = cli.ShowCommandHelp(ctx, "mint")
+	case ctx.String(genesisBootstrapInfo) == "":
+		_ = cli.ShowCommandHelp(ctx, "new")
 		return nil
 	}
 
-	assetID, err := hex.DecodeString(ctx.String(assetIDName))
+	genInfo, err := hex.DecodeString(ctx.String(genesisBootstrapInfo))
 	if err != nil {
-		return fmt.Errorf("unable to decode asset ID: %v", err)
+		return fmt.Errorf("unable to decode asset genesis bootstrap "+
+			"info: %v", err)
 	}
 	keyFam, err := hex.DecodeString(ctx.String(keyFamName))
 	if err != nil {
@@ -79,10 +77,9 @@ func newAddr(ctx *cli.Context) error {
 	}
 
 	addr, err := client.NewAddr(ctxc, &tarorpc.NewAddrRequest{
-		AssetId:   assetID,
-		FamKey:    keyFam,
-		Amt:       ctx.Int64(amtName),
-		AssetType: parseAssetType(ctx),
+		GenesisBootstrapInfo: genInfo,
+		FamKey:               keyFam,
+		Amt:                  ctx.Int64(amtName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)
@@ -197,11 +194,11 @@ func decodeAddr(ctx *cli.Context) error {
 		addr = ctx.Args().First()
 
 	default:
-		_ = cli.ShowCommandHelp(ctx, "mint")
+		_ = cli.ShowCommandHelp(ctx, "decode")
 		return nil
 	}
 
-	resp, err := client.DecodeAddr(ctxc, &tarorpc.Addr{
+	resp, err := client.DecodeAddr(ctxc, &tarorpc.DecodeAddrRequest{
 		Addr: addr,
 	})
 	if err != nil {

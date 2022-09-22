@@ -10,19 +10,34 @@ import (
 )
 
 type Addr struct {
-	ID           int32
-	Version      int16
-	AssetID      []byte
-	FamKey       []byte
-	ScriptKeyID  int32
-	TaprootKeyID int32
-	Amount       int64
-	AssetType    int16
-	CreationTime time.Time
+	ID               int32
+	Version          int16
+	GenesisAssetID   int32
+	FamKey           []byte
+	ScriptKeyID      int32
+	TaprootKeyID     int32
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
+	ManagedFrom      sql.NullTime
+}
+
+type AddrEvent struct {
+	ID                  int32
+	CreationTime        time.Time
+	AddrID              int32
+	Status              int16
+	ChainTxnID          int32
+	ChainTxnOutputIndex int32
+	ManagedUtxoID       int32
+	AssetProofID        sql.NullInt32
+	AssetID             sql.NullInt32
 }
 
 type Asset struct {
 	AssetID                  int32
+	GenesisID                int32
 	Version                  int32
 	ScriptKeyID              int32
 	AssetFamilySigID         sql.NullInt32
@@ -36,12 +51,14 @@ type Asset struct {
 }
 
 type AssetDelta struct {
-	ID                  int32
-	OldScriptKey        []byte
-	NewAmt              int64
-	NewScriptKey        int32
-	SerializedWitnesses []byte
-	TransferID          int32
+	ID                       int32
+	OldScriptKey             []byte
+	NewAmt                   int64
+	NewScriptKey             int32
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	TransferID               int32
 }
 
 type AssetFamily struct {
@@ -80,7 +97,7 @@ type AssetSeedling struct {
 	AssetSupply     int64
 	AssetMeta       []byte
 	EmissionEnabled bool
-	AssetID         sql.NullInt32
+	GenesisID       sql.NullInt32
 	BatchID         int32
 }
 
@@ -189,4 +206,11 @@ type ScriptKey struct {
 	InternalKeyID    int32
 	TweakedScriptKey []byte
 	Tweak            []byte
+}
+
+type TransferProof struct {
+	ProofID       int32
+	TransferID    int32
+	SenderProof   []byte
+	ReceiverProof []byte
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightninglabs/taro"
@@ -47,7 +48,7 @@ var (
 
 const (
 	minerMempoolTimeout = lntest.MinerMempoolTimeout
-	defaultWaitTimeout  = lntest.DefaultTimeout
+	defaultWaitTimeout  = lntest.DefaultTimeout * 60
 
 	// defaultNodePort is the start of the range for listening ports of
 	// harness nodes. Ports are monotonically increasing starting from this
@@ -174,6 +175,17 @@ func (h *harnessTest) setupLogging() {
 	taro.SetupLoggers(h.logWriter, h.interceptor)
 }
 
+func (h *harnessTest) newLndClient(
+	n *lntest.HarnessNode) (*lndclient.GrpcLndServices, error) {
+
+	return lndclient.NewLndServices(&lndclient.LndServicesConfig{
+		LndAddress:         n.Cfg.RPCAddr(),
+		Network:            lndclient.Network(n.Cfg.NetParams.Name),
+		CustomMacaroonPath: n.Cfg.AdminMacPath,
+		TLSPath:            n.Cfg.TLSCertPath,
+	})
+}
+
 // nextAvailablePort returns the first port that is available for listening by
 // a new node. It panics if no port is found and the maximum available TCP port
 // is reached.
@@ -216,7 +228,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 
 	// Create a tarod that uses Bob and connect it to the universe server.
 	tarodHarness := setupTarodHarness(
-		t, ht, lndHarness.BackendCfg, lndHarness.Bob, universeServer,
+		t, ht, lndHarness.BackendCfg, lndHarness.Alice, universeServer,
 	)
 	return tarodHarness, universeServer
 }

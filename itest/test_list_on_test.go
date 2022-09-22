@@ -8,4 +8,8 @@ var testCases = []*testCase{
 		name: "mint assets",
 		test: mintAssets,
 	},
+	{
+		name: "addresses",
+		test: testAddresses,
+	},
 }

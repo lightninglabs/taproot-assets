@@ -201,7 +201,7 @@ func RegisterTaroJSONCallbacks(registry map[string]func(ctx context.Context,
 	registry["tarorpc.Taro.DecodeAddr"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &Addr{}
+		req := &DecodeAddrRequest{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)
@@ -210,6 +210,31 @@ func RegisterTaroJSONCallbacks(registry map[string]func(ctx context.Context,
 
 		client := NewTaroClient(conn)
 		resp, err := client.DecodeAddr(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["tarorpc.Taro.AddrReceives"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &AddrReceivesRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaroClient(conn)
+		resp, err := client.AddrReceives(ctx, req)
 		if err != nil {
 			callback("", err)
 			return
@@ -285,6 +310,31 @@ func RegisterTaroJSONCallbacks(registry map[string]func(ctx context.Context,
 
 		client := NewTaroClient(conn)
 		resp, err := client.ImportProof(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["tarorpc.Taro.SendAsset"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &SendAssetRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaroClient(conn)
+		resp, err := client.SendAsset(ctx, req)
 		if err != nil {
 			callback("", err)
 			return

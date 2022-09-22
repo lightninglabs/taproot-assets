@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -21,6 +20,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightninglabs/taro/vm"
@@ -87,18 +87,6 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
-	t.Helper()
-
-	return asset.Genesis{
-		FirstPrevOut: wire.OutPoint{},
-		Tag:          "",
-		Metadata:     []byte{},
-		OutputIndex:  rand.Uint32(),
-		Type:         assetType,
-	}
-}
-
 func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
 	t.Helper()
 	privKey := randKey(t)
@@ -121,8 +109,8 @@ func initSpendScenario(t *testing.T) spendData {
 		collectAmt:      1,
 		normalAmt1:      2,
 		normalAmt2:      5,
-		genesis1:        randGenesis(t, asset.Normal),
-		genesis1collect: randGenesis(t, asset.Collectible),
+		genesis1:        asset.RandGenesis(t, asset.Normal),
+		genesis1collect: asset.RandGenesis(t, asset.Collectible),
 	}
 
 	// Keys for sender, receiver, and family. Default to keypath spend
@@ -147,18 +135,17 @@ func initSpendScenario(t *testing.T) spendData {
 	// Addesses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
 	address1, err := address.New(
-		state.genesis1.ID(), nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt1,
-		asset.Normal, &address.MainNetTaro,
+		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
+		state.normalAmt1, &address.MainNetTaro,
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
 	state.address1StateKey = state.address1.AssetCommitmentKey()
 
 	address1CollectFamily, err := address.New(
-		state.genesis1collect.ID(), &state.familyKey.FamKey,
+		state.genesis1collect, &state.familyKey.FamKey,
 		state.receiverPubKey, state.receiverPubKey, state.collectAmt,
-		asset.Collectible, &address.TestNet3Taro,
+		&address.TestNet3Taro,
 	)
 	require.NoError(t, err)
 	state.address1CollectFamily = *address1CollectFamily
@@ -166,9 +153,8 @@ func initSpendScenario(t *testing.T) spendData {
 		AssetCommitmentKey()
 
 	address2, err := address.New(
-		state.genesis1.ID(), nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt2,
-		asset.Normal, &address.MainNetTaro,
+		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
+		state.normalAmt2, &address.MainNetTaro,
 	)
 	require.NoError(t, err)
 	state.address2 = *address2
@@ -500,9 +486,14 @@ func checkSpendCommitments(t *testing.T, senderKey, receiverKey [32]byte,
 			true, true, true,
 		)
 		receiverLocator := spend.Locators[receiverKey]
-		receiverAsset, ok := spend.SplitCommitment.
-			SplitAssets[receiverLocator]
+		receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
 		require.True(t, ok)
+
+		// Before we go to compare the commitments, we'll remove the
+		// split commitment witness from the receiver asset, since the
+		// actual tree doesn't explicitly commit to this value.
+		receiverAsset.PrevWitnesses[0].SplitCommitment = nil
+
 		checkTaroCommitment(
 			t, []*asset.Asset{&receiverAsset.Asset}, &receiverTree,
 			true, true, true,
@@ -522,7 +513,7 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 	// Build a TaprootProof for each receiver to prove inclusion
 	// or exclusion for each output.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID, &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.FamilyKey == nil,
 	)
 	senderIndex := locators[senderStateKey].OutputIndex
 	senderTaroTree := commitments[senderStateKey]
@@ -552,7 +543,12 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 		receiverAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// For this assertion, we unset the split commitment, since the leaf in
+	// the receivers tree doesn't have this value.
+	receiverAsset.PrevWitnesses[0].SplitCommitment = nil
 	require.True(t, receiverAsset.DeepEqual(receiverProofAsset))
+
 	receiverProof := &proof.TaprootProof{
 		OutputIndex: receiverIndex,
 		InternalKey: &addr.InternalKey,
@@ -959,7 +955,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			_, err = taroscript.CreateSpendCommitments(
-				senderTaroCommitment,
+				&senderTaroCommitment,
 				state.asset1PrevID, *spendCompleted,
 				state.address1, state.spenderScriptKey,
 			)
@@ -999,7 +995,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			_, err = taroscript.CreateSpendCommitments(
-				senderTaroCommitment,
+				&senderTaroCommitment,
 				state.asset1PrevID, *spendCompleted,
 				state.address1, state.spenderScriptKey,
 			)
@@ -1036,7 +1032,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 				receiverLocator,
 			)
 			_, err = taroscript.CreateSpendCommitments(
-				state.asset2TaroTree,
+				&state.asset2TaroTree,
 				state.asset2PrevID, *spendCompleted,
 				state.address1, state.spenderScriptKey,
 			)
@@ -1064,7 +1060,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset1CollectFamilyTaroTree,
+				&state.asset1CollectFamilyTaroTree,
 				state.asset1CollectFamilyPrevID,
 				*spendCompleted, state.address1CollectFamily,
 				state.spenderScriptKey,
@@ -1072,7 +1068,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1CollectFamily.ID,
+				state.address1CollectFamily.ID(),
 				&state.spenderScriptKey,
 				false,
 			)
@@ -1103,14 +1099,14 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset1TaroTree, state.asset1PrevID,
+				&state.asset1TaroTree, state.asset1PrevID,
 				*spendCompleted, state.address1,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			receiverStateKey := state.address1StateKey
@@ -1143,7 +1139,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset2TaroTree, state.asset2PrevID,
+				&state.asset2TaroTree, state.asset2PrevID,
 				*spendCompleted, state.address1,
 				state.spenderScriptKey,
 			)
@@ -1205,21 +1201,27 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset1TaroTree, state.asset1PrevID,
+				&state.asset1TaroTree, state.asset1PrevID,
 				*spendCompleted, state.address1,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			delete(spendCommitments, senderStateKey)
-			_, err = taroscript.CreateSpendOutputs(
+			receiverStateKey := state.address1CollectFamilyStateKey
+			locators := taroscript.CreateDummyLocators(
+				[][32]byte{senderStateKey, receiverStateKey},
+			)
+			spendPsbt, err := taroscript.CreateTemplatePsbt(locators)
+			require.NoError(t, err)
+			err = taroscript.CreateSpendOutputs(
 				state.address1, spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
-				spendCommitments,
+				spendCommitments, spendPsbt,
 			)
 			return err
 		},
@@ -1242,7 +1244,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset1TaroTree, state.asset1PrevID,
+				&state.asset1TaroTree, state.asset1PrevID,
 				*spendCompleted, state.address1,
 				state.spenderScriptKey,
 			)
@@ -1250,10 +1252,19 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 
 			receiverStateKey := state.address1StateKey
 			delete(spendCommitments, receiverStateKey)
-			_, err = taroscript.CreateSpendOutputs(
+			senderStateKey := asset.AssetCommitmentKey(
+				state.address1.ID(),
+				&state.spenderScriptKey, true,
+			)
+			locators := taroscript.CreateDummyLocators(
+				[][32]byte{senderStateKey, receiverStateKey},
+			)
+			spendPsbt, err := taroscript.CreateTemplatePsbt(locators)
+			require.NoError(t, err)
+			err = taroscript.CreateSpendOutputs(
 				state.address1, spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
-				spendCommitments,
+				spendCommitments, spendPsbt,
 			)
 			return err
 		},
@@ -1279,7 +1290,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset1CollectFamilyTaroTree,
+				&state.asset1CollectFamilyTaroTree,
 				state.asset1CollectFamilyPrevID,
 				*spendCompleted,
 				state.address1CollectFamily,
@@ -1288,24 +1299,22 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, false,
 			)
 			receiverStateKey := state.address1CollectFamilyStateKey
-			spendCompleted.Locators = make(taroscript.SpendLocators)
-			spendCompleted.Locators[senderStateKey] =
-				commitment.SplitLocator{
-					OutputIndex: uint32(0),
-				}
-			spendCompleted.Locators[receiverStateKey] =
-				commitment.SplitLocator{
-					OutputIndex: uint32(1),
-				}
-			spendPsbt, err := taroscript.CreateSpendOutputs(
+			spendCompleted.Locators = taroscript.CreateDummyLocators(
+				[][32]byte{senderStateKey, receiverStateKey},
+			)
+			spendPsbt, err := taroscript.CreateTemplatePsbt(
+				spendCompleted.Locators,
+			)
+			require.NoError(t, err)
+			err = taroscript.CreateSpendOutputs(
 				state.address1CollectFamily,
 				spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
-				spendCommitments,
+				spendCommitments, spendPsbt,
 			)
 			require.NoError(t, err)
 
@@ -1339,30 +1348,28 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset1TaroTree, state.asset1PrevID,
+				&state.asset1TaroTree, state.asset1PrevID,
 				*spendCompleted, state.address1,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID,
+				state.address1.ID(),
 				&state.spenderScriptKey, true,
 			)
 			receiverStateKey := state.address1StateKey
-			spendCompleted.Locators = make(taroscript.SpendLocators)
-			spendCompleted.Locators[senderStateKey] =
-				commitment.SplitLocator{
-					OutputIndex: uint32(0),
-				}
-			spendCompleted.Locators[receiverStateKey] =
-				commitment.SplitLocator{
-					OutputIndex: uint32(1),
-				}
-			spendPsbt, err := taroscript.CreateSpendOutputs(
+			spendCompleted.Locators = taroscript.CreateDummyLocators(
+				[][32]byte{senderStateKey, receiverStateKey},
+			)
+			spendPsbt, err := taroscript.CreateTemplatePsbt(
+				spendCompleted.Locators,
+			)
+			require.NoError(t, err)
+			err = taroscript.CreateSpendOutputs(
 				state.address1, spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
-				spendCommitments,
+				spendCommitments, spendPsbt,
 			)
 			require.NoError(t, err)
 
@@ -1399,7 +1406,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				state.asset2TaroTree, state.asset2PrevID,
+				&state.asset2TaroTree, state.asset2PrevID,
 				*spendCompleted, state.address1,
 				state.spenderScriptKey,
 			)
@@ -1410,10 +1417,14 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 				Locators[receiverStateKey]
 			receiverAsset := spendCompleted.SplitCommitment.
 				SplitAssets[receiverLocator].Asset
-			spendPsbt, err := taroscript.CreateSpendOutputs(
+			spendPsbt, err := taroscript.CreateTemplatePsbt(
+				spendCompleted.Locators,
+			)
+			require.NoError(t, err)
+			err = taroscript.CreateSpendOutputs(
 				state.address1, spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
-				spendCommitments,
+				spendCommitments, spendPsbt,
 			)
 			require.NoError(t, err)
 
@@ -1477,7 +1488,7 @@ func TestProofVerify(t *testing.T) {
 	require.NoError(t, err)
 
 	spendCommitments, err := taroscript.CreateSpendCommitments(
-		state.asset2TaroTree, state.asset2PrevID,
+		&state.asset2TaroTree, state.asset2PrevID,
 		*spendCompleted, state.address1,
 		state.spenderScriptKey,
 	)
@@ -1488,10 +1499,14 @@ func TestProofVerify(t *testing.T) {
 		Locators[receiverStateKey]
 	receiverAsset := spendCompleted.SplitCommitment.
 		SplitAssets[receiverLocator].Asset
-	spendPsbt, err := taroscript.CreateSpendOutputs(
+	spendPsbt, err := taroscript.CreateTemplatePsbt(
+		spendCompleted.Locators,
+	)
+	require.NoError(t, err)
+	err = taroscript.CreateSpendOutputs(
 		state.address1, spendCompleted.Locators,
 		state.spenderPubKey, state.spenderScriptKey,
-		spendCommitments,
+		spendCommitments, spendPsbt,
 	)
 	require.NoError(t, err)
 
@@ -1507,7 +1522,7 @@ func TestProofVerify(t *testing.T) {
 	require.NoError(t, err)
 
 	senderStateKey := asset.AssetCommitmentKey(
-		state.address1.ID,
+		state.address1.ID(),
 		&state.spenderScriptKey, true,
 	)
 	senderTaroTree := spendCommitments[senderStateKey]
@@ -1678,7 +1693,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset1TaroTree, state.address1,
+				&state.asset1TaroTree, state.address1,
 				state.spenderScriptKey, address.MainNetTaro,
 			)
 			require.False(t, needsSplit)
@@ -1691,7 +1706,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset1CollectFamilyTaroTree,
+				&state.asset1CollectFamilyTaroTree,
 				state.address1CollectFamily,
 				state.spenderScriptKey, address.TestNet3Taro,
 			)
@@ -1705,7 +1720,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset2TaroTree, state.address1,
+				&state.asset2TaroTree, state.address1,
 				state.spenderScriptKey, address.MainNetTaro,
 			)
 			require.True(t, needsSplit)
@@ -1718,7 +1733,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset1TaroTree, state.address2,
+				&state.asset1TaroTree, state.address2,
 				state.spenderScriptKey, address.MainNetTaro,
 			)
 			require.False(t, needsSplit)
@@ -1731,7 +1746,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset1TaroTree,
+				&state.asset1TaroTree,
 				state.address1CollectFamily,
 				state.spenderScriptKey, address.TestNet3Taro,
 			)
@@ -1745,13 +1760,13 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			address1testnet, err := address.New(
-				state.genesis1.ID(), nil, state.receiverPubKey,
+				state.genesis1, nil, state.receiverPubKey,
 				state.receiverPubKey, state.normalAmt1,
-				asset.Normal, &address.TestNet3Taro,
+				&address.TestNet3Taro,
 			)
 			require.NoError(t, err)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset1TaroTree, *address1testnet,
+				&state.asset1TaroTree, *address1testnet,
 				state.receiverPubKey, address.TestNet3Taro,
 			)
 			require.False(t, needsSplit)
@@ -1764,13 +1779,13 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			address1testnet, err := address.New(
-				state.genesis1.ID(), nil, state.receiverPubKey,
+				state.genesis1, nil, state.receiverPubKey,
 				state.receiverPubKey, state.normalAmt1,
-				asset.Normal, &address.TestNet3Taro,
+				&address.TestNet3Taro,
 			)
 			require.NoError(t, err)
 			inputAsset, needsSplit, err := taroscript.IsValidInput(
-				state.asset1TaroTree, *address1testnet,
+				&state.asset1TaroTree, *address1testnet,
 				state.receiverPubKey, address.MainNetTaro,
 			)
 			require.False(t, needsSplit)
@@ -1785,37 +1800,100 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 func TestPayToAddrScript(t *testing.T) {
 	t.Parallel()
 
-	normalAmt1 := 5
-	genesis1 := randGenesis(t, asset.Normal)
-	receiverKey1 := randKey(t)
-	receiverPubKey1 := receiverKey1.PubKey()
-	receiver1Descriptor := keychain.KeyDescriptor{PubKey: receiverPubKey1}
+	const (
+		normalAmt1 = 5
+		sendAmt    = 2
+	)
+	gen := asset.RandGenesis(t, asset.Normal)
+	ownerKey := randKey(t)
+	ownerScriptKey := ownerKey.PubKey()
+	ownerDescriptor := keychain.KeyDescriptor{PubKey: ownerScriptKey}
 
+	internalKey := randKey(t).PubKey()
+	recipientScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+		PubKey: randKey(t).PubKey(),
+	})
+
+	// Create an asset and derive a commitment for sending 2 of the 5 asset
+	// units.
 	inputAsset1, err := asset.New(
-		genesis1, uint64(normalAmt1), 1, 1,
-		asset.NewScriptKeyBIP0086(receiver1Descriptor), nil,
+		gen, uint64(normalAmt1), 1, 1,
+		asset.NewScriptKeyBIP0086(ownerDescriptor), nil,
 	)
 	require.NoError(t, err)
-	inputAsset1AssetTree, err := commitment.NewAssetCommitment(inputAsset1)
-	require.NoError(t, err)
+	inputAsset1AssetTree := sendCommitment(
+		t, inputAsset1, sendAmt, recipientScriptKey,
+	)
 	inputAsset1TaroTree, err := commitment.NewTaroCommitment(
 		inputAsset1AssetTree,
 	)
 	require.NoError(t, err)
 
 	scriptNoSibling, err := taroscript.PayToAddrScript(
-		*receiverPubKey1, nil, *inputAsset1TaroTree,
+		*internalKey, nil, *inputAsset1TaroTree,
 	)
 	require.NoError(t, err)
 	require.Equal(t, scriptNoSibling[0], byte(txscript.OP_1))
 	require.Equal(t, scriptNoSibling[1], byte(sha256.Size))
 
+	// Create an address for receiving the 2 units and make sure it matches
+	// the script above.
+	addr1, err := address.New(
+		gen, nil, *recipientScriptKey.PubKey, *internalKey, sendAmt,
+		&address.RegressionNetTaro,
+	)
+	require.NoError(t, err)
+
+	addrOutputKey, err := addr1.TaprootOutputKey(nil)
+	require.NoError(t, err)
+	require.Equal(
+		t, scriptNoSibling[2:], schnorr.SerializePubKey(addrOutputKey),
+	)
+
 	sibling, err := chainhash.NewHash(hashBytes1[:])
 	require.NoError(t, err)
 	scriptWithSibling, err := taroscript.PayToAddrScript(
-		*receiverPubKey1, sibling, *inputAsset1TaroTree,
+		*internalKey, sibling, *inputAsset1TaroTree,
 	)
 	require.NoError(t, err)
 	require.Equal(t, scriptWithSibling[0], byte(txscript.OP_1))
 	require.Equal(t, scriptWithSibling[1], byte(sha256.Size))
+
+	addrOutputKeySibling, err := addr1.TaprootOutputKey(sibling)
+	require.NoError(t, err)
+	require.Equal(
+		t, scriptWithSibling[2:],
+		schnorr.SerializePubKey(addrOutputKeySibling),
+	)
+}
+
+func sendCommitment(t *testing.T, a *asset.Asset, sendAmt btcutil.Amount,
+	recipientScriptKey asset.ScriptKey) *commitment.AssetCommitment {
+
+	key := asset.AssetCommitmentKey(a.ID(), recipientScriptKey.PubKey, true)
+	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	sendAsset := a.Copy()
+	sendAsset.Amount = uint64(sendAmt)
+	sendAsset.ScriptKey = recipientScriptKey
+	sendAsset.LockTime = 0
+	sendAsset.RelativeLockTime = 0
+
+	var buf bytes.Buffer
+	require.NoError(t, sendAsset.Encode(&buf))
+	leaf := mssmt.NewLeafNode(buf.Bytes(), uint64(sendAmt))
+
+	// We use the default, in-memory store that doesn't actually use the
+	// context.
+	updatedTree, err := tree.Insert(context.Background(), key, leaf)
+	require.NoError(t, err)
+
+	root, err := updatedTree.Root(context.Background())
+	require.NoError(t, err)
+
+	return &commitment.AssetCommitment{
+		Version:  a.Version,
+		AssetID:  a.ID(),
+		TreeRoot: root,
+	}
 }

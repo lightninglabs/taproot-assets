@@ -47,6 +47,39 @@ func (g *ContextGuard) WithCtxQuitCustomTimeout(
 	return ctx, cancel
 }
 
+// CtxBlocking is used to create a cancellable context that will NOT be
+// cancelled if the main quit signal is triggered, to block shutdown of
+// important tasks. The context will be cancelled if the timeout is reached.
+func (g *ContextGuard) CtxBlocking() (context.Context, func()) {
+	return g.CtxBlockingCustomTimeout(g.DefaultTimeout)
+}
+
+// CtxBlockingCustomTimeout is used to create a cancellable context with a
+// custom timeout that will NOT be cancelled if the main quit signal is
+// triggered, to block shutdown of important tasks. The context will be
+// cancelled if the timeout is reached.
+func (g *ContextGuard) CtxBlockingCustomTimeout(
+	timeout time.Duration) (context.Context, func()) {
+
+	timeoutTimer := time.NewTimer(timeout)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	g.Wg.Add(1)
+	go func() {
+		defer timeoutTimer.Stop()
+		defer cancel()
+		defer g.Wg.Done()
+
+		select {
+		case <-timeoutTimer.C:
+
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
+}
+
 // WithCtxQuitNoTimeout is used to create a cancellable context that will be
 // cancelled if the main quit signal is triggered.
 func (g *ContextGuard) WithCtxQuitNoTimeout() (context.Context, func()) {

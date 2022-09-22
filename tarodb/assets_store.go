@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlite"
 	"github.com/lightninglabs/taro/tarofreighter"
@@ -91,11 +92,19 @@ type (
 	// TransferQuery allows callers to filter out the set of transfers
 	// based on set information.
 	TransferQuery = sqlite.QueryAssetTransfersParams
+
+	// NewSpendProof is used to insert new spend proofs for the
+	// sender+receiver.
+	NewSpendProof = sqlite.InsertSpendProofsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
+	// UpsertAssetStore houses the methods related to inserting/updating
+	// assets.
+	UpsertAssetStore
+
 	// QueryAssets fetches the set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset, error)
 
@@ -119,34 +128,6 @@ type ActiveAssetsStore interface {
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
 		scriptKey []byte) (AssetProofI, error)
-
-	// UpsertGenesisPoint inserts a new or updates an existing genesis point
-	// on disk, and returns the primary key.
-	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
-
-	// InsertGenesisAsset inserts a new genesis asset (the base asset info)
-	// into the DB.
-	//
-	// TODO(roasbeef): hybrid version of the main tx interface that an
-	// accept two diff storage interfaces?
-	//
-	//  * or use a sort of mix-in type?
-	InsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
-
-	// UpsertInternalKey inserts a new or updates an existing internal key
-	// into the database.
-	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
-
-	// InsertAssetFamilySig inserts a new asset family sig into the DB.
-	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
-
-	// UpsertAssetFamilyKey inserts a new or updates an existing family key
-	// on disk, and returns the primary key.
-	UpsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32,
-		error)
-
-	// InsertNewAsset inserts a new asset on disk.
-	InsertNewAsset(ctx context.Context, arg sqlite.InsertNewAssetParams) (int32, error)
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
@@ -209,8 +190,18 @@ type ActiveAssetsStore interface {
 	// given asset ID.
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 
-	// UpsertScriptKey inserts a new script key on disk into the DB.
-	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
+	// InsertSpendProofs is used to insert the new spend proofs after a
+	// transfer into DB.
+	InsertSpendProofs(ctx context.Context, arg NewSpendProof) error
+
+	// DeleteSpendProofs is used to delete the set of proofs on disk after
+	// we apply a transfer.
+	DeleteSpendProofs(ctx context.Context, transferID int32) error
+
+	// FetchSpendProofs looks up the spend proofs for the given transfer
+	// ID.
+	FetchSpendProofs(ctx context.Context,
+		transferID int32) (sqlite.FetchSpendProofsRow, error)
 }
 
 // AssetBalance holds a balance query result for a particular asset or all
@@ -268,6 +259,10 @@ type ChainAsset struct {
 
 	// AnchorOutpoint is the outpoint that commits to the asset.
 	AnchorOutpoint wire.OutPoint
+
+	// AnchorInternalKey is the raw internal key that was used to create the
+	// anchor Taproot output key.
+	AnchorInternalKey *btcec.PublicKey
 }
 
 // assetWitnesses maps the primary key of an asset to a slice of its previous
@@ -286,6 +281,12 @@ func fetchAssetWitnesses(ctx context.Context,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		// We'll insert a nil witness for genesis asset, so we don't
+		// add it to the map, which'll give it the genesis witness.
+		if len(witnesses) == 0 {
+			continue
 		}
 
 		assetWitnesses[assetID] = witnesses
@@ -475,7 +476,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		// With the asset created, we'll now emplace the set of
 		// witnesses for the asset itself. If this is a genesis asset,
 		// then it won't have a set of witnesses.
-		assetInputs, ok := witnesses[sprout.AssetID]
+		assetInputs, ok := witnesses[sprout.AssetPrimaryKey]
 		if ok {
 			assetSprout.PrevWitnesses = make(
 				[]asset.Witness, 0, len(assetInputs),
@@ -523,12 +524,21 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 				"outpoint: %w", err)
 		}
 
+		anchorInternalKey, err := btcec.ParsePubKey(
+			sprout.AnchorInternalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse anchor "+
+				"internal key: %w", err)
+		}
+
 		chainAssets[i] = &ChainAsset{
-			Asset:           assetSprout,
-			AnchorTx:        anchorTx,
-			AnchorTxid:      anchorTx.TxHash(),
-			AnchorBlockHash: anchorBlockHash,
-			AnchorOutpoint:  anchorOutpoint,
+			Asset:             assetSprout,
+			AnchorTx:          anchorTx,
+			AnchorTxid:        anchorTx.TxHash(),
+			AnchorBlockHash:   anchorBlockHash,
+			AnchorOutpoint:    anchorOutpoint,
+			AnchorInternalKey: anchorInternalKey,
 		}
 	}
 
@@ -573,7 +583,7 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 	}
 
 	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
-		return a.AssetID
+		return a.AssetPrimaryKey
 	})
 
 	// With all the assets obtained, we'll now do a second query to
@@ -883,8 +893,6 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 // information associated with the annotated proofs. This will result in a new
 // asset inserted on disk, with all dependencies such as the asset witnesses
 // inserted along the way.
-//
-// TODO(roasbeef): reduce duplication w/ pending asset store
 func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	db ActiveAssetsStore, proof *proof.AnnotatedProof) error {
 
@@ -947,150 +955,19 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 
 	newAsset := proof.Asset
 
-	genesisPoint, err := encodeOutpoint(
-		newAsset.Genesis.FirstPrevOut,
+	// Insert/update the asset information in the database now.
+	_, assetIDs, err := upsertAssetsWithGenesis(
+		ctx, db, newAsset.Genesis.FirstPrevOut,
+		[]*asset.Asset{newAsset}, []sql.NullInt32{sqlInt32(utxoID)},
 	)
 	if err != nil {
-		return fmt.Errorf("unable to encode genesis point: %w", err)
-	}
-
-	// Next, we'll attempt to import the genesis point for this asset.
-	// This might already exist if we have the same assetID/keyFamily.
-	genesisPointID, err := db.UpsertGenesisPoint(ctx, genesisPoint)
-	if err != nil {
-		return fmt.Errorf("unable to insert genesis "+
-			"point: %w", err)
-	}
-
-	// Next, we'll insert the genesis_asset row which holds the base
-	// information for this asset.
-	//
-	// TODO(roasbeef): should be an upsert
-	assetID := newAsset.ID()
-	genAssetID, err := db.InsertGenesisAsset(ctx, GenesisAsset{
-		AssetID:        assetID[:],
-		AssetTag:       newAsset.Genesis.Tag,
-		MetaData:       newAsset.Genesis.Metadata,
-		OutputIndex:    int32(newAsset.Genesis.OutputIndex),
-		AssetType:      int16(newAsset.Type),
-		GenesisPointID: genesisPointID,
-	})
-	if err != nil {
-		return fmt.Errorf("unable to insert genesis asset: %w", err)
-	}
-
-	// With the base asset information inserted, we we'll now add the
-	// information for the asset family
-	//
-	// TODO(roasbeef): sig here doesn't actually matter?
-	//   * don't have the key desc information here neccesrily
-	//   * inserting the fam key rn, which is ok as its external w/ no key
-	//     desc info
-	var sqlFamilySigID sql.NullInt32
-	familyKey := newAsset.FamilyKey
-	if familyKey != nil {
-		keyID, err := db.UpsertInternalKey(ctx, InternalKey{
-			RawKey: familyKey.FamKey.SerializeCompressed(),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert internal key: %w", err)
-		}
-		assetKey := AssetFamilyKey{
-			TweakedFamKey:  familyKey.FamKey.SerializeCompressed(),
-			InternalKeyID:  keyID,
-			GenesisPointID: genesisPointID,
-		}
-		famID, err := db.UpsertAssetFamilyKey(ctx, assetKey)
-		if err != nil {
-			return fmt.Errorf("unable to insert family key: %w", err)
-		}
-		famSigID, err := db.InsertAssetFamilySig(ctx, AssetFamSig{
-			GenesisSig: familyKey.Sig.Serialize(),
-			GenAssetID: genAssetID,
-			KeyFamID:   famID,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert fam sig: %w", err)
-		}
-
-		sqlFamilySigID = sqlInt32(famSigID)
-	}
-
-	var scriptKeyID int32
-	if newAsset.ScriptKey.TweakedScriptKey == nil {
-		// At this point, we only have the actual asset as read from a TLV, so
-		// we don't actually have the raw script key here. Instead, we'll use
-		// an UPSERT to trigger a conflict on the tweaked script key so we can
-		// obtain the script key ID we need here. This is for the proof
-		// import based on an addr send.
-		//
-		// TODO(roasbeef): or just fetch the one we need?
-		scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
-			TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-		})
-		if err != nil {
-			// If this fails, then we're just importing the proof
-			// to mirror the state of another node. In this case,
-			// we'll just import the key in the asset (a tweaked
-			// key) as an internal key. We can't actually use this
-			// asset, but the import will complete.
-			//
-			// TODO(roasbeef): remove after itest work
-			rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-				RawKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert internal key: %w", err)
-			}
-			scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
-				InternalKeyID:    rawScriptKeyID,
-				TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert script key: %w", err)
-			}
-		}
-	} else {
-		rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
-			RawKey:    newAsset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
-			KeyFamily: int32(newAsset.ScriptKey.RawKey.Family),
-			KeyIndex:  int32(newAsset.ScriptKey.RawKey.Index),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert internal key: %w", err)
-		}
-		scriptKeyID, err = db.UpsertScriptKey(ctx, NewScriptKey{
-			InternalKeyID:    rawScriptKeyID,
-			TweakedScriptKey: newAsset.ScriptKey.PubKey.SerializeCompressed(),
-			Tweak:            newAsset.ScriptKey.Tweak,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert script key: %w", err)
-		}
-	}
-
-	// With all the dependent data inserted, we can now insert the base
-	// asset information itself.
-	assetPrimary, err := db.InsertNewAsset(ctx, sqlite.InsertNewAssetParams{
-		AssetID:          genAssetID,
-		Version:          int32(newAsset.Version),
-		ScriptKeyID:      scriptKeyID,
-		AssetFamilySigID: sqlFamilySigID,
-		ScriptVersion:    int32(newAsset.ScriptVersion),
-		Amount:           int64(newAsset.Amount),
-		LockTime:         sqlInt32(newAsset.LockTime),
-		RelativeLockTime: sqlInt32(newAsset.RelativeLockTime),
-		AnchorUtxoID:     sqlInt32(utxoID),
-	})
-	if err != nil {
-		return fmt.Errorf("unable to insert "+
-			"asset: %w", err)
+		return fmt.Errorf("error inserting asset with genesis: %w", err)
 	}
 
 	// Now that we have the asset inserted, we'll also insert all the
 	// witness data associated with the asset in a new row.
 	err = a.insertAssetWitnesses(
-		ctx, db, assetPrimary, newAsset.PrevWitnesses,
+		ctx, db, assetIDs[0], newAsset.PrevWitnesses,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to insert asset witness: %w", err)
@@ -1285,16 +1162,25 @@ func (a *AssetStore) SelectCommitment(
 		selectedAssets[i] = &tarofreighter.AnchoredCommitment{
 			AnchorPoint:       anchorPoint,
 			AnchorOutputValue: btcutil.Amount(anchorUTXO.AmtSats),
-			InternalKey:       *internalKey,
-			TapscriptSibling:  anchorUTXO.TapscriptSibling,
-			Asset:             matchingAsset.Asset,
-			Commitment:        anchorPointToCommitment[anchorPoint],
+			InternalKey: keychain.KeyDescriptor{
+				PubKey: internalKey,
+				KeyLocator: keychain.KeyLocator{
+					Index: uint32(anchorUTXO.KeyIndex),
+					Family: keychain.KeyFamily(
+						anchorUTXO.KeyFamily,
+					),
+				},
+			},
+			TapscriptSibling: anchorUTXO.TapscriptSibling,
+			Asset:            matchingAsset.Asset,
+			Commitment:       anchorPointToCommitment[anchorPoint],
 		}
 	}
 
 	return selectedAssets, nil
 }
 
+// TODO(jhb): Update for new table
 // LogPendingParcel marks an outbound parcel as pending on disk. This commits
 // the set of changes to disk (the asset deltas) but doesn't mark the batched
 // spend as being finalized.
@@ -1382,6 +1268,18 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				"transfer: %w", err)
 		}
 
+		// With the main transfer inserted, we'll also insert the proof
+		// for the sender and receiver.
+		err = q.InsertSpendProofs(ctx, NewSpendProof{
+			TransferID:    transferID,
+			SenderProof:   spend.SenderAssetProof,
+			ReceiverProof: spend.ReceiverAssetProof,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to insert spend "+
+				"proof: %w", err)
+		}
+
 		// Now that the transfer itself has been inserted, we can
 		// insert the deltas associated w/ each transfer.
 		for _, assetDelta := range spend.AssetSpendDeltas {
@@ -1395,6 +1293,10 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("unable to encode witness: %w", err)
 			}
+
+			newCommitRoot := assetDelta.SplitCommitmentRoot
+			splitRootHash := newCommitRoot.NodeHash()
+			splitRootSum := newCommitRoot.NodeSum()
 
 			// Before we can insert the asset delta, we need to
 			// insert the new script key on disk.
@@ -1418,11 +1320,16 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 					"key: %w", err)
 			}
 			err = q.InsertAssetDelta(ctx, NewAssetDelta{
-				OldScriptKey:        assetDelta.OldScriptKey.SerializeCompressed(),
-				NewAmt:              int64(assetDelta.NewAmt),
-				NewScriptKey:        scriptKeyID,
-				SerializedWitnesses: witnessBuf.Bytes(),
-				TransferID:          transferID,
+				OldScriptKey:            assetDelta.OldScriptKey.SerializeCompressed(),
+				NewAmt:                  int64(assetDelta.NewAmt),
+				NewScriptKey:            scriptKeyID,
+				SerializedWitnesses:     witnessBuf.Bytes(),
+				TransferID:              transferID,
+				SplitCommitmentRootHash: splitRootHash[:],
+				SplitCommitmentRootValue: sql.NullInt64{
+					Int64: int64(splitRootSum),
+					Valid: true,
+				},
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
@@ -1483,9 +1390,11 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// First, we'll apply the spend delta to update the
 			// amount and script key of all assets.
 			assetIDKey, err := q.ApplySpendDelta(ctx, AssetSpendDelta{
-				NewAmount:      int64(assetDelta.NewAmt),
-				OldScriptKey:   assetDelta.OldScriptKey,
-				NewScriptKeyID: assetDelta.NewScriptKeyID,
+				NewAmount:                int64(assetDelta.NewAmt),
+				OldScriptKey:             assetDelta.OldScriptKey,
+				NewScriptKeyID:           assetDelta.NewScriptKeyID,
+				SplitCommitmentRootHash:  assetDelta.SplitCommitmentRootHash,
+				SplitCommitmentRootValue: assetDelta.SplitCommitmentRootValue,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to update "+
@@ -1519,6 +1428,16 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				return fmt.Errorf("unable to insert asset "+
 					"witnesses: %v", err)
 			}
+
+			// Now we can update the asset proof for the sender for
+			// this given delta.
+			err = q.UpsertAssetProof(ctx, ProofUpdate{
+				TweakedScriptKey: assetDelta.NewScriptKeyBytes,
+				ProofFile:        conf.FinalSenderProof,
+			})
+			if err != nil {
+				return err
+			}
 		}
 
 		// To confirm a delivery (successful send) all we need to do is
@@ -1530,6 +1449,13 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			BlockHeight: sqlInt32(conf.BlockHeight),
 			TxIndex:     sqlInt32(conf.TxIndex),
 		})
+		if err != nil {
+			return err
+		}
+
+		// Before we conclude we'll remove the old proofs we were
+		// staging on disk.
+		err = q.DeleteSpendProofs(ctx, assetTransfer.TransferID)
 		if err != nil {
 			return err
 		}
@@ -1616,6 +1542,9 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 					return err
 				}
 
+				var splitRootHash mssmt.NodeHash
+				copy(splitRootHash[:], delta.SplitCommitmentRootHash)
+
 				spendDeltas[i] = tarofreighter.AssetSpendDelta{
 					OldScriptKey: *oldScriptKey,
 					NewAmt:       uint64(delta.NewAmt),
@@ -1634,8 +1563,19 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 							Tweak: delta.ScriptKeyTweak,
 						},
 					},
+					SplitCommitmentRoot: mssmt.NewComputedNode(
+						splitRootHash,
+						uint64(delta.SplitCommitmentRootValue.Int64),
+					),
 					WitnessData: nil,
 				}
+			}
+
+			// Finally, we'll also fetch the set of proofs for the
+			// sender+receiver.
+			proofs, err := q.FetchSpendProofs(ctx, xfer.TransferID)
+			if err != nil {
+				return err
 			}
 
 			deltas = append(deltas, &tarofreighter.OutboundParcelDelta{
@@ -1648,10 +1588,12 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 						Index:  uint32(xfer.InternalKeyIndex),
 					},
 				},
-				TaroRoot:         xfer.TaroRoot,
-				TapscriptSibling: xfer.TapscriptSibling,
-				AnchorTx:         anchorTx,
-				AssetSpendDeltas: spendDeltas,
+				TaroRoot:           xfer.TaroRoot,
+				TapscriptSibling:   xfer.TapscriptSibling,
+				AnchorTx:           anchorTx,
+				AssetSpendDeltas:   spendDeltas,
+				SenderAssetProof:   proofs.SenderProof,
+				ReceiverAssetProof: proofs.ReceiverProof,
 			})
 		}
 

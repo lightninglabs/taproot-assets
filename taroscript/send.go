@@ -64,6 +64,10 @@ const (
 	// greater than dust, and we assume that this value is updated to match
 	// the input asset bearing UTXOs before finalizing the transfer TX.
 	DummyAmtSats = btcutil.Amount(1_000)
+
+	// SendConfTarget is the confirmation target we'll use to query for
+	// a fee estimate.
+	SendConfTarget = 6
 )
 
 // SpendDelta stores the information needed to prepare new asset leaves or a
@@ -137,10 +141,10 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// createDummyLocators creates a set of split locators with continuous output
+// CreateDummyLocators creates a set of split locators with continuous output
 // indexes, starting for 0. These mock locators are used for initial split
 // commitment validation, and are the default for the final PSBT.
-func createDummyLocators(stateKeys [][32]byte) SpendLocators {
+func CreateDummyLocators(stateKeys [][32]byte) SpendLocators {
 	locators := make(SpendLocators)
 	for i := uint32(0); i < uint32(len(stateKeys)); i++ {
 		index := i
@@ -151,6 +155,46 @@ func createDummyLocators(stateKeys [][32]byte) SpendLocators {
 	return locators
 }
 
+// Build a template TX with dummy outputs
+// TODO(jhb): godoc
+func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
+	// Check if our locators are valid, and if we will need to add extra
+	// outputs to fill in the gaps between locators.
+	taroOnlySpend, err := AreValidIndexes(locators)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the number of outputs we need for our template TX.
+	maxOutputIndex := uint32(len(locators))
+
+	// If there is a gap in our locators, we need to find the
+	// largest output index to properly size our template TX.
+	if !taroOnlySpend {
+		maxOutputIndex = 0
+		for _, locator := range locators {
+			if locator.OutputIndex > maxOutputIndex {
+				maxOutputIndex = locator.OutputIndex
+			}
+		}
+		// Output indexes are 0-indexed, so we need to increment this
+		// to account for the 0th output.
+		maxOutputIndex++
+	}
+
+	txTemplate := wire.NewMsgTx(int32(maxOutputIndex))
+	for i := uint32(0); i < maxOutputIndex; i++ {
+		txTemplate.AddTxOut(createDummyOutput())
+	}
+
+	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	return spendPkt, nil
+}
+
 // AreValidIndexes checks a set of split locators to check for the minimum
 // number of locators, and tests if the locators could be used for a Taro-only
 // spend, i.e. a TX that does not need other outputs added to be valid.
@@ -158,6 +202,10 @@ func AreValidIndexes(locators SpendLocators) (bool, error) {
 	// Sanity check the output indexes provided by the sender. There must be
 	// at least two indexes; one for the receiver, and one for the change
 	// commitment for the sender.
+	if locators == nil {
+		return false, ErrInvalidOutputIndexes
+	}
+
 	idxCount := len(locators)
 	if idxCount < 2 {
 		return false, ErrInvalidOutputIndexes
@@ -182,7 +230,7 @@ func AreValidIndexes(locators SpendLocators) (bool, error) {
 
 // IsValidInput verifies that the Taro commitment of the input contains an
 // asset that could be spent to the given Taro address.
-func IsValidInput(input commitment.TaroCommitment,
+func IsValidInput(input *commitment.TaroCommitment,
 	addr address.Taro, inputScriptKey btcec.PublicKey,
 	net address.ChainParams) (*asset.Asset, bool, error) {
 
@@ -204,7 +252,7 @@ func IsValidInput(input commitment.TaroCommitment,
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		addr.ID, &inputScriptKey, addr.FamilyKey == nil,
+		addr.ID(), &inputScriptKey, addr.FamilyKey == nil,
 	)
 	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
 	if err != nil {
@@ -244,16 +292,17 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 
 	// Generate the keys used to look up split locators for each receiver.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID, &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.FamilyKey == nil,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 
+	// If no locators are provided, we create a split with mock locators to
+	// verify that the desired split is possible. We can later regenerate a
+	// split with the final output indexes.
+	//
 	// TODO(jhb): Handle change of 0 amount / splits with no change.
-	// If no locators are provided, we create a split with mock locators
-	// to verify that the desired split is possible. We can later regenerate
-	// a split with the final output indexes.
 	if updatedDelta.Locators == nil {
-		updatedDelta.Locators = createDummyLocators(
+		updatedDelta.Locators = CreateDummyLocators(
 			[][32]byte{senderStateKey, receiverStateKey},
 		)
 	}
@@ -265,12 +314,12 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 
 	// Populate the remaining fields in the splitLocators before generating
 	// the splitCommitment.
-	senderLocator.AssetID = addr.ID
+	senderLocator.AssetID = addr.ID()
 	senderLocator.ScriptKey = asset.ToSerialized(&scriptKey)
 	senderLocator.Amount = inputAsset.Amount - addr.Amount
 	updatedDelta.Locators[senderStateKey] = senderLocator
 
-	receiverLocator.AssetID = addr.ID
+	receiverLocator.AssetID = addr.ID()
 	receiverLocator.ScriptKey = asset.ToSerialized(&addr.ScriptKey)
 	receiverLocator.Amount = addr.Amount
 	updatedDelta.Locators[receiverStateKey] = receiverLocator
@@ -301,6 +350,9 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	// We'll now create a new copy of the old asset, swapping out the
 	// script key. We blank out the tweaked key information as this is now
 	// an external asset.
+	//
+	// TODO(roasbeef): make locators here, and make sure they exist like
+	// above
 	newAsset := updatedDelta.InputAssets[prevInput].Copy()
 	newAsset.ScriptKey.PubKey = &addr.ScriptKey
 	newAsset.ScriptKey.TweakedScriptKey = nil
@@ -308,6 +360,9 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 	// Record the PrevID of the input asset in a Witness for the new asset.
 	// This Witness still needs a valid signature for the new asset
 	// to be valid.
+	//
+	// TODO(roasbeef): when we fix #121, then this should also be a
+	// ZeroPrevID
 	newAsset.PrevWitnesses = []asset.Witness{
 		{
 			PrevID:          &prevInput,
@@ -381,7 +436,7 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
 
 		updatedDelta.NewAsset = *validatedAsset
 
-		return &updatedDelta, err
+		return &updatedDelta, nil
 	}
 
 	// If the transfer includes an asset split, we have to validate each
@@ -410,7 +465,7 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
 // the asset send. The input TaroCommitment must become a valid change
 // commitment by removing the input asset and adding the root split asset
 // if present. The receiver TaroCommitment must include the output asset.
-func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
+func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	prevInput asset.PrevID, spend SpendDelta, addr address.Taro,
 	senderScriptKey btcec.PublicKey) (SpendCommitments, error) {
 
@@ -419,12 +474,11 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 
 	inputAsset := spend.InputAssets[prevInput]
 
-	// Remove the spent Asset from the AssetCommitment of the sender.
-	// Fail if the input AssetCommitment or Asset were not in the
-	// input TaroCommitment.
+	// Remove the spent Asset from the AssetCommitment of the sender.  Fail
+	// if the input AssetCommitment or Asset were not in the input
+	// TaroCommitment.
 	inputCommitments := inputCommitment.Commitments()
-	senderCommitment, ok :=
-		inputCommitments[inputAsset.TaroCommitmentKey()]
+	senderCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
@@ -450,7 +504,7 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 	// build an AssetCommitment for the receiver.
 	if spend.SplitCommitment == nil {
 		senderStateKey = asset.AssetCommitmentKey(
-			addr.ID, &senderScriptKey, addr.FamilyKey == nil,
+			addr.ID(), &senderScriptKey, addr.FamilyKey == nil,
 		)
 		var err error
 		receiverCommitment, err = commitment.NewAssetCommitment(
@@ -470,27 +524,36 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 			return nil, err
 		}
 
-		// Fetch the receiver asset from the split commitment and
-		// build an AssetCommitment for the receiver.
+		// Fetch the receiver asset from the split commitment and build
+		// an AssetCommitment for the receiver.
 		receiverLocator := spend.Locators[receiverStateKey]
-		receiverAsset, ok := spend.SplitCommitment.
-			SplitAssets[receiverLocator]
+		receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
 		if !ok {
 			return nil, ErrMissingSplitAsset
 		}
 
+		// At this point, we have the receiver's taro commitment.
+		// However we need to blank out the split commitment proof, as
+		// the receiver doesn't know of this information yet. The final
+		// commitment will be to a leaf without the split commitment
+		// proof.
+		receiverAssetCopy := receiverAsset.Copy()
+		receiverAssetCopy.PrevWitnesses[0].SplitCommitment = nil
+
 		receiverCommitment, err = commitment.NewAssetCommitment(
-			&receiverAsset.Asset,
+			receiverAssetCopy,
 		)
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	// Update the top-level TaroCommitment of the sender. This'll
+	// effectively commit to all the new spend details.
+	//
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
-	// Update the TaroCommitment of the sender.
-	senderTaroCommitment := inputCommitment
+	senderTaroCommitment := *inputCommitment
 	err := senderTaroCommitment.Update(senderCommitment, false)
 	if err != nil {
 		return nil, err
@@ -499,8 +562,9 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 	commitments[senderStateKey] = senderTaroCommitment
 
 	// Create a Taro tree for the receiver.
-	receiverTaroCommitment, err := commitment.
-		NewTaroCommitment(receiverCommitment)
+	receiverTaroCommitment, err := commitment.NewTaroCommitment(
+		receiverCommitment,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -510,63 +574,53 @@ func CreateSpendCommitments(inputCommitment commitment.TaroCommitment,
 	return commitments, nil
 }
 
-// CreateSpendOutputs creates a PSBT with outputs embedding TaroCommitments
+// CreateSpendOutputs updates a PSBT with outputs embedding TaroCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
 func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 	internalKey, scriptKey btcec.PublicKey,
-	commitments SpendCommitments) (*psbt.Packet, error) {
+	commitments SpendCommitments, pkt *psbt.Packet) error {
 
 	// Fetch the TaroCommitment for both sender and receiver.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID, &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.FamilyKey == nil,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 
 	senderCommitment, ok := commitments[senderStateKey]
 	if !ok {
-		return nil, ErrMissingTaroCommitment
+		return ErrMissingTaroCommitment
 	}
 	receiverCommitment, ok := commitments[receiverStateKey]
 	if !ok {
-		return nil, ErrMissingTaroCommitment
+		return ErrMissingTaroCommitment
 	}
 
 	// Create the scripts corresponding to each receiver's TaroCommitment.
-
+	//
 	// NOTE: We currently default to the Taro commitment having no sibling
-	// in the Tapscript tree. Any sibling would need to be checked to verify
-	// that it is not also a Taro commitment.
+	// in the Tapscript tree. Any sibling would need to be checked to
+	// verify that it is not also a Taro commitment.
 	receiverScript, err := PayToAddrScript(
 		addr.InternalKey, nil, receiverCommitment,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	senderScript, err := PayToAddrScript(
 		internalKey, nil, senderCommitment,
 	)
 	if err != nil {
-		return nil, err
-	}
-
-	// TODO(jhb): Update to create enough outputs to fit the
-	// locator with the largest output index.
-	// Create a template PSBT with two outputs, both above the dust limit.
-	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(createDummyOutput())
-	txTemplate.AddTxOut(createDummyOutput())
-	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+		return err
 	}
 
 	// Embed the TaroCommitments in their respective transaction outputs.
 	senderIndex := locators[senderStateKey].OutputIndex
-	spendPkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
-	receiverIndex := locators[receiverStateKey].OutputIndex
-	spendPkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
+	pkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
 
-	return spendPkt, nil
+	receiverIndex := locators[receiverStateKey].OutputIndex
+	pkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
+
+	return nil
 }

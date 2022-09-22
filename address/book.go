@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -25,8 +28,16 @@ type AddrWithKeyInfo struct {
 	// InternalKeyDesc is the key desc for the internal key.
 	InternalKeyDesc keychain.KeyDescriptor
 
+	// TaprootOutputKey is the tweaked taproot output key that assets must
+	// be sent to on chain to be received.
+	TaprootOutputKey btcec.PublicKey
+
 	// CreationTime is the time the address was created in the database.
 	CreationTime time.Time
+
+	// ManagedAfter is the time at which the address was imported into the
+	// wallet.
+	ManagedAfter time.Time
 }
 
 // QueryParams holds the set of query params for the address book.
@@ -45,16 +56,32 @@ type QueryParams struct {
 	// Offset if set, then the final result will be offset by this many
 	// addresses.
 	Offset int32
+
+	// UnmanagedOnly is a boolean pointer indicating whether only addresses
+	// should be returned that are not yet managed by the wallet.
+	UnmanagedOnly bool
 }
 
 // Storage is the main storage interface for the address book.
 type Storage interface {
+	EventStorage
+
 	// InsertAddrs inserts a series of addresses into the database.
 	InsertAddrs(ctx context.Context, addrs ...AddrWithKeyInfo) error
 
 	// QueryAddrs attemps to query for a set of addresses.
 	QueryAddrs(ctx context.Context,
 		params QueryParams) ([]AddrWithKeyInfo, error)
+
+	// AddrByTaprootOutput returns a single address based on its Taproot
+	// output key or a sql.ErrNoRows error if no such address exists.
+	AddrByTaprootOutput(ctx context.Context,
+		key *btcec.PublicKey) (*AddrWithKeyInfo, error)
+
+	// SetAddrManaged sets an address as being managed by the internal
+	// wallet.
+	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
+		managedFrom time.Time) error
 }
 
 // KeyRing is used to create script and internal keys for Taro addresses.
@@ -95,7 +122,7 @@ type Book struct {
 
 // A compile-time assertion to make sure Book satisfies the
 // chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[*AddrWithKeyInfo, *time.Time] = (*Book)(nil)
+var _ chanutils.EventPublisher[*AddrWithKeyInfo, QueryParams] = (*Book)(nil)
 
 // NewBook creates a new Book instance from the config.
 func NewBook(cfg BookConfig) *Book {
@@ -108,9 +135,8 @@ func NewBook(cfg BookConfig) *Book {
 }
 
 // NewAddress creates a new Taro address based on the input parameters.
-func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
-	famKey *btcec.PublicKey, amount uint64,
-	assetType asset.Type) (*AddrWithKeyInfo, error) {
+func (b *Book) NewAddress(ctx context.Context, genesis asset.Genesis,
+	famKey *btcec.PublicKey, amount uint64) (*AddrWithKeyInfo, error) {
 
 	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
@@ -128,17 +154,25 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 	}
 
 	baseAddr, err := New(
-		assetID, famKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
-		amount, assetType, &b.cfg.Chain,
+		genesis, famKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
+		amount, &b.cfg.Chain,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}
+
+	taprootOutputKey, err := baseAddr.TaprootOutputKey(nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive Taproot output key:"+
+			" %w", err)
+	}
+
 	addr := AddrWithKeyInfo{
-		Taro:            baseAddr,
-		ScriptKeyTweak:  *scriptKey.TweakedScriptKey,
-		InternalKeyDesc: internalKeyDesc,
-		CreationTime:    time.Now(),
+		Taro:             baseAddr,
+		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
+		InternalKeyDesc:  internalKeyDesc,
+		TaprootOutputKey: *taprootOutputKey,
+		CreationTime:     time.Now(),
 	}
 
 	if err := b.cfg.Store.InsertAddrs(ctx, addr); err != nil {
@@ -162,6 +196,61 @@ func (b *Book) ListAddrs(ctx context.Context,
 	return b.cfg.Store.QueryAddrs(ctx, params)
 }
 
+// AddrByTaprootOutput returns a single address based on its Taproot output key
+// or a sql.ErrNoRows error if no such address exists.
+func (b *Book) AddrByTaprootOutput(ctx context.Context,
+	key *btcec.PublicKey) (*AddrWithKeyInfo, error) {
+
+	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
+}
+
+// SetAddrManaged sets an address as being managed by the internal
+// wallet.
+func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
+	managedFrom time.Time) error {
+
+	return b.cfg.Store.SetAddrManaged(ctx, addr, managedFrom)
+}
+
+// GetOrCreateEvent creates a new address event for the given status, address
+// and transaction. If an event for that address and transaction already exists,
+// then the status and transaction information is updated instead.
+func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
+	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
+	outputIdx uint32, tapscriptSibling *chainhash.Hash) (*Event, error) {
+
+	return b.cfg.Store.GetOrCreateEvent(
+		ctx, status, addr, walletTx, outputIdx, tapscriptSibling,
+	)
+}
+
+// GetPendingEvents returns all events that are not yet in status complete from
+// the database.
+func (b *Book) GetPendingEvents(ctx context.Context) ([]*Event, error) {
+	from := StatusTransactionDetected
+	to := StatusProofReceived
+	query := EventQueryParams{
+		StatusFrom: &from,
+		StatusTo:   &to,
+	}
+	return b.cfg.Store.QueryAddrEvents(ctx, query)
+}
+
+// QueryEvents returns all events that match the given query.
+func (b *Book) QueryEvents(ctx context.Context,
+	query EventQueryParams) ([]*Event, error) {
+
+	return b.cfg.Store.QueryAddrEvents(ctx, query)
+}
+
+// CompleteEvent updates an address event as being complete and links it with
+// the proof and asset that was imported/created for it.
+func (b *Book) CompleteEvent(ctx context.Context, event *Event,
+	status Status, anchorPoint wire.OutPoint) error {
+
+	return b.cfg.Store.CompleteEvent(ctx, event, status, anchorPoint)
+}
+
 // RegisterSubscriber adds a new subscriber for receiving events. The
 // deliverExisting boolean indicates whether already existing items should be
 // sent to the NewItemCreated channel when the subscription is started. An
@@ -170,7 +259,7 @@ func (b *Book) ListAddrs(ctx context.Context,
 // is nil/zero/empty then all existing items will be delivered.
 func (b *Book) RegisterSubscriber(
 	receiver *chanutils.EventReceiver[*AddrWithKeyInfo],
-	deliverExisting bool, deliverFrom *time.Time) error {
+	deliverExisting bool, deliverFrom QueryParams) error {
 
 	b.subscriberMtx.Lock()
 	defer b.subscriberMtx.Unlock()
@@ -187,14 +276,7 @@ func (b *Book) RegisterSubscriber(
 	)
 	defer cancel()
 
-	// Only give us addresses created after the last one we know we already
-	// processed.
-	var queryParams QueryParams
-	if deliverFrom != nil {
-		queryParams.CreatedAfter = *deliverFrom
-	}
-
-	existingAddrs, err := b.ListAddrs(ctxt, queryParams)
+	existingAddrs, err := b.ListAddrs(ctxt, deliverFrom)
 	if err != nil {
 		return fmt.Errorf("error listing existing addresses: %w", err)
 	}

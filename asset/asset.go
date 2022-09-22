@@ -47,7 +47,9 @@ func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
 type Version uint8
 
 var (
-	zeroPrevID PrevID
+	// ZeroPrevID is the blank prev ID used for genesis assets and also
+	// asset split leaves.
+	ZeroPrevID PrevID
 )
 
 const (
@@ -100,8 +102,8 @@ func (g Genesis) MetadataHash() [sha256.Size]byte {
 
 // ID serves as a unique identifier of an asset, resulting from:
 //
-//	sha256(genesisOutPoint || sha256(tag) || sha256(metadata) || outputIndex ||
-//	  assetType)
+//	sha256(genesisOutPoint || sha256(tag) || sha256(metadata) ||
+//	  outputIndex || assetType)
 type ID [sha256.Size]byte
 
 // ID computes an asset's unique identifier from its metadata.
@@ -138,6 +140,22 @@ func (g Genesis) VerifySignature(sig *schnorr.Signature,
 	return sig.Verify(digest[:], pubKey)
 }
 
+// Encode encodes an asset genesis.
+func (g Genesis) Encode(w io.Writer) error {
+	var buf [8]byte
+	return GenesisEncoder(w, &g, &buf)
+}
+
+// DecodeGenesis decodes an asset genesis.
+func DecodeGenesis(r io.Reader) (Genesis, error) {
+	var (
+		buf [8]byte
+		gen Genesis
+	)
+	err := GenesisDecoder(r, &gen, &buf, 0)
+	return gen, err
+}
+
 // Type denotes the asset types supported by the Taro protocol.
 type Type uint8
 
@@ -151,7 +169,7 @@ const (
 	Collectible Type = 1
 )
 
-// String returns a human readable description of the type.
+// String returns a human-readable description of the type.
 func (t Type) String() string {
 	switch t {
 	case Normal:
@@ -174,7 +192,7 @@ type PrevID struct {
 
 	// TODO(roasbeef): need another ref type for assets w/ a key family?
 
-	// ScriptKey is the previous tweaked Taproot output key committing to
+	// ScriptKey is the previously tweaked Taproot output key committing to
 	// the possible spending conditions of the asset. PrevID is being used
 	// as map keys, so we want to only use data types with fixed and
 	// comparable content, which a btcec.PublicKey might not be.
@@ -220,7 +238,17 @@ func (s *SplitCommitment) DeepEqual(o *SplitCommitment) bool {
 		}
 	}
 
-	return s.RootAsset.DeepEqual(&o.RootAsset)
+	// We can't directly compare the root assets, as some non-TLV fields
+	// might be different in unit tests. To avoid introducing flakes, we
+	// only compare the encoded TLV data.
+	var bufA, bufB bytes.Buffer
+
+	// We ignore errors here, these possible errors (incorrect TLV stream
+	// being created) are covered in unit tests.
+	_ = s.RootAsset.Encode(&bufA)
+	_ = o.RootAsset.Encode(&bufB)
+
+	return bytes.Equal(bufA.Bytes(), bufB.Bytes())
 }
 
 // Witness is a nested TLV stream within the main Asset TLV stream that contains
@@ -653,7 +681,7 @@ func (a *Asset) HasGenesisWitness() bool {
 		return false
 	}
 
-	return *witness.PrevID == zeroPrevID
+	return *witness.PrevID == ZeroPrevID
 }
 
 // HasSplitCommitmentWitness returns true if an asset has a split commitment

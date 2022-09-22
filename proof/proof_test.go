@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -25,26 +26,6 @@ var (
 		Index: 1,
 	}
 )
-
-func randPrivKey(t *testing.T) *btcec.PrivateKey {
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	return privKey
-}
-
-func schnorrPubKey(t *testing.T, privKey *btcec.PrivateKey) *btcec.PublicKey {
-	return schnorrKey(t, privKey.PubKey())
-}
-
-func schnorrKey(t *testing.T, pubKey *btcec.PublicKey) *btcec.PublicKey {
-	key, err := schnorr.ParsePubKey(schnorr.SerializePubKey(pubKey))
-	require.NoError(t, err)
-	return key
-}
-
-func randPubKey(t *testing.T) *btcec.PublicKey {
-	return schnorrPubKey(t, randPrivKey(t))
-}
 
 func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
 	metadata := make([]byte, rand.Uint32()%32+1)
@@ -164,7 +145,7 @@ func TestProofEncoding(t *testing.T) {
 	commitment, assets, err := commitment.Mint(
 		*genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        pubToKeyDesc(randPubKey(t)),
+			ScriptKey:        pubToKeyDesc(test.RandPubKey(t)),
 			Amount:           nil,
 			LockTime:         1337,
 			RelativeLockTime: 6,
@@ -197,7 +178,7 @@ func TestProofEncoding(t *testing.T) {
 		Asset:         *asset,
 		InclusionProof: TaprootProof{
 			OutputIndex: 1,
-			InternalKey: randPubKey(t),
+			InternalKey: test.RandPubKey(t),
 			CommitmentProof: &CommitmentProof{
 				Proof: *commitmentProof,
 				TapSiblingPreimage: &TapscriptPreimage{
@@ -210,7 +191,7 @@ func TestProofEncoding(t *testing.T) {
 		ExclusionProofs: []TaprootProof{
 			{
 				OutputIndex: 2,
-				InternalKey: randPubKey(t),
+				InternalKey: test.RandPubKey(t),
 				CommitmentProof: &CommitmentProof{
 					Proof: *commitmentProof,
 					TapSiblingPreimage: &TapscriptPreimage{
@@ -222,7 +203,7 @@ func TestProofEncoding(t *testing.T) {
 			},
 			{
 				OutputIndex:     3,
-				InternalKey:     randPubKey(t),
+				InternalKey:     test.RandPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
 					TapPreimage1: &TapscriptPreimage{
@@ -238,7 +219,7 @@ func TestProofEncoding(t *testing.T) {
 			},
 			{
 				OutputIndex:     4,
-				InternalKey:     randPubKey(t),
+				InternalKey:     test.RandPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
 					BIP86: true,
@@ -247,7 +228,7 @@ func TestProofEncoding(t *testing.T) {
 		},
 		SplitRootProof: &TaprootProof{
 			OutputIndex: 4,
-			InternalKey: randPubKey(t),
+			InternalKey: test.RandPubKey(t),
 			CommitmentProof: &CommitmentProof{
 				Proof:              *commitmentProof,
 				TapSiblingPreimage: nil,
@@ -271,7 +252,7 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 
 	t.Helper()
 
-	genesisPrivKey := randPrivKey(t)
+	genesisPrivKey := test.RandPrivKey(t)
 	assetGenesis := randGenesis(t, assetType)
 	assetFamilyKey := randFamilyKey(t, assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
@@ -291,7 +272,7 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 	)
 	require.NoError(t, err)
 
-	internalKey := schnorrPubKey(t, genesisPrivKey)
+	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
 	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],

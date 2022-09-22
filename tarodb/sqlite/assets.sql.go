@@ -12,7 +12,7 @@ import (
 )
 
 const allAssets = `-- name: AllAssets :many
-SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
+SELECT asset_id, genesis_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
 FROM assets
 `
 
@@ -27,6 +27,7 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 		var i Asset
 		if err := rows.Scan(
 			&i.AssetID,
+			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyID,
 			&i.AssetFamilySigID,
@@ -164,7 +165,7 @@ WITH assets_to_update AS (
     SELECT script_key_id
     FROM assets 
     JOIN genesis_assets 
-        ON assets.asset_id = genesis_assets.gen_asset_id
+        ON assets.genesis_id = genesis_assets.gen_asset_id
     JOIN genesis_points
         ON genesis_points.genesis_id = genesis_assets.genesis_point_id
     WHERE prev_out = ?
@@ -185,10 +186,10 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 }
 
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
-SELECT assets.asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_id, prev_out, anchor_tx_id
+SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
 FROM assets 
 JOIN genesis_assets 
-    ON assets.asset_id = genesis_assets.gen_asset_id
+    ON assets.genesis_id = genesis_assets.gen_asset_id
 JOIN genesis_points
     ON genesis_points.genesis_id = genesis_assets.genesis_point_id
 WHERE prev_out = ?
@@ -196,6 +197,7 @@ WHERE prev_out = ?
 
 type AssetsByGenesisPointRow struct {
 	AssetID                  int32
+	GenesisID                int32
 	Version                  int32
 	ScriptKeyID              int32
 	AssetFamilySigID         sql.NullInt32
@@ -213,7 +215,7 @@ type AssetsByGenesisPointRow struct {
 	OutputIndex              int32
 	AssetType                int16
 	GenesisPointID           int32
-	GenesisID                int32
+	GenesisID_2              int32
 	PrevOut                  []byte
 	AnchorTxID               sql.NullInt32
 }
@@ -229,6 +231,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 		var i AssetsByGenesisPointRow
 		if err := rows.Scan(
 			&i.AssetID,
+			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyID,
 			&i.AssetFamilySigID,
@@ -246,7 +249,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 			&i.OutputIndex,
 			&i.AssetType,
 			&i.GenesisPointID,
-			&i.GenesisID,
+			&i.GenesisID_2,
 			&i.PrevOut,
 			&i.AnchorTxID,
 		); err != nil {
@@ -428,7 +431,8 @@ WITH asset_info AS (
         ON assets.script_key_id = script_keys.script_key_id
     WHERE script_keys.tweaked_script_key = ?
 )
-SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id
@@ -437,12 +441,19 @@ JOIN asset_info
 type FetchAssetProofRow struct {
 	ScriptKey []byte
 	ProofFile []byte
+	AssetID   int32
+	ProofID   int32
 }
 
 func (q *Queries) FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAssetProof, tweakedScriptKey)
 	var i FetchAssetProofRow
-	err := row.Scan(&i.ScriptKey, &i.ProofFile)
+	err := row.Scan(
+		&i.ScriptKey,
+		&i.ProofFile,
+		&i.AssetID,
+		&i.ProofID,
+	)
 	return i, err
 }
 
@@ -539,7 +550,7 @@ func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32
 }
 
 const fetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
-SELECT asset_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id
+SELECT asset_id, genesis_id, version, script_key_id, asset_family_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id
 FROM assets
 WHERE anchor_utxo_id = ?
 `
@@ -555,6 +566,7 @@ func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.Nu
 		var i Asset
 		if err := rows.Scan(
 			&i.AssetID,
+			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyID,
 			&i.AssetFamilySigID,
@@ -625,9 +637,9 @@ SELECT
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
 JOIN genesis_info
-    ON assets.asset_id = genesis_info.gen_asset_id
+    ON assets.genesis_id = genesis_info.gen_asset_id
 LEFT JOIN key_fam_info
-    ON assets.asset_id = key_fam_info.gen_asset_id
+    ON assets.genesis_id = key_fam_info.gen_asset_id
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
@@ -723,6 +735,39 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 		&i.BlockHeight,
 		&i.BlockHash,
 		&i.TxIndex,
+	)
+	return i, err
+}
+
+const fetchGenesisByID = `-- name: FetchGenesisByID :one
+SELECT
+    asset_id, asset_tag, meta_data, output_index, asset_type,
+    genesis_points.prev_out prev_out
+FROM genesis_assets
+JOIN genesis_points
+  ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+WHERE gen_asset_id = ?
+`
+
+type FetchGenesisByIDRow struct {
+	AssetID     []byte
+	AssetTag    string
+	MetaData    []byte
+	OutputIndex int32
+	AssetType   int16
+	PrevOut     []byte
+}
+
+func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int32) (FetchGenesisByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchGenesisByID, genAssetID)
+	var i FetchGenesisByIDRow
+	err := row.Scan(
+		&i.AssetID,
+		&i.AssetTag,
+		&i.MetaData,
+		&i.OutputIndex,
+		&i.AssetType,
+		&i.PrevOut,
 	)
 	return i, err
 }
@@ -947,7 +992,7 @@ WITH target_batch(batch_id) AS (
     WHERE keys.raw_key = ?
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, asset_id, batch_id
+    emission_enabled, genesis_id, batch_id
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
 `
@@ -968,7 +1013,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.AssetSupply,
 			&i.AssetMeta,
 			&i.EmissionEnabled,
-			&i.AssetID,
+			&i.GenesisID,
 			&i.BatchID,
 		); err != nil {
 			return nil, err
@@ -1169,40 +1214,9 @@ func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitness
 	return err
 }
 
-const insertGenesisAsset = `-- name: InsertGenesisAsset :one
-INSERT INTO genesis_assets (
-    asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
-) VALUES (
-    ?, ?, ?, ?, ?, ?
-) RETURNING gen_asset_id
-`
-
-type InsertGenesisAssetParams struct {
-	AssetID        []byte
-	AssetTag       string
-	MetaData       []byte
-	OutputIndex    int32
-	AssetType      int16
-	GenesisPointID int32
-}
-
-func (q *Queries) InsertGenesisAsset(ctx context.Context, arg InsertGenesisAssetParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertGenesisAsset,
-		arg.AssetID,
-		arg.AssetTag,
-		arg.MetaData,
-		arg.OutputIndex,
-		arg.AssetType,
-		arg.GenesisPointID,
-	)
-	var gen_asset_id int32
-	err := row.Scan(&gen_asset_id)
-	return gen_asset_id, err
-}
-
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
-    version, script_key_id, asset_id, asset_family_sig_id, script_version, 
+    genesis_id, version, script_key_id, asset_family_sig_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -1210,9 +1224,9 @@ INSERT INTO assets (
 `
 
 type InsertNewAssetParams struct {
+	GenesisID        int32
 	Version          int32
 	ScriptKeyID      int32
-	AssetID          int32
 	AssetFamilySigID sql.NullInt32
 	ScriptVersion    int32
 	Amount           int64
@@ -1223,9 +1237,9 @@ type InsertNewAssetParams struct {
 
 func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error) {
 	row := q.db.QueryRowContext(ctx, insertNewAsset,
+		arg.GenesisID,
 		arg.Version,
 		arg.ScriptKeyID,
-		arg.AssetID,
 		arg.AssetFamilySigID,
 		arg.ScriptVersion,
 		arg.Amount,
@@ -1260,11 +1274,11 @@ SELECT
     genesis_info_view.asset_tag, genesis_info_view.meta_data, genesis_info_view.asset_type
 FROM assets
 JOIN genesis_info_view
-    ON assets.asset_id = genesis_info_view.gen_asset_id AND
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
         (length(hex($1)) == 0 OR genesis_info_view.asset_id = $1)
 LEFT JOIN key_fam_info_view
-    ON assets.asset_id = key_fam_info_view.gen_asset_id
-GROUP BY assets.asset_id
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id
+GROUP BY assets.genesis_id
 `
 
 type QueryAssetBalancesByAssetRow struct {
@@ -1313,7 +1327,7 @@ SELECT
     key_fam_info_view.tweaked_fam_key, SUM(amount) balance
 FROM assets
 JOIN key_fam_info_view
-    ON assets.asset_id = key_fam_info_view.gen_asset_id AND
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
         (length(hex($1)) == 0 OR key_fam_info_view.tweaked_fam_key = $1)
 GROUP BY key_fam_info_view.tweaked_fam_key
 `
@@ -1323,10 +1337,6 @@ type QueryAssetBalancesByFamilyRow struct {
 	Balance       int64
 }
 
-// We use a LEFT JOIN here as not every asset has a family key, so this'll
-// generate rows that have NULL values for the family key fields if an asset
-// doesn't have a family key. See the comment in fetchAssetSprouts for a work
-// around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter interface{}) ([]QueryAssetBalancesByFamilyRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByFamily, keyFamFilter)
 	if err != nil {
@@ -1352,25 +1362,34 @@ func (q *Queries) QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter i
 
 const queryAssets = `-- name: QueryAssets :many
 SELECT
-    assets.asset_id, version, script_keys.tweak AS script_key_tweak, 
+    assets.asset_id AS asset_primary_key, assets.genesis_id, version,
+    script_keys.tweak AS script_key_tweak, 
     script_keys.tweaked_script_key, 
-    internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index, key_fam_info_view.genesis_sig, 
-    key_fam_info_view.tweaked_fam_key, key_fam_info_view.raw_key AS fam_key_raw,
-    key_fam_info_view.key_family AS fam_key_family, key_fam_info_view.key_index AS fam_key_index,
+    internal_keys.raw_key AS script_key_raw,
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index,
+    key_fam_info_view.genesis_sig, 
+    key_fam_info_view.tweaked_fam_key,
+    key_fam_info_view.raw_key AS fam_key_raw,
+    key_fam_info_view.key_family AS fam_key_family,
+    key_fam_info_view.key_index AS fam_key_index,
     script_version, amount, lock_time, relative_lock_time, 
-    genesis_info_view.asset_id, genesis_info_view.asset_tag, genesis_info_view.meta_data, 
-    genesis_info_view.output_index AS genesis_output_index, genesis_info_view.asset_type,
+    genesis_info_view.asset_id AS asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_data, 
+    genesis_info_view.output_index AS genesis_output_index,
+    genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
-    utxos.outpoint AS anchor_outpoint
+    utxos.outpoint AS anchor_outpoint,
+    utxo_internal_keys.raw_key AS anchor_internal_key
 FROM assets
 JOIN genesis_info_view
-    ON assets.asset_id = genesis_info_view.gen_asset_id AND
+    ON assets.genesis_id = genesis_info_view.gen_asset_id AND
         (length(hex($1)) == 0 OR 
             genesis_info_view.asset_id = $1)
 LEFT JOIN key_fam_info_view
-    ON assets.asset_id = key_fam_info_view.gen_asset_id AND
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
         (length(hex($2)) == 0 OR 
             key_fam_info_view.tweaked_fam_key = $2)
 JOIN script_keys
@@ -1381,6 +1400,8 @@ JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
         (length(hex($3)) == 0 OR 
             utxos.outpoint = $3)
+JOIN internal_keys utxo_internal_keys
+    ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
@@ -1396,7 +1417,8 @@ type QueryAssetsParams struct {
 }
 
 type QueryAssetsRow struct {
-	AssetID            int32
+	AssetPrimaryKey    int32
+	GenesisID          int32
 	Version            int32
 	ScriptKeyTweak     []byte
 	TweakedScriptKey   []byte
@@ -1412,7 +1434,7 @@ type QueryAssetsRow struct {
 	Amount             int64
 	LockTime           sql.NullInt32
 	RelativeLockTime   sql.NullInt32
-	AssetID_2          []byte
+	AssetID            []byte
 	AssetTag           string
 	MetaData           []byte
 	GenesisOutputIndex int32
@@ -1422,6 +1444,7 @@ type QueryAssetsRow struct {
 	AnchorTxid         []byte
 	AnchorBlockHash    []byte
 	AnchorOutpoint     []byte
+	AnchorInternalKey  []byte
 }
 
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
@@ -1447,7 +1470,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	for rows.Next() {
 		var i QueryAssetsRow
 		if err := rows.Scan(
-			&i.AssetID,
+			&i.AssetPrimaryKey,
+			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyTweak,
 			&i.TweakedScriptKey,
@@ -1463,7 +1487,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.Amount,
 			&i.LockTime,
 			&i.RelativeLockTime,
-			&i.AssetID_2,
+			&i.AssetID,
 			&i.AssetTag,
 			&i.MetaData,
 			&i.GenesisOutputIndex,
@@ -1473,6 +1497,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorTxid,
 			&i.AnchorBlockHash,
 			&i.AnchorOutpoint,
+			&i.AnchorInternalKey,
 		); err != nil {
 			return nil, err
 		}
@@ -1623,6 +1648,40 @@ func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (i
 	var txn_id int32
 	err := row.Scan(&txn_id)
 	return txn_id, err
+}
+
+const upsertGenesisAsset = `-- name: UpsertGenesisAsset :one
+INSERT INTO genesis_assets (
+    asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
+) VALUES (
+    ?, ?, ?, ?, ?, ?
+) ON CONFLICT (asset_tag)
+    -- This is a NOP, asset_tag is the unique field that caused the conflict.
+    DO UPDATE SET asset_tag = EXCLUDED.asset_tag
+RETURNING gen_asset_id
+`
+
+type UpsertGenesisAssetParams struct {
+	AssetID        []byte
+	AssetTag       string
+	MetaData       []byte
+	OutputIndex    int32
+	AssetType      int16
+	GenesisPointID int32
+}
+
+func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertGenesisAsset,
+		arg.AssetID,
+		arg.AssetTag,
+		arg.MetaData,
+		arg.OutputIndex,
+		arg.AssetType,
+		arg.GenesisPointID,
+	)
+	var gen_asset_id int32
+	err := row.Scan(&gen_asset_id)
+	return gen_asset_id, err
 }
 
 const upsertGenesisPoint = `-- name: UpsertGenesisPoint :one
