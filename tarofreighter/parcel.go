@@ -263,7 +263,6 @@ type spendProofs map[asset.SerializedKey]proof.Proof
 // the sender and receiver. The proofs returned will have all the Taro level
 // proof information, but contains dummy data for
 func (s *sendPackage) createProofs() (spendProofs, error) {
-
 	// dummyParams is used to create a set of dummy params for the final
 	// state transition.
 	dummyParams := func() proof.TransitionParams {
@@ -346,7 +345,6 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 		receiverParams.RootOutputIndex = senderIndex
 		receiverParams.RootInternalKey = s.SenderNewInternalKey.PubKey
 		receiverParams.RootTaroTree = &senderTaroTree
-
 	} else {
 		// Otherwise, if there's no split, then we can just compute a
 		// simpler exclusion proof for the sender and receiver.
