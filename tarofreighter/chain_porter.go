@@ -95,7 +95,6 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 // Start kicks off the chain porter and any goroutines it needs to carry out
 // its duty.
 func (p *ChainPorter) Start() error {
-
 	var startErr error
 	p.startOnce.Do(func() {
 		log.Infof("Starting ChainPorter")
