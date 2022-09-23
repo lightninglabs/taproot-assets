@@ -773,10 +773,10 @@ func TestAssetExportLog(t *testing.T) {
 				SplitCommitmentRoot: mssmt.NewComputedNode(
 					newRootHash, newRootValue,
 				),
+				SenderAssetProof:   senderBlob,
+				ReceiverAssetProof: receiverBlob,
 			},
 		},
-		SenderAssetProof:   senderBlob,
-		ReceiverAssetProof: receiverBlob,
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 

@@ -29,6 +29,7 @@ type Querier interface {
 	FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error)
+	FetchAssetDeltasWithProofs(ctx context.Context, transferID int32) ([]FetchAssetDeltasWithProofsRow, error)
 	FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
@@ -65,7 +66,7 @@ type Querier interface {
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
-	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) error
+	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a family key, so this'll
 	// generate rows that have NULL values for the family key fields if an asset

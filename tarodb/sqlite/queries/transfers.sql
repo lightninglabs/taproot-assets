@@ -8,17 +8,17 @@ INSERT INTO asset_transfers (
 -- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
     old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
-    split_commitment_root_hash, split_commitment_root_value
+    proof_id, split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?
 );
 
--- name: InsertSpendProofs :exec
+-- name: InsertSpendProofs :one
 INSERT INTO transfer_proofs (
    transfer_id, sender_proof, receiver_proof 
 ) VALUES (
     ?, ?, ?
-);
+) RETURNING proof_id;
 
 -- name: QueryAssetTransfers :many
 SELECT 
@@ -68,6 +68,27 @@ JOIN script_keys
 JOIN internal_keys 
     ON script_keys.internal_key_id = internal_keys.key_id
 WHERE transfer_id = ?;
+
+-- name: FetchAssetDeltasWithProofs :many
+SELECT  
+    deltas.old_script_key, deltas.new_amt, 
+    script_keys.tweaked_script_key AS new_script_key_bytes,
+    script_keys.tweak AS script_key_tweak,
+    deltas.new_script_key AS new_script_key_id, 
+    internal_keys.raw_key AS new_raw_script_key_bytes,
+    internal_keys.key_family AS new_script_key_family, 
+    internal_keys.key_index AS new_script_key_index,
+    deltas.serialized_witnesses, deltas.split_commitment_root_hash, 
+    deltas.split_commitment_root_value, transfer_proofs.sender_proof,
+    transfer_proofs.receiver_proof
+FROM asset_deltas deltas
+JOIN script_keys
+    ON deltas.new_script_key = script_keys.script_key_id
+JOIN internal_keys 
+    ON script_keys.internal_key_id = internal_keys.key_id
+JOIN transfer_proofs
+    ON deltas.proof_id = transfer_proofs.proof_id
+WHERE deltas.transfer_id = ?;
 
 -- name: FetchSpendProofs :one
 SELECT sender_proof, receiver_proof
