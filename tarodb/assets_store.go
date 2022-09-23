@@ -1494,17 +1494,29 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 // PendingParcels returns the set of parcels that haven't yet been finalized.
 // This can be used to query the set of unconfirmed
 // transactions for re-broadcast.
-func (a *AssetStore) PendingParcels(ctx context.Context,
-) ([]*tarofreighter.OutboundParcelDelta, error) {
+func (a *AssetStore) PendingParcels(
+	ctx context.Context) ([]*tarofreighter.OutboundParcelDelta, error) {
+
+	return a.QueryParcels(ctx, true)
+}
+
+// QueryParcels returns the set of confirmed or unconformed parcels.
+func (a *AssetStore) QueryParcels(ctx context.Context,
+	pending bool) ([]*tarofreighter.OutboundParcelDelta, error) {
 
 	var deltas []*tarofreighter.OutboundParcelDelta
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		// In this case, we want every unconfirmed transfer, so we only
-		// pass in the UnconfOnly field.
+		unconfOnly := 0
+		if pending {
+			unconfOnly = 1
+		}
+
+		// If we want every unconfirmed transfer, then we only pass in
+		// the UnconfOnly field.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
-			UnconfOnly: 1,
+			UnconfOnly: unconfOnly,
 		})
 		if err != nil {
 			return err
