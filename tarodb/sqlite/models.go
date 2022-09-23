@@ -59,6 +59,7 @@ type AssetDelta struct {
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 	TransferID               int32
+	ProofID                  int32
 }
 
 type AssetFamily struct {

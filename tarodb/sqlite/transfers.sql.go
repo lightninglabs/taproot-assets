@@ -134,6 +134,81 @@ func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]Fet
 	return items, nil
 }
 
+const fetchAssetDeltasWithProofs = `-- name: FetchAssetDeltasWithProofs :many
+SELECT  
+    deltas.old_script_key, deltas.new_amt, 
+    script_keys.tweaked_script_key AS new_script_key_bytes,
+    script_keys.tweak AS script_key_tweak,
+    deltas.new_script_key AS new_script_key_id, 
+    internal_keys.raw_key AS new_raw_script_key_bytes,
+    internal_keys.key_family AS new_script_key_family, 
+    internal_keys.key_index AS new_script_key_index,
+    deltas.serialized_witnesses, deltas.split_commitment_root_hash, 
+    deltas.split_commitment_root_value, transfer_proofs.sender_proof,
+    transfer_proofs.receiver_proof
+FROM asset_deltas deltas
+JOIN script_keys
+    ON deltas.new_script_key = script_keys.script_key_id
+JOIN internal_keys 
+    ON script_keys.internal_key_id = internal_keys.key_id
+JOIN transfer_proofs
+    ON deltas.proof_id = transfer_proofs.proof_id
+WHERE deltas.transfer_id = ?
+`
+
+type FetchAssetDeltasWithProofsRow struct {
+	OldScriptKey             []byte
+	NewAmt                   int64
+	NewScriptKeyBytes        []byte
+	ScriptKeyTweak           []byte
+	NewScriptKeyID           int32
+	NewRawScriptKeyBytes     []byte
+	NewScriptKeyFamily       int32
+	NewScriptKeyIndex        int32
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	SenderProof              []byte
+	ReceiverProof            []byte
+}
+
+func (q *Queries) FetchAssetDeltasWithProofs(ctx context.Context, transferID int32) ([]FetchAssetDeltasWithProofsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetDeltasWithProofs, transferID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetDeltasWithProofsRow
+	for rows.Next() {
+		var i FetchAssetDeltasWithProofsRow
+		if err := rows.Scan(
+			&i.OldScriptKey,
+			&i.NewAmt,
+			&i.NewScriptKeyBytes,
+			&i.ScriptKeyTweak,
+			&i.NewScriptKeyID,
+			&i.NewRawScriptKeyBytes,
+			&i.NewScriptKeyFamily,
+			&i.NewScriptKeyIndex,
+			&i.SerializedWitnesses,
+			&i.SplitCommitmentRootHash,
+			&i.SplitCommitmentRootValue,
+			&i.SenderProof,
+			&i.ReceiverProof,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchSpendProofs = `-- name: FetchSpendProofs :one
 SELECT sender_proof, receiver_proof
 FROM transfer_proofs
@@ -155,9 +230,9 @@ func (q *Queries) FetchSpendProofs(ctx context.Context, transferID int32) (Fetch
 const insertAssetDelta = `-- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
     old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
-    split_commitment_root_hash, split_commitment_root_value
+    proof_id, split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?
 )
 `
 
@@ -167,6 +242,7 @@ type InsertAssetDeltaParams struct {
 	NewScriptKey             int32
 	SerializedWitnesses      []byte
 	TransferID               int32
+	ProofID                  int32
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 }
@@ -178,6 +254,7 @@ func (q *Queries) InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaPara
 		arg.NewScriptKey,
 		arg.SerializedWitnesses,
 		arg.TransferID,
+		arg.ProofID,
 		arg.SplitCommitmentRootHash,
 		arg.SplitCommitmentRootValue,
 	)
@@ -211,12 +288,12 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 	return id, err
 }
 
-const insertSpendProofs = `-- name: InsertSpendProofs :exec
+const insertSpendProofs = `-- name: InsertSpendProofs :one
 INSERT INTO transfer_proofs (
    transfer_id, sender_proof, receiver_proof 
 ) VALUES (
     ?, ?, ?
-)
+) RETURNING proof_id
 `
 
 type InsertSpendProofsParams struct {
@@ -225,9 +302,11 @@ type InsertSpendProofsParams struct {
 	ReceiverProof []byte
 }
 
-func (q *Queries) InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) error {
-	_, err := q.db.ExecContext(ctx, insertSpendProofs, arg.TransferID, arg.SenderProof, arg.ReceiverProof)
-	return err
+func (q *Queries) InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, insertSpendProofs, arg.TransferID, arg.SenderProof, arg.ReceiverProof)
+	var proof_id int32
+	err := row.Scan(&proof_id)
+	return proof_id, err
 }
 
 const queryAssetTransfers = `-- name: QueryAssetTransfers :many

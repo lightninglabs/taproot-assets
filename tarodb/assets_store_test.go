@@ -780,10 +780,10 @@ func TestAssetExportLog(t *testing.T) {
 					newRootHash, newRootValue,
 				),
 				WitnessData: []asset.Witness{newWitness},
+				SenderAssetProof:   senderBlob,
+				ReceiverAssetProof: receiverBlob,
 			},
 		},
-		SenderAssetProof:   senderBlob,
-		ReceiverAssetProof: receiverBlob,
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 
