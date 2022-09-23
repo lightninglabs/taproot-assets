@@ -60,6 +60,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/tarorpc.Taro/ListTransfers": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/tarorpc.Taro/QueryAddrs": {{
 			Entity: "addresses",
 			Action: "read",
@@ -500,6 +504,61 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 	default:
 		return nil, fmt.Errorf("invalid group_by")
 	}
+}
+
+// ListTransfers lists all asset transfers managed by this deamon.
+func (r *rpcServer) ListTransfers(ctx context.Context,
+	in *tarorpc.ListTransfersRequest) (*tarorpc.ListTransfersResponse,
+	error) {
+
+	parcels, err := r.cfg.AssetStore.QueryParcels(ctx, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query parcels: %w", err)
+	}
+
+	resp := &tarorpc.ListTransfersResponse{
+		Transfers: make([]*tarorpc.AssetTransfer, 0, len(parcels)),
+	}
+
+	for _, parcel := range parcels {
+		deltas := make(
+			[]*tarorpc.AssetSpendDelta,
+			len(parcel.AssetSpendDeltas),
+		)
+
+		for i, delta := range parcel.AssetSpendDeltas {
+			senderProof := &proof.Proof{}
+			err := senderProof.Decode(
+				bytes.NewReader(delta.SenderAssetProof),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to decode "+
+					"sender proof: %w", err)
+			}
+
+			assetID := senderProof.Asset.ID()
+			deltas[i] = &tarorpc.AssetSpendDelta{
+				AssetId:      assetID[:],
+				OldScriptKey: delta.OldScriptKey.SerializeCompressed(),
+				NewScriptKey: delta.NewScriptKey.PubKey.SerializeCompressed(),
+				NewAmt:       int64(delta.NewAmt),
+			}
+		}
+
+		anchorTxHash := parcel.AnchorTx.TxHash()
+		resp.Transfers = append(
+			resp.Transfers, &tarorpc.AssetTransfer{
+				TransferTimestamp: parcel.TransferTime.Unix(),
+				OldAnchorPoint:    parcel.OldAnchorPoint.String(),
+				NewAnchorPoint:    parcel.NewAnchorPoint.String(),
+				TaroRoot:          parcel.TaroRoot,
+				AnchorTxHash:      anchorTxHash[:],
+				AssetSpendDeltas:  deltas,
+			},
+		)
+	}
+
+	return resp, nil
 }
 
 // QueryAddrs queries the set of Taro addresses stored in the database.
