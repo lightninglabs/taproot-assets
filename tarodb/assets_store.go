@@ -1477,11 +1477,11 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			return err
 		}
 
-		// Finally, we'll delete the old managed UTXO, as it's no
-		// longer an unspent output.
-		//
-		// TODO(roasbeef): never delete so can scan in tings?
-		return q.DeleteManagedUTXO(ctx, assetTransfer.OldAnchorPoint)
+		// At this point we could delete the managed UTXO since it's no
+		// longer an unspent output, however we'll keep it in order to
+		// be able to reconstruct transfer history.
+
+		return nil
 	})
 }
 
