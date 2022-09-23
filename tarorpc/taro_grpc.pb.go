@@ -25,9 +25,12 @@ type TaroClient interface {
 	// tarocli: `assets list`
 	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error)
-	//
+	// tarocli: `assets balance`
 	//ListBalances lists asset balances
 	ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error)
+	// tarocli: `assets transfers`
+	//ListTransfers lists outbound asset transfers tracked by the target daemon.
+	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
 	// tarocli: `stop`
 	//StopDaemon will send a shutdown request to the interrupt handler, triggering
 	//a graceful shutdown of the daemon.
@@ -101,6 +104,15 @@ func (c *taroClient) ListAssets(ctx context.Context, in *ListAssetRequest, opts 
 func (c *taroClient) ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error) {
 	out := new(ListBalancesResponse)
 	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ListBalances", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error) {
+	out := new(ListTransfersResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ListTransfers", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,9 +220,12 @@ type TaroServer interface {
 	// tarocli: `assets list`
 	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error)
-	//
+	// tarocli: `assets balance`
 	//ListBalances lists asset balances
 	ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error)
+	// tarocli: `assets transfers`
+	//ListTransfers lists outbound asset transfers tracked by the target daemon.
+	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
 	// tarocli: `stop`
 	//StopDaemon will send a shutdown request to the interrupt handler, triggering
 	//a graceful shutdown of the daemon.
@@ -268,6 +283,9 @@ func (UnimplementedTaroServer) ListAssets(context.Context, *ListAssetRequest) (*
 }
 func (UnimplementedTaroServer) ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBalances not implemented")
+}
+func (UnimplementedTaroServer) ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTransfers not implemented")
 }
 func (UnimplementedTaroServer) StopDaemon(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopDaemon not implemented")
@@ -362,6 +380,24 @@ func _Taro_ListBalances_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaroServer).ListBalances(ctx, req.(*ListBalancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_ListTransfers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTransfersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).ListTransfers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/ListTransfers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).ListTransfers(ctx, req.(*ListTransfersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -564,6 +600,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListBalances",
 			Handler:    _Taro_ListBalances_Handler,
+		},
+		{
+			MethodName: "ListTransfers",
+			Handler:    _Taro_ListTransfers_Handler,
 		},
 		{
 			MethodName: "StopDaemon",

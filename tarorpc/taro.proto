@@ -16,10 +16,15 @@ service Taro {
     */
     rpc ListAssets (ListAssetRequest) returns (ListAssetResponse);
 
-    /*
+    /* tarocli: `assets balance`
     ListBalances lists asset balances
     */
     rpc ListBalances (ListBalancesRequest) returns (ListBalancesResponse);
+
+    /* tarocli: `assets transfers`
+    ListTransfers lists outbound asset transfers tracked by the target daemon.
+    */
+    rpc ListTransfers (ListTransfersRequest) returns (ListTransfersResponse);
 
     /* tarocli: `stop`
     StopDaemon will send a shutdown request to the interrupt handler, triggering
@@ -283,6 +288,52 @@ message ListBalancesResponse {
     map<string, AssetBalance> asset_balances = 1;
 
     map<string, AssetFamilyBalance> asset_family_balances = 2;
+}
+
+message ListTransfersRequest {
+}
+
+message ListTransfersResponse {
+    repeated AssetTransfer transfers = 1;
+}
+
+message AssetTransfer {
+    int64 transfer_timestamp = 1;
+
+    // The old/current location of the Taro commitment that was spent as an
+    // input.
+    string old_anchor_point = 2;
+
+    // The new location of the Taro commitment referenced by the old anchor
+    // point.
+    string new_anchor_point = 3;
+
+    // The new Taro root that commits to the set of modified and unmodified
+    // assets.
+    bytes taro_root = 4;
+
+    // The new transaction that commits to the set of Taro assets found at the
+    // above new anchor point.
+    bytes anchor_tx_hash = 5;
+
+    // Describes the set of mutated assets that now live at the new anchor tx
+    // point.
+    repeated AssetSpendDelta asset_spend_deltas = 6;
+}
+
+message AssetSpendDelta {
+    // The asset ID that uniquely identifies the asset.
+    bytes asset_id = 1;
+
+    // The old script key that uniquely identified the spent asset on disk.
+    bytes old_script_key = 2;
+
+    // The new script key. We assume BIP 86 usage when updating the script keys
+    // on disk.
+    bytes new_script_key = 3;
+
+    // The new amount for the asset.
+    int64 new_amt = 4;
 }
 
 message StopRequest {

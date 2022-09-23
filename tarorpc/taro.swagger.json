@@ -226,7 +226,7 @@
     },
     "/v1/taro/assets/balance": {
       "get": {
-        "summary": "ListBalances lists asset balances",
+        "summary": "tarocli: `assets balance`\nListBalances lists asset balances",
         "operationId": "Taro_ListBalances",
         "responses": {
           "200": {
@@ -274,6 +274,29 @@
             "format": "byte"
           }
         ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
+    "/v1/taro/assets/transfers": {
+      "get": {
+        "summary": "tarocli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
+        "operationId": "Taro_ListTransfers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcListTransfersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
         "tags": [
           "Taro"
         ]
@@ -790,6 +813,65 @@
         }
       }
     },
+    "tarorpcAssetSpendDelta": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "old_script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The old script key that uniquely identified the spent asset on disk."
+        },
+        "new_script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The new script key. We assume BIP 86 usage when updating the script keys\non disk."
+        },
+        "new_amt": {
+          "type": "string",
+          "format": "int64",
+          "description": "The new amount for the asset."
+        }
+      }
+    },
+    "tarorpcAssetTransfer": {
+      "type": "object",
+      "properties": {
+        "transfer_timestamp": {
+          "type": "string",
+          "format": "int64"
+        },
+        "old_anchor_point": {
+          "type": "string",
+          "description": "The old/current location of the Taro commitment that was spent as an\ninput."
+        },
+        "new_anchor_point": {
+          "type": "string",
+          "description": "The new location of the Taro commitment referenced by the old anchor\npoint."
+        },
+        "taro_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The new Taro root that commits to the set of modified and unmodified\nassets."
+        },
+        "anchor_tx_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The new transaction that commits to the set of Taro assets found at the\nabove new anchor point."
+        },
+        "asset_spend_deltas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetSpendDelta"
+          },
+          "description": "Describes the set of mutated assets that now live at the new anchor tx\npoint."
+        }
+      }
+    },
     "tarorpcAssetType": {
       "type": "string",
       "enum": [
@@ -917,6 +999,17 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/tarorpcAssetFamilyBalance"
+          }
+        }
+      }
+    },
+    "tarorpcListTransfersResponse": {
+      "type": "object",
+      "properties": {
+        "transfers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetTransfer"
           }
         }
       }
