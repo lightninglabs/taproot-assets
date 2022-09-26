@@ -27,7 +27,8 @@ SELECT
     txns.raw_tx AS anchor_tx_bytes, txns.txid AS anchor_txid,
     txns.txn_id AS anchor_tx_primary_key, transfer_time_unix, 
     keys.raw_key AS internal_key_bytes, keys.key_family AS internal_key_fam,
-    keys.key_index AS internal_key_index, id AS transfer_id
+    keys.key_index AS internal_key_index, id AS transfer_id,
+    transfer_time_unix
 FROM asset_transfers
 JOIN internal_keys keys
     ON asset_transfers.new_internal_key = keys.key_id

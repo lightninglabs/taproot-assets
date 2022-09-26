@@ -3,6 +3,7 @@ package tarofreighter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -152,6 +153,9 @@ type OutboundParcelDelta struct {
 	// AssetSpendDeltas describes the set of mutated assets that now live
 	// at the new anchor tx point.
 	AssetSpendDeltas []AssetSpendDelta
+
+	// TransferTime holds the timestamp of the outbound spend.
+	TransferTime time.Time
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.

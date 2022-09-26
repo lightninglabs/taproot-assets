@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -1237,9 +1236,6 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 	anchorIndex := spend.NewAnchorPoint.Index
 	anchorValue := spend.AnchorTx.TxOut[anchorIndex].Value
 
-	// TODO(roasbeef): use clock.Clock instead
-	now := time.Now()
-
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		// First, we'll insert the new internal on disk, so we can
@@ -1287,7 +1283,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			OldAnchorPoint:   oldAnchorPointBytes,
 			NewInternalKey:   internalKeyID,
 			NewAnchorUtxo:    newUtxoID,
-			TransferTimeUnix: now,
+			TransferTimeUnix: spend.TransferTime,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert asset "+
@@ -1626,6 +1622,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				TapscriptSibling: xfer.TapscriptSibling,
 				AnchorTx:         anchorTx,
 				AssetSpendDeltas: spendDeltas,
+				TransferTime:     xfer.TransferTimeUnix,
 			})
 		}
 
