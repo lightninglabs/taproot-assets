@@ -10,7 +10,7 @@ import (
 )
 
 // RandGenesis creates a random genesis for testing.
-func RandGenesis(t *testing.T, assetType Type) Genesis {
+func RandGenesis(t testing.TB, assetType Type) Genesis {
 	t.Helper()
 
 	metadata := make([]byte, test.RandInt[int]()%32+1)

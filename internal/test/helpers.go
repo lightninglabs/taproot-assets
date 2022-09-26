@@ -23,7 +23,7 @@ func RandInt[T constraints.Integer]() T {
 	return T(rand.Int63()) // nolint:gosec
 }
 
-func RandOp(t *testing.T) wire.OutPoint {
+func RandOp(t testing.TB) wire.OutPoint {
 	t.Helper()
 
 	op := wire.OutPoint{
@@ -35,23 +35,23 @@ func RandOp(t *testing.T) wire.OutPoint {
 	return op
 }
 
-func RandPrivKey(t *testing.T) *btcec.PrivateKey {
+func RandPrivKey(t testing.TB) *btcec.PrivateKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	return privKey
 }
 
-func SchnorrPubKey(t *testing.T, privKey *btcec.PrivateKey) *btcec.PublicKey {
+func SchnorrPubKey(t testing.TB, privKey *btcec.PrivateKey) *btcec.PublicKey {
 	return SchnorrKey(t, privKey.PubKey())
 }
 
-func SchnorrKey(t *testing.T, pubKey *btcec.PublicKey) *btcec.PublicKey {
+func SchnorrKey(t testing.TB, pubKey *btcec.PublicKey) *btcec.PublicKey {
 	key, err := schnorr.ParsePubKey(schnorr.SerializePubKey(pubKey))
 	require.NoError(t, err)
 	return key
 }
 
-func RandPubKey(t *testing.T) *btcec.PublicKey {
+func RandPubKey(t testing.TB) *btcec.PublicKey {
 	return SchnorrPubKey(t, RandPrivKey(t))
 }
 
@@ -67,7 +67,7 @@ func PubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
 	}
 }
 
-func ComputeTaprootScript(t *testing.T, taprootKey *btcec.PublicKey) []byte {
+func ComputeTaprootScript(t testing.TB, taprootKey *btcec.PublicKey) []byte {
 	script, err := txscript.NewScriptBuilder().
 		AddOp(txscript.OP_1).
 		AddData(schnorr.SerializePubKey(taprootKey)).

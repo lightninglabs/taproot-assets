@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
+func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
 
 	t.Helper()
@@ -369,7 +369,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 // signAssetTransfer creates a virtual transaction for an asset transfer and
 // signs it with the given sender private key. Then we add the generated witness
 // to the root asset and all split asset's root asset references.
-func signAssetTransfer(t *testing.T, prevProof *Proof, newAsset *asset.Asset,
+func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 	senderPrivKey *btcec.PrivateKey, splitAssets []*asset.Asset) {
 
 	prevOutpoint := wire.OutPoint{
@@ -410,7 +410,7 @@ func signAssetTransfer(t *testing.T, prevProof *Proof, newAsset *asset.Asset,
 	}
 }
 
-func verifyBlob(t *testing.T, blob Blob) *AssetSnapshot {
+func verifyBlob(t testing.TB, blob Blob) *AssetSnapshot {
 	// Decode the proof blob into a proper file structure first.
 	f := NewFile(V0)
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
