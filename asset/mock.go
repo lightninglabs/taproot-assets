@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -24,4 +25,18 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 		OutputIndex:  uint32(test.RandInt[int32]()),
 		Type:         assetType,
 	}
+}
+
+// RandFamilyKey creates a random family key for testing.
+func RandFamilyKey(t testing.TB, genesis *Genesis) *FamilyKey {
+	privateKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	genSigner := NewRawKeyGenesisSigner(privateKey)
+
+	familyKey, err := DeriveFamilyKey(
+		genSigner, test.PubToKeyDesc(privateKey.PubKey()), *genesis,
+	)
+	require.NoError(t, err)
+	return familyKey
 }

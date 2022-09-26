@@ -19,19 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	genSigner := asset.NewRawKeyGenesisSigner(privKey)
-
-	familyKey, err := asset.DeriveFamilyKey(
-		genSigner, test.PubToKeyDesc(privKey.PubKey()), *genesis,
-	)
-	require.NoError(t, err)
-	return familyKey
-}
-
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
 	require.Equal(t, expected.Proof.AssetProof, actual.Proof.AssetProof)
 	require.Equal(t, expected.Proof.TaroProof, actual.Proof.TaroProof)
@@ -101,7 +88,7 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
-	familyKey := randFamilyKey(t, &genesis)
+	familyKey := asset.RandFamilyKey(t, &genesis)
 
 	commitment, assets, err := commitment.Mint(
 		genesis, familyKey, &commitment.AssetDetails{
@@ -208,14 +195,14 @@ func TestProofEncoding(t *testing.T) {
 	assertEqualProof(t, &proof, &decodedProof)
 }
 
-func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
+func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	amt *uint64) (Proof, *btcec.PrivateKey) {
 
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
 	assetGenesis := asset.RandGenesis(t, assetType)
-	assetFamilyKey := randFamilyKey(t, &assetGenesis)
+	assetFamilyKey := asset.RandFamilyKey(t, &assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type: assetType,
