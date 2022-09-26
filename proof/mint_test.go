@@ -25,10 +25,10 @@ func TestNewMintingBlobs(t *testing.T) {
 	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
 		genesisPrivKey.PubKey(),
 	)
-	assetGenesis := randGenesis(t, asset.Collectible)
-	assetFamilyKey := randFamilyKey(t, assetGenesis)
+	assetGenesis := asset.RandGenesis(t, asset.Collectible)
+	assetFamilyKey := randFamilyKey(t, &assetGenesis)
 	taroCommitment, _, err := commitment.Mint(
-		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
+		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        pubToKeyDesc(genesisScriptKey),
 			Amount:           nil,

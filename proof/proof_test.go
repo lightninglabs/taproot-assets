@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"context"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -19,27 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
-
-var (
-	testOutPoint = wire.OutPoint{
-		Hash:  *(*[32]byte)(bytes.Repeat([]byte{1}, 32)),
-		Index: 1,
-	}
-)
-
-func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
-	metadata := make([]byte, rand.Uint32()%32+1)
-	_, err := rand.Read(metadata)
-	require.NoError(t, err)
-
-	return &asset.Genesis{
-		FirstPrevOut: testOutPoint,
-		Tag:          "kek",
-		Metadata:     metadata,
-		OutputIndex:  rand.Uint32(),
-		Type:         assetType,
-	}
-}
 
 func pubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
 	return keychain.KeyDescriptor{
@@ -137,11 +115,11 @@ func TestProofEncoding(t *testing.T) {
 	txMerkleProof, err := NewTxMerkleProof(oddTxBlock.Transactions, 0)
 	require.NoError(t, err)
 
-	genesis := randGenesis(t, asset.Collectible)
-	familyKey := randFamilyKey(t, genesis)
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	familyKey := randFamilyKey(t, &genesis)
 
 	commitment, assets, err := commitment.Mint(
-		*genesis, familyKey, &commitment.AssetDetails{
+		genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        pubToKeyDesc(test.RandPubKey(t)),
 			Amount:           nil,
@@ -169,7 +147,7 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	proof := Proof{
-		PrevOut:       testOutPoint,
+		PrevOut:       genesis.FirstPrevOut,
 		BlockHeader:   oddTxBlock.Header,
 		AnchorTx:      *oddTxBlock.Transactions[0],
 		TxMerkleProof: *txMerkleProof,
@@ -251,10 +229,10 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
-	assetGenesis := randGenesis(t, assetType)
-	assetFamilyKey := randFamilyKey(t, assetGenesis)
+	assetGenesis := asset.RandGenesis(t, assetType)
+	assetFamilyKey := randFamilyKey(t, &assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
-		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
+		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type:             assetType,
 			ScriptKey:        pubToKeyDesc(genesisPrivKey.PubKey()),
 			Amount:           amt,
