@@ -412,7 +412,7 @@ func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 
 func verifyBlob(t testing.TB, blob Blob) *AssetSnapshot {
 	// Decode the proof blob into a proper file structure first.
-	f := NewFile(V0)
+	f := NewEmptyFile(V0)
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	finalSnapshot, err := f.Verify(context.Background())

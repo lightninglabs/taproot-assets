@@ -69,11 +69,17 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 			t, expected.AdditionalInputs[i].Version,
 			actual.AdditionalInputs[i].Version,
 		)
-		for j := range expected.AdditionalInputs[i].Proofs {
-			assertEqualProof(
-				t, &expected.AdditionalInputs[i].Proofs[j],
-				&actual.AdditionalInputs[i].Proofs[j],
-			)
+		require.Len(
+			t, actual.AdditionalInputs,
+			len(expected.AdditionalInputs),
+		)
+		for j := range expected.AdditionalInputs[i].proofs {
+			e, err := expected.AdditionalInputs[i].ProofAt(uint32(j))
+			require.NoError(t, err)
+
+			a, err := actual.AdditionalInputs[i].ProofAt(uint32(j))
+			require.NoError(t, err)
+			assertEqualProof(t, e, a)
 		}
 	}
 }
@@ -184,8 +190,9 @@ func TestProofEncoding(t *testing.T) {
 		},
 		AdditionalInputs: []File{},
 	}
-	file := File{Version: V0, Proofs: []Proof{proof, proof}}
-	proof.AdditionalInputs = []File{file, file}
+	file, err := NewFile(V0, proof, proof)
+	require.NoError(t, err)
+	proof.AdditionalInputs = []File{*file, *file}
 
 	var buf bytes.Buffer
 	require.NoError(t, proof.Encode(&buf))
@@ -291,7 +298,8 @@ func BenchmarkProofEncoding(b *testing.B) {
 		lotsOfProofs[i] = genesisProof
 	}
 
-	f := NewFile(V0, lotsOfProofs...)
+	f, err := NewFile(V0, lotsOfProofs...)
+	require.NoError(b, err)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -299,13 +307,16 @@ func BenchmarkProofEncoding(b *testing.B) {
 	// Only this part is measured.
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		err := f.Encode(&buf)
+		err = f.Encode(&buf)
 		require.NoError(b, err)
 
-		f2 := NewFile(V0)
+		f2, err := NewFile(V0)
+		require.NoError(b, err)
 
 		err = f2.Decode(&buf)
 		require.NoError(b, err)
+
+		require.Len(b, f2.proofs, numProofs)
 	}
 }
 

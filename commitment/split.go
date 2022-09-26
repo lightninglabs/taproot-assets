@@ -7,7 +7,6 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"

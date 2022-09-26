@@ -162,7 +162,7 @@ func assertAssetProofs(t *testing.T, tarod *tarodHarness,
 	assetJSON, err := formatProtoJSON(a)
 	require.NoError(t, err)
 	t.Logf("Got proof file for asset %x that contains %d proof(s), full "+
-		"asset: %s", a.AssetGenesis.AssetId, len(file.Proofs),
+		"asset: %s", a.AssetGenesis.AssetId, file.NumProofs(),
 		assetJSON)
 
 	require.Equal(

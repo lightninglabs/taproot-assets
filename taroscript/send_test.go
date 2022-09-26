@@ -1451,9 +1451,13 @@ func TestProofVerify(t *testing.T) {
 	// Create a proof for the genesis of asset 2.
 	createGenesisProof(t, &state)
 
-	genesisProofFile := proof.NewFile(proof.V0, state.asset2GenesisProof)
+	genesisProofFile, err := proof.NewFile(
+		proof.V0, state.asset2GenesisProof,
+	)
+	require.NoError(t, err)
+
 	var b bytes.Buffer
-	err := genesisProofFile.Encode(&b)
+	err = genesisProofFile.Encode(&b)
 	require.NoError(t, err)
 	genesisProofBlob := b.Bytes()
 
@@ -1591,7 +1595,7 @@ func TestProofVerify(t *testing.T) {
 		genesisProofBlob, &senderParams,
 	)
 	require.NoError(t, err)
-	senderFile := proof.NewFile(proof.V0)
+	senderFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
 	_, err = senderFile.Verify(context.TODO())
 	require.NoError(t, err)
@@ -1600,7 +1604,7 @@ func TestProofVerify(t *testing.T) {
 		genesisProofBlob, &receiverParams,
 	)
 	require.NoError(t, err)
-	receiverFile := proof.NewFile(proof.V0)
+	receiverFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
 	_, err = receiverFile.Verify(context.TODO())
 	require.NoError(t, err)

@@ -321,15 +321,19 @@ func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
 	}
 
 	var prev *AssetSnapshot
-	for _, proof := range f.Proofs {
+	for idx := range f.proofs {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
 
-		proof := proof
-		result, err := proof.Verify(ctx, prev)
+		decodedProof, err := f.ProofAt(uint32(idx))
+		if err != nil {
+			return nil, err
+		}
+
+		result, err := decodedProof.Verify(ctx, prev)
 		if err != nil {
 			return nil, err
 		}
