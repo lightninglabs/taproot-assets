@@ -6,7 +6,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/constraints"
 )
@@ -57,4 +59,19 @@ func RandBytes(num int) []byte {
 	randBytes := make([]byte, num)
 	_, _ = rand.Read(randBytes)
 	return randBytes
+}
+
+func PubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
+	return keychain.KeyDescriptor{
+		PubKey: p,
+	}
+}
+
+func ComputeTaprootScript(t *testing.T, taprootKey *btcec.PublicKey) []byte {
+	script, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_1).
+		AddData(schnorr.SerializePubKey(taprootKey)).
+		Script()
+	require.NoError(t, err)
+	return script
 }

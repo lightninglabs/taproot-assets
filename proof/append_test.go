@@ -100,7 +100,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	recipientPrivKey := test.RandPrivKey(t)
 	newAsset := *genesisProof.Asset.Copy()
 	newAsset.ScriptKey = asset.NewScriptKeyBIP0086(
-		pubToKeyDesc(recipientPrivKey.PubKey()),
+		test.PubToKeyDesc(recipientPrivKey.PubKey()),
 	)
 	recipientTaprootInternalKey := test.SchnorrPubKey(t, recipientPrivKey)
 
@@ -116,7 +116,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		recipientTaprootInternalKey, tapscriptRoot[:],
 	)
-	taprootScript := computeTaprootScript(t, taprootKey)
+	taprootScript := test.ComputeTaprootScript(t, taprootKey)
 
 	chainTx := &wire.MsgTx{
 		Version: 2,
@@ -140,8 +140,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 			changeInternalKey,
 		)
 		chainTx.TxOut = append(chainTx.TxOut, &wire.TxOut{
-			PkScript: computeTaprootScript(t, changeTaprootKey),
-			Value:    333,
+			PkScript: test.ComputeTaprootScript(
+				t, changeTaprootKey,
+			),
+			Value: 333,
 		})
 	}
 
@@ -262,10 +264,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 			},
 		}},
 		TxOut: []*wire.TxOut{{
-			PkScript: computeTaprootScript(t, taproot1Key),
+			PkScript: test.ComputeTaprootScript(t, taproot1Key),
 			Value:    330,
 		}, {
-			PkScript: computeTaprootScript(t, taproot2Key),
+			PkScript: test.ComputeTaprootScript(t, taproot2Key),
 			Value:    330,
 		}},
 	}

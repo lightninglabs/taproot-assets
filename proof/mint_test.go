@@ -30,7 +30,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	taroCommitment, _, err := commitment.Mint(
 		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        pubToKeyDesc(genesisScriptKey),
+			ScriptKey:        test.PubToKeyDesc(genesisScriptKey),
 			Amount:           nil,
 			LockTime:         0,
 			RelativeLockTime: 0,
@@ -43,7 +43,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
-	taprootScript := computeTaprootScript(t, taprootKey)
+	taprootScript := test.ComputeTaprootScript(t, taprootKey)
 
 	changeInternalKey := test.RandPrivKey(t).PubKey()
 	changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
@@ -57,8 +57,10 @@ func TestNewMintingBlobs(t *testing.T) {
 			PkScript: taprootScript,
 			Value:    330,
 		}, {
-			PkScript: computeTaprootScript(t, changeTaprootKey),
-			Value:    333,
+			PkScript: test.ComputeTaprootScript(
+				t, changeTaprootKey,
+			),
+			Value: 333,
 		}},
 	}
 

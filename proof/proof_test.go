@@ -19,12 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func pubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
-	return keychain.KeyDescriptor{
-		PubKey: p,
-	}
-}
-
 func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -32,19 +26,10 @@ func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
 	genSigner := asset.NewRawKeyGenesisSigner(privKey)
 
 	familyKey, err := asset.DeriveFamilyKey(
-		genSigner, pubToKeyDesc(privKey.PubKey()), *genesis,
+		genSigner, test.PubToKeyDesc(privKey.PubKey()), *genesis,
 	)
 	require.NoError(t, err)
 	return familyKey
-}
-
-func computeTaprootScript(t *testing.T, taprootKey *btcec.PublicKey) []byte {
-	script, err := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(taprootKey)).
-		Script()
-	require.NoError(t, err)
-	return script
 }
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
@@ -121,7 +106,7 @@ func TestProofEncoding(t *testing.T) {
 	commitment, assets, err := commitment.Mint(
 		genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        pubToKeyDesc(test.RandPubKey(t)),
+			ScriptKey:        test.PubToKeyDesc(test.RandPubKey(t)),
 			Amount:           nil,
 			LockTime:         1337,
 			RelativeLockTime: 6,
@@ -233,8 +218,10 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 	assetFamilyKey := randFamilyKey(t, &assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
-			Type:             assetType,
-			ScriptKey:        pubToKeyDesc(genesisPrivKey.PubKey()),
+			Type: assetType,
+			ScriptKey: test.PubToKeyDesc(
+				genesisPrivKey.PubKey(),
+			),
 			Amount:           amt,
 			LockTime:         0,
 			RelativeLockTime: 0,
@@ -253,7 +240,7 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
-	taprootScript := computeTaprootScript(t, taprootKey)
+	taprootScript := test.ComputeTaprootScript(t, taprootKey)
 	genesisTx := &wire.MsgTx{
 		Version: 2,
 		TxIn:    []*wire.TxIn{{}},
