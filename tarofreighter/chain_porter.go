@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -936,6 +937,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				},
 			},
 			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
+			// TODO(bhandras): use clock.Clock instead.
+			TransferTime: time.Now(),
 		}
 
 		// Don't allow shutdown while we're attempting to store proofs.
