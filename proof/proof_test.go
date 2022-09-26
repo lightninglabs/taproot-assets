@@ -70,11 +70,8 @@ func computeTaprootScript(t *testing.T, taprootKey *btcec.PublicKey) []byte {
 }
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
-	require.Equal(t, expected.Proof.AssetProof.Version, actual.Proof.AssetProof.Version)
-	require.Equal(t, expected.Proof.AssetProof.AssetID, actual.Proof.AssetProof.AssetID)
-	require.Equal(t, expected.Proof.AssetProof.Proof, actual.Proof.AssetProof.Proof)
-	require.Equal(t, expected.Proof.TaroProof.Version, actual.Proof.TaroProof.Version)
-	require.Equal(t, expected.Proof.TaroProof.Proof, actual.Proof.TaroProof.Proof)
+	require.Equal(t, expected.Proof.AssetProof, actual.Proof.AssetProof)
+	require.Equal(t, expected.Proof.TaroProof, actual.Proof.TaroProof)
 	require.Equal(t, expected.TapSiblingPreimage, actual.TapSiblingPreimage)
 }
 
