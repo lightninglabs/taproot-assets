@@ -224,7 +224,7 @@ func sendAssets(ctx *cli.Context) error {
 
 	switch {
 	case ctx.String(addrName) == "":
-		_ = cli.ShowCommandHelp(ctx, "sent")
+		_ = cli.ShowCommandHelp(ctx, "send")
 		return nil
 	}
 
