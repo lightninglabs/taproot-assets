@@ -275,4 +275,38 @@ func TestGenesisProofVerification(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func BenchmarkProofEncoding(b *testing.B) {
+	amt := uint64(5000)
+
+	// Start with a minted genesis asset.
+	genesisProof, _ := genRandomGenesisWithProof(
+		b, asset.Normal, &amt,
+	)
+
+	// We create a file with 10k proofs (the same one) and test encoding/
+	// decoding performance.
+	const numProofs = 10_000
+	lotsOfProofs := make([]Proof, numProofs)
+	for i := 0; i < numProofs; i++ {
+		lotsOfProofs[i] = genesisProof
+	}
+
+	f := NewFile(V0, lotsOfProofs...)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Only this part is measured.
+	for i := 0; i < b.N; i++ {
+		var buf bytes.Buffer
+		err := f.Encode(&buf)
+		require.NoError(b, err)
+
+		f2 := NewFile(V0)
+
+		err = f2.Decode(&buf)
+		require.NoError(b, err)
+	}
+}
+
 // TODO(roasbeef): additional tests for the diff sibling preimage combinations
