@@ -213,9 +213,11 @@ func assertAssetBalances(t *harnessTest,
 	balanceReq := &tarorpc.ListBalancesRequest_AssetId{
 		AssetId: true,
 	}
-	assetIDBalances, err := t.tarod.ListBalances(ctxt, &tarorpc.ListBalancesRequest{
-		GroupBy: balanceReq,
-	})
+	assetIDBalances, err := t.tarod.ListBalances(
+		ctxt, &tarorpc.ListBalancesRequest{
+			GroupBy: balanceReq,
+		},
+	)
 	require.NoError(t.t, err)
 
 	var allAssets []*tarorpc.Asset
@@ -230,6 +232,11 @@ func assertAssetBalances(t *harnessTest,
 				require.Equal(
 					t.t, balance.Balance, rpcAsset.Amount,
 				)
+				require.Equal(
+					t.t,
+					balance.AssetGenesis.GenesisBootstrapInfo,
+					rpcAsset.AssetGenesis.GenesisBootstrapInfo,
+				)
 			}
 		}
 	}
@@ -239,9 +246,11 @@ func assertAssetBalances(t *harnessTest,
 	famBalanceReq := &tarorpc.ListBalancesRequest_FamKey{
 		FamKey: true,
 	}
-	assetFamBalances, err := t.tarod.ListBalances(ctxt, &tarorpc.ListBalancesRequest{
-		GroupBy: famBalanceReq,
-	})
+	assetFamBalances, err := t.tarod.ListBalances(
+		ctxt, &tarorpc.ListBalancesRequest{
+			GroupBy: famBalanceReq,
+		},
+	)
 	require.NoError(t.t, err)
 
 	require.Equal(
@@ -254,6 +263,11 @@ func assertAssetBalances(t *harnessTest,
 			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
 				require.Equal(
 					t.t, balance.Balance, rpcAsset.Amount,
+				)
+				require.Equal(
+					t.t,
+					balance.AssetGenesis.GenesisBootstrapInfo,
+					rpcAsset.AssetGenesis.GenesisBootstrapInfo,
 				)
 			}
 		}

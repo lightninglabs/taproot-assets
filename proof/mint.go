@@ -138,14 +138,6 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 // coreProof creates the basic proof template that contains only fields
 // dependent on anchor transaction confirmation.
 func coreProof(params *BaseProofParams) (*Proof, error) {
-	// If we don't have a block mined yet, we just return an empty proof for
-	// now, this will be updated later when we get a confirmation of the TX.
-	if params.Block == nil || len(params.Block.Transactions) == 0 {
-		return &Proof{
-			AnchorTx: *params.Tx,
-		}, nil
-	}
-
 	merkleProof, err := NewTxMerkleProof(
 		params.Block.Transactions, params.TxIndex,
 	)

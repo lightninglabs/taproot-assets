@@ -323,19 +323,19 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 
 	rpcAssets := make([]*tarorpc.Asset, len(assets))
-	for i, asset := range assets {
-		assetID := asset.Genesis.ID()
+	for i, a := range assets {
+		assetID := a.Genesis.ID()
 
 		var bootstrapInfoBuf bytes.Buffer
-		if err := asset.Genesis.Encode(&bootstrapInfoBuf); err != nil {
+		if err := a.Genesis.Encode(&bootstrapInfoBuf); err != nil {
 			return nil, fmt.Errorf("unable to encode genesis: %w",
 				err)
 		}
 
 		var anchorTxBytes []byte
-		if asset.AnchorTx != nil {
+		if a.AnchorTx != nil {
 			var anchorTxBuf bytes.Buffer
-			err := asset.AnchorTx.Serialize(&anchorTxBuf)
+			err := a.AnchorTx.Serialize(&anchorTxBuf)
 			if err != nil {
 				return nil, fmt.Errorf("unable to serialize "+
 					"anchor tx: %w", err)
@@ -343,35 +343,35 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 			anchorTxBytes = anchorTxBuf.Bytes()
 		}
 		rpcAssets[i] = &tarorpc.Asset{
-			Version: int32(asset.Version),
+			Version: int32(a.Version),
 			AssetGenesis: &tarorpc.GenesisInfo{
-				GenesisPoint:         asset.Genesis.FirstPrevOut.String(),
-				Name:                 asset.Genesis.Tag,
-				Meta:                 asset.Genesis.Metadata,
+				GenesisPoint:         a.Genesis.FirstPrevOut.String(),
+				Name:                 a.Genesis.Tag,
+				Meta:                 a.Genesis.Metadata,
 				AssetId:              assetID[:],
-				OutputIndex:          asset.Genesis.OutputIndex,
+				OutputIndex:          a.Genesis.OutputIndex,
 				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
 			},
-			AssetType:        tarorpc.AssetType(asset.Type),
-			Amount:           int64(asset.Amount),
-			LockTime:         int32(asset.LockTime),
-			RelativeLockTime: int32(asset.RelativeLockTime),
-			ScriptVersion:    int32(asset.ScriptVersion),
-			ScriptKey:        asset.ScriptKey.PubKey.SerializeCompressed(),
+			AssetType:        tarorpc.AssetType(a.Type),
+			Amount:           int64(a.Amount),
+			LockTime:         int32(a.LockTime),
+			RelativeLockTime: int32(a.RelativeLockTime),
+			ScriptVersion:    int32(a.ScriptVersion),
+			ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
 			ChainAnchor: &tarorpc.AnchorInfo{
 				AnchorTx:        anchorTxBytes,
-				AnchorTxid:      asset.AnchorTxid[:],
-				AnchorBlockHash: asset.AnchorBlockHash[:],
-				AnchorOutpoint:  asset.AnchorOutpoint.String(),
-				InternalKey:     asset.AnchorInternalKey.SerializeCompressed(),
+				AnchorTxid:      a.AnchorTxid[:],
+				AnchorBlockHash: a.AnchorBlockHash[:],
+				AnchorOutpoint:  a.AnchorOutpoint.String(),
+				InternalKey:     a.AnchorInternalKey.SerializeCompressed(),
 			},
 		}
 
-		if asset.FamilyKey != nil {
+		if a.FamilyKey != nil {
 			rpcAssets[i].AssetFamily = &tarorpc.AssetFamily{
-				RawFamilyKey:     asset.FamilyKey.RawKey.PubKey.SerializeCompressed(),
-				TweakedFamilyKey: asset.FamilyKey.FamKey.SerializeCompressed(),
-				AssetIdSig:       asset.FamilyKey.Sig.Serialize(),
+				RawFamilyKey:     a.FamilyKey.RawKey.PubKey.SerializeCompressed(),
+				TweakedFamilyKey: a.FamilyKey.FamKey.SerializeCompressed(),
+				AssetIdSig:       a.FamilyKey.Sig.Serialize(),
 			}
 		}
 	}
@@ -395,13 +395,28 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 
 	for _, balance := range balances {
 		assetIDStr := hex.EncodeToString(balance.ID[:])
+
+		gen := asset.Genesis{
+			FirstPrevOut: balance.GenesisPoint,
+			Tag:          balance.Tag,
+			Metadata:     balance.Meta,
+			OutputIndex:  balance.OutputIndex,
+			Type:         balance.Type,
+		}
+		var bootstrapInfoBuf bytes.Buffer
+		if err := gen.Encode(&bootstrapInfoBuf); err != nil {
+			return nil, fmt.Errorf("unable to encode genesis: %w",
+				err)
+		}
+
 		resp.AssetBalances[assetIDStr] = &tarorpc.AssetBalance{
 			AssetGenesis: &tarorpc.GenesisInfo{
-				Version:      int32(balance.Version),
-				GenesisPoint: balance.GenesisPoint.String(),
-				Name:         balance.Tag,
-				Meta:         balance.Meta,
-				AssetId:      balance.ID[:],
+				Version:              int32(balance.Version),
+				GenesisPoint:         balance.GenesisPoint.String(),
+				Name:                 balance.Tag,
+				Meta:                 balance.Meta,
+				AssetId:              balance.ID[:],
+				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
 			},
 			AssetType: tarorpc.AssetType(balance.Type),
 			Balance:   int64(balance.Balance),

@@ -446,7 +446,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
-	if addrMatchesAsset(event.Addr, &lastProof.Asset) {
+	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
 		return c.setReceiveCompleted(event, lastProof)
 	}
 
@@ -477,7 +477,7 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
-		if addrMatchesAsset(event.Addr, &lastProof.Asset) {
+		if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
 			// Importing a proof already creates the asset in the
 			// database. Therefore, all we need to do is update the
 			// state of the address event to mark it as completed
@@ -532,11 +532,19 @@ func isWalletTaprootOutput(out *lnrpc.OutputDetail) bool {
 	return out.IsOurAddress && out.OutputType == p2trType
 }
 
-// addrMatchesAsset returns true if the given asset state (ID, family key,
+// AddrMatchesAsset returns true if the given asset state (ID, family key,
 // script key) matches the state represented in the address.
-func addrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
-	famKeyNil := (addr.FamilyKey == nil) && (a.FamilyKey == nil)
-	famKeyEqual := famKeyNil ||
+func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
+	famKeyBothNil := (addr.FamilyKey == nil) && (a.FamilyKey == nil)
+	famKeyNoneNil := (addr.FamilyKey != nil) && (a.FamilyKey != nil)
+
+	// If one of the family keys is not nil while the other one is, then we
+	// can already exit here as we know things won't match up further.
+	if !famKeyBothNil && !famKeyNoneNil {
+		return false
+	}
+
+	famKeyEqual := famKeyBothNil ||
 		addr.FamilyKey.IsEqual(&a.FamilyKey.FamKey)
 
 	return addr.ID() == a.ID() && famKeyEqual &&

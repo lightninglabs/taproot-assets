@@ -1,9 +1,10 @@
-version: "1"
-packages:
-  - name: "sqlite"
-    path: "tarodb/sqlite"
-    queries: "tarodb/sqlite/queries"
+version: "2"
+sql:
+  - engine: "postgresql"
     schema: "tarodb/sqlite/migrations"
-    emit_interface: true
-    engine: "postgresql" 
-      #engine: "_lemon" # Code name for the sqlite3 implementation.
+    queries: "tarodb/sqlite/queries"
+    gen:
+      go:
+        out: tarodb/sqlite
+        package: sqlite
+        emit_interface: true
