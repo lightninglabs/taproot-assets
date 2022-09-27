@@ -28,10 +28,17 @@ var (
 	evenTxBlockHexFileName = filepath.Join(
 		testDataFileName, "12-tx-block.hex",
 	)
+
+	// Block 2348332 with 70 transactions on bitcoin testnet.
+	testnetTxBlockHexFileName = filepath.Join(
+		testDataFileName, "70-tx-block.hex",
+	)
 )
 
-func readTestData(t *testing.T) (*wire.MsgBlock, *wire.MsgBlock) {
-	var oddTxBlock, evenTxBlock wire.MsgBlock
+func readTestData(t *testing.T) []wire.MsgBlock {
+	var oddTxBlock, evenTxBlock, testnetTxBlock wire.MsgBlock
+
+	var testBlocks []wire.MsgBlock
 
 	oddTxBlockHex, err := ioutil.ReadFile(oddTxBlockHexFileName)
 	require.NoError(t, err)
@@ -44,6 +51,8 @@ func readTestData(t *testing.T) (*wire.MsgBlock, *wire.MsgBlock) {
 	err = oddTxBlock.Deserialize(bytes.NewReader(oddTxBlockBytes))
 	require.NoError(t, err)
 
+	testBlocks = append(testBlocks, oddTxBlock)
+
 	evenTxBlockHex, err := ioutil.ReadFile(evenTxBlockHexFileName)
 	require.NoError(t, err)
 
@@ -55,19 +64,32 @@ func readTestData(t *testing.T) (*wire.MsgBlock, *wire.MsgBlock) {
 	err = evenTxBlock.Deserialize(bytes.NewReader(evenTxBlockBytes))
 	require.NoError(t, err)
 
-	return &oddTxBlock, &evenTxBlock
+	testBlocks = append(testBlocks, evenTxBlock)
+
+	testnetTxBlockHex, err := ioutil.ReadFile(testnetTxBlockHexFileName)
+	require.NoError(t, err)
+
+	testnetTxBlockBytes, err := hex.DecodeString(
+		strings.Trim(string(testnetTxBlockHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	err = testnetTxBlock.Deserialize(bytes.NewReader(testnetTxBlockBytes))
+	require.NoError(t, err)
+
+	testBlocks = append(testBlocks, testnetTxBlock)
+
+	return testBlocks
 }
 
 func TestTxMerkleProof(t *testing.T) {
 	t.Parallel()
 
-	oddTxBlock, evenTxBlock := readTestData(t)
-
+	testBlocks := readTestData(t)
 	blocks := []wire.MsgBlock{
 		*chaincfg.MainNetParams.GenesisBlock, // 1 transaction
-		*oddTxBlock,                          // 9 transactions
-		*evenTxBlock,                         // 12 transactions
 	}
+	blocks = append(blocks, testBlocks...)
 	for _, block := range blocks {
 		for i, tx := range block.Transactions {
 			proof, err := NewTxMerkleProof(block.Transactions, i)
