@@ -437,8 +437,6 @@ func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
 
 		updatedPkg, err := p.stateStep(*currentPkg)
 		if err != nil {
-			// return fmt.Errorf("unable to advance "+
-			// 	"state machine: %w", err)
 			return nil, err
 		}
 

@@ -578,6 +578,8 @@ func TestSelectCommitment(t *testing.T) {
 		constraints tarofreighter.CommitmentConstraints
 
 		numAssets int
+
+		err error
 	}{
 		// Only one asset that matches the constraints, should be the
 		// only one returned.
@@ -619,6 +621,7 @@ func TestSelectCommitment(t *testing.T) {
 				MinAmt: 10,
 			},
 			numAssets: 0,
+			err:       tarofreighter.ErrNoPossibleAssetInputs,
 		},
 
 		// Asset ID not found on disk, no matches should be returned.
@@ -639,6 +642,7 @@ func TestSelectCommitment(t *testing.T) {
 				MinAmt: 10,
 			},
 			numAssets: 0,
+			err:       tarofreighter.ErrNoPossibleAssetInputs,
 		},
 	}
 
@@ -658,7 +662,7 @@ func TestSelectCommitment(t *testing.T) {
 			selectedAssets, err := assetsStore.SelectCommitment(
 				ctx, test.constraints,
 			)
-			require.NoError(t, err)
+			require.ErrorIs(t, test.err, err)
 
 			// The number of selected assets should match up
 			// properly.
