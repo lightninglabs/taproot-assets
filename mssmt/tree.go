@@ -35,6 +35,7 @@ func init() {
 		// read/populate this value causing a race condition.
 		branch := NewBranch(EmptyTree[i+1], EmptyTree[i+1])
 		branch.NodeHash()
+		branch.NodeSum()
 
 		EmptyTree[i] = branch
 	}
