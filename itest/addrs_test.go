@@ -135,10 +135,13 @@ func testAddresses(t *harnessTest) {
 
 		var proofResp *tarorpc.ProofFile
 		waitErr := wait.NoError(func() error {
-			resp, err := t.tarod.ExportProof(ctxb, &tarorpc.ExportProofRequest{
-				AssetId:   assetGen.AssetId,
-				ScriptKey: receiverAddr.ScriptKey,
-			})
+			resp, err := t.tarod.ExportProof(
+				ctxb,
+				&tarorpc.ExportProofRequest{
+					AssetId:   assetGen.AssetId,
+					ScriptKey: receiverAddr.ScriptKey,
+				},
+			)
 			if err != nil {
 				return err
 			}
@@ -148,10 +151,13 @@ func testAddresses(t *harnessTest) {
 		}, defaultWaitTimeout)
 		require.NoError(t.t, waitErr)
 
-		_, err = secondTarod.ImportProof(ctxb, &tarorpc.ImportProofRequest{
-			ProofFile:    proofResp.RawProof,
-			GenesisPoint: assetGen.GenesisPoint,
-		})
+		_, err = secondTarod.ImportProof(
+			ctxb,
+			&tarorpc.ImportProofRequest{
+				ProofFile:    proofResp.RawProof,
+				GenesisPoint: assetGen.GenesisPoint,
+			},
+		)
 		require.NoError(t.t, err)
 	}
 
@@ -177,6 +183,24 @@ func testAddresses(t *harnessTest) {
 
 		return nil
 	}, defaultWaitTimeout/2)
+	require.NoError(t.t, err)
+
+	// Now sanity check that we can actually list the transfer.
+	err = wait.NoError(func() error {
+		resp, err := t.tarod.ListTransfers(
+			ctxt, &tarorpc.ListTransfersRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, resp.Transfers, len(rpcAssets))
+		require.Len(t.t, resp.Transfers[0].AssetSpendDeltas, 1)
+		delta := resp.Transfers[0].AssetSpendDeltas[0]
+		require.Equal(t.t,
+			rpcAssets[0].AssetGenesis.AssetId, delta.AssetId,
+		)
+		require.Equal(t.t, int64(1), delta.NewAmt)
+
+		return nil
+	}, defaultTimeout/2)
 	require.NoError(t.t, err)
 }
 
