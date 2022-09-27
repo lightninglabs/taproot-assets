@@ -1067,6 +1067,10 @@ func (a *AssetStore) SelectCommitment(
 			return err
 		}
 
+		if len(matchingAssets) == 0 {
+			return tarofreighter.ErrNoPossibleAssetInputs
+		}
+
 		// At this point, we have the set of assets that match our
 		// filter query, but we also need to be able to construct the
 		// full Taro commitment for each asset so it can be used as an

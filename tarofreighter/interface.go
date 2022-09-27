@@ -2,6 +2,7 @@ package tarofreighter
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -65,12 +66,22 @@ type AnchoredCommitment struct {
 	Asset *asset.Asset
 }
 
+var (
+	// ErrNoPossibleAssetInputs is returned when an instance of a
+	// CommitmentSelector cannot satisfy the coin selection constraints.
+	ErrNoPossibleAssetInputs = fmt.Errorf("unable to satisfy coin " +
+		"selection constraints")
+)
+
 // CommitmentSelector attracts over the coin selection process needed to be
 // able to execute moving taro assets on chain.
 type CommitmentSelector interface {
 	// SelectCommitment takes the set of commitment constraints and returns
 	// an AnchoredCommitment that returns all the information needed to use
 	// the commitment as an input to an on chain taro transaction.
+	//
+	// If coin selection cannot be completed, then ErrNoPossibleAssetInputs
+	// should be returned.
 	SelectCommitment(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
 }
