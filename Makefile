@@ -147,6 +147,22 @@ itest-only:
 	rm -rf itest/regtest; date
 	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
 
+# =============
+# FLAKE HUNTING
+# =============
+
+flakehunter: build-itest
+	@$(call print, "Flake hunting ${backend} integration tests.")
+	while [ $$? -eq 0 ]; do make itest-only; done
+
+flake-unit:
+	@$(call print, "Flake hunting unit tests.")
+	while [ $$? -eq 0 ]; do '$(GOLIST) | $(XARGS) env $(GOTEST) -test.timeout=20m -count=1'; done
+
+flake-unit-race:
+	@$(call print, "Flake hunting races in unit tests.")
+	while [ $$? -eq 0 ]; do env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOLIST) | $(XARGS) env $(GOTEST) -race -test.timeout=20m -count=1; done
+
 # =========
 # UTILITIES
 # =========
