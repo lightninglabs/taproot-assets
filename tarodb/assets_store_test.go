@@ -740,6 +740,12 @@ func TestAssetExportLog(t *testing.T) {
 	senderBlob := bytes.Repeat([]byte{0x01}, 100)
 	receiverBlob := bytes.Repeat([]byte{0x02}, 100)
 
+	newWitness := asset.Witness{
+		PrevID:          &asset.PrevID{},
+		TxWitness:       [][]byte{[]byte{0x01}, []byte{0x02}},
+		SplitCommitment: nil,
+	}
+
 	// With the assets inserted, we'll now construct the struct we'll used
 	// to commit a new spend on disk.
 	anchorTxHash := newAnchorTx.TxHash()
@@ -773,6 +779,7 @@ func TestAssetExportLog(t *testing.T) {
 				SplitCommitmentRoot: mssmt.NewComputedNode(
 					newRootHash, newRootValue,
 				),
+				WitnessData: []asset.Witness{newWitness},
 			},
 		},
 		SenderAssetProof:   senderBlob,

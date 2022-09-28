@@ -1562,6 +1562,17 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 				var splitRootHash mssmt.NodeHash
 				copy(splitRootHash[:], delta.SplitCommitmentRootHash)
 
+				var witnessData []asset.Witness
+				err = asset.WitnessDecoder(
+					bytes.NewReader(delta.SerializedWitnesses),
+					&witnessData, &[8]byte{},
+					uint64(len(delta.SerializedWitnesses)),
+				)
+				if err != nil {
+					return fmt.Errorf("unable to decode "+
+						"witness: %v", err)
+				}
+
 				spendDeltas[i] = tarofreighter.AssetSpendDelta{
 					OldScriptKey: *oldScriptKey,
 					NewAmt:       uint64(delta.NewAmt),
@@ -1584,7 +1595,7 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 						splitRootHash,
 						uint64(delta.SplitCommitmentRootValue.Int64),
 					),
-					WitnessData: nil,
+					WitnessData: witnessData,
 				}
 			}
 
