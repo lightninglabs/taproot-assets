@@ -435,16 +435,19 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	p2trAddr, err := c.cfg.WalletAnchor.ImportTaprootOutput(
 		ctxt, &addr.TaprootOutputKey,
 	)
-	if err != nil {
-		// This shouldn't happen unless we shut down immediately after
-		// importing an address into the wallet and before updating the
-		// database to mark the Taro address as being managed.
-		if strings.Contains(err.Error(), "ErrDuplicateAddress") {
-			log.Warnf("Taproot addr %v was already added to "+
-				"wallet before, skipping", p2trAddr.String())
-			return nil
-		}
+	switch {
+	case err == nil:
+		log.Warnf("Taproot addr %v was already added to "+
+			"wallet before, skipping", p2trAddr.String())
+		break
 
+	// On restart, we'll get an error that the output has already
+	// been added to the wallet, so we'll catch this now and move
+	// along if so.
+	case strings.Contains(err.Error(), "already exists"):
+		break
+
+	case err != nil:
 		return err
 	}
 
