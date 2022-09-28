@@ -5,6 +5,7 @@ The Taro Daemon `tarod` implements the [Taro protocol](https://github.com/Roasbe
 ## Features:
 
 - Mint assets
+- Send and receive assets
 - Export and import Taro proofs
 - Create and manage profiles
 
@@ -20,7 +21,7 @@ To transact assets, the witnesses in the prior Taro transaction are recommitted 
 
 ## Architecture:
 
-Taro is implemented as the Taro Daemon `tarod` and the Taro Command Line Interface `tarocli`. Additionally tarod exposes a GRPC interface to allow for a direct integration into applications.
+Taro is implemented as the Taro Daemon `tarod` and the Taro Command Line Interface `tarocli`. Additionally, `tarod` exposes a GRPC interface to allow for a direct integration into applications.
 
 Taro leverages several LND features including the Taproot wallet and signing capabilities. These facilities are accessed through LND’s GRPC.
 
@@ -32,7 +33,7 @@ Custody of Taro assets is segmented across LND and Taro to maximize security. LN
 
 ## Prerequisites:
 
-Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest master branch) to be synced and running. RPC connections need to be accepted and a valid macaroon needs to be present.
+Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest `master` branch) to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
  
 ## Installation:
 
@@ -52,6 +53,7 @@ Run Taro with the command `tarod`. Specify how Taro can reach LND and what netwo
 
 
 ```shell
+# Ensure lnd and its bitcoind/btcd backend are running first.
 🍠 tarod --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.macaroonpath=~/.lnd/data/chain/bitcoin/testnet/admin.macaroon --lnd.tlspath=~/.lnd/tls.cert
 ```
 
@@ -73,11 +75,23 @@ Use `tarocli` to interact with `tarod`
 🍠 tarocli assets list
 ```
 
+```shell
+🍠 tarocli addrs new --genesis_bootstrap_info bab08407[...]129bf6d0 --amt 21
+```
+
+```shell
+🍠 tarocli assets send --addr tarotb1q[...]tywpre3a
+```
+
 ## Development
 
 ### API
 
-Taro exposes a GRPC and a REST API. Connections are encrypted with TLS and authenticated using macaroons.
+Taro exposes a GRPC (port 10029) and a REST (port 8089) API. Connections are encrypted with TLS and authenticated using macaroons.
+
+### Mainnet
+
+The current codebase does not support the Bitcoin `mainnet`. Patching the code to run on `mainnet` will very likely lead to loss of funds (both the minted assets and the BTC UTXO) as things will break or change in the future.
 
 ## Submit feature requests
 
