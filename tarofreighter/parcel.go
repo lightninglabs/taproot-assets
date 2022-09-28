@@ -1,6 +1,8 @@
 package tarofreighter
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -11,7 +13,9 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // SendState is an enum that describes the current state of a pending outbound
@@ -186,6 +190,10 @@ type sendPackage struct {
 	// OutboundPkg is the on-disk level information that tracks the pending
 	// transfer.
 	OutboundPkg *OutboundParcelDelta
+
+	// TargetFeeRate is the target fee rate for this send expressed in
+	// sat/kw.
+	TargetFeeRate chainfee.SatPerKWeight
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input
@@ -250,6 +258,77 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 			PreviousOutPoint: s.InputAsset.AnchorPoint,
 		},
 	)
+
+	// Now that we've added an extra input, we'll want to re-calculate the
+	// total weight of the transaction, so we can ensure we're paying
+	// enough in fees.
+	var (
+		weightEstimator     input.TxWeightEstimator
+		inputAmt, outputAmt int64
+	)
+	for _, pIn := range s.SendPkt.Inputs {
+		inputAmt += pIn.WitnessUtxo.Value
+
+		inputPkScript := pIn.WitnessUtxo.PkScript
+		switch {
+		case txscript.IsPayToWitnessPubKeyHash(inputPkScript):
+			weightEstimator.AddP2WKHInput()
+
+		case txscript.IsPayToScriptHash(inputPkScript):
+			weightEstimator.AddNestedP2WKHInput()
+
+		case txscript.IsPayToTaproot(inputPkScript):
+			weightEstimator.AddTaprootKeySpendInput(
+				txscript.SigHashDefault,
+			)
+		default:
+			return fmt.Errorf("unknown pkScript: %x",
+				inputPkScript)
+		}
+	}
+	for _, txOut := range s.SendPkt.UnsignedTx.TxOut {
+		outputAmt += txOut.Value
+
+		addrType, _, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, s.ReceiverAddr.ChainParams.Params,
+		)
+		if err != nil {
+			return err
+		}
+
+		switch addrType {
+		case txscript.WitnessV0PubKeyHashTy:
+			weightEstimator.AddP2WKHOutput()
+
+		case txscript.WitnessV0ScriptHashTy:
+			weightEstimator.AddP2WSHOutput()
+
+		case txscript.WitnessV1TaprootTy:
+			weightEstimator.AddP2TROutput()
+		default:
+			return fmt.Errorf("unknwon pkscript: %x",
+				txOut.PkScript)
+		}
+	}
+
+	// With this, we can now calculate the total fee we need to pay. We'll
+	// also make sure to round up the required fee to the floor.
+	totalWeight := int64(weightEstimator.Weight())
+	requiredFee := s.TargetFeeRate.FeeForWeight(totalWeight)
+
+	// Given the current fee (which doesn't account for our input) and the
+	// total fee we want to pay, we'll adjust the wallet's change output
+	// accordingly.
+	//
+	// Earlier in adjustFundedPsbt we set wallet's change output to be the
+	// very last output in the transaction.
+	lastIdx := len(s.SendPkt.UnsignedTx.TxOut) - 1
+	currentFee := inputAmt - outputAmt
+	feeDelta := int64(requiredFee) - currentFee
+	s.SendPkt.UnsignedTx.TxOut[lastIdx].Value += feeDelta
+
+	log.Infof("Adjusting send pkt by factor of %v from %v sats to %v sats",
+		feeDelta, currentFee, requiredFee)
 
 	return nil
 }

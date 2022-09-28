@@ -484,9 +484,6 @@ func adjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32,
 	// Since we're adding the input of the anchor output of our prior asset
 	// later, we need to add this value here, so we don't lose the amount
 	// to fees.
-	//
-	// TODO(roasbeef): double check this, also fix fee estimation generally
-	// here
 	pkt.UnsignedTx.TxOut[maxOutputIndex].Value += anchorInputValue
 }
 
@@ -758,6 +755,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			spew.Sdump(fundedSendPacket.Pkt))
 
 		currentPkg.SendPkt = fundedSendPacket.Pkt
+		currentPkg.TargetFeeRate = feeRate
 
 		currentPkg.SendState = SendStatePsbtSign
 
