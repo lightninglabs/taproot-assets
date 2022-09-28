@@ -74,6 +74,8 @@ func TestTreeDeletion(t *testing.T) {
 	// Prepare some leaves and compacted leaves.
 	l1 := mssmt.NewLeafNode([]byte{1, 2, 3}, 1)
 	l2 := mssmt.NewLeafNode([]byte{4, 5, 6}, 2)
+	_ = l1.NodeHash()
+	_ = l2.NodeHash()
 
 	k1 := [32]byte{1}
 	k2 := [32]byte{2}
@@ -85,6 +87,8 @@ func TestTreeDeletion(t *testing.T) {
 
 	b1 := mssmt.NewBranch(cl2, mssmt.EmptyTree[101])
 	b2 := mssmt.NewBranch(mssmt.EmptyTree[101], cl2)
+	_ = b1.NodeHash()
+	_ = b2.NodeHash()
 	tests := []struct {
 		name   string
 		root   int
@@ -245,6 +249,10 @@ func TestTreeInsertion(t *testing.T) {
 	l2 := mssmt.NewLeafNode([]byte{4, 5, 6}, 2)
 	l3 := mssmt.NewLeafNode([]byte{7, 8, 9}, 3)
 	l4 := mssmt.NewLeafNode([]byte{10, 11, 12}, 4)
+	_ = l1.NodeHash()
+	_ = l2.NodeHash()
+	_ = l3.NodeHash()
+	_ = l4.NodeHash()
 
 	// Compacted leaves are scattered in the tree.
 	k1 := [32]byte{1}
@@ -260,6 +268,9 @@ func TestTreeInsertion(t *testing.T) {
 	branchCL1CL2 := mssmt.NewBranch(cl1, cl2)
 	branchCL1CL2CL3 := mssmt.NewBranch(branchCL1CL2, cl3)
 	branchCL4EB := mssmt.NewBranch(cl4, mssmt.EmptyTree[99])
+	_ = branchCL1CL2.NodeHash()
+	_ = branchCL1CL2CL3.NodeHash()
+	_ = branchCL4EB.NodeHash()
 
 	// These branches are on level 255.
 	el := mssmt.EmptyTree[256]
@@ -267,10 +278,16 @@ func TestTreeInsertion(t *testing.T) {
 	branchL3L4 := mssmt.NewBranch(l3, l4)
 	branchL1EL := mssmt.NewBranch(l1, el)
 	branchELL1 := mssmt.NewBranch(el, l1)
+	_ = branchL1L2.NodeHash()
+	_ = branchL3L4.NodeHash()
+	_ = branchL1EL.NodeHash()
+	_ = branchELL1.NodeHash()
 
 	// These branches are on level 254.
 	branchL1L2EB := mssmt.NewBranch(branchL1L2, mssmt.EmptyTree[255])
 	branchEBL3L4 := mssmt.NewBranch(mssmt.EmptyTree[255], branchL3L4)
+	_ = branchL1L2EB.NodeHash()
+	_ = branchEBL3L4.NodeHash()
 
 	tests := []struct {
 		name            string
