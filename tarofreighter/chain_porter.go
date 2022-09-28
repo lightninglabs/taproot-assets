@@ -949,11 +949,21 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// it for spends and also takes account of the BTC we used in
 		// the transfer.
 		_, err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
-		if err != nil {
+		switch {
+		case err == nil:
+			break
+
+		// On restart, we'll get an error that the output has already
+		// been added to the wallet, so we'll catch this now and move
+		// along if so.
+		case strings.Contains(err.Error(), "already exists"):
+			break
+
+		case err != nil:
 			return nil, err
 		}
 
-		log.Infof("Broadcasting new transfer tx, taro_anchor_output=%x",
+		log.Infof("Broadcasting new transfer tx, taro_anchor_output=%v",
 			spew.Sdump(anchorOutput))
 
 		// With the public key imported, we can now broadcast to the
