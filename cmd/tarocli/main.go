@@ -236,7 +236,7 @@ func main() {
 		cli.StringFlag{
 			Name:  "rpcserver",
 			Value: defaultRPCHostPort,
-			Usage: "The host:port of LN daemon.",
+			Usage: "The host:port of taro daemon.",
 		},
 		cli.StringFlag{
 			Name:      "tarodir",

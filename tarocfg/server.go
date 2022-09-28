@@ -77,6 +77,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		addrBookDB, &taroChainParams,
 	)
 
+	cfgLogger.Infof("Attempting to establish connection to lnd...")
 	lndConn, err := getLnd(
 		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
 	)
@@ -88,6 +89,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	keyRing := taro.NewLndRpcKeyRing(lndServices)
 	walletAnchor := taro.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := taro.NewLndRpcChainBridge(lndServices)
+
+	cfgLogger.Infof("lnd connection initialized")
 
 	addrBook := address.NewBook(address.BookConfig{
 		Store:        tarodbAddrBook,
@@ -106,6 +109,20 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		&proof.BaseVerifier{}, tarodb.DefaultStoreTimeout,
 		assetStore, proofFileStore,
 	)
+
+	var hashMailCourier proof.Courier[address.Taro]
+	if cfg.HashMailAddr != "" {
+		hashMailBox, err := proof.NewHashMailBox(cfg.HashMailAddr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make "+
+				"mailbox: %v", err)
+		}
+		hashMailCourier, err = proof.NewHashMailCourier(hashMailBox)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make hashmail "+
+				"courier: %v", err)
+		}
+	}
 
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
@@ -132,6 +149,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				AddrBook:     addrBook,
 				ProofArchive: proofArchive,
 				ErrChan:      mainErrChan,
+				ProofCourier: hashMailCourier,
 			},
 		),
 		AddrBook:     addrBook,
@@ -146,6 +164,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			KeyRing:      keyRing,
 			ChainParams:  &taroChainParams,
 			AssetProofs:  proofFileStore,
+			ProofCourier: hashMailCourier,
 		}),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,

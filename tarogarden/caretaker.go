@@ -3,6 +3,7 @@ package tarogarden
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -534,7 +535,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel = b.WithCtxQuit()
 		defer cancel()
 		_, err = b.cfg.Wallet.ImportTaprootOutput(ctx, mintingOutputKey)
-		if err != nil {
+		switch {
+		case err == nil:
+			break
+
+		// On restart, we'll get an error that the output has already
+		// been added to the wallet, so we'll catch this now and move
+		// along if so.
+		case strings.Contains(err.Error(), "already exists"):
+			break
+
+		case err != nil:
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 

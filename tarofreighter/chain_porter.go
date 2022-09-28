@@ -58,6 +58,10 @@ type ChainPorterConfig struct {
 	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
 
+	// ProofCourier is used to optionally deliver the final proof to the
+	// user using an asynchronous transport mechanism.
+	ProofCourier proof.Courier[address.Taro]
+
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -102,7 +106,7 @@ func (p *ChainPorter) Start() error {
 		// Before we re-launch the main goroutine, we'll make sure to
 		// restart any other incomplete sends that may or may not have
 		// had the transaction broadcaster.
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 		pendingParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
 		if err != nil {
@@ -171,6 +175,8 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 // TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
 //   - could move final conf into the state machien itself
 func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
+	defer p.Wg.Done()
+
 	log.Infof("Attempting to resume delivery to anchor_point=%v",
 		pkg.NewAnchorPoint)
 
@@ -247,7 +253,7 @@ func (p *ChainPorter) taroPorter() {
 func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	defer p.Wg.Done()
 
-	ctx, cancel := p.WithCtxQuit()
+	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
 	mkErr := func(format string, args ...interface{}) error {
@@ -269,7 +275,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		return
 	}
 
-	confCtx, confCancel := p.WithCtxQuit()
+	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
 		confCtx, &txHash, pkg.AnchorTx.TxOut[0].PkScript, 1,
 		currentHeight, true,
@@ -382,13 +388,14 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		p.cfg.ErrChan <- mkErr("error encoding receiver proof: %v", err)
 		return
 	}
-	err = p.cfg.AssetProofs.ImportProofs(ctx, &proof.AnnotatedProof{
+	receiverProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
 			AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
 			ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
 		},
 		Blob: updatedReceiverProof.Bytes(),
-	})
+	}
+	err = p.cfg.AssetProofs.ImportProofs(ctx, receiverProof)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)
 		return
@@ -396,6 +403,35 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 
 	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
 		len(senderProof.Proofs))
+
+	// If we have a proof courier instance active, then we'll launch a new
+	// goroutine to deliver the proof to the receiver.
+	//
+	// TODO(roasbeef): move earlier?
+	if p.cfg.ProofCourier != nil {
+		p.Wg.Add(1)
+		go func() {
+			defer p.Wg.Done()
+
+			// TODO(roasbeef): should actually also serialize the
+			// addr of the remote party here
+			addr := address.Taro{
+				Genesis:   receiverProofSuffix.Asset.Genesis,
+				ScriptKey: receiverProof.ScriptKey,
+				Amount:    receiverProofSuffix.Asset.Amount,
+			}
+			ctx, cancel := p.WithCtxQuitNoTimeout()
+			defer cancel()
+			err := p.cfg.ProofCourier.DeliverProof(
+				ctx, addr, receiverProof,
+			)
+			if err != nil {
+				log.Errorf("unable to deliver proof: %v", err)
+			}
+		}()
+	}
+
+	log.Infof("Marking parcel (txid=%v) as confirmed!", txHash)
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
@@ -512,7 +548,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// we'll perform coin selection to see if the send request is even
 	// possible at all.
 	case SendStateCommitmentSelect:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// We need to find a commitment that has enough assets to
@@ -565,7 +601,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Now that we have our set of inputs selected, we'll validate them to
 	// make sure that they're enough to satisfy our send request.
 	case SendStateValidatedInput:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// We'll validate the selected input and commitment. From this
@@ -709,7 +745,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// our initial skeleton PSBT packet to send off to the wallet for
 	// funding.
 	case SendStatePsbtFund:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// Construct our template PSBT to commits to the set of dummy
@@ -784,7 +820,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return &currentPkg, err
 		}
 
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// With all the input and output information in the packet, we
@@ -923,7 +959,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// In this terminal state, we'll broadcast the transaction to the
 	// network, then launch a goroutine to notify us on confirmation.
 	case SendStateBroadcast:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// We'll need to extract the output public key from the tx out
@@ -949,17 +985,27 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// it for spends and also takes account of the BTC we used in
 		// the transfer.
 		_, err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
-		if err != nil {
+		switch {
+		case err == nil:
+			break
+
+		// On restart, we'll get an error that the output has already
+		// been added to the wallet, so we'll catch this now and move
+		// along if so.
+		case strings.Contains(err.Error(), "already exists"):
+			break
+
+		case err != nil:
 			return nil, err
 		}
 
-		log.Infof("Broadcasting new transfer tx, taro_anchor_output=%x",
+		log.Infof("Broadcasting new transfer tx, taro_anchor_output=%v",
 			spew.Sdump(anchorOutput))
 
 		// With the public key imported, we can now broadcast to the
 		// network.
 		err = p.cfg.ChainBridge.PublishTransaction(
-			ctx, currentPkg.TransferTx,
+			ctx, currentPkg.OutboundPkg.AnchorTx,
 		)
 		if err != nil {
 			return nil, err
