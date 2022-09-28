@@ -232,7 +232,7 @@ func sendAssets(ctx *cli.Context) error {
 		TaroAddr: ctx.String(addrName),
 	})
 	if err != nil {
-		return fmt.Errorf("unable to list assets: %w", err)
+		return fmt.Errorf("unable to send assets: %w", err)
 	}
 
 	printRespJSON(resp)
