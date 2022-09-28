@@ -128,6 +128,12 @@ func Net(hrp string) (*ChainParams, error) {
 		return &SigNetTaro, nil
 
 	case SimNetTaro.TaroHRP:
+		// For simnet, we'll need to slighlty modify the coin type as
+		// lnd only ever expects the testnet coin type (1) instead of
+		// the simnet coin type (115).
+		simNet := SimNetTaro
+		simNet.HDCoinType = TestNet3Taro.HDCoinType
+
 		return &SimNetTaro, nil
 
 	default:
@@ -151,7 +157,13 @@ func ParamsForChain(name string) ChainParams {
 		return SigNetTaro
 
 	case chaincfg.SimNetParams.Name:
-		return SimNetTaro
+		// For simnet, we'll need to slighlty modify the coin type as
+		// lnd only ever expects the testnet coin type (1) instead of
+		// the simnet coin type (115).
+		simNet := SimNetTaro
+		simNet.HDCoinType = TestNet3Taro.HDCoinType
+
+		return simNet
 
 	default:
 		panic(fmt.Sprintf("unknown chain: %v", name))
