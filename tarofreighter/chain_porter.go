@@ -102,7 +102,7 @@ func (p *ChainPorter) Start() error {
 		// Before we re-launch the main goroutine, we'll make sure to
 		// restart any other incomplete sends that may or may not have
 		// had the transaction broadcaster.
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 		pendingParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
 		if err != nil {
@@ -247,7 +247,7 @@ func (p *ChainPorter) taroPorter() {
 func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	defer p.Wg.Done()
 
-	ctx, cancel := p.WithCtxQuit()
+	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
 	mkErr := func(format string, args ...interface{}) error {
@@ -269,7 +269,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		return
 	}
 
-	confCtx, confCancel := p.WithCtxQuit()
+	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
 		confCtx, &txHash, pkg.AnchorTx.TxOut[0].PkScript, 1,
 		currentHeight, true,
@@ -512,7 +512,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// we'll perform coin selection to see if the send request is even
 	// possible at all.
 	case SendStateCommitmentSelect:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// We need to find a commitment that has enough assets to
@@ -565,7 +565,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Now that we have our set of inputs selected, we'll validate them to
 	// make sure that they're enough to satisfy our send request.
 	case SendStateValidatedInput:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// We'll validate the selected input and commitment. From this
@@ -709,7 +709,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// our initial skeleton PSBT packet to send off to the wallet for
 	// funding.
 	case SendStatePsbtFund:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// Construct our template PSBT to commits to the set of dummy
@@ -784,7 +784,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return &currentPkg, err
 		}
 
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// With all the input and output information in the packet, we
@@ -923,7 +923,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// In this terminal state, we'll broadcast the transaction to the
 	// network, then launch a goroutine to notify us on confirmation.
 	case SendStateBroadcast:
-		ctx, cancel := p.WithCtxQuit()
+		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		// We'll need to extract the output public key from the tx out
