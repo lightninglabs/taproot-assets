@@ -310,7 +310,7 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
 
 	// We'll wait to receive the ACK from the remote party over their
 	// stream.
-	log.Infof("Waiting for receiver proof via sid=%x", receiverStreamID)
+	log.Infof("Waiting for receiver ACK via sid=%x", receiverStreamID)
 	if err := h.mailbox.RecvAck(ctx, receiverStreamID); err != nil {
 		return err
 	}
