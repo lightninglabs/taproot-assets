@@ -5,6 +5,7 @@ The Taro Daemon `tarod` implements the [Taro protocol](https://github.com/Roasbe
 ## Features:
 
 - Mint assets
+- Send and receive assets
 - Export and import Taro proofs
 - Create and manage profiles
 
@@ -32,7 +33,7 @@ Custody of Taro assets is segmented across LND and Taro to maximize security. LN
 
 ## Prerequisites:
 
-Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest master branch) to be synced and running. RPC connections need to be accepted and a valid macaroon needs to be present.
+Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest main branch) to be synced and running on the same Bitcoin network as Taro. RPC connections need to be accepted and a valid macaroon needs to be present.
  
 ## Installation:
 
@@ -73,11 +74,19 @@ Use `tarocli` to interact with `tarod`
 🍠 tarocli assets list
 ```
 
+```shell
+🍠 tarocli addrs new --genesis_bootstrap_info bab08407[...]129bf6d0 --amt 21
+```
+
+```shell
+🍠 tarocli assets send --addr tarotb1q[...]tywpre3a
+```
+
 ## Development
 
 ### API
 
-Taro exposes a GRPC and a REST API. Connections are encrypted with TLS and authenticated using macaroons.
+Taro exposes a GRPC (port 10029) and a REST (port 8089) API. Connections are encrypted with TLS and authenticated using macaroons.
 
 ## Submit feature requests
 
