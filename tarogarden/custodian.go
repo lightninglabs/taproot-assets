@@ -332,7 +332,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		go func() {
 			defer c.Wg.Done()
 
-			ctx, cancel := c.WithCtxQuit()
+			ctx, cancel := c.WithCtxQuitNoTimeout()
 			defer cancel()
 
 			assetID := addr.ID()
