@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
 
@@ -51,7 +52,8 @@ func verifyProof(ctx *cli.Context) error {
 		return nil
 	}
 
-	rawFile, err := os.ReadFile(proofPathName)
+	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+	rawFile, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("unable to read proof file: %w", err)
 	}
@@ -150,7 +152,8 @@ func importProof(ctx *cli.Context) error {
 		return nil
 	}
 
-	proofFile, err := os.ReadFile(proofPathName)
+	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+	proofFile, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("unable to read file: %v", err)
 	}
