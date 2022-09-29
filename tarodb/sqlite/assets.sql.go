@@ -1390,7 +1390,8 @@ SELECT
     genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
-    utxo_internal_keys.raw_key AS anchor_internal_key
+    utxo_internal_keys.raw_key AS anchor_internal_key,
+    split_commitment_root_hash, split_commitment_root_value
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND
@@ -1425,34 +1426,36 @@ type QueryAssetsParams struct {
 }
 
 type QueryAssetsRow struct {
-	AssetPrimaryKey    int32
-	GenesisID          int32
-	Version            int32
-	ScriptKeyTweak     []byte
-	TweakedScriptKey   []byte
-	ScriptKeyRaw       []byte
-	ScriptKeyFam       int32
-	ScriptKeyIndex     int32
-	GenesisSig         []byte
-	TweakedFamKey      []byte
-	FamKeyRaw          []byte
-	FamKeyFamily       sql.NullInt32
-	FamKeyIndex        sql.NullInt32
-	ScriptVersion      int32
-	Amount             int64
-	LockTime           sql.NullInt32
-	RelativeLockTime   sql.NullInt32
-	AssetID            []byte
-	AssetTag           string
-	MetaData           []byte
-	GenesisOutputIndex int32
-	AssetType          int16
-	GenesisPrevOut     []byte
-	AnchorTx           []byte
-	AnchorTxid         []byte
-	AnchorBlockHash    []byte
-	AnchorOutpoint     []byte
-	AnchorInternalKey  []byte
+	AssetPrimaryKey          int32
+	GenesisID                int32
+	Version                  int32
+	ScriptKeyTweak           []byte
+	TweakedScriptKey         []byte
+	ScriptKeyRaw             []byte
+	ScriptKeyFam             int32
+	ScriptKeyIndex           int32
+	GenesisSig               []byte
+	TweakedFamKey            []byte
+	FamKeyRaw                []byte
+	FamKeyFamily             sql.NullInt32
+	FamKeyIndex              sql.NullInt32
+	ScriptVersion            int32
+	Amount                   int64
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
+	AssetID                  []byte
+	AssetTag                 string
+	MetaData                 []byte
+	GenesisOutputIndex       int32
+	AssetType                int16
+	GenesisPrevOut           []byte
+	AnchorTx                 []byte
+	AnchorTxid               []byte
+	AnchorBlockHash          []byte
+	AnchorOutpoint           []byte
+	AnchorInternalKey        []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
 }
 
 // We use a LEFT JOIN here as not every asset has a family key, so this'll
@@ -1506,6 +1509,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorBlockHash,
 			&i.AnchorOutpoint,
 			&i.AnchorInternalKey,
+			&i.SplitCommitmentRootHash,
+			&i.SplitCommitmentRootValue,
 		); err != nil {
 			return nil, err
 		}
