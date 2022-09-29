@@ -77,7 +77,7 @@ var exportProofCommand = cli.Command{
 	Description: "export a taro proof",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  genesisBootstrapInfo,
+			Name:  assetIDName,
 			Usage: "the asset ID of the asset to export",
 		},
 		cli.StringFlag{
@@ -95,7 +95,7 @@ func exportProof(ctx *cli.Context) error {
 
 	switch {
 	case ctx.String(scriptKeyName) == "",
-		ctx.String(genesisBootstrapInfo) == "":
+		ctx.String(assetIDName) == "":
 
 		_ = cli.ShowCommandHelp(ctx, "export")
 		return nil
@@ -106,7 +106,7 @@ func exportProof(ctx *cli.Context) error {
 		return fmt.Errorf("unable to decode script key: %v", err)
 	}
 
-	assetID, err := hex.DecodeString(ctx.String(genesisBootstrapInfo))
+	assetID, err := hex.DecodeString(ctx.String(assetIDName))
 	if err != nil {
 		return fmt.Errorf("unable to asset ID: %v", err)
 	}
