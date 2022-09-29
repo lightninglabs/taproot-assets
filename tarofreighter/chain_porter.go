@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -333,7 +334,9 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	// Now that we have the sender's proof file, we'll decode the new
 	// suffix we want to add so we can append it to the sender's file.
 	var senderProofSuffix proof.Proof
-	err = senderProofSuffix.Decode(bytes.NewReader(pkg.SenderAssetProof))
+	err = senderProofSuffix.Decode(
+		bytes.NewReader(pkg.AssetSpendDeltas[0].SenderAssetProof),
+	)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("error decoding proof suffix: %v", err)
 		return
@@ -361,7 +364,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	// As a final step, we'll do the same for the receiver's proof as well.
 	var receiverProofSuffix proof.Proof
 	err = receiverProofSuffix.Decode(
-		bytes.NewReader(pkg.ReceiverAssetProof),
+		bytes.NewReader(pkg.AssetSpendDeltas[0].ReceiverAssetProof),
 	)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("error decoding receiver proof: %v", err)
@@ -929,11 +932,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 					NewScriptKey:        currentPkg.SenderScriptKey,
 					WitnessData:         newAsset.PrevWitnesses,
 					SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
+					SenderAssetProof:    senderProofBuf.Bytes(),
+					ReceiverAssetProof:  receiverProofBuf.Bytes(),
 				},
 			},
-			TapscriptSibling:   currentPkg.InputAsset.TapscriptSibling,
-			SenderAssetProof:   senderProofBuf.Bytes(),
-			ReceiverAssetProof: receiverProofBuf.Bytes(),
+			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
+			// TODO(bhandras): use clock.Clock instead.
+			TransferTime: time.Now(),
 		}
 
 		// Don't allow shutdown while we're attempting to store proofs.

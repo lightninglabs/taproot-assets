@@ -36,5 +36,7 @@ CREATE TABLE IF NOT EXISTS asset_deltas (
 
     split_commitment_root_value BIGINT,
 
-    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id)
+    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+    
+    proof_id INTEGER NOT NULL REFERENCES transfer_proofs(proof_id) 
 );

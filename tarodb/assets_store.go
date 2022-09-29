@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -76,8 +75,12 @@ type (
 	AnchorTxConf = sqlite.ConfirmChainAnchorTxParams
 
 	// AssetDelta tracks the changes to an asset within the confines of a
-	// transfer
+	// transfer.
 	AssetDelta = sqlite.FetchAssetDeltasRow
+
+	// AssetDeltaWithProof tracks the changes to an asset within the
+	// confines of a transfer, also containing the proofs for the change.
+	AssetDeltaWithProof = sqlite.FetchAssetDeltasWithProofsRow
 
 	// NewAssetDelta wraps the params needed to insert a new asset delta.
 	NewAssetDelta = sqlite.InsertAssetDeltaParams
@@ -175,6 +178,11 @@ type ActiveAssetsStore interface {
 	FetchAssetDeltas(ctx context.Context,
 		transferID int32) ([]AssetDelta, error)
 
+	// FetchAssetDeltasWithProofs fetches the asset deltas including the
+	// proofs associated with a given transfer id.
+	FetchAssetDeltasWithProofs(ctx context.Context,
+		transferID int32) ([]AssetDeltaWithProof, error)
+
 	// InsertAssetDelta inserts a new asset delta into the DB.
 	InsertAssetDelta(ctx context.Context, arg NewAssetDelta) error
 
@@ -192,7 +200,7 @@ type ActiveAssetsStore interface {
 
 	// InsertSpendProofs is used to insert the new spend proofs after a
 	// transfer into DB.
-	InsertSpendProofs(ctx context.Context, arg NewSpendProof) error
+	InsertSpendProofs(ctx context.Context, arg NewSpendProof) (int32, error)
 
 	// DeleteSpendProofs is used to delete the set of proofs on disk after
 	// we apply a transfer.
@@ -1228,9 +1236,6 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 	anchorIndex := spend.NewAnchorPoint.Index
 	anchorValue := spend.AnchorTx.TxOut[anchorIndex].Value
 
-	// TODO(roasbeef): use clock.Clock instead
-	now := time.Now()
-
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		// First, we'll insert the new internal on disk, so we can
@@ -1278,33 +1283,33 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			OldAnchorPoint:   oldAnchorPointBytes,
 			NewInternalKey:   internalKeyID,
 			NewAnchorUtxo:    newUtxoID,
-			TransferTimeUnix: now,
+			TransferTimeUnix: spend.TransferTime,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert asset "+
 				"transfer: %w", err)
 		}
 
-		// With the main transfer inserted, we'll also insert the proof
-		// for the sender and receiver.
-		err = q.InsertSpendProofs(ctx, NewSpendProof{
-			TransferID:    transferID,
-			SenderProof:   spend.SenderAssetProof,
-			ReceiverProof: spend.ReceiverAssetProof,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert spend "+
-				"proof: %w", err)
-		}
-
 		// Now that the transfer itself has been inserted, we can
 		// insert the deltas associated w/ each transfer.
 		for _, assetDelta := range spend.AssetSpendDeltas {
+			// With the main transfer inserted, we'll also insert the proof
+			// for the sender and receiver.
+			proofID, err := q.InsertSpendProofs(ctx, NewSpendProof{
+				TransferID:    transferID,
+				SenderProof:   assetDelta.SenderAssetProof,
+				ReceiverProof: assetDelta.ReceiverAssetProof,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to insert spend "+
+					"proof: %w", err)
+			}
+
 			var (
 				witnessBuf bytes.Buffer
 				buf        [8]byte
 			)
-			err := asset.WitnessEncoder(
+			err = asset.WitnessEncoder(
 				&witnessBuf, &assetDelta.WitnessData, &buf,
 			)
 			if err != nil {
@@ -1342,6 +1347,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				NewScriptKey:            scriptKeyID,
 				SerializedWitnesses:     witnessBuf.Bytes(),
 				TransferID:              transferID,
+				ProofID:                 proofID,
 				SplitCommitmentRootHash: splitRootHash[:],
 				SplitCommitmentRootValue: sql.NullInt64{
 					Int64: int64(splitRootSum),
@@ -1470,35 +1476,43 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			return err
 		}
 
-		// Before we conclude we'll remove the old proofs we were
-		// staging on disk.
-		err = q.DeleteSpendProofs(ctx, assetTransfer.TransferID)
-		if err != nil {
-			return err
-		}
+		// Keep the old proofs as a reference for when we list past
+		// transfers.
 
-		// Finally, we'll delete the old managed UTXO, as it's no
-		// longer an unspent output.
-		//
-		// TODO(roasbeef): never delete so can scan in tings?
-		return q.DeleteManagedUTXO(ctx, assetTransfer.OldAnchorPoint)
+		// At this point we could delete the managed UTXO since it's no
+		// longer an unspent output, however we'll keep it in order to
+		// be able to reconstruct transfer history.
+
+		return nil
 	})
 }
 
 // PendingParcels returns the set of parcels that haven't yet been finalized.
 // This can be used to query the set of unconfirmed
 // transactions for re-broadcast.
-func (a *AssetStore) PendingParcels(ctx context.Context,
-) ([]*tarofreighter.OutboundParcelDelta, error) {
+func (a *AssetStore) PendingParcels(
+	ctx context.Context) ([]*tarofreighter.OutboundParcelDelta, error) {
+
+	return a.QueryParcels(ctx, true)
+}
+
+// QueryParcels returns the set of confirmed or unconformed parcels.
+func (a *AssetStore) QueryParcels(ctx context.Context,
+	pending bool) ([]*tarofreighter.OutboundParcelDelta, error) {
 
 	var deltas []*tarofreighter.OutboundParcelDelta
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		// In this case, we want every unconfirmed transfer, so we only
-		// pass in the UnconfOnly field.
+		unconfOnly := 0
+		if pending {
+			unconfOnly = 1
+		}
+
+		// If we want every unconfirmed transfer, then we only pass in
+		// the UnconfOnly field.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
-			UnconfOnly: 1,
+			UnconfOnly: unconfOnly,
 		})
 		if err != nil {
 			return err
@@ -1532,7 +1546,7 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 				return fmt.Errorf("unable to decode tx: %w", err)
 			}
 
-			assetDeltas, err := q.FetchAssetDeltas(
+			assetDeltas, err := q.FetchAssetDeltasWithProofs(
 				ctx, xfer.TransferID,
 			)
 			if err != nil {
@@ -1595,15 +1609,10 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 						splitRootHash,
 						uint64(delta.SplitCommitmentRootValue.Int64),
 					),
-					WitnessData: witnessData,
+					WitnessData:        witnessData,
+					SenderAssetProof:   delta.SenderProof,
+					ReceiverAssetProof: delta.ReceiverProof,
 				}
-			}
-
-			// Finally, we'll also fetch the set of proofs for the
-			// sender+receiver.
-			proofs, err := q.FetchSpendProofs(ctx, xfer.TransferID)
-			if err != nil {
-				return err
 			}
 
 			deltas = append(deltas, &tarofreighter.OutboundParcelDelta{
@@ -1616,12 +1625,11 @@ func (a *AssetStore) PendingParcels(ctx context.Context,
 						Index:  uint32(xfer.InternalKeyIndex),
 					},
 				},
-				TaroRoot:           xfer.TaroRoot,
-				TapscriptSibling:   xfer.TapscriptSibling,
-				AnchorTx:           anchorTx,
-				AssetSpendDeltas:   spendDeltas,
-				SenderAssetProof:   proofs.SenderProof,
-				ReceiverAssetProof: proofs.ReceiverProof,
+				TaroRoot:         xfer.TaroRoot,
+				TapscriptSibling: xfer.TapscriptSibling,
+				AnchorTx:         anchorTx,
+				AssetSpendDeltas: spendDeltas,
+				TransferTime:     xfer.TransferTimeUnix,
 			})
 		}
 

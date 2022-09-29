@@ -3,6 +3,7 @@ package tarofreighter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -107,6 +108,16 @@ type AssetSpendDelta struct {
 	// SplitCommitmentRoot is the root split commitment for this asset.
 	// This will only be set if a split was required to complete the send.
 	SplitCommitmentRoot mssmt.Node
+
+	// SenderAssetProof is the fully serialized proof of the sender which
+	// includes all the proof information other than the final chain
+	// information.
+	SenderAssetProof []byte
+
+	// ReceiverAssetProof is the fully serialized proof for the receiver,
+	// which commits to the receiver's asset with the split commitment
+	// included.
+	ReceiverAssetProof []byte
 }
 
 // OutboundParcelDelta represents the database level delta of an outbound taro
@@ -143,15 +154,8 @@ type OutboundParcelDelta struct {
 	// at the new anchor tx point.
 	AssetSpendDeltas []AssetSpendDelta
 
-	// SenderAssetProof is the fully serialized proof of the sender which
-	// includes all the proof information other than the final chain
-	// information.
-	SenderAssetProof []byte
-
-	// ReceiverBlobProof is the fully serialized proof for the receiver,
-	// which commits to the receiver's asset with the split commitment
-	// included.
-	ReceiverAssetProof []byte
+	// TransferTime holds the timestamp of the outbound spend.
+	TransferTime time.Time
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.

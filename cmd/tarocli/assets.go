@@ -19,6 +19,7 @@ var assetsCommands = []cli.Command{
 			listAssetsCommand,
 			listAssetBalancesCommand,
 			sendAssetsCommand,
+			listTransfersCommand,
 		},
 	},
 }
@@ -233,6 +234,37 @@ func sendAssets(ctx *cli.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var listTransfersCommand = cli.Command{
+	Name:      "transfers",
+	ShortName: "t",
+	Usage:     "list asset transfers",
+	Description: "list outgoing transfers of all assets or a selected " +
+		"asset",
+	Action: listTransfers,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: assetIDName,
+			Usage: "A specific asset ID to list outgoing " +
+				"transfers for",
+		},
+	},
+}
+
+func listTransfers(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &tarorpc.ListTransfersRequest{}
+	resp, err := client.ListTransfers(ctxc, req)
+	if err != nil {
+		return fmt.Errorf("unable to list asset transfers: %w", err)
 	}
 
 	printRespJSON(resp)

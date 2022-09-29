@@ -51,3 +51,6 @@ http:
     - selector: tarorpc.Taro.SendAsset
       post: "/v1/taro/send"
       body: "*"
+
+    - selector: tarorpc.Taro.ListTransfers
+      get: "/v1/taro/assets/transfers"
