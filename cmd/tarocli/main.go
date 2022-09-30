@@ -33,6 +33,14 @@ const (
 	defaultMacaroonFilename = "admin.macaroon"
 	defaultRPCPort          = "10029"
 	defaultRPCHostPort      = "localhost:" + defaultRPCPort
+
+	// defaultDirPerms is the default permission set we use when creating
+	// directories. It is equal to rwx------.
+	defaultDirPerms = 0700
+
+	// defaultFilePerms is the default permission set we use when creating
+	// files. It is equal to rw-r--r--.
+	defaultFilePerms = 0644
 )
 
 var (
