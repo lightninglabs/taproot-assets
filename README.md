@@ -33,7 +33,13 @@ Custody of Taro assets is segmented across LND and Taro to maximize security. LN
 
 ## Prerequisites:
 
-Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest `master` branch) to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
+Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest `master` branch with the relevant tags, see below) to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
+
+```shell
+🍠 git clone https://github.com/lightningnetwork/lnd.git
+🍠 cd lnd 
+🍠 make install tags="signrpc walletrpc chainrpc invoicesrpc"
+```
  
 ## Installation:
 
