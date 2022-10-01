@@ -107,7 +107,7 @@ func (p *ChainPorter) Start() error {
 		// Before we re-launch the main goroutine, we'll make sure to
 		// restart any other incomplete sends that may or may not have
 		// had the transaction broadcaster.
-		ctx, cancel := p.WithCtxQuitNoTimeout()
+		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
 		pendingParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
 		if err != nil {
@@ -254,9 +254,6 @@ func (p *ChainPorter) taroPorter() {
 func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	defer p.Wg.Done()
 
-	ctx, cancel := p.WithCtxQuitNoTimeout()
-	defer cancel()
-
 	mkErr := func(format string, args ...interface{}) error {
 		logFormat := strings.ReplaceAll(format, "%w", "%v")
 		log.Errorf("Error waiting for package confirmation: "+
@@ -270,6 +267,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 
 	// Before we can broadcast, we want to find out the current height to
 	// pass as a height hint.
+	ctx, cancel := p.WithCtxQuit()
+	defer cancel()
 	currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("unable to get current height: %v", err)
@@ -316,6 +315,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	// write the receiver's proof file to disk.
 	//
 	// First, we'll fetch the sender's current proof file.
+	ctx, cancel = p.CtxBlocking()
+	defer cancel()
 	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, proof.Locator{
 		AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
 		ScriptKey: pkg.AssetSpendDeltas[0].OldScriptKey,
