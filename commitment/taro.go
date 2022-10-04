@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/mssmt"
 	"golang.org/x/exp/maps"
 )
@@ -64,6 +65,8 @@ func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	assetCommitments := make(AssetCommitments, len(assets))
 	for _, asset := range assets {
+		asset := asset
+
 		if asset.Version > maxVersion {
 			maxVersion = asset.Version
 		}
@@ -160,6 +163,15 @@ func (c *TaroCommitment) TapLeaf() txscript.TapLeaf {
 	return txscript.NewBaseTapLeaf(leafScript)
 }
 
+// tapBranchHash takes the tap hashes of the left and right nodes and hashes
+// them into a branch.
+func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {
+	if bytes.Compare(l[:], r[:]) > 0 {
+		l, r = r, l
+	}
+	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
+}
+
 // TapscriptRoot returns the tapscript root for this TaroCommitment. If
 // `sibling` is not nil, we assume it is a valid sibling (e.g., not a duplicate
 // Taro commitment), and hash it with the Taro commitment leaf to arrive at the
@@ -237,6 +249,8 @@ func (c *TaroCommitment) Proof(taroCommitmentKey,
 func (c *TaroCommitment) CommittedAssets() []*asset.Asset {
 	var assets []*asset.Asset
 	for _, commitment := range c.assetCommitments {
+		commitment := commitment
+
 		committedAssets := maps.Values(commitment.Assets())
 		assets = append(assets, committedAssets...)
 	}
@@ -253,11 +267,27 @@ func (c *TaroCommitment) Commitments() AssetCommitments {
 	return assetCommitments
 }
 
-// tapBranchHash takes the tap hashes of the left and right nodes and hashes
-// them into a branch.
-func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {
-	if bytes.Compare(l[:], r[:]) > 0 {
-		l, r = r, l
+// Copy performs a deep copy of the passed Taro commitment.
+func (c *TaroCommitment) Copy() (*TaroCommitment, error) {
+	// If no commitments are present, then this is a commitment with just
+	// the root, so we just need to copy that over.
+	if len(c.assetCommitments) == 0 {
+		rootCopy := c.TreeRoot.Copy().(*mssmt.BranchNode)
+		return &TaroCommitment{
+			Version:  c.Version,
+			TreeRoot: rootCopy,
+		}, nil
 	}
-	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
+
+	// Otherwise, we'll copy all the internal asset commitments.
+	newAssetCommitments, err := chanutils.CopyAllErr(
+		maps.Values(c.assetCommitments),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the internal assets commitments copied, we can just re-create
+	// the taro commitment as a whole.
+	return NewTaroCommitment(newAssetCommitments...)
 }

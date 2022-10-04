@@ -900,14 +900,16 @@ func TestUpdateTaroCommitment(t *testing.T) {
 func TestAssetCommitmentDeepCopy(t *testing.T) {
 	t.Parallel()
 
+	// First, we'll make a commitment with two random assets.
 	genesis := randGenesis(t, asset.Normal)
-
 	asset1 := randAsset(t, genesis, nil)
 	asset2 := randAsset(t, genesis, nil)
 
 	assetCommitment, err := NewAssetCommitment(asset1, asset2)
 	require.NoError(t, err)
 
+	// Next, we'll copy the commitment and ensure that we get the exact
+	// same commitment out the other side.
 	assetCommitmentCopy, err := assetCommitment.Copy()
 	require.NoError(t, err)
 
@@ -917,5 +919,43 @@ func TestAssetCommitmentDeepCopy(t *testing.T) {
 		t, mssmt.IsEqualNode(
 			assetCommitment.TreeRoot, assetCommitmentCopy.TreeRoot,
 		),
+	)
+}
+
+// TestTaroCommitmentDeepCopy tests that we're able to properly perform a deep
+// copy of a given taro commitment.
+func TestTaroCommitmentDeepCopy(t *testing.T) {
+	t.Parallel()
+
+	// Fist, we'll make two asset commitments with a random asset, then
+	// make a taro commitment out of that.
+	genesis1 := randGenesis(t, asset.Normal)
+	familyKey1 := randFamilyKey(t, genesis1)
+	asset1 := randAsset(t, genesis1, familyKey1)
+
+	genesis2 := randGenesis(t, asset.Normal)
+	familyKey2 := randFamilyKey(t, genesis2)
+	asset2 := randAsset(t, genesis2, familyKey2)
+
+	assetCommitment1, err := NewAssetCommitment(asset1)
+	require.NoError(t, err)
+
+	assetCommitment2, err := NewAssetCommitment(asset2)
+	require.NoError(t, err)
+
+	// With both commitments created, we'll now make a new taro commitment
+	// then copy it.
+	taroCommitment, err := NewTaroCommitment(
+		assetCommitment1, assetCommitment2,
+	)
+	require.NoError(t, err)
+
+	newCommitment, err := taroCommitment.Copy()
+	require.NoError(t, err)
+
+	// The new taro commitment should match the existing one exactly.
+	require.Equal(t, taroCommitment.Version, newCommitment.Version)
+	require.True(t, mssmt.IsEqualNode(
+		taroCommitment.TreeRoot, newCommitment.TreeRoot),
 	)
 }
