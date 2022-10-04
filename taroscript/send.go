@@ -477,7 +477,11 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	// Remove the spent Asset from the AssetCommitment of the sender.  Fail
 	// if the input AssetCommitment or Asset were not in the input
 	// TaroCommitment.
-	inputCommitments := inputCommitment.Commitments()
+	inputCommitmentCopy, err := inputCommitment.Copy()
+	if err != nil {
+		return nil, err
+	}
+	inputCommitments := inputCommitmentCopy.Commitments()
 	senderCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
@@ -554,7 +558,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
 	senderTaroCommitment := *inputCommitment
-	err := senderTaroCommitment.Update(senderCommitment, false)
+	err = senderTaroCommitment.Update(senderCommitment, false)
 	if err != nil {
 		return nil, err
 	}
