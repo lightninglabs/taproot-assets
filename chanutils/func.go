@@ -56,3 +56,17 @@ func CopyAllErr[T CopyableErr[T]](xs []T) ([]T, error) {
 
 	return newItems, nil
 }
+
+// All returns true if the passed predicate returns true for all items in the
+// slice.
+func All[T any](xs []T, pred func(T) bool) bool {
+	for _, x := range xs {
+		x := x
+
+		if !pred(x) {
+			return false
+		}
+	}
+
+	return true
+}
