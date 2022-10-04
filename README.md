@@ -1,4 +1,4 @@
-# Taro
+# Taro 🍠
 
 The Taro Daemon `tarod` implements the [Taro protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taro leverages Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and kept off-chain.
 
@@ -36,9 +36,9 @@ Custody of Taro assets is segmented across LND and Taro to maximize security. LN
 Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest `master` branch with the relevant tags, see below) to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
 
 ```shell
-🍠 git clone https://github.com/lightningnetwork/lnd.git
-🍠 cd lnd 
-🍠 make install tags="signrpc walletrpc chainrpc invoicesrpc"
+git clone https://github.com/lightningnetwork/lnd.git
+cd lnd 
+make install tags="signrpc walletrpc chainrpc invoicesrpc"
 ```
  
 ## Installation:
@@ -48,9 +48,9 @@ Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the l
 Compile Taro from source by cloning this repository. [Go version 1.18](https://go.dev/dl/) or higher is required.
 
 ```shell
-🍠 git clone https://github.com/lightninglabs/taro.git
-🍠 cd taro
-🍠 make install
+git clone https://github.com/lightninglabs/taro.git
+cd taro
+make install
 ```
 
 ## Initialization:
@@ -60,7 +60,7 @@ Run Taro with the command `tarod`. Specify how Taro can reach LND and what netwo
 
 ```shell
 # Ensure lnd and its bitcoind/btcd backend are running first.
-🍠 tarod --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.macaroonpath=~/.lnd/data/chain/bitcoin/testnet/admin.macaroon --lnd.tlspath=~/.lnd/tls.cert
+tarod --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.macaroonpath=~/.lnd/data/chain/bitcoin/testnet/admin.macaroon --lnd.tlspath=~/.lnd/tls.cert
 ```
 
 ## Usage:
@@ -68,25 +68,25 @@ Run Taro with the command `tarod`. Specify how Taro can reach LND and what netwo
 See a full list of options by executing:
 
 ```shell
-🍠 tarod --help
+tarod --help
 ```
 
 Use `tarocli` to interact with `tarod`
 
 ```shell
-🍠 tarocli assets mint --type normal --name fantasycoin --supply 100 --meta "fantastic money" --skip_batch
+tarocli assets mint --type normal --name fantasycoin --supply 100 --meta "fantastic money" --skip_batch
 ```
 
 ```shell
-🍠 tarocli assets list
+tarocli assets list
 ```
 
 ```shell
-🍠 tarocli addrs new --genesis_bootstrap_info bab08407[...]129bf6d0 --amt 21
+tarocli addrs new --genesis_bootstrap_info bab08407[...]129bf6d0 --amt 21
 ```
 
 ```shell
-🍠 tarocli assets send --addr tarotb1q[...]tywpre3a
+tarocli assets send --addr tarotb1q[...]tywpre3a
 ```
 
 ## Development
