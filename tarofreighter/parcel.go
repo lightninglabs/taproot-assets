@@ -325,10 +325,10 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 	lastIdx := len(s.SendPkt.UnsignedTx.TxOut) - 1
 	currentFee := inputAmt - outputAmt
 	feeDelta := int64(requiredFee) - currentFee
-	s.SendPkt.UnsignedTx.TxOut[lastIdx].Value += feeDelta
+	s.SendPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
 
-	log.Infof("Adjusting send pkt by factor of %v from %v sats to %v sats",
-		feeDelta, currentFee, requiredFee)
+	log.Infof("Adjusting send pkt by delta of %v from %v sats to %v sats",
+		feeDelta, int64(currentFee), int64(requiredFee))
 
 	return nil
 }
