@@ -894,3 +894,28 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	require.Equal(t, len(assetCommitments), 2)
 	require.Equal(t, assetCommitments[commitmentKey2], assetCommitment2)
 }
+
+// TestAssetCommitmentDeepCopy tests that we're able to properly perform a deep
+// copy of a given asset commitment.
+func TestAssetCommitmentDeepCopy(t *testing.T) {
+	t.Parallel()
+
+	genesis := randGenesis(t, asset.Normal)
+
+	asset1 := randAsset(t, genesis, nil)
+	asset2 := randAsset(t, genesis, nil)
+
+	assetCommitment, err := NewAssetCommitment(asset1, asset2)
+	require.NoError(t, err)
+
+	assetCommitmentCopy, err := assetCommitment.Copy()
+	require.NoError(t, err)
+
+	require.Equal(t, assetCommitment.Version, assetCommitmentCopy.Version)
+	require.Equal(t, assetCommitment.AssetID, assetCommitmentCopy.AssetID)
+	require.True(
+		t, mssmt.IsEqualNode(
+			assetCommitment.TreeRoot, assetCommitmentCopy.TreeRoot,
+		),
+	)
+}
