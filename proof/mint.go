@@ -62,16 +62,15 @@ type MintParams struct {
 }
 
 // encodeAsProofFile encodes the passed proof into a blob.
-//
-// TODO(roasbeef): change main file to use pointers instead?
 func encodeAsProofFile(proof *Proof) (Blob, error) {
-	proofFile := NewFile(V0, *proof)
+	proofFile, err := NewFile(V0, *proof)
+	if err != nil {
+		return nil, err
+	}
 
 	var b bytes.Buffer
 	if err := proofFile.Encode(&b); err != nil {
-		// TODO(roasbeef): proper error
-		return nil, fmt.Errorf("unable to encode proof "+
-			"file: %w", err)
+		return nil, fmt.Errorf("unable to encode proof file: %w", err)
 	}
 
 	return b.Bytes(), nil

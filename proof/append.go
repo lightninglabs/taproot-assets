@@ -46,18 +46,23 @@ func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
 	error) {
 
 	// Decode the proof blob into a proper file structure first.
-	f := NewFile(V0)
+	f := NewEmptyFile(V0)
 	if err := f.Decode(bytes.NewReader(blob)); err != nil {
 		return nil, nil, fmt.Errorf("error decoding proof file: %w",
 			err)
 	}
 
 	// Cannot add a transition to an empty proof file.
-	if len(f.Proofs) == 0 {
+	if f.IsEmpty() {
 		return nil, nil, fmt.Errorf("invalid empty proof file")
 	}
 
-	lastProof := f.Proofs[len(f.Proofs)-1]
+	lastProof, err := f.LastProof()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error fetching last proof: %w",
+			err)
+	}
+
 	lastPrevOut := wire.OutPoint{
 		Hash:  lastProof.AnchorTx.TxHash(),
 		Index: lastProof.InclusionProof.OutputIndex,
@@ -73,7 +78,9 @@ func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
 	// Before we encode and return the proof, we want to validate it. For
 	// that we need to start at the beginning.
 	ctx := context.Background()
-	f.Proofs = append(f.Proofs, *newProof)
+	if err := f.AppendProof(*newProof); err != nil {
+		return nil, nil, fmt.Errorf("error appending proof: %w", err)
+	}
 	if _, err := f.Verify(ctx); err != nil {
 		return nil, nil, fmt.Errorf("error verifying proof: %w", err)
 	}

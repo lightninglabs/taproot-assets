@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"context"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -20,61 +19,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	testOutPoint = wire.OutPoint{
-		Hash:  *(*[32]byte)(bytes.Repeat([]byte{1}, 32)),
-		Index: 1,
-	}
-)
-
-func randGenesis(t *testing.T, assetType asset.Type) *asset.Genesis {
-	metadata := make([]byte, rand.Uint32()%32+1)
-	_, err := rand.Read(metadata)
-	require.NoError(t, err)
-
-	return &asset.Genesis{
-		FirstPrevOut: testOutPoint,
-		Tag:          "kek",
-		Metadata:     metadata,
-		OutputIndex:  rand.Uint32(),
-		Type:         assetType,
-	}
-}
-
-func pubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
-	return keychain.KeyDescriptor{
-		PubKey: p,
-	}
-}
-
-func randFamilyKey(t *testing.T, genesis *asset.Genesis) *asset.FamilyKey {
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	genSigner := asset.NewRawKeyGenesisSigner(privKey)
-
-	familyKey, err := asset.DeriveFamilyKey(
-		genSigner, pubToKeyDesc(privKey.PubKey()), *genesis,
-	)
-	require.NoError(t, err)
-	return familyKey
-}
-
-func computeTaprootScript(t *testing.T, taprootKey *btcec.PublicKey) []byte {
-	script, err := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(taprootKey)).
-		Script()
-	require.NoError(t, err)
-	return script
-}
-
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
-	require.Equal(t, expected.Proof.AssetProof.Version, actual.Proof.AssetProof.Version)
-	require.Equal(t, expected.Proof.AssetProof.AssetID, actual.Proof.AssetProof.AssetID)
-	require.Equal(t, expected.Proof.AssetProof.Proof, actual.Proof.AssetProof.Proof)
-	require.Equal(t, expected.Proof.TaroProof.Version, actual.Proof.TaroProof.Version)
-	require.Equal(t, expected.Proof.TaroProof.Proof, actual.Proof.TaroProof.Proof)
+	require.Equal(t, expected.Proof.AssetProof, actual.Proof.AssetProof)
+	require.Equal(t, expected.Proof.TaroProof, actual.Proof.TaroProof)
 	require.Equal(t, expected.TapSiblingPreimage, actual.TapSiblingPreimage)
 }
 
@@ -122,11 +69,17 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 			t, expected.AdditionalInputs[i].Version,
 			actual.AdditionalInputs[i].Version,
 		)
-		for j := range expected.AdditionalInputs[i].Proofs {
-			assertEqualProof(
-				t, &expected.AdditionalInputs[i].Proofs[j],
-				&actual.AdditionalInputs[i].Proofs[j],
-			)
+		require.Len(
+			t, actual.AdditionalInputs,
+			len(expected.AdditionalInputs),
+		)
+		for j := range expected.AdditionalInputs[i].proofs {
+			e, err := expected.AdditionalInputs[i].ProofAt(uint32(j))
+			require.NoError(t, err)
+
+			a, err := actual.AdditionalInputs[i].ProofAt(uint32(j))
+			require.NoError(t, err)
+			assertEqualProof(t, e, a)
 		}
 	}
 }
@@ -140,13 +93,13 @@ func TestProofEncoding(t *testing.T) {
 	txMerkleProof, err := NewTxMerkleProof(oddTxBlock.Transactions, 0)
 	require.NoError(t, err)
 
-	genesis := randGenesis(t, asset.Collectible)
-	familyKey := randFamilyKey(t, genesis)
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	familyKey := asset.RandFamilyKey(t, &genesis)
 
 	commitment, assets, err := commitment.Mint(
-		*genesis, familyKey, &commitment.AssetDetails{
+		genesis, familyKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        pubToKeyDesc(test.RandPubKey(t)),
+			ScriptKey:        test.PubToKeyDesc(test.RandPubKey(t)),
 			Amount:           nil,
 			LockTime:         1337,
 			RelativeLockTime: 6,
@@ -172,7 +125,7 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	proof := Proof{
-		PrevOut:       testOutPoint,
+		PrevOut:       genesis.FirstPrevOut,
 		BlockHeader:   oddTxBlock.Header,
 		AnchorTx:      *oddTxBlock.Transactions[0],
 		TxMerkleProof: *txMerkleProof,
@@ -237,8 +190,9 @@ func TestProofEncoding(t *testing.T) {
 		},
 		AdditionalInputs: []File{},
 	}
-	file := File{Version: V0, Proofs: []Proof{proof, proof}}
-	proof.AdditionalInputs = []File{file, file}
+	file, err := NewFile(V0, proof, proof)
+	require.NoError(t, err)
+	proof.AdditionalInputs = []File{*file, *file}
 
 	var buf bytes.Buffer
 	require.NoError(t, proof.Encode(&buf))
@@ -248,18 +202,20 @@ func TestProofEncoding(t *testing.T) {
 	assertEqualProof(t, &proof, &decodedProof)
 }
 
-func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
+func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	amt *uint64) (Proof, *btcec.PrivateKey) {
 
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
-	assetGenesis := randGenesis(t, assetType)
-	assetFamilyKey := randFamilyKey(t, assetGenesis)
+	assetGenesis := asset.RandGenesis(t, assetType)
+	assetFamilyKey := asset.RandFamilyKey(t, &assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
-		*assetGenesis, assetFamilyKey, &commitment.AssetDetails{
-			Type:             assetType,
-			ScriptKey:        pubToKeyDesc(genesisPrivKey.PubKey()),
+		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
+			Type: assetType,
+			ScriptKey: test.PubToKeyDesc(
+				genesisPrivKey.PubKey(),
+			),
 			Amount:           amt,
 			LockTime:         0,
 			RelativeLockTime: 0,
@@ -278,7 +234,7 @@ func genRandomGenesisWithProof(t *testing.T, assetType asset.Type,
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
-	taprootScript := computeTaprootScript(t, taprootKey)
+	taprootScript := test.ComputeTaprootScript(t, taprootKey)
 	genesisTx := &wire.MsgTx{
 		Version: 2,
 		TxIn:    []*wire.TxIn{{}},
@@ -324,6 +280,44 @@ func TestGenesisProofVerification(t *testing.T) {
 	genesisProof, _ := genRandomGenesisWithProof(t, asset.Collectible, nil)
 	_, err := genesisProof.Verify(context.Background(), nil)
 	require.NoError(t, err)
+}
+
+func BenchmarkProofEncoding(b *testing.B) {
+	amt := uint64(5000)
+
+	// Start with a minted genesis asset.
+	genesisProof, _ := genRandomGenesisWithProof(
+		b, asset.Normal, &amt,
+	)
+
+	// We create a file with 10k proofs (the same one) and test encoding/
+	// decoding performance.
+	const numProofs = 10_000
+	lotsOfProofs := make([]Proof, numProofs)
+	for i := 0; i < numProofs; i++ {
+		lotsOfProofs[i] = genesisProof
+	}
+
+	f, err := NewFile(V0, lotsOfProofs...)
+	require.NoError(b, err)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Only this part is measured.
+	for i := 0; i < b.N; i++ {
+		var buf bytes.Buffer
+		err = f.Encode(&buf)
+		require.NoError(b, err)
+
+		f2, err := NewFile(V0)
+		require.NoError(b, err)
+
+		err = f2.Decode(&buf)
+		require.NoError(b, err)
+
+		require.Len(b, f2.proofs, numProofs)
+	}
 }
 
 // TODO(roasbeef): additional tests for the diff sibling preimage combinations
