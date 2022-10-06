@@ -963,6 +963,8 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 	newOutputs := make([]*tarorpc.AssetOutput, len(resp.AssetOutputs))
 
 	for i, input := range resp.AssetInputs {
+		input := input
+
 		prevInputs[i] = &tarorpc.PrevInputAsset{
 			AnchorPoint: input.PrevID.OutPoint.String(),
 			AssetId:     input.PrevID.ID[:],
@@ -971,6 +973,8 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		}
 	}
 	for i, output := range resp.AssetOutputs {
+		output := output
+
 		newOutputs[i] = &tarorpc.AssetOutput{
 			AnchorPoint: output.PrevID.OutPoint.String(),
 			AssetId:     output.PrevID.ID[:],

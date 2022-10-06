@@ -252,7 +252,8 @@ SELECT
     genesis_info_view.prev_out AS genesis_prev_out,
     txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
-    utxo_internal_keys.raw_key AS anchor_internal_key
+    utxo_internal_keys.raw_key AS anchor_internal_key,
+    split_commitment_root_hash, split_commitment_root_value
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND

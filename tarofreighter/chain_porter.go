@@ -364,6 +364,13 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		p.cfg.ErrChan <- mkErr("error encoding sender proof: %v", err)
 		return
 	}
+	newSenderProof := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
+			ScriptKey: *senderProofSuffix.Asset.ScriptKey.PubKey,
+		},
+		Blob: updatedSenderProof.Bytes(),
+	}
 
 	// As a final step, we'll do the same for the receiver's proof as well.
 	var receiverProofSuffix proof.Proof
@@ -405,7 +412,9 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		},
 		Blob: updatedReceiverProof.Bytes(),
 	}
-	err = p.cfg.AssetProofs.ImportProofs(ctx, receiverProof)
+	err = p.cfg.AssetProofs.ImportProofs(
+		ctx, receiverProof, newSenderProof,
+	)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)
 		return

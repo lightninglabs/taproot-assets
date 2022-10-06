@@ -66,6 +66,10 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			name:  "journal_mode",
 			value: "WAL",
 		},
+		{
+			name:  "busy_timeout",
+			value: "5000",
+		},
 	}
 	sqliteOptions := make(url.Values)
 	for _, option := range pragmaOptions {

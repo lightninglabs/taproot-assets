@@ -12,4 +12,8 @@ var testCases = []*testCase{
 		name: "addresses",
 		test: testAddresses,
 	},
+	{
+		name: "basic send",
+		test: testBasicSend,
+	},
 }

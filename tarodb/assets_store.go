@@ -484,6 +484,16 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 				"%v", err)
 		}
 
+		if len(sprout.SplitCommitmentRootHash) != 0 {
+			var nodeHash mssmt.NodeHash
+			copy(nodeHash[:], sprout.SplitCommitmentRootHash)
+
+			assetSprout.SplitCommitmentRoot = mssmt.NewComputedNode(
+				nodeHash,
+				uint64(sprout.SplitCommitmentRootValue.Int64),
+			)
+		}
+
 		// With the asset created, we'll now emplace the set of
 		// witnesses for the asset itself. If this is a genesis asset,
 		// then it won't have a set of witnesses.

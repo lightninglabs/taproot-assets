@@ -848,6 +848,12 @@ func TestAssetExportLog(t *testing.T) {
 		// and amount.
 		if chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey) {
 			require.True(t, chainAsset.Amount == uint64(newAmt))
+			require.True(
+				t, mssmt.IsEqualNode(
+					chainAsset.SplitCommitmentRoot,
+					spendDelta.AssetSpendDeltas[0].SplitCommitmentRoot,
+				), "split roots don't match",
+			)
 			mutationFound = true
 		}
 	}

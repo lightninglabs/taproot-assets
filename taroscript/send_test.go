@@ -1228,7 +1228,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 		err: taroscript.ErrMissingTaroCommitment,
 	},
 	{
-		name: "missing receciver commitment",
+		name: "missing receiver commitment",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{

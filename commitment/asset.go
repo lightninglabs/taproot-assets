@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/mssmt"
 	"golang.org/x/exp/maps"
 )
@@ -272,7 +274,7 @@ func (c *AssetCommitment) AssetProof(key [32]byte) (
 	*asset.Asset, *mssmt.Proof, error) {
 
 	if c.tree == nil {
-		panic("missing tree to compute proofs")
+		return nil, nil, fmt.Errorf("missing tree to compute proofs")
 	}
 
 	// TODO(bhandras): thread the context through.
@@ -290,4 +292,26 @@ func (c *AssetCommitment) Assets() CommittedAssets {
 	maps.Copy(assets, c.assets)
 
 	return assets
+}
+
+// Copy returns a deep copy of tha target AssetCommitment.
+func (c *AssetCommitment) Copy() (*AssetCommitment, error) {
+	// If there're no assets in this commitment, then we can simply return
+	// a blank asset commitment.
+	if len(c.assets) == 0 {
+		treeRoot := c.TreeRoot.Copy().(*mssmt.BranchNode)
+		return &AssetCommitment{
+			Version:  c.Version,
+			AssetID:  c.AssetID,
+			TreeRoot: treeRoot,
+		}, nil
+	}
+
+	// First, we'll perform a deep copy of all the assets that that this
+	// existing commitment is committing to.
+	newAssets := chanutils.CopyAll(maps.Values(c.Assets()))
+
+	// Now that we have a deep copy of all the assets, we can just create a
+	// brand new commitment from the set of assets.
+	return NewAssetCommitment(newAssets...)
 }
