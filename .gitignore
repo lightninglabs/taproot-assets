@@ -28,5 +28,9 @@ tarod-debug
 # Sed backup files.
 *.bak
 
+# Editor configs.
+*.idea
+*.iml
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
