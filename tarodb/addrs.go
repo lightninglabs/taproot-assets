@@ -272,7 +272,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 	// If the created before time is zero, then we'll use a very large date
 	// to ensure that we don't restrict based on this field.
 	if params.CreatedBefore.IsZero() {
-		params.CreatedBefore = time.Unix(math.MaxInt64, 0)
+		params.CreatedBefore = time.Unix(int64(math.MaxInt64), 0)
 	}
 
 	// Similarly, for sqlite using LIMIT with a value of -1 means no rows
