@@ -15,6 +15,7 @@ tarod-debug
 /itest/lnd-itest
 /itest/btcd-itest
 /itest/regtest/*
+/itest/*.log
 /itest/.backendlogs/*
 /itest/.minerlogs/*
 /itest/tarod-itest
