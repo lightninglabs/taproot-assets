@@ -501,6 +501,10 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 		"notification", s.ReceiverAddr.ID(),
 		s.ReceiverAddr.ScriptKey.SerializeCompressed())
 
+	// Get the output index of the receiver from the spend locators.
+	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+	receiverIndex := s.SendDelta.Locators[receiverStateKey].OutputIndex
+
 	respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
 		TransferTx:     s.OutboundPkg.AnchorTx,
@@ -532,8 +536,11 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 			{
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
-						OutPoint: s.OutboundPkg.NewAnchorPoint,
-						ID:       s.ReceiverAddr.ID(),
+						OutPoint: wire.OutPoint{
+							Hash:  s.OutboundPkg.NewAnchorPoint.Hash,
+							Index: receiverIndex,
+						},
+						ID: s.ReceiverAddr.ID(),
 						ScriptKey: asset.ToSerialized(
 							&s.ReceiverAddr.ScriptKey,
 						),
