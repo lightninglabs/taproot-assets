@@ -150,6 +150,11 @@ type OutboundParcelDelta struct {
 	// assets found at the above NewAnchorPoint.
 	AnchorTx *wire.MsgTx
 
+	// AnchorTxHeightHint is a block height recorded before the anchor tx is
+	// broadcast, used as a starting block height when registering for
+	// confirmations.
+	AnchorTxHeightHint uint32
+
 	// AssetSpendDeltas describes the set of mutated assets that now live
 	// at the new anchor tx point.
 	AssetSpendDeltas []AssetSpendDelta
