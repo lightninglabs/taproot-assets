@@ -12,13 +12,11 @@ GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
 
 COMMIT := $(shell git describe --tags --dirty)
-COMMIT_HASH := $(shell git rev-parse HEAD)
 
 GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
 GOTEST := GO111MODULE=on go test 
 
-GOVERSION := $(shell go version | awk '{print $$3}')
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'
 GOLIST_COVER := $$(go list -deps $(PKG)/... | grep '$(PKG)')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
@@ -37,20 +35,14 @@ DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 # We only return the part inside the double quote here to avoid escape issues
 # when calling the external release script. The second parameter can be used to
 # add additional ldflags if needed (currently only used for the release).
-make_ldflags = $(2) -X $(PKG).Commit=$(COMMIT) \
-	-X $(PKG).CommitHash=$(COMMIT_HASH) \
-	-X $(PKG).GoVersion=$(GOVERSION) \
-	-X $(PKG).RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
+make_ldflags = $(1) -X $(PKG).Commit=$(COMMIT)
 
-make_lnd_ldflags = -X $(LND_PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 DEV_GCFLAGS := -gcflags "all=-N -l"
-LDFLAGS := -ldflags "$(call make_ldflags, ${tags}, -s -w)"
-DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
-ITEST_LDFLAGS := -ldflags "$(call make_lnd_ldflags, $(ITEST_TAGS))"
+DEV_LDFLAGS := -ldflags "$(call make_ldflags)"
 
 # For the release, we want to remove the symbol table and debug information (-s)
 # and omit the DWARF symbol table (-w). Also we clear the build ID.
-RELEASE_LDFLAGS := $(call make_ldflags, $(RELEASE_TAGS), -s -w -buildid=)
+RELEASE_LDFLAGS := -ldflags "$(call make_ldflags, -s -w -buildid=)"
 
 # Linting uses a lot of memory, so keep it under control by limiting the number
 # of workers if requested.
@@ -96,12 +88,12 @@ build-itest:
 	CGO_ENABLED=0 $(GOBUILD) -tags="rpctest" -o itest/btcd-itest $(BTCD_PKG)
 
 	@$(call print, "Building itest lnd.")
-	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(ITEST_LDFLAGS) $(LND_PKG)/cmd/lnd
+	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
 install:
 	@$(call print, "Installing tarod and tarocli.")
-	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/tarod
-	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/tarocli
+	$(GOINSTALL) -tags="${tags}" $(RELEASE_LDFLAGS) $(PKG)/cmd/tarod
+	$(GOINSTALL) -tags="${tags}" $(RELEASE_LDFLAGS) $(PKG)/cmd/tarocli
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
