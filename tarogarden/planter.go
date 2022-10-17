@@ -267,7 +267,7 @@ func (c *ChainPlanter) gardener() {
 	// active caretakers as well.
 	defer c.stopCaretakers()
 
-	log.Infof("Gardner for ChainPlanter now active!")
+	log.Infof("Gardener for ChainPlanter now active!")
 
 	// TODO(roasbeef): use top level ticker.Force instead?
 	batchTicker := make(chan time.Time, 1)
