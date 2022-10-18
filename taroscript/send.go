@@ -246,7 +246,9 @@ func IsValidInput(input *commitment.TaroCommitment,
 	inputCommitments := input.Commitments()
 	assetCommitment, ok := inputCommitments[addr.TaroCommitmentKey()]
 	if !ok {
-		return nil, needsSplit, ErrMissingInputAsset
+		return nil, needsSplit, fmt.Errorf("input commitment does "+
+			"not contain asset_id=%x: %w", addr.TaroCommitmentKey(),
+			ErrMissingInputAsset)
 	}
 
 	// The asset tree must have a non-empty Asset at the location
@@ -260,7 +262,10 @@ func IsValidInput(input *commitment.TaroCommitment,
 	}
 
 	if inputAsset == nil {
-		return nil, needsSplit, ErrMissingInputAsset
+		return nil, needsSplit, fmt.Errorf("input commitment does not "+
+			"contain leaf with script_key=%x: %w",
+			inputScriptKey.SerializeCompressed(),
+			ErrMissingInputAsset)
 	}
 
 	// For Normal assets, we also check that the input asset amount is
