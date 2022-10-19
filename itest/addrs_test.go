@@ -39,11 +39,12 @@ func testAddresses(t *harnessTest) {
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
-	bob := t.lndHarness.NewNode(t.t, "bob", lndDefaultArgs)
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, bob, t.universeServer,
+		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob, t.universeServer,
 	)
-	defer shutdownAndAssert(t, bob, secondTarod)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
 
 	var (
 		addresses []*tarorpc.Addr
