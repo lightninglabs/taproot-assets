@@ -68,7 +68,7 @@ func testAddresses(t *harnessTest) {
 
 		assertAddrCreated(t.t, secondTarod, a, addr)
 
-		sendResp := sendAssetsToAddr(t, addr)
+		sendResp := sendAssetsToAddr(t, t.tarod, addr)
 		sendRespJSON, err := formatProtoJSON(sendResp)
 		require.NoError(t.t, err)
 		t.Logf("Got response from sending assets: %v", sendRespJSON)
@@ -134,32 +134,7 @@ func testAddresses(t *harnessTest) {
 
 		assetGen := rpcAsset.AssetGenesis
 
-		var proofResp *tarorpc.ProofFile
-		waitErr := wait.NoError(func() error {
-			resp, err := t.tarod.ExportProof(
-				ctxb,
-				&tarorpc.ExportProofRequest{
-					AssetId:   assetGen.AssetId,
-					ScriptKey: receiverAddr.ScriptKey,
-				},
-			)
-			if err != nil {
-				return err
-			}
-
-			proofResp = resp
-			return nil
-		}, defaultWaitTimeout)
-		require.NoError(t.t, waitErr)
-
-		_, err = secondTarod.ImportProof(
-			ctxb,
-			&tarorpc.ImportProofRequest{
-				ProofFile:    proofResp.RawProof,
-				GenesisPoint: assetGen.GenesisPoint,
-			},
-		)
-		require.NoError(t.t, err)
+		sendProof(t, t.tarod, secondTarod, receiverAddr, assetGen)
 	}
 
 	// And finally, they should be marked as completed with a proof
@@ -205,16 +180,51 @@ func testAddresses(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
+func sendProof(t *harnessTest, src, dst *tarodHarness, rpcAddr *tarorpc.Addr,
+	genInfo *tarorpc.GenesisInfo) *tarorpc.ImportProofResponse {
+
+	ctxb := context.Background()
+
+	var proofResp *tarorpc.ProofFile
+	waitErr := wait.NoError(func() error {
+		resp, err := src.ExportProof(
+			ctxb,
+			&tarorpc.ExportProofRequest{
+				AssetId:   rpcAddr.AssetId,
+				ScriptKey: rpcAddr.ScriptKey,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		proofResp = resp
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t.t, waitErr)
+
+	importResp, err := dst.ImportProof(
+		ctxb,
+		&tarorpc.ImportProofRequest{
+			ProofFile:    proofResp.RawProof,
+			GenesisPoint: genInfo.GenesisPoint,
+		},
+	)
+	require.NoError(t.t, err)
+
+	return importResp
+}
+
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
-func sendAssetsToAddr(t *harnessTest,
+func sendAssetsToAddr(t *harnessTest, tarod *tarodHarness,
 	rpcAddr *tarorpc.Addr) *tarorpc.SendAssetResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	resp, err := t.tarod.SendAsset(ctxt, &tarorpc.SendAssetRequest{
+	resp, err := tarod.SendAsset(ctxt, &tarorpc.SendAssetRequest{
 		TaroAddr: rpcAddr.Encoded,
 	})
 	require.NoError(t.t, err)

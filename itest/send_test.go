@@ -53,7 +53,7 @@ func testBasicSend(t *harnessTest) {
 
 		assertAddrCreated(t.t, secondTarod, rpcAssets[0], bobAddr)
 
-		sendResp := sendAssetsToAddr(t, bobAddr)
+		sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
 
 		// Check that we now have two new outputs, and that they differ
 		// in outpoints and scripts.
