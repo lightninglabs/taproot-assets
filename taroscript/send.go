@@ -328,8 +328,8 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 	updatedDelta.Locators[receiverStateKey] = receiverLocator
 
 	// Enforce an unspendable root split if the split sends the full value
-	// of the input asset.
-	if senderLocator.Amount == 0 &&
+	// of the input asset or if the split sends a collectible.
+	if (senderLocator.Amount == 0 || inputAsset.Type == asset.Collectible) &&
 		senderLocator.ScriptKey != asset.NUMSCompressedKey {
 
 		return nil, commitment.ErrInvalidScriptKey

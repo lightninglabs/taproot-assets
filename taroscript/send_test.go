@@ -841,6 +841,30 @@ var prepareAssetSplitSpendTestCases = []prepareAssetSplitSpendTestCase{
 		err: nil,
 	},
 	{
+		name: "asset split with collectible",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.asset1CollectFamilyInputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address1CollectFamily,
+				state.asset1CollectFamilyPrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			checkPreparedSplitSpend(
+				t, spendPrepared, state.address1CollectFamily,
+				state.asset1CollectFamilyPrevID,
+				state.spenderScriptKey,
+			)
+			return nil
+		},
+		err: nil,
+	},
+	{
 		name: "asset split with incorrect script key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
@@ -1112,6 +1136,38 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			)
 			return nil
 		},
+	},
+	{
+		name: "validate split collectible with family key",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.
+					asset1CollectFamilyInputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address1CollectFamily,
+				state.asset1CollectFamilyPrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			unvalidatedAsset := spendPrepared.NewAsset
+			spendCompleted, err := taroscript.CompleteAssetSpend(
+				state.spenderPubKey,
+				state.asset1CollectFamilyPrevID,
+				*spendPrepared, state.signer, state.validator,
+			)
+			require.NoError(t, err)
+
+			checkValidateSpend(
+				t, &unvalidatedAsset,
+				&spendCompleted.NewAsset, false,
+			)
+			return nil
+		},
+		err: nil,
 	},
 }
 
@@ -1412,6 +1468,52 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 		},
 		err: nil,
 	},
+	{
+		name: "split collectible with family key",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.
+					asset1CollectFamilyInputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address1CollectFamily,
+				state.asset1CollectFamilyPrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			spendCompleted, err := taroscript.CompleteAssetSpend(
+				state.spenderPubKey,
+				state.asset1CollectFamilyPrevID,
+				*spendPrepared, state.signer, state.validator,
+			)
+			require.NoError(t, err)
+
+			spendCommitments, err := taroscript.CreateSpendCommitments(
+				&state.asset1CollectFamilyTaroTree,
+				state.asset1CollectFamilyPrevID,
+				*spendCompleted, state.address1CollectFamily,
+				state.spenderScriptKey,
+			)
+			require.NoError(t, err)
+
+			senderStateKey := asset.AssetCommitmentKey(
+				state.address1CollectFamily.ID(),
+				&state.spenderScriptKey,
+				false,
+			)
+			receiverStateKey := state.address1CollectFamilyStateKey
+			checkSpendCommitments(
+				t, senderStateKey, receiverStateKey,
+				state.asset1CollectFamilyPrevID,
+				spendCompleted, spendCommitments, true,
+			)
+			return nil
+		},
+		err: nil,
+	},
 }
 
 // TestCreateSpendOutputs tests edge cases around creating Bitcoin outputs
@@ -1552,7 +1654,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1.ID(),
+				state.address1CollectFamily.ID(),
 				&state.spenderScriptKey, false,
 			)
 			receiverStateKey := state.address1CollectFamilyStateKey
@@ -1738,6 +1840,67 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			checkSpendOutputs(
 				t, state.address2, state.spenderPubKey,
 				state.spenderScriptKey,
+				&spendCompleted.NewAsset, &receiverAsset,
+				spendCommitments, spendCompleted.Locators,
+				spendPsbt, true,
+			)
+			return nil
+		},
+		err: nil,
+	},
+	{
+		name: "split collectible with family key",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.
+					asset1CollectFamilyInputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address1CollectFamily,
+				state.asset1CollectFamilyPrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			spendCompleted, err := taroscript.CompleteAssetSpend(
+				state.spenderPubKey,
+				state.asset1CollectFamilyPrevID,
+				*spendPrepared, state.signer, state.validator,
+			)
+			require.NoError(t, err)
+
+			spendCommitments, err := taroscript.CreateSpendCommitments(
+				&state.asset1CollectFamilyTaroTree,
+				state.asset1CollectFamilyPrevID,
+				*spendCompleted,
+				state.address1CollectFamily,
+				state.spenderScriptKey,
+			)
+			require.NoError(t, err)
+
+			receiverStateKey := state.address1CollectFamilyStateKey
+			receiverLocator := spendCompleted.
+				Locators[receiverStateKey]
+			receiverAsset := spendCompleted.SplitCommitment.
+				SplitAssets[receiverLocator].Asset
+			spendPsbt, err := taroscript.CreateTemplatePsbt(
+				spendCompleted.Locators,
+			)
+			require.NoError(t, err)
+
+			err = taroscript.CreateSpendOutputs(
+				state.address1CollectFamily,
+				spendCompleted.Locators,
+				state.spenderPubKey, state.spenderScriptKey,
+				spendCommitments, spendPsbt,
+			)
+			require.NoError(t, err)
+
+			checkSpendOutputs(
+				t, state.address1CollectFamily,
+				state.spenderPubKey, state.spenderScriptKey,
 				&spendCompleted.NewAsset, &receiverAsset,
 				spendCommitments, spendCompleted.Locators,
 				spendPsbt, true,
