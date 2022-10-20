@@ -47,7 +47,7 @@ const (
 	ErrInvalidTransferWitness
 
 	// ErrInvalidSplitAssetType represents an error case where an asset
-	// split type is not `asset.Normal`.
+	// split type does not match the root asset.
 	ErrInvalidSplitAssetType
 
 	// ErrInvalidSplitCommitmentWitness represents an error case where an

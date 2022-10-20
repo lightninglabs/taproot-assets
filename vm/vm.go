@@ -105,12 +105,10 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 // input. This is done by verifying the asset split is committed to within the
 // new asset's split commitment root through its split commitment proof.
 func (vm *Engine) validateSplit() error {
-	// Only `Normal` assets can be split, and the change asset should have
-	// a split commitment root.
+	// The asset type must match for all parts of a split, and the change
+	// asset should have a split commitment root.
 	switch {
-	case vm.newAsset.Type != asset.Normal ||
-		vm.splitAsset.Type != asset.Normal:
-
+	case vm.newAsset.Type != vm.splitAsset.Type:
 		return newErrKind(ErrInvalidSplitAssetType)
 
 	case vm.newAsset.SplitCommitmentRoot == nil:
