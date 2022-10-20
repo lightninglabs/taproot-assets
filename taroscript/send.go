@@ -182,7 +182,7 @@ func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
 		maxOutputIndex++
 	}
 
-	txTemplate := wire.NewMsgTx(int32(maxOutputIndex))
+	txTemplate := wire.NewMsgTx(2)
 	for i := uint32(0); i < maxOutputIndex; i++ {
 		txTemplate.AddTxOut(createDummyOutput())
 	}
@@ -562,7 +562,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	//
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
-	senderTaroCommitment := *inputCommitment
+	senderTaroCommitment := *inputCommitmentCopy
 	err = senderTaroCommitment.Update(senderCommitment, false)
 	if err != nil {
 		return nil, err

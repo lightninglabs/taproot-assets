@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -259,4 +260,40 @@ func assertAddr(t *testing.T, expected *tarorpc.Asset, actual *tarorpc.Addr) {
 	// The script key must explicitly NOT be the same, as that would lead
 	// to a collision with assets that have a family key.
 	require.NotEqual(t, expected.ScriptKey, actual.ScriptKey)
+}
+
+// assertBalance asserts that the balance of a given asset on the given daemon
+// is correct.
+func assertBalance(t *testing.T, tarod *tarodHarness, id []byte, amt int64) {
+	ctxb := context.Background()
+	balancesResp, err := tarod.ListBalances(
+		ctxb, &tarorpc.ListBalancesRequest{
+			GroupBy: &tarorpc.ListBalancesRequest_AssetId{
+				AssetId: true,
+			},
+			AssetFilter: id,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, balancesResp.AssetBalances, 1)
+
+	balance := balancesResp.AssetBalances[hex.EncodeToString(id)]
+	require.Equal(t, balance.Balance, amt)
+}
+
+// assertTransfers asserts that the value of each transfer initiated on the
+// given daemon is correct.
+func assertTransfers(t *testing.T, tarod *tarodHarness, amts []int64) {
+	ctxb := context.Background()
+	transferResp, err := tarod.ListTransfers(
+		ctxb, &tarorpc.ListTransfersRequest{},
+	)
+	require.NoError(t, err)
+	require.Len(t, transferResp.Transfers, len(amts))
+
+	// TODO(jhb): Extend to support multi-asset transfers
+	for i, transfer := range transferResp.Transfers {
+		require.Len(t, transfer.AssetSpendDeltas, 1)
+		require.Equal(t, amts[i], transfer.AssetSpendDeltas[0].NewAmt)
+	}
 }
