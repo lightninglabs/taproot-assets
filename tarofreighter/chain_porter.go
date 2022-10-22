@@ -652,9 +652,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
-		// If we are sending the full value of the input asset, we will
-		// need to create a split with unspendable change.
-		if inputAsset.Type == asset.Normal && !needsSplit {
+		// If we are sending the full value of the input asset, or
+		// sending a collectible, we will need to create a split with
+		// unspendable change.
+		if (inputAsset.Type == asset.Normal && !needsSplit) ||
+			inputAsset.Type == asset.Collectible {
+
 			currentPkg.SenderScriptKey = asset.NUMSScriptKey
 		} else {
 			senderScriptKey, err := p.cfg.KeyRing.DeriveNextKey(
@@ -671,17 +674,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			)
 		}
 
-		// If we need to split (addr amount < input amount), then we'll
-		// transition to prepare the set of splits. If not,then we can
-		// assume the splits are unnecessary.
-		//
-		// TODO(roasbeef): always need to split anyway see:
-		// https://github.com/lightninglabs/taro/issues/121
-		if inputAsset.Type == asset.Normal {
-			currentPkg.SendState = SendStatePreparedSplit
-		} else {
-			currentPkg.SendState = SendStatePreparedComplete
-		}
+		currentPkg.SendState = SendStatePreparedSplit
 
 		return &currentPkg, nil
 
@@ -698,21 +691,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"commit: %w", err)
 		}
 
-		currentPkg.SendDelta = preparedSpend
-
-		currentPkg.SendState = SendStateSigned
-
-		return &currentPkg, nil
-
-	// Alternatively, we'll enter this state when we know we don't actually
-	// need a split at all. In this case, we fully consume an input asset,
-	// so the asset created is the same asset w/ the new script key in
-	// place.
-	case SendStatePreparedComplete:
-		preparedSpend := taroscript.PrepareAssetCompleteSpend(
-			*currentPkg.ReceiverAddr, currentPkg.InputAssetPrevID,
-			*currentPkg.SendDelta,
-		)
 		currentPkg.SendDelta = preparedSpend
 
 		currentPkg.SendState = SendStateSigned
