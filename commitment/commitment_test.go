@@ -586,6 +586,118 @@ func TestSplitCommitment(t *testing.T) {
 			},
 			err: ErrInvalidSplitLocator,
 		},
+		{
+			name: "unspendable root locator with non-zero amount",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesisNormal, familyKeyNormal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   asset.NUMSCompressedKey,
+					Amount:      1,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: 2,
+				}}
+
+				return input, root, external
+			},
+			err: ErrNonZeroSplitAmount,
+		},
+		{
+			name: "invalid zero-value root locator",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesisNormal, familyKeyNormal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: 0,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: 3,
+				}}
+
+				return input, root, external
+			},
+			err: ErrInvalidScriptKey,
+		},
+		{
+			name: "zero-value external locator",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesisNormal, familyKeyNormal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: 3,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: 0,
+				}}
+
+				return input, root, external
+			},
+			err: ErrZeroSplitAmount,
+		},
+		{
+			name: "full value split commitment",
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesisNormal, familyKeyNormal,
+				)
+				input.Amount = 3
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   asset.NUMSCompressedKey,
+					Amount:      0,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						randKey(t).PubKey(),
+					),
+					Amount: 3,
+				}}
+
+				return input, root, external
+			},
+			err: nil,
+		},
 	}
 
 	for _, testCase := range testCases {
