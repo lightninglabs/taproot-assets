@@ -321,6 +321,142 @@ func createGenesisProof(t *testing.T, state *spendData) {
 	state.asset2GenesisProof = asset2GenesisProof
 }
 
+func createSpend(t *testing.T, state *spendData, spend taroscript.SpendDelta,
+	full bool) (psbt.Packet, [32]byte, taroscript.SpendDelta,
+	taroscript.SpendCommitments) {
+
+	var (
+		spendAddress     address.Taro
+		receiverStateKey [32]byte
+	)
+
+	if full {
+		spendAddress = state.address2
+		receiverStateKey = state.address2StateKey
+	} else {
+		spendAddress = state.address1
+		receiverStateKey = state.address1StateKey
+	}
+
+	spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+		spendAddress, state.asset2PrevID,
+		state.spenderScriptKey, spend,
+	)
+	require.NoError(t, err)
+
+	spendCompleted, err := taroscript.CompleteAssetSpend(
+		state.spenderPubKey, state.asset2PrevID,
+		*spendPrepared, state.signer, state.validator,
+	)
+	require.NoError(t, err)
+
+	spendCommitments, err := taroscript.CreateSpendCommitments(
+		&state.asset2TaroTree, state.asset2PrevID,
+		*spendCompleted, spendAddress,
+		state.spenderScriptKey,
+	)
+	require.NoError(t, err)
+
+	spendPsbt, err := taroscript.CreateTemplatePsbt(
+		spendCompleted.Locators,
+	)
+	require.NoError(t, err)
+	err = taroscript.CreateSpendOutputs(
+		spendAddress, spendCompleted.Locators,
+		state.spenderPubKey, state.spenderScriptKey,
+		spendCommitments, spendPsbt,
+	)
+	require.NoError(t, err)
+
+	return *spendPsbt, receiverStateKey, *spendCompleted, spendCommitments
+}
+
+func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
+	spendCompleted taroscript.SpendDelta, spendPsbt psbt.Packet,
+	receiverStateKey [32]byte,
+	spendCommitments taroscript.SpendCommitments) []proof.TransitionParams {
+
+	spendPsbt.UnsignedTx.AddTxIn(&genesisTxIn)
+	spendTx := spendPsbt.UnsignedTx.Copy()
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(spendTx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	genesisHash := state.asset2GenesisProof.BlockHeader.BlockHash()
+	blockHeader := wire.NewBlockHeader(0, &genesisHash, merkleRoot, 0, 0)
+
+	receiverLocator := spendCompleted.
+		Locators[receiverStateKey]
+	receiverAsset := spendCompleted.SplitCommitment.
+		SplitAssets[receiverLocator].Asset
+	senderStateKey := asset.AssetCommitmentKey(
+		state.address1.ID(),
+		&state.spenderScriptKey, true,
+	)
+	senderTaroTree := spendCommitments[senderStateKey]
+	receiverTaroTree := spendCommitments[receiverStateKey]
+
+	_, senderExclusionProof, err := receiverTaroTree.Proof(
+		spendCompleted.NewAsset.TaroCommitmentKey(),
+		spendCompleted.NewAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	_, receiverExclusionProof, err := senderTaroTree.Proof(
+		receiverAsset.TaroCommitmentKey(),
+		receiverAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	senderParams := proof.TransitionParams{
+		BaseProofParams: proof.BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *blockHeader,
+				Transactions: []*wire.MsgTx{spendTx},
+			},
+			Tx:          spendTx,
+			TxIndex:     0,
+			OutputIndex: 0,
+			InternalKey: &state.spenderPubKey,
+			TaroRoot:    &senderTaroTree,
+			ExclusionProofs: []proof.TaprootProof{{
+				OutputIndex: 1,
+				InternalKey: &state.receiverPubKey,
+				CommitmentProof: &proof.CommitmentProof{
+					Proof: *senderExclusionProof,
+				},
+			}},
+		},
+		NewAsset: &spendCompleted.NewAsset,
+	}
+
+	receiverParams := proof.TransitionParams{
+		BaseProofParams: proof.BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *blockHeader,
+				Transactions: []*wire.MsgTx{spendTx},
+			},
+			Tx:          spendTx,
+			TxIndex:     0,
+			OutputIndex: 1,
+			InternalKey: &state.receiverPubKey,
+			TaroRoot:    &receiverTaroTree,
+			ExclusionProofs: []proof.TaprootProof{{
+				OutputIndex: 0,
+				InternalKey: &state.spenderPubKey,
+				CommitmentProof: &proof.CommitmentProof{
+					Proof: *receiverExclusionProof,
+				},
+			}},
+		},
+		NewAsset:        &receiverAsset,
+		RootOutputIndex: 0,
+		RootInternalKey: &state.spenderPubKey,
+		RootTaroTree:    &senderTaroTree,
+	}
+
+	return []proof.TransitionParams{senderParams, receiverParams}
+}
+
 func checkPreparedSplitSpend(t *testing.T, spend *taroscript.SpendDelta,
 	addr address.Taro, prevInput asset.PrevID, scriptKey btcec.PublicKey) {
 
@@ -332,7 +468,9 @@ func checkPreparedSplitSpend(t *testing.T, spend *taroscript.SpendDelta,
 		t, spend.NewAsset.Amount,
 		spend.InputAssets[prevInput].Amount-addr.Amount,
 	)
-
+	if spend.InputAssets[prevInput].Amount == addr.Amount {
+		require.True(t, spend.NewAsset.IsUnspendable())
+	}
 	receiverStateKey := addr.AssetCommitmentKey()
 	receiverLocator, ok := spend.Locators[receiverStateKey]
 	require.True(t, ok)
@@ -401,7 +539,8 @@ func checkTaroCommitment(t *testing.T, assets []*asset.Asset,
 			if !matchingAsset {
 				// Check the included asset is not equal to
 				// the one provided; used for the sender tree
-				// when the asset was split
+				// when the asset was split and the script key
+				// is reused
 				require.NotNil(t, proofAsset)
 				require.NotEqual(t, *proofAsset, *asset)
 			} else {
@@ -464,10 +603,18 @@ func checkSpendCommitments(t *testing.T, senderKey, receiverKey [32]byte,
 		includesAssetCommitment = false
 	}
 
+	inputMatchingAsset := !isSplit
+
+	// If our spend creates an unspenable root, no asset should exist
+	// at the location of the input asset.
+	if spend.NewAsset.IsUnspendable() && isSplit {
+		inputMatchingAsset = true
+	}
+
 	// Input asset should always be excluded.
 	checkTaroCommitment(
 		t, []*asset.Asset{spend.InputAssets[prevInput]}, &senderTree,
-		false, includesAssetCommitment, !isSplit,
+		false, includesAssetCommitment, inputMatchingAsset,
 	)
 
 	// Assert inclusion of the validated asset in the receiver tree
@@ -670,6 +817,43 @@ var prepareAssetSplitSpendTestCases = []prepareAssetSplitSpendTestCase{
 			return nil
 		},
 		err: nil,
+	},
+	{
+		name: "asset split with unspendable change",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.asset2InputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address2, state.asset2PrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			checkPreparedSplitSpend(
+				t, spendPrepared, state.address2,
+				state.asset2PrevID, state.spenderScriptKey,
+			)
+			return nil
+		},
+		err: nil,
+	},
+	{
+		name: "asset split with incorrect script key",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.asset2InputAssets,
+			}
+			_, err := taroscript.PrepareAssetSplitSpend(
+				state.address2, state.asset2PrevID,
+				state.spenderScriptKey, spend,
+			)
+			return err
+		},
+		err: commitment.ErrInvalidScriptKey,
 	},
 }
 
@@ -883,6 +1067,34 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			}
 			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
 				state.address1, state.asset2PrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			unvalidatedAsset := spendPrepared.NewAsset
+			spendCompleted, err := taroscript.CompleteAssetSpend(
+				state.spenderPubKey, state.asset2PrevID,
+				*spendPrepared, state.signer, state.validator,
+			)
+			require.NoError(t, err)
+
+			checkValidateSpend(
+				t, &unvalidatedAsset,
+				&spendCompleted.NewAsset, true,
+			)
+			return nil
+		},
+	},
+	{
+		name: "validate full value asset split",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.asset2InputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address2, state.asset2PrevID,
 				state.spenderScriptKey, spend,
 			)
 			require.NoError(t, err)
@@ -1150,6 +1362,47 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 				&state.spenderScriptKey, true,
 			)
 			receiverStateKey := state.address1StateKey
+			checkSpendCommitments(
+				t, senderStateKey, receiverStateKey,
+				state.asset2PrevID, spendCompleted,
+				spendCommitments, true,
+			)
+			return nil
+		},
+		err: nil,
+	},
+	{
+		name: "full value asset split",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.asset2InputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address2, state.asset2PrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			spendCompleted, err := taroscript.CompleteAssetSpend(
+				state.spenderPubKey, state.asset2PrevID,
+				*spendPrepared, state.signer, state.validator,
+			)
+			require.NoError(t, err)
+
+			spendCommitments, err := taroscript.CreateSpendCommitments(
+				&state.asset2TaroTree, state.asset2PrevID,
+				*spendCompleted, state.address2,
+				state.spenderScriptKey,
+			)
+			require.NoError(t, err)
+
+			senderStateKey := asset.AssetCommitmentKey(
+				state.asset2.ID(),
+				&state.spenderScriptKey, true,
+			)
+			receiverStateKey := state.address2StateKey
 			checkSpendCommitments(
 				t, senderStateKey, receiverStateKey,
 				state.asset2PrevID, spendCompleted,
@@ -1439,6 +1692,60 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 		},
 		err: nil,
 	},
+	{
+		name: "full value asset split",
+		f: func(t *testing.T) error {
+			state := initSpendScenario(t)
+			spend := taroscript.SpendDelta{
+				InputAssets: state.asset2InputAssets,
+			}
+			state.spenderScriptKey = *asset.NUMSPubKey
+			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
+				state.address2, state.asset2PrevID,
+				state.spenderScriptKey, spend,
+			)
+			require.NoError(t, err)
+
+			spendCompleted, err := taroscript.CompleteAssetSpend(
+				state.spenderPubKey, state.asset2PrevID,
+				*spendPrepared, state.signer, state.validator,
+			)
+			require.NoError(t, err)
+
+			spendCommitments, err := taroscript.CreateSpendCommitments(
+				&state.asset2TaroTree, state.asset2PrevID,
+				*spendCompleted, state.address2,
+				state.spenderScriptKey,
+			)
+			require.NoError(t, err)
+
+			receiverStateKey := state.address2StateKey
+			receiverLocator := spendCompleted.
+				Locators[receiverStateKey]
+			receiverAsset := spendCompleted.SplitCommitment.
+				SplitAssets[receiverLocator].Asset
+			spendPsbt, err := taroscript.CreateTemplatePsbt(
+				spendCompleted.Locators,
+			)
+			require.NoError(t, err)
+			err = taroscript.CreateSpendOutputs(
+				state.address2, spendCompleted.Locators,
+				state.spenderPubKey, state.spenderScriptKey,
+				spendCommitments, spendPsbt,
+			)
+			require.NoError(t, err)
+
+			checkSpendOutputs(
+				t, state.address2, state.spenderPubKey,
+				state.spenderScriptKey,
+				&spendCompleted.NewAsset, &receiverAsset,
+				spendCommitments, spendCompleted.Locators,
+				spendPsbt, true,
+			)
+			return nil
+		},
+		err: nil,
+	},
 }
 
 // TestProofVerify tests that a split spend can be used to append to a
@@ -1479,120 +1786,21 @@ func TestProofVerify(t *testing.T) {
 	spend := taroscript.SpendDelta{
 		InputAssets: state.asset2InputAssets,
 	}
-	spendPrepared, err := taroscript.PrepareAssetSplitSpend(
-		state.address1, state.asset2PrevID,
-		state.spenderScriptKey, spend,
-	)
-	require.NoError(t, err)
 
-	spendCompleted, err := taroscript.CompleteAssetSpend(
-		state.spenderPubKey, state.asset2PrevID,
-		*spendPrepared, state.signer, state.validator,
+	spendPsbt, receiverStateKey, spendCompleted, spendCommitments := createSpend(
+		t, &state, spend, false,
 	)
-	require.NoError(t, err)
-
-	spendCommitments, err := taroscript.CreateSpendCommitments(
-		&state.asset2TaroTree, state.asset2PrevID,
-		*spendCompleted, state.address1,
-		state.spenderScriptKey,
-	)
-	require.NoError(t, err)
-
-	receiverStateKey := state.address1StateKey
-	receiverLocator := spendCompleted.
-		Locators[receiverStateKey]
-	receiverAsset := spendCompleted.SplitCommitment.
-		SplitAssets[receiverLocator].Asset
-	spendPsbt, err := taroscript.CreateTemplatePsbt(
-		spendCompleted.Locators,
-	)
-	require.NoError(t, err)
-	err = taroscript.CreateSpendOutputs(
-		state.address1, spendCompleted.Locators,
-		state.spenderPubKey, state.spenderScriptKey,
-		spendCommitments, spendPsbt,
-	)
-	require.NoError(t, err)
 
 	genesisTxIn := wire.TxIn{PreviousOutPoint: *genesisOutPoint}
-	spendPsbt.UnsignedTx.AddTxIn(&genesisTxIn)
-	spendTx := spendPsbt.UnsignedTx.Copy()
-	merkleTree := blockchain.BuildMerkleTreeStore(
-		[]*btcutil.Tx{btcutil.NewTx(spendTx)}, false,
-	)
-	merkleRoot := merkleTree[len(merkleTree)-1]
-	genesisHash := state.asset2GenesisProof.BlockHeader.BlockHash()
-	blockHeader := wire.NewBlockHeader(0, &genesisHash, merkleRoot, 0, 0)
-	require.NoError(t, err)
 
-	senderStateKey := asset.AssetCommitmentKey(
-		state.address1.ID(),
-		&state.spenderScriptKey, true,
+	proofParams := createProofParams(
+		t, genesisTxIn, state, spendCompleted, spendPsbt,
+		receiverStateKey, spendCommitments,
 	)
-	senderTaroTree := spendCommitments[senderStateKey]
-	receiverTaroTree := spendCommitments[receiverStateKey]
-
-	_, senderExclusionProof, err := receiverTaroTree.Proof(
-		spendCompleted.NewAsset.TaroCommitmentKey(),
-		spendCompleted.NewAsset.AssetCommitmentKey(),
-	)
-	require.NoError(t, err)
-	_, receiverExclusionProof, err := senderTaroTree.Proof(
-		receiverAsset.TaroCommitmentKey(),
-		receiverAsset.AssetCommitmentKey(),
-	)
-	require.NoError(t, err)
-
-	senderParams := proof.TransitionParams{
-		BaseProofParams: proof.BaseProofParams{
-			Block: &wire.MsgBlock{
-				Header:       *blockHeader,
-				Transactions: []*wire.MsgTx{spendTx},
-			},
-			Tx:          spendTx,
-			TxIndex:     0,
-			OutputIndex: 0,
-			InternalKey: &state.spenderPubKey,
-			TaroRoot:    &senderTaroTree,
-			ExclusionProofs: []proof.TaprootProof{{
-				OutputIndex: 1,
-				InternalKey: &state.receiverPubKey,
-				CommitmentProof: &proof.CommitmentProof{
-					Proof: *senderExclusionProof,
-				},
-			}},
-		},
-		NewAsset: &spendCompleted.NewAsset,
-	}
-
-	receiverParams := proof.TransitionParams{
-		BaseProofParams: proof.BaseProofParams{
-			Block: &wire.MsgBlock{
-				Header:       *blockHeader,
-				Transactions: []*wire.MsgTx{spendTx},
-			},
-			Tx:          spendTx,
-			TxIndex:     0,
-			OutputIndex: 1,
-			InternalKey: &state.receiverPubKey,
-			TaroRoot:    &receiverTaroTree,
-			ExclusionProofs: []proof.TaprootProof{{
-				OutputIndex: 0,
-				InternalKey: &state.spenderPubKey,
-				CommitmentProof: &proof.CommitmentProof{
-					Proof: *receiverExclusionProof,
-				},
-			}},
-		},
-		NewAsset:        &receiverAsset,
-		RootOutputIndex: 0,
-		RootInternalKey: &state.spenderPubKey,
-		RootTaroTree:    &senderTaroTree,
-	}
 
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
-		genesisProofBlob, &senderParams,
+		genesisProofBlob, &proofParams[0],
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
@@ -1601,7 +1809,76 @@ func TestProofVerify(t *testing.T) {
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
-		genesisProofBlob, &receiverParams,
+		genesisProofBlob, &proofParams[1],
+	)
+	require.NoError(t, err)
+	receiverFile, err := proof.NewFile(proof.V0)
+	require.NoError(t, err)
+	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
+	_, err = receiverFile.Verify(context.TODO())
+	require.NoError(t, err)
+}
+
+func TestProofVerifyFullValueSplit(t *testing.T) {
+	t.Parallel()
+
+	state := initSpendScenario(t)
+
+	// Create a proof for the genesis of asset 2.
+	createGenesisProof(t, &state)
+
+	genesisProofFile, err := proof.NewFile(proof.V0, state.asset2GenesisProof)
+	require.NoError(t, err)
+	var b bytes.Buffer
+	err = genesisProofFile.Encode(&b)
+	require.NoError(t, err)
+	genesisProofBlob := b.Bytes()
+
+	// Add a PrevID to represent our fake genesis TX.
+	genesisOutPoint := &wire.OutPoint{
+		Hash:  state.asset2GenesisProof.AnchorTx.TxHash(),
+		Index: state.asset2GenesisProof.PrevOut.Index,
+	}
+	state.asset2PrevID = asset.PrevID{
+		OutPoint:  *genesisOutPoint,
+		ID:        state.asset2.ID(),
+		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
+	}
+	state.asset2InputAssets = commitment.InputSet{
+		state.asset2PrevID: &state.asset2,
+	}
+
+	// Perform a full value split spend of asset 2.
+	spend := taroscript.SpendDelta{
+		InputAssets: state.asset2InputAssets,
+	}
+
+	state.spenderScriptKey = *asset.NUMSPubKey
+
+	spendPsbt, receiverStateKey, spendCompleted, spendCommitments := createSpend(
+		t, &state, spend, true,
+	)
+
+	genesisTxIn := wire.TxIn{PreviousOutPoint: *genesisOutPoint}
+
+	proofParams := createProofParams(
+		t, genesisTxIn, state, spendCompleted, spendPsbt,
+		receiverStateKey, spendCommitments,
+	)
+
+	// Create a proof for each receiver and verify it.
+	senderBlob, _, err := proof.AppendTransition(
+		genesisProofBlob, &proofParams[0],
+	)
+	require.NoError(t, err)
+	senderFile, err := proof.NewFile(proof.V0)
+	require.NoError(t, err)
+	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
+	_, err = senderFile.Verify(context.TODO())
+	require.NoError(t, err)
+
+	receiverBlob, _, err := proof.AppendTransition(
+		genesisProofBlob, &proofParams[1],
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
