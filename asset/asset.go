@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"reflect"
@@ -50,6 +51,26 @@ var (
 	// ZeroPrevID is the blank prev ID used for genesis assets and also
 	// asset split leaves.
 	ZeroPrevID PrevID
+
+	// NUMSBytes is the NUMs point we'll use for unspendable script keys.
+	// It was generated via a try-and-increment approach using the phrase
+	// "taro" with SHA2-256. The code for the try-and-increment approach
+	// can be seen here:
+	// https://github.com/lightninglabs/lightning-node-connect/tree/master/mailbox/numsgen
+	NUMSBytes, _ = hex.DecodeString(
+		"0293bfe90658c79b480114ff6bbeda51b3ec6412deb367a4d41e1403e3cc" +
+			"6583ed",
+	)
+	NUMSPubKey, _     = btcec.ParsePubKey(NUMSBytes)
+	NUMSCompressedKey = ToSerialized(NUMSPubKey)
+	NUMSScriptKey     = ScriptKey{
+		PubKey: NUMSPubKey,
+		TweakedScriptKey: &TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: NUMSPubKey,
+			},
+		},
+	}
 )
 
 const (
@@ -695,6 +716,13 @@ func (a *Asset) HasSplitCommitmentWitness() bool {
 
 	return witness.PrevID != nil && len(witness.TxWitness) == 0 &&
 		witness.SplitCommitment != nil
+}
+
+// IsUnspendable returns true if an asset uses the unspendable script key and
+// has zero value.
+func (a *Asset) IsUnspendable() bool {
+	return ToSerialized(a.ScriptKey.PubKey) == NUMSCompressedKey &&
+		a.Amount == 0
 }
 
 // Copy returns a deep copy of an Asset.
