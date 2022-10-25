@@ -57,6 +57,10 @@ const (
 	// ErrInvalidSplitCommitmentProof represents an error case where an
 	// asset split has an invalid split commitment proof.
 	ErrInvalidSplitCommitmentProof
+
+	// ErrInvalidRootAsset represents an error case where the root asset
+	// of an asset split has zero value but a spendable script key.
+	ErrInvalidRootAsset
 )
 
 // Wrap select errors related to virtual TX handling to provide more
@@ -99,6 +103,8 @@ func (k ErrorKind) String() string {
 		return "invalid split commitment asset witness"
 	case ErrInvalidSplitCommitmentProof:
 		return "invalid split commitment proof"
+	case ErrInvalidRootAsset:
+		return "invalid zero-value root asset"
 	default:
 		return "unknown"
 	}

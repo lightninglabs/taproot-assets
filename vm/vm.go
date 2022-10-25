@@ -145,6 +145,19 @@ func (vm *Engine) validateSplit() error {
 		return err
 	}
 
+	// If the split requires a zero-value root asset, the root asset must
+	// be unspendable. Non-inflation of the split is enforced elsewhere, at
+	// the end of vm.Execute().
+	if vm.newAsset.Amount == 0 && !vm.newAsset.IsUnspendable() {
+		return newErrKind(ErrInvalidRootAsset)
+	}
+
+	// If we are validating the root asset of the split, the root split must
+	// also be unspendable.
+	if vm.splitAsset.Amount == 0 && !vm.splitAsset.IsUnspendable() {
+		return newErrKind(ErrInvalidRootAsset)
+	}
+
 	// Finally, verify that the split commitment proof for the split asset
 	// resolves to the split commitment root found within the change asset.
 	locator := &commitment.SplitLocator{
