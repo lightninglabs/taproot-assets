@@ -34,6 +34,24 @@ var (
 	ErrInvalidSplitLocator = errors.New(
 		"at least one locator should be specified",
 	)
+
+	// ErrInvalidScriptKey is an error returned when a root locator has zero
+	// value but does not use the correct unspendable script key.
+	ErrInvalidScriptKey = errors.New(
+		"invalid script key for zero-amount locator",
+	)
+
+	// ErrZeroSplitAmount is an error returned when a non-root split locator
+	// has zero amount.
+	ErrZeroSplitAmount = errors.New(
+		"split locator has zero amount",
+	)
+
+	// ErrNonZeroSplitAmount is an error returned when a root locator uses
+	// an unspendable script key but has a non-zero amount.
+	ErrNonZeroSplitAmount = errors.New(
+		"unspendable root locator has non-zero amount",
+	)
 )
 
 // SplitLocator encodes the data that uniquely identifies an asset split within
@@ -133,6 +151,20 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		return nil, ErrInvalidSplitLocator
 	}
 
+	// The only valid unspendable root locator uses the correct unspendable
+	// script key and has zero value.
+	if rootLocator.Amount == 0 &&
+		rootLocator.ScriptKey != asset.NUMSCompressedKey {
+
+		return nil, ErrInvalidScriptKey
+	}
+
+	if rootLocator.Amount != 0 &&
+		rootLocator.ScriptKey == asset.NUMSCompressedKey {
+
+		return nil, ErrNonZeroSplitAmount
+	}
+
 	// Map each SplitLocator to an asset split, making sure to decrement
 	// each split's amount from the asset input to ensure we fully consume
 	// the total input amount.
@@ -141,6 +173,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	splitAssets := make(SplitSet, len(locators))
 	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	remainingAmount := input.Amount
+	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
 		// Return an error if we've already seen a locator with this
 		// output index.
@@ -190,7 +223,11 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 
 		return nil
 	}
-	for _, locator := range locators {
+	for idx, locator := range locators {
+		if idx != rootIdx && locator.Amount == 0 {
+			return nil, ErrZeroSplitAmount
+		}
+
 		if err := addAssetSplit(locator); err != nil {
 			return nil, err
 		}

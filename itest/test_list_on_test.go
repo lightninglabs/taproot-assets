@@ -20,4 +20,8 @@ var testCases = []*testCase{
 		name: "round trip send",
 		test: testRoundTripSend,
 	},
+	{
+		name: "full value send",
+		test: testFullValueSend,
+	},
 }

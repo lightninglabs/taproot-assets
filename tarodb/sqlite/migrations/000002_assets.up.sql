@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS assets (
 
     anchor_utxo_id INTEGER REFERENCES managed_utxos(utxo_id),
     
-    UNIQUE(genesis_id, script_key_id)
+    UNIQUE(asset_id, genesis_id, script_key_id)
 );
 
 -- asset_witnesses stores the set of input witnesses for the latest state of an
