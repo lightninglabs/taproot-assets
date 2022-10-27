@@ -118,7 +118,8 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 
 		key := asset.AssetCommitmentKey()
 		if _, ok := assetsMap[key]; ok {
-			return nil, ErrAssetDuplicateScriptKey
+			return nil, fmt.Errorf("%w: %x",
+				ErrAssetDuplicateScriptKey, key[:])
 		}
 		if asset.Version > maxVersion {
 			maxVersion = asset.Version
