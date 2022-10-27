@@ -229,6 +229,8 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
 
     genesis_id INTEGER REFERENCES genesis_points(genesis_id),
 
+    height_hint INTEGER NOT NULL,
+
     creation_time_unix TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS batch_state_lookup on asset_minting_batches (batch_state);

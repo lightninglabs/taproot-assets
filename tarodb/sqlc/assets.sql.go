@@ -86,7 +86,7 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const allMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
 ON asset_minting_batches.batch_id = internal_keys.key_id
@@ -98,6 +98,7 @@ type AllMintingBatchesRow struct {
 	MintingTxPsbt      []byte
 	MintingOutputIndex sql.NullInt16
 	GenesisID          sql.NullInt32
+	HeightHint         int32
 	CreationTimeUnix   time.Time
 	KeyID              int32
 	RawKey             []byte
@@ -120,6 +121,7 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 			&i.MintingTxPsbt,
 			&i.MintingOutputIndex,
 			&i.GenesisID,
+			&i.HeightHint,
 			&i.CreationTimeUnix,
 			&i.KeyID,
 			&i.RawKey,
@@ -892,7 +894,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 }
 
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -905,6 +907,7 @@ type FetchMintingBatchesByInverseStateRow struct {
 	MintingTxPsbt      []byte
 	MintingOutputIndex sql.NullInt16
 	GenesisID          sql.NullInt32
+	HeightHint         int32
 	CreationTimeUnix   time.Time
 	KeyID              int32
 	RawKey             []byte
@@ -927,6 +930,7 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 			&i.MintingTxPsbt,
 			&i.MintingOutputIndex,
 			&i.GenesisID,
+			&i.HeightHint,
 			&i.CreationTimeUnix,
 			&i.KeyID,
 			&i.RawKey,
@@ -1209,17 +1213,18 @@ func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) 
 
 const newMintingBatch = `-- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
-    batch_state, batch_id, creation_time_unix
-) VALUES (0, $1, $2)
+    batch_state, batch_id, height_hint, creation_time_unix
+) VALUES (0, $1, $2, $3)
 `
 
 type NewMintingBatchParams struct {
 	BatchID          int32
+	HeightHint       int32
 	CreationTimeUnix time.Time
 }
 
 func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error {
-	_, err := q.db.ExecContext(ctx, newMintingBatch, arg.BatchID, arg.CreationTimeUnix)
+	_, err := q.db.ExecContext(ctx, newMintingBatch, arg.BatchID, arg.HeightHint, arg.CreationTimeUnix)
 	return err
 }
 

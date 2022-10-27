@@ -82,6 +82,7 @@ type AssetMintingBatch struct {
 	MintingTxPsbt      []byte
 	MintingOutputIndex sql.NullInt16
 	GenesisID          sql.NullInt32
+	HeightHint         int32
 	CreationTimeUnix   time.Time
 }
 
