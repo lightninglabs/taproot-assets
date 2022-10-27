@@ -13,20 +13,6 @@ INSERT INTO asset_minting_batches (
     batch_state, batch_id, creation_time_unix
 ) VALUES (0, $1, $2);
 
--- name: FetchMintingBatch :one
-SELECT *
-FROM asset_minting_batches batches
-JOIN internal_keys keys
-    ON batches.batch_id = keys.key_id
-WHERE keys.raw_key = $1;
-
--- name: FetchMintingBatchesByState :many
-SELECT *
-FROM asset_minting_batches batches
-JOIN internal_keys keys
-    ON batches.batch_id = keys.key_id
-WHERE batches.batch_state = $1;
-
 -- name: FetchMintingBatchesByInverseState :many
 SELECT *
 FROM asset_minting_batches batches

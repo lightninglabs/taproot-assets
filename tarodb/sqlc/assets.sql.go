@@ -891,45 +891,6 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
-const fetchMintingBatch = `-- name: FetchMintingBatch :one
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
-FROM asset_minting_batches batches
-JOIN internal_keys keys
-    ON batches.batch_id = keys.key_id
-WHERE keys.raw_key = $1
-`
-
-type FetchMintingBatchRow struct {
-	BatchID            int32
-	BatchState         int16
-	MintingTxPsbt      []byte
-	MintingOutputIndex sql.NullInt16
-	GenesisID          sql.NullInt32
-	CreationTimeUnix   time.Time
-	KeyID              int32
-	RawKey             []byte
-	KeyFamily          int32
-	KeyIndex           int32
-}
-
-func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchMintingBatch, rawKey)
-	var i FetchMintingBatchRow
-	err := row.Scan(
-		&i.BatchID,
-		&i.BatchState,
-		&i.MintingTxPsbt,
-		&i.MintingOutputIndex,
-		&i.GenesisID,
-		&i.CreationTimeUnix,
-		&i.KeyID,
-		&i.RawKey,
-		&i.KeyFamily,
-		&i.KeyIndex,
-	)
-	return i, err
-}
-
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
 SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
@@ -960,61 +921,6 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 	var items []FetchMintingBatchesByInverseStateRow
 	for rows.Next() {
 		var i FetchMintingBatchesByInverseStateRow
-		if err := rows.Scan(
-			&i.BatchID,
-			&i.BatchState,
-			&i.MintingTxPsbt,
-			&i.MintingOutputIndex,
-			&i.GenesisID,
-			&i.CreationTimeUnix,
-			&i.KeyID,
-			&i.RawKey,
-			&i.KeyFamily,
-			&i.KeyIndex,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const fetchMintingBatchesByState = `-- name: FetchMintingBatchesByState :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
-FROM asset_minting_batches batches
-JOIN internal_keys keys
-    ON batches.batch_id = keys.key_id
-WHERE batches.batch_state = $1
-`
-
-type FetchMintingBatchesByStateRow struct {
-	BatchID            int32
-	BatchState         int16
-	MintingTxPsbt      []byte
-	MintingOutputIndex sql.NullInt16
-	GenesisID          sql.NullInt32
-	CreationTimeUnix   time.Time
-	KeyID              int32
-	RawKey             []byte
-	KeyFamily          int32
-	KeyIndex           int32
-}
-
-func (q *Queries) FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByStateRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchMintingBatchesByState, batchState)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []FetchMintingBatchesByStateRow
-	for rows.Next() {
-		var i FetchMintingBatchesByStateRow
 		if err := rows.Scan(
 			&i.BatchID,
 			&i.BatchState,
