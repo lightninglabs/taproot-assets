@@ -472,17 +472,26 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 			return false, err
 		}
 
+		ctx, cancel := c.WithCtxQuit()
+		defer cancel()
+		currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
+		if err != nil {
+			return false, fmt.Errorf("unable to get current "+
+				"height: %v", err)
+		}
+
 		// Create a new batch and commit it to disk so we can pick up
 		// where we left off upon restart.
 		newBatch := &MintingBatch{
 			CreationTime: time.Now(),
+			HeightHint:   currentHeight,
 			BatchState:   BatchStatePending,
 			BatchKey:     newInternalKey,
 			Seedlings: map[string]*Seedling{
 				req.AssetName: req,
 			},
 		}
-		ctx, cancel := c.WithCtxQuit()
+		ctx, cancel = c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {

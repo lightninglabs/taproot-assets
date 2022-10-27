@@ -245,6 +245,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// batch which references the target internal key.
 		if err := q.NewMintingBatch(ctx, MintingBatchInit{
 			BatchID:          batchID,
+			HeightHint:       int32(newBatch.HeightHint),
 			CreationTimeUnix: newBatch.CreationTime.UTC(),
 		}); err != nil {
 			return fmt.Errorf("unable to insert minting "+
@@ -526,6 +527,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 					},
 					PubKey: batchKey,
 				},
+				HeightHint:   uint32(batch.HeightHint),
 				CreationTime: batch.CreationTimeUnix.UTC(),
 			}
 
