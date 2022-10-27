@@ -1392,8 +1392,7 @@ JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
     assets.amount >= COALESCE($3, assets.amount) AND
-    ((length(hex($4)) == 0 OR 
-        key_fam_info_view.tweaked_fam_key = $4))
+    (key_fam_info_view.tweaked_fam_key = $4 OR $4 IS NULL)
 )
 `
 
@@ -1401,7 +1400,7 @@ type QueryAssetsParams struct {
 	AssetIDFilter interface{}
 	AnchorPoint   interface{}
 	MinAmt        sql.NullInt64
-	KeyFamFilter  interface{}
+	KeyFamFilter  []byte
 }
 
 type QueryAssetsRow struct {

@@ -285,8 +285,7 @@ JOIN chain_txns txns
 -- specified.
 WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
-    ((length(hex(sqlc.narg('key_fam_filter'))) == 0 OR 
-        key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter')))
+    (key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter') OR sqlc.narg('key_fam_filter') IS NULL)
 );
 
 -- name: AllAssets :many
