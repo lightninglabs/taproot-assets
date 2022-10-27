@@ -264,9 +264,7 @@ JOIN genesis_info_view
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info_view
-    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
-        (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR 
-            key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter'))
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
@@ -284,7 +282,9 @@ JOIN chain_txns txns
 -- make the entire statement evaluate to true, if none of these extra args are
 -- specified.
 WHERE (
-    assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount)
+    assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
+    ((length(hex(sqlc.narg('key_fam_filter'))) == 0 OR 
+        key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter')))
 );
 
 -- name: AllAssets :many

@@ -1398,31 +1398,31 @@ JOIN genesis_info_view
         (length(hex($1)) == 0 OR 
             genesis_info_view.asset_id = $1)
 LEFT JOIN key_fam_info_view
-    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
-        (length(hex($2)) == 0 OR 
-            key_fam_info_view.tweaked_fam_key = $2)
+    ON assets.genesis_id = key_fam_info_view.gen_asset_id
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
-        (length(hex($3)) == 0 OR 
-            utxos.outpoint = $3)
+        (length(hex($2)) == 0 OR 
+            utxos.outpoint = $2)
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
-    assets.amount >= COALESCE($4, assets.amount)
+    assets.amount >= COALESCE($3, assets.amount) AND
+    ((length(hex($4)) == 0 OR 
+        key_fam_info_view.tweaked_fam_key = $4))
 )
 `
 
 type QueryAssetsParams struct {
 	AssetIDFilter interface{}
-	KeyFamFilter  interface{}
 	AnchorPoint   interface{}
 	MinAmt        sql.NullInt64
+	KeyFamFilter  interface{}
 }
 
 type QueryAssetsRow struct {
@@ -1469,9 +1469,9 @@ type QueryAssetsRow struct {
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssets,
 		arg.AssetIDFilter,
-		arg.KeyFamFilter,
 		arg.AnchorPoint,
 		arg.MinAmt,
+		arg.KeyFamFilter,
 	)
 	if err != nil {
 		return nil, err
