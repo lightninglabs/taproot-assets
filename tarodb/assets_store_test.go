@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -90,6 +92,10 @@ func randSplitCommit(t *testing.T,
 type assetGenOptions struct {
 	assetGen asset.Genesis
 
+	customFam bool
+
+	noFamKey bool
+
 	famKeyPriv *btcec.PrivateKey
 
 	amt uint64
@@ -127,6 +133,7 @@ func withAssetGenAmt(amt uint64) assetGenOpt {
 
 func withAssetGenKeyFam(key *btcec.PrivateKey) assetGenOpt {
 	return func(opt *assetGenOptions) {
+		opt.customFam = true
 		opt.famKeyPriv = key
 	}
 }
@@ -149,6 +156,12 @@ func withScriptKey(k asset.ScriptKey) assetGenOpt {
 	}
 }
 
+func withNoFamKey() assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.noFamKey = true
+	}
+}
+
 func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	opts := defaultAssetGenOpts(t)
 	for _, optFunc := range genOpts {
@@ -158,9 +171,9 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	genesis := opts.assetGen
 	genesis.FirstPrevOut = opts.genesisPoint
 
-	famPriv := opts.famKeyPriv
+	famPriv := *opts.famKeyPriv
 
-	genSigner := asset.NewRawKeyGenesisSigner(famPriv)
+	genSigner := asset.NewRawKeyGenesisSigner(&famPriv)
 
 	famKey, sig, err := genSigner.SignGenesis(
 		keychain.KeyDescriptor{
@@ -177,8 +190,13 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		ScriptKey:        opts.scriptKey,
 	}
 
-	// 50/50 chance that we'll actually have a family key.
-	if famPriv != nil && test.RandInt[int]()%2 == 0 {
+	// 50/50 chance that we'll actually have a family key. Or we'll always
+	// use it if a custom family key was specified.
+	switch {
+	case opts.noFamKey:
+		break
+
+	case opts.customFam || test.RandInt[int]()%2 == 0:
 		newAsset.FamilyKey = &asset.FamilyKey{
 			RawKey: keychain.KeyDescriptor{
 				PubKey: famKey,
@@ -427,6 +445,8 @@ type assetDesc struct {
 
 	keyFamily *btcec.PrivateKey
 
+	noFamKey bool
+
 	scriptKey *asset.ScriptKey
 
 	amt uint64
@@ -500,6 +520,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 
 	ctx := context.Background()
 	for _, desc := range assetDescs {
+		desc := desc
+
 		opts := []assetGenOpt{
 			withAssetGenAmt(desc.amt), withAssetGenPoint(desc.anchorPoint),
 			withAssetGen(desc.assetGen),
@@ -507,6 +529,9 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 
 		if desc.keyFamily != nil {
 			opts = append(opts, withAssetGenKeyFam(desc.keyFamily))
+		}
+		if desc.noFamKey {
+			opts = append(opts, withNoFamKey())
 		}
 		if desc.scriptKey != nil {
 			opts = append(opts, withScriptKey(*desc.scriptKey))
@@ -547,6 +572,22 @@ func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
 	id := gen.ID()
 
 	return &id
+}
+
+func (a *assetGenerator) bindKeyFamily(i int, op wire.OutPoint) *btcec.PublicKey {
+	gen := a.assetGens[i]
+	gen.FirstPrevOut = op
+
+	famPriv := *a.familyKeys[i]
+
+	tweakedPriv := txscript.TweakTaprootPrivKey(
+		&famPriv, gen.FamilyKeyTweak(),
+	)
+
+	pub, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(tweakedPriv.PubKey()),
+	)
+	return pub
 }
 
 // TestSelectCommitment tests that the coin selection logic can properly select
@@ -636,10 +677,42 @@ func TestSelectCommitment(t *testing.T) {
 			numAssets: 0,
 			err:       tarofreighter.ErrNoPossibleAssetInputs,
 		},
+
+		// Create two assets, one has a key family the other doesn't.
+		// We should only get one asset back.
+		{
+			name: "asset with key family",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      10,
+
+					anchorPoint: assetGen.anchorPoints[0],
+
+					keyFamily: assetGen.familyKeys[0],
+				},
+				{
+					assetGen: assetGen.assetGens[1],
+					amt:      10,
+
+					anchorPoint: assetGen.anchorPoints[1],
+					noFamKey:    true,
+				},
+			},
+			constraints: tarofreighter.CommitmentConstraints{
+				FamilyKey: assetGen.bindKeyFamily(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 1,
+			},
+			numAssets: 1,
+		},
 	}
 
 	ctx := context.Background()
 	for _, test := range tests {
+		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			// First, we'll create a new assets store and then
 			// insert the set of assets described by the asset
