@@ -235,16 +235,14 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	return newAsset
 }
 
-func assetWitnessEqual(t *testing.T, a, b []asset.Witness) {
-	t.Helper()
+func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
+	if equal := a.DeepEqual(b); !equal {
+		// Print a nice diff if the native equality check fails.
+		require.Equal(t, b, a)
 
-	require.Equal(t, len(a), len(b))
-
-	for i := 0; i < len(a); i++ {
-		witA := a[i]
-		witB := b[i]
-
-		require.True(t, witA.DeepEqual(&witB))
+		// Make sure we fail in any case, even if the above equality
+		// check succeeds (which shouldn't be the case).
+		t.Fatalf("asset equality failed!")
 	}
 }
 
@@ -305,13 +303,6 @@ func TestImportAssetProof(t *testing.T) {
 	}
 	if testAsset.FamilyKey != nil {
 		testProof.FamilyKey = &testAsset.FamilyKey.FamKey
-
-		// An asset in a proof would be de-serialized from the TLV and
-		// would not contain the raw family key. We blank it out here as
-		// well in order to test that behavior. We later check that the
-		// stored internal key (raw family key) is equal to the tweaked
-		// family key.
-		testAsset.FamilyKey.RawKey.PubKey = nil
 	}
 
 	// We'll now insert the internal key information as well as the script
@@ -367,26 +358,7 @@ func TestImportAssetProof(t *testing.T) {
 	// The DB asset should match the asset we inserted exactly.
 	dbAsset := assets[0]
 
-	// Before comparison, we unset the split commitments, so we can compare
-	// them directly.
-	assetWitnessEqual(t, testAsset.PrevWitnesses, dbAsset.PrevWitnesses)
-
-	dbAsset.PrevWitnesses = nil
-	testAsset.PrevWitnesses = nil
-
-	// We also need to look at the family key separately as the raw key is
-	// not stored in the proof.
-	if testAsset.FamilyKey != nil {
-		key := dbAsset.FamilyKey
-		require.Equal(t, &testAsset.FamilyKey.FamKey, key.RawKey.PubKey)
-		require.Equal(t, &key.FamKey, key.RawKey.PubKey)
-
-		// Blank them out for further comparison.
-		testAsset.FamilyKey = nil
-		dbAsset.FamilyKey = nil
-	}
-
-	require.Equal(t, testAsset, dbAsset.Asset)
+	assertAssetEqual(t, testAsset, dbAsset.Asset)
 
 	// Finally, we'll verify all the anchor information that was inserted
 	// on disk.
@@ -400,6 +372,22 @@ func TestImportAssetProof(t *testing.T) {
 		ScriptKey: *testAsset.ScriptKey.PubKey,
 	})
 	require.NoError(t, err)
+
+	// We should also be able to fetch the created asset above based on
+	// either the asset ID, or key family via the main coin selection
+	// routine.
+	var assetConstraints tarofreighter.CommitmentConstraints
+	if testAsset.FamilyKey != nil {
+		assetConstraints.FamilyKey = &testAsset.FamilyKey.FamKey
+	} else {
+		assetConstraints.AssetID = &assetID
+	}
+	selectedAssets, err := assetStore.SelectCommitment(
+		ctx, assetConstraints,
+	)
+	require.NoError(t, err)
+	require.Len(t, selectedAssets, 1)
+	assertAssetEqual(t, testAsset, selectedAssets[0].Asset)
 }
 
 // TestInternalKeyUpsert tests that if we insert an internal key that's a
@@ -522,6 +510,10 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		}
 		if desc.scriptKey != nil {
 			opts = append(opts, withScriptKey(*desc.scriptKey))
+		}
+
+		if desc.amt == 0 {
+			opts = append(opts, withScriptKey(asset.NUMSScriptKey))
 		}
 		asset := randAsset(t, opts...)
 
