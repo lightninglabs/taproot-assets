@@ -1,8 +1,8 @@
 -- name: InsertAssetTransfer :one
 INSERT INTO asset_transfers (
-    old_anchor_point, new_internal_key, new_anchor_utxo, transfer_time_unix
+    old_anchor_point, new_internal_key, new_anchor_utxo, height_hint, transfer_time_unix
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 ) RETURNING id;
 
 -- name: InsertAssetDelta :exec

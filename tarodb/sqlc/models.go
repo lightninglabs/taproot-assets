@@ -107,6 +107,7 @@ type AssetTransfer struct {
 	OldAnchorPoint   []byte
 	NewInternalKey   int32
 	NewAnchorUtxo    int32
+	HeightHint       int32
 	TransferTimeUnix time.Time
 }
 

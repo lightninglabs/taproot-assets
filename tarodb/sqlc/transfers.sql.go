@@ -263,9 +263,9 @@ func (q *Queries) InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaPara
 
 const insertAssetTransfer = `-- name: InsertAssetTransfer :one
 INSERT INTO asset_transfers (
-    old_anchor_point, new_internal_key, new_anchor_utxo, transfer_time_unix
+    old_anchor_point, new_internal_key, new_anchor_utxo, height_hint, transfer_time_unix
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 ) RETURNING id
 `
 
@@ -273,6 +273,7 @@ type InsertAssetTransferParams struct {
 	OldAnchorPoint   []byte
 	NewInternalKey   int32
 	NewAnchorUtxo    int32
+	HeightHint       int32
 	TransferTimeUnix time.Time
 }
 
@@ -281,6 +282,7 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 		arg.OldAnchorPoint,
 		arg.NewInternalKey,
 		arg.NewAnchorUtxo,
+		arg.HeightHint,
 		arg.TransferTimeUnix,
 	)
 	var id int32
