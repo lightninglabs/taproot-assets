@@ -588,7 +588,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			ctx, constraints,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to complete coin "+
+				"selection: %w", err)
 		}
 
 		log.Infof("Selected %v possible asset inputs for send to %x",
@@ -693,7 +694,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			*currentPkg.SenderScriptKey.PubKey, *currentPkg.SendDelta,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create split "+
+				"commit: %w", err)
 		}
 
 		currentPkg.SendDelta = preparedSpend
@@ -732,7 +734,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			p.cfg.Signer, p.cfg.TxValidator,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to generate taro "+
+				"witness data: %w", err)
 		}
 
 		currentPkg.SendDelta = completedSpend
@@ -752,7 +755,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			*currentPkg.SenderScriptKey.PubKey,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create new output "+
+				"commitments: %w", err)
 		}
 
 		log.Infof("Constructing new Taro commitments for send to: %x",
