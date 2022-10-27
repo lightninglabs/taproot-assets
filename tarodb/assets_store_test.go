@@ -742,7 +742,7 @@ func TestAssetExportLog(t *testing.T) {
 
 	newWitness := asset.Witness{
 		PrevID:          &asset.PrevID{},
-		TxWitness:       [][]byte{[]byte{0x01}, []byte{0x02}},
+		TxWitness:       [][]byte{{0x01}, {0x02}},
 		SplitCommitment: nil,
 	}
 
@@ -779,7 +779,7 @@ func TestAssetExportLog(t *testing.T) {
 				SplitCommitmentRoot: mssmt.NewComputedNode(
 					newRootHash, newRootValue,
 				),
-				WitnessData: []asset.Witness{newWitness},
+				WitnessData:        []asset.Witness{newWitness},
 				SenderAssetProof:   senderBlob,
 				ReceiverAssetProof: receiverBlob,
 			},
