@@ -120,12 +120,14 @@ INSERT INTO asset_families (
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING family_id;
 
--- name: InsertAssetFamilySig :one
+-- name: UpsertAssetFamilySig :one
 INSERT INTO asset_family_sigs (
     genesis_sig, gen_asset_id, key_fam_id
 ) VALUES (
     ?, ?, ?
-) RETURNING sig_id;
+) ON CONFLICT (gen_asset_id)
+    DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
+RETURNING sig_id;
 
 -- name: UpsertGenesisAsset :one
 INSERT INTO genesis_assets (

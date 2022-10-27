@@ -947,3 +947,56 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(parcels))
 }
+
+// TestAssetFamilySigUpsert tests that if you try to insert another asset
+// family sig with the same asset_gen_id, then only one is actually created.
+func TestAssetFamilySigUpsert(t *testing.T) {
+	t.Parallel()
+
+	_, _, db := newAssetStore(t)
+	ctx := context.Background()
+
+	internalKey := randPubKey(t)
+
+	// First, we'll insert all the required rows we need to satisfy the
+	// foreign key constraints needed to insert a new genesis sig.
+	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey: internalKey.SerializeCompressed(),
+	})
+	require.NoError(t, err)
+
+	genesisPointID, err := upsertGenesisPoint(ctx, db, test.RandOp(t))
+	require.NoError(t, err)
+
+	genAssetID, err := upsertGenesis(
+		ctx, db, genesisPointID, asset.RandGenesis(t, asset.Normal),
+	)
+	require.NoError(t, err)
+
+	famID, err := db.UpsertAssetFamilyKey(ctx, AssetFamilyKey{
+		TweakedFamKey:  internalKey.SerializeCompressed(),
+		InternalKeyID:  keyID,
+		GenesisPointID: genesisPointID,
+	})
+	require.NoError(t, err)
+
+	// With all the other items inserted, we'll now insert an asset family
+	// sig.
+	famSigID, err := db.UpsertAssetFamilySig(ctx, AssetFamSig{
+		GenesisSig: []byte{0x01},
+		GenAssetID: genAssetID,
+		KeyFamID:   famID,
+	})
+	require.NoError(t, err)
+
+	// If we insert the very same sig, then we should get the same fam sig
+	// ID back.
+	famSigID2, err := db.UpsertAssetFamilySig(ctx, AssetFamSig{
+		GenesisSig: []byte{0x01},
+		GenAssetID: genAssetID,
+		KeyFamID:   famID,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, famSigID, famSigID2)
+}

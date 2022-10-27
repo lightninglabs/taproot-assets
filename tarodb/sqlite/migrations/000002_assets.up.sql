@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS asset_family_sigs (
     genesis_sig BLOB NOT NULL, 
 
     -- TODO(roasbeef): not needed since already in assets row?
-    gen_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    gen_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id) UNIQUE,
 
     key_fam_id INTEGER NOT NULL REFERENCES asset_families(family_id)
 );

@@ -34,8 +34,8 @@ type UpsertAssetStore interface {
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 
-	// InsertAssetFamilySig inserts a new asset family sig into the DB.
-	InsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
+	// UpsertAssetFamilySig inserts a new asset family sig into the DB.
+	UpsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
 
 	// UpsertAssetFamilyKey inserts a new or updates an existing family key
 	// on disk, and returns the primary key.
@@ -218,7 +218,7 @@ func upsertFamilyKey(ctx context.Context, familyKey *asset.FamilyKey,
 	// together otherwise disparate asset IDs).
 	//
 	// TODO(roasbeef): sig here doesn't actually matter?
-	famSigID, err := q.InsertAssetFamilySig(ctx, AssetFamSig{
+	famSigID, err := q.UpsertAssetFamilySig(ctx, AssetFamSig{
 		GenesisSig: familyKey.Sig.Serialize(),
 		GenAssetID: genAssetID,
 		KeyFamID:   famID,

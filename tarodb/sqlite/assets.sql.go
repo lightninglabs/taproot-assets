@@ -1093,27 +1093,6 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 	return items, nil
 }
 
-const insertAssetFamilySig = `-- name: InsertAssetFamilySig :one
-INSERT INTO asset_family_sigs (
-    genesis_sig, gen_asset_id, key_fam_id
-) VALUES (
-    ?, ?, ?
-) RETURNING sig_id
-`
-
-type InsertAssetFamilySigParams struct {
-	GenesisSig []byte
-	GenAssetID int32
-	KeyFamID   int32
-}
-
-func (q *Queries) InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetFamilySig, arg.GenesisSig, arg.GenAssetID, arg.KeyFamID)
-	var sig_id int32
-	err := row.Scan(&sig_id)
-	return sig_id, err
-}
-
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta,
@@ -1598,6 +1577,29 @@ func (q *Queries) UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamil
 	var family_id int32
 	err := row.Scan(&family_id)
 	return family_id, err
+}
+
+const upsertAssetFamilySig = `-- name: UpsertAssetFamilySig :one
+INSERT INTO asset_family_sigs (
+    genesis_sig, gen_asset_id, key_fam_id
+) VALUES (
+    ?, ?, ?
+) ON CONFLICT (gen_asset_id)
+    DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
+RETURNING sig_id
+`
+
+type UpsertAssetFamilySigParams struct {
+	GenesisSig []byte
+	GenAssetID int32
+	KeyFamID   int32
+}
+
+func (q *Queries) UpsertAssetFamilySig(ctx context.Context, arg UpsertAssetFamilySigParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertAssetFamilySig, arg.GenesisSig, arg.GenAssetID, arg.KeyFamID)
+	var sig_id int32
+	err := row.Scan(&sig_id)
+	return sig_id, err
 }
 
 const upsertAssetProof = `-- name: UpsertAssetProof :exec

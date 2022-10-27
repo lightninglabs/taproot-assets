@@ -84,7 +84,7 @@ type (
 
 	// AssetFamSig is used to insert the family key signature for a given
 	// asset on disk.
-	AssetFamSig = sqlite.InsertAssetFamilySigParams
+	AssetFamSig = sqlite.UpsertAssetFamilySigParams
 
 	// AssetSprout is used to fetch the set of assets from disk.
 	AssetSprout = sqlite.FetchAssetsForBatchRow
