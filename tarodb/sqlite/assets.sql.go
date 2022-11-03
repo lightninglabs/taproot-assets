@@ -720,7 +720,7 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 }
 
 const fetchChainTx = `-- name: FetchChainTx :one
-SELECT txn_id, txid, raw_tx, block_height, block_hash, tx_index
+SELECT txn_id, txid, chain_fees, raw_tx, block_height, block_hash, tx_index
 FROM chain_txns
 WHERE txid = ?
 `
@@ -731,6 +731,7 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 	err := row.Scan(
 		&i.TxnID,
 		&i.Txid,
+		&i.ChainFees,
 		&i.RawTx,
 		&i.BlockHeight,
 		&i.BlockHash,
@@ -1629,9 +1630,9 @@ func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofPara
 
 const upsertChainTx = `-- name: UpsertChainTx :one
 INSERT INTO chain_txns (
-    txid, raw_tx, block_height, block_hash, tx_index
+    txid, raw_tx, chain_fees, block_height, block_hash, tx_index
 ) VALUES (
-    ?, ?, ?, ?,
+    ?, ?, ?, ?, ?,
     ?
 ) ON CONFLICT (txid)
     -- Not a NOP but instead update any nullable fields that aren't null in the
@@ -1645,6 +1646,7 @@ RETURNING txn_id
 type UpsertChainTxParams struct {
 	Txid        []byte
 	RawTx       []byte
+	ChainFees   int64
 	BlockHeight sql.NullInt32
 	BlockHash   []byte
 	TxIndex     sql.NullInt32
@@ -1654,6 +1656,7 @@ func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (i
 	row := q.db.QueryRowContext(ctx, upsertChainTx,
 		arg.Txid,
 		arg.RawTx,
+		arg.ChainFees,
 		arg.BlockHeight,
 		arg.BlockHash,
 		arg.TxIndex,

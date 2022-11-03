@@ -746,6 +746,8 @@ func TestAssetExportLog(t *testing.T) {
 		SplitCommitment: nil,
 	}
 
+	chainFees := int64(100)
+
 	// With the assets inserted, we'll now construct the struct we'll used
 	// to commit a new spend on disk.
 	anchorTxHash := newAnchorTx.TxHash()
@@ -784,6 +786,7 @@ func TestAssetExportLog(t *testing.T) {
 				ReceiverAssetProof: receiverBlob,
 			},
 		},
+		ChainFees: int64(chainFees),
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
 
@@ -876,6 +879,7 @@ func TestAssetExportLog(t *testing.T) {
 		t, uint32(blockHeight), extractSqlInt32[uint32](anchorTx.BlockHeight),
 	)
 	require.Equal(t, uint32(txIndex), extractSqlInt32[uint32](anchorTx.TxIndex))
+	require.Equal(t, chainFees, anchorTx.ChainFees)
 
 	// At this point, there should be no more pending parcels.
 	parcels, err = assetsStore.PendingParcels(ctx)

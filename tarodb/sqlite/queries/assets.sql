@@ -330,9 +330,9 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: UpsertChainTx :one
 INSERT INTO chain_txns (
-    txid, raw_tx, block_height, block_hash, tx_index
+    txid, raw_tx, chain_fees, block_height, block_hash, tx_index
 ) VALUES (
-    ?, ?, sqlc.narg('block_height'), sqlc.narg('block_hash'),
+    ?, ?, ?, sqlc.narg('block_height'), sqlc.narg('block_hash'),
     sqlc.narg('tx_index')
 ) ON CONFLICT (txid)
     -- Not a NOP but instead update any nullable fields that aren't null in the

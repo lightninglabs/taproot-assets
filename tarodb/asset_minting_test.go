@@ -295,6 +295,7 @@ func randGenesisPacket(t *testing.T) *tarogarden.FundedPsbt {
 	return &tarogarden.FundedPsbt{
 		Pkt:               psbt,
 		ChangeOutputIndex: 1,
+		ChainFees:         100,
 	}
 }
 
@@ -454,6 +455,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, genTXID[:], dbGenTx.Txid[:])
 	require.Equal(t, rawTxBytes.Bytes(), dbGenTx.RawTx)
+	require.Equal(t, genesisPkt.ChainFees, dbGenTx.ChainFees)
 
 	// Now that we have the primary key for the chain transaction inserted
 	// above, we'll use that to confirm that the managed UTXO has been
