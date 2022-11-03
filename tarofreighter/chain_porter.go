@@ -636,8 +636,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We'll validate the selected input and commitment. From this
 		// we'll gain the asset that we'll use as an input and info
-		// w.r.t if we need to split or not.
-		inputAsset, needsSplit, err := taroscript.IsValidInput(
+		// w.r.t if we need to use an unspendable zero-value root.
+		inputAsset, fullValue, err := taroscript.IsValidInput(
 			currentPkg.InputAsset.Commitment, *currentPkg.ReceiverAddr,
 			*currentPkg.InputAsset.Asset.ScriptKey.PubKey,
 			*p.cfg.ChainParams,
@@ -665,9 +665,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// If we are sending the full value of the input asset, or
 		// sending a collectible, we will need to create a split with
 		// unspendable change.
-		if (inputAsset.Type == asset.Normal && !needsSplit) ||
-			inputAsset.Type == asset.Collectible {
-
+		if fullValue {
 			currentPkg.SenderScriptKey = asset.NUMSScriptKey
 		} else {
 			senderScriptKey, err := p.cfg.KeyRing.DeriveNextKey(
