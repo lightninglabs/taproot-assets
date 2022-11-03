@@ -63,6 +63,9 @@ type (
 	// information it references.
 	AnchorPoint = sqlc.FetchManagedUTXORow
 
+	// ManagedUTXORow wraps a managed UTXO listing row.
+	ManagedUTXORow = sqlc.FetchManagedUTXOsRow
+
 	// AssetAnchorUpdate is used to update the managed UTXO pointer when
 	// spending assets on chain.
 	AssetAnchorUpdate = sqlc.ReanchorAssetsParams
@@ -159,6 +162,9 @@ type ActiveAssetsStore interface {
 	// FetchManagedUTXO fetches a managed UTXO based on either the outpoint
 	// or the transaction that anchors it.
 	FetchManagedUTXO(context.Context, UtxoQuery) (AnchorPoint, error)
+
+	// FetchManagedUTXOs fetches all managed UTXOs.
+	FetchManagedUTXOs(context.Context) ([]ManagedUTXORow, error)
 
 	// ReanchorAssets takes an old anchor point, then updates all assets
 	// that point to that old anchor point-to-point to the new one.
@@ -277,6 +283,26 @@ type ChainAsset struct {
 	// AnchorInternalKey is the raw internal key that was used to create the
 	// anchor Taproot output key.
 	AnchorInternalKey *btcec.PublicKey
+}
+
+// ManagedUTXO holds information about a given UTXO we manage.
+type ManagedUTXO struct {
+	// OutPoint is the outpoint of the UTXO.
+	OutPoint wire.OutPoint
+
+	// OutputValue is the satoshi output value of the UTXO.
+	OutputValue btcutil.Amount
+
+	// InternalKey is the internal key that's used to anchor the commitment
+	// in the outpoint.
+	InternalKey keychain.KeyDescriptor
+
+	// TaroRoot is the taro commitment committed to by this outpoint.
+	TaroRoot []byte
+
+	// TapscriptSibling is the tapscript sibling of this asset. This will
+	// usually be blank.
+	TapscriptSibling []byte
 }
 
 // assetWitnesses maps the primary key of an asset to a slice of its previous
@@ -765,6 +791,59 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 	}
 
 	return dbAssetsToChainAssets(dbAssets, assetWitnesses)
+}
+
+// FetchManagedUTXOs fetches all UTXOs we manage.
+func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
+	[]*ManagedUTXO, error) {
+
+	var (
+		utxos []ManagedUTXORow
+		err   error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		utxos, err = q.FetchManagedUTXOs(ctx)
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	managedUtxos := make([]*ManagedUTXO, len(utxos))
+	for i, u := range utxos {
+		var anchorPoint wire.OutPoint
+		err := readOutPoint(
+			bytes.NewReader(u.Outpoint), 0, 0, &anchorPoint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		internalKey, err := btcec.ParsePubKey(u.RawKey)
+		if err != nil {
+			return nil, err
+		}
+
+		managedUtxos[i] = &ManagedUTXO{
+			OutPoint:    anchorPoint,
+			OutputValue: btcutil.Amount(u.AmtSats),
+			InternalKey: keychain.KeyDescriptor{
+				PubKey: internalKey,
+				KeyLocator: keychain.KeyLocator{
+					Index: uint32(u.KeyIndex),
+					Family: keychain.KeyFamily(
+						u.KeyFamily,
+					),
+				},
+			},
+			TaroRoot:         u.TaroRoot,
+			TapscriptSibling: u.TapscriptSibling,
+		}
+	}
+
+	return managedUtxos, nil
 }
 
 // FetchAssetProofs returns the latest proof file for either the set of target

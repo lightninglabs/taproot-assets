@@ -713,6 +713,13 @@ func TestAssetExportLog(t *testing.T) {
 		},
 	})
 
+	// We should see a single UTXO at this point, since the assets all had
+	// the same anchor point.
+	utxos, err := assetsStore.FetchManagedUTXOs(ctx)
+	require.NoError(t, err)
+	require.Len(t, utxos, 1)
+	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
+
 	newAnchorTx := wire.NewMsgTx(2)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
 	newAnchorTx.TxIn[0].SignatureScript = []byte{}
@@ -800,6 +807,23 @@ func TestAssetExportLog(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
+
+	// Check that the new UTXO is found among our managed UTXOs.
+	utxos, err = assetsStore.FetchManagedUTXOs(ctx)
+	require.NoError(t, err)
+	require.Len(t, utxos, 2)
+
+	// First UTXO should remain unchanged.
+	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
+
+	// Second UTXO will be our new one.
+	newUtxo := utxos[1]
+	require.Equal(t, spendDelta.NewAnchorPoint, newUtxo.OutPoint)
+	require.Equal(t, spendDelta.NewInternalKey, newUtxo.InternalKey)
+	require.Equal(t, spendDelta.AnchorTx.TxOut[0].Value,
+		int64(newUtxo.OutputValue))
+	require.Equal(t, spendDelta.TaroRoot, newUtxo.TaroRoot)
+	require.Equal(t, spendDelta.TapscriptSibling, newUtxo.TapscriptSibling)
 
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
