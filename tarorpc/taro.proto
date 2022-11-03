@@ -16,6 +16,12 @@ service Taro {
     */
     rpc ListAssets (ListAssetRequest) returns (ListAssetResponse);
 
+    /* tarocli: `assets utxos`
+    ListUtxos lists the UTXOs managed by the target daemon, and the assets they
+    hold.
+    */
+    rpc ListUtxos (ListUtxosRequest) returns (ListUtxosResponse);
+
     /* tarocli: `assets balance`
     ListBalances lists asset balances
     */
@@ -244,6 +250,31 @@ message Asset {
 
 message ListAssetResponse {
     repeated Asset assets = 1;
+}
+
+message ListUtxosRequest {
+}
+
+message ManagedUtxo {
+    // The outpoint of the UTXO.
+    string out_point = 1;
+
+    // The UTXO amount in satoshis.
+    int64 amt_sat = 2;
+
+    // The internal key used for the on-chain output.
+    bytes internal_key = 3;
+
+    // The Taro root that commits to the set of assets at this UTXO.
+    bytes taro_root = 4;
+
+    // The assets held at this UTXO.
+    repeated Asset assets = 5;
+}
+
+message ListUtxosResponse {
+    // The set of UTXOs managed by the daemon.
+    map<string, ManagedUtxo> managed_utxos = 1;
 }
 
 message ListBalancesRequest {
