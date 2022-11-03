@@ -234,11 +234,11 @@ func IsValidInput(input *commitment.TaroCommitment,
 	addr address.Taro, inputScriptKey btcec.PublicKey,
 	net address.ChainParams) (*asset.Asset, bool, error) {
 
-	needsSplit := false
+	fullValue := false
 
 	// The input and address networks must match.
 	if !address.IsForNet(addr.ChainParams.TaroHRP, &net) {
-		return nil, needsSplit, address.ErrMismatchedHRP
+		return nil, fullValue, address.ErrMismatchedHRP
 	}
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
@@ -246,7 +246,7 @@ func IsValidInput(input *commitment.TaroCommitment,
 	inputCommitments := input.Commitments()
 	assetCommitment, ok := inputCommitments[addr.TaroCommitmentKey()]
 	if !ok {
-		return nil, needsSplit, fmt.Errorf("input commitment does "+
+		return nil, fullValue, fmt.Errorf("input commitment does "+
 			"not contain asset_id=%x: %w", addr.TaroCommitmentKey(),
 			ErrMissingInputAsset)
 	}
@@ -258,11 +258,11 @@ func IsValidInput(input *commitment.TaroCommitment,
 	)
 	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
 	if err != nil {
-		return nil, needsSplit, err
+		return nil, fullValue, err
 	}
 
 	if inputAsset == nil {
-		return nil, needsSplit, fmt.Errorf("input commitment does not "+
+		return nil, fullValue, fmt.Errorf("input commitment does not "+
 			"contain leaf with script_key=%x: %w",
 			inputScriptKey.SerializeCompressed(),
 			ErrMissingInputAsset)
@@ -270,18 +270,23 @@ func IsValidInput(input *commitment.TaroCommitment,
 
 	// For Normal assets, we also check that the input asset amount is
 	// at least as large as the amount specified in the address.
-	// If the input amount exceeds the amount specified in the address,
-	// the spend will require an asset split.
+	// If the input amount is exactly the amount specified in the address,
+	// the spend must use an unspendable zero-value root split.
 	if inputAsset.Type == asset.Normal {
 		if inputAsset.Amount < addr.Amount {
-			return nil, needsSplit, ErrInsufficientInputAsset
+			return nil, fullValue, ErrInsufficientInputAsset
 		}
-		if inputAsset.Amount > addr.Amount {
-			needsSplit = true
+
+		if inputAsset.Amount == addr.Amount {
+			fullValue = true
 		}
+	} else {
+		// Collectible assets always require the spending split to use an
+		// unspendable zero-value root split.
+		fullValue = true
 	}
 
-	return inputAsset, needsSplit, nil
+	return inputAsset, fullValue, nil
 }
 
 // PrepareAssetSplitSpend computes a split commitment with the given input and
