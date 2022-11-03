@@ -600,6 +600,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// to complete the send w/o merging inputs.
 		assetInput := elgigibleCommitments[0]
 
+		// If the key found for the input UTXO is not from the Taro
+		// keyfamily, something has gone wrong with the DB.
+		if assetInput.InternalKey.Family != tarogarden.TaroKeyFamily {
+			return nil, fmt.Errorf("invalid internal key family "+
+				"for selected input: %v %v",
+				assetInput.InternalKey.Family,
+				assetInput.InternalKey.Index,
+			)
+		}
+
 		// At this point, we have a valid "coin" to spend in the
 		// commitment, so we'll update the relevant information in the
 		// send package.
