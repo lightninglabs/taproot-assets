@@ -930,6 +930,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
+		chainFees, err := tarogarden.GetTxFee(currentPkg.SendPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get on-chain fees "+
+				"for psbt: %w", err)
+		}
+
 		// Before we broadcast, we'll write to disk that we have a
 		// pending outbound parcel. If we crash before this point,
 		// we'll start all over. Otherwise, we'll come back to this
@@ -961,6 +967,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
 			// TODO(bhandras): use clock.Clock instead.
 			TransferTime: time.Now(),
+			ChainFees:    chainFees,
 		}
 
 		// Don't allow shutdown while we're attempting to store proofs.

@@ -994,6 +994,6 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 			PrevInputs:  prevInputs,
 			NewOutputs:  newOutputs,
 		},
-		TotalFeeSats: 0,
+		TotalFeeSats: int64(resp.TotalFees),
 	}, nil
 }

@@ -156,6 +156,10 @@ type OutboundParcelDelta struct {
 
 	// TransferTime holds the timestamp of the outbound spend.
 	TransferTime time.Time
+
+	// ChainFees is the amount in sats paid in on-chain fees for the
+	// anchor transaction.
+	ChainFees int64
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
