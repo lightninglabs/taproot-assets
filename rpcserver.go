@@ -321,6 +321,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
 
+	rpcAssets, err := r.fetchRpcAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tarorpc.ListAssetResponse{
+		Assets: rpcAssets,
+	}, nil
+}
+
+func (r *rpcServer) fetchRpcAssets(ctx context.Context) (
+	[]*tarorpc.Asset, error) {
+
 	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
@@ -380,9 +393,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		}
 	}
 
-	return &tarorpc.ListAssetResponse{
-		Assets: rpcAssets,
-	}, nil
+	return rpcAssets, nil
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
