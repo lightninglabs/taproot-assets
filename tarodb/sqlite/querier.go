@@ -56,7 +56,6 @@ type Querier interface {
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error)
 	InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaParams) error
-	InsertAssetFamilySig(ctx context.Context, arg InsertAssetFamilySigParams) (int32, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error)
@@ -91,6 +90,7 @@ type Querier interface {
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)
 	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)
+	UpsertAssetFamilySig(ctx context.Context, arg UpsertAssetFamilySigParams) (int32, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error)

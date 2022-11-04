@@ -204,7 +204,7 @@ func TestNewAssetCommitment(t *testing.T) {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			assets := testCase.f()
 			commitment, err := NewAssetCommitment(assets...)
-			require.Equal(t, testCase.err, err)
+			require.ErrorIs(t, err, testCase.err)
 			if testCase.err == nil {
 				// Ensure that the Taro commitment was properly set.
 				require.NotZero(t, commitment.TaroCommitmentKey())
