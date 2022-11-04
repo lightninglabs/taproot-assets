@@ -712,8 +712,9 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// chain transaction, as that chain transaction will be
 		// referenced by the managed UTXO.
 		chainTXID, err := q.UpsertChainTx(ctx, ChainTx{
-			Txid:  genTXID[:],
-			RawTx: txBuf.Bytes(),
+			Txid:      genTXID[:],
+			RawTx:     txBuf.Bytes(),
+			ChainFees: genesisPkt.ChainFees,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert chain tx: %w", err)

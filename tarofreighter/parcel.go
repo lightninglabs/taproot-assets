@@ -631,6 +631,6 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 				},
 			},
 		},
-		TotalFees: 0,
+		TotalFees: btcutil.Amount(s.OutboundPkg.ChainFees),
 	}
 }

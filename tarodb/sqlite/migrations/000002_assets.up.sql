@@ -7,13 +7,15 @@ CREATE TABLE IF NOT EXISTS chain_txns (
 
     txid BLOB UNIQUE NOT NULL,
 
+    chain_fees BIGINT NOT NULL,
+
     raw_tx BLOB NOT NULL,
 
     block_height INTEGER,
 
     block_hash BLOB,
 
-    tx_index INTEGER 
+    tx_index INTEGER
 );
 
 -- genesis_points stores all genesis_points relevant to tardo, which is the

@@ -271,6 +271,10 @@ type FundedPsbt struct {
 	// Taro commitment (the non-change output).
 	ChangeOutputIndex uint32
 
+	// ChainFees is the amount in sats paid in on-chain fees for this
+	// transaction.
+	ChainFees int64
+
 	// LockedUTXOs is the set of UTXOs that were locked to create the PSBT
 	// packet.
 	LockedUTXOs []wire.OutPoint

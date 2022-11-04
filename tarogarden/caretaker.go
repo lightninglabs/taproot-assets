@@ -503,6 +503,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
 
+		// Populate how much this tx paid in on-chain fees.
+		chainFees, err := GetTxFee(signedPkt)
+		if err != nil {
+			return 0, fmt.Errorf("unable to get on-chain fees "+
+				"for psbt: %w", err)
+		}
+		b.cfg.Batch.GenesisPacket.ChainFees = chainFees
+
 		log.Infof("BatchCaretaker(%x): GenesisPacket finalized: %v",
 			b.batchKey[:], spew.Sdump(signedPkt))
 
@@ -738,4 +746,19 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	default:
 		return 0, fmt.Errorf("unknown state: %v", currentState)
 	}
+}
+
+// GetTxFee returns the value of the on-chain fees paid by a finalized PSBT.
+func GetTxFee(pkt *psbt.Packet) (int64, error) {
+	inputValue, err := psbt.SumUtxoInputValues(pkt)
+	if err != nil {
+		return 0, fmt.Errorf("unable to sum input values: %v", err)
+	}
+
+	outputValue := int64(0)
+	for _, out := range pkt.UnsignedTx.TxOut {
+		outputValue += out.Value
+	}
+
+	return inputValue - outputValue, nil
 }

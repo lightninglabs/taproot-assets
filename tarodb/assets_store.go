@@ -1263,8 +1263,9 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		// Next, we'll insert the new transaction that anchors the new
 		// anchor point (commits to the set of new outputs).
 		txnID, err := q.UpsertChainTx(ctx, ChainTx{
-			Txid:  newAnchorTXID[:],
-			RawTx: anchorTxBytes,
+			Txid:      newAnchorTXID[:],
+			RawTx:     anchorTxBytes,
+			ChainFees: spend.ChainFees,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert new chain "+
@@ -1640,6 +1641,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				AnchorTx:         anchorTx,
 				AssetSpendDeltas: spendDeltas,
 				TransferTime:     xfer.TransferTimeUnix,
+				ChainFees:        xfer.ChainFees,
 			})
 		}
 
