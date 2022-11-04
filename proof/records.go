@@ -4,7 +4,6 @@ import (
 	"bytes"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -161,8 +160,9 @@ func TaprootProofOutputIndexRecord(idx *uint32) tlv.Record {
 
 func TaprootProofInternalKeyRecord(internalKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		TaprootProofInternalKeyType, internalKey, schnorr.PubKeyBytesLen,
-		asset.SchnorrPubKeyEncoder, asset.SchnorrPubKeyDecoder,
+		TaprootProofInternalKeyType, internalKey,
+		btcec.PubKeyBytesLenCompressed,
+		asset.CompressedPubKeyEncoder, asset.CompressedPubKeyDecoder,
 	)
 }
 

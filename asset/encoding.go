@@ -106,28 +106,28 @@ func OutPointDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "wire.OutPoint")
 }
 
-func SchnorrPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
+func CompressedPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**btcec.PublicKey); ok {
-		var keyBytes [schnorr.PubKeyBytesLen]byte
-		copy(keyBytes[:], schnorr.SerializePubKey(*t))
-		return tlv.EBytes32(w, &keyBytes, buf)
+		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
+		copy(keyBytes[:], (*t).SerializeCompressed())
+		return tlv.EBytes33(w, &keyBytes, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*btcec.PublicKey")
 }
 
-func SchnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func CompressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	if typ, ok := val.(**btcec.PublicKey); ok {
-		var keyBytes [schnorr.PubKeyBytesLen]byte
-		err := tlv.DBytes32(r, &keyBytes, buf, schnorr.PubKeyBytesLen)
+		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
+		err := tlv.DBytes33(r, &keyBytes, buf, btcec.PubKeyBytesLenCompressed)
 		if err != nil {
 			return err
 		}
 		var key *btcec.PublicKey
 		// Handle empty key, which is not on the curve.
-		if keyBytes == [32]byte{} {
+		if keyBytes == [btcec.PubKeyBytesLenCompressed]byte{} {
 			key = &btcec.PublicKey{}
 		} else {
-			key, err = schnorr.ParsePubKey(keyBytes[:])
+			key, err = btcec.ParsePubKey(keyBytes[:])
 			if err != nil {
 				return err
 			}
@@ -136,7 +136,7 @@ func SchnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(
-		val, "*btcec.PublicKey", l, schnorr.PubKeyBytesLen,
+		val, "*btcec.PublicKey", l, btcec.PubKeyBytesLenCompressed,
 	)
 }
 
@@ -208,41 +208,38 @@ func IDDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "ID", l, sha256.Size)
 }
 
-func SchnorrSerializedKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
+func SerializedKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*SerializedKey); ok {
-		id := [33]byte(*t)
+		id := [btcec.PubKeyBytesLenCompressed]byte(*t)
 
-		// We need the Schnorr, 32-byte x-only encoding here, skip the
-		// first byte that contains the parity information.
-		xOnly := id[1:]
-		return tlv.EVarBytes(w, &xOnly, buf)
+		withParity := id[:]
+		return tlv.EVarBytes(w, &withParity, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "SerializedKey")
 }
 
-func SchnorrSerializedKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func SerializedKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	if typ, ok := val.(*SerializedKey); ok {
-		// The key is stored in the Schnorr, 32-byte x-only format.
-		var keyBytes [schnorr.PubKeyBytesLen]byte
-		err := tlv.DBytes32(r, &keyBytes, buf, schnorr.PubKeyBytesLen)
+		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
+		err := tlv.DBytes33(r, &keyBytes, buf, btcec.PubKeyBytesLenCompressed)
 		if err != nil {
 			return err
 		}
 
 		// Handle empty key, which is not on the curve.
-		if keyBytes == [32]byte{} {
+		if keyBytes == [btcec.PubKeyBytesLenCompressed]byte{} {
 			*typ = SerializedKey{}
 			return nil
 		}
 
-		pubKey, err := schnorr.ParsePubKey(keyBytes[:])
+		pubKey, err := btcec.ParsePubKey(keyBytes[:])
 		if err != nil {
 			return err
 		}
 		*typ = ToSerialized(pubKey)
 		return nil
 	}
-	return tlv.NewTypeForDecodingErr(val, "SerializedKey", l, 33)
+	return tlv.NewTypeForDecodingErr(val, "SerializedKey", l, btcec.PubKeyBytesLenCompressed)
 }
 
 func TypeEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -323,7 +320,7 @@ func PrevIDEncoder(w io.Writer, val any, buf *[8]byte) error {
 		if err := IDEncoder(w, &(**t).ID, buf); err != nil {
 			return err
 		}
-		return SchnorrSerializedKeyEncoder(w, &(**t).ScriptKey, buf)
+		return SerializedKeyEncoder(w, &(**t).ScriptKey, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*PrevID")
 }
@@ -338,8 +335,8 @@ func PrevIDDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err = IDDecoder(r, &prevID.ID, buf, sha256.Size); err != nil {
 			return err
 		}
-		if err = SchnorrSerializedKeyDecoder(
-			r, &prevID.ScriptKey, buf, 33,
+		if err = SerializedKeyDecoder(
+			r, &prevID.ScriptKey, buf, btcec.PubKeyBytesLenCompressed,
 		); err != nil {
 			return err
 		}
@@ -557,7 +554,7 @@ func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 func FamilyKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**FamilyKey); ok {
 		key := &(*t).FamKey
-		if err := SchnorrPubKeyEncoder(w, &key, buf); err != nil {
+		if err := CompressedPubKeyEncoder(w, &key, buf); err != nil {
 			return err
 		}
 		sig := (*t).Sig
@@ -572,8 +569,8 @@ func FamilyKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 			familyKey FamilyKey
 			famKey    *btcec.PublicKey
 		)
-		err := SchnorrPubKeyDecoder(
-			r, &famKey, buf, schnorr.PubKeyBytesLen,
+		err := CompressedPubKeyDecoder(
+			r, &famKey, buf, btcec.PubKeyBytesLenCompressed,
 		)
 		if err != nil {
 			return err
