@@ -136,15 +136,15 @@ func NewLeafScriptVersionRecord(version *ScriptVersion) tlv.Record {
 }
 
 func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
-	const recordSize = schnorr.PubKeyBytesLen
+	const recordSize = btcec.PubKeyBytesLenCompressed
 	return tlv.MakeStaticRecord(
 		LeafScriptKey, scriptKey, recordSize,
-		SchnorrPubKeyEncoder, SchnorrPubKeyDecoder,
+		CompressedPubKeyEncoder, CompressedPubKeyDecoder,
 	)
 }
 
 func NewLeafFamilyKeyRecord(familyKey **FamilyKey) tlv.Record {
-	const recordSize = schnorr.PubKeyBytesLen + schnorr.SignatureSize
+	const recordSize = btcec.PubKeyBytesLenCompressed + schnorr.SignatureSize
 	return tlv.MakeStaticRecord(
 		LeafFamilyKey, familyKey, recordSize, FamilyKeyEncoder,
 		FamilyKeyDecoder,
@@ -153,13 +153,13 @@ func NewLeafFamilyKeyRecord(familyKey **FamilyKey) tlv.Record {
 
 func NewLeafFamilyKeyOnlyRecord(familyKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		LeafFamilyKey, familyKey, schnorr.PubKeyBytesLen,
-		SchnorrPubKeyEncoder, SchnorrPubKeyDecoder,
+		LeafFamilyKey, familyKey, btcec.PubKeyBytesLenCompressed,
+		CompressedPubKeyEncoder, CompressedPubKeyDecoder,
 	)
 }
 
 func NewWitnessPrevIDRecord(prevID **PrevID) tlv.Record {
-	const recordSize = 36 + sha256.Size + schnorr.PubKeyBytesLen
+	const recordSize = 36 + sha256.Size + btcec.PubKeyBytesLenCompressed
 	return tlv.MakeStaticRecord(
 		WitnessPrevID, prevID, recordSize, PrevIDEncoder, PrevIDDecoder,
 	)

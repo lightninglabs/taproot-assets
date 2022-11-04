@@ -4,7 +4,6 @@ import (
 	"bytes"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -58,22 +57,22 @@ func newAddressGenesisRecord(genesis *asset.Genesis) tlv.Record {
 
 func newAddressFamilyKeyRecord(familyKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		addrFamKeyType, familyKey, schnorr.PubKeyBytesLen,
-		asset.SchnorrPubKeyEncoder, asset.SchnorrPubKeyDecoder,
+		addrFamKeyType, familyKey, btcec.PubKeyBytesLenCompressed,
+		asset.CompressedPubKeyEncoder, asset.CompressedPubKeyDecoder,
 	)
 }
 
 func newAddressScriptKeyRecord(scriptKey *btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		addrScriptKeyType, scriptKey, schnorr.PubKeyBytesLen,
-		schnorrPubKeyEncoder, schnorrPubKeyDecoder,
+		addrScriptKeyType, scriptKey, btcec.PubKeyBytesLenCompressed,
+		compressedPubKeyEncoder, compressedPubKeyDecoder,
 	)
 }
 
 func newAddressInternalKeyRecord(internalKey *btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		addrInternalKeyType, internalKey, schnorr.PubKeyBytesLen,
-		schnorrPubKeyEncoder, schnorrPubKeyDecoder,
+		addrInternalKeyType, internalKey, btcec.PubKeyBytesLenCompressed,
+		compressedPubKeyEncoder, compressedPubKeyDecoder,
 	)
 }
 

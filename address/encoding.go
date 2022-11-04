@@ -4,32 +4,31 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-func schnorrPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
+func compressedPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*btcec.PublicKey); ok {
-		var keyBytes [schnorr.PubKeyBytesLen]byte
-		copy(keyBytes[:], schnorr.SerializePubKey(t))
-		return tlv.EBytes32(w, &keyBytes, buf)
+		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
+		copy(keyBytes[:], t.SerializeCompressed())
+		return tlv.EBytes33(w, &keyBytes, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*btcec.PublicKey")
 }
 
-func schnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func compressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	if typ, ok := val.(*btcec.PublicKey); ok {
-		var keyBytes [schnorr.PubKeyBytesLen]byte
-		err := tlv.DBytes32(r, &keyBytes, buf, schnorr.PubKeyBytesLen)
+		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
+		err := tlv.DBytes33(r, &keyBytes, buf, btcec.PubKeyBytesLenCompressed)
 		if err != nil {
 			return err
 		}
 		var key *btcec.PublicKey
 		// Handle empty key, which is not on the curve.
-		if keyBytes == [32]byte{} {
+		if keyBytes == [btcec.PubKeyBytesLenCompressed]byte{} {
 			key = &btcec.PublicKey{}
 		} else {
-			key, err = schnorr.ParsePubKey(keyBytes[:])
+			key, err = btcec.ParsePubKey(keyBytes[:])
 			if err != nil {
 				return err
 			}
@@ -38,6 +37,6 @@ func schnorrPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(
-		val, "*btcec.PublicKey", l, schnorr.PubKeyBytesLen,
+		val, "*btcec.PublicKey", l, btcec.PubKeyBytesLenCompressed,
 	)
 }
