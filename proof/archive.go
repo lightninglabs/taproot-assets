@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -269,47 +268,41 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	// Before we import the proofs into the archive, we want to make sure
 	// that they're all valid. Along the way, we may augment the locator
 	// for each proof accordingly.
-	eg := &errgroup.Group{}
-	for _, proof := range proofs {
-		proof := proof
-		eg.Go(func() error {
-			// First, we'll decode and then also verify the proof.
-			finalStateTransition, err := m.proofVerifier.Verify(
-				ctx, bytes.NewReader(proof.Blob),
-			)
-			if err != nil {
-				return fmt.Errorf("unable to verify proof: %w", err)
+	f := func(proof *AnnotatedProof) error {
+		// First, we'll decode and then also verify the proof.
+		finalStateTransition, err := m.proofVerifier.Verify(
+			ctx, bytes.NewReader(proof.Blob),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to verify proof: %w", err)
+		}
+
+		proof.AssetSnapshot = finalStateTransition
+
+		// TODO(roasbeef): actually want the split commit info here?
+		//  * or need to pass in alongside the proof?
+
+		finalAsset := finalStateTransition.Asset
+
+		// Now that the proof has been fully verified, we'll use the
+		// final resting place of the asset (result of the last state
+		// transition) to create a proper annotated proof. We only need
+		// to do this if it wasn't specified though.
+		if proof.AssetID == nil {
+			assetID := finalAsset.ID()
+			proof.AssetID = &assetID
+
+			if finalAsset.FamilyKey != nil {
+				proof.FamilyKey = &finalAsset.FamilyKey.FamKey
 			}
 
-			proof.AssetSnapshot = finalStateTransition
+			proof.ScriptKey = *finalAsset.ScriptKey.PubKey
+		}
 
-			// TODO(roasbeef): actually want the split commit info here?
-			//  * or need to pass in alongside the proof?
-
-			finalAsset := finalStateTransition.Asset
-
-			// Now that the proof has been fully verified, we'll use the
-			// final resting place of the asset (result of the last state
-			// transition) to create a proper annotated proof. We only need
-			// to do this if it wasn't specified though.
-			if proof.AssetID == nil {
-				assetID := finalAsset.ID()
-				proof.AssetID = &assetID
-
-				if finalAsset.FamilyKey != nil {
-					proof.FamilyKey = &finalAsset.FamilyKey.FamKey
-				}
-
-				proof.ScriptKey = *finalAsset.ScriptKey.PubKey
-			}
-
-			return nil
-		})
+		return nil
 	}
-	
-	// Wait for all goroutines to report back. Any error at this stage means
-	// we need to abort.
-	if err := eg.Wait(); err != nil {
+
+	if err := chanutils.ErrGroup(f, proofs); err != nil {
 		return err
 	}
 
