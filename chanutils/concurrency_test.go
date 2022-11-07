@@ -7,11 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	errs = []error{errors.New("error #1"), errors.New("error #2")}
-)
-
 func TestErrGroup(t *testing.T) {
+	errs := []error{errors.New("error #1"), errors.New("error #2")}
+
 	t.Parallel()
 
 	returnErrFunc := func(returnErr error) error {
