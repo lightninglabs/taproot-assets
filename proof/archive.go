@@ -268,10 +268,10 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	// Before we import the proofs into the archive, we want to make sure
 	// that they're all valid. Along the way, we may augment the locator
 	// for each proof accordingly.
-	f := func(proof *AnnotatedProof) error {
+	f := func(c context.Context, proof *AnnotatedProof) error {
 		// First, we'll decode and then also verify the proof.
 		finalStateTransition, err := m.proofVerifier.Verify(
-			ctx, bytes.NewReader(proof.Blob),
+			c, bytes.NewReader(proof.Blob),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to verify proof: %w", err)
@@ -302,7 +302,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 		return nil
 	}
 
-	if err := chanutils.ErrGroup(f, proofs); err != nil {
+	if err := chanutils.ErrGroup(ctx, f, proofs); err != nil {
 		return err
 	}
 

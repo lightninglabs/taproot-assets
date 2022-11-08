@@ -1,6 +1,7 @@
 package chanutils
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,7 +12,7 @@ func TestErrGroup(t *testing.T) {
 	t.Parallel()
 	errs := []error{errors.New("error #1"), errors.New("error #2")}
 
-	returnErrFunc := func(returnErr error) error {
+	returnErrFunc := func(ctx context.Context, returnErr error) error {
 		if returnErr != nil {
 			return returnErr
 		}
@@ -48,7 +49,8 @@ func TestErrGroup(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			e := ErrGroup(returnErrFunc, test.values)
+			t.Parallel()
+			e := ErrGroup(context.TODO(), returnErrFunc, test.values)
 			require.Contains(t, test.expectedErrors, e)
 		})
 	}
