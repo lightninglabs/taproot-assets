@@ -8,9 +8,8 @@ import (
 )
 
 func TestErrGroup(t *testing.T) {
-	errs := []error{errors.New("error #1"), errors.New("error #2")}
-
 	t.Parallel()
+	errs := []error{errors.New("error #1"), errors.New("error #2")}
 
 	returnErrFunc := func(returnErr error) error {
 		if returnErr != nil {
@@ -22,34 +21,35 @@ func TestErrGroup(t *testing.T) {
 	tests := []struct {
 		name           string
 		values         []error
-		excpetedErrors []error
+		expectedErrors []error
 	}{
 		{
 			name:           "no errors",
 			values:         []error{nil, nil},
-			excpetedErrors: []error{nil},
+			expectedErrors: []error{nil},
 		},
 		{
 			name:           "only first error",
 			values:         []error{nil, errs[0]},
-			excpetedErrors: []error{errs[0]},
+			expectedErrors: []error{errs[0]},
 		},
 		{
 			name:           "only second error",
 			values:         []error{errs[1], nil},
-			excpetedErrors: []error{errs[1]},
+			expectedErrors: []error{errs[1]},
 		},
 		{
 			name:           "any error",
 			values:         []error{errs[1], errs[0]},
-			excpetedErrors: []error{errs[0], errs[1]},
+			expectedErrors: []error{errs[0], errs[1]},
 		},
 	}
 
 	for _, test := range tests {
+		test := test
 		t.Run(test.name, func(t *testing.T) {
 			e := ErrGroup(returnErrFunc, test.values)
-			require.Contains(t, test.excpetedErrors, e)
+			require.Contains(t, test.expectedErrors, e)
 		})
 	}
 }
