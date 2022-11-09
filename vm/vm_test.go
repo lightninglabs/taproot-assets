@@ -362,6 +362,56 @@ func splitFullValueStateTransition(t *testing.T, validRootLocator,
 	}
 }
 
+func splitCollectibleStateTransition(t *testing.T,
+	validRoot bool) stateTransitionFunc {
+
+	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet) {
+
+		privKey := randKey(t)
+		scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
+
+		genesisOutPoint := wire.OutPoint{}
+		genesisAsset := randAsset(t, asset.Collectible, *scriptKey)
+
+		assetID := genesisAsset.Genesis.ID()
+		rootLocator := &commitment.SplitLocator{
+			OutputIndex: 0,
+			AssetID:     assetID,
+			ScriptKey:   asset.NUMSCompressedKey,
+			Amount:      0,
+		}
+		externalLocators := []*commitment.SplitLocator{{
+			OutputIndex: 1,
+			AssetID:     assetID,
+			ScriptKey:   asset.ToSerialized(randKey(t).PubKey()),
+			Amount:      genesisAsset.Amount,
+		}}
+		splitCommitment, err := commitment.NewSplitCommitment(
+			genesisAsset, genesisOutPoint, rootLocator,
+			externalLocators...,
+		)
+		require.NoError(t, err)
+
+		virtualTx, _, err := taroscript.VirtualTx(
+			splitCommitment.RootAsset, splitCommitment.PrevAssets,
+		)
+		require.NoError(t, err)
+		newWitness := genTaprootKeySpend(
+			t, *privKey, virtualTx, genesisAsset, 0,
+		)
+		require.NoError(t, err)
+		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
+
+		if !validRoot {
+			splitCommitment.RootAsset.Type = asset.Normal
+		}
+
+		return splitCommitment.RootAsset, splitCommitment.SplitAssets,
+			splitCommitment.PrevAssets
+	}
+}
+
 func TestVM(t *testing.T) {
 	t.Parallel()
 
@@ -379,6 +429,11 @@ func TestVM(t *testing.T) {
 			name: "invalid collectible genesis",
 			f:    genesisStateTransition(t, asset.Collectible, false),
 			err:  newErrKind(ErrInvalidGenesisStateTransition),
+		},
+		{
+			name: "invalid split collectible input",
+			f:    splitCollectibleStateTransition(t, false),
+			err:  newErrKind(ErrInvalidSplitAssetType),
 		},
 		{
 			name: "normal genesis",
@@ -419,6 +474,11 @@ func TestVM(t *testing.T) {
 			name: "invalid unspendable root locator",
 			f:    splitFullValueStateTransition(t, false, true),
 			err:  newErrKind(ErrInvalidRootAsset),
+		},
+		{
+			name: "split collectible state transition",
+			f:    splitCollectibleStateTransition(t, true),
+			err:  nil,
 		},
 	}
 

@@ -24,4 +24,8 @@ var testCases = []*testCase{
 		name: "full value send",
 		test: testFullValueSend,
 	},
+	{
+		name: "collectible send",
+		test: testCollectibleSend,
+	},
 }

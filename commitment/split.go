@@ -13,10 +13,6 @@ import (
 )
 
 var (
-	// ErrInvalidInputType is an error returned when an input to be split is
-	// not of type asset.Normal.
-	ErrInvalidInputType = errors.New("invalid asset input type")
-
 	// ErrDuplicateSplitOutputIndex is an error returned when duplicate
 	// split output indices are detected.
 	ErrDuplicateSplitOutputIndex = errors.New(
@@ -33,6 +29,12 @@ var (
 	// created w/o a valid external split locator.
 	ErrInvalidSplitLocator = errors.New(
 		"at least one locator should be specified",
+	)
+
+	// ErrInvalidSplitLocatorCount is returned if a collectible split is
+	// attempted with a count of external split locators not equal to one.
+	ErrInvalidSplitLocatorCount = errors.New(
+		"exactly one locator should be specified",
 	)
 
 	// ErrInvalidScriptKey is an error returned when a root locator has zero
@@ -140,15 +142,24 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		ID:        input.Genesis.ID(),
 		ScriptKey: asset.ToSerialized(input.ScriptKey.PubKey),
 	}
-	if input.Type != asset.Normal {
-		return nil, ErrInvalidInputType
-	}
 
 	// The assets need to go somewhere, they can be fully spent, but we
 	// still require this external locator to denote where the new value
 	// lives.
 	if len(externalLocators) == 0 {
 		return nil, ErrInvalidSplitLocator
+	}
+
+	// To transfer a collectible with a split, the split root must be
+	// unspendable, and there can only be only one external locator.
+	if input.Type == asset.Collectible {
+		if rootLocator.Amount != 0 {
+			return nil, ErrNonZeroSplitAmount
+		}
+
+		if len(externalLocators) != 1 {
+			return nil, ErrInvalidSplitLocatorCount
+		}
 	}
 
 	// The only valid unspendable root locator uses the correct unspendable
