@@ -3,7 +3,9 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -235,7 +237,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 	newBatch *tarogarden.MintingBatch) error {
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll need to insert a new internal key which'll act
 		// as the foreign key our batch references.
 		batchID, err := q.UpsertInternalKey(ctx, InternalKey{
@@ -277,6 +279,16 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 		return nil
 	})
+
+	var errUnique *ErrSqlUniqueConstraintViolation
+	if errors.As(err, &errUnique) && strings.Contains(
+		errUnique.DbError.Error(), "asset_name",
+	) {
+
+		return tarogarden.ErrDuplicateSeedlingName
+	}
+
+	return err
 }
 
 // AddSeedlingsToBatch adds a new set of seedlings to an existing batch.

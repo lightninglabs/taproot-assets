@@ -2,6 +2,7 @@ package tarogarden
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -16,6 +17,12 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+// ErrDuplicateSeedlingName is an error type for use with asset seedling name
+// unique constraint violations.
+var ErrDuplicateSeedlingName = errors.New(
+	"new asset seedling shares the same name as an existing asset",
 )
 
 // Planter is responsible for batching a set of seedlings into a minting batch

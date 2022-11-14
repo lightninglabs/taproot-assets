@@ -9,6 +9,10 @@ var testCases = []*testCase{
 		test: mintAssets,
 	},
 	{
+		name: "asset name collision raises mint error",
+		test: testMintAssetNameCollisionError,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
