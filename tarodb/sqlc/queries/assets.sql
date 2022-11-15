@@ -2,7 +2,7 @@
 INSERT INTO internal_keys (
     raw_key,  key_family, key_index
 ) VALUES (
-    ?, ?, ?
+    $1, $2, $3
 ) ON CONFLICT (raw_key)
     -- This is a NOP, raw_key is the unique field that caused the conflict.
     DO UPDATE SET raw_key = EXCLUDED.raw_key
@@ -11,28 +11,28 @@ RETURNING key_id;
 -- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
     batch_state, batch_id, creation_time_unix
-) VALUES (0, ?, ?);
+) VALUES (0, $1, $2);
 
 -- name: FetchMintingBatch :one
 SELECT *
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
-WHERE keys.raw_key = ?;
+WHERE keys.raw_key = $1;
 
 -- name: FetchMintingBatchesByState :many
 SELECT *
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
-WHERE batches.batch_state = ?;
+WHERE batches.batch_state = $1;
 
 -- name: FetchMintingBatchesByInverseState :many
 SELECT *
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
-WHERE batches.batch_state != ?;
+WHERE batches.batch_state != $1;
 
 -- name: UpdateMintingBatchState :exec
 WITH target_batch AS (
@@ -44,10 +44,10 @@ WITH target_batch AS (
     FROM asset_minting_batches batches
     JOIN internal_keys keys
         ON batches.batch_id = keys.key_id
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 )
 UPDATE asset_minting_batches 
-SET batch_state = ? 
+SET batch_state = $2
 WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: InsertAssetSeedling :exec
@@ -55,7 +55,7 @@ INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta,
     emission_enabled, batch_id
 ) VALUES (
-    ?, ?, ?, ?, ?, ?
+   $1, $2, $3, $4, $5, $6
 );
 
 -- name: AllInternalKeys :many
@@ -77,13 +77,13 @@ WITH target_key_id AS (
     -- foreign key that references the key_id of the internal key.
     SELECT key_id 
     FROM internal_keys keys
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta,
     emission_enabled, batch_id
 ) VALUES (
-    ?, ?, ?, ?, ?, (SELECT key_id FROM target_key_id)
+    $2, $3, $4, $5, $6, (SELECT key_id FROM target_key_id)
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -92,7 +92,7 @@ WITH target_batch(batch_id) AS (
     FROM asset_minting_batches batches
     JOIN internal_keys keys
         ON batches.batch_id = keys.key_id
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
     emission_enabled, genesis_id, batch_id
@@ -103,7 +103,7 @@ WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 INSERT INTO genesis_points(
     prev_out
 ) VALUES (
-    ?
+    $1
 ) ON CONFLICT (prev_out)
     -- This is a NOP, prev_out is the unique field that caused the conflict.
     DO UPDATE SET prev_out = EXCLUDED.prev_out
@@ -113,7 +113,7 @@ RETURNING genesis_id;
 INSERT INTO asset_families (
     tweaked_fam_key, internal_key_id, genesis_point_id 
 ) VALUES (
-    ?, ?, ?
+    $1, $2, $3
 ) ON CONFLICT (tweaked_fam_key)
     -- This is not a NOP, update the genesis point ID in case it wasn't set
     -- before.
@@ -124,7 +124,7 @@ RETURNING family_id;
 INSERT INTO asset_family_sigs (
     genesis_sig, gen_asset_id, key_fam_id
 ) VALUES (
-    ?, ?, ?
+    $1, $2, $3
 ) ON CONFLICT (gen_asset_id)
     DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
 RETURNING sig_id;
@@ -133,7 +133,7 @@ RETURNING sig_id;
 INSERT INTO genesis_assets (
     asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
 ) VALUES (
-    ?, ?, ?, ?, ?, ?
+    $1, $2, $3, $4, $5, $6
 ) ON CONFLICT (asset_tag)
     -- This is a NOP, asset_tag is the unique field that caused the conflict.
     DO UPDATE SET asset_tag = EXCLUDED.asset_tag
@@ -144,7 +144,7 @@ INSERT INTO assets (
     genesis_id, version, script_key_id, asset_family_sig_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
 ) RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
@@ -165,7 +165,7 @@ WITH genesis_info AS (
         ON genesis_points.genesis_id = batches.genesis_id
     JOIN internal_keys keys
         ON keys.key_id = batches.batch_id
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 ), key_fam_info AS (
     -- This CTE is used to perform a series of joins that allow us to extract
     -- the family key information, as well as the family sigs for the series of
@@ -214,14 +214,18 @@ SELECT
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND
-        (length(hex(sqlc.narg('asset_id_filter'))) == 0 OR genesis_info_view.asset_id = sqlc.narg('asset_id_filter'))
+      (genesis_info_view.asset_id = sqlc.narg('asset_id_filter') OR
+        sqlc.narg('asset_id_filter') IS NULL)
 -- We use a LEFT JOIN here as not every asset has a family key, so this'll
 -- generate rows that have NULL values for the family key fields if an asset
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_fam_info_view
     ON assets.genesis_id = key_fam_info_view.gen_asset_id
-GROUP BY assets.genesis_id;
+GROUP BY assets.genesis_id, genesis_info_view.asset_id,
+         version, genesis_info_view.asset_tag, genesis_info_view.meta_data,
+         genesis_info_view.asset_type, genesis_info_view.output_index,
+         genesis_info_view.prev_out;
 
 -- name: QueryAssetBalancesByFamily :many
 SELECT
@@ -229,7 +233,8 @@ SELECT
 FROM assets
 JOIN key_fam_info_view
     ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
-        (length(hex(sqlc.narg('key_fam_filter'))) == 0 OR key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter'))
+      (key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter') OR
+        sqlc.narg('key_fam_filter') IS NULL)
 GROUP BY key_fam_info_view.tweaked_fam_key;
 
 -- name: QueryAssets :many
@@ -259,8 +264,8 @@ SELECT
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND
-        (length(hex(sqlc.narg('asset_id_filter'))) == 0 OR 
-            genesis_info_view.asset_id = sqlc.narg('asset_id_filter'))
+      (genesis_info_view.asset_id = sqlc.narg('asset_id_filter') OR
+        sqlc.narg('asset_id_filter') IS NULL)
 -- We use a LEFT JOIN here as not every asset has a family key, so this'll
 -- generate rows that have NULL values for the family key fields if an asset
 -- doesn't have a family key. See the comment in fetchAssetSprouts for a work
@@ -273,8 +278,8 @@ JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
-        (length(hex(sqlc.narg('anchor_point'))) == 0 OR 
-            utxos.outpoint = sqlc.narg('anchor_point'))
+      (utxos.outpoint = sqlc.narg('anchor_point') OR
+       sqlc.narg('anchor_point') IS NULL)
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
@@ -285,7 +290,8 @@ JOIN chain_txns txns
 -- specified.
 WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
-    (key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter') OR sqlc.narg('key_fam_filter') IS NULL)
+    (key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter') OR
+      sqlc.narg('key_fam_filter') IS NULL)
 );
 
 -- name: AllAssets :many
@@ -303,7 +309,7 @@ JOIN asset_minting_batches batches
     ON genesis_points.genesis_id = batches.genesis_id
 JOIN internal_keys keys
     ON keys.key_id = batches.batch_id
-WHERE keys.raw_key = ?;
+WHERE keys.raw_key = $1;
 
 -- name: BindMintingBatchWithTx :exec
 WITH target_batch AS (
@@ -311,10 +317,10 @@ WITH target_batch AS (
     FROM asset_minting_batches batches
     JOIN internal_keys keys
         ON batches.batch_id = keys.key_id
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 )
 UPDATE asset_minting_batches 
-SET minting_tx_psbt = ?, minting_output_index = ?, genesis_id = ?
+SET minting_tx_psbt = $2, minting_output_index = $3, genesis_id = $4
 WHERE batch_id IN (SELECT batch_id FROM target_batch);
 
 -- name: UpdateBatchGenesisTx :exec
@@ -323,45 +329,45 @@ WITH target_batch AS (
     FROM asset_minting_batches batches
     JOIN internal_keys keys
         ON batches.batch_id = keys.key_id
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 )
 UPDATE asset_minting_batches
-SET minting_tx_psbt = ?
+SET minting_tx_psbt = $2
 WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: UpsertChainTx :one
 INSERT INTO chain_txns (
     txid, raw_tx, chain_fees, block_height, block_hash, tx_index
 ) VALUES (
-    ?, ?, ?, sqlc.narg('block_height'), sqlc.narg('block_hash'),
+    $1, $2, $3, sqlc.narg('block_height'), sqlc.narg('block_hash'),
     sqlc.narg('tx_index')
 ) ON CONFLICT (txid)
     -- Not a NOP but instead update any nullable fields that aren't null in the
     -- args.
-    DO UPDATE SET block_height = IFNULL(EXCLUDED.block_height, block_height),
-                  block_hash = IFNULL(EXCLUDED.block_hash, block_hash),
-                  tx_index = IFNULL(EXCLUDED.tx_index, tx_index)
+    DO UPDATE SET block_height = COALESCE(EXCLUDED.block_height, chain_txns.block_height),
+                  block_hash = COALESCE(EXCLUDED.block_hash, chain_txns.block_hash),
+                  tx_index = COALESCE(EXCLUDED.tx_index, chain_txns.tx_index)
 RETURNING txn_id;
 
 -- name: FetchChainTx :one
 SELECT *
 FROM chain_txns
-WHERE txid = ?;
+WHERE txid = $1;
 
 -- name: UpsertManagedUTXO :one
 WITH target_key(key_id) AS (
     SELECT key_id
     FROM internal_keys
-    WHERE raw_key = ?
+    WHERE raw_key = $1
 )
 INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
 ) VALUES (
-    ?, ?, (SELECT key_id FROM target_key), ?, ?, ?
+    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6
 ) ON CONFLICT (outpoint)
    -- Not a NOP but instead update any nullable fields that aren't null in the
    -- args.
-   DO UPDATE SET tapscript_sibling = IFNULL(EXCLUDED.tapscript_sibling, tapscript_sibling)
+   DO UPDATE SET tapscript_sibling = COALESCE(EXCLUDED.tapscript_sibling, managed_utxos.tapscript_sibling)
 RETURNING utxo_id;
 
 -- name: FetchManagedUTXO :one
@@ -370,8 +376,8 @@ FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
 WHERE (
-    txn_id = COALESCE(sqlc.narg('txn_id'), txn_id) AND
-    (length(hex(sqlc.narg('outpoint'))) == 0 OR utxos.outpoint = sqlc.narg('outpoint'))
+    (txn_id = sqlc.narg('txn_id') OR sqlc.narg('txn_id') IS NULL) AND
+    (utxos.outpoint = sqlc.narg('outpoint') OR sqlc.narg('outpoint') IS NULL)
 );
 
 -- name: AnchorPendingAssets :exec
@@ -382,10 +388,10 @@ WITH assets_to_update AS (
         ON assets.genesis_id = genesis_assets.gen_asset_id
     JOIN genesis_points
         ON genesis_points.genesis_id = genesis_assets.genesis_point_id
-    WHERE prev_out = ?
+    WHERE prev_out = $1
 )
 UPDATE assets
-SET anchor_utxo_id = ?
+SET anchor_utxo_id = $2
 WHERE script_key_id in (SELECT script_key_id FROM assets_to_update);
 
 -- name: AssetsByGenesisPoint :many
@@ -395,7 +401,7 @@ JOIN genesis_assets
     ON assets.genesis_id = genesis_assets.gen_asset_id
 JOIN genesis_points
     ON genesis_points.genesis_id = genesis_assets.genesis_point_id
-WHERE prev_out = ?;
+WHERE prev_out = $1;
 
 -- name: GenesisAssets :many
 SELECT * 
@@ -408,22 +414,22 @@ FROM genesis_points;
 -- name: FetchAssetsByAnchorTx :many
 SELECT *
 FROM assets
-WHERE anchor_utxo_id = ?;
+WHERE anchor_utxo_id = $1;
 
 -- name: AnchorGenesisPoint :exec
 WITH target_point(genesis_id) AS (
     SELECT genesis_id
     FROM genesis_points
-    WHERE genesis_points.prev_out = ?
+    WHERE genesis_points.prev_out = $1
 )
 UPDATE genesis_points
-SET anchor_tx_id = ?
+SET anchor_tx_id = $2
 WHERE genesis_id in (SELECT genesis_id FROM target_point);
 
 -- name: FetchGenesisPointByAnchorTx :one
 SELECT * 
 FROM genesis_points
-WHERE anchor_tx_id = ?;
+WHERE anchor_tx_id = $1;
 
 -- name: FetchGenesisByID :one
 SELECT
@@ -432,7 +438,7 @@ SELECT
 FROM genesis_assets
 JOIN genesis_points
   ON genesis_assets.genesis_point_id = genesis_points.genesis_id
-WHERE gen_asset_id = ?;
+WHERE gen_asset_id = $1;
 
 -- name: ConfirmChainTx :exec
 WITH target_txn(txn_id) AS (
@@ -442,10 +448,10 @@ WITH target_txn(txn_id) AS (
         ON batches.genesis_id = points.genesis_id
     JOIN internal_keys keys
         ON batches.batch_id = keys.key_id
-    WHERE keys.raw_key = ?
+    WHERE keys.raw_key = $1
 )
 UPDATE chain_txns
-SET block_height = ?, block_hash = ?, tx_index = ?
+SET block_height = $2, block_hash = $3, tx_index = $4
 WHERE txn_id in (SELECT txn_id FROM target_txn);
 
 -- name: UpsertAssetProof :exec
@@ -454,12 +460,12 @@ WITH target_asset(asset_id) AS (
     FROM assets
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = ? 
+    WHERE script_keys.tweaked_script_key = $1
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
-    (SELECT asset_id FROM target_asset), ?
+    (SELECT asset_id FROM target_asset), $2
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, update the proof file in case it wasn't set before.
     DO UPDATE SET proof_file = EXCLUDED.proof_file;
@@ -482,7 +488,7 @@ WITH asset_info AS (
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = ?
+    WHERE script_keys.tweaked_script_key = $1
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
        asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
@@ -495,7 +501,7 @@ INSERT INTO asset_witnesses (
     asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
     split_commitment_proof
 ) VALUES (
-    ?, ?, ?, ?, ?, ?
+    $1, $2, $3, $4, $5, $6
 );
 
 -- name: FetchAssetWitnesses :many
@@ -511,7 +517,7 @@ WHERE (
 
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
-WHERE outpoint = ?;
+WHERE outpoint = $1;
 
 -- name: ConfirmChainAnchorTx :exec
 WITH target_txn(txn_id) AS (
@@ -519,17 +525,17 @@ WITH target_txn(txn_id) AS (
     FROM chain_txns
     JOIN managed_utxos utxos
         ON utxos.txn_id = chain_txns.txn_id
-    WHERE utxos.outpoint = ?
+    WHERE utxos.outpoint = $1
 )
 UPDATE chain_txns
-SET block_height = ?, block_hash = ?, tx_index = ?
+SET block_height = $2, block_hash = $3, tx_index = $4
 WHERE txn_id in (SELECT txn_id FROM target_txn);
 
 -- name: UpsertScriptKey :one
 INSERT INTO script_keys (
     internal_key_id, tweaked_script_key, tweak
 ) VALUES (
-    ?, ?, ?
+    $1, $2, $3
 )  ON CONFLICT (tweaked_script_key)
     -- As a NOP, we just set the script key to the one that triggered the
     -- conflict.

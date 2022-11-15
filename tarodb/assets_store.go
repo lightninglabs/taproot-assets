@@ -115,14 +115,14 @@ type ActiveAssetsStore interface {
 	// QueryAssetBalancesByAsset queries the balances for assets or
 	// alternatively for a selected one that matches the passed asset ID
 	// filter.
-	QueryAssetBalancesByAsset(context.Context,
-		interface{}) ([]RawAssetBalance, error)
+	QueryAssetBalancesByAsset(context.Context, []byte) ([]RawAssetBalance,
+		error)
 
 	// QueryAssetBalancesByFamily queries the asset balances for asset
 	// families or alternatively for a selected one that matches the passed
 	// filter.
 	QueryAssetBalancesByFamily(context.Context,
-		interface{}) ([]RawAssetFamilyBalance, error)
+		[]byte) ([]RawAssetFamilyBalance, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -1527,15 +1527,10 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		unconfOnly := 0
-		if pending {
-			unconfOnly = 1
-		}
-
 		// If we want every unconfirmed transfer, then we only pass in
 		// the UnconfOnly field.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
-			UnconfOnly: unconfOnly,
+			UnconfOnly: pending,
 		})
 		if err != nil {
 			return err

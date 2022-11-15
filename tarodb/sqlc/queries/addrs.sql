@@ -2,7 +2,7 @@
 INSERT INTO addrs (
     version, genesis_asset_id, fam_key, script_key_id, taproot_key_id,
     taproot_output_key, amount, asset_type, creation_time
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;
 
 -- name: FetchAddrs :many
 SELECT 
@@ -25,7 +25,8 @@ JOIN internal_keys taproot_keys
     ON addrs.taproot_key_id = taproot_keys.key_id
 WHERE creation_time >= @created_after
     AND creation_time <= @created_before
-    AND (@unmanaged_only = false OR IFNULL(managed_from, true) = @unmanaged_only) 
+    AND (@unmanaged_only = false OR
+         (CASE WHEN managed_from IS NULL THEN true ELSE false END) = @unmanaged_only)
 ORDER BY addrs.creation_time
 LIMIT @num_limit OFFSET @num_offset;
 
@@ -48,39 +49,39 @@ JOIN internal_keys raw_script_keys
   ON script_keys.internal_key_id = raw_script_keys.key_id
 JOIN internal_keys taproot_keys
   ON addrs.taproot_key_id = taproot_keys.key_id
-WHERE taproot_output_key = ?;
+WHERE taproot_output_key = $1;
 
 -- name: SetAddrManaged :exec
 WITH target_addr(addr_id) AS (
     SELECT id
     FROM addrs
-    WHERE addrs.taproot_output_key = ?
+    WHERE addrs.taproot_output_key = $1
 )
 UPDATE addrs
-SET managed_from = ?
+SET managed_from = $2
 WHERE id = (SELECT addr_id FROM target_addr);
 
 -- name: UpsertAddrEvent :one
 WITH target_addr(addr_id) AS (
     SELECT id
     FROM addrs
-    WHERE addrs.taproot_output_key = ?
+    WHERE addrs.taproot_output_key = $1
 ), target_chain_txn(txn_id) AS (
     SELECT txn_id
     FROM chain_txns
-    WHERE chain_txns.txid = ?
+    WHERE chain_txns.txid = $2
 )
 INSERT INTO addr_events (
     creation_time, addr_id, status, chain_txn_id, chain_txn_output_index,
     managed_utxo_id, asset_proof_id, asset_id
 ) VALUES (
-    ?, (SELECT addr_id FROM target_addr), ?,
-    (SELECT txn_id FROM target_chain_txn), ?, ?, ?, ?
+    $3, (SELECT addr_id FROM target_addr), $4,
+    (SELECT txn_id FROM target_chain_txn), $5, $6, $7, $8
 )
 ON CONFLICT (addr_id, chain_txn_id, chain_txn_output_index)
     DO UPDATE SET status = EXCLUDED.status,
-                  asset_proof_id = IFNULL(EXCLUDED.asset_proof_id, asset_proof_id),
-                  asset_id = IFNULL(EXCLUDED.asset_id, asset_id)
+                  asset_proof_id = COALESCE(EXCLUDED.asset_proof_id, addr_events.asset_proof_id),
+                  asset_id = COALESCE(EXCLUDED.asset_id, addr_events.asset_id)
 RETURNING id;
 
 -- name: FetchAddrEvent :one
@@ -99,7 +100,7 @@ LEFT JOIN managed_utxos
        ON addr_events.managed_utxo_id = managed_utxos.utxo_id
 LEFT JOIN internal_keys
        ON managed_utxos.internal_key_id = internal_keys.key_id
-WHERE id = ?;
+WHERE id = $1;
 
 -- name: QueryEventIDs :many
 SELECT
@@ -109,5 +110,5 @@ JOIN addrs
   ON addr_events.addr_id = addrs.id
 WHERE addr_events.status >= @status_from 
   AND addr_events.status <= @status_to
-  AND IFNULL(@addr_taproot_key, addrs.taproot_output_key) = addrs.taproot_output_key
+  AND COALESCE(@addr_taproot_key, addrs.taproot_output_key) = addrs.taproot_output_key
 ORDER by addr_events.creation_time;

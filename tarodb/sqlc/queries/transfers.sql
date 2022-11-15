@@ -2,7 +2,7 @@
 INSERT INTO asset_transfers (
     old_anchor_point, new_internal_key, new_anchor_utxo, transfer_time_unix
 ) VALUES (
-    ?, ?, ?, ?
+    $1, $2, $3, $4
 ) RETURNING id;
 
 -- name: InsertAssetDelta :exec
@@ -10,14 +10,14 @@ INSERT INTO asset_deltas (
     old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
     proof_id, split_commitment_root_hash, split_commitment_root_value
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?
+    $1, $2, $3, $4, $5, $6, $7, $8
 );
 
 -- name: InsertSpendProofs :one
 INSERT INTO transfer_proofs (
    transfer_id, sender_proof, receiver_proof 
 ) VALUES (
-    ?, ?, ?
+    $1, $2, $3
 ) RETURNING proof_id;
 
 -- name: QueryAssetTransfers :many
@@ -39,17 +39,16 @@ JOIN chain_txns txns
 WHERE (
     -- We'll use this clause to filter out for only transfers that are
     -- unconfirmed. But only if the unconf_only field is set.
-    -- TODO(roasbeef): just do the confirmed bit, 
-    ((@unconf_only == 0 OR @unconf_only IS NULL)
-        OR
-    ((@unconf_only == 1) == (length(hex(txns.block_hash)) == 0)))
+    -- TODO(roasbeef): just do the confirmed bit,
+    (@unconf_only = false OR @unconf_only IS NULL OR
+      (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = @unconf_only)
 
     AND
     
     -- Here we have another optional query clause to select a given transfer
     -- based on the new_anchor_point, but only if it's specified.
-    (length(hex(sqlc.narg('new_anchor_point'))) == 0 OR 
-        utxos.outpoint = sqlc.narg('new_anchor_point'))
+    (utxos.outpoint = sqlc.narg('new_anchor_point') OR
+       sqlc.narg('new_anchor_point') IS NULL)
 );
 
 -- name: FetchAssetDeltas :many
@@ -68,7 +67,7 @@ JOIN script_keys
     ON deltas.new_script_key = script_keys.script_key_id
 JOIN internal_keys 
     ON script_keys.internal_key_id = internal_keys.key_id
-WHERE transfer_id = ?;
+WHERE transfer_id = $1;
 
 -- name: FetchAssetDeltasWithProofs :many
 SELECT  
@@ -89,12 +88,12 @@ JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 JOIN transfer_proofs
     ON deltas.proof_id = transfer_proofs.proof_id
-WHERE deltas.transfer_id = ?;
+WHERE deltas.transfer_id = $1;
 
 -- name: FetchSpendProofs :one
 SELECT sender_proof, receiver_proof
 FROM transfer_proofs
-WHERE transfer_id = ?;
+WHERE transfer_id = $1;
 
 -- name: ReanchorAssets :exec
 WITH assets_to_update AS (
@@ -123,8 +122,8 @@ RETURNING asset_id;
 
 -- name: DeleteAssetWitnesses :exec
 DELETE FROM asset_witnesses
-WHERE asset_id = ?;
+WHERE asset_id = $1;
 
 -- name: DeleteSpendProofs :exec
 DELETE FROM transfer_proofs
-WHERE transfer_id = ?;
+WHERE transfer_id = $1;

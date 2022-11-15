@@ -808,7 +808,7 @@ func TestAssetExportLog(t *testing.T) {
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		UnconfOnly: 1,
+		UnconfOnly: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
