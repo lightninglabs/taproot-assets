@@ -37,7 +37,7 @@ var (
 func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 	*tarodb.TaroAddressBook, sqlc.Querier) {
 
-	db := tarodb.NewTestSqliteDB(t)
+	db := tarodb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tarodb.AddrBook {
 		return db.WithTx(tx)
@@ -56,7 +56,7 @@ func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 
 // newProofArchive creates a new instance of the MultiArchiver.
 func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tarodb.AssetStore) {
-	db := tarodb.NewTestSqliteDB(t)
+	db := tarodb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tarodb.ActiveAssetsStore {
 		return db.WithTx(tx)

@@ -15,7 +15,7 @@ import (
 func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
 	sqlc.Querier) {
 
-	db := NewTestSqliteDB(t)
+	db := NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) TreeStore {
 		return db.WithTx(tx)

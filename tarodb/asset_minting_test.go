@@ -30,7 +30,7 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 	sqlc.Querier) {
 
 	// First, Make a new test database.
-	db := NewTestSqliteDB(t)
+	db := NewTestDB(t)
 
 	// TODO(roasbeef): can use another layer of type params since
 	// duplicated?

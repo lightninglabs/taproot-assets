@@ -32,7 +32,7 @@ var defaultTimeout = time.Second * 5
 
 // newMintingStore creates a new instance of the TaroAddressBook book.
 func newMintingStore(t *testing.T) tarogarden.MintingStore {
-	db := tarodb.NewTestSqliteDB(t)
+	db := tarodb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tarodb.PendingAssetStore {
 		return db.WithTx(tx)

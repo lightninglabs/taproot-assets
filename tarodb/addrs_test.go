@@ -24,7 +24,7 @@ var (
 
 // newAddrBook makes a new instance of the TaroAddressBook book.
 func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
-	db := NewTestSqliteDB(t)
+	db := NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) AddrBook {
 		return db.WithTx(tx)
