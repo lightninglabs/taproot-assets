@@ -3,10 +3,10 @@ package tarogarden_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taro/tarodb"
 	_ "github.com/lightninglabs/taro/tarodb" // Register relevant drivers.
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -28,6 +29,20 @@ import (
 )
 
 var defaultTimeout = time.Second * 5
+
+// newMintingStore creates a new instance of the TaroAddressBook book.
+func newMintingStore(t *testing.T) tarogarden.MintingStore {
+	db := tarodb.NewTestSqliteDB(t)
+
+	txCreator := func(tx *sql.Tx) tarodb.PendingAssetStore {
+		return db.WithTx(tx)
+	}
+
+	assetDB := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore](
+		db, txCreator,
+	)
+	return tarodb.NewAssetMintingStore(assetDB)
+}
 
 // mintingTestHarness holds and manages all the set of deplanes needed to
 // create succinct and fully featured unit/systems tests for the batched asset
@@ -517,10 +532,6 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 }
 
-// mintingStoreCreator is a function closure that is capable of creating a new
-// minting store.
-type mintingStoreCreator func() (tarogarden.MintingStore, error)
-
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
@@ -536,58 +547,21 @@ var testCases = []mintingStoreTestCase{
 	},
 }
 
-// testBatchedAssetIssuance takes an active testing instance along with a
-// minting store and then runs a series of test to exercise basic batched asset
-// issuance.
-func testBatchedAssetIssuance(t *testing.T, storeCreator mintingStoreCreator) {
+// TestBatchedAssetIssuance runs a test of tests to ensure that the set of
+// registered minting stores can be used to properly implement batched asset
+// minting.
+func TestBatchedAssetIssuance(t *testing.T) {
 	t.Helper()
+
+	mintingStore := newMintingStore(t)
 
 	for _, testCase := range testCases {
 		testCase := testCase
-
-		mintingStore, err := storeCreator()
-		require.NoError(t, err)
 
 		t.Run(testCase.name, func(t *testing.T) {
 			mintTest := newMintingTestHarness(t, mintingStore)
 			testCase.testFunc(mintTest)
 		})
-	}
-}
-
-// TestBatchedAssetIssuance runs a test of tests to ensure that the set of
-// registered minting stores can be used to properly implement batched asset
-// minting.
-func TestBatchedAssetIssuance(t *testing.T) {
-	for _, mintingStoreDriver := range tarogarden.RegisteredMintingStores() {
-		var mintingStoreFunc mintingStoreCreator
-
-		// TODO(roasbeef): needed to avoid import cycle
-		//  * alternatively can move the middleware logic here?
-		switch mintingStoreDriver.Name {
-		case "sqlite3":
-			mintingStoreFunc = func() (tarogarden.MintingStore, error) {
-				tempDir := t.TempDir()
-				dbFileName := filepath.Join(tempDir, "tmp.db")
-
-				mintingStore, err := mintingStoreDriver.New(
-					dbFileName,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("unable to "+
-						"create new minting store: %v",
-						err)
-				}
-
-				return mintingStore, nil
-			}
-
-		default:
-			t.Fatalf("unknown minting store: %v",
-				mintingStoreDriver.Name)
-		}
-
-		testBatchedAssetIssuance(t, mintingStoreFunc)
 	}
 }
 

@@ -3,7 +3,6 @@ package tarogarden
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -157,74 +156,6 @@ type MintingStore interface {
 	MarkBatchConfirmed(ctx context.Context, batchKey *btcec.PublicKey,
 		blockHash *chainhash.Hash, blockHeight uint32,
 		txIndex uint32, mintingProofs proof.AssetBlobs) error
-}
-
-// MintingStoreDriver represents a concrete driver of the main MintingStore
-// interface. A driver is identified by a globally unique string identifier,
-// along with a 'New()' method which is responsible for initializing a
-// particular MintingStore concrete implementation.
-type MintingStoreDriver struct {
-	// Name is the name of the minting store driver.
-	Name string
-
-	// New creates a new concrete instance of the MintingStore given a set
-	// of arguments.
-	New func(args ...any) (MintingStore, error)
-}
-
-var (
-	mintingStores = make(map[string]*MintingStoreDriver)
-	registerMtx   sync.Mutex
-)
-
-// RegisteredMintingStores returns a slice of all currently registered minting
-// stores.
-//
-// NOTE: This function is safe for concurrent access.
-func RegisteredMintingStores() []*MintingStoreDriver {
-	registerMtx.Lock()
-	defer registerMtx.Unlock()
-
-	drivers := make([]*MintingStoreDriver, 0, len(mintingStores))
-	for _, driver := range mintingStores {
-		drivers = append(drivers, driver)
-	}
-
-	return drivers
-}
-
-// RegisterMintingStore registers a MintingStoreDriver which is capable of
-// driving a concrete MintingStore interface. In the case that this driver has
-// already been registered, an error is returned.
-//
-// NOTE: This function is safe for concurrent access.
-func RegisterMintingStore(driver *MintingStoreDriver) error {
-	registerMtx.Lock()
-	defer registerMtx.Unlock()
-
-	if _, ok := mintingStores[driver.Name]; ok {
-		return fmt.Errorf("minting store already registered")
-	}
-
-	mintingStores[driver.Name] = driver
-
-	return nil
-}
-
-// SupportedMintingStores returns a slice of strings that represent the minting
-// store drivers that have been registered and are therefore supported.
-//
-// NOTE: This function is safe for concurrent access.
-func SupportedMintingStores() []string {
-	registerMtx.Lock()
-	defer registerMtx.Unlock()
-
-	supportedStores := make([]string, 0, len(mintingStores))
-	for driverName := range mintingStores {
-		supportedStores = append(supportedStores, driverName)
-	}
-
-	return supportedStores
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation
