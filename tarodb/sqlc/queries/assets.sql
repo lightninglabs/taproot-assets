@@ -541,3 +541,8 @@ INSERT INTO script_keys (
     -- conflict.
     DO UPDATE SET tweaked_script_key = EXCLUDED.tweaked_script_key
 RETURNING script_key_id;
+
+-- name: FetchScriptKeyIDByTweakedKey :one
+SELECT script_key_id
+FROM script_keys
+WHERE tweaked_script_key = $1;

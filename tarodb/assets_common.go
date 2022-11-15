@@ -27,6 +27,11 @@ type UpsertAssetStore interface {
 	//  * or use a sort of mix-in type?
 	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
 
+	// FetchScriptKeyIDByTweakedKey determines the database ID of a script
+	// key by querying it by the tweaked key.
+	FetchScriptKeyIDByTweakedKey(ctx context.Context,
+		tweakedScriptKey []byte) (int32, error)
+
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database.
 	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
@@ -259,15 +264,11 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 	}
 
 	// At this point, we only have the actual asset as read from a TLV, so
-	// we don't actually have the raw script key here. Instead, we'll use
-	// an UPSERT to trigger a conflict on the tweaked script key so we can
-	// obtain the script key ID we need here. This is for the proof
-	// import based on an addr send.
-	//
-	// TODO(roasbeef): or just fetch the one we need?
-	scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
-		TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
-	})
+	// we don't actually have the raw script key here. Let's check if we
+	// have the script key already.
+	scriptKeyID, err := q.FetchScriptKeyIDByTweakedKey(
+		ctx, scriptKey.PubKey.SerializeCompressed(),
+	)
 	if err != nil {
 		// If this fails, then we're just importing the proof to mirror
 		// the state of another node. In this case, we'll just import

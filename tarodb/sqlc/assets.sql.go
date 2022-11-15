@@ -984,6 +984,19 @@ func (q *Queries) FetchMintingBatchesByState(ctx context.Context, batchState int
 	return items, nil
 }
 
+const fetchScriptKeyIDByTweakedKey = `-- name: FetchScriptKeyIDByTweakedKey :one
+SELECT script_key_id
+FROM script_keys
+WHERE tweaked_script_key = $1
+`
+
+func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error) {
+	row := q.db.QueryRowContext(ctx, fetchScriptKeyIDByTweakedKey, tweakedScriptKey)
+	var script_key_id int32
+	err := row.Scan(&script_key_id)
+	return script_key_id, err
+}
+
 const fetchSeedlingsForBatch = `-- name: FetchSeedlingsForBatch :many
 WITH target_batch(batch_id) AS (
     SELECT batch_id

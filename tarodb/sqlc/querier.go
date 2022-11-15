@@ -49,6 +49,7 @@ type Querier interface {
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByStateRow, error)
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
+	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
 	FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
