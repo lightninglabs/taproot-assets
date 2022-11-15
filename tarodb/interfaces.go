@@ -125,3 +125,21 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 
 	return nil
 }
+
+// BaseDB is the base database struct that each implementation can embed to
+// gain some common functionality.
+type BaseDB struct {
+	*sql.DB
+
+	*sqlc.Queries
+}
+
+// BeginTx wraps the normal sql specific BeginTx method with the TxOptions
+// interface. This interface is then mapped to the concrete sql tx options
+// struct.
+func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
+	sqlOptions := sql.TxOptions{
+		ReadOnly: opts.ReadOnly(),
+	}
+	return s.DB.BeginTx(ctx, &sqlOptions)
+}

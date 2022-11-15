@@ -1,7 +1,6 @@
 package tarodb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -40,9 +39,7 @@ type SqliteConfig struct {
 type SqliteStore struct {
 	cfg *SqliteConfig
 
-	*sql.DB
-
-	*sqlc.Queries
+	*BaseDB
 }
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
@@ -113,22 +110,12 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	queries := sqlc.New(db)
 
 	return &SqliteStore{
-		DB:      db,
-		cfg:     cfg,
-		Queries: queries,
+		cfg: cfg,
+		BaseDB: &BaseDB{
+			DB:      db,
+			Queries: queries,
+		},
 	}, nil
-}
-
-// BeginTx wraps the normal sql specific BeginTx method with the TxOptions
-// interface. This interface is then mapped to the concrete sql tx options
-// struct.
-func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx,
-	error) {
-
-	sqlOptions := sql.TxOptions{
-		ReadOnly: opts.ReadOnly(),
-	}
-	return s.DB.BeginTx(ctx, &sqlOptions)
 }
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for
