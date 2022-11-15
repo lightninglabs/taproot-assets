@@ -1628,6 +1628,9 @@ WITH target_asset(asset_id) AS (
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
     WHERE script_keys.tweaked_script_key = $1
+    -- TODO(guggero): Fix this by disallowing multiple assets with the same
+    -- script key!
+    LIMIT 1
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
