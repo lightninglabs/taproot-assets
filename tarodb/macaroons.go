@@ -3,6 +3,7 @@ package tarodb
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"io"
 
 	"github.com/lightninglabs/taro/tarodb/sqlc"
@@ -109,9 +110,15 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		// Check to see if there's a root key already stored for this
 		// ID.
 		mac, err := r.db.GetRootKey(ctx, id)
-		if err == nil {
+		switch err {
+		case nil:
 			rootKey = mac.RootKey
 			return nil
+
+		case sql.ErrNoRows:
+
+		default:
+			return err
 		}
 
 		// Otherwise, we'll create a new root key for this ID.
@@ -127,7 +134,7 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		})
 	})
 	if dbErr != nil {
-		return nil, nil, err
+		return nil, nil, dbErr
 	}
 
 	return rootKey, id, nil

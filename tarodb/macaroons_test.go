@@ -37,7 +37,7 @@ func TestRootKeyStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// The ID should match the one we referenced above.
-	require.Equal(t, id, fakeID)
+	require.Equal(t, fakeID, id)
 
 	// If we fetch the root key manually we should get the same root key.
 	dbRootKey, err := rks.Get(ctx, fakeID)

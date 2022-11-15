@@ -11,7 +11,7 @@ import (
 
 const getRootKey = `-- name: GetRootKey :one
 SELECT id, root_key FROM macaroons 
-WHERE id = $1 LIMIT 1
+WHERE id = $1
 `
 
 func (q *Queries) GetRootKey(ctx context.Context, id []byte) (Macaroon, error) {
