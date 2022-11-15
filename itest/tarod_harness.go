@@ -2,6 +2,7 @@ package itest
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/tarocfg"
+	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -21,6 +23,13 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"gopkg.in/macaroon.v2"
+)
+
+var (
+	// dbbackend is a command line flag for specifying the database backend
+	// to use when starting a taro daemon.
+	dbbackend = flag.String("dbbackend", "sqlite", "Set the database "+
+		"backend to use when starting a taro daemon.")
 )
 
 // tarodHarness is a test harness that holds everything that is needed to
@@ -74,6 +83,22 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
 	tarodCfg.ChainConf.Network = cfg.NetParams.Name
 	tarodCfg.TaroDir = cfg.BaseDir
 	tarodCfg.DebugLevel = "debug"
+
+	// Decide which DB backend to use.
+	switch *dbbackend {
+	case tarocfg.DatabaseBackendSqlite:
+		// We use the default settings, nothing to change for SQLite.
+
+	case tarocfg.DatabaseBackendPostgres:
+		fixture := tarodb.NewTestPgFixture(
+			ht.t, tarodb.DefaultPostgresFixtureLifetime,
+		)
+		ht.t.Cleanup(func() {
+			fixture.TearDown(ht.t)
+		})
+		tarodCfg.DatabaseBackend = tarocfg.DatabaseBackendPostgres
+		tarodCfg.Postgres = fixture.GetConfig()
+	}
 
 	tarodCfg.RpcConf.RawRPCListeners = []string{
 		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
