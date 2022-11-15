@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -275,10 +276,11 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 	}
 
 	// Similarly, for sqlite using LIMIT with a value of -1 means no rows
-	// should be limited.
-	//
-	// TODO(roasbeef): needs to be more portable
-	limit := int32(-1)
+	// should be limited. But that is not compatible with Postgres which
+	// either wants NULL or the ALL keyword. So the most portable thing we
+	// can do to _not_ limit the number of records is to use the int32 max
+	// value (which works for both systems).
+	limit := int32(math.MaxInt32)
 	if params.Limit != 0 {
 		limit = params.Limit
 	}

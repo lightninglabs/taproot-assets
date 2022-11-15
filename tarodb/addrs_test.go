@@ -336,7 +336,7 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
 	)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "CHECK constraint failed")
+	require.Contains(t, err.Error(), "constraint")
 }
 
 // TestAddrEventCreation tests that address events can be created and updated
