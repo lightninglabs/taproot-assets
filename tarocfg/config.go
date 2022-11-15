@@ -60,6 +60,12 @@ const (
 	// defaultHashMailAddr is the default address we'll use to deliver
 	// optionally deliver proofs for asynchronous sends.
 	defaultHashMailAddr = "mailbox.terminal.lightning.today:443"
+
+	// DatabaseBackendSqlite is the name of the SQLite database backend.
+	DatabaseBackendSqlite = "sqlite"
+
+	// DatabaseBackendPostgres is the name of the Postgres database backend.
+	DatabaseBackendPostgres = "postgres"
 )
 
 var (
@@ -202,7 +208,9 @@ type Config struct {
 
 	Lnd *LndConfig `group:"lnd" namespace:"lnd"`
 
-	Sqlite *tarodb.SqliteConfig `group:"sqlite" namespace:"sqlite"`
+	DatabaseBackend string                 `long:"databasebackend" description:"The database backend to use for storing all asset related data." choice:"sqlite" choice:"postgres"`
+	Sqlite          *tarodb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
+	Postgres        *tarodb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
@@ -247,10 +255,16 @@ func DefaultConfig() Config {
 			Host:         "localhost:10009",
 			MacaroonPath: defaultLndMacaroonPath,
 		},
-		LogWriter: build.NewRotatingLogWriter(),
+		DatabaseBackend: DatabaseBackendSqlite,
 		Sqlite: &tarodb.SqliteConfig{
 			DatabaseFileName: defaultSqliteDatabasePath,
 		},
+		Postgres: &tarodb.PostgresConfig{
+			Host:               "localhost",
+			Port:               5432,
+			MaxOpenConnections: 10,
+		},
+		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
 		HashMailAddr:         defaultHashMailAddr,
 	}

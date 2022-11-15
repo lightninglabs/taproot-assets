@@ -9,12 +9,20 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/ticker"
 )
+
+// databaseBackend is an interface that contains all methods our different
+// database backends implement.
+type databaseBackend interface {
+	tarodb.BatchedQuerier
+	WithTx(tx *sql.Tx) *sqlc.Queries
+}
 
 // CreateServerFromConfig creates a new Taro server from the given CLI config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
@@ -32,14 +40,24 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			err)
 	}
 
-	// Now that we know where the databse will live, we'll go ahead and
+	// Now that we know where the database will live, we'll go ahead and
 	// open up the default implementation of it.
-	cfgLogger.Infof("Opening sqlite3 database at: %v",
-		cfg.Sqlite.DatabaseFileName)
-	db, err := tarodb.NewSqliteStore(&tarodb.SqliteConfig{
-		DatabaseFileName: cfg.Sqlite.DatabaseFileName,
-		SkipMigrations:   false,
-	})
+	var db databaseBackend
+	switch cfg.DatabaseBackend {
+	case DatabaseBackendSqlite:
+		cfgLogger.Infof("Opening sqlite3 database at: %v",
+			cfg.Sqlite.DatabaseFileName)
+		db, err = tarodb.NewSqliteStore(cfg.Sqlite)
+
+	case DatabaseBackendPostgres:
+		cfgLogger.Infof("Opening postgres database at: %v",
+			cfg.Postgres.DSN(true))
+		db, err = tarodb.NewPostgresStore(cfg.Postgres)
+
+	default:
+		return nil, fmt.Errorf("unknown database backend: %s",
+			cfg.DatabaseBackend)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to open database: %v", err)
 	}
