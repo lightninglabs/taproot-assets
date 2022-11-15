@@ -22,7 +22,7 @@ type TxOptions interface {
 
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
-// transaction. Typically Q here will be some subset of the main sqlc.Querier
+// transaction. Typically, Q here will be some subset of the main sqlc.Querier
 // interface allowing it to only depend on the routines it needs to implement
 // any additional business logic.
 type BatchedTx[Q any, O TxOptions] interface {
@@ -36,8 +36,8 @@ type BatchedTx[Q any, O TxOptions] interface {
 
 // Tx represents a database transaction that can be committed or rolled back.
 type Tx interface {
-	// Commits the database transaction, an error should be returned if the
-	// commit isn't possible.
+	// Commit commits the database transaction, an error should be returned
+	// if the commit isn't possible.
 	Commit() error
 
 	// Rollback rolls back an incomplete database transaction.

@@ -23,8 +23,7 @@ type KeyStore interface {
 	// GetRootKey fetches the root key associated with the passed ID.
 	GetRootKey(ctx context.Context, id []byte) (MacaroonRootKey, error)
 
-	// InsertRootKeyParams inserts a new (id, rootKey) tuple into the
-	// database.
+	// InsertRootKey inserts a new (id, rootKey) tuple into the database.
 	InsertRootKey(ctx context.Context, arg MacaroonID) error
 }
 
@@ -51,8 +50,8 @@ func (r *KeyStoreTxOptions) ReadOnly() bool {
 type BatchedKeyStore interface {
 	KeyStore
 
-	// Parametrize the BatchedTx generic interface w/ KeyStore, which
-	// allows us to perform operations to the key store in an atomic
+	// BatchedTx parametrizes the BatchedTx generic interface w/ KeyStore,
+	// which allows us to perform operations to the key store in an atomic
 	// transaction. Also add in the TxOptions interface which our defined
 	// KeyStoreTxOptions satisfies.
 	BatchedTx[KeyStore, TxOptions]

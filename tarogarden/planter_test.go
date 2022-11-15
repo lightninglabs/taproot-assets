@@ -58,7 +58,9 @@ type mintingTestHarness struct {
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore) *mintingTestHarness {
+func newMintingTestHarness(t *testing.T,
+	store tarogarden.MintingStore) *mintingTestHarness {
+
 	keyRing := tarogarden.NewMockKeyRing()
 	genSigner := tarogarden.NewMockGenSigner(keyRing)
 
@@ -136,8 +138,10 @@ func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 }
 
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
-// reiased if any of the seedlings aren't accepted.
-func (t *mintingTestHarness) queueSeedlingsInBatch(seedlings ...*tarogarden.Seedling) {
+// raised if any of the seedlings aren't accepted.
+func (t *mintingTestHarness) queueSeedlingsInBatch(
+	seedlings ...*tarogarden.Seedling) {
+
 	for i, seedling := range seedlings {
 		seedling := seedling
 
@@ -400,7 +404,8 @@ func (t *mintingTestHarness) assertNoError() {
 func testBasicAssetCreation(t *mintingTestHarness) {
 	t.Helper()
 
-	// First, create a new chain planter instance using the supplied test harness.
+	// First, create a new chain planter instance using the supplied test
+	// harness.
 	t.refreshChainPlanter()
 
 	// Next make 5 new random seedlings, and queue each of them up within
@@ -538,6 +543,8 @@ func testBatchedAssetIssuance(t *testing.T, storeCreator mintingStoreCreator) {
 	t.Helper()
 
 	for _, testCase := range testCases {
+		testCase := testCase
+
 		mintingStore, err := storeCreator()
 		require.NoError(t, err)
 
@@ -567,15 +574,17 @@ func TestBatchedAssetIssuance(t *testing.T) {
 					dbFileName,
 				)
 				if err != nil {
-					return nil, fmt.Errorf("unable "+
-						"to create new minting "+
-						"store: %v", err)
+					return nil, fmt.Errorf("unable to "+
+						"create new minting store: %v",
+						err)
 				}
 
 				return mintingStore, nil
 			}
+
 		default:
-			t.Fatalf("unknown minting store: %v", mintingStoreDriver.Name)
+			t.Fatalf("unknown minting store: %v",
+				mintingStoreDriver.Name)
 		}
 
 		testBatchedAssetIssuance(t, mintingStoreFunc)

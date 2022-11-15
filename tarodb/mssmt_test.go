@@ -11,8 +11,8 @@ import (
 
 // newTaroTreeStore makes a new instance of the TaroTreeStore backed by sqlite
 // by default.
-func newTaroTreeStore(t *testing.T,
-	namespace string) (*TaroTreeStore, *SqliteStore) {
+func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
+	*SqliteStore) {
 
 	db := NewTestSqliteDB(t)
 
@@ -21,9 +21,7 @@ func newTaroTreeStore(t *testing.T,
 		return db.WithTx(sqlTx)
 	}
 
-	treeDB := NewTransactionExecutor[TreeStore, TxOptions](
-		db, txCreator,
-	)
+	treeDB := NewTransactionExecutor[TreeStore, TxOptions](db, txCreator)
 
 	return NewTaroTreeStore(treeDB, namespace), db
 }

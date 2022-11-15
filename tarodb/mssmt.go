@@ -100,7 +100,7 @@ type TaroTreeStore struct {
 	namespace string
 }
 
-// NewTaroAddressBook creates a new TaroTreeStore instance given a open
+// NewTaroTreeStore creates a new TaroTreeStore instance given an open
 // BatchedTreeStore storage backend. The namespace argument is required, as it
 // allow us to store several distinct trees on disk in the same table.
 func NewTaroTreeStore(db BatchedTreeStore, namespace string) *TaroTreeStore {

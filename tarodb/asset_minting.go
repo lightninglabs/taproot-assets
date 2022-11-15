@@ -19,8 +19,7 @@ import (
 )
 
 type (
-	// BatchStateUpdate holds the arguments to updated the state of a
-	// batch.
+	// BatchStateUpdate holds the arguments to update the state of a batch.
 	BatchStateUpdate = sqlc.UpdateMintingBatchStateParams
 
 	// InternalKey holds the arguments to update an internal key.
@@ -69,7 +68,7 @@ type (
 	AssetAnchor = sqlc.AnchorPendingAssetsParams
 
 	// GenesisPointAnchor is used to update the genesis point with the
-	// final information w.r.t where its confirmed on chain.
+	// final information w.r.t where it's confirmed on chain.
 	GenesisPointAnchor = sqlc.AnchorGenesisPointParams
 
 	// ChainTx is used to insert a new chain tx on disk.
@@ -122,19 +121,23 @@ type PendingAssetStore interface {
 
 	// InsertAssetSeedlingIntoBatch inserts a new asset seedling into a
 	// batch based on the batch key its included in.
-	InsertAssetSeedlingIntoBatch(ctx context.Context, arg AssetSeedlingItem) error
+	InsertAssetSeedlingIntoBatch(ctx context.Context,
+		arg AssetSeedlingItem) error
 
 	// FetchMintingBatchesByState is used to fetch minting batches with a
 	// particular state.
-	FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]MintingBatch, error)
+	FetchMintingBatchesByState(ctx context.Context,
+		batchState int16) ([]MintingBatch, error)
 
 	// FetchMintingBatchesByInverseState is used to fetch minting batches
 	// that don't have a particular state.
-	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]MintingBatchI, error)
+	FetchMintingBatchesByInverseState(ctx context.Context,
+		batchState int16) ([]MintingBatchI, error)
 
 	// FetchSeedlingsForBatch is used to fetch all the seedlings by the key
 	// of the batch they're included in.
-	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
+	FetchSeedlingsForBatch(ctx context.Context,
+		rawKey []byte) ([]AssetSeedling, error)
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
@@ -146,7 +149,8 @@ type PendingAssetStore interface {
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
-	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32,
+		error)
 
 	// AnchorPendingAssets associated an asset on disk with the transaction
 	// that once confirmed will mint the asset.
@@ -165,7 +169,8 @@ type PendingAssetStore interface {
 
 	// FetchAssetsForBatch fetches all the assets created by a particular
 	// batch.
-	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout, error)
+	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout,
+		error)
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
@@ -308,7 +313,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 }
 
 // fetchAssetSeedlings attempts to fetch a set of asset seedlings for a given
-// batch. This is performed wtihin the context of a greater DB transaction.
+// batch. This is performed within the context of a greater DB transaction.
 func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 	rawKey []byte) (map[string]*tarogarden.Seedling, error) {
 
@@ -480,8 +485,8 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 
 // FetchNonFinalBatches fetches all the batches that aren't fully finalized on
 // disk.
-func (a *AssetMintingStore) FetchNonFinalBatches(ctx context.Context,
-) ([]*tarogarden.MintingBatch, error) {
+func (a *AssetMintingStore) FetchNonFinalBatches(
+	ctx context.Context) ([]*tarogarden.MintingBatch, error) {
 
 	var batches []*tarogarden.MintingBatch
 

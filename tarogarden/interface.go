@@ -23,7 +23,7 @@ import (
 // that will eventually be confirmed on chain.
 type Planter interface {
 	// QueueNewSeedling attempts to queue a new seedling request (the
-	// intent for New asset creation or on going issuance) to the Planter.
+	// intent for New asset creation or ongoing issuance) to the Planter.
 	// A channel is returned where future updates will be sent over. If an
 	// error is returned no issuance operation was possible.
 	QueueNewSeedling(req *Seedling) (SeedlingUpdates, error)
@@ -78,7 +78,7 @@ const (
 	BatchStateFinalized BatchState = 5
 )
 
-// String returns a human readable string for the target batch state.
+// String returns a human-readable string for the target batch state.
 func (b BatchState) String() string {
 	switch b {
 	case BatchStatePending:
@@ -164,7 +164,7 @@ type MintingStore interface {
 // along with a 'New()' method which is responsible for initializing a
 // particular MintingStore concrete implementation.
 type MintingStoreDriver struct {
-	// Name is the anme of the minting store driver.
+	// Name is the name of the minting store driver.
 	Name string
 
 	// New creates a new concrete instance of the MintingStore given a set

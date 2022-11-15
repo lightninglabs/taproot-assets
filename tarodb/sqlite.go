@@ -150,7 +150,8 @@ func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (Tx, error) {
 	return s.DB.BeginTx(ctx, &sqlOptions)
 }
 
-// NewTestSqliteDB is a helper function that creates
+// NewTestSqliteDB is a helper function that creates an SQLite database for
+// testing.
 func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
