@@ -4,14 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/http"
 	"net/url"
 	"path/filepath"
 	"testing"
 
-	"github.com/golang-migrate/migrate/v4"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
-	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
@@ -105,28 +102,10 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			return nil, err
 		}
 
-		// With the migrate instance open, we'll create a new migration
-		// source using the embedded file system stored in sqlSchemas.
-		// The library we're using can't handle a raw file system
-		// interface, so we wrap it in this intermediate layer.
-		migrateFileServer, err := httpfs.New(
-			http.FS(sqlSchemas), "sqlc/migrations",
+		err = applyMigrations(
+			sqlSchemas, driver, "sqlc/migrations", "sqlc",
 		)
 		if err != nil {
-			return nil, err
-		}
-
-		// Finally, we'll run the migration with our driver above based
-		// on the open DB, and also the migration source stored in the
-		// file system above.
-		sqlMigrate, err := migrate.NewWithInstance(
-			"migrations", migrateFileServer, "sqlite", driver,
-		)
-		if err != nil {
-			return nil, err
-		}
-		err = sqlMigrate.Up()
-		if err != nil && err != migrate.ErrNoChange {
 			return nil, err
 		}
 	}
@@ -155,6 +134,10 @@ func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx,
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
 func NewTestSqliteDB(t *testing.T) *SqliteStore {
+	t.Helper()
+
+	t.Logf("Creating new SQLite DB for testing")
+
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
