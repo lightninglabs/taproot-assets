@@ -84,6 +84,7 @@ jobs:
         unit_type:
           - unit-race
           - unit-cover
+          - unit dbbackend=postgres
     steps:
       - name: git checkout
         uses: actions/checkout@v2
