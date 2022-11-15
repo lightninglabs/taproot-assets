@@ -58,7 +58,7 @@ func assertBatchState(t *testing.T, batch *tarogarden.MintingBatch,
 }
 
 func assertBatchEqual(t *testing.T, a, b *tarogarden.MintingBatch) {
-	require.True(t, a.CreationTime.Equal(b.CreationTime))
+	require.Equal(t, a.CreationTime.Unix(), b.CreationTime.Unix())
 	require.Equal(t, a.BatchState, b.BatchState)
 	require.Equal(t, a.BatchKey, b.BatchKey)
 	require.Equal(t, a.Seedlings, b.Seedlings)

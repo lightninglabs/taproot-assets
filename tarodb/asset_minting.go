@@ -252,7 +252,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// batch which references the target internal key.
 		if err := q.NewMintingBatch(ctx, MintingBatchInit{
 			BatchID:          batchID,
-			CreationTimeUnix: newBatch.CreationTime,
+			CreationTimeUnix: newBatch.CreationTime.UTC(),
 		}); err != nil {
 			return fmt.Errorf("unable to insert minting "+
 				"batch: %w", err)
@@ -523,7 +523,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 					},
 					PubKey: batchKey,
 				},
-				CreationTime: batch.CreationTimeUnix,
+				CreationTime: batch.CreationTimeUnix.UTC(),
 			}
 
 			if batch.MintingTxPsbt != nil {

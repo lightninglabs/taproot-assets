@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -250,7 +249,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				),
 				Amount:       int64(addr.Amount),
 				AssetType:    int16(addr.Type),
-				CreationTime: addr.CreationTime,
+				CreationTime: addr.CreationTime.UTC(),
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert addr: %w",
@@ -272,7 +271,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 	// If the created before time is zero, then we'll use a very large date
 	// to ensure that we don't restrict based on this field.
 	if params.CreatedBefore.IsZero() {
-		params.CreatedBefore = time.Unix(int64(math.MaxInt64), 0)
+		params.CreatedBefore = MaxValidSQLTime
 	}
 
 	// Similarly, for sqlite using LIMIT with a value of -1 means no rows
@@ -289,8 +288,8 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 		// First, fetch the set of addresses based on the set of query
 		// parameters.
 		dbAddrs, err := db.FetchAddrs(ctx, AddrQuery{
-			CreatedAfter:  params.CreatedAfter,
-			CreatedBefore: params.CreatedBefore,
+			CreatedAfter:  params.CreatedAfter.UTC(),
+			CreatedBefore: params.CreatedBefore.UTC(),
 			NumOffset:     int32(params.Offset),
 			NumLimit:      limit,
 			UnmanagedOnly: params.UnmanagedOnly,
@@ -381,8 +380,8 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				},
 				InternalKeyDesc:  internalKeyDesc,
 				TaprootOutputKey: *taprootOutputKey,
-				CreationTime:     addr.CreationTime,
-				ManagedAfter:     addr.ManagedFrom.Time,
+				CreationTime:     addr.CreationTime.UTC(),
+				ManagedAfter:     addr.ManagedFrom.Time.UTC(),
 			})
 		}
 
@@ -495,7 +494,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		},
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,
-		CreationTime:     dbAddr.CreationTime,
+		CreationTime:     dbAddr.CreationTime.UTC(),
 	}, nil
 }
 
@@ -508,7 +507,7 @@ func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		return db.SetAddrManaged(ctx, AddrManaged{
 			ManagedFrom: sql.NullTime{
-				Time:  managedFrom,
+				Time:  managedFrom.UTC(),
 				Valid: true,
 			},
 			TaprootOutputKey: schnorr.SerializePubKey(
@@ -601,7 +600,7 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 			TaprootOutputKey: schnorr.SerializePubKey(
 				&addr.TaprootOutputKey,
 			),
-			CreationTime:        time.Now(),
+			CreationTime:        time.Now().UTC(),
 			Status:              int16(status),
 			Txid:                txHash[:],
 			ChainTxnOutputIndex: int32(outputIdx),
@@ -714,7 +713,7 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 
 	return &address.Event{
 		ID:                 eventID,
-		CreationTime:       dbEvent.CreationTime,
+		CreationTime:       dbEvent.CreationTime.UTC(),
 		Addr:               addr,
 		Status:             address.Status(dbEvent.Status),
 		Outpoint:           op,
