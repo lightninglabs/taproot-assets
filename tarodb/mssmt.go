@@ -8,36 +8,36 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 )
 
 type (
 	// NewBranch is a type alias for the params to create a new mssmt
 	// branch node.
-	NewBranch = sqlite.InsertBranchParams
+	NewBranch = sqlc.InsertBranchParams
 
 	// NewLeaf is a type alias for the params to create a new mssmt leaf
 	// node.
-	NewLeaf = sqlite.InsertLeafParams
+	NewLeaf = sqlc.InsertLeafParams
 
 	// NewCompactedLeaf is a type alias for the params to create a new
 	// mssmt compacted leaf node.
-	NewCompactedLeaf = sqlite.InsertCompactedLeafParams
+	NewCompactedLeaf = sqlc.InsertCompactedLeafParams
 
 	// StoredNode is a type alias for an arbitrary child of an mssmt branch.
-	StoredNode = sqlite.FetchChildrenRow
+	StoredNode = sqlc.FetchChildrenRow
 
 	// DelNode wraps the args we need to delete a node.
-	DelNode = sqlite.DeleteNodeParams
+	DelNode = sqlc.DeleteNodeParams
 
 	// ChildQuery wraps the args we need to fetch the children of a node.
-	ChildQuery = sqlite.FetchChildrenParams
+	ChildQuery = sqlc.FetchChildrenParams
 
 	// UpdateRoot wraps the args we need to update a root node.
-	UpdateRoot = sqlite.UpsertRootNodeParams
+	UpdateRoot = sqlc.UpsertRootNodeParams
 )
 
-// TreeStore is a sub-set of the main sqlite.Querier interface that contains
+// TreeStore is a sub-set of the main sqlc.Querier interface that contains
 // only the methods needed to manipulate and query stored MSSMT trees.
 type TreeStore interface {
 	// InsertBranch inserts a new branch to the store.
@@ -59,7 +59,7 @@ type TreeStore interface {
 
 	// FetchRootNode fetches the root node for the specified namespace.
 	FetchRootNode(ctx context.Context,
-		namespace string) (sqlite.MssmtNode, error)
+		namespace string) (sqlc.MssmtNode, error)
 
 	// UpsertRootNode allows us to update the root node in place for a
 	// given namespace.

@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -21,86 +21,86 @@ import (
 type (
 	// BatchStateUpdate holds the arguments to updated the state of a
 	// batch.
-	BatchStateUpdate = sqlite.UpdateMintingBatchStateParams
+	BatchStateUpdate = sqlc.UpdateMintingBatchStateParams
 
 	// InternalKey holds the arguments to update an internal key.
-	InternalKey = sqlite.UpsertInternalKeyParams
+	InternalKey = sqlc.UpsertInternalKeyParams
 
 	// AssetSeedlingShell holds the components of a seedling asset.
-	AssetSeedlingShell = sqlite.InsertAssetSeedlingParams
+	AssetSeedlingShell = sqlc.InsertAssetSeedlingParams
 
 	// AssetSeedlingItem is used to insert a seedling into an asset based
 	// on the batch key of the batch.
-	AssetSeedlingItem = sqlite.InsertAssetSeedlingIntoBatchParams
+	AssetSeedlingItem = sqlc.InsertAssetSeedlingIntoBatchParams
 
 	// MintingBatch is an alias for a minting batch including the internal
 	// key info.
-	MintingBatch = sqlite.FetchMintingBatchesByStateRow
+	MintingBatch = sqlc.FetchMintingBatchesByStateRow
 
 	// MintingBatchI is an alias for a minting batch including the internal
 	// key info. This is used to query for batches where the state doesn't
 	// match a certain value.
-	MintingBatchI = sqlite.FetchMintingBatchesByInverseStateRow
+	MintingBatchI = sqlc.FetchMintingBatchesByInverseStateRow
 
 	// AssetSeedling is an asset seedling.
-	AssetSeedling = sqlite.AssetSeedling
+	AssetSeedling = sqlc.AssetSeedling
 
 	// MintingBatchTuple is used to update a batch state based on the raw
 	// key.
-	MintingBatchTuple = sqlite.UpdateMintingBatchStateParams
+	MintingBatchTuple = sqlc.UpdateMintingBatchStateParams
 
 	// AssetFamilyKey is used to insert a new asset key family into the DB.
-	AssetFamilyKey = sqlite.UpsertAssetFamilyKeyParams
+	AssetFamilyKey = sqlc.UpsertAssetFamilyKeyParams
 
 	// BatchChainUpdate is used to update a batch with the minting
 	// transaction associated with it.
-	BatchChainUpdate = sqlite.BindMintingBatchWithTxParams
+	BatchChainUpdate = sqlc.BindMintingBatchWithTxParams
 
 	// GenesisTxUpdate is used to update the existing batch TX associated
 	// with a batch.
-	GenesisTxUpdate = sqlite.UpdateBatchGenesisTxParams
+	GenesisTxUpdate = sqlc.UpdateBatchGenesisTxParams
 
 	// RawManagedUTXO is used to insert a new managed UTXO into the
 	// database.
-	RawManagedUTXO = sqlite.UpsertManagedUTXOParams
+	RawManagedUTXO = sqlc.UpsertManagedUTXOParams
 
 	// AssetAnchor is used to bind assets on disk with the transaction that
 	// will create them on-chain.
-	AssetAnchor = sqlite.AnchorPendingAssetsParams
+	AssetAnchor = sqlc.AnchorPendingAssetsParams
 
 	// GenesisPointAnchor is used to update the genesis point with the
 	// final information w.r.t where its confirmed on chain.
-	GenesisPointAnchor = sqlite.AnchorGenesisPointParams
+	GenesisPointAnchor = sqlc.AnchorGenesisPointParams
 
 	// ChainTx is used to insert a new chain tx on disk.
-	ChainTx = sqlite.UpsertChainTxParams
+	ChainTx = sqlc.UpsertChainTxParams
 
 	// ChainTxConf is used to mark a chain tx as being confirmed.
-	ChainTxConf = sqlite.ConfirmChainTxParams
+	ChainTxConf = sqlc.ConfirmChainTxParams
 
 	// GenesisAsset is used to insert the base information of an asset into
 	// the DB.
-	GenesisAsset = sqlite.UpsertGenesisAssetParams
+	GenesisAsset = sqlc.UpsertGenesisAssetParams
 
 	// AssetFamSig is used to insert the family key signature for a given
 	// asset on disk.
-	AssetFamSig = sqlite.UpsertAssetFamilySigParams
+	AssetFamSig = sqlc.UpsertAssetFamilySigParams
 
 	// AssetSprout is used to fetch the set of assets from disk.
-	AssetSprout = sqlite.FetchAssetsForBatchRow
+	AssetSprout = sqlc.FetchAssetsForBatchRow
 
 	// MintingBatchInit is used to create a new minting batch.
-	MintingBatchInit = sqlite.NewMintingBatchParams
+	MintingBatchInit = sqlc.NewMintingBatchParams
 
 	// ProofUpdate is used to update a proof file on disk.
-	ProofUpdate = sqlite.UpsertAssetProofParams
+	ProofUpdate = sqlc.UpsertAssetProofParams
 
 	// NewScriptKey wraps the params needed to insert a new script key on
 	// disk.
-	NewScriptKey = sqlite.UpsertScriptKeyParams
+	NewScriptKey = sqlc.UpsertScriptKeyParams
 )
 
-// PendingAssetStore is a sub-set of the main sqlite.Querier interface that
+// PendingAssetStore is a sub-set of the main sqlc.Querier interface that
 // contains only the methods needed to drive the process of batching and
 // creating a new set of assets.
 type PendingAssetStore interface {
@@ -172,7 +172,7 @@ type PendingAssetStore interface {
 	//
 	// TODO(roasbeef): move somewhere else??
 	UpsertAssetProof(ctx context.Context,
-		arg sqlite.UpsertAssetProofParams) error
+		arg sqlc.UpsertAssetProofParams) error
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore

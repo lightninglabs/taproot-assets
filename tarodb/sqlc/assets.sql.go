@@ -3,7 +3,7 @@
 //   sqlc v1.15.0
 // source: assets.sql
 
-package sqlite
+package sqlc
 
 import (
 	"context"

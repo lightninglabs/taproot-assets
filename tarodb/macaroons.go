@@ -5,17 +5,17 @@ import (
 	"crypto/rand"
 	"io"
 
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // MacaroonRootKey is a tuple of (id, rootKey) that is used to validate +
 // create macaroons.
-type MacaroonRootKey = sqlite.Macaroon
+type MacaroonRootKey = sqlc.Macaroon
 
 // MacaroonID is used to insert new (id, rootKey) into the database.
-type MacaroonID = sqlite.InsertRootKeyParams
+type MacaroonID = sqlc.InsertRootKeyParams
 
 // KeyStore represents access to a persistence key store for macaroon root key
 // IDs.
@@ -47,7 +47,7 @@ func (r *KeyStoreTxOptions) ReadOnly() bool {
 // single database transaction.
 //
 // TODO(roasbeef) use type params here to use slimmer interface instead of
-// sqlite.Querier?
+// sqlc.Querier?
 type BatchedKeyStore interface {
 	KeyStore
 
@@ -122,7 +122,7 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		}
 
 		// Insert this new root key into the database.
-		return r.db.InsertRootKey(ctx, sqlite.InsertRootKeyParams{
+		return r.db.InsertRootKey(ctx, sqlc.InsertRootKeyParams{
 			ID:      id,
 			RootKey: rootKey,
 		})

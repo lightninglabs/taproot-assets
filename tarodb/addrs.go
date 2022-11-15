@@ -17,46 +17,46 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
 type (
 	// AddrQuery as a type alias for a query into the set of known
 	// addresses.
-	AddrQuery = sqlite.FetchAddrsParams
+	AddrQuery = sqlc.FetchAddrsParams
 
 	// NewAddr is a type alias for the params to create a new address.
-	NewAddr = sqlite.InsertAddrParams
+	NewAddr = sqlc.InsertAddrParams
 
 	// Addresses is a type alias for the full address row with key locator
 	// information.
-	Addresses = sqlite.FetchAddrsRow
+	Addresses = sqlc.FetchAddrsRow
 
 	// AddrByTaprootOutput is a type alias for returning an address by its
 	// Taproot output key.
-	AddrByTaprootOutput = sqlite.FetchAddrByTaprootOutputKeyRow
+	AddrByTaprootOutput = sqlc.FetchAddrByTaprootOutputKeyRow
 
 	// AddrManaged is a type alias for setting an address as managed.
-	AddrManaged = sqlite.SetAddrManagedParams
+	AddrManaged = sqlc.SetAddrManagedParams
 
 	// UpsertAddrEvent is a type alias for creating a new address event or
 	// updating an existing one.
-	UpsertAddrEvent = sqlite.UpsertAddrEventParams
+	UpsertAddrEvent = sqlc.UpsertAddrEventParams
 
 	// AddrEvent is a type alias for fetching an address event row.
-	AddrEvent = sqlite.FetchAddrEventRow
+	AddrEvent = sqlc.FetchAddrEventRow
 
 	// AddrEventQuery is a type alias for a query into the set of known
 	// address events.
-	AddrEventQuery = sqlite.QueryEventIDsParams
+	AddrEventQuery = sqlc.QueryEventIDsParams
 
 	// AddrEventID is a type alias for fetching the ID of an address event
 	// and its corresponding address.
-	AddrEventID = sqlite.QueryEventIDsRow
+	AddrEventID = sqlc.QueryEventIDsRow
 
 	// Genesis is a type alias for fetching the genesis asset information.
-	Genesis = sqlite.FetchGenesisByIDRow
+	Genesis = sqlc.FetchGenesisByIDRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create

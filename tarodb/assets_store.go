@@ -16,7 +16,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
@@ -24,84 +24,84 @@ import (
 
 type (
 	// ConfirmedAsset is an asset that has been fully confirmed on chain.
-	ConfirmedAsset = sqlite.QueryAssetsRow
+	ConfirmedAsset = sqlc.QueryAssetsRow
 
 	// RawAssetBalance holds a balance query result for a particular asset
 	// or all assets tracked by this daemon.
-	RawAssetBalance = sqlite.QueryAssetBalancesByAssetRow
+	RawAssetBalance = sqlc.QueryAssetBalancesByAssetRow
 
 	// RawAssetFamilyBalance holds a balance query result for a particular
 	// asset family or all asset families tracked by this daemon.
-	RawAssetFamilyBalance = sqlite.QueryAssetBalancesByFamilyRow
+	RawAssetFamilyBalance = sqlc.QueryAssetBalancesByFamilyRow
 
 	// AssetProof is the asset proof for a given asset, identified by its
 	// script key.
-	AssetProof = sqlite.FetchAssetProofsRow
+	AssetProof = sqlc.FetchAssetProofsRow
 
 	// AssetProofI is identical to AssetProof but is used for the case
 	// where the proofs for a specific asset are fetched.
-	AssetProofI = sqlite.FetchAssetProofRow
+	AssetProofI = sqlc.FetchAssetProofRow
 
 	// PrevInput stores the full input information including the prev out,
 	// and also the witness information itself.
-	PrevInput = sqlite.InsertAssetWitnessParams
+	PrevInput = sqlc.InsertAssetWitnessParams
 
 	// AssetWitness is the full prev input for an asset that also couples
 	// along the asset ID that the witness belong to.
-	AssetWitness = sqlite.FetchAssetWitnessesRow
+	AssetWitness = sqlc.FetchAssetWitnessesRow
 
 	// QueryAssetFilters lets us query assets in the database based on some
 	// set filters. This is useful to get the balance of a set of assets,
 	// or for things like coin selection.
-	QueryAssetFilters = sqlite.QueryAssetsParams
+	QueryAssetFilters = sqlc.QueryAssetsParams
 
 	// UtxoQuery lets us query a managed UTXO by either the transaction it
 	// references, or the outpoint.
-	UtxoQuery = sqlite.FetchManagedUTXOParams
+	UtxoQuery = sqlc.FetchManagedUTXOParams
 
 	// AnchorPoint wraps a managed UTXO along with all the auxiliary
 	// information it references.
-	AnchorPoint = sqlite.FetchManagedUTXORow
+	AnchorPoint = sqlc.FetchManagedUTXORow
 
 	// AssetAnchorUpdate is used to update the managed UTXO pointer when
 	// spending assets on chain.
-	AssetAnchorUpdate = sqlite.ReanchorAssetsParams
+	AssetAnchorUpdate = sqlc.ReanchorAssetsParams
 
 	// AssetSpendDelta is used to update the script key and amount of an
 	// existing asset.
-	AssetSpendDelta = sqlite.ApplySpendDeltaParams
+	AssetSpendDelta = sqlc.ApplySpendDeltaParams
 
 	// AnchorTxConf identifies an unconfirmed anchor tx to confirm.
-	AnchorTxConf = sqlite.ConfirmChainAnchorTxParams
+	AnchorTxConf = sqlc.ConfirmChainAnchorTxParams
 
 	// AssetDelta tracks the changes to an asset within the confines of a
 	// transfer.
-	AssetDelta = sqlite.FetchAssetDeltasRow
+	AssetDelta = sqlc.FetchAssetDeltasRow
 
 	// AssetDeltaWithProof tracks the changes to an asset within the
 	// confines of a transfer, also containing the proofs for the change.
-	AssetDeltaWithProof = sqlite.FetchAssetDeltasWithProofsRow
+	AssetDeltaWithProof = sqlc.FetchAssetDeltasWithProofsRow
 
 	// NewAssetDelta wraps the params needed to insert a new asset delta.
-	NewAssetDelta = sqlite.InsertAssetDeltaParams
+	NewAssetDelta = sqlc.InsertAssetDeltaParams
 
 	// NewAssetTransfer wraps the params needed to insert a new asset
 	// transfer.
-	NewAssetTransfer = sqlite.InsertAssetTransferParams
+	NewAssetTransfer = sqlc.InsertAssetTransferParams
 
 	// AssetTransfer packages information related to an asset transfer.
-	AssetTransfer = sqlite.QueryAssetTransfersRow
+	AssetTransfer = sqlc.QueryAssetTransfersRow
 
 	// TransferQuery allows callers to filter out the set of transfers
 	// based on set information.
-	TransferQuery = sqlite.QueryAssetTransfersParams
+	TransferQuery = sqlc.QueryAssetTransfersParams
 
 	// NewSpendProof is used to insert new spend proofs for the
 	// sender+receiver.
-	NewSpendProof = sqlite.InsertSpendProofsParams
+	NewSpendProof = sqlc.InsertSpendProofsParams
 )
 
-// ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
+// ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
 	// UpsertAssetStore houses the methods related to inserting/updating
@@ -143,7 +143,7 @@ type ActiveAssetsStore interface {
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
 	UpsertAssetProof(ctx context.Context,
-		arg sqlite.UpsertAssetProofParams) error
+		arg sqlc.UpsertAssetProofParams) error
 
 	// InsertAssetWitness inserts a new prev input for an asset into the
 	// database.
@@ -209,7 +209,7 @@ type ActiveAssetsStore interface {
 	// FetchSpendProofs looks up the spend proofs for the given transfer
 	// ID.
 	FetchSpendProofs(ctx context.Context,
-		transferID int32) (sqlite.FetchSpendProofsRow, error)
+		transferID int32) (sqlc.FetchSpendProofsRow, error)
 }
 
 // AssetBalance holds a balance query result for a particular asset or all

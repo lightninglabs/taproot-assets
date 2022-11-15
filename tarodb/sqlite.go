@@ -12,7 +12,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )
@@ -45,7 +45,7 @@ type SqliteStore struct {
 
 	*sql.DB
 
-	*sqlite.Queries
+	*sqlc.Queries
 }
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
@@ -110,7 +110,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		// The library we're using can't handle a raw file system
 		// interface, so we wrap it in this intermediate layer.
 		migrateFileServer, err := httpfs.New(
-			http.FS(sqlSchemas), "sqlite/migrations",
+			http.FS(sqlSchemas), "sqlc/migrations",
 		)
 		if err != nil {
 			return nil, err
@@ -131,7 +131,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		}
 	}
 
-	queries := sqlite.New(db)
+	queries := sqlc.New(db)
 
 	return &SqliteStore{
 		DB:      db,

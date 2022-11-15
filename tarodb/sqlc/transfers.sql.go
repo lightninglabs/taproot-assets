@@ -3,7 +3,7 @@
 //   sqlc v1.15.0
 // source: transfers.sql
 
-package sqlite
+package sqlc
 
 import (
 	"context"

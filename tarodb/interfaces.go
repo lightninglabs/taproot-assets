@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 )
 
 var (
@@ -22,7 +22,7 @@ type TxOptions interface {
 
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
-// transaction. Typically Q here will be some subset of the main sqlite.Querier
+// transaction. Typically Q here will be some subset of the main sqlc.Querier
 // interface allowing it to only depend on the routines it needs to implement
 // any additional business logic.
 type BatchedTx[Q any, O TxOptions] interface {
@@ -64,7 +64,7 @@ type BatchedQuerier[O TxOptions] interface {
 	// Querier is the underlying query source, this is in place so we can
 	// pass a BatchedQuerier implementation directly into objects that
 	// create a batched version of the normal methods they need.
-	sqlite.Querier
+	sqlc.Querier
 
 	// BeginTx creates a new database transaction given the set of
 	// transaction options.

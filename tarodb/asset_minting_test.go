@@ -18,7 +18,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -460,7 +460,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// Now that we have the primary key for the chain transaction inserted
 	// above, we'll use that to confirm that the managed UTXO has been
 	// updated accordingly.
-	managedUTXO, err := db.FetchManagedUTXO(ctx, sqlite.FetchManagedUTXOParams{
+	managedUTXO, err := db.FetchManagedUTXO(ctx, sqlc.FetchManagedUTXOParams{
 		TxnID: sqlInt32(dbGenTx.TxnID),
 	})
 	require.NoError(t, err)

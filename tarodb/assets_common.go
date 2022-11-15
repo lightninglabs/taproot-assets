@@ -8,10 +8,10 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 )
 
-// UpsertAssetStore is a sub-set of the main sqlite.Querier interface that
+// UpsertAssetStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to inserting/updating assets.
 type UpsertAssetStore interface {
 	// UpsertGenesisPoint inserts a new or updates an existing genesis point
@@ -44,7 +44,7 @@ type UpsertAssetStore interface {
 
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context,
-		arg sqlite.InsertNewAssetParams) (int32, error)
+		arg sqlc.InsertNewAssetParams) (int32, error)
 }
 
 // upsertGenesis imports a new genesis point into the database or returns the
@@ -145,7 +145,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// With all the dependent data inserted, we can now insert the
 		// base asset information itself.
 		assetIDs[idx], err = q.InsertNewAsset(
-			ctx, sqlite.InsertNewAssetParams{
+			ctx, sqlc.InsertNewAssetParams{
 				GenesisID:        genAssetID,
 				Version:          int32(a.Version),
 				ScriptKeyID:      scriptKeyID,
