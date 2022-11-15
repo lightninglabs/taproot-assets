@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ var (
 )
 
 // newAddrBook makes a new instance of the TaroAddressBook book.
-func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore) {
+func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
 	db := NewTestSqliteDB(t)
 
 	txCreator := func(tx Tx) AddrBook {

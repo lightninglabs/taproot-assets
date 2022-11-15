@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -34,7 +35,7 @@ var (
 
 // newAddrBook creates a new instance of the TaroAddressBook book.
 func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
-	*tarodb.TaroAddressBook, *tarodb.SqliteStore) {
+	*tarodb.TaroAddressBook, sqlc.Querier) {
 
 	db := tarodb.NewTestSqliteDB(t)
 

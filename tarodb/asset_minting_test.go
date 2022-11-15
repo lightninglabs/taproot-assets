@@ -27,7 +27,7 @@ import (
 // newAssetStore makes a new instance of the AssetMintingStore backed by sqlite
 // by default.
 func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
-	*SqliteStore) {
+	sqlc.Querier) {
 
 	// First, Make a new test database.
 	db := NewTestSqliteDB(t)
