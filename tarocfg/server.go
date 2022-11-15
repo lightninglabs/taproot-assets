@@ -34,10 +34,11 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	// Now that we know where the databse will live, we'll go ahead and
 	// open up the default implementation of it.
-	cfgLogger.Infof("Opening sqlite3 database at: %v", cfg.DatabaseFileName)
+	cfgLogger.Infof("Opening sqlite3 database at: %v",
+		cfg.Sqlite.DatabaseFileName)
 	db, err := tarodb.NewSqliteStore(&tarodb.SqliteConfig{
-		DatabaseFileName: cfg.DatabaseFileName,
-		CreateTables:     true,
+		DatabaseFileName: cfg.Sqlite.DatabaseFileName,
+		SkipMigrations:   false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to open database: %v", err)

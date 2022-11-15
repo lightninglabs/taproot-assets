@@ -19,6 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -82,7 +83,7 @@ var (
 	defaultTLSCertPath = filepath.Join(DefaultTaroDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
 
-	defaultDatabaseFileName = "taro.db"
+	defaultSqliteDatabaseFileName = "taro.db"
 
 	// defaultLndMacaroon is the default macaroon file we use if the old,
 	// deprecated --lnd.macaroondir config option is used.
@@ -97,6 +98,12 @@ var (
 	defaultLndMacaroonPath = filepath.Join(
 		defaultLndDir, "data", "chain", "bitcoin", defaultNetwork,
 		defaultLndMacaroon,
+	)
+
+	// defaultSqliteDatabasePath is the default path under which we store
+	// the SQLite database file.
+	defaultSqliteDatabasePath = filepath.Join(
+		defaultDataDir, defaultNetwork, defaultSqliteDatabaseFileName,
 	)
 
 	// minimalCompatibleVersion is the minimum version and build tags
@@ -178,11 +185,10 @@ type Config struct {
 	TaroDir    string `long:"tarodir" description:"The base directory that contains taro's data, logs, configuration file, etc."`
 	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
 
-	DataDir          string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
-	LogDir           string `long:"logdir" description:"Directory to log output."`
-	DatabaseFileName string `long:"dbfile" description:"The full path to the database"`
-	MaxLogFiles      int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize   int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	DataDir        string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
+	LogDir         string `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
@@ -195,6 +201,8 @@ type Config struct {
 	RpcConf   *RpcConfig
 
 	Lnd *LndConfig `group:"lnd" namespace:"lnd"`
+
+	Sqlite *tarodb.SqliteConfig `group:"sqlite" namespace:"sqlite"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
@@ -239,7 +247,10 @@ func DefaultConfig() Config {
 			Host:         "localhost:10009",
 			MacaroonPath: defaultLndMacaroonPath,
 		},
-		LogWriter:            build.NewRotatingLogWriter(),
+		LogWriter: build.NewRotatingLogWriter(),
+		Sqlite: &tarodb.SqliteConfig{
+			DatabaseFileName: defaultSqliteDatabasePath,
+		},
 		BatchMintingInterval: defaultBatchMintingInterval,
 		HashMailAddr:         defaultHashMailAddr,
 	}
@@ -491,9 +502,9 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 
 	// We'll also update the database file location as well, if it wasn't
 	// set.
-	if cfg.DatabaseFileName == "" {
-		cfg.DatabaseFileName = filepath.Join(
-			cfg.networkDir, defaultDatabaseFileName,
+	if cfg.Sqlite.DatabaseFileName == defaultSqliteDatabasePath {
+		cfg.Sqlite.DatabaseFileName = filepath.Join(
+			cfg.networkDir, defaultSqliteDatabaseFileName,
 		)
 	}
 

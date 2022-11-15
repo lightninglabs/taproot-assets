@@ -23,13 +23,13 @@ const (
 // SqliteConfig holds all the config arguments needed to interact with our
 // sqlite DB.
 type SqliteConfig struct {
-	// CreateTables if true, then all the tables will be created on start
+	// SkipMigrations if true, then all the tables will be created on start
 	// up if they don't already exist.
-	CreateTables bool
+	SkipMigrations bool `long:"skipmigrations" description:"Skip applying migrations on startup."`
 
 	// DatabaseFileName is the full file path where the database file can be
 	// found.
-	DatabaseFileName string
+	DatabaseFileName string `long:"dbfile" description:"The full path to the database."`
 }
 
 // SqliteStore is a sqlite3 based database for the taro daemon.
@@ -82,7 +82,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	if cfg.CreateTables {
+	if !cfg.SkipMigrations {
 		// Now that the database is open, populate the database with
 		// our set of schemas based on our embedded in-memory file
 		// system.
@@ -127,7 +127,7 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		DatabaseFileName: dbFileName,
-		CreateTables:     true,
+		SkipMigrations:   false,
 	})
 	require.NoError(t, err)
 
