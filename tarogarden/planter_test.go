@@ -174,12 +174,13 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(
 		// We should get an update from the update channel that the
 		// seedling is now pending.
 		update, err := chanutils.RecvOrTimeout(updates, defaultTimeout)
-		require.NoError(
-			t, err, fmt.Errorf("no update recv'd for seedling: %v", err),
-		)
+		require.NoError(t, err)
+
+		// Make sure the seedling was planted without error.
+		require.NoError(t, update.Error)
 
 		// The received update should be a state of MintingStateSeed.
-		require.Equal(t, update.NewState, tarogarden.MintingStateSeed)
+		require.Equal(t, tarogarden.MintingStateSeed, update.NewState)
 	}
 }
 
