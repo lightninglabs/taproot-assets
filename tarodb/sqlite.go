@@ -33,9 +33,6 @@ type SqliteConfig struct {
 }
 
 // SqliteStore is a sqlite3 based database for the taro daemon.
-//
-// TODO(roasbeef): can type params out the main interface and db here to also
-// support postgres?
 type SqliteStore struct {
 	cfg *SqliteConfig
 
