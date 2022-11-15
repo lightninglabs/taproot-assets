@@ -122,7 +122,7 @@ check: unit
 
 unit:
 	@$(call print, "Running unit tests.")
-	$(GOLIST) | $(XARGS) env $(GOTEST) -test.timeout=20m
+	$(UNIT)
 
 unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
