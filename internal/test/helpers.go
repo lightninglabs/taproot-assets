@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -74,4 +75,28 @@ func ComputeTaprootScript(t testing.TB, taprootKey *btcec.PublicKey) []byte {
 		Script()
 	require.NoError(t, err)
 	return script
+}
+
+func RandHash() chainhash.Hash {
+	var hash chainhash.Hash
+	copy(hash[:], RandBytes(chainhash.HashSize))
+	return hash
+}
+
+func RandTxWitnesses(t testing.TB) wire.TxWitness {
+	numElements := RandInt[int]() % 5
+	if numElements == 0 {
+		return nil
+	}
+
+	w := make(wire.TxWitness, numElements)
+	for i := 0; i < numElements; i++ {
+		elem := make([]byte, 10)
+		_, err := rand.Read(elem)
+		require.NoError(t, err)
+
+		w[i] = elem
+	}
+
+	return w
 }

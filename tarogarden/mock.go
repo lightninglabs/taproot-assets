@@ -2,7 +2,11 @@ package tarogarden
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"math/rand"
+	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -15,12 +19,46 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
+
+// RandSeedlings creates a new set of random seedlings for testing.
+func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
+	seedlings := make(map[string]*Seedling)
+	for i := 0; i < numSeedlings; i++ {
+		assetName := hex.EncodeToString(test.RandBytes(32))
+		seedlings[assetName] = &Seedling{
+			AssetType:      asset.Type(rand.Int31n(2)),
+			AssetName:      assetName,
+			Metadata:       test.RandBytes(32),
+			Amount:         uint64(rand.Int63()),
+			EnableEmission: test.RandBool(),
+		}
+	}
+
+	return seedlings
+}
+
+// RandSeedlingMintingBatch creates a new minting batch with only random
+// seedlings populated for testing.
+func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
+	return &MintingBatch{
+		BatchKey: keychain.KeyDescriptor{
+			PubKey: test.RandPubKey(t),
+			KeyLocator: keychain.KeyLocator{
+				Index:  uint32(rand.Int31()),
+				Family: keychain.KeyFamily(rand.Int31()),
+			},
+		},
+		Seedlings:    RandSeedlings(t, numSeedlings),
+		CreationTime: time.Now(),
+	}
+}
 
 type MockWalletAnchor struct {
 	FundPsbtSignal     chan *FundedPsbt
