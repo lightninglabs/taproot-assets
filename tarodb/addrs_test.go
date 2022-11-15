@@ -26,14 +26,11 @@ var (
 func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
 	db := NewTestSqliteDB(t)
 
-	txCreator := func(tx Tx) AddrBook {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) AddrBook {
+		return db.WithTx(tx)
 	}
 
-	addrTx := NewTransactionExecutor[AddrBook, TxOptions](
-		db, txCreator,
-	)
+	addrTx := NewTransactionExecutor[AddrBook](db, txCreator)
 	return NewTaroAddressBook(addrTx, chainParams), db
 }
 

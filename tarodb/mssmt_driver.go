@@ -43,14 +43,11 @@ func createSqliteTreeStore(args ...any) (mssmt.TreeStore, error) {
 	}
 
 	// TODO(bhandras): also need to handle closing the db?
-	txCreator := func(tx Tx) TreeStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) TreeStore {
+		return db.WithTx(tx)
 	}
 
-	treeDB := NewTransactionExecutor[TreeStore, TxOptions](
-		db, txCreator,
-	)
+	treeDB := NewTransactionExecutor[TreeStore](db, txCreator)
 
 	return NewTaroTreeStore(treeDB, namespace), nil
 }

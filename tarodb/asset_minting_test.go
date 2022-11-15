@@ -34,21 +34,17 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 
 	// TODO(roasbeef): can use another layer of type params since
 	// duplicated?
-	txCreator := func(tx Tx) PendingAssetStore {
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) PendingAssetStore {
+		return db.WithTx(tx)
 	}
-	activeTxCreator := func(tx Tx) ActiveAssetsStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	activeTxCreator := func(tx *sql.Tx) ActiveAssetsStore {
+		return db.WithTx(tx)
 	}
 
-	assetMintingDB := NewTransactionExecutor[PendingAssetStore, TxOptions](
+	assetMintingDB := NewTransactionExecutor[PendingAssetStore](
 		db, txCreator,
 	)
-	assetsDB := NewTransactionExecutor[ActiveAssetsStore, TxOptions](
+	assetsDB := NewTransactionExecutor[ActiveAssetsStore](
 		db, activeTxCreator,
 	)
 	return NewAssetMintingStore(assetMintingDB), NewAssetStore(assetsDB),

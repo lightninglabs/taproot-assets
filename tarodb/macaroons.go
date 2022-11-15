@@ -54,7 +54,7 @@ type BatchedKeyStore interface {
 	// which allows us to perform operations to the key store in an atomic
 	// transaction. Also add in the TxOptions interface which our defined
 	// KeyStoreTxOptions satisfies.
-	BatchedTx[KeyStore, TxOptions]
+	BatchedTx[KeyStore]
 }
 
 // RootKeyStore is an implementation of the bakery.RootKeyStore interface

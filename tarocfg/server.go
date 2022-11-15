@@ -43,35 +43,29 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, fmt.Errorf("unable to open database: %v", err)
 	}
 
-	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.KeyStore { // nolint
-
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
-	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.PendingAssetStore { // nolint
-
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
+	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore](
+		db, func(tx *sql.Tx) tarodb.KeyStore {
+			return db.WithTx(tx)
+		},
+	)
+	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore](
+		db, func(tx *sql.Tx) tarodb.PendingAssetStore {
+			return db.WithTx(tx)
+		},
+	)
 	assetMintingStore := tarodb.NewAssetMintingStore(mintingStore)
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.ActiveAssetsStore { // nolint
+	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore](
+		db, func(tx *sql.Tx) tarodb.ActiveAssetsStore {
+			return db.WithTx(tx)
+		},
+	)
 
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
-
-	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.AddrBook { // nolint
-
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
+	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook](
+		db, func(tx *sql.Tx) tarodb.AddrBook {
+			return db.WithTx(tx)
+		},
+	)
 	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 	tarodbAddrBook := tarodb.NewTaroAddressBook(
 		addrBookDB, &taroChainParams,

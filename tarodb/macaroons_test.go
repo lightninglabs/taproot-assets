@@ -18,11 +18,8 @@ func TestRootKeyStore(t *testing.T) {
 	db := NewTestSqliteDB(t)
 
 	// Make a new root key store from the database.
-	rksDB := NewTransactionExecutor[KeyStore, TxOptions](db, func(tx Tx) KeyStore {
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	rksDB := NewTransactionExecutor[KeyStore](db, func(tx *sql.Tx) KeyStore {
+		return db.WithTx(tx)
 	})
 	rks := NewRootKeyStore(rksDB)
 	ctx := context.Background()

@@ -17,12 +17,11 @@ func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
 
 	db := NewTestSqliteDB(t)
 
-	txCreator := func(tx Tx) TreeStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) TreeStore {
+		return db.WithTx(tx)
 	}
 
-	treeDB := NewTransactionExecutor[TreeStore, TxOptions](db, txCreator)
+	treeDB := NewTransactionExecutor[TreeStore](db, txCreator)
 
 	return NewTaroTreeStore(treeDB, namespace), db
 }

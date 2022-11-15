@@ -39,13 +39,11 @@ func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 
 	db := tarodb.NewTestSqliteDB(t)
 
-	txCreator := func(tx tarodb.Tx) tarodb.AddrBook {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) tarodb.AddrBook {
+		return db.WithTx(tx)
 	}
 
-	addrTx := tarodb.NewTransactionExecutor[tarodb.AddrBook,
-		tarodb.TxOptions](db, txCreator)
+	addrTx := tarodb.NewTransactionExecutor[tarodb.AddrBook](db, txCreator)
 	tarodbBook := tarodb.NewTaroAddressBook(addrTx, chainParams)
 	book := address.NewBook(address.BookConfig{
 		Store:        tarodbBook,
@@ -60,13 +58,13 @@ func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tarodb.AssetStore) {
 	db := tarodb.NewTestSqliteDB(t)
 
-	txCreator := func(tx tarodb.Tx) tarodb.ActiveAssetsStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) tarodb.ActiveAssetsStore {
+		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore,
-		tarodb.TxOptions](db, txCreator)
+	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore](
+		db, txCreator,
+	)
 	assetStore := tarodb.NewAssetStore(assetDB)
 
 	proofArchive := proof.NewMultiArchiver(

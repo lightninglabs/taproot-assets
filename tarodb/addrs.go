@@ -150,7 +150,7 @@ func NewAddrBookReadTx() AssetStoreTxOptions {
 type BatchedAddrBook interface {
 	AddrBook
 
-	BatchedTx[AddrBook, TxOptions]
+	BatchedTx[AddrBook]
 }
 
 // TaroAddressBook represents a storage backend for all the Taro addresses a

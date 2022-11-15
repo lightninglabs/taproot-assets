@@ -143,7 +143,9 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 // BeginTx wraps the normal sql specific BeginTx method with the TxOptions
 // interface. This interface is then mapped to the concrete sql tx options
 // struct.
-func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (Tx, error) {
+func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx,
+	error) {
+
 	sqlOptions := sql.TxOptions{
 		ReadOnly: opts.ReadOnly(),
 	}

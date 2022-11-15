@@ -207,7 +207,7 @@ func NewAssetStoreReadTx() AssetStoreTxOptions {
 type BatchedPendingAssetStore interface {
 	PendingAssetStore
 
-	BatchedTx[PendingAssetStore, TxOptions]
+	BatchedTx[PendingAssetStore]
 }
 
 // AssetMintingStore is an implementation of the tarogarden.PlantingLog

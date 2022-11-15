@@ -241,7 +241,7 @@ type AssetFamilyBalance struct {
 type BatchedAssetStore interface {
 	ActiveAssetsStore
 
-	BatchedTx[ActiveAssetsStore, TxOptions]
+	BatchedTx[ActiveAssetsStore]
 }
 
 // AssetStore is used to query for the set of pending and confirmed assets.

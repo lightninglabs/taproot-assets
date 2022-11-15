@@ -90,7 +90,7 @@ func NewTreeStoreReadTx() TreeStoreTxOptions {
 type BatchedTreeStore interface {
 	TreeStore
 
-	BatchedTx[TreeStore, TxOptions]
+	BatchedTx[TreeStore]
 }
 
 // TaroTreeStore is an persistent MS-SMT implementation backed by a live SQL

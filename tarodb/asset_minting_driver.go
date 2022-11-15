@@ -38,15 +38,11 @@ func createSqliteMintingStore(args ...any) (tarogarden.MintingStore, error) {
 	}
 
 	// TODO(roasbeef): also need to handle closing the db?
-
-	txCreator := func(tx Tx) PendingAssetStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) PendingAssetStore {
+		return db.WithTx(tx)
 	}
 
-	assetDB := NewTransactionExecutor[PendingAssetStore, TxOptions](
-		db, txCreator,
-	)
+	assetDB := NewTransactionExecutor[PendingAssetStore](db, txCreator)
 	return NewAssetMintingStore(assetDB), nil
 }
 
