@@ -530,8 +530,9 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
+	privKey := *r.privKey
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		r.privKey, gen.FamilyKeyTweak(),
+		privKey, gen.FamilyKeyTweak(),
 	)
 
 	// TODO(roasbeef): this actually needs to sign the digest of the asset

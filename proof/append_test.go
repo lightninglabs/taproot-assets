@@ -31,7 +31,7 @@ func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 	)
 	require.NoError(t, err)
 
-	taprootPrivKey := txscript.TweakTaprootPrivKey(&privKey, nil)
+	taprootPrivKey := txscript.TweakTaprootPrivKey(privKey, nil)
 	sig, err := schnorr.Sign(taprootPrivKey, sigHash)
 	require.NoError(t, err)
 

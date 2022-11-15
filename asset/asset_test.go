@@ -394,7 +394,7 @@ func TestAssetFamilyKey(t *testing.T) {
 	_ = wire.WriteOutPoint(&famBytes, 0, 0, &g.FirstPrevOut)
 	_, _ = famBytes.Write([]byte{0, 0, 0, 21, 1})
 
-	tweakedKey := txscript.TweakTaprootPrivKey(privKey, famBytes.Bytes())
+	tweakedKey := txscript.TweakTaprootPrivKey(*privKey, famBytes.Bytes())
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -581,13 +580,10 @@ func (a *assetGenerator) bindKeyFamily(i int, op wire.OutPoint) *btcec.PublicKey
 	famPriv := *a.familyKeys[i]
 
 	tweakedPriv := txscript.TweakTaprootPrivKey(
-		&famPriv, gen.FamilyKeyTweak(),
+		famPriv, gen.FamilyKeyTweak(),
 	)
 
-	pub, _ := schnorr.ParsePubKey(
-		schnorr.SerializePubKey(tweakedPriv.PubKey()),
-	)
-	return pub
+	return tweakedPriv.PubKey()
 }
 
 // TestSelectCommitment tests that the coin selection logic can properly select
