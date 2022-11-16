@@ -302,7 +302,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 		return nil
 	}
 
-	if err := chanutils.ErrGroup(ctx, f, proofs); err != nil {
+	if err := chanutils.ErrGroup(ctx, proofs, f); err != nil {
 		return err
 	}
 

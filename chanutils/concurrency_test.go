@@ -50,7 +50,9 @@ func TestErrGroup(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			e := ErrGroup(context.TODO(), returnErrFunc, test.values)
+			e := ErrGroup(
+				context.TODO(), test.values, returnErrFunc,
+			)
 			require.Contains(t, test.expectedErrors, e)
 		})
 	}
