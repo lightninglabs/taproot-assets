@@ -6,24 +6,22 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/stretchr/testify/require"
 )
 
 // newTaroTreeStore makes a new instance of the TaroTreeStore backed by sqlite
 // by default.
-func newTaroTreeStore(t *testing.T,
-	namespace string) (*TaroTreeStore, *SqliteStore) {
+func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
+	sqlc.Querier) {
 
-	db := NewTestSqliteDB(t)
+	db := NewTestDB(t)
 
-	txCreator := func(tx Tx) TreeStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) TreeStore {
+		return db.WithTx(tx)
 	}
 
-	treeDB := NewTransactionExecutor[TreeStore, TxOptions](
-		db, txCreator,
-	)
+	treeDB := NewTransactionExecutor[TreeStore](db, txCreator)
 
 	return NewTaroTreeStore(treeDB, namespace), db
 }

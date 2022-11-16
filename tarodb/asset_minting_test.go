@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"math/rand"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -28,78 +27,28 @@ import (
 // newAssetStore makes a new instance of the AssetMintingStore backed by sqlite
 // by default.
 func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
-	*SqliteStore) {
+	sqlc.Querier) {
 
 	// First, Make a new test database.
-	db := NewTestSqliteDB(t)
+	db := NewTestDB(t)
 
 	// TODO(roasbeef): can use another layer of type params since
 	// duplicated?
-	txCreator := func(tx Tx) PendingAssetStore {
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) PendingAssetStore {
+		return db.WithTx(tx)
 	}
-	activeTxCreator := func(tx Tx) ActiveAssetsStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	activeTxCreator := func(tx *sql.Tx) ActiveAssetsStore {
+		return db.WithTx(tx)
 	}
 
-	assetMintingDB := NewTransactionExecutor[PendingAssetStore, TxOptions](
+	assetMintingDB := NewTransactionExecutor[PendingAssetStore](
 		db, txCreator,
 	)
-	assetsDB := NewTransactionExecutor[ActiveAssetsStore, TxOptions](
+	assetsDB := NewTransactionExecutor[ActiveAssetsStore](
 		db, activeTxCreator,
 	)
 	return NewAssetMintingStore(assetMintingDB), NewAssetStore(assetsDB),
 		db
-}
-
-// randBool rolls a random boolean.
-func randBool() bool {
-	return rand.Int()%2 == 0
-}
-
-// randSeedlings creates a new set of random seedlings.
-func randSeedlings(t *testing.T, numSeedlings int) map[string]*tarogarden.Seedling {
-	seedlings := make(map[string]*tarogarden.Seedling)
-	for i := 0; i < numSeedlings; i++ {
-		var n [32]byte
-		if _, err := rand.Read(n[:]); err != nil {
-			t.Fatalf("unable to read str: %v", err)
-		}
-		assetName := hex.EncodeToString(n[:])
-		seedlings[assetName] = &tarogarden.Seedling{
-			AssetType:      asset.Type(rand.Int31n(2)),
-			AssetName:      assetName,
-			Metadata:       n[:],
-			Amount:         uint64(rand.Int63()),
-			EnableEmission: randBool(),
-		}
-	}
-
-	return seedlings
-}
-
-// randSeedlingMintingBatch creates a new minting batch with only random
-// seedlings populated.
-func randSeedlingMintingBatch(t *testing.T,
-	numSeedlings int) *tarogarden.MintingBatch {
-
-	priv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	return &tarogarden.MintingBatch{
-		BatchKey: keychain.KeyDescriptor{
-			PubKey: priv.PubKey(),
-			KeyLocator: keychain.KeyLocator{
-				Index:  uint32(rand.Int31()),
-				Family: keychain.KeyFamily(rand.Int31()),
-			},
-		},
-		Seedlings:    randSeedlings(t, numSeedlings),
-		CreationTime: time.Now(),
-	}
 }
 
 func assertBatchState(t *testing.T, batch *tarogarden.MintingBatch,
@@ -109,7 +58,7 @@ func assertBatchState(t *testing.T, batch *tarogarden.MintingBatch,
 }
 
 func assertBatchEqual(t *testing.T, a, b *tarogarden.MintingBatch) {
-	require.True(t, a.CreationTime.Equal(b.CreationTime))
+	require.Equal(t, a.CreationTime.Unix(), b.CreationTime.Unix())
 	require.Equal(t, a.BatchState, b.BatchState)
 	require.Equal(t, a.BatchKey, b.BatchKey)
 	require.Equal(t, a.Seedlings, b.Seedlings)
@@ -140,7 +89,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 
 	// First, we'll write a new minting batch to disk, including an
 	// internal key and a set of seedlings.
-	mintingBatch := randSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err, "unable to write batch: %v", err)
 
@@ -157,7 +106,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	assertBatchState(t, mintingBatches[0], tarogarden.BatchStatePending)
 
 	// Now we'll add an additional set of seedlings.
-	seedlings := randSeedlings(t, numSeedlings)
+	seedlings := tarogarden.RandSeedlings(t, numSeedlings)
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
 	require.NoError(t,
 		assetStore.AddSeedlingsToBatch(
@@ -191,7 +140,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 
 	// Insert another normal batch into the database. We should get this
 	// batch back if we query for the set of non final batches.
-	mintingBatch = randSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch = tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
 	require.NoError(t, err, assetStore.CommitMintingBatch(ctx, mintingBatch))
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
@@ -350,7 +299,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 	assetStore, _, _ := newAssetStore(t)
 
 	// First, we'll create a new batch, then add some sample seedlings.
-	mintingBatch := randSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -384,7 +333,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	numAssets int) (*btcec.PublicKey, *tarogarden.FundedPsbt, []byte,
 	*commitment.TaroCommitment) {
 
-	mintingBatch := randSeedlingMintingBatch(t, numAssets)
+	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numAssets)
 	batchKey := mintingBatch.BatchKey.PubKey
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
@@ -460,7 +409,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// Now that we have the primary key for the chain transaction inserted
 	// above, we'll use that to confirm that the managed UTXO has been
 	// updated accordingly.
-	managedUTXO, err := db.FetchManagedUTXO(ctx, sqlite.FetchManagedUTXOParams{
+	managedUTXO, err := db.FetchManagedUTXO(ctx, sqlc.FetchManagedUTXOParams{
 		TxnID: sqlInt32(dbGenTx.TxnID),
 	})
 	require.NoError(t, err)

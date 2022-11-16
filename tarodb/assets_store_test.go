@@ -22,73 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func randPrivKey(t *testing.T) *btcec.PrivateKey {
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	return privKey
-}
-
-func randPubKey(t *testing.T) *btcec.PublicKey {
-	return randPrivKey(t).PubKey()
-}
-
-func randAssetID(t *testing.T) asset.ID {
-	var a asset.ID
-	_, err := rand.Read(a[:])
-	require.NoError(t, err)
-
-	return a
-}
-
-func randWitnesses(t *testing.T) wire.TxWitness {
-	numElements := test.RandInt[int]() % 5
-	if numElements == 0 {
-		return nil
-	}
-
-	w := make(wire.TxWitness, numElements)
-	for i := 0; i < numElements; i++ {
-		elem := make([]byte, 10)
-		_, err := rand.Read(elem)
-		require.NoError(t, err)
-
-		w[i] = elem
-	}
-
-	return w
-}
-
-func randSplitCommit(t *testing.T,
-	a asset.Asset) *asset.SplitCommitment {
-
-	// 50/50 chance there's no commitment at all.
-	if test.RandInt[int]()%2 == 0 {
-		return nil
-	}
-
-	rootLoc := commitment.SplitLocator{
-		OutputIndex: uint32(test.RandInt[int32]()),
-		AssetID:     randAssetID(t),
-		Amount:      a.Amount / 2,
-		ScriptKey:   asset.ToSerialized(randPubKey(t)),
-	}
-	splitLoc := commitment.SplitLocator{
-		OutputIndex: uint32(test.RandInt[int32]()),
-		AssetID:     randAssetID(t),
-		Amount:      a.Amount / 2,
-		ScriptKey:   asset.ToSerialized(randPubKey(t)),
-	}
-
-	split, err := commitment.NewSplitCommitment(
-		&a, test.RandOp(t), &rootLoc, &splitLoc,
-	)
-	require.NoError(t, err)
-
-	assetSplit := split.SplitAssets[splitLoc].PrevWitnesses[0]
-
-	return assetSplit.SplitCommitment
-}
-
 type assetGenOptions struct {
 	assetGen asset.Genesis
 
@@ -110,11 +43,11 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 
 	return &assetGenOptions{
 		assetGen:     gen,
-		famKeyPriv:   randPrivKey(t),
+		famKeyPriv:   test.RandPrivKey(t),
 		amt:          uint64(test.RandInt[uint32]()),
 		genesisPoint: test.RandOp(t),
 		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-			PubKey: randPubKey(t),
+			PubKey: test.RandPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: test.RandInt[keychain.KeyFamily](),
 				Index:  uint32(test.RandInt[int32]()),
@@ -229,21 +162,24 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		for i := 0; i < numWitness; i++ {
 			scriptKey := asset.NewScriptKeyBIP0086(
 				keychain.KeyDescriptor{
-					PubKey: randPubKey(t),
+					PubKey: test.RandPubKey(t),
 				},
 			)
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
 					OutPoint: test.RandOp(t),
-					ID:       randAssetID(t),
+					ID:       asset.RandID(t),
 					ScriptKey: asset.ToSerialized(
 						scriptKey.PubKey,
 					),
 				},
-				TxWitness: randWitnesses(t),
-				// For simplicity we just use the base asset itself as
-				// the "anchor" asset in the split commitment.
-				SplitCommitment: randSplitCommit(t, *newAsset),
+				TxWitness: test.RandTxWitnesses(t),
+				// For simplicity, we just use the base asset
+				// itself as the "anchor" asset in the split
+				// commitment.
+				SplitCommitment: commitment.RandSplitCommit(
+					t, *newAsset,
+				),
 			}
 		}
 	}
@@ -315,7 +251,7 @@ func TestImportAssetProof(t *testing.T) {
 			AnchorTxIndex:     test.RandInt[uint32](),
 			AnchorTx:          anchorTx,
 			OutputIndex:       0,
-			InternalKey:       randPubKey(t),
+			InternalKey:       test.RandPubKey(t),
 			ScriptRoot:        taroRoot,
 		},
 	}
@@ -417,7 +353,7 @@ func TestInternalKeyUpsert(t *testing.T) {
 	// First, we'll create a new instance of the database.
 	_, _, db := newAssetStore(t)
 
-	testKey := randPubKey(t)
+	testKey := test.RandPubKey(t)
 
 	// Now we'll insert two internal keys that are the same. We should get
 	// the same response back (the primary key) for both of them.
@@ -503,7 +439,7 @@ func newAssetGenerator(t *testing.T,
 
 	famKeys := make([]*btcec.PrivateKey, numFamKeys)
 	for i := 0; i < numFamKeys; i++ {
-		famKeys[i] = randPrivKey(t)
+		famKeys[i] = test.RandPrivKey(t)
 	}
 
 	return &assetGenerator{
@@ -554,7 +490,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			ctx, assetStore.db, &proof.AnnotatedProof{
 				AssetSnapshot: &proof.AssetSnapshot{
 					AnchorTx:    anchorPoint,
-					InternalKey: randPubKey(t),
+					InternalKey: test.RandPubKey(t),
 					Asset:       asset,
 					ScriptRoot:  taroCommitment,
 				},
@@ -598,7 +534,6 @@ func TestSelectCommitment(t *testing.T) {
 	const (
 		numAssetIDs = 10
 		numFamKeys  = 2
-		numAnchors  = 3
 	)
 
 	assetGen := newAssetGenerator(t, numAssetIDs, numFamKeys)
@@ -746,7 +681,7 @@ func TestAssetExportLog(t *testing.T) {
 	ctx := context.Background()
 
 	targetScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-		PubKey: randPubKey(t),
+		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Family: test.RandInt[keychain.KeyFamily](),
 			Index:  uint32(test.RandInt[int32]()),
@@ -791,7 +726,7 @@ func TestAssetExportLog(t *testing.T) {
 	})
 
 	newScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-		PubKey: randPubKey(t),
+		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Index:  uint32(rand.Int31()),
 			Family: keychain.KeyFamily(rand.Int31()),
@@ -826,7 +761,7 @@ func TestAssetExportLog(t *testing.T) {
 			Index: 0,
 		},
 		NewInternalKey: keychain.KeyDescriptor{
-			PubKey: randPubKey(t),
+			PubKey: test.RandPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: keychain.KeyFamily(rand.Int31()),
 				Index:  uint32(test.RandInt[int32]()),
@@ -873,7 +808,7 @@ func TestAssetExportLog(t *testing.T) {
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		UnconfOnly: 1,
+		UnconfOnly: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
@@ -960,7 +895,7 @@ func TestAssetFamilySigUpsert(t *testing.T) {
 	_, _, db := newAssetStore(t)
 	ctx := context.Background()
 
-	internalKey := randPubKey(t)
+	internalKey := test.RandPubKey(t)
 
 	// First, we'll insert all the required rows we need to satisfy the
 	// foreign key constraints needed to insert a new genesis sig.

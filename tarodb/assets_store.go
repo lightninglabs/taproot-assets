@@ -16,7 +16,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
@@ -24,84 +24,84 @@ import (
 
 type (
 	// ConfirmedAsset is an asset that has been fully confirmed on chain.
-	ConfirmedAsset = sqlite.QueryAssetsRow
+	ConfirmedAsset = sqlc.QueryAssetsRow
 
 	// RawAssetBalance holds a balance query result for a particular asset
 	// or all assets tracked by this daemon.
-	RawAssetBalance = sqlite.QueryAssetBalancesByAssetRow
+	RawAssetBalance = sqlc.QueryAssetBalancesByAssetRow
 
 	// RawAssetFamilyBalance holds a balance query result for a particular
 	// asset family or all asset families tracked by this daemon.
-	RawAssetFamilyBalance = sqlite.QueryAssetBalancesByFamilyRow
+	RawAssetFamilyBalance = sqlc.QueryAssetBalancesByFamilyRow
 
 	// AssetProof is the asset proof for a given asset, identified by its
 	// script key.
-	AssetProof = sqlite.FetchAssetProofsRow
+	AssetProof = sqlc.FetchAssetProofsRow
 
 	// AssetProofI is identical to AssetProof but is used for the case
 	// where the proofs for a specific asset are fetched.
-	AssetProofI = sqlite.FetchAssetProofRow
+	AssetProofI = sqlc.FetchAssetProofRow
 
 	// PrevInput stores the full input information including the prev out,
 	// and also the witness information itself.
-	PrevInput = sqlite.InsertAssetWitnessParams
+	PrevInput = sqlc.InsertAssetWitnessParams
 
 	// AssetWitness is the full prev input for an asset that also couples
 	// along the asset ID that the witness belong to.
-	AssetWitness = sqlite.FetchAssetWitnessesRow
+	AssetWitness = sqlc.FetchAssetWitnessesRow
 
 	// QueryAssetFilters lets us query assets in the database based on some
 	// set filters. This is useful to get the balance of a set of assets,
 	// or for things like coin selection.
-	QueryAssetFilters = sqlite.QueryAssetsParams
+	QueryAssetFilters = sqlc.QueryAssetsParams
 
 	// UtxoQuery lets us query a managed UTXO by either the transaction it
 	// references, or the outpoint.
-	UtxoQuery = sqlite.FetchManagedUTXOParams
+	UtxoQuery = sqlc.FetchManagedUTXOParams
 
 	// AnchorPoint wraps a managed UTXO along with all the auxiliary
 	// information it references.
-	AnchorPoint = sqlite.FetchManagedUTXORow
+	AnchorPoint = sqlc.FetchManagedUTXORow
 
 	// AssetAnchorUpdate is used to update the managed UTXO pointer when
 	// spending assets on chain.
-	AssetAnchorUpdate = sqlite.ReanchorAssetsParams
+	AssetAnchorUpdate = sqlc.ReanchorAssetsParams
 
 	// AssetSpendDelta is used to update the script key and amount of an
 	// existing asset.
-	AssetSpendDelta = sqlite.ApplySpendDeltaParams
+	AssetSpendDelta = sqlc.ApplySpendDeltaParams
 
 	// AnchorTxConf identifies an unconfirmed anchor tx to confirm.
-	AnchorTxConf = sqlite.ConfirmChainAnchorTxParams
+	AnchorTxConf = sqlc.ConfirmChainAnchorTxParams
 
 	// AssetDelta tracks the changes to an asset within the confines of a
 	// transfer.
-	AssetDelta = sqlite.FetchAssetDeltasRow
+	AssetDelta = sqlc.FetchAssetDeltasRow
 
 	// AssetDeltaWithProof tracks the changes to an asset within the
 	// confines of a transfer, also containing the proofs for the change.
-	AssetDeltaWithProof = sqlite.FetchAssetDeltasWithProofsRow
+	AssetDeltaWithProof = sqlc.FetchAssetDeltasWithProofsRow
 
 	// NewAssetDelta wraps the params needed to insert a new asset delta.
-	NewAssetDelta = sqlite.InsertAssetDeltaParams
+	NewAssetDelta = sqlc.InsertAssetDeltaParams
 
 	// NewAssetTransfer wraps the params needed to insert a new asset
 	// transfer.
-	NewAssetTransfer = sqlite.InsertAssetTransferParams
+	NewAssetTransfer = sqlc.InsertAssetTransferParams
 
 	// AssetTransfer packages information related to an asset transfer.
-	AssetTransfer = sqlite.QueryAssetTransfersRow
+	AssetTransfer = sqlc.QueryAssetTransfersRow
 
 	// TransferQuery allows callers to filter out the set of transfers
 	// based on set information.
-	TransferQuery = sqlite.QueryAssetTransfersParams
+	TransferQuery = sqlc.QueryAssetTransfersParams
 
 	// NewSpendProof is used to insert new spend proofs for the
 	// sender+receiver.
-	NewSpendProof = sqlite.InsertSpendProofsParams
+	NewSpendProof = sqlc.InsertSpendProofsParams
 )
 
-// ActiveAssetsStore is a sub-set of the main sqlite.Querier interface that
+// ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
 	// UpsertAssetStore houses the methods related to inserting/updating
@@ -109,19 +109,20 @@ type ActiveAssetsStore interface {
 	UpsertAssetStore
 
 	// QueryAssets fetches the set of fully confirmed assets.
-	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset, error)
+	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
+		error)
 
 	// QueryAssetBalancesByAsset queries the balances for assets or
 	// alternatively for a selected one that matches the passed asset ID
 	// filter.
-	QueryAssetBalancesByAsset(context.Context,
-		interface{}) ([]RawAssetBalance, error)
+	QueryAssetBalancesByAsset(context.Context, []byte) ([]RawAssetBalance,
+		error)
 
 	// QueryAssetBalancesByFamily queries the asset balances for asset
 	// families or alternatively for a selected one that matches the passed
 	// filter.
 	QueryAssetBalancesByFamily(context.Context,
-		interface{}) ([]RawAssetFamilyBalance, error)
+		[]byte) ([]RawAssetFamilyBalance, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -138,12 +139,13 @@ type ActiveAssetsStore interface {
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
-	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32,
+		error)
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
 	UpsertAssetProof(ctx context.Context,
-		arg sqlite.UpsertAssetProofParams) error
+		arg sqlc.UpsertAssetProofParams) error
 
 	// InsertAssetWitness inserts a new prev input for an asset into the
 	// database.
@@ -151,7 +153,8 @@ type ActiveAssetsStore interface {
 
 	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
 	// on disk (NULL param), or the witness for a given asset ID.
-	FetchAssetWitnesses(context.Context, sql.NullInt32) ([]AssetWitness, error)
+	FetchAssetWitnesses(context.Context, sql.NullInt32) ([]AssetWitness,
+		error)
 
 	// FetchManagedUTXO fetches a managed UTXO based on either the outpoint
 	// or the transaction that anchors it.
@@ -209,7 +212,7 @@ type ActiveAssetsStore interface {
 	// FetchSpendProofs looks up the spend proofs for the given transfer
 	// ID.
 	FetchSpendProofs(ctx context.Context,
-		transferID int32) (sqlite.FetchSpendProofsRow, error)
+		transferID int32) (sqlc.FetchSpendProofsRow, error)
 }
 
 // AssetBalance holds a balance query result for a particular asset or all
@@ -238,7 +241,7 @@ type AssetFamilyBalance struct {
 type BatchedAssetStore interface {
 	ActiveAssetsStore
 
-	BatchedTx[ActiveAssetsStore, TxOptions]
+	BatchedTx[ActiveAssetsStore]
 }
 
 // AssetStore is used to query for the set of pending and confirmed assets.
@@ -282,8 +285,8 @@ type assetWitnesses map[int32][]AssetWitness
 
 // fetchAssetWitnesses attempts to fetch all the asset witnesses that belong to
 // the set of passed asset IDs.
-func fetchAssetWitnesses(ctx context.Context,
-	db ActiveAssetsStore, assetIDs []int32) (assetWitnesses, error) {
+func fetchAssetWitnesses(ctx context.Context, db ActiveAssetsStore,
+	assetIDs []int32) (assetWitnesses, error) {
 
 	assetWitnesses := make(map[int32][]AssetWitness)
 	for _, assetID := range assetIDs {
@@ -395,7 +398,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 
 		// Not all assets have a key family, so we only need to
 		// populate this information for those that signalled the
-		// requirement of on going emission.
+		// requirement of ongoing emission.
 		var familyKey *asset.FamilyKey
 		if sprout.TweakedFamKey != nil {
 			tweakedFamKey, err := btcec.ParsePubKey(
@@ -585,7 +588,8 @@ func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 			famKey := query.FamilyKey.SerializeCompressed()
 			assetFilter.KeyFamFilter = famKey
 		}
-		// TODO(roasbeef): only want to allow asset ID or other and not both?
+		// TODO(roasbeef): only want to allow asset ID or other and not
+		// both?
 	}
 
 	return assetFilter
@@ -595,7 +599,8 @@ func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 // on the set asset filter. A set of witnesses for each of the assets keyed by
 // the primary key of the asset is also returned.
 func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
-	assetFilter QueryAssetFilters) ([]ConfirmedAsset, assetWitnesses, error) {
+	assetFilter QueryAssetFilters) ([]ConfirmedAsset, assetWitnesses,
+	error) {
 
 	// First, we'll fetch all the assets we know of on disk.
 	dbAssets, err := q.QueryAssets(ctx, assetFilter)
@@ -824,7 +829,7 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 	return proofs, nil
 }
 
-// FetchProof fetches a proof for an asset uniquely idenfitied by the passed
+// FetchProof fetches a proof for an asset uniquely identified by the passed
 // ProofIdentifier.
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
@@ -1060,8 +1065,8 @@ func queryChainAssets(ctx context.Context, q ActiveAssetsStore,
 //
 // NOTE: This implements the tarofreighter.CommitmentSelector interface.
 func (a *AssetStore) SelectCommitment(
-	ctx context.Context, constraints tarofreighter.CommitmentConstraints,
-) ([]*tarofreighter.AnchoredCommitment, error) {
+	ctx context.Context, constraints tarofreighter.CommitmentConstraints) (
+	[]*tarofreighter.AnchoredCommitment, error) {
 
 	var (
 		matchingAssets      []*ChainAsset
@@ -1140,14 +1145,18 @@ func (a *AssetStore) SelectCommitment(
 	// managed UTXOs. Some of the assets that match our query might
 	// actually be in the same Taro commitment, so we'll collect this now
 	// to de-dup things early.
-	anchorPointToCommitment := make(map[wire.OutPoint]*commitment.TaroCommitment)
+	anchorPointToCommitment := make(
+		map[wire.OutPoint]*commitment.TaroCommitment,
+	)
 	for anchorPoint, anchoredAssets := range chainAnchorToAssets {
 		// First, we need to group each of the assets according to
 		// their asset.
 		assetsByID := make(map[asset.ID][]*asset.Asset)
 		for _, asset := range anchoredAssets {
 			assetID := asset.ID()
-			assetsByID[assetID] = append(assetsByID[assetID], asset.Asset)
+			assetsByID[assetID] = append(
+				assetsByID[assetID], asset.Asset,
+			)
 		}
 
 		// Now that we have each asset grouped by their asset ID, we
@@ -1215,10 +1224,11 @@ func (a *AssetStore) SelectCommitment(
 	return selectedAssets, nil
 }
 
-// TODO(jhb): Update for new table
 // LogPendingParcel marks an outbound parcel as pending on disk. This commits
 // the set of changes to disk (the asset deltas) but doesn't mark the batched
 // spend as being finalized.
+//
+// TODO(jhb): Update for new table
 func (a *AssetStore) LogPendingParcel(ctx context.Context,
 	spend *tarofreighter.OutboundParcelDelta) error {
 
@@ -1304,8 +1314,8 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		// Now that the transfer itself has been inserted, we can
 		// insert the deltas associated w/ each transfer.
 		for _, assetDelta := range spend.AssetSpendDeltas {
-			// With the main transfer inserted, we'll also insert the proof
-			// for the sender and receiver.
+			// With the main transfer inserted, we'll also insert
+			// the proof for the sender and receiver.
 			proofID, err := q.InsertSpendProofs(ctx, NewSpendProof{
 				TransferID:    transferID,
 				SenderProof:   assetDelta.SenderAssetProof,
@@ -1324,7 +1334,8 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				&witnessBuf, &assetDelta.WitnessData, &buf,
 			)
 			if err != nil {
-				return fmt.Errorf("unable to encode witness: %w", err)
+				return fmt.Errorf("unable to encode witness: "+
+					"%w", err)
 			}
 
 			newCommitRoot := assetDelta.SplitCommitmentRoot
@@ -1334,11 +1345,13 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			// Before we can insert the asset delta, we need to
 			// insert the new script key on disk.
 			rawScriptKey := assetDelta.NewScriptKey.RawKey
-			rawScriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
-				RawKey:    rawScriptKey.PubKey.SerializeCompressed(),
-				KeyFamily: int32(rawScriptKey.Family),
-				KeyIndex:  int32(rawScriptKey.Index),
-			})
+			rawScriptKeyID, err := q.UpsertInternalKey(
+				ctx, InternalKey{
+					RawKey:    rawScriptKey.PubKey.SerializeCompressed(),
+					KeyFamily: int32(rawScriptKey.Family),
+					KeyIndex:  int32(rawScriptKey.Index),
+				},
+			)
 			if err != nil {
 				return fmt.Errorf("unable to insert internal "+
 					"key: %w", err)
@@ -1375,9 +1388,8 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 	})
 }
 
-// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
-// updates the on-chain reference information on disk to point to this
-// new spend.
+// ConfirmParcelDelivery marks a spend event on disk as confirmed. This updates
+// the on-chain reference information on disk to point to this new spend.
 func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 	conf *tarofreighter.AssetConfirmEvent) error {
 
@@ -1507,7 +1519,7 @@ func (a *AssetStore) PendingParcels(
 	return a.QueryParcels(ctx, true)
 }
 
-// QueryParcels returns the set of confirmed or unconformed parcels.
+// QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
 	pending bool) ([]*tarofreighter.OutboundParcelDelta, error) {
 
@@ -1515,15 +1527,10 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		unconfOnly := 0
-		if pending {
-			unconfOnly = 1
-		}
-
 		// If we want every unconfirmed transfer, then we only pass in
 		// the UnconfOnly field.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
-			UnconfOnly: unconfOnly,
+			UnconfOnly: pending,
 		})
 		if err != nil {
 			return err
@@ -1546,15 +1553,20 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				return err
 			}
 
-			internalKey, err := btcec.ParsePubKey(xfer.InternalKeyBytes)
+			internalKey, err := btcec.ParsePubKey(
+				xfer.InternalKeyBytes,
+			)
 			if err != nil {
 				return err
 			}
 
 			anchorTx := wire.NewMsgTx(2)
-			err = anchorTx.Deserialize(bytes.NewBuffer(xfer.AnchorTxBytes))
+			err = anchorTx.Deserialize(bytes.NewBuffer(
+				xfer.AnchorTxBytes,
+			))
 			if err != nil {
-				return fmt.Errorf("unable to decode tx: %w", err)
+				return fmt.Errorf("unable to decode tx: %w",
+					err)
 			}
 
 			assetDeltas, err := q.FetchAssetDeltasWithProofs(
@@ -1564,10 +1576,13 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				return err
 			}
 			spendDeltas := make(
-				[]tarofreighter.AssetSpendDelta, len(assetDeltas),
+				[]tarofreighter.AssetSpendDelta,
+				len(assetDeltas),
 			)
 			for i, delta := range assetDeltas {
-				oldScriptKey, err := btcec.ParsePubKey(delta.OldScriptKey)
+				oldScriptKey, err := btcec.ParsePubKey(
+					delta.OldScriptKey,
+				)
 				if err != nil {
 					return err
 				}
@@ -1598,23 +1613,26 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 						"witness: %v", err)
 				}
 
+				tweakedScriptKey := &asset.TweakedScriptKey{
+					RawKey: keychain.KeyDescriptor{
+						PubKey: rawScriptKey,
+						KeyLocator: keychain.KeyLocator{
+							Family: keychain.KeyFamily(
+								delta.NewScriptKeyFamily,
+							),
+							Index: uint32(
+								delta.NewScriptKeyIndex,
+							),
+						},
+					},
+					Tweak: delta.ScriptKeyTweak,
+				}
 				spendDeltas[i] = tarofreighter.AssetSpendDelta{
 					OldScriptKey: *oldScriptKey,
 					NewAmt:       uint64(delta.NewAmt),
 					NewScriptKey: asset.ScriptKey{
-						PubKey: newScriptKey,
-						TweakedScriptKey: &asset.TweakedScriptKey{
-							RawKey: keychain.KeyDescriptor{
-								PubKey: rawScriptKey,
-								KeyLocator: keychain.KeyLocator{
-									Family: keychain.KeyFamily(delta.NewScriptKeyFamily),
-									Index: uint32(
-										delta.NewScriptKeyIndex,
-									),
-								},
-							},
-							Tweak: delta.ScriptKeyTweak,
-						},
+						PubKey:           newScriptKey,
+						TweakedScriptKey: tweakedScriptKey,
 					},
 					SplitCommitmentRoot: mssmt.NewComputedNode(
 						splitRootHash,

@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS internal_keys (
 
     -- We'll always store the full 33-byte key on disk, to make sure we're
     -- retaining full information.
-    raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) == 33),
+    raw_key BLOB NOT NULL UNIQUE CHECK(length(raw_key) = 33),
 
     key_family INTEGER NOT NULL,
 
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS script_keys (
 
     -- The script key after applying the tweak. This is what goes directly in
     -- the asset TLV.
-    tweaked_script_key BLOB NOT NULL UNIQUE CHECK(length(tweaked_script_key) == 33),
+    tweaked_script_key BLOB NOT NULL UNIQUE CHECK(length(tweaked_script_key) = 33),
 
     -- An optional tweak for the script_key. If NULL, the raw_key may be
     -- tweaked BIP0086 style.
@@ -211,28 +211,6 @@ CREATE TABLE IF NOT EXISTS asset_proofs (
     proof_file BLOB NOT NULL
 );
 
--- asset_seedlings are budding assets: the contain the base asset information
--- need to create an asset, but doesn't yet have a genesis point.
-CREATE TABLE IF NOT EXISTS asset_seedlings (
-    seedling_id INTEGER PRIMARY KEY,
-
-    -- TODO(roasbeef): data redundant w/ genesis_assets?
-    -- move into asset details table?
-    asset_name TEXT NOT NULL,
-
-    asset_type SMALLINT NOT NULL,
-
-    asset_supply BIGINT NOT NULL,
-
-    asset_meta BLOB,
-
-    emission_enabled BOOLEAN NOT NULL,
-
-    genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id),
-
-    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id)
-);
-
 -- asset_minting_batches stores the set of all batches used to create several
 -- assets in a single transaction. The batch also includes the PSBT of the
 -- minting transaction which once signed and broadcast will actually create the
@@ -254,6 +232,28 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
     creation_time_unix TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS batch_state_lookup on asset_minting_batches (batch_state);
+
+-- asset_seedlings are budding assets: the contain the base asset information
+-- need to create an asset, but doesn't yet have a genesis point.
+CREATE TABLE IF NOT EXISTS asset_seedlings (
+    seedling_id INTEGER PRIMARY KEY,
+
+    -- TODO(roasbeef): data redundant w/ genesis_assets?
+    -- move into asset details table?
+    asset_name TEXT NOT NULL,
+
+    asset_type SMALLINT NOT NULL,
+
+    asset_supply BIGINT NOT NULL,
+
+    asset_meta BLOB,
+
+    emission_enabled BOOLEAN NOT NULL,
+
+    genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id),
+
+    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id)
+);
 
 -- TODO(roasbeef): need on delete cascade for all these?
 

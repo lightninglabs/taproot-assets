@@ -106,13 +106,13 @@ scratch: build
 # ===================
 
 migrate-up: $(MIGRATE_BIN)
-	migrate -path tarodb/sqlite/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose up
+	migrate -path tarodb/sqlc/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose up
 
 migrate-down: $(MIGRATE_BIN)
-	migrate -path tarodb/sqlite/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose down 1
+	migrate -path tarodb/sqlc/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose down 1
 
 migrate-create: $(MIGRATE_BIN)
-	migrate create -dir tarodb/sqlite/migrations -seq -ext sql $(patchname)
+	migrate create -dir tarodb/sqlc/migrations -seq -ext sql $(patchname)
 
 # =======
 # TESTING
@@ -122,7 +122,7 @@ check: unit
 
 unit:
 	@$(call print, "Running unit tests.")
-	$(GOLIST) | $(XARGS) env $(GOTEST) -test.timeout=20m
+	$(UNIT)
 
 unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")

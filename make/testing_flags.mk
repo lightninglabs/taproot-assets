@@ -40,12 +40,8 @@ ifneq ($(dbbackend),)
 ITEST_FLAGS += -dbbackend=$(dbbackend)
 endif
 
-ifeq ($(dbbackend),etcd)
-DEV_TAGS += kvdb_etcd
-endif
-
 ifeq ($(dbbackend),postgres)
-DEV_TAGS += kvdb_postgres
+DEV_TAGS += test_db_postgres
 endif
 
 ifneq ($(tags),)
@@ -65,7 +61,7 @@ endif
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
 else
-TEST_FLAGS += -test.timeout=60m
+TEST_FLAGS += -test.timeout=20m
 endif
 
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'

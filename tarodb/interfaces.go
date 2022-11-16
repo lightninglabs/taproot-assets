@@ -2,9 +2,10 @@ package tarodb
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 )
 
 var (
@@ -22,22 +23,23 @@ type TxOptions interface {
 
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
-// transaction. Typically Q here will be some subset of the main sqlite.Querier
+// transaction. Typically, Q here will be some subset of the main sqlc.Querier
 // interface allowing it to only depend on the routines it needs to implement
 // any additional business logic.
-type BatchedTx[Q any, O TxOptions] interface {
+type BatchedTx[Q any] interface {
 	// ExecTx will execute the passed txBody, operating upon generic
 	// parameter Q (usually a storage interface) in a single transaction.
 	// The set of TxOptions are passed in in order to allow the caller to
 	// specify if a transaction should be read-only and optionally what
 	// type of concurrency control should be used.
-	ExecTx(ctx context.Context, txOptions O, txBody func(Q) error) error
+	ExecTx(ctx context.Context, txOptions TxOptions,
+		txBody func(Q) error) error
 }
 
 // Tx represents a database transaction that can be committed or rolled back.
 type Tx interface {
-	// Commits the database transaction, an error should be returned if the
-	// commit isn't possible.
+	// Commit commits the database transaction, an error should be returned
+	// if the commit isn't possible.
 	Commit() error
 
 	// Rollback rolls back an incomplete database transaction.
@@ -51,32 +53,28 @@ type Tx interface {
 // transaction. This will be used to instantiate an object callers can use to
 // apply multiple modifications to an object interface in a single atomic
 // transaction.
-type QueryCreator[Q any] func(Tx) Q
+type QueryCreator[Q any] func(*sql.Tx) Q
 
 // BatchedQuerier is a generic interface that allows callers to create a new
 // database transaction based on an abstract type that implements the TxOptions
 // interface.
-//
-// TODO(roasbeef): just enough to pass in the interface here and drop the
-// constraint? unclear if need additional flexibility given the
-// sqlitestore.BeginTx method?
-type BatchedQuerier[O TxOptions] interface {
+type BatchedQuerier interface {
 	// Querier is the underlying query source, this is in place so we can
 	// pass a BatchedQuerier implementation directly into objects that
 	// create a batched version of the normal methods they need.
-	sqlite.Querier
+	sqlc.Querier
 
 	// BeginTx creates a new database transaction given the set of
 	// transaction options.
-	BeginTx(ctx context.Context, options O) (Tx, error)
+	BeginTx(ctx context.Context, options TxOptions) (*sql.Tx, error)
 }
 
 // TransactionExecutor is a generic struct that abstracts away from the type of
 // query a type needs to run under a database transaction, and also the set of
 // options for that transaction. The QueryCreator is used to create a query
 // given a database transaction created by the BatchedQuerier.
-type TransactionExecutor[Query any, TxOpts TxOptions] struct {
-	BatchedQuerier[TxOpts]
+type TransactionExecutor[Query any] struct {
+	BatchedQuerier
 
 	createQuery QueryCreator[Query]
 }
@@ -84,11 +82,10 @@ type TransactionExecutor[Query any, TxOpts TxOptions] struct {
 // NewTransactionExecutor creates a new instance of a TransactionExecutor given
 // a Querier query object and a concrete type for the type of transactions the
 // Querier understands.
-func NewTransactionExecutor[Querier any, TxOpts TxOptions](
-	db BatchedQuerier[TxOpts],
-	createQuery QueryCreator[Querier]) *TransactionExecutor[Querier, TxOpts] {
+func NewTransactionExecutor[Querier any](db BatchedQuerier,
+	createQuery QueryCreator[Querier]) *TransactionExecutor[Querier] {
 
-	return &TransactionExecutor[Querier, TxOpts]{
+	return &TransactionExecutor[Querier]{
 		BatchedQuerier: db,
 		createQuery:    createQuery,
 	}
@@ -100,8 +97,8 @@ func NewTransactionExecutor[Querier any, TxOpts TxOptions](
 // atomically. This can be used by other storage interfaces to parameterize the
 // type of query and options run, in order to have access to batched operations
 // related to a storage object.
-func (t *TransactionExecutor[Q, O]) ExecTx(ctx context.Context, txOptions O,
-	txBody func(Q) error) error {
+func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
+	txOptions TxOptions, txBody func(Q) error) error {
 
 	// Create the db transaction.
 	tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
@@ -127,4 +124,22 @@ func (t *TransactionExecutor[Q, O]) ExecTx(ctx context.Context, txOptions O,
 	}
 
 	return nil
+}
+
+// BaseDB is the base database struct that each implementation can embed to
+// gain some common functionality.
+type BaseDB struct {
+	*sql.DB
+
+	*sqlc.Queries
+}
+
+// BeginTx wraps the normal sql specific BeginTx method with the TxOptions
+// interface. This interface is then mapped to the concrete sql tx options
+// struct.
+func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
+	sqlOptions := sql.TxOptions{
+		ReadOnly: opts.ReadOnly(),
+	}
+	return s.DB.BeginTx(ctx, &sqlOptions)
 }

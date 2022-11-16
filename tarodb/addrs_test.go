@@ -1,22 +1,19 @@
 package tarodb
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"math/rand"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -26,81 +23,19 @@ var (
 )
 
 // newAddrBook makes a new instance of the TaroAddressBook book.
-func newAddrBook(t *testing.T) (*TaroAddressBook, *SqliteStore) {
-	db := NewTestSqliteDB(t)
+func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
+	db := NewTestDB(t)
 
-	txCreator := func(tx Tx) AddrBook {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) AddrBook {
+		return db.WithTx(tx)
 	}
 
-	addrTx := NewTransactionExecutor[AddrBook, TxOptions](
-		db, txCreator,
-	)
+	addrTx := NewTransactionExecutor[AddrBook](db, txCreator)
 	return NewTaroAddressBook(addrTx, chainParams), db
 }
 
-func randAddr(t *testing.T) *address.AddrWithKeyInfo {
-	scriptKeyPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	internalKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	genesis := asset.RandGenesis(t, asset.Type(rand.Int31n(2)))
-	amount := uint64(rand.Int63())
-	if genesis.Type == asset.Collectible {
-		amount = 1
-	}
-
-	var famKey *btcec.PublicKey
-	if rand.Int31()%2 == 0 {
-		famKeyPriv, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		famKey = famKeyPriv.PubKey()
-	}
-
-	scriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-		PubKey: scriptKeyPriv.PubKey(),
-	})
-
-	taprootOutputKey, _ := schnorr.ParsePubKey(schnorr.SerializePubKey(
-		txscript.ComputeTaprootOutputKey(internalKey.PubKey(), nil),
-	))
-
-	return &address.AddrWithKeyInfo{
-		Taro: &address.Taro{
-			Version:     asset.Version(rand.Int31()),
-			Genesis:     genesis,
-			FamilyKey:   famKey,
-			ScriptKey:   *scriptKey.PubKey,
-			InternalKey: *internalKey.PubKey(),
-			Amount:      amount,
-			ChainParams: chainParams,
-		},
-		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
-		InternalKeyDesc: keychain.KeyDescriptor{
-			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamily(rand.Int31()),
-				Index:  uint32(rand.Int31()),
-			},
-			PubKey: internalKey.PubKey(),
-		},
-		TaprootOutputKey: *taprootOutputKey,
-		CreationTime:     time.Now(),
-	}
-}
-
-func dummyHash(val byte) chainhash.Hash {
-	var hash chainhash.Hash
-	randBytes := bytes.Repeat([]byte{val}, 32)
-	copy(hash[:], randBytes)
-	return hash
-}
-
 func confirmTx(tx *lndclient.Transaction) {
-	blockHash := dummyHash(0x45)
+	blockHash := test.RandHash()
 	tx.Confirmations = rand.Int31n(50) + 1
 	tx.BlockHash = blockHash.String()
 	tx.BlockHeight = rand.Int31n(700_000)
@@ -212,7 +147,7 @@ func TestAddressInsertion(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i] = *randAddr(t)
+		addrs[i] = *address.RandAddr(t, chainParams)
 	}
 	ctx := context.Background()
 	require.NoError(t, addrBook.InsertAddrs(ctx, addrs...))
@@ -285,7 +220,7 @@ func TestAddressQuery(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i] = *randAddr(t)
+		addrs[i] = *address.RandAddr(t, chainParams)
 	}
 	ctx := context.Background()
 	require.NoError(t, addrBook.InsertAddrs(ctx, addrs...))
@@ -390,7 +325,7 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	addr := randAddr(t)
+	addr := address.RandAddr(t, chainParams)
 	err := addrBook.InsertAddrs(ctx, *addr)
 	require.NoError(t, err)
 
@@ -401,7 +336,7 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
 	)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "CHECK constraint failed")
+	require.Contains(t, err.Error(), "constraint")
 }
 
 // TestAddrEventCreation tests that address events can be created and updated
@@ -419,7 +354,7 @@ func TestAddrEventCreation(t *testing.T) {
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := randAddr(t)
+		addr := address.RandAddr(t, chainParams)
 		err := addrBook.InsertAddrs(ctx, *addr)
 		require.NoError(t, err)
 
@@ -428,7 +363,7 @@ func TestAddrEventCreation(t *testing.T) {
 
 		var tapscriptSibling *chainhash.Hash
 		if rand.Int31()%2 == 0 {
-			hash := dummyHash(0x12)
+			hash := test.RandHash()
 			tapscriptSibling = &hash
 		}
 		event, err := addrBook.GetOrCreateEvent(
@@ -500,7 +435,7 @@ func TestAddressEventQuery(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := randAddr(t)
+		addr := address.RandAddr(t, chainParams)
 		require.NoError(t, addrBook.InsertAddrs(ctx, *addr))
 
 		txn := randWalletTx()

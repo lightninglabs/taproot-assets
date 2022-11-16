@@ -17,46 +17,46 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
 type (
 	// AddrQuery as a type alias for a query into the set of known
 	// addresses.
-	AddrQuery = sqlite.FetchAddrsParams
+	AddrQuery = sqlc.FetchAddrsParams
 
 	// NewAddr is a type alias for the params to create a new address.
-	NewAddr = sqlite.InsertAddrParams
+	NewAddr = sqlc.InsertAddrParams
 
 	// Addresses is a type alias for the full address row with key locator
 	// information.
-	Addresses = sqlite.FetchAddrsRow
+	Addresses = sqlc.FetchAddrsRow
 
 	// AddrByTaprootOutput is a type alias for returning an address by its
 	// Taproot output key.
-	AddrByTaprootOutput = sqlite.FetchAddrByTaprootOutputKeyRow
+	AddrByTaprootOutput = sqlc.FetchAddrByTaprootOutputKeyRow
 
 	// AddrManaged is a type alias for setting an address as managed.
-	AddrManaged = sqlite.SetAddrManagedParams
+	AddrManaged = sqlc.SetAddrManagedParams
 
 	// UpsertAddrEvent is a type alias for creating a new address event or
 	// updating an existing one.
-	UpsertAddrEvent = sqlite.UpsertAddrEventParams
+	UpsertAddrEvent = sqlc.UpsertAddrEventParams
 
 	// AddrEvent is a type alias for fetching an address event row.
-	AddrEvent = sqlite.FetchAddrEventRow
+	AddrEvent = sqlc.FetchAddrEventRow
 
 	// AddrEventQuery is a type alias for a query into the set of known
 	// address events.
-	AddrEventQuery = sqlite.QueryEventIDsParams
+	AddrEventQuery = sqlc.QueryEventIDsParams
 
 	// AddrEventID is a type alias for fetching the ID of an address event
 	// and its corresponding address.
-	AddrEventID = sqlite.QueryEventIDsRow
+	AddrEventID = sqlc.QueryEventIDsRow
 
 	// Genesis is a type alias for fetching the genesis asset information.
-	Genesis = sqlite.FetchGenesisByIDRow
+	Genesis = sqlc.FetchGenesisByIDRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -150,7 +150,7 @@ func NewAddrBookReadTx() AssetStoreTxOptions {
 type BatchedAddrBook interface {
 	AddrBook
 
-	BatchedTx[AddrBook, TxOptions]
+	BatchedTx[AddrBook]
 }
 
 // TaroAddressBook represents a storage backend for all the Taro addresses a
@@ -250,7 +250,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				),
 				Amount:       int64(addr.Amount),
 				AssetType:    int16(addr.Type),
-				CreationTime: addr.CreationTime,
+				CreationTime: addr.CreationTime.UTC(),
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert addr: %w",
@@ -272,14 +272,15 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 	// If the created before time is zero, then we'll use a very large date
 	// to ensure that we don't restrict based on this field.
 	if params.CreatedBefore.IsZero() {
-		params.CreatedBefore = time.Unix(int64(math.MaxInt64), 0)
+		params.CreatedBefore = MaxValidSQLTime
 	}
 
 	// Similarly, for sqlite using LIMIT with a value of -1 means no rows
-	// should be limited.
-	//
-	// TODO(roasbeef): needs to be more portable
-	limit := int32(-1)
+	// should be limited. But that is not compatible with Postgres which
+	// either wants NULL or the ALL keyword. So the most portable thing we
+	// can do to _not_ limit the number of records is to use the int32 max
+	// value (which works for both systems).
+	limit := int32(math.MaxInt32)
 	if params.Limit != 0 {
 		limit = params.Limit
 	}
@@ -289,8 +290,8 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 		// First, fetch the set of addresses based on the set of query
 		// parameters.
 		dbAddrs, err := db.FetchAddrs(ctx, AddrQuery{
-			CreatedAfter:  params.CreatedAfter,
-			CreatedBefore: params.CreatedBefore,
+			CreatedAfter:  params.CreatedAfter.UTC(),
+			CreatedBefore: params.CreatedBefore.UTC(),
 			NumOffset:     int32(params.Offset),
 			NumLimit:      limit,
 			UnmanagedOnly: params.UnmanagedOnly,
@@ -381,8 +382,8 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				},
 				InternalKeyDesc:  internalKeyDesc,
 				TaprootOutputKey: *taprootOutputKey,
-				CreationTime:     addr.CreationTime,
-				ManagedAfter:     addr.ManagedFrom.Time,
+				CreationTime:     addr.CreationTime.UTC(),
+				ManagedAfter:     addr.ManagedFrom.Time.UTC(),
 			})
 		}
 
@@ -495,7 +496,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		},
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,
-		CreationTime:     dbAddr.CreationTime,
+		CreationTime:     dbAddr.CreationTime.UTC(),
 	}, nil
 }
 
@@ -508,7 +509,7 @@ func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		return db.SetAddrManaged(ctx, AddrManaged{
 			ManagedFrom: sql.NullTime{
-				Time:  managedFrom,
+				Time:  managedFrom.UTC(),
 				Valid: true,
 			},
 			TaprootOutputKey: schnorr.SerializePubKey(
@@ -601,7 +602,7 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 			TaprootOutputKey: schnorr.SerializePubKey(
 				&addr.TaprootOutputKey,
 			),
-			CreationTime:        time.Now(),
+			CreationTime:        time.Now().UTC(),
 			Status:              int16(status),
 			Txid:                txHash[:],
 			ChainTxnOutputIndex: int32(outputIdx),
@@ -714,7 +715,7 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 
 	return &address.Event{
 		ID:                 eventID,
-		CreationTime:       dbEvent.CreationTime,
+		CreationTime:       dbEvent.CreationTime.UTC(),
 		Addr:               addr,
 		Status:             address.Status(dbEvent.Status),
 		Outpoint:           op,

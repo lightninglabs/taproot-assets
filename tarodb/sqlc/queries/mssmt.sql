@@ -1,28 +1,28 @@
 -- name: InsertBranch :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
-) VALUES (?, ?, ?, NULL, NULL, ?, ?);
+) VALUES ($1, $2, $3, NULL, NULL, $4, $5);
 
 -- name: InsertLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
-) VALUES (?, NULL, NULL, NULL, ?, ?, ?);
+) VALUES ($1, NULL, NULL, NULL, $2, $3, $4);
 
 -- name: InsertCompactedLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
-) VALUES (?, NULL, NULL, ?, ?, ?, ?);
+) VALUES ($1, NULL, NULL, $2, $3, $4, $5);
 
 -- name: FetchChildren :many
 WITH RECURSIVE mssmt_branches_cte (
-    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth
 )
 AS (
-    SELECT r.hash_key, r.l_hash_key, r.r_hash_key, r.key, r.value, r.sum, r.namespace
+    SELECT r.hash_key, r.l_hash_key, r.r_hash_key, r.key, r.value, r.sum, r.namespace, 0 as depth
     FROM mssmt_nodes r
-    WHERE r.hash_key=? AND r.namespace=?
+    WHERE r.hash_key = $1 AND r.namespace = $2
     UNION ALL
-        SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum, n.namespace
+        SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum, n.namespace, depth+1
         FROM mssmt_nodes n, mssmt_branches_cte b
         WHERE n.namespace=b.namespace AND (n.hash_key=b.l_hash_key OR n.hash_key=b.r_hash_key)
     /*
@@ -32,33 +32,36 @@ AS (
     from the level after that. In the future we may use this limit to fetch
     entire subtrees too.
     */
-    LIMIT 3
-) SELECT * FROM mssmt_branches_cte;
+) SELECT * FROM mssmt_branches_cte WHERE depth < 3;
 
 
 -- name: FetchChildrenSelfJoin :many
-WITH subtree AS (
-  SELECT * FROM mssmt_nodes r
-  WHERE r.hash_key=? AND r.namespace = ?
+WITH subtree_cte (
+    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth
+) AS (
+  SELECT r.hash_key, r.l_hash_key, r.r_hash_key, r.key, r.value, r.sum, r.namespace, 0 as depth
+  FROM mssmt_nodes r
+  WHERE r.hash_key = $1 AND r.namespace = $2
   UNION ALL
-    SELECT c.* FROM mssmt_nodes c
-    INNER JOIN subtree r ON r.l_hash_key=c.hash_key OR r.r_hash_key=c.hash_key
-) SELECT * from subtree LIMIT 3;
+    SELECT c.hash_key, c.l_hash_key, c.r_hash_key, c.key, c.value, c.sum, c.namespace, depth+1
+    FROM mssmt_nodes c
+    INNER JOIN subtree_cte r ON r.l_hash_key=c.hash_key OR r.r_hash_key=c.hash_key
+) SELECT * from subtree_cte WHERE depth < 3;
 
 -- name: DeleteNode :execrows
-DELETE FROM mssmt_nodes WHERE hash_key=? AND namespace=?; 
+DELETE FROM mssmt_nodes WHERE hash_key = $1 AND namespace = $2; 
 
 -- name: FetchRootNode :one
 SELECT nodes.*
 FROM mssmt_nodes nodes
 JOIN mssmt_roots roots
     ON roots.root_hash = nodes.hash_key AND
-        roots.namespace = ?;
+        roots.namespace = $1;
 
 -- name: UpsertRootNode :exec
 INSERT INTO mssmt_roots (
     root_hash, namespace
 ) VALUES (
-    ?, ?
+    $1, $2
 ) ON CONFLICT (namespace)
     DO UPDATE SET root_hash = EXCLUDED.root_hash;

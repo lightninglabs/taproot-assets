@@ -9,12 +9,20 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/ticker"
 )
+
+// databaseBackend is an interface that contains all methods our different
+// database backends implement.
+type databaseBackend interface {
+	tarodb.BatchedQuerier
+	WithTx(tx *sql.Tx) *sqlc.Queries
+}
 
 // CreateServerFromConfig creates a new Taro server from the given CLI config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
@@ -32,46 +40,51 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			err)
 	}
 
-	// Now that we know where the databse will live, we'll go ahead and
+	// Now that we know where the database will live, we'll go ahead and
 	// open up the default implementation of it.
-	cfgLogger.Infof("Opening sqlite3 database at: %v", cfg.DatabaseFileName)
-	db, err := tarodb.NewSqliteStore(&tarodb.SqliteConfig{
-		DatabaseFileName: cfg.DatabaseFileName,
-		CreateTables:     true,
-	})
+	var db databaseBackend
+	switch cfg.DatabaseBackend {
+	case DatabaseBackendSqlite:
+		cfgLogger.Infof("Opening sqlite3 database at: %v",
+			cfg.Sqlite.DatabaseFileName)
+		db, err = tarodb.NewSqliteStore(cfg.Sqlite)
+
+	case DatabaseBackendPostgres:
+		cfgLogger.Infof("Opening postgres database at: %v",
+			cfg.Postgres.DSN(true))
+		db, err = tarodb.NewPostgresStore(cfg.Postgres)
+
+	default:
+		return nil, fmt.Errorf("unknown database backend: %s",
+			cfg.DatabaseBackend)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to open database: %v", err)
 	}
 
-	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.KeyStore { // nolint
-
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
-	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.PendingAssetStore { // nolint
-
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
+	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore](
+		db, func(tx *sql.Tx) tarodb.KeyStore {
+			return db.WithTx(tx)
+		},
+	)
+	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore](
+		db, func(tx *sql.Tx) tarodb.PendingAssetStore {
+			return db.WithTx(tx)
+		},
+	)
 	assetMintingStore := tarodb.NewAssetMintingStore(mintingStore)
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.ActiveAssetsStore { // nolint
+	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore](
+		db, func(tx *sql.Tx) tarodb.ActiveAssetsStore {
+			return db.WithTx(tx)
+		},
+	)
 
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
-
-	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook,
-		tarodb.TxOptions](db, func(tx tarodb.Tx) tarodb.AddrBook { // nolint
-
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
-	})
+	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook](
+		db, func(tx *sql.Tx) tarodb.AddrBook {
+			return db.WithTx(tx)
+		},
+	)
 	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 	tarodbAddrBook := tarodb.NewTaroAddressBook(
 		addrBookDB, &taroChainParams,

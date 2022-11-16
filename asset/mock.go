@@ -40,3 +40,12 @@ func RandFamilyKey(t testing.TB, genesis *Genesis) *FamilyKey {
 	require.NoError(t, err)
 	return familyKey
 }
+
+// RandID creates a random asset ID.
+func RandID(t testing.TB) ID {
+	var a ID
+	_, err := rand.Read(a[:])
+	require.NoError(t, err)
+
+	return a
+}

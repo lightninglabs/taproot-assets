@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -34,17 +35,15 @@ var (
 
 // newAddrBook creates a new instance of the TaroAddressBook book.
 func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
-	*tarodb.TaroAddressBook, *tarodb.SqliteStore) {
+	*tarodb.TaroAddressBook, sqlc.Querier) {
 
-	db := tarodb.NewTestSqliteDB(t)
+	db := tarodb.NewTestDB(t)
 
-	txCreator := func(tx tarodb.Tx) tarodb.AddrBook {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) tarodb.AddrBook {
+		return db.WithTx(tx)
 	}
 
-	addrTx := tarodb.NewTransactionExecutor[tarodb.AddrBook,
-		tarodb.TxOptions](db, txCreator)
+	addrTx := tarodb.NewTransactionExecutor[tarodb.AddrBook](db, txCreator)
 	tarodbBook := tarodb.NewTaroAddressBook(addrTx, chainParams)
 	book := address.NewBook(address.BookConfig{
 		Store:        tarodbBook,
@@ -57,15 +56,15 @@ func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 
 // newProofArchive creates a new instance of the MultiArchiver.
 func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tarodb.AssetStore) {
-	db := tarodb.NewTestSqliteDB(t)
+	db := tarodb.NewTestDB(t)
 
-	txCreator := func(tx tarodb.Tx) tarodb.ActiveAssetsStore {
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	txCreator := func(tx *sql.Tx) tarodb.ActiveAssetsStore {
+		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore,
-		tarodb.TxOptions](db, txCreator)
+	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore](
+		db, txCreator,
+	)
 	assetStore := tarodb.NewAssetStore(assetDB)
 
 	proofArchive := proof.NewMultiArchiver(

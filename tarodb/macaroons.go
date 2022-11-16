@@ -3,19 +3,20 @@ package tarodb
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"io"
 
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // MacaroonRootKey is a tuple of (id, rootKey) that is used to validate +
 // create macaroons.
-type MacaroonRootKey = sqlite.Macaroon
+type MacaroonRootKey = sqlc.Macaroon
 
 // MacaroonID is used to insert new (id, rootKey) into the database.
-type MacaroonID = sqlite.InsertRootKeyParams
+type MacaroonID = sqlc.InsertRootKeyParams
 
 // KeyStore represents access to a persistence key store for macaroon root key
 // IDs.
@@ -23,8 +24,7 @@ type KeyStore interface {
 	// GetRootKey fetches the root key associated with the passed ID.
 	GetRootKey(ctx context.Context, id []byte) (MacaroonRootKey, error)
 
-	// InsertRootKeyParams inserts a new (id, rootKey) tuple into the
-	// database.
+	// InsertRootKey inserts a new (id, rootKey) tuple into the database.
 	InsertRootKey(ctx context.Context, arg MacaroonID) error
 }
 
@@ -47,15 +47,15 @@ func (r *KeyStoreTxOptions) ReadOnly() bool {
 // single database transaction.
 //
 // TODO(roasbeef) use type params here to use slimmer interface instead of
-// sqlite.Querier?
+// sqlc.Querier?
 type BatchedKeyStore interface {
 	KeyStore
 
-	// Parametrize the BatchedTx generic interface w/ KeyStore, which
-	// allows us to perform operations to the key store in an atomic
+	// BatchedTx parametrizes the BatchedTx generic interface w/ KeyStore,
+	// which allows us to perform operations to the key store in an atomic
 	// transaction. Also add in the TxOptions interface which our defined
 	// KeyStoreTxOptions satisfies.
-	BatchedTx[KeyStore, TxOptions]
+	BatchedTx[KeyStore]
 }
 
 // RootKeyStore is an implementation of the bakery.RootKeyStore interface
@@ -110,9 +110,15 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		// Check to see if there's a root key already stored for this
 		// ID.
 		mac, err := r.db.GetRootKey(ctx, id)
-		if err == nil {
+		switch err {
+		case nil:
 			rootKey = mac.RootKey
 			return nil
+
+		case sql.ErrNoRows:
+
+		default:
+			return err
 		}
 
 		// Otherwise, we'll create a new root key for this ID.
@@ -122,13 +128,13 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		}
 
 		// Insert this new root key into the database.
-		return r.db.InsertRootKey(ctx, sqlite.InsertRootKeyParams{
+		return r.db.InsertRootKey(ctx, sqlc.InsertRootKeyParams{
 			ID:      id,
 			RootKey: rootKey,
 		})
 	})
 	if dbErr != nil {
-		return nil, nil, err
+		return nil, nil, dbErr
 	}
 
 	return rootKey, id, nil

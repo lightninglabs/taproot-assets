@@ -3,7 +3,7 @@
 //   sqlc v1.15.0
 // source: macaroons.sql
 
-package sqlite
+package sqlc
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 const getRootKey = `-- name: GetRootKey :one
 SELECT id, root_key FROM macaroons 
-WHERE id = ? LIMIT 1
+WHERE id = $1
 `
 
 func (q *Queries) GetRootKey(ctx context.Context, id []byte) (Macaroon, error) {
@@ -22,7 +22,7 @@ func (q *Queries) GetRootKey(ctx context.Context, id []byte) (Macaroon, error) {
 }
 
 const insertRootKey = `-- name: InsertRootKey :exec
-INSERT INTO macaroons (id, root_key) VALUES (?, ?)
+INSERT INTO macaroons (id, root_key) VALUES ($1, $2)
 `
 
 type InsertRootKeyParams struct {

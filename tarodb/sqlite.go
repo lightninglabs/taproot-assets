@@ -1,18 +1,14 @@
 package tarodb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
-	"net/http"
 	"net/url"
 	"path/filepath"
 	"testing"
 
-	"github.com/golang-migrate/migrate/v4"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
-	"github.com/golang-migrate/migrate/v4/source/httpfs"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )
@@ -27,25 +23,20 @@ const (
 // SqliteConfig holds all the config arguments needed to interact with our
 // sqlite DB.
 type SqliteConfig struct {
-	// CreateTables if true, then all the tables will be created on start
+	// SkipMigrations if true, then all the tables will be created on start
 	// up if they don't already exist.
-	CreateTables bool
+	SkipMigrations bool `long:"skipmigrations" description:"Skip applying migrations on startup."`
 
 	// DatabaseFileName is the full file path where the database file can be
 	// found.
-	DatabaseFileName string
+	DatabaseFileName string `long:"dbfile" description:"The full path to the database."`
 }
 
 // SqliteStore is a sqlite3 based database for the taro daemon.
-//
-// TODO(roasbeef): can type params out the main interface and db here to also
-// support postgres?
 type SqliteStore struct {
 	cfg *SqliteConfig
 
-	*sql.DB
-
-	*sqlite.Queries
+	*BaseDB
 }
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
@@ -91,7 +82,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	if cfg.CreateTables {
+	if !cfg.SkipMigrations {
 		// Now that the database is open, populate the database with
 		// our set of schemas based on our embedded in-memory file
 		// system.
@@ -105,59 +96,38 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			return nil, err
 		}
 
-		// With the migrate instance open, we'll create a new migration
-		// source using the embedded file system stored in sqlSchemas.
-		// The library we're using can't handle a raw file system
-		// interface, so we wrap it in this intermediate layer.
-		migrateFileServer, err := httpfs.New(
-			http.FS(sqlSchemas), "sqlite/migrations",
+		err = applyMigrations(
+			sqlSchemas, driver, "sqlc/migrations", "sqlc",
 		)
 		if err != nil {
-			return nil, err
-		}
-
-		// Finally, we'll run the migration with our driver above based
-		// on the open DB, and also the migration source stored in the
-		// file system above.
-		sqlMigrate, err := migrate.NewWithInstance(
-			"migrations", migrateFileServer, "sqlite", driver,
-		)
-		if err != nil {
-			return nil, err
-		}
-		err = sqlMigrate.Up()
-		if err != nil && err != migrate.ErrNoChange {
 			return nil, err
 		}
 	}
 
-	queries := sqlite.New(db)
+	queries := sqlc.New(db)
 
 	return &SqliteStore{
-		DB:      db,
-		cfg:     cfg,
-		Queries: queries,
+		cfg: cfg,
+		BaseDB: &BaseDB{
+			DB:      db,
+			Queries: queries,
+		},
 	}, nil
 }
 
-// BeginTx wraps the normal sql specific BeginTx method with the TxOptions
-// interface. This interface is then mapped to the concrete sql tx options
-// struct.
-func (s *SqliteStore) BeginTx(ctx context.Context, opts TxOptions) (Tx, error) {
-	sqlOptions := sql.TxOptions{
-		ReadOnly: opts.ReadOnly(),
-	}
-	return s.DB.BeginTx(ctx, &sqlOptions)
-}
-
-// NewTestSqliteDB is a helper function that creates
+// NewTestSqliteDB is a helper function that creates an SQLite database for
+// testing.
 func NewTestSqliteDB(t *testing.T) *SqliteStore {
+	t.Helper()
+
+	t.Logf("Creating new SQLite DB for testing")
+
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		DatabaseFileName: dbFileName,
-		CreateTables:     true,
+		SkipMigrations:   false,
 	})
 	require.NoError(t, err)
 

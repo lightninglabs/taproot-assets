@@ -15,14 +15,11 @@ func TestRootKeyStore(t *testing.T) {
 	t.Parallel()
 
 	// First, Make a new test database.
-	db := NewTestSqliteDB(t)
+	db := NewTestDB(t)
 
 	// Make a new root key store from the database.
-	rksDB := NewTransactionExecutor[KeyStore, TxOptions](db, func(tx Tx) KeyStore {
-		// TODO(roasbeef): can get rid of this by emulating the
-		// sqlite.DBTX interface
-		sqlTx, _ := tx.(*sql.Tx)
-		return db.WithTx(sqlTx)
+	rksDB := NewTransactionExecutor[KeyStore](db, func(tx *sql.Tx) KeyStore {
+		return db.WithTx(tx)
 	})
 	rks := NewRootKeyStore(rksDB)
 	ctx := context.Background()
@@ -40,7 +37,7 @@ func TestRootKeyStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// The ID should match the one we referenced above.
-	require.Equal(t, id, fakeID)
+	require.Equal(t, fakeID, id)
 
 	// If we fetch the root key manually we should get the same root key.
 	dbRootKey, err := rks.Get(ctx, fakeID)

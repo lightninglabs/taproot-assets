@@ -5,10 +5,17 @@ import (
 	"encoding/binary"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/constraints"
+)
+
+var (
+	// MaxValidSQLTime is the maximum valid time that can be rendered as a
+	// time string and can be used for comparisons in SQL.
+	MaxValidSQLTime = time.Date(9999, 12, 31, 23, 59, 59, 999999, time.UTC)
 )
 
 // sqlInt32 turns a numerical integer type into the NullInt32 that sql/sqlc

@@ -1,10 +1,10 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: "tarodb/sqlite/migrations"
-    queries: "tarodb/sqlite/queries"
+    schema: "tarodb/sqlc/migrations"
+    queries: "tarodb/sqlc/queries"
     gen:
       go:
-        out: tarodb/sqlite
-        package: sqlite
+        out: tarodb/sqlc
+        package: sqlc
         emit_interface: true

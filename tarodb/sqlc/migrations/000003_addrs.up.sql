@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS addrs (
     -- taproot_output_key is the tweaked taproot output key that assets must
     -- be sent to on chain to be received, represented as a 32-byte x-only
     -- public key.
-    taproot_output_key BLOB NOT NULL UNIQUE CHECK(length(taproot_output_key) == 32),
+    taproot_output_key BLOB NOT NULL UNIQUE CHECK(length(taproot_output_key) = 32),
 
     -- amount is the amount of asset we want to receive.
     amount BIGINT NOT NULL,  

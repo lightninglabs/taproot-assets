@@ -13,94 +13,93 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlite"
+	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
 type (
-	// BatchStateUpdate holds the arguments to updated the state of a
-	// batch.
-	BatchStateUpdate = sqlite.UpdateMintingBatchStateParams
+	// BatchStateUpdate holds the arguments to update the state of a batch.
+	BatchStateUpdate = sqlc.UpdateMintingBatchStateParams
 
 	// InternalKey holds the arguments to update an internal key.
-	InternalKey = sqlite.UpsertInternalKeyParams
+	InternalKey = sqlc.UpsertInternalKeyParams
 
 	// AssetSeedlingShell holds the components of a seedling asset.
-	AssetSeedlingShell = sqlite.InsertAssetSeedlingParams
+	AssetSeedlingShell = sqlc.InsertAssetSeedlingParams
 
 	// AssetSeedlingItem is used to insert a seedling into an asset based
 	// on the batch key of the batch.
-	AssetSeedlingItem = sqlite.InsertAssetSeedlingIntoBatchParams
+	AssetSeedlingItem = sqlc.InsertAssetSeedlingIntoBatchParams
 
 	// MintingBatch is an alias for a minting batch including the internal
 	// key info.
-	MintingBatch = sqlite.FetchMintingBatchesByStateRow
+	MintingBatch = sqlc.FetchMintingBatchesByStateRow
 
 	// MintingBatchI is an alias for a minting batch including the internal
 	// key info. This is used to query for batches where the state doesn't
 	// match a certain value.
-	MintingBatchI = sqlite.FetchMintingBatchesByInverseStateRow
+	MintingBatchI = sqlc.FetchMintingBatchesByInverseStateRow
 
 	// AssetSeedling is an asset seedling.
-	AssetSeedling = sqlite.AssetSeedling
+	AssetSeedling = sqlc.AssetSeedling
 
 	// MintingBatchTuple is used to update a batch state based on the raw
 	// key.
-	MintingBatchTuple = sqlite.UpdateMintingBatchStateParams
+	MintingBatchTuple = sqlc.UpdateMintingBatchStateParams
 
 	// AssetFamilyKey is used to insert a new asset key family into the DB.
-	AssetFamilyKey = sqlite.UpsertAssetFamilyKeyParams
+	AssetFamilyKey = sqlc.UpsertAssetFamilyKeyParams
 
 	// BatchChainUpdate is used to update a batch with the minting
 	// transaction associated with it.
-	BatchChainUpdate = sqlite.BindMintingBatchWithTxParams
+	BatchChainUpdate = sqlc.BindMintingBatchWithTxParams
 
 	// GenesisTxUpdate is used to update the existing batch TX associated
 	// with a batch.
-	GenesisTxUpdate = sqlite.UpdateBatchGenesisTxParams
+	GenesisTxUpdate = sqlc.UpdateBatchGenesisTxParams
 
 	// RawManagedUTXO is used to insert a new managed UTXO into the
 	// database.
-	RawManagedUTXO = sqlite.UpsertManagedUTXOParams
+	RawManagedUTXO = sqlc.UpsertManagedUTXOParams
 
 	// AssetAnchor is used to bind assets on disk with the transaction that
 	// will create them on-chain.
-	AssetAnchor = sqlite.AnchorPendingAssetsParams
+	AssetAnchor = sqlc.AnchorPendingAssetsParams
 
 	// GenesisPointAnchor is used to update the genesis point with the
-	// final information w.r.t where its confirmed on chain.
-	GenesisPointAnchor = sqlite.AnchorGenesisPointParams
+	// final information w.r.t where it's confirmed on chain.
+	GenesisPointAnchor = sqlc.AnchorGenesisPointParams
 
 	// ChainTx is used to insert a new chain tx on disk.
-	ChainTx = sqlite.UpsertChainTxParams
+	ChainTx = sqlc.UpsertChainTxParams
 
 	// ChainTxConf is used to mark a chain tx as being confirmed.
-	ChainTxConf = sqlite.ConfirmChainTxParams
+	ChainTxConf = sqlc.ConfirmChainTxParams
 
 	// GenesisAsset is used to insert the base information of an asset into
 	// the DB.
-	GenesisAsset = sqlite.UpsertGenesisAssetParams
+	GenesisAsset = sqlc.UpsertGenesisAssetParams
 
 	// AssetFamSig is used to insert the family key signature for a given
 	// asset on disk.
-	AssetFamSig = sqlite.UpsertAssetFamilySigParams
+	AssetFamSig = sqlc.UpsertAssetFamilySigParams
 
 	// AssetSprout is used to fetch the set of assets from disk.
-	AssetSprout = sqlite.FetchAssetsForBatchRow
+	AssetSprout = sqlc.FetchAssetsForBatchRow
 
 	// MintingBatchInit is used to create a new minting batch.
-	MintingBatchInit = sqlite.NewMintingBatchParams
+	MintingBatchInit = sqlc.NewMintingBatchParams
 
 	// ProofUpdate is used to update a proof file on disk.
-	ProofUpdate = sqlite.UpsertAssetProofParams
+	ProofUpdate = sqlc.UpsertAssetProofParams
 
 	// NewScriptKey wraps the params needed to insert a new script key on
 	// disk.
-	NewScriptKey = sqlite.UpsertScriptKeyParams
+	NewScriptKey = sqlc.UpsertScriptKeyParams
 )
 
-// PendingAssetStore is a sub-set of the main sqlite.Querier interface that
+// PendingAssetStore is a sub-set of the main sqlc.Querier interface that
 // contains only the methods needed to drive the process of batching and
 // creating a new set of assets.
 type PendingAssetStore interface {
@@ -122,19 +121,23 @@ type PendingAssetStore interface {
 
 	// InsertAssetSeedlingIntoBatch inserts a new asset seedling into a
 	// batch based on the batch key its included in.
-	InsertAssetSeedlingIntoBatch(ctx context.Context, arg AssetSeedlingItem) error
+	InsertAssetSeedlingIntoBatch(ctx context.Context,
+		arg AssetSeedlingItem) error
 
 	// FetchMintingBatchesByState is used to fetch minting batches with a
 	// particular state.
-	FetchMintingBatchesByState(ctx context.Context, batchState int16) ([]MintingBatch, error)
+	FetchMintingBatchesByState(ctx context.Context,
+		batchState int16) ([]MintingBatch, error)
 
 	// FetchMintingBatchesByInverseState is used to fetch minting batches
 	// that don't have a particular state.
-	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]MintingBatchI, error)
+	FetchMintingBatchesByInverseState(ctx context.Context,
+		batchState int16) ([]MintingBatchI, error)
 
 	// FetchSeedlingsForBatch is used to fetch all the seedlings by the key
 	// of the batch they're included in.
-	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
+	FetchSeedlingsForBatch(ctx context.Context,
+		rawKey []byte) ([]AssetSeedling, error)
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
@@ -146,7 +149,8 @@ type PendingAssetStore interface {
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
-	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32, error)
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32,
+		error)
 
 	// AnchorPendingAssets associated an asset on disk with the transaction
 	// that once confirmed will mint the asset.
@@ -165,14 +169,15 @@ type PendingAssetStore interface {
 
 	// FetchAssetsForBatch fetches all the assets created by a particular
 	// batch.
-	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout, error)
+	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout,
+		error)
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
 	//
 	// TODO(roasbeef): move somewhere else??
 	UpsertAssetProof(ctx context.Context,
-		arg sqlite.UpsertAssetProofParams) error
+		arg sqlc.UpsertAssetProofParams) error
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore
@@ -202,7 +207,7 @@ func NewAssetStoreReadTx() AssetStoreTxOptions {
 type BatchedPendingAssetStore interface {
 	PendingAssetStore
 
-	BatchedTx[PendingAssetStore, TxOptions]
+	BatchedTx[PendingAssetStore]
 }
 
 // AssetMintingStore is an implementation of the tarogarden.PlantingLog
@@ -247,7 +252,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// batch which references the target internal key.
 		if err := q.NewMintingBatch(ctx, MintingBatchInit{
 			BatchID:          batchID,
-			CreationTimeUnix: newBatch.CreationTime,
+			CreationTimeUnix: newBatch.CreationTime.UTC(),
 		}); err != nil {
 			return fmt.Errorf("unable to insert minting "+
 				"batch: %w", err)
@@ -308,7 +313,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 }
 
 // fetchAssetSeedlings attempts to fetch a set of asset seedlings for a given
-// batch. This is performed wtihin the context of a greater DB transaction.
+// batch. This is performed within the context of a greater DB transaction.
 func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 	rawKey []byte) (map[string]*tarogarden.Seedling, error) {
 
@@ -480,8 +485,8 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 
 // FetchNonFinalBatches fetches all the batches that aren't fully finalized on
 // disk.
-func (a *AssetMintingStore) FetchNonFinalBatches(ctx context.Context,
-) ([]*tarogarden.MintingBatch, error) {
+func (a *AssetMintingStore) FetchNonFinalBatches(
+	ctx context.Context) ([]*tarogarden.MintingBatch, error) {
 
 	var batches []*tarogarden.MintingBatch
 
@@ -518,7 +523,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(ctx context.Context,
 					},
 					PubKey: batchKey,
 				},
-				CreationTime: batch.CreationTimeUnix,
+				CreationTime: batch.CreationTimeUnix.UTC(),
 			}
 
 			if batch.MintingTxPsbt != nil {
