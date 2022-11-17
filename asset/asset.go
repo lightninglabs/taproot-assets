@@ -531,7 +531,7 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	}
 
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		r.privKey, gen.FamilyKeyTweak(),
+		*r.privKey, gen.FamilyKeyTweak(),
 	)
 
 	// TODO(roasbeef): this actually needs to sign the digest of the asset
