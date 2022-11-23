@@ -251,8 +251,8 @@
             "type": "boolean"
           },
           {
-            "name": "fam_key",
-            "description": "Group results by family keys.",
+            "name": "group_key",
+            "description": "Group results by group keys.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -266,8 +266,8 @@
             "format": "byte"
           },
           {
-            "name": "family_key_filter",
-            "description": "If the query results should be grouped by family keys, then an optional\nfamily key filter may be provided to query the balance of a specific\nasset family.",
+            "name": "group_key_filter",
+            "description": "If the query results should be grouped by group keys, then an optional\ngroup key filter may be provided to query the balance of a specific\nasset group.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -576,10 +576,10 @@
           "format": "int64",
           "description": "The total amount of the asset stored in this Taro UTXO."
         },
-        "family_key": {
+        "group_key": {
           "type": "string",
           "format": "byte",
-          "title": "The family key of the asset (if it exists)"
+          "title": "The group key of the asset (if it exists)"
         },
         "script_key": {
           "type": "string",
@@ -745,9 +745,9 @@
           "format": "byte",
           "description": "The script key of the asset, which can be spent under Taproot semantics."
         },
-        "asset_family": {
-          "$ref": "#/definitions/tarorpcAssetFamily",
-          "description": "The information related to the key family of an asset (if it exists)."
+        "asset_group": {
+          "$ref": "#/definitions/tarorpcAssetGroup",
+          "description": "The information related to the key group of an asset (if it exists)."
         },
         "chain_anchor": {
           "$ref": "#/definitions/tarorpcAnchorInfo",
@@ -773,18 +773,18 @@
         }
       }
     },
-    "tarorpcAssetFamily": {
+    "tarorpcAssetGroup": {
       "type": "object",
       "properties": {
-        "raw_family_key": {
+        "raw_group_key": {
           "type": "string",
           "format": "byte",
-          "description": "The raw family key which is a normal public key."
+          "description": "The raw group key which is a normal public key."
         },
-        "tweaked_family_key": {
+        "tweaked_group_key": {
           "type": "string",
           "format": "byte",
-          "description": "The tweaked family key, which is derived based on the genesis point and also\nasset type."
+          "description": "The tweaked group key, which is derived based on the genesis point and also\nasset type."
         },
         "asset_id_sig": {
           "type": "string",
@@ -793,18 +793,18 @@
         }
       }
     },
-    "tarorpcAssetFamilyBalance": {
+    "tarorpcAssetGroupBalance": {
       "type": "object",
       "properties": {
-        "family_key": {
+        "group_key": {
           "type": "string",
           "format": "byte",
-          "description": "The family key or nil aggregating assets that don't have a family."
+          "description": "The group key or nil aggregating assets that don't have a group."
         },
         "balance": {
           "type": "string",
           "format": "int64",
-          "description": "The total balance of the assets in the family."
+          "description": "The total balance of the assets in the group."
         }
       }
     },
@@ -902,7 +902,7 @@
         "COLLECTIBLE"
       ],
       "default": "NORMAL",
-      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey family is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key family are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
     },
     "tarorpcDebugLevelRequest": {
       "type": "object",
@@ -1018,10 +1018,10 @@
             "$ref": "#/definitions/tarorpcAssetBalance"
           }
         },
-        "asset_family_balances": {
+        "asset_group_balances": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/tarorpcAssetFamilyBalance"
+            "$ref": "#/definitions/tarorpcAssetGroupBalance"
           }
         }
       }
@@ -1104,7 +1104,7 @@
         },
         "enable_emission": {
           "type": "boolean",
-          "description": "If true, then the asset will be created with a key family, which allows for\nfuture asset issuance."
+          "description": "If true, then the asset will be created with a key group, which allows for\nfuture asset issuance."
         },
         "skip_batch": {
           "type": "boolean",
@@ -1129,7 +1129,7 @@
           "type": "string",
           "format": "byte"
         },
-        "fam_key": {
+        "group_key": {
           "type": "string",
           "format": "byte"
         },
