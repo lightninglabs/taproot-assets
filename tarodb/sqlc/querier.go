@@ -34,9 +34,9 @@ type Querier interface {
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt32) ([]Asset, error)
-	// We use a LEFT JOIN here as not every asset has a family key, so this'll
+	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the faily key fields if an asset
-	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
@@ -69,16 +69,16 @@ type Querier interface {
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
-	// We use a LEFT JOIN here as not every asset has a family key, so this'll
-	// generate rows that have NULL values for the family key fields if an asset
-	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// We use a LEFT JOIN here as not every asset has a group key, so this'll
+	// generate rows that have NULL values for the group key fields if an asset
+	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter []byte) ([]QueryAssetBalancesByAssetRow, error)
-	QueryAssetBalancesByFamily(ctx context.Context, keyFamFilter []byte) ([]QueryAssetBalancesByFamilyRow, error)
+	QueryAssetBalancesByGroup(ctx context.Context, keyGroupFilter []byte) ([]QueryAssetBalancesByGroupRow, error)
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
-	// We use a LEFT JOIN here as not every asset has a family key, so this'll
-	// generate rows that have NULL values for the family key fields if an asset
-	// doesn't have a family key. See the comment in fetchAssetSprouts for a work
+	// We use a LEFT JOIN here as not every asset has a group key, so this'll
+	// generate rows that have NULL values for the group key fields if an asset
+	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	// This clause is used to select specific assets for a asset ID, general
 	// channel balances, and also coin selection. We use the sqlc.narg feature to
@@ -91,8 +91,8 @@ type Querier interface {
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)
-	UpsertAssetFamilyKey(ctx context.Context, arg UpsertAssetFamilyKeyParams) (int32, error)
-	UpsertAssetFamilySig(ctx context.Context, arg UpsertAssetFamilySigParams) (int32, error)
+	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int32, error)
+	UpsertAssetGroupSig(ctx context.Context, arg UpsertAssetGroupSigParams) (int32, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error)
