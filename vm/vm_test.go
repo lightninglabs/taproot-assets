@@ -33,18 +33,18 @@ func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
 	}
 }
 
-func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
+func randGroupKey(t *testing.T, genesis asset.Genesis) *asset.GroupKey {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	genSigner := asset.NewRawKeyGenesisSigner(privKey)
 
-	familyKey, err := asset.DeriveFamilyKey(
+	groupKey, err := asset.DeriveGroupKey(
 		genSigner, toKeyDesc(privKey.PubKey()), genesis,
 	)
 	require.NoError(t, err)
 
-	return familyKey
+	return groupKey
 }
 
 func toKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
@@ -59,7 +59,7 @@ func randAsset(t *testing.T, assetType asset.Type,
 	t.Helper()
 
 	genesis := randGenesis(t, assetType)
-	familyKey := randFamilyKey(t, genesis)
+	groupKey := randGroupKey(t, genesis)
 
 	var units uint64
 	switch assetType {
@@ -75,7 +75,7 @@ func randAsset(t *testing.T, assetType asset.Type,
 	}
 
 	a, err := asset.New(
-		genesis, units, 0, 0, asset.NewScriptKey(&scriptKey), familyKey,
+		genesis, units, 0, 0, asset.NewScriptKey(&scriptKey), groupKey,
 	)
 	require.NoError(t, err)
 	return a

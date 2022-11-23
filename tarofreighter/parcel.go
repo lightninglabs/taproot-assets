@@ -449,7 +449,7 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	// we can look up their commitments.
 	senderStateKey := asset.AssetCommitmentKey(
 		s.InputAsset.Asset.ID(), s.SenderScriptKey.PubKey,
-		s.InputAsset.Asset.FamilyKey == nil,
+		s.InputAsset.Asset.GroupKey == nil,
 	)
 	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
 

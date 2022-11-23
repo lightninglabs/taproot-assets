@@ -99,13 +99,13 @@ enum AssetType {
     /*
     Indicates that an asset is capable of being split/merged, with each of the
     units being fungible, even across a key asset ID boundary (assuming the
-    key family is the same).
+    key group is the same).
     */
     NORMAL = 0;
 
     /*
     Indicates that an asset is a collectible, meaning that each of the other
-    items under the same key family are not fully fungible with each other.
+    items under the same key group are not fully fungible with each other.
     Collectibles also cannot be split or merged.
     */
     COLLECTIBLE = 1;
@@ -130,7 +130,7 @@ message MintAssetRequest {
     int64 amount = 4;
 
     /*
-    If true, then the asset will be created with a key family, which allows for
+    If true, then the asset will be created with a key group, which allows for
     future asset issuance.
     */
     bool enable_emission = 5;
@@ -202,15 +202,15 @@ message GenesisInfo {
     int32 version = 7;
 }
 
-message AssetFamily {
-    // The raw family key which is a normal public key.
-    bytes raw_family_key = 1;
+message AssetGroup {
+    // The raw group key which is a normal public key.
+    bytes raw_group_key = 1;
 
     /*
-    The tweaked family key, which is derived based on the genesis point and also
+    The tweaked group key, which is derived based on the genesis point and also
     asset type.
     */
-    bytes tweaked_family_key = 2;
+    bytes tweaked_group_key = 2;
 
     // A signature over the genesis point using the above key.
     bytes asset_id_sig = 3;
@@ -241,8 +241,8 @@ message Asset {
     // The script key of the asset, which can be spent under Taproot semantics.
     bytes script_key = 9;
 
-    // The information related to the key family of an asset (if it exists).
-    AssetFamily asset_family = 10;
+    // The information related to the key group of an asset (if it exists).
+    AssetGroup asset_group = 10;
 
     // Describes where in the chain the asset is currently anchored.
     AnchorInfo chain_anchor = 11;
@@ -282,18 +282,18 @@ message ListBalancesRequest {
         // Group results by asset IDs.
         bool asset_id = 1;
 
-        // Group results by family keys.
-        bool fam_key = 2;
+        // Group results by group keys.
+        bool group_key = 2;
     }
 
     // If the query results should grouped by asset ids, then an optional asset
     // filter may be provided to query balance of a specific asset.
     bytes asset_filter = 3;
 
-    // If the query results should be grouped by family keys, then an optional
-    // family key filter may be provided to query the balance of a specific
-    // asset family.
-    bytes family_key_filter = 4;
+    // If the query results should be grouped by group keys, then an optional
+    // group key filter may be provided to query the balance of a specific
+    // asset group.
+    bytes group_key_filter = 4;
 }
 
 message AssetBalance {
@@ -307,18 +307,18 @@ message AssetBalance {
     int64 balance = 3;
 }
 
-message AssetFamilyBalance {
-    // The family key or nil aggregating assets that don't have a family.
-    bytes family_key = 1;
+message AssetGroupBalance {
+    // The group key or nil aggregating assets that don't have a group.
+    bytes group_key = 1;
 
-    // The total balance of the assets in the family.
+    // The total balance of the assets in the group.
     int64 balance = 2;
 }
 
 message ListBalancesResponse {
     map<string, AssetBalance> asset_balances = 1;
 
-    map<string, AssetFamilyBalance> asset_family_balances = 2;
+    map<string, AssetGroupBalance> asset_group_balances = 2;
 }
 
 message ListTransfersRequest {
@@ -397,8 +397,8 @@ message Addr {
     // The total amount of the asset stored in this Taro UTXO.
     int64 amount = 4;
 
-    // The family key of the asset (if it exists)
-    bytes family_key = 5;
+    // The group key of the asset (if it exists)
+    bytes group_key = 5;
 
     /*
     The specific script key the asset must commit to in order to transfer
@@ -444,7 +444,7 @@ message QueryAddrResponse {
 message NewAddrRequest {
     bytes genesis_bootstrap_info = 1;
 
-    bytes fam_key = 2;
+    bytes group_key = 2;
 
     int64 amt = 3;
 }

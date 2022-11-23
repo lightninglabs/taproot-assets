@@ -69,14 +69,14 @@ CREATE TABLE IF NOT EXISTS internal_keys (
     key_index INTEGER NOT NULL
 );
 
--- asset_families stores information related to the asset family key for a
--- given asset. This includes the raw tweaked_fam_key, which is the result of
--- tweaking the base family key by the associated genesis point. This table
+-- asset_groups stores information related to the asset group key for a
+-- given asset. This includes the raw tweaked_group_key, which is the result of
+-- tweaking the base group key by the associated genesis point. This table
 -- references the set of internal keys, and also the genesis_points table.
-CREATE TABLE IF NOT EXISTS asset_families (
-    family_id INTEGER PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS asset_groups (
+    group_id INTEGER PRIMARY KEY,
 
-    tweaked_fam_key BLOB UNIQUE NOT NULL, 
+    tweaked_group_key BLOB UNIQUE NOT NULL, 
 
     -- TODO(roasbeef): also need to mix in output index here? to derive the
     -- genesis key?
@@ -85,12 +85,12 @@ CREATE TABLE IF NOT EXISTS asset_families (
     genesis_point_id INTEGER NOT NULL REFERENCES genesis_points(genesis_id)
 );
 
--- asset_family_sigs stores the set of signatures for an asset family key. Each
--- time a family key is used (creation of an initial asset, and then all on
+-- asset_group_sigs stores the set of signatures for an asset group key. Each
+-- time a group key is used (creation of an initial asset, and then all on
 -- going asset) a signature that signs the corresponding asset ID must also
 -- be included. This table reference the asset ID it's used to create as well
--- as the family key that signed the asset in the first place.
-CREATE TABLE IF NOT EXISTS asset_family_sigs (
+-- as the group key that signed the asset in the first place.
+CREATE TABLE IF NOT EXISTS asset_group_sigs (
     sig_id INTEGER PRIMARY KEY,
 
     genesis_sig BLOB NOT NULL, 
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS asset_family_sigs (
     -- TODO(roasbeef): not needed since already in assets row?
     gen_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id) UNIQUE,
 
-    key_fam_id INTEGER NOT NULL REFERENCES asset_families(family_id)
+    group_key_id INTEGER NOT NULL REFERENCES asset_groups(group_id)
 );
 
 -- managed_utxos is the set of UTXOs managed by tarod. These UTXOs may commit
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS assets (
     script_key_id INTEGER NOT NULL REFERENCES script_keys(script_key_id),
 
     -- TODO(roasbeef): don't need this after all?
-    asset_family_sig_id INTEGER REFERENCES asset_family_sigs(sig_id),
+    asset_group_sig_id INTEGER REFERENCES asset_group_sigs(sig_id),
 
     -- TODO(roasbeef): make into enum?
     script_version INTEGER NOT NULL,
@@ -272,15 +272,15 @@ CREATE VIEW genesis_info_view AS
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id;
 
 -- This view is used to perform a series of joins that allow us to extract
--- the family key information, as well as the family sigs for the series of
+-- the group key information, as well as the group sigs for the series of
 -- assets we care about. We obtain only the assets found in the batch
 -- above, with the WHERE query at the bottom.
-CREATE VIEW key_fam_info_view AS
+CREATE VIEW key_group_info_view AS
     SELECT
-        sig_id, gen_asset_id, genesis_sig, tweaked_fam_key, raw_key, key_index, key_family
-    FROM asset_family_sigs sigs
-    JOIN asset_families fams
-        ON sigs.key_fam_id = fams.family_id
+        sig_id, gen_asset_id, genesis_sig, tweaked_group_key, raw_key, key_index, key_family
+    FROM asset_group_sigs sigs
+    JOIN asset_groups groups
+        ON sigs.group_key_id = groups.group_id
     JOIN internal_keys keys
-        ON keys.key_id = fams.internal_key_id
+        ON keys.key_id = groups.internal_key_id
     WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info_view);

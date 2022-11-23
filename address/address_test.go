@@ -22,7 +22,7 @@ var (
 	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
 )
 
-func randAddress(t *testing.T, net *ChainParams, famKey bool,
+func randAddress(t *testing.T, net *ChainParams, groupPubKey bool,
 	amt *uint64, assetType asset.Type) (*Taro, error) {
 
 	t.Helper()
@@ -37,19 +37,19 @@ func randAddress(t *testing.T, net *ChainParams, famKey bool,
 		amount = rand.Uint64()
 	}
 
-	var familyKey *btcec.PublicKey
-	if famKey {
-		familyKey = pubKey
+	var groupKey *btcec.PublicKey
+	if groupPubKey {
+		groupKey = pubKey
 	}
 
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
 	genesis := asset.RandGenesis(t, assetType)
-	return New(genesis, familyKey, pubKeyCopy1, pubKeyCopy2, amount, net)
+	return New(genesis, groupKey, pubKeyCopy1, pubKeyCopy2, amount, net)
 }
 
-func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
+func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey bool,
 	assetType asset.Type) (*Taro, string, error) {
 
 	t.Helper()
@@ -59,9 +59,9 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
 		amount = rand.Uint64()
 	}
 
-	var familyKey *btcec.PublicKey
-	if famKey {
-		familyKey = pubKey
+	var groupKey *btcec.PublicKey
+	if groupPubKey {
+		groupKey = pubKey
 	}
 
 	pubKeyCopy1 := *pubKey
@@ -71,7 +71,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, famKey bool,
 		ChainParams: net,
 		Version:     asset.Version(TaroScriptVersion),
 		Genesis:     asset.RandGenesis(t, assetType),
-		FamilyKey:   familyKey,
+		GroupKey:    groupKey,
 		ScriptKey:   pubKeyCopy1,
 		InternalKey: pubKeyCopy2,
 		Amount:      amount,
@@ -87,7 +87,7 @@ func assertAddressEqual(t *testing.T, a, b *Taro) {
 
 	require.Equal(t, a.Version, b.Version)
 	require.Equal(t, a.ID, b.ID)
-	require.Equal(t, a.FamilyKey, b.FamilyKey)
+	require.Equal(t, a.GroupKey, b.GroupKey)
 	require.Equal(t, a.ScriptKey, b.ScriptKey)
 	require.Equal(t, a.InternalKey, b.InternalKey)
 	require.Equal(t, a.Amount, b.Amount)
@@ -114,7 +114,7 @@ func TestNewAddress(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "collectible address with family key",
+			name: "collectible address with group key",
 			f: func() (*Taro, error) {
 				return randAddress(
 					t, &MainNetTaro, true, nil,
@@ -206,7 +206,7 @@ func TestAddressEncoding(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "family collectible",
+			name: "group collectible",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
 					t, &SigNetTaro, true, asset.Collectible,

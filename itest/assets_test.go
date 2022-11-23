@@ -241,24 +241,24 @@ func assertAssetBalances(t *harnessTest,
 		}
 	}
 
-	// We'll also ensure that we're able to get the balance by key family
+	// We'll also ensure that we're able to get the balance by key group
 	// for all the assets that have one specified.
-	famBalanceReq := &tarorpc.ListBalancesRequest_FamKey{
-		FamKey: true,
+	groupBalanceReq := &tarorpc.ListBalancesRequest_GroupKey{
+		GroupKey: true,
 	}
-	assetFamBalances, err := t.tarod.ListBalances(
+	assetGroupBalances, err := t.tarod.ListBalances(
 		ctxt, &tarorpc.ListBalancesRequest{
-			GroupBy: famBalanceReq,
+			GroupBy: groupBalanceReq,
 		},
 	)
 	require.NoError(t.t, err)
 
 	require.Equal(
 		t.t, len(issuableAssets),
-		len(assetFamBalances.AssetFamilyBalances),
+		len(assetGroupBalances.AssetGroupBalances),
 	)
 
-	for _, balance := range assetFamBalances.AssetBalances {
+	for _, balance := range assetGroupBalances.AssetBalances {
 		for _, rpcAsset := range issuableAssets {
 			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
 				require.Equal(

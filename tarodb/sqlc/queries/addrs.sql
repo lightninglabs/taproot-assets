@@ -1,12 +1,12 @@
 -- name: InsertAddr :one
 INSERT INTO addrs (
-    version, genesis_asset_id, fam_key, script_key_id, taproot_key_id,
+    version, genesis_asset_id, group_key, script_key_id, taproot_key_id,
     taproot_output_key, amount, asset_type, creation_time
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id;
 
 -- name: FetchAddrs :many
 SELECT 
-    version, genesis_asset_id, fam_key, taproot_output_key, amount, asset_type,
+    version, genesis_asset_id, group_key, taproot_output_key, amount, asset_type,
     creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
@@ -32,7 +32,7 @@ LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchAddrByTaprootOutputKey :one
 SELECT
-    version, genesis_asset_id, fam_key, taproot_output_key, amount, asset_type,
+    version, genesis_asset_id, group_key, taproot_output_key, amount, asset_type,
     creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,

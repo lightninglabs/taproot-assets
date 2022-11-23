@@ -24,11 +24,11 @@ import (
 type assetGenOptions struct {
 	assetGen asset.Genesis
 
-	customFam bool
+	customGroup bool
 
-	noFamKey bool
+	noGroupKey bool
 
-	famKeyPriv *btcec.PrivateKey
+	groupKeyPriv *btcec.PrivateKey
 
 	amt uint64
 
@@ -42,7 +42,7 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 
 	return &assetGenOptions{
 		assetGen:     gen,
-		famKeyPriv:   test.RandPrivKey(t),
+		groupKeyPriv: test.RandPrivKey(t),
 		amt:          uint64(test.RandInt[uint32]()),
 		genesisPoint: test.RandOp(t),
 		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
@@ -63,10 +63,10 @@ func withAssetGenAmt(amt uint64) assetGenOpt {
 	}
 }
 
-func withAssetGenKeyFam(key *btcec.PrivateKey) assetGenOpt {
+func withAssetGenKeyGroup(key *btcec.PrivateKey) assetGenOpt {
 	return func(opt *assetGenOptions) {
-		opt.customFam = true
-		opt.famKeyPriv = key
+		opt.customGroup = true
+		opt.groupKeyPriv = key
 	}
 }
 
@@ -88,9 +88,9 @@ func withScriptKey(k asset.ScriptKey) assetGenOpt {
 	}
 }
 
-func withNoFamKey() assetGenOpt {
+func withNoGroupKey() assetGenOpt {
 	return func(opt *assetGenOptions) {
-		opt.noFamKey = true
+		opt.noGroupKey = true
 	}
 }
 
@@ -103,13 +103,13 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	genesis := opts.assetGen
 	genesis.FirstPrevOut = opts.genesisPoint
 
-	famPriv := *opts.famKeyPriv
+	groupPriv := *opts.groupKeyPriv
 
-	genSigner := asset.NewRawKeyGenesisSigner(&famPriv)
+	genSigner := asset.NewRawKeyGenesisSigner(&groupPriv)
 
-	famKey, sig, err := genSigner.SignGenesis(
+	groupKey, sig, err := genSigner.SignGenesis(
 		keychain.KeyDescriptor{
-			PubKey: famPriv.PubKey(),
+			PubKey: groupPriv.PubKey(),
 		}, genesis,
 	)
 	require.NoError(t, err)
@@ -122,19 +122,19 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		ScriptKey:        opts.scriptKey,
 	}
 
-	// 50/50 chance that we'll actually have a family key. Or we'll always
-	// use it if a custom family key was specified.
+	// 50/50 chance that we'll actually have a group key. Or we'll always
+	// use it if a custom group key was specified.
 	switch {
-	case opts.noFamKey:
+	case opts.noGroupKey:
 		break
 
-	case opts.customFam || test.RandInt[int]()%2 == 0:
-		newAsset.FamilyKey = &asset.FamilyKey{
+	case opts.customGroup || test.RandInt[int]()%2 == 0:
+		newAsset.GroupKey = &asset.GroupKey{
 			RawKey: keychain.KeyDescriptor{
-				PubKey: famKey,
+				PubKey: groupKey,
 			},
-			FamKey: *famKey,
-			Sig:    *sig,
+			GroupPubKey: *groupKey,
+			Sig:         *sig,
 		}
 	}
 
@@ -254,8 +254,8 @@ func TestImportAssetProof(t *testing.T) {
 			ScriptRoot:        taroRoot,
 		},
 	}
-	if testAsset.FamilyKey != nil {
-		testProof.FamilyKey = &testAsset.FamilyKey.FamKey
+	if testAsset.GroupKey != nil {
+		testProof.GroupKey = &testAsset.GroupKey.GroupPubKey
 	}
 
 	// We'll now insert the internal key information as well as the script
@@ -327,11 +327,11 @@ func TestImportAssetProof(t *testing.T) {
 	require.NoError(t, err)
 
 	// We should also be able to fetch the created asset above based on
-	// either the asset ID, or key family via the main coin selection
+	// either the asset ID, or key group via the main coin selection
 	// routine.
 	var assetConstraints tarofreighter.CommitmentConstraints
-	if testAsset.FamilyKey != nil {
-		assetConstraints.FamilyKey = &testAsset.FamilyKey.FamKey
+	if testAsset.GroupKey != nil {
+		assetConstraints.GroupKey = &testAsset.GroupKey.GroupPubKey
 	} else {
 		assetConstraints.AssetID = &assetID
 	}
@@ -378,9 +378,9 @@ type assetDesc struct {
 	assetGen    asset.Genesis
 	anchorPoint wire.OutPoint
 
-	keyFamily *btcec.PrivateKey
+	keyGroup *btcec.PrivateKey
 
-	noFamKey bool
+	noGroupKey bool
 
 	scriptKey *asset.ScriptKey
 
@@ -395,11 +395,11 @@ type assetGenerator struct {
 	anchorPoints     []wire.OutPoint
 	anchorPointsToTx map[wire.OutPoint]*wire.MsgTx
 
-	familyKeys []*btcec.PrivateKey
+	groupKeys []*btcec.PrivateKey
 }
 
 func newAssetGenerator(t *testing.T,
-	numAssetIDs, numFamKeys int) *assetGenerator {
+	numAssetIDs, numGroupKeys int) *assetGenerator {
 
 	anchorTxs := make([]*wire.MsgTx, numAssetIDs)
 	for i := 0; i < numAssetIDs; i++ {
@@ -436,13 +436,13 @@ func newAssetGenerator(t *testing.T,
 		assetGens[i] = asset.RandGenesis(t, asset.Normal)
 	}
 
-	famKeys := make([]*btcec.PrivateKey, numFamKeys)
-	for i := 0; i < numFamKeys; i++ {
-		famKeys[i] = test.RandPrivKey(t)
+	groupKeys := make([]*btcec.PrivateKey, numGroupKeys)
+	for i := 0; i < numGroupKeys; i++ {
+		groupKeys[i] = test.RandPrivKey(t)
 	}
 
 	return &assetGenerator{
-		familyKeys:       famKeys,
+		groupKeys:        groupKeys,
 		assetGens:        assetGens,
 		anchorPoints:     anchorPoints,
 		anchorPointsToTx: anchorPointsToTx,
@@ -462,11 +462,11 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			withAssetGen(desc.assetGen),
 		}
 
-		if desc.keyFamily != nil {
-			opts = append(opts, withAssetGenKeyFam(desc.keyFamily))
+		if desc.keyGroup != nil {
+			opts = append(opts, withAssetGenKeyGroup(desc.keyGroup))
 		}
-		if desc.noFamKey {
-			opts = append(opts, withNoFamKey())
+		if desc.noGroupKey {
+			opts = append(opts, withNoGroupKey())
 		}
 		if desc.scriptKey != nil {
 			opts = append(opts, withScriptKey(*desc.scriptKey))
@@ -509,14 +509,14 @@ func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
 	return &id
 }
 
-func (a *assetGenerator) bindKeyFamily(i int, op wire.OutPoint) *btcec.PublicKey {
+func (a *assetGenerator) bindKeyGroup(i int, op wire.OutPoint) *btcec.PublicKey {
 	gen := a.assetGens[i]
 	gen.FirstPrevOut = op
 
-	famPriv := *a.familyKeys[i]
+	groupPriv := *a.groupKeys[i]
 
 	tweakedPriv := txscript.TweakTaprootPrivKey(
-		famPriv, gen.FamilyKeyTweak(),
+		groupPriv, gen.GroupKeyTweak(),
 	)
 
 	return tweakedPriv.PubKey()
@@ -528,11 +528,11 @@ func TestSelectCommitment(t *testing.T) {
 	t.Parallel()
 
 	const (
-		numAssetIDs = 10
-		numFamKeys  = 2
+		numAssetIDs  = 10
+		numGroupKeys = 2
 	)
 
-	assetGen := newAssetGenerator(t, numAssetIDs, numFamKeys)
+	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
 
 	tests := []struct {
 		name string
@@ -609,10 +609,10 @@ func TestSelectCommitment(t *testing.T) {
 			err:       tarofreighter.ErrNoPossibleAssetInputs,
 		},
 
-		// Create two assets, one has a key family the other doesn't.
+		// Create two assets, one has a key group the other doesn't.
 		// We should only get one asset back.
 		{
-			name: "asset with key family",
+			name: "asset with key group",
 			assets: []assetDesc{
 				{
 					assetGen: assetGen.assetGens[0],
@@ -620,18 +620,18 @@ func TestSelectCommitment(t *testing.T) {
 
 					anchorPoint: assetGen.anchorPoints[0],
 
-					keyFamily: assetGen.familyKeys[0],
+					keyGroup: assetGen.groupKeys[0],
 				},
 				{
 					assetGen: assetGen.assetGens[1],
 					amt:      10,
 
 					anchorPoint: assetGen.anchorPoints[1],
-					noFamKey:    true,
+					noGroupKey:  true,
 				},
 			},
 			constraints: tarofreighter.CommitmentConstraints{
-				FamilyKey: assetGen.bindKeyFamily(
+				GroupKey: assetGen.bindKeyGroup(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 1,
@@ -907,9 +907,9 @@ func TestAssetExportLog(t *testing.T) {
 	require.Equal(t, 0, len(parcels))
 }
 
-// TestAssetFamilySigUpsert tests that if you try to insert another asset
-// family sig with the same asset_gen_id, then only one is actually created.
-func TestAssetFamilySigUpsert(t *testing.T) {
+// TestAssetGroupSigUpsert tests that if you try to insert another asset
+// group sig with the same asset_gen_id, then only one is actually created.
+func TestAssetGroupSigUpsert(t *testing.T) {
 	t.Parallel()
 
 	_, _, db := newAssetStore(t)
@@ -932,30 +932,30 @@ func TestAssetFamilySigUpsert(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	famID, err := db.UpsertAssetFamilyKey(ctx, AssetFamilyKey{
-		TweakedFamKey:  internalKey.SerializeCompressed(),
-		InternalKeyID:  keyID,
-		GenesisPointID: genesisPointID,
+	groupID, err := db.UpsertAssetGroupKey(ctx, AssetGroupKey{
+		TweakedGroupKey: internalKey.SerializeCompressed(),
+		InternalKeyID:   keyID,
+		GenesisPointID:  genesisPointID,
 	})
 	require.NoError(t, err)
 
-	// With all the other items inserted, we'll now insert an asset family
+	// With all the other items inserted, we'll now insert an asset group
 	// sig.
-	famSigID, err := db.UpsertAssetFamilySig(ctx, AssetFamSig{
+	groupSigID, err := db.UpsertAssetGroupSig(ctx, AssetGroupSig{
 		GenesisSig: []byte{0x01},
 		GenAssetID: genAssetID,
-		KeyFamID:   famID,
+		GroupKeyID: groupID,
 	})
 	require.NoError(t, err)
 
-	// If we insert the very same sig, then we should get the same fam sig
+	// If we insert the very same sig, then we should get the same group sig
 	// ID back.
-	famSigID2, err := db.UpsertAssetFamilySig(ctx, AssetFamSig{
+	groupSigID2, err := db.UpsertAssetGroupSig(ctx, AssetGroupSig{
 		GenesisSig: []byte{0x01},
 		GenAssetID: genAssetID,
-		KeyFamID:   famID,
+		GroupKeyID: groupID,
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, famSigID, famSigID2)
+	require.Equal(t, groupSigID, groupSigID2)
 }

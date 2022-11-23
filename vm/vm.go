@@ -43,7 +43,7 @@ func New(newAsset *asset.Asset, splitAsset *commitment.SplitAsset,
 
 // matchesPrevGenesis determines whether certain key parameters of the new
 // asset continue to hold its previous genesis.
-func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
+func matchesPrevGenesis(prevID asset.ID, groupKey *asset.GroupKey,
 	tag string, prevAsset *asset.Asset) bool {
 
 	switch {
@@ -51,22 +51,22 @@ func matchesPrevGenesis(prevID asset.ID, familyKey *asset.FamilyKey,
 	case prevID == prevAsset.Genesis.ID():
 		return true
 
-	// Mismatched ID and nil FamilyKey, ouch.
-	case familyKey == nil && prevAsset.FamilyKey == nil:
+	// Mismatched ID and nil GroupKey, ouch.
+	case groupKey == nil && prevAsset.GroupKey == nil:
 		fallthrough
-	case familyKey == nil && prevAsset.FamilyKey != nil:
+	case groupKey == nil && prevAsset.GroupKey != nil:
 		fallthrough
-	case familyKey != nil && prevAsset.FamilyKey == nil:
+	case groupKey != nil && prevAsset.GroupKey == nil:
 		return false
 
-	// Mismatched ID and non-nil FamilyKey, there's hope!
-	case familyKey != nil && prevAsset.FamilyKey != nil:
-		// Mismatched ID and FamilyKey, sigh.
-		if !familyKey.IsEqual(prevAsset.FamilyKey) {
+	// Mismatched ID and non-nil GroupKey, there's hope!
+	case groupKey != nil && prevAsset.GroupKey != nil:
+		// Mismatched ID and GroupKey, sigh.
+		if !groupKey.IsEqual(prevAsset.GroupKey) {
 			return false
 		}
 
-		// Matched ID and FamilyKey, there's still hope!
+		// Matched ID and GroupKey, there's still hope!
 		return tag == prevAsset.Genesis.Tag
 
 	// How did we get here?
@@ -87,7 +87,7 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 	}
 
 	if !matchesPrevGenesis(
-		prevAssetWitness.PrevID.ID, newAsset.FamilyKey,
+		prevAssetWitness.PrevID.ID, newAsset.GroupKey,
 		newAsset.Genesis.Tag, prevAsset,
 	) {
 

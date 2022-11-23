@@ -51,16 +51,16 @@ func testAddresses(t *harnessTest) {
 		events    []*tarorpc.AddrEvent
 	)
 	for _, a := range rpcAssets {
-		var familyKey []byte
-		if a.AssetFamily != nil {
-			familyKey = a.AssetFamily.TweakedFamilyKey
+		var groupKey []byte
+		if a.AssetGroup != nil {
+			groupKey = a.AssetGroup.TweakedGroupKey
 		}
 
 		// In order to force a split, we don't try to send the full
 		// asset.
 		addr, err := secondTarod.NewAddr(ctxt, &tarorpc.NewAddrRequest{
 			GenesisBootstrapInfo: a.AssetGenesis.GenesisBootstrapInfo,
-			FamKey:               familyKey,
+			GroupKey:             groupKey,
 			Amt:                  a.Amount - 1,
 		})
 		require.NoError(t.t, err)

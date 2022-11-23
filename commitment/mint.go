@@ -31,9 +31,8 @@ type AssetDetails struct {
 	RelativeLockTime uint64
 }
 
-// mintAssets mints a series of assets based on the same asset ID and family
-// key.
-func mintAssets(genesis asset.Genesis, familyKey *asset.FamilyKey,
+// mintAssets mints a series of assets based on the same asset ID and group key.
+func mintAssets(genesis asset.Genesis, groupKey *asset.GroupKey,
 	mintDetails ...*AssetDetails) ([]*asset.Asset, error) {
 
 	assets := make([]*asset.Asset, 0, len(mintDetails))
@@ -68,7 +67,7 @@ func mintAssets(genesis asset.Genesis, familyKey *asset.FamilyKey,
 
 		a, err := asset.New(
 			genesis, amount, mint.LockTime, mint.RelativeLockTime,
-			asset.NewScriptKeyBIP0086(mint.ScriptKey), familyKey,
+			asset.NewScriptKeyBIP0086(mint.ScriptKey), groupKey,
 		)
 		if err != nil {
 			return nil, err
@@ -82,10 +81,10 @@ func mintAssets(genesis asset.Genesis, familyKey *asset.FamilyKey,
 
 // Mint mints a series of assets within a new Taro commitment. The distribution
 // and other parameters of these assets can be specified through `AssetDetails`.
-func Mint(genesis asset.Genesis, familyKey *asset.FamilyKey,
+func Mint(genesis asset.Genesis, groupKey *asset.GroupKey,
 	details ...*AssetDetails) (*TaroCommitment, []*asset.Asset, error) {
 
-	assets, err := mintAssets(genesis, familyKey, details...)
+	assets, err := mintAssets(genesis, groupKey, details...)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -28,11 +28,11 @@ var (
 	sig, _ = schnorr.ParseSignature(sigBytes)
 )
 
-// TestFamilyKeyIsEqual tests that FamilyKey.IsEqual is correct.
-func TestFamilyKeyIsEqual(t *testing.T) {
+// TestGroupKeyIsEqual tests that GroupKey.IsEqual is correct.
+func TestGroupKeyIsEqual(t *testing.T) {
 	t.Parallel()
 
-	testKey := &FamilyKey{
+	testKey := &GroupKey{
 		RawKey: keychain.KeyDescriptor{
 			// Fill in some non-defaults.
 			KeyLocator: keychain.KeyLocator{
@@ -41,14 +41,14 @@ func TestFamilyKeyIsEqual(t *testing.T) {
 			},
 			PubKey: pubKey,
 		},
-		FamKey: *pubKey,
-		Sig:    *sig,
+		GroupPubKey: *pubKey,
+		Sig:         *sig,
 	}
 
 	pubKeyCopy := *pubKey
 
 	tests := []struct {
-		a, b  *FamilyKey
+		a, b  *GroupKey
 		equal bool
 	}{
 		{
@@ -57,93 +57,93 @@ func TestFamilyKeyIsEqual(t *testing.T) {
 			equal: true,
 		},
 		{
-			a:     &FamilyKey{},
-			b:     &FamilyKey{},
+			a:     &GroupKey{},
+			b:     &GroupKey{},
 			equal: true,
 		},
 		{
 			a:     nil,
-			b:     &FamilyKey{},
+			b:     &GroupKey{},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &FamilyKey{
-				FamKey: *pubKey,
+			b: &GroupKey{
+				GroupPubKey: *pubKey,
 			},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &FamilyKey{
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+			b: &GroupKey{
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &FamilyKey{
+			b: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 					PubKey:     nil,
 				},
 
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &FamilyKey{
+			b: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					PubKey: &pubKeyCopy,
 				},
 
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &FamilyKey{
+			b: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 					PubKey:     &pubKeyCopy,
 				},
 
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
 			equal: true,
 		},
 		{
-			a: &FamilyKey{
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+			a: &GroupKey{
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
-			b: &FamilyKey{
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+			b: &GroupKey{
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
 			equal: true,
 		},
 		{
-			a: &FamilyKey{
+			a: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
-			b: &FamilyKey{
+			b: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
-				FamKey: testKey.FamKey,
-				Sig:    testKey.Sig,
+				GroupPubKey: testKey.GroupPubKey,
+				Sig:         testKey.Sig,
 			},
 			equal: true,
 		},
@@ -205,9 +205,9 @@ func TestAssetEncoding(t *testing.T) {
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       1,
 		ScriptKey:           NewScriptKey(pubKey),
-		FamilyKey: &FamilyKey{
-			FamKey: *pubKey,
-			Sig:    *sig,
+		GroupKey: &GroupKey{
+			GroupPubKey: *pubKey,
+			Sig:         *sig,
 		},
 	}
 	root := &Asset{
@@ -231,9 +231,9 @@ func TestAssetEncoding(t *testing.T) {
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
 		ScriptKey:           NewScriptKey(pubKey),
-		FamilyKey: &FamilyKey{
-			FamKey: *pubKey,
-			Sig:    *sig,
+		GroupKey: &GroupKey{
+			GroupPubKey: *pubKey,
+			Sig:         *sig,
 		},
 	}
 	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
@@ -280,7 +280,7 @@ func TestAssetEncoding(t *testing.T) {
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       2,
 		ScriptKey:           NewScriptKey(pubKey),
-		FamilyKey:           nil,
+		GroupKey:            nil,
 	})
 }
 
@@ -367,8 +367,8 @@ func TestAssetID(t *testing.T) {
 	require.NotEqual(t, id[:], differentID[:])
 }
 
-// TestAssetFamilyKey tests that the asset key family is derived correctly.
-func TestAssetFamilyKey(t *testing.T) {
+// TestAssetGroupKey tests that the asset key group is derived correctly.
+func TestAssetGroupKey(t *testing.T) {
 	t.Parallel()
 
 	privKey, err := btcec.NewPrivateKey()
@@ -390,20 +390,20 @@ func TestAssetFamilyKey(t *testing.T) {
 		Type:        Collectible,
 	}
 
-	var famBytes bytes.Buffer
-	_ = wire.WriteOutPoint(&famBytes, 0, 0, &g.FirstPrevOut)
-	_, _ = famBytes.Write([]byte{0, 0, 0, 21, 1})
+	var groupBytes bytes.Buffer
+	_ = wire.WriteOutPoint(&groupBytes, 0, 0, &g.FirstPrevOut)
+	_, _ = groupBytes.Write([]byte{0, 0, 0, 21, 1})
 
-	tweakedKey := txscript.TweakTaprootPrivKey(*privKey, famBytes.Bytes())
+	tweakedKey := txscript.TweakTaprootPrivKey(*privKey, groupBytes.Bytes())
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	keyFam, err := DeriveFamilyKey(genSigner, fakeKeyDesc, g)
+	keyGroup, err := DeriveGroupKey(genSigner, fakeKeyDesc, g)
 	require.NoError(t, err)
 
 	require.Equal(
 		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
-		schnorr.SerializePubKey(&keyFam.FamKey),
+		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
 	)
 }
 

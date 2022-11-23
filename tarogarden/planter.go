@@ -27,11 +27,11 @@ type GardenKit struct {
 	Log MintingStore
 
 	// KeyRing is used for obtaining internal keys for the anchor
-	// transaction, as well as script keys for each asset and family keys
+	// transaction, as well as script keys for each asset and group keys
 	// for assets created that permit ongoing emission.
 	KeyRing KeyRing
 
-	// GenSigner is used to generate signatures for the key family tweaked
+	// GenSigner is used to generate signatures for the key group tweaked
 	// by the genesis point when creating assets that permit on going
 	// emission.
 	GenSigner asset.GenesisSigner

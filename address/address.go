@@ -81,10 +81,10 @@ type Taro struct {
 	// maps to its unique ID within the Taro protocol.
 	asset.Genesis
 
-	// FamilyKey is the tweaked public key that is used to associate assets
+	// GroupKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
 	// asset to be made possible.
-	FamilyKey *btcec.PublicKey
+	GroupKey *btcec.PublicKey
 
 	// ScriptKey represents a tweaked Taproot output key encumbering the
 	// different ways an asset can be spent.
@@ -98,7 +98,7 @@ type Taro struct {
 }
 
 // New creates an address for receiving a Taro asset.
-func New(genesis asset.Genesis, familyKey *btcec.PublicKey,
+func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	scriptKey btcec.PublicKey, internalKey btcec.PublicKey, amt uint64,
 	net *ChainParams) (*Taro, error) {
 
@@ -128,7 +128,7 @@ func New(genesis asset.Genesis, familyKey *btcec.PublicKey,
 		ChainParams: net,
 		Version:     asset.V0,
 		Genesis:     genesis,
-		FamilyKey:   familyKey,
+		GroupKey:    groupKey,
 		ScriptKey:   scriptKey,
 		InternalKey: internalKey,
 		Amount:      amt,
@@ -140,9 +140,9 @@ func New(genesis asset.Genesis, familyKey *btcec.PublicKey,
 func (a *Taro) Copy() *Taro {
 	addressCopy := *a
 
-	if a.FamilyKey != nil {
-		famKey := *a.FamilyKey
-		addressCopy.FamilyKey = &famKey
+	if a.GroupKey != nil {
+		groupPubKey := *a.GroupKey
+		addressCopy.GroupKey = &groupPubKey
 	}
 
 	return &addressCopy
@@ -154,15 +154,15 @@ func (a *Taro) Net() (*ChainParams, error) {
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
-// family specified by a Taro address.
+// group specified by a Taro address.
 func (a *Taro) TaroCommitmentKey() [32]byte {
-	return asset.TaroCommitmentKey(a.ID(), a.FamilyKey)
+	return asset.TaroCommitmentKey(a.ID(), a.GroupKey)
 }
 
 // AssetCommitmentKey is the key that maps to the asset leaf for the asset
 // specified by a Taro address.
 func (a *Taro) AssetCommitmentKey() [32]byte {
-	return asset.AssetCommitmentKey(a.ID(), &a.ScriptKey, a.FamilyKey == nil)
+	return asset.AssetCommitmentKey(a.ID(), &a.ScriptKey, a.GroupKey == nil)
 }
 
 // TaroCommitment constructs the Taro commitment that is expected to appear on
@@ -173,15 +173,15 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 
 	// We first need to create an asset from the address in order to encode
 	// it in the TLV leaf.
-	var familyKey *asset.FamilyKey
-	if a.FamilyKey != nil {
-		familyKey = &asset.FamilyKey{
-			FamKey: *a.FamilyKey,
+	var groupKey *asset.GroupKey
+	if a.GroupKey != nil {
+		groupKey = &asset.GroupKey{
+			GroupPubKey: *a.GroupKey,
 		}
 	}
 	newAsset, err := asset.New(
 		a.Genesis, a.Amount, 0, 0, asset.NewScriptKey(&a.ScriptKey),
-		familyKey,
+		groupKey,
 	)
 	if err != nil {
 		return nil, err
@@ -239,8 +239,8 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 	records = append(records, newAddressVersionRecord(&a.Version))
 	records = append(records, newAddressGenesisRecord(&a.Genesis))
 
-	if a.FamilyKey != nil {
-		records = append(records, newAddressFamilyKeyRecord(&a.FamilyKey))
+	if a.GroupKey != nil {
+		records = append(records, newAddressGroupKeyRecord(&a.GroupKey))
 	}
 
 	records = append(records, newAddressScriptKeyRecord(&a.ScriptKey))
@@ -256,7 +256,7 @@ func (a *Taro) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		newAddressVersionRecord(&a.Version),
 		newAddressGenesisRecord(&a.Genesis),
-		newAddressFamilyKeyRecord(&a.FamilyKey),
+		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
 		newAddressInternalKeyRecord(&a.InternalKey),
 		newAddressAmountRecord(&a.Amount),

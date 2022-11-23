@@ -23,7 +23,7 @@ type AssetProof struct {
 
 	// AssetID is the common identifier for all assets found within the
 	// AssetCommitment. This can either be an asset.ID, which every
-	// committed asset must match, otherwise an asset.FamilyKey which every
+	// committed asset must match, otherwise an asset.GroupKey which every
 	// committed asset must match.
 	AssetID [32]byte
 }

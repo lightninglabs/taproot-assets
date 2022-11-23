@@ -27,12 +27,12 @@ func RandAddr(t testing.TB, params *ChainParams) *AddrWithKeyInfo {
 		amount = 1
 	}
 
-	var famKey *btcec.PublicKey
+	var groupPubKey *btcec.PublicKey
 	if rand.Int31()%2 == 0 {
-		famKeyPriv, err := btcec.NewPrivateKey()
+		groupKeyPriv, err := btcec.NewPrivateKey()
 		require.NoError(t, err)
 
-		famKey = famKeyPriv.PubKey()
+		groupPubKey = groupKeyPriv.PubKey()
 	}
 
 	scriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
@@ -47,7 +47,7 @@ func RandAddr(t testing.TB, params *ChainParams) *AddrWithKeyInfo {
 		Taro: &Taro{
 			Version:     asset.Version(rand.Int31()),
 			Genesis:     genesis,
-			FamilyKey:   famKey,
+			GroupKey:    groupPubKey,
 			ScriptKey:   *scriptKey.PubKey,
 			InternalKey: *internalKey.PubKey(),
 			Amount:      amount,

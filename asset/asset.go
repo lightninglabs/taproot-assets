@@ -141,14 +141,14 @@ func (g Genesis) ID() ID {
 	return *(*ID)(h.Sum(nil))
 }
 
-// FamilyKeyTweak returns the tweak bytes that commit to the previous outpoint,
+// GroupKeyTweak returns the tweak bytes that commit to the previous outpoint,
 // output index and type of the genesis.
-func (g Genesis) FamilyKeyTweak() []byte {
-	var keyFamBytes bytes.Buffer
-	_ = wire.WriteOutPoint(&keyFamBytes, 0, 0, &g.FirstPrevOut)
-	_ = binary.Write(&keyFamBytes, binary.BigEndian, g.OutputIndex)
-	_ = binary.Write(&keyFamBytes, binary.BigEndian, g.Type)
-	return keyFamBytes.Bytes()
+func (g Genesis) GroupKeyTweak() []byte {
+	var keyGroupBytes bytes.Buffer
+	_ = wire.WriteOutPoint(&keyGroupBytes, 0, 0, &g.FirstPrevOut)
+	_ = binary.Write(&keyGroupBytes, binary.BigEndian, g.OutputIndex)
+	_ = binary.Write(&keyGroupBytes, binary.BigEndian, g.Type)
+	return keyGroupBytes.Bytes()
 }
 
 // VerifySignature verifies the given signature that it is valid over the
@@ -211,7 +211,7 @@ type PrevID struct {
 	// ID is the asset ID of the previous asset tree.
 	ID ID
 
-	// TODO(roasbeef): need another ref type for assets w/ a key family?
+	// TODO(roasbeef): need another ref type for assets w/ a key group?
 
 	// ScriptKey is the previously tweaked Taproot output key committing to
 	// the possible spending conditions of the asset. PrevID is being used
@@ -385,44 +385,44 @@ const (
 	ScriptV0 ScriptVersion = 0
 )
 
-// FamilyKey is the tweaked public key that is used to associate assets together
+// GroupKey is the tweaked public key that is used to associate assets together
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
-type FamilyKey struct {
-	// RawKey is the raw family key before the tweak with the genesis point
+type GroupKey struct {
+	// RawKey is the raw group key before the tweak with the genesis point
 	// has been applied.
 	RawKey keychain.KeyDescriptor
 
-	// FamKey is the tweaked public key that is used to associate assets
+	// GroupPubKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
 	// asset to be made possible. The tweaked public key is the result of:
-	//   familyInternalKey + sha256(familyInternalKey || genesisOutPoint) * G
-	FamKey btcec.PublicKey
+	//   groupInternalKey + sha256(groupInternalKey || genesisOutPoint) * G
+	GroupPubKey btcec.PublicKey
 
 	// Sig is a signature over an asset's ID by `Key`.
 	Sig schnorr.Signature
 }
 
-// IsEqual returns true if this family key is equivalent to the passed other
-// family key.
-func (f *FamilyKey) IsEqual(otherFamilyKey *FamilyKey) bool {
+// IsEqual returns true if this group key is equivalent to the passed other
+// group key.
+func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 	// If this key is nil, the other must be nil too.
-	if f == nil {
-		return otherFamilyKey == nil
+	if g == nil {
+		return otherGroupKey == nil
 	}
 
 	// This key is non nil, other must be non nil too.
-	if otherFamilyKey == nil {
+	if otherGroupKey == nil {
 		return false
 	}
 
 	// Make sure the RawKey are equivalent.
-	if !EqualKeyDescriptors(f.RawKey, otherFamilyKey.RawKey) {
+	if !EqualKeyDescriptors(g.RawKey, otherGroupKey.RawKey) {
 		return false
 	}
 
-	return f.FamKey.IsEqual(&otherFamilyKey.FamKey) &&
-		f.Sig.IsEqual(&otherFamilyKey.Sig)
+	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey) &&
+		g.Sig.IsEqual(&otherGroupKey.Sig)
 }
 
 // EqualKeyDescriptors returns true if the two key descriptors are equal.
@@ -496,7 +496,7 @@ func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) ScriptKey {
 	}
 }
 
-// GenesisSigner is used to sign the assetID using the family key public key
+// GenesisSigner is used to sign the assetID using the group key public key
 // for a given asset.
 type GenesisSigner interface {
 	// SignGenesis signs the passed Genesis description using the public
@@ -531,7 +531,7 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	}
 
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		*r.privKey, gen.FamilyKeyTweak(),
+		*r.privKey, gen.GroupKeyTweak(),
 	)
 
 	// TODO(roasbeef): this actually needs to sign the digest of the asset
@@ -550,20 +550,20 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 // GenesisSigner interface.
 var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 
-// DeriveFamilyKey derives an asset's family key based on an internal public
+// DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor key and an asset genesis.
-func DeriveFamilyKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	genesis Genesis) (*FamilyKey, error) {
+func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
+	genesis Genesis) (*GroupKey, error) {
 
-	famKey, sig, err := genSigner.SignGenesis(rawKey, genesis)
+	groupPubKey, sig, err := genSigner.SignGenesis(rawKey, genesis)
 	if err != nil {
 		return nil, err
 	}
 
-	return &FamilyKey{
-		RawKey: rawKey,
-		FamKey: *famKey,
-		Sig:    *sig,
+	return &GroupKey{
+		RawKey:      rawKey,
+		GroupPubKey: *groupPubKey,
+		Sig:         *sig,
 	}, nil
 }
 
@@ -606,15 +606,15 @@ type Asset struct {
 	// different ways an asset can be spent.
 	ScriptKey ScriptKey
 
-	// FamilyKey is the tweaked public key that is used to associate assets
+	// GroupKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
 	// asset to be made possible.
-	FamilyKey *FamilyKey
+	GroupKey *GroupKey
 }
 
 // New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
-	scriptKey ScriptKey, familyKey *FamilyKey) (*Asset, error) {
+	scriptKey ScriptKey, groupKey *GroupKey) (*Asset, error) {
 
 	// Collectible assets can only ever be issued once.
 	if genesis.Type != Normal && amount != 1 {
@@ -637,28 +637,28 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       ScriptV0,
 		ScriptKey:           scriptKey,
-		FamilyKey:           familyKey,
+		GroupKey:            groupKey,
 	}, nil
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
-// asset family within a TaroCommitment.
+// asset group within a TaroCommitment.
 //
 // NOTE: This function is also used outside the asset package.
-func TaroCommitmentKey(assetID ID, familyKey *btcec.PublicKey) [32]byte {
-	if familyKey == nil {
+func TaroCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
+	if groupKey == nil {
 		return assetID
 	}
-	return sha256.Sum256(schnorr.SerializePubKey(familyKey))
+	return sha256.Sum256(schnorr.SerializePubKey(groupKey))
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for a specific
-// asset family within a TaroCommitment.
+// asset group within a TaroCommitment.
 func (a *Asset) TaroCommitmentKey() [32]byte {
-	if a.FamilyKey == nil {
+	if a.GroupKey == nil {
 		return TaroCommitmentKey(a.Genesis.ID(), nil)
 	}
-	return TaroCommitmentKey(a.Genesis.ID(), &a.FamilyKey.FamKey)
+	return TaroCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
 }
 
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
@@ -681,7 +681,7 @@ func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
 // within a Taro AssetCommitment.
 func (a *Asset) AssetCommitmentKey() [32]byte {
-	issuanceDisabled := a.FamilyKey == nil
+	issuanceDisabled := a.GroupKey == nil
 	return AssetCommitmentKey(
 		a.Genesis.ID(), a.ScriptKey.PubKey, issuanceDisabled,
 	)
@@ -783,11 +783,11 @@ func (a *Asset) Copy() *Asset {
 		copy(assetCopy.ScriptKey.Tweak, a.ScriptKey.Tweak)
 	}
 
-	if a.FamilyKey != nil {
-		assetCopy.FamilyKey = &FamilyKey{
-			RawKey: a.FamilyKey.RawKey,
-			FamKey: a.FamilyKey.FamKey,
-			Sig:    a.FamilyKey.Sig,
+	if a.GroupKey != nil {
+		assetCopy.GroupKey = &GroupKey{
+			RawKey:      a.GroupKey.RawKey,
+			GroupPubKey: a.GroupKey.GroupPubKey,
+			Sig:         a.GroupKey.Sig,
 		}
 	}
 
@@ -826,7 +826,7 @@ func (a *Asset) DeepEqual(o *Asset) bool {
 		return false
 	}
 
-	if !a.FamilyKey.IsEqual(o.FamilyKey) {
+	if !a.GroupKey.IsEqual(o.GroupKey) {
 		return false
 	}
 
@@ -871,8 +871,8 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 	}
 	records = append(records, NewLeafScriptVersionRecord(&a.ScriptVersion))
 	records = append(records, NewLeafScriptKeyRecord(&a.ScriptKey.PubKey))
-	if a.FamilyKey != nil {
-		records = append(records, NewLeafFamilyKeyRecord(&a.FamilyKey))
+	if a.GroupKey != nil {
+		records = append(records, NewLeafGroupKeyRecord(&a.GroupKey))
 	}
 	return records
 }
@@ -891,7 +891,7 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 		NewLeafSplitCommitmentRootRecord(&a.SplitCommitmentRoot),
 		NewLeafScriptVersionRecord(&a.ScriptVersion),
 		NewLeafScriptKeyRecord(&a.ScriptKey.PubKey),
-		NewLeafFamilyKeyRecord(&a.FamilyKey),
+		NewLeafGroupKeyRecord(&a.GroupKey),
 	}
 }
 

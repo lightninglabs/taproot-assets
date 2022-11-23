@@ -30,40 +30,40 @@ import (
 
 // spendData represents the collection of structs needed to begin a spend.
 type spendData struct {
-	collectAmt                     uint64
-	normalAmt1                     uint64
-	normalAmt2                     uint64
-	genesis1                       asset.Genesis
-	genesis1collect                asset.Genesis
-	spenderPrivKey                 btcec.PrivateKey
-	spenderPubKey                  btcec.PublicKey
-	spenderScriptKey               btcec.PublicKey
-	spenderDescriptor              keychain.KeyDescriptor
-	receiverPrivKey                btcec.PrivateKey
-	receiverPubKey                 btcec.PublicKey
-	familyKey                      asset.FamilyKey
-	address1                       address.Taro
-	address1CollectFamily          address.Taro
-	address2                       address.Taro
-	address1StateKey               [32]byte
-	address1CollectFamilyStateKey  [32]byte
-	address2StateKey               [32]byte
-	asset1                         asset.Asset
-	asset1CollectFamily            asset.Asset
-	asset2                         asset.Asset
-	asset1PrevID                   asset.PrevID
-	asset1CollectFamilyPrevID      asset.PrevID
-	asset2PrevID                   asset.PrevID
-	asset1InputAssets              commitment.InputSet
-	asset1CollectFamilyInputAssets commitment.InputSet
-	asset2InputAssets              commitment.InputSet
-	asset1TaroTree                 commitment.TaroCommitment
-	asset1CollectFamilyTaroTree    commitment.TaroCommitment
-	asset2TaroTree                 commitment.TaroCommitment
-	asset2GenesisTx                wire.MsgTx
-	asset2GenesisProof             proof.Proof
-	validator                      taroscript.TxValidator
-	signer                         *taroscript.MockSigner
+	collectAmt                    uint64
+	normalAmt1                    uint64
+	normalAmt2                    uint64
+	genesis1                      asset.Genesis
+	genesis1collect               asset.Genesis
+	spenderPrivKey                btcec.PrivateKey
+	spenderPubKey                 btcec.PublicKey
+	spenderScriptKey              btcec.PublicKey
+	spenderDescriptor             keychain.KeyDescriptor
+	receiverPrivKey               btcec.PrivateKey
+	receiverPubKey                btcec.PublicKey
+	groupKey                      asset.GroupKey
+	address1                      address.Taro
+	address1CollectGroup          address.Taro
+	address2                      address.Taro
+	address1StateKey              [32]byte
+	address1CollectGroupStateKey  [32]byte
+	address2StateKey              [32]byte
+	asset1                        asset.Asset
+	asset1CollectGroup            asset.Asset
+	asset2                        asset.Asset
+	asset1PrevID                  asset.PrevID
+	asset1CollectGroupPrevID      asset.PrevID
+	asset2PrevID                  asset.PrevID
+	asset1InputAssets             commitment.InputSet
+	asset1CollectGroupInputAssets commitment.InputSet
+	asset2InputAssets             commitment.InputSet
+	asset1TaroTree                commitment.TaroCommitment
+	asset1CollectGroupTaroTree    commitment.TaroCommitment
+	asset2TaroTree                commitment.TaroCommitment
+	asset2GenesisTx               wire.MsgTx
+	asset2GenesisProof            proof.Proof
+	validator                     taroscript.TxValidator
+	signer                        *taroscript.MockSigner
 }
 
 var (
@@ -87,17 +87,17 @@ func randKey(t *testing.T) *btcec.PrivateKey {
 	return key
 }
 
-func randFamilyKey(t *testing.T, genesis asset.Genesis) *asset.FamilyKey {
+func randGroupKey(t *testing.T, genesis asset.Genesis) *asset.GroupKey {
 	t.Helper()
 	privKey := randKey(t)
 	genSigner := asset.NewRawKeyGenesisSigner(privKey)
 	fakeKeyDesc := keychain.KeyDescriptor{
 		PubKey: privKey.PubKey(),
 	}
-	familyKey, err := asset.DeriveFamilyKey(genSigner, fakeKeyDesc, genesis)
+	groupKey, err := asset.DeriveGroupKey(genSigner, fakeKeyDesc, genesis)
 	require.NoError(t, err)
 
-	return familyKey
+	return groupKey
 }
 
 func initSpendScenario(t *testing.T) spendData {
@@ -113,7 +113,7 @@ func initSpendScenario(t *testing.T) spendData {
 		genesis1collect: asset.RandGenesis(t, asset.Collectible),
 	}
 
-	// Keys for sender, receiver, and family. Default to keypath spend
+	// Keys for sender, receiver, and group. Default to keypath spend
 	// for the spender ScriptKey.
 	spenderPrivKey, spenderPubKey := btcec.PrivKeyFromBytes(key1Bytes)
 	state.spenderPrivKey = *spenderPrivKey
@@ -129,8 +129,8 @@ func initSpendScenario(t *testing.T) spendData {
 	state.receiverPrivKey = *receiverPrivKey
 	state.receiverPubKey = *receiverPubKey
 
-	familyKey := randFamilyKey(t, state.genesis1collect)
-	state.familyKey = *familyKey
+	groupKey := randGroupKey(t, state.genesis1collect)
+	state.groupKey = *groupKey
 
 	// Addesses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
@@ -142,14 +142,14 @@ func initSpendScenario(t *testing.T) spendData {
 	state.address1 = *address1
 	state.address1StateKey = state.address1.AssetCommitmentKey()
 
-	address1CollectFamily, err := address.New(
-		state.genesis1collect, &state.familyKey.FamKey,
+	address1CollectGroup, err := address.New(
+		state.genesis1collect, &state.groupKey.GroupPubKey,
 		state.receiverPubKey, state.receiverPubKey, state.collectAmt,
 		&address.TestNet3Taro,
 	)
 	require.NoError(t, err)
-	state.address1CollectFamily = *address1CollectFamily
-	state.address1CollectFamilyStateKey = state.address1CollectFamily.
+	state.address1CollectGroup = *address1CollectGroup
+	state.address1CollectGroupStateKey = state.address1CollectGroup.
 		AssetCommitmentKey()
 
 	address2, err := address.New(
@@ -192,13 +192,13 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 	require.NoError(t, err)
 	state.asset1 = *asset1
 
-	asset1CollectFamily, err := asset.New(
+	asset1CollectGroup, err := asset.New(
 		state.genesis1collect, state.collectAmt, locktime,
 		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
-		&state.familyKey,
+		&state.groupKey,
 	)
 	require.NoError(t, err)
-	state.asset1CollectFamily = *asset1CollectFamily
+	state.asset1CollectGroup = *asset1CollectGroup
 
 	asset2, err := asset.New(
 		state.genesis1, state.normalAmt2, locktime,
@@ -214,9 +214,9 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 		ID:        state.asset1.ID(),
 		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
-	state.asset1CollectFamilyPrevID = asset.PrevID{
+	state.asset1CollectGroupPrevID = asset.PrevID{
 		OutPoint:  wire.OutPoint{},
-		ID:        state.asset1CollectFamily.ID(),
+		ID:        state.asset1CollectGroup.ID(),
 		ScriptKey: asset.ToSerialized(&state.spenderScriptKey),
 	}
 	state.asset2PrevID = asset.PrevID{
@@ -228,8 +228,8 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 	state.asset1InputAssets = commitment.InputSet{
 		state.asset1PrevID: &state.asset1,
 	}
-	state.asset1CollectFamilyInputAssets = commitment.InputSet{
-		state.asset1CollectFamilyPrevID: &state.asset1CollectFamily,
+	state.asset1CollectGroupInputAssets = commitment.InputSet{
+		state.asset1CollectGroupPrevID: &state.asset1CollectGroup,
 	}
 	state.asset2InputAssets = commitment.InputSet{
 		state.asset2PrevID: &state.asset2,
@@ -248,15 +248,15 @@ func updateScenarioCommitments(t *testing.T, state *spendData) {
 	require.NoError(t, err)
 	state.asset1TaroTree = *asset1TaroTree
 
-	asset1CollectFamilyAssetTree, err := commitment.NewAssetCommitment(
-		&state.asset1CollectFamily,
+	asset1CollectGroupAssetTree, err := commitment.NewAssetCommitment(
+		&state.asset1CollectGroup,
 	)
 	require.NoError(t, err)
-	asset1CollectFamilyTaroTree, err := commitment.NewTaroCommitment(
-		asset1CollectFamilyAssetTree,
+	asset1CollectGroupTaroTree, err := commitment.NewTaroCommitment(
+		asset1CollectGroupAssetTree,
 	)
 	require.NoError(t, err)
-	state.asset1CollectFamilyTaroTree = *asset1CollectFamilyTaroTree
+	state.asset1CollectGroupTaroTree = *asset1CollectGroupTaroTree
 
 	asset2AssetTree, err := commitment.NewAssetCommitment(&state.asset2)
 	require.NoError(t, err)
@@ -515,7 +515,7 @@ func checkValidateSpend(t *testing.T, a, b *asset.Asset, split bool) {
 	require.Equal(t,
 		a.ScriptKey.PubKey, b.ScriptKey.PubKey,
 	)
-	require.Equal(t, a.FamilyKey, b.FamilyKey)
+	require.Equal(t, a.GroupKey, b.GroupKey)
 }
 
 func checkTaroCommitment(t *testing.T, assets []*asset.Asset,
@@ -660,7 +660,7 @@ func checkSpendOutputs(t *testing.T, addr address.Taro,
 	// Build a TaprootProof for each receiver to prove inclusion
 	// or exclusion for each output.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID(), &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.GroupKey == nil,
 	)
 	senderIndex := locators[senderStateKey].OutputIndex
 	senderTaroTree := commitments[senderStateKey]
@@ -845,19 +845,19 @@ var prepareAssetSplitSpendTestCases = []prepareAssetSplitSpendTestCase{
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
-				InputAssets: state.asset1CollectFamilyInputAssets,
+				InputAssets: state.asset1CollectGroupInputAssets,
 			}
 			state.spenderScriptKey = *asset.NUMSPubKey
 			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID,
 				state.spenderScriptKey, spend,
 			)
 			require.NoError(t, err)
 
 			checkPreparedSplitSpend(
-				t, spendPrepared, state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID,
+				t, spendPrepared, state.address1CollectGroup,
+				state.asset1CollectGroupPrevID,
 				state.spenderScriptKey,
 			)
 			return nil
@@ -905,20 +905,20 @@ type prepareAssetCompleteSpendTestCase struct {
 
 var prepareAssetCompleteSpendTestCases = []prepareAssetCompleteSpendTestCase{
 	{
-		name: "collectible with family key",
+		name: "collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			spendPrepared := taroscript.PrepareAssetCompleteSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID, spend,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID, spend,
 			)
 			checkPreparedCompleteSpend(
-				t, spendPrepared, state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID,
+				t, spendPrepared, state.address1CollectGroup,
+				state.asset1CollectGroupPrevID,
 			)
 			return nil
 		},
@@ -1031,21 +1031,21 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 		err: taroscript.ErrNoInputs,
 	},
 	{
-		name: "validate collectible with family key",
+		name: "validate collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			spendPrepared := taroscript.PrepareAssetCompleteSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID, spend,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID, spend,
 			)
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
 				state.spenderPubKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				*spendPrepared, state.signer, state.validator,
 			)
 			require.NoError(t, err)
@@ -1138,17 +1138,17 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 		},
 	},
 	{
-		name: "validate split collectible with family key",
+		name: "validate split collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			state.spenderScriptKey = *asset.NUMSPubKey
 			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID,
 				state.spenderScriptKey, spend,
 			)
 			require.NoError(t, err)
@@ -1156,7 +1156,7 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
 				state.spenderPubKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				*spendPrepared, state.signer, state.validator,
 			)
 			require.NoError(t, err)
@@ -1309,41 +1309,41 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 		err: taroscript.ErrMissingSplitAsset,
 	},
 	{
-		name: "collectible with family key",
+		name: "collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			spendPrepared := taroscript.PrepareAssetCompleteSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID, spend,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
 				state.spenderPubKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				*spendPrepared, state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				&state.asset1CollectFamilyTaroTree,
-				state.asset1CollectFamilyPrevID,
-				*spendCompleted, state.address1CollectFamily,
+				&state.asset1CollectGroupTaroTree,
+				state.asset1CollectGroupPrevID,
+				*spendCompleted, state.address1CollectGroup,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1CollectFamily.ID(),
+				state.address1CollectGroup.ID(),
 				&state.spenderScriptKey,
 				false,
 			)
-			receiverStateKey := state.address1CollectFamilyStateKey
+			receiverStateKey := state.address1CollectGroupStateKey
 			checkSpendCommitments(
 				t, senderStateKey, receiverStateKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				spendCompleted, spendCommitments, false,
 			)
 			return nil
@@ -1469,45 +1469,45 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 		err: nil,
 	},
 	{
-		name: "split collectible with family key",
+		name: "split collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			state.spenderScriptKey = *asset.NUMSPubKey
 			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID,
 				state.spenderScriptKey, spend,
 			)
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
 				state.spenderPubKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				*spendPrepared, state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				&state.asset1CollectFamilyTaroTree,
-				state.asset1CollectFamilyPrevID,
-				*spendCompleted, state.address1CollectFamily,
+				&state.asset1CollectGroupTaroTree,
+				state.asset1CollectGroupPrevID,
+				*spendCompleted, state.address1CollectGroup,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1CollectFamily.ID(),
+				state.address1CollectGroup.ID(),
 				&state.spenderScriptKey,
 				false,
 			)
-			receiverStateKey := state.address1CollectFamilyStateKey
+			receiverStateKey := state.address1CollectGroupStateKey
 			checkSpendCommitments(
 				t, senderStateKey, receiverStateKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				spendCompleted, spendCommitments, true,
 			)
 			return nil
@@ -1567,7 +1567,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 				&state.spenderScriptKey, true,
 			)
 			delete(spendCommitments, senderStateKey)
-			receiverStateKey := state.address1CollectFamilyStateKey
+			receiverStateKey := state.address1CollectGroupStateKey
 			locators := taroscript.CreateDummyLocators(
 				[][32]byte{senderStateKey, receiverStateKey},
 			)
@@ -1626,38 +1626,38 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 		err: taroscript.ErrMissingTaroCommitment,
 	},
 	{
-		name: "collectible with family key",
+		name: "collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			spendPrepared := taroscript.PrepareAssetCompleteSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID, spend,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
 				state.spenderPubKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				*spendPrepared, state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				&state.asset1CollectFamilyTaroTree,
-				state.asset1CollectFamilyPrevID,
+				&state.asset1CollectGroupTaroTree,
+				state.asset1CollectGroupPrevID,
 				*spendCompleted,
-				state.address1CollectFamily,
+				state.address1CollectGroup,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
 			senderStateKey := asset.AssetCommitmentKey(
-				state.address1CollectFamily.ID(),
+				state.address1CollectGroup.ID(),
 				&state.spenderScriptKey, false,
 			)
-			receiverStateKey := state.address1CollectFamilyStateKey
+			receiverStateKey := state.address1CollectGroupStateKey
 			spendCompleted.Locators = taroscript.CreateDummyLocators(
 				[][32]byte{senderStateKey, receiverStateKey},
 			)
@@ -1666,7 +1666,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			)
 			require.NoError(t, err)
 			err = taroscript.CreateSpendOutputs(
-				state.address1CollectFamily,
+				state.address1CollectGroup,
 				spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
 				spendCommitments, spendPsbt,
@@ -1674,9 +1674,9 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			senderAsset := spendCompleted.InputAssets[state.
-				asset1CollectFamilyPrevID]
+				asset1CollectGroupPrevID]
 			checkSpendOutputs(
-				t, state.address1CollectFamily,
+				t, state.address1CollectGroup,
 				state.spenderPubKey, state.spenderScriptKey,
 				senderAsset, &spendCompleted.NewAsset,
 				spendCommitments, spendCompleted.Locators,
@@ -1849,38 +1849,38 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 		err: nil,
 	},
 	{
-		name: "split collectible with family key",
+		name: "split collectible with group key",
 		f: func(t *testing.T) error {
 			state := initSpendScenario(t)
 			spend := taroscript.SpendDelta{
 				InputAssets: state.
-					asset1CollectFamilyInputAssets,
+					asset1CollectGroupInputAssets,
 			}
 			state.spenderScriptKey = *asset.NUMSPubKey
 			spendPrepared, err := taroscript.PrepareAssetSplitSpend(
-				state.address1CollectFamily,
-				state.asset1CollectFamilyPrevID,
+				state.address1CollectGroup,
+				state.asset1CollectGroupPrevID,
 				state.spenderScriptKey, spend,
 			)
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
 				state.spenderPubKey,
-				state.asset1CollectFamilyPrevID,
+				state.asset1CollectGroupPrevID,
 				*spendPrepared, state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
 			spendCommitments, err := taroscript.CreateSpendCommitments(
-				&state.asset1CollectFamilyTaroTree,
-				state.asset1CollectFamilyPrevID,
+				&state.asset1CollectGroupTaroTree,
+				state.asset1CollectGroupPrevID,
 				*spendCompleted,
-				state.address1CollectFamily,
+				state.address1CollectGroup,
 				state.spenderScriptKey,
 			)
 			require.NoError(t, err)
 
-			receiverStateKey := state.address1CollectFamilyStateKey
+			receiverStateKey := state.address1CollectGroupStateKey
 			receiverLocator := spendCompleted.
 				Locators[receiverStateKey]
 			receiverAsset := spendCompleted.SplitCommitment.
@@ -1891,7 +1891,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			err = taroscript.CreateSpendOutputs(
-				state.address1CollectFamily,
+				state.address1CollectGroup,
 				spendCompleted.Locators,
 				state.spenderPubKey, state.spenderScriptKey,
 				spendCommitments, spendPsbt,
@@ -1899,7 +1899,7 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			checkSpendOutputs(
-				t, state.address1CollectFamily,
+				t, state.address1CollectGroup,
 				state.spenderPubKey, state.spenderScriptKey,
 				&spendCompleted.NewAsset, &receiverAsset,
 				spendCommitments, spendCompleted.Locators,
@@ -2146,16 +2146,16 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 		err: nil,
 	},
 	{
-		name: "valid collectible with family key",
+		name: "valid collectible with group key",
 		f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 			state := initSpendScenario(t)
 			inputAsset, fullValue, err := taroscript.IsValidInput(
-				&state.asset1CollectFamilyTaroTree,
-				state.address1CollectFamily,
+				&state.asset1CollectGroupTaroTree,
+				state.address1CollectGroup,
 				state.spenderScriptKey, address.TestNet3Taro,
 			)
 			require.True(t, fullValue)
-			return &state.asset1CollectFamily, inputAsset, err
+			return &state.asset1CollectGroup, inputAsset, err
 		},
 		err: nil,
 	},
@@ -2191,7 +2191,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{
 			state := initSpendScenario(t)
 			inputAsset, fullValue, err := taroscript.IsValidInput(
 				&state.asset1TaroTree,
-				state.address1CollectFamily,
+				state.address1CollectGroup,
 				state.spenderScriptKey, address.TestNet3Taro,
 			)
 			require.False(t, fullValue)

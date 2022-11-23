@@ -161,19 +161,19 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	// Otherwise, we'll just commit to the new asset directly. In
 	// this case, the output script is derived from the root of a
 	// MS-SMT containing the new asset.
-	var familyKey []byte
-	if asset.FamilyKey != nil {
-		familyKey = schnorr.SerializePubKey(&asset.FamilyKey.FamKey)
+	var groupKey []byte
+	if asset.GroupKey != nil {
+		groupKey = schnorr.SerializePubKey(&asset.GroupKey.GroupPubKey)
 	} else {
 		var emptyKey [32]byte
-		familyKey = emptyKey[:]
+		groupKey = emptyKey[:]
 	}
 	assetID := asset.Genesis.ID()
 
 	// TODO(roasbeef): double check this key matches the split commitment
 	// above? or can treat as standalone case (no splits)
 	h := sha256.New()
-	_, _ = h.Write(familyKey)
+	_, _ = h.Write(groupKey)
 	_, _ = h.Write(assetID[:])
 	_, _ = h.Write(schnorr.SerializePubKey(asset.ScriptKey.PubKey))
 

@@ -468,7 +468,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	id := event.Addr.ID()
 	blob, err := c.cfg.ProofArchive.FetchProof(ctxt, proof.Locator{
 		AssetID:   &id,
-		FamilyKey: event.Addr.FamilyKey,
+		GroupKey:  event.Addr.GroupKey,
 		ScriptKey: event.Addr.ScriptKey,
 	})
 	switch {
@@ -585,21 +585,21 @@ func isWalletTaprootOutput(out *lnrpc.OutputDetail) bool {
 	return out.IsOurAddress && out.OutputType == p2trType
 }
 
-// AddrMatchesAsset returns true if the given asset state (ID, family key,
+// AddrMatchesAsset returns true if the given asset state (ID, group key,
 // script key) matches the state represented in the address.
 func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
-	famKeyBothNil := (addr.FamilyKey == nil) && (a.FamilyKey == nil)
-	famKeyNoneNil := (addr.FamilyKey != nil) && (a.FamilyKey != nil)
+	groupKeyBothNil := (addr.GroupKey == nil) && (a.GroupKey == nil)
+	groupKeyNoneNil := (addr.GroupKey != nil) && (a.GroupKey != nil)
 
-	// If one of the family keys is not nil while the other one is, then we
+	// If one of the group keys is not nil while the other one is, then we
 	// can already exit here as we know things won't match up further.
-	if !famKeyBothNil && !famKeyNoneNil {
+	if !groupKeyBothNil && !groupKeyNoneNil {
 		return false
 	}
 
-	famKeyEqual := famKeyBothNil ||
-		addr.FamilyKey.IsEqual(&a.FamilyKey.FamKey)
+	groupKeyEqual := groupKeyBothNil ||
+		addr.GroupKey.IsEqual(&a.GroupKey.GroupPubKey)
 
-	return addr.ID() == a.ID() && famKeyEqual &&
+	return addr.ID() == a.ID() && groupKeyEqual &&
 		addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
 }

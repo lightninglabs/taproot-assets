@@ -27,18 +27,18 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 	}
 }
 
-// RandFamilyKey creates a random family key for testing.
-func RandFamilyKey(t testing.TB, genesis *Genesis) *FamilyKey {
+// RandGroupKey creates a random group key for testing.
+func RandGroupKey(t testing.TB, genesis *Genesis) *GroupKey {
 	privateKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	genSigner := NewRawKeyGenesisSigner(privateKey)
 
-	familyKey, err := DeriveFamilyKey(
+	groupKey, err := DeriveGroupKey(
 		genSigner, test.PubToKeyDesc(privateKey.PubKey()), *genesis,
 	)
 	require.NoError(t, err)
-	return familyKey
+	return groupKey
 }
 
 // RandID creates a random asset ID.

@@ -33,13 +33,13 @@ func (l *LndRpcGenSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	assetGen asset.Genesis) (*btcec.PublicKey, *schnorr.Signature, error) {
 
 	tweakedPubKey := txscript.ComputeTaprootOutputKey(
-		keyDesc.PubKey, assetGen.FamilyKeyTweak(),
+		keyDesc.PubKey, assetGen.GroupKeyTweak(),
 	)
 
 	id := assetGen.ID()
 	sig, err := l.lnd.Signer.SignMessage(
 		context.Background(), id[:], keyDesc.KeyLocator,
-		lndclient.SignSchnorr(assetGen.FamilyKeyTweak()),
+		lndclient.SignSchnorr(assetGen.GroupKeyTweak()),
 	)
 	if err != nil {
 		return nil, nil, err

@@ -94,10 +94,10 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
-	familyKey := asset.RandFamilyKey(t, &genesis)
+	groupKey := asset.RandGroupKey(t, &genesis)
 
 	commitment, assets, err := commitment.Mint(
-		genesis, familyKey, &commitment.AssetDetails{
+		genesis, groupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        test.PubToKeyDesc(test.RandPubKey(t)),
 			Amount:           nil,
@@ -107,7 +107,7 @@ func TestProofEncoding(t *testing.T) {
 	)
 	require.NoError(t, err)
 	asset := assets[0]
-	asset.FamilyKey.RawKey = keychain.KeyDescriptor{}
+	asset.GroupKey.RawKey = keychain.KeyDescriptor{}
 
 	// Empty the raw script key, since we only serialize the tweaked
 	// pubkey. We'll also force the main script key to be an x-only key as
@@ -209,9 +209,9 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 
 	genesisPrivKey := test.RandPrivKey(t)
 	assetGenesis := asset.RandGenesis(t, assetType)
-	assetFamilyKey := asset.RandFamilyKey(t, &assetGenesis)
+	assetGroupKey := asset.RandGroupKey(t, &assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
-		assetGenesis, assetFamilyKey, &commitment.AssetDetails{
+		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type: assetType,
 			ScriptKey: test.PubToKeyDesc(
 				genesisPrivKey.PubKey(),

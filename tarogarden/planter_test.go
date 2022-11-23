@@ -341,7 +341,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		require.Equal(t, seedling.Metadata, assetSprout.Genesis.Metadata)
 		require.Equal(t, seedling.Amount, assetSprout.Amount)
 		require.Equal(
-			t, seedling.EnableEmission, assetSprout.FamilyKey != nil,
+			t, seedling.EnableEmission, assetSprout.GroupKey != nil,
 		)
 	}
 }

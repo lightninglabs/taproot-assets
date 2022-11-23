@@ -580,9 +580,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// enough to send
 		assetID := currentPkg.ReceiverAddr.ID()
 		constraints := CommitmentConstraints{
-			FamilyKey: currentPkg.ReceiverAddr.FamilyKey,
-			AssetID:   &assetID,
-			MinAmt:    currentPkg.ReceiverAddr.Amount,
+			GroupKey: currentPkg.ReceiverAddr.GroupKey,
+			AssetID:  &assetID,
+			MinAmt:   currentPkg.ReceiverAddr.Amount,
 		}
 		elgigibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
 			ctx, constraints,
@@ -876,7 +876,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		senderCommitKey := asset.AssetCommitmentKey(
 			currentPkg.InputAssetPrevID.ID,
 			currentPkg.SenderScriptKey.PubKey,
-			currentPkg.InputAsset.Asset.FamilyKey == nil,
+			currentPkg.InputAsset.Asset.GroupKey == nil,
 		)
 		newSenderCommitment := currentPkg.NewOutputCommitments[senderCommitKey]
 		anchorOutputIndex := currentPkg.SendDelta.Locators[senderCommitKey].OutputIndex

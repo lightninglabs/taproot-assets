@@ -388,11 +388,11 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context) (
 			},
 		}
 
-		if a.FamilyKey != nil {
-			rpcAssets[i].AssetFamily = &tarorpc.AssetFamily{
-				RawFamilyKey:     a.FamilyKey.RawKey.PubKey.SerializeCompressed(),
-				TweakedFamilyKey: a.FamilyKey.FamKey.SerializeCompressed(),
-				AssetIdSig:       a.FamilyKey.Sig.Serialize(),
+		if a.GroupKey != nil {
+			rpcAssets[i].AssetGroup = &tarorpc.AssetGroup{
+				RawGroupKey:     a.GroupKey.RawKey.PubKey.SerializeCompressed(),
+				TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
+				AssetIdSig:      a.GroupKey.Sig.Serialize(),
 			}
 		}
 	}
@@ -445,32 +445,32 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 	return resp, nil
 }
 
-func (r *rpcServer) listBalancesByFamilyKey(ctx context.Context,
-	famKey *btcec.PublicKey) (*tarorpc.ListBalancesResponse, error) {
+func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
+	groupKey *btcec.PublicKey) (*tarorpc.ListBalancesResponse, error) {
 
-	balances, err := r.cfg.AssetStore.QueryAssetBalancesByFamily(
-		ctx, famKey,
+	balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
+		ctx, groupKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
 	}
 
 	resp := &tarorpc.ListBalancesResponse{
-		AssetFamilyBalances: make(
-			map[string]*tarorpc.AssetFamilyBalance, len(balances),
+		AssetGroupBalances: make(
+			map[string]*tarorpc.AssetGroupBalance, len(balances),
 		),
 	}
 
 	for _, balance := range balances {
-		var famKey []byte
-		if balance.FamKey != nil {
-			famKey = balance.FamKey.SerializeCompressed()
+		var groupKey []byte
+		if balance.GroupKey != nil {
+			groupKey = balance.GroupKey.SerializeCompressed()
 		}
 
-		famKeyString := hex.EncodeToString(famKey)
-		resp.AssetFamilyBalances[famKeyString] = &tarorpc.AssetFamilyBalance{
-			FamilyKey: famKey,
-			Balance:   int64(balance.Balance),
+		groupKeyString := hex.EncodeToString(groupKey)
+		resp.AssetGroupBalances[groupKeyString] = &tarorpc.AssetGroupBalance{
+			GroupKey: groupKey,
+			Balance:  int64(balance.Balance),
 		}
 	}
 
@@ -542,22 +542,22 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 
 		return r.listBalancesByAsset(ctx, assetID)
 
-	case *tarorpc.ListBalancesRequest_FamKey:
-		if !groupBy.FamKey {
+	case *tarorpc.ListBalancesRequest_GroupKey:
+		if !groupBy.GroupKey {
 			return nil, fmt.Errorf("invalid group_by")
 		}
 
-		var famKey *btcec.PublicKey
-		if len(in.FamilyKeyFilter) != 0 {
+		var groupKey *btcec.PublicKey
+		if len(in.GroupKeyFilter) != 0 {
 			var err error
-			famKey, err = btcec.ParsePubKey(in.FamilyKeyFilter)
+			groupKey, err = btcec.ParsePubKey(in.GroupKeyFilter)
 			if err != nil {
-				return nil, fmt.Errorf("invalid family key "+
+				return nil, fmt.Errorf("invalid group key "+
 					"filter: %v", err)
 			}
 		}
 
-		return r.listBalancesByFamilyKey(ctx, famKey)
+		return r.listBalancesByGroupKey(ctx, groupKey)
 
 	default:
 		return nil, fmt.Errorf("invalid group_by")
@@ -671,17 +671,17 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	in *tarorpc.NewAddrRequest) (*tarorpc.Addr, error) {
 
 	var (
-		famKey *btcec.PublicKey
-		err    error
+		groupKey *btcec.PublicKey
+		err      error
 	)
 
-	// The family key is optional, so we'll only decode it if it's
+	// The group key is optional, so we'll only decode it if it's
 	// specified.
-	if len(in.FamKey) != 0 {
-		famKey, err = btcec.ParsePubKey(in.FamKey)
+	if len(in.GroupKey) != 0 {
+		groupKey, err = btcec.ParsePubKey(in.GroupKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode "+
-				"fam key: %w", err)
+				"group key: %w", err)
 		}
 	}
 
@@ -699,7 +699,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	// Now that we have all the params, we'll try to add a new address to
 	// the addr book.
 	addr, err := r.cfg.AddrBook.NewAddress(
-		ctx, genesis, famKey, uint64(in.Amt),
+		ctx, genesis, groupKey, uint64(in.Amt),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
@@ -904,8 +904,8 @@ func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 		TaprootOutputKey: schnorr.SerializePubKey(taprootOutputKey),
 	}
 
-	if addr.FamilyKey != nil {
-		rpcAddr.FamilyKey = addr.FamilyKey.SerializeCompressed()
+	if addr.GroupKey != nil {
+		rpcAddr.GroupKey = addr.GroupKey.SerializeCompressed()
 	}
 
 	return rpcAddr, nil
