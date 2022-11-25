@@ -184,14 +184,14 @@ type LndConfig struct {
 
 // Config is the main config for the tarod cli command.
 type Config struct {
-	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
+	ShowVersion bool `long:"version" description:"Display version information and exit"`
 
-	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
+	DebugLevel string `long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
 	TaroDir    string `long:"tarodir" description:"The base directory that contains taro's data, logs, configuration file, etc."`
-	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
+	ConfigFile string `long:"configfile" description:"Path to configuration file"`
 
-	DataDir        string `short:"b" long:"datadir" description:"The directory to store taro's data within"`
+	DataDir        string `long:"datadir" description:"The directory to store taro's data within"`
 	LogDir         string `long:"logdir" description:"Directory to log output."`
 	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
 	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
