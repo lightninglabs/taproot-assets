@@ -706,8 +706,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// assigned for us.
 		completedSpend, err := taroscript.CompleteAssetSpend(
 			*currentPkg.InputAsset.Asset.ScriptKey.RawKey.PubKey,
-			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
-			p.cfg.Signer, p.cfg.TxValidator,
+			*currentPkg.SendDelta, p.cfg.Signer, p.cfg.TxValidator,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to generate taro "+

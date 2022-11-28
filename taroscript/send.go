@@ -395,9 +395,8 @@ func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
 // CompleteAssetSpend updates the new Asset by creating a signature over the
 // asset transfer, verifying the transfer with the Taro VM, and attaching that
 // signature to the new Asset.
-func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
-	delta SpendDelta, signer Signer,
-	validator TxValidator) (*SpendDelta, error) {
+func CompleteAssetSpend(internalKey btcec.PublicKey, delta SpendDelta,
+	signer Signer, validator TxValidator) (*SpendDelta, error) {
 
 	updatedDelta := delta.Copy()
 
