@@ -77,13 +77,13 @@ type AssetGroupSig struct {
 }
 
 type AssetMintingBatch struct {
-	BatchID            int32
-	BatchState         int16
-	MintingTxPsbt      []byte
-	MintingOutputIndex sql.NullInt16
-	GenesisID          sql.NullInt32
-	HeightHint         int32
-	CreationTimeUnix   time.Time
+	BatchID           int32
+	BatchState        int16
+	MintingTxPsbt     []byte
+	ChangeOutputIndex sql.NullInt32
+	GenesisID         sql.NullInt32
+	HeightHint        int32
+	CreationTimeUnix  time.Time
 }
 
 type AssetProof struct {
