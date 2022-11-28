@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/davecgh/go-spew/spew"
@@ -578,4 +579,65 @@ func (p TaprootProof) DeriveByTapscriptProof() (*btcec.PublicKey, error) {
 		return nil, ErrInvalidTapscriptProof
 	}
 	return p.TapscriptProof.DeriveTaprootKeys(p.InternalKey)
+}
+
+// AddExclusionProofs adds exclusion proofs to the base proof for each P2TR
+// output in the given PSBT that isn't an anchor output itself. To determine
+// which output is the anchor output, the passed isAnchor function should
+// return true for the output index that houses the anchor TX.
+func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
+	isAnchor func(uint32) bool) error {
+
+	for outIdx := range packet.Outputs {
+		txOut := packet.UnsignedTx.TxOut[outIdx]
+
+		// Skip any anchor output since that will get an inclusion proof
+		// instead.
+		if isAnchor(uint32(outIdx)) {
+			continue
+		}
+
+		// We only need to add exclusion proofs for P2TR outputs as only
+		// those could commit to a Taro tree.
+		if !txscript.IsPayToTaproot(txOut.PkScript) {
+			continue
+		}
+
+		// For a P2TR output the internal key must be declared and must
+		// be a valid 32-byte x-only public key.
+		out := packet.Outputs[outIdx]
+		if len(out.TaprootInternalKey) != schnorr.PubKeyBytesLen {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d is a P2TR output but is missing the "+
+				"internal key in the PSBT", outIdx)
+		}
+		internalKey, err := schnorr.ParsePubKey(out.TaprootInternalKey)
+		if err != nil {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d is a P2TR output but the internal key is "+
+				"invalid: %w", outIdx, err)
+		}
+
+		// Make sure this is a BIP0086 key spend as that is the only
+		// method we currently support here.
+		if len(out.TaprootTapTree) > 0 {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d uses a tap tree which is currently not "+
+				"supported", outIdx)
+		}
+
+		// Okay, we now know this is a normal BIP0086 key spend and can
+		// add the exclusion proof accordingly.
+		baseProof.ExclusionProofs = append(
+			baseProof.ExclusionProofs, TaprootProof{
+				OutputIndex: uint32(outIdx),
+				InternalKey: internalKey,
+				TapscriptProof: &TapscriptProof{
+					BIP86: true,
+				},
+			},
+		)
+	}
+
+	return nil
 }

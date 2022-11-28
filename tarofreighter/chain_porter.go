@@ -509,27 +509,49 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// adjustFundedPsbt takes a PSBT which may have used BIP 69 sorting, and
+// adjustFundedPsbt takes a funded PSBT which may have used BIP 69 sorting, and
 // creates a new one with outputs shuffled such that the change output is the
 // last output.
-func adjustFundedPsbt(pkt *psbt.Packet, changeIndex uint32,
-	anchorInputValue int64) {
+func adjustFundedPsbt(pkt *tarogarden.FundedPsbt, anchorInputValue int64) {
+	// If there is no change there's nothing we need to do.
+	changeIndex := pkt.ChangeOutputIndex
+	if changeIndex == -1 {
+		return
+	}
+
 	// Store the script and value of the change output.
-	changeOutput := pkt.UnsignedTx.TxOut[changeIndex]
-	changeAmtSats := changeOutput.Value
-	changeScript := changeOutput.PkScript
+	maxOutputIndex := len(pkt.Pkt.UnsignedTx.TxOut) - 1
+	changeOutput := pkt.Pkt.UnsignedTx.TxOut[changeIndex]
 
 	// Overwrite the existing change output, and restore in at the
 	// highest-index output.
-	maxOutputIndex := len(pkt.UnsignedTx.TxOut) - 1
-	pkt.UnsignedTx.TxOut[changeIndex] = createDummyOutput()
-	pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeScript
-	pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeAmtSats
+	pkt.Pkt.UnsignedTx.TxOut[changeIndex] = createDummyOutput()
+	pkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeOutput.PkScript
+	pkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeOutput.Value
 
 	// Since we're adding the input of the anchor output of our prior asset
 	// later, we need to add this value here, so we don't lose the amount
 	// to fees.
-	pkt.UnsignedTx.TxOut[maxOutputIndex].Value += anchorInputValue
+	pkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].Value += anchorInputValue
+
+	// If the change output already is the last output, we don't need to
+	// overwrite anything in the PSBT outputs.
+	if changeIndex == int32(maxOutputIndex) {
+		return
+	}
+
+	// We also need to re-assign the PSBT level output information.
+	changeOutputInfo := pkt.Pkt.Outputs[changeIndex]
+	pkt.Pkt.Outputs[maxOutputIndex] = psbt.POutput{
+		RedeemScript:           changeOutputInfo.RedeemScript,
+		WitnessScript:          changeOutputInfo.WitnessScript,
+		Bip32Derivation:        changeOutputInfo.Bip32Derivation,
+		TaprootInternalKey:     changeOutputInfo.TaprootInternalKey,
+		TaprootTapTree:         changeOutputInfo.TaprootTapTree,
+		TaprootBip32Derivation: changeOutputInfo.TaprootBip32Derivation,
+	}
+	pkt.Pkt.Outputs[changeIndex] = psbt.POutput{}
+	pkt.ChangeOutputIndex = int32(maxOutputIndex)
 }
 
 // stateStep attempts to step through the state machine to complete a Taro
@@ -788,14 +810,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// We could reassign the change value to our Taro change output
 		// and remove the change output entirely.
 		adjustFundedPsbt(
-			fundedSendPacket.Pkt, fundedSendPacket.ChangeOutputIndex,
+			&fundedSendPacket,
 			int64(currentPkg.InputAsset.AnchorOutputValue),
 		)
 
 		log.Infof("Received funded PSBT packet: %v",
 			spew.Sdump(fundedSendPacket.Pkt))
 
-		currentPkg.SendPkt = fundedSendPacket.Pkt
+		// We keep the original funded PSBT with all the wallet's output
+		// information on the change output preserved but continue the
+		// signing process with a copy to avoid clearing the info on
+		// finalization.
+		currentPkg.FundedPkt = &fundedSendPacket
+		currentPkg.SendPkt, err = copyPsbt(fundedSendPacket.Pkt)
+		if err != nil {
+			return nil, fmt.Errorf("error copying funded PSBT: %w",
+				err)
+		}
+
 		currentPkg.TargetFeeRate = feeRate
 
 		currentPkg.SendState = SendStatePsbtSign
@@ -831,7 +863,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// With all the input and output information in the packet, we
 		// can now ask lnd to sign it, and then extract the final
 		// version ourselves.
-		signedPsbt, err := p.cfg.Wallet.SignPsbt(ctx, currentPkg.SendPkt)
+		signedPsbt, err := p.cfg.Wallet.SignPsbt(
+			ctx, currentPkg.SendPkt,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign psbt: %w", err)
 		}
@@ -1051,4 +1085,15 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		return &currentPkg, fmt.Errorf("unknown state: %v",
 			currentPkg.SendState)
 	}
+}
+
+// copyPsbt creates a deep copy of a PSBT packet by serializing and
+// de-serializing it.
+func copyPsbt(pkg *psbt.Packet) (*psbt.Packet, error) {
+	var buf bytes.Buffer
+	if err := pkg.Serialize(&buf); err != nil {
+		return nil, err
+	}
+
+	return psbt.NewFromRawBytes(&buf, false)
 }

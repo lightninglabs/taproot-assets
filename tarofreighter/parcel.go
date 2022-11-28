@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -225,7 +226,14 @@ type sendPackage struct {
 	// anchored by each output on the transfer transaction.
 	NewOutputCommitments taroscript.SpendCommitments
 
-	// SendPkt is the PSBT that will complete the transfer.
+	// FundedPkt is the PSBT that was funded by the lnd internal wallet.
+	// This will not be updated once the PSBT is signed and finalized in
+	// order to keep the change output information around that is needed for
+	// creating the exclusion proofs.
+	FundedPkt *tarogarden.FundedPsbt
+
+	// SendPkt is the PSBT that will complete the transfer. This will be
+	// updated along the way from funded, signed to finalized.
 	SendPkt *psbt.Packet
 
 	// TransferTx is the final signed transfer transaction.
@@ -552,6 +560,34 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 			Proof: *receiverExclusionProof,
 		},
 	}}
+
+	// We also need to account for any P2TR change outputs.
+	if s.FundedPkt.ChangeOutputIndex > -1 {
+		isAnchor := func(idx uint32) bool {
+			// We exclude both sender and receiver
+			// commitments because those get their own,
+			// individually created exclusion proofs.
+			return idx == senderIndex || idx == receiverIndex
+		}
+
+		err := proof.AddExclusionProofs(
+			&senderParams.BaseProofParams, s.FundedPkt.Pkt,
+			isAnchor,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error adding exclusion proof "+
+				"for change output: %w", err)
+		}
+
+		err = proof.AddExclusionProofs(
+			&receiverParams.BaseProofParams, s.FundedPkt.Pkt,
+			isAnchor,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error adding exclusion proof "+
+				"for change output: %w", err)
+		}
+	}
 
 	senderProof, err := proof.CreateTransitionProof(
 		s.InputAsset.AnchorPoint, &senderParams,

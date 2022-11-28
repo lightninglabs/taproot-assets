@@ -540,7 +540,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 				}
 				batches[i].GenesisPacket = &tarogarden.FundedPsbt{
 					Pkt: genesisPkt,
-					ChangeOutputIndex: extractSqlInt32[uint32](
+					ChangeOutputIndex: extractSqlInt32[int32](
 						batch.ChangeOutputIndex,
 					),
 				}

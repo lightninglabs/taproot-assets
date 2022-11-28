@@ -207,7 +207,7 @@ type FundedPsbt struct {
 	// ChangeOutputIndex denotes which output in the PSBT packet is the
 	// change output. We use this to figure out which output will store our
 	// Taro commitment (the non-change output).
-	ChangeOutputIndex uint32
+	ChangeOutputIndex int32
 
 	// ChainFees is the amount in sats paid in on-chain fees for this
 	// transaction.
