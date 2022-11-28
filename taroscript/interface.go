@@ -13,7 +13,7 @@ import (
 type TxValidator interface {
 	// Execute creates an instance of the Taro VM and validates
 	// an asset transfer, including the attached witnesses.
-	Execute(newAsset *asset.Asset, splitAsset *commitment.SplitAsset,
+	Execute(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 		prevAssets commitment.InputSet) error
 }
 

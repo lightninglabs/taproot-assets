@@ -20,9 +20,9 @@ type Engine struct {
 	// transition.
 	newAsset *asset.Asset
 
-	// splitAsset represents an asset split committed to within the
-	// newAsset's SplitCommitmentRoot if one exists.
-	splitAsset *commitment.SplitAsset
+	// splitAssets represents zero or more asset splits committed to within
+	// the newAsset's SplitCommitmentRoot.
+	splitAssets []*commitment.SplitAsset
 
 	// prevAssets maps newAsset's inputs by the hash of their PrevID to
 	// their asset.
@@ -31,13 +31,13 @@ type Engine struct {
 
 // New returns a new virtual machine capable of executing and verifying Taro
 // asset state transitions.
-func New(newAsset *asset.Asset, splitAsset *commitment.SplitAsset,
+func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet) (*Engine, error) {
 
 	return &Engine{
-		newAsset:   newAsset,
-		splitAsset: splitAsset,
-		prevAssets: prevAssets,
+		newAsset:    newAsset,
+		splitAssets: splitAssets,
+		prevAssets:  prevAssets,
 	}, nil
 }
 
@@ -303,7 +303,7 @@ func (vm *Engine) Execute() error {
 	// A genesis asset should have a single witness and a PrevID of all
 	// zeros and empty witness and split commitment proof.
 	if vm.newAsset.HasGenesisWitness() {
-		if vm.splitAsset != nil || len(vm.prevAssets) > 0 {
+		if len(vm.splitAssets) > 0 || len(vm.prevAssets) > 0 {
 			return newErrKind(ErrInvalidGenesisStateTransition)
 		}
 		return nil
@@ -312,8 +312,8 @@ func (vm *Engine) Execute() error {
 	// If we have an asset split, then we need to validate the state
 	// transition by verifying the split commitment proof before verify the
 	// final asset witness.
-	if vm.splitAsset != nil {
-		if err := vm.validateSplit(vm.splitAsset); err != nil {
+	for _, splitAsset := range vm.splitAssets {
+		if err := vm.validateSplit(splitAsset); err != nil {
 			return err
 		}
 	}

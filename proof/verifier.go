@@ -225,7 +225,11 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	}
 
 	// Spawn a new VM instance to verify the asset's state transition.
-	engine, err := vm.New(newAsset, splitAsset, prevAssets)
+	var splitAssets []*commitment.SplitAsset
+	if splitAsset != nil {
+		splitAssets = append(splitAssets, splitAsset)
+	}
+	engine, err := vm.New(newAsset, splitAssets, prevAssets)
 	if err != nil {
 		return nil, err
 	}

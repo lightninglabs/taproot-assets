@@ -13,10 +13,10 @@ type ValidatorV0 struct{}
 
 // Execute creates and runs an instance of the Taro script V0 VM.
 func (v *ValidatorV0) Execute(newAsset *asset.Asset,
-	splitAsset *commitment.SplitAsset,
+	splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet) error {
 
-	engine, err := vm.New(newAsset, splitAsset, prevAssets)
+	engine, err := vm.New(newAsset, splitAssets, prevAssets)
 	if err != nil {
 		return err
 	}

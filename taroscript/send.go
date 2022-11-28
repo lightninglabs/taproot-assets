@@ -432,9 +432,9 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, delta SpendDelta,
 	}
 
 	// Create an instance of the Taro VM and validate the transfer.
-	verifySpend := func(splitAsset *commitment.SplitAsset) error {
+	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
 		err := validator.Execute(
-			validatedAsset, splitAsset, updatedDelta.InputAssets,
+			validatedAsset, splitAssets, updatedDelta.InputAssets,
 		)
 		if err != nil {
 			return err
@@ -457,10 +457,10 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, delta SpendDelta,
 	// If the transfer includes an asset split, we have to validate each
 	// split asset to ensure that our new Asset is committing to
 	// a valid SplitCommitment.
-	for _, splitAsset := range updatedDelta.SplitCommitment.SplitAssets {
-		if err := verifySpend(splitAsset); err != nil {
-			return nil, err
-		}
+	splitAssets := maps.Values(updatedDelta.SplitCommitment.SplitAssets)
+	err = verifySpend(splitAssets)
+	if err != nil {
+		return nil, err
 	}
 
 	// Update each split asset to store the root asset with the witness

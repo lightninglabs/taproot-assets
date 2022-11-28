@@ -485,8 +485,8 @@ func TestVM(t *testing.T) {
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			newAsset, splitSet, inputSet := testCase.f(t)
-			verify := func(splitAsset *commitment.SplitAsset) error {
-				vm, err := New(newAsset, splitAsset, inputSet)
+			verify := func(splitAssets []*commitment.SplitAsset) error {
+				vm, err := New(newAsset, splitAssets, inputSet)
 				if err != nil {
 					if testCase.err != nil {
 						require.Equal(
@@ -511,12 +511,10 @@ func TestVM(t *testing.T) {
 				return splitAssets[i].Asset.Amount <
 					splitAssets[j].Asset.Amount
 			})
-			for _, splitAsset := range splitAssets {
-				err := verify(splitAsset)
-				require.Equal(t, testCase.err, err)
-				if err != nil {
-					return
-				}
+			err := verify(splitAssets)
+			require.Equal(t, testCase.err, err)
+			if err != nil {
+				return
 			}
 		})
 		if !success {
