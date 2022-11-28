@@ -8,10 +8,12 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -50,29 +52,34 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 
 func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32,
-	tapTree *txscript.IndexedTapScriptTree,
-	tapLeaf *txscript.TapLeaf) wire.TxWitness {
+	sigHashType txscript.SigHashType, controlBlock *txscript.ControlBlock,
+	tapLeaf *txscript.TapLeaf, scriptWitness []byte) wire.TxWitness {
 
 	t.Helper()
 
-	leafProof := tapTree.
-		LeafMerkleProofs[tapTree.LeafProofIndex[tapLeaf.TapHash()]]
-	controlBlock := leafProof.ToControlBlock(privKey.PubKey())
 	controlBlockBytes, err := controlBlock.ToBytes()
 	require.NoError(t, err)
 
-	virtualTxCopy := taroscript.VirtualTxWithInput(
-		virtualTx, input, idx, nil,
-	)
-	sigHash, err := taroscript.InputScriptSpendSigHash(
-		virtualTxCopy, input, idx, txscript.SigHashDefault, tapLeaf,
-	)
-	require.NoError(t, err)
-	sig, err := schnorr.Sign(&privKey, sigHash)
-	require.NoError(t, err)
+	if scriptWitness == nil {
+		virtualTxCopy := taroscript.VirtualTxWithInput(
+			virtualTx, input, idx, nil,
+		)
+		sigHash, err := taroscript.InputScriptSpendSigHash(
+			virtualTxCopy, input, idx, sigHashType, tapLeaf,
+		)
+		require.NoError(t, err)
+
+		sig, err := schnorr.Sign(&privKey, sigHash)
+		require.NoError(t, err)
+
+		scriptWitness = sig.Serialize()
+		if sigHashType != txscript.SigHashDefault {
+			scriptWitness = append(scriptWitness, byte(sigHashType))
+		}
+	}
 
 	return wire.TxWitness{
-		sig.Serialize(), tapLeaf.Script, controlBlockBytes,
+		scriptWitness, tapLeaf.Script, controlBlockBytes,
 	}
 }
 
@@ -200,8 +207,14 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
+
+	leafIdx := tapTree.LeafProofIndex[tapLeaf.TapHash()]
+	leafProof := tapTree.LeafMerkleProofs[leafIdx]
+	controlBlock := leafProof.ToControlBlock(privKey2.PubKey())
+
 	newAsset.PrevWitnesses[1].TxWitness = genTaprootScriptSpend(
-		t, *privKey2, virtualTx, genesisAsset2, 1, tapTree, &tapLeaf,
+		t, *privKey2, virtualTx, genesisAsset2, 1,
+		txscript.SigHashDefault, &controlBlock, &tapLeaf, nil,
 	)
 
 	return newAsset, nil, inputs
@@ -359,6 +372,103 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 	}
 }
 
+func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
+	valid bool, sigHashType txscript.SigHashType) stateTransitionFunc {
+
+	scriptPrivKey := test.RandPrivKey(t)
+	scriptInternalKey := scriptPrivKey.PubKey()
+
+	// Let's create a taproot asset script now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := test.ScriptHashLock(t, []byte("foobar"))
+
+	// Let's add a second script output as well to test the partial reveal.
+	leaf2 := test.ScriptSchnorrSig(t, scriptInternalKey)
+
+	var (
+		usedLeaf      *txscript.TapLeaf
+		tapscript     *waddrmgr.Tapscript
+		scriptWitness []byte
+	)
+	if useHashLock {
+		usedLeaf = &leaf1
+		inclusionProof := leaf2.TapHash()
+		tapscript = input.TapscriptPartialReveal(
+			scriptInternalKey, leaf1, inclusionProof[:],
+		)
+		scriptWitness = []byte("foobar")
+
+		if !valid {
+			scriptWitness = []byte("not-foobar")
+		}
+	} else {
+		usedLeaf = &leaf2
+		inclusionProof := leaf1.TapHash()
+		tapscript = input.TapscriptPartialReveal(
+			scriptInternalKey, leaf2, inclusionProof[:],
+		)
+
+		// If we leave the scriptWitness nil, the genTaprootScriptSpend
+		// function will automatically create a signature for us.
+		// We only need to create a witness if we want an invalid
+		// signature.
+		if !valid {
+			scriptWitness = make([]byte, 64)
+		}
+	}
+
+	scriptKey, err := tapscript.TaprootKey()
+	require.NoError(t, err)
+
+	genesisOutPoint := wire.OutPoint{}
+	genesisAsset := randAsset(t, asset.Normal, scriptKey)
+	genesisAsset.Amount = 3
+
+	assetID := genesisAsset.Genesis.ID()
+	rootLocator := &commitment.SplitLocator{
+		OutputIndex: 0,
+		AssetID:     assetID,
+		ScriptKey:   asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
+		Amount:      1,
+	}
+	externalLocators := []*commitment.SplitLocator{{
+		OutputIndex: 1,
+		AssetID:     assetID,
+		ScriptKey:   asset.RandSerializedKey(t),
+		Amount:      1,
+	}, {
+		OutputIndex: 2,
+		AssetID:     assetID,
+		ScriptKey:   asset.RandSerializedKey(t),
+		Amount:      1,
+	}}
+
+	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet) {
+
+		splitCommitment, err := commitment.NewSplitCommitment(
+			genesisAsset, genesisOutPoint, rootLocator,
+			externalLocators...,
+		)
+		require.NoError(t, err)
+
+		virtualTx, _, err := taroscript.VirtualTx(
+			splitCommitment.RootAsset, splitCommitment.PrevAssets,
+		)
+		require.NoError(t, err)
+		newWitness := genTaprootScriptSpend(
+			t, *scriptPrivKey, virtualTx, genesisAsset, 0,
+			sigHashType, tapscript.ControlBlock, usedLeaf,
+			scriptWitness,
+		)
+		require.NoError(t, err)
+		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
+
+		return splitCommitment.RootAsset, splitCommitment.SplitAssets,
+			splitCommitment.PrevAssets
+	}
+}
+
 func TestVM(t *testing.T) {
 	t.Parallel()
 
@@ -426,6 +536,51 @@ func TestVM(t *testing.T) {
 			name: "split collectible state transition",
 			f:    splitCollectibleStateTransition(true),
 			err:  nil,
+		},
+		{
+			name: "script tree spend state transition valid hash " +
+				"lock",
+			f:   scriptTreeSpendStateTransition(t, true, true, 999),
+			err: nil,
+		},
+		{
+			name: "script tree spend state transition invalid " +
+				"hash lock",
+			f: scriptTreeSpendStateTransition(t, true, false, 999),
+			err: newErrInner(
+				ErrInvalidTransferWitness, txscript.Error{
+					ErrorCode:   txscript.ErrEqualVerify,
+					Description: "OP_EQUALVERIFY failed",
+				},
+			),
+		},
+		{
+			name: "script tree spend state transition valid sig " +
+				"sighash default",
+			f: scriptTreeSpendStateTransition(
+				t, false, true, txscript.SigHashDefault,
+			),
+			err: nil,
+		},
+		{
+			name: "script tree spend state transition valid sig " +
+				"sighash single",
+			f: scriptTreeSpendStateTransition(
+				t, false, true, txscript.SigHashSingle,
+			),
+			err: nil,
+		},
+		{
+			name: "script tree spend state transition invalid " +
+				"sig",
+			f: scriptTreeSpendStateTransition(t, false, false, 999),
+			err: newErrInner(
+				ErrInvalidTransferWitness, txscript.Error{
+					ErrorCode: txscript.ErrNullFail,
+					Description: "signature not empty on " +
+						"failed checksig",
+				},
+			),
 		},
 	}
 

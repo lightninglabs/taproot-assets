@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
@@ -201,24 +200,6 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	err := matchesAssetParams(vm.newAsset, prevAsset, witness)
 	if err != nil {
 		return err
-	}
-
-	for _, witnessItem := range witness.TxWitness {
-		// Signatures can either be 64, with SIGHASH_DEFAULT, or 65
-		// bytes otherwise.
-		//
-		// TODO(roasbeef): remove? will go thru normal sig parse
-		// checks, untested as is
-		// TODO: This is wrong
-		if len(witnessItem) == 65 {
-			_, err = schnorr.ParseSignature(witnessItem[1:])
-			if err != nil {
-				// Not a valid signature, so it must be some
-				// arbitrary data push.
-				continue
-			}
-			return newErrKind(ErrInvalidSigHashFlag)
-		}
 	}
 
 	// Update the virtual transaction input with details for the specific

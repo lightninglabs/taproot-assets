@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -99,4 +100,28 @@ func RandTxWitnesses(t testing.TB) wire.TxWitness {
 	}
 
 	return w
+}
+
+// ScriptHashLock returns a simple bitcoin script that locks the funds to a hash
+// lock of the given preimage.
+func ScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_DUP)
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(btcutil.Hash160(preimage))
+	builder.AddOp(txscript.OP_EQUALVERIFY)
+	script1, err := builder.Script()
+	require.NoError(t, err)
+	return txscript.NewBaseTapLeaf(script1)
+}
+
+// ScriptSchnorrSig returns a simple bitcoin script that locks the funds to a
+// Schnorr signature of the given public key.
+func ScriptSchnorrSig(t *testing.T, pubKey *btcec.PublicKey) txscript.TapLeaf {
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(pubKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	script2, err := builder.Script()
+	require.NoError(t, err)
+	return txscript.NewBaseTapLeaf(script2)
 }
