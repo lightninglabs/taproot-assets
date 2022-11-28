@@ -37,7 +37,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 		virtualTx, input, idx, nil,
 	)
 	sigHash, err := taroscript.InputKeySpendSigHash(
-		virtualTxCopy, input, idx,
+		virtualTxCopy, input, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
 
@@ -65,7 +65,7 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 		virtualTx, input, idx, nil,
 	)
 	sigHash, err := taroscript.InputScriptSpendSigHash(
-		virtualTxCopy, input, idx, tapLeaf,
+		virtualTxCopy, input, idx, txscript.SigHashDefault, tapLeaf,
 	)
 	require.NoError(t, err)
 	sig, err := schnorr.Sign(&privKey, sigHash)

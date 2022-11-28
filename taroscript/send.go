@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -423,7 +424,8 @@ func CompleteAssetSpend(internalKey btcec.PublicKey, prevInput asset.PrevID,
 		)
 
 		newWitness, err := SignTaprootKeySpend(
-			internalKey, virtualTxCopy, prevAsset, 0, signer,
+			internalKey, virtualTxCopy, prevAsset, 0,
+			txscript.SigHashDefault, signer,
 		)
 		if err != nil {
 			return nil, err

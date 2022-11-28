@@ -27,7 +27,7 @@ func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 		virtualTx, input, idx, nil,
 	)
 	sigHash, err := taroscript.InputKeySpendSigHash(
-		virtualTxCopy, input, idx,
+		virtualTxCopy, input, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
 
