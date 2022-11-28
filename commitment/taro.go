@@ -184,14 +184,8 @@ func (c *TaroCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 			RootNode.TapHash()
 	}
 
-	// TODO: Expose an easy way to construct merkle proofs for this
-	// type of tree. If `sibling` is the root of a tapscript tree,
-	// then it's as simple as computing the control block for said
-	// tree and appending the taro commitment leaf hash at the end.
-	//
-	// NOTE: The ordering of `commitmentLeaf` and `sibling`
-	// doesn't matter here as TapBranch will sort them before
-	// hashing.
+	// The ordering of `commitmentLeaf` and `sibling` doesn't matter here as
+	// TapBranch will sort them before hashing.
 	return tapBranchHash(commitmentLeaf.TapHash(), *sibling)
 }
 
