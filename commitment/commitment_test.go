@@ -5,44 +5,13 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
-
-func randKey(t *testing.T) *btcec.PrivateKey {
-	t.Helper()
-	key, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	return key
-}
-
-func randGenesis(t *testing.T, assetType asset.Type) asset.Genesis {
-	t.Helper()
-	return asset.Genesis{
-		FirstPrevOut: wire.OutPoint{},
-		Tag:          "",
-		Metadata:     nil,
-		OutputIndex:  rand.Uint32(),
-		Type:         assetType,
-	}
-}
-
-func randGroupKey(t *testing.T, genesis asset.Genesis) *asset.GroupKey {
-	t.Helper()
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	genSigner := asset.NewRawKeyGenesisSigner(privKey)
-	fakeKeyDesc := keychain.KeyDescriptor{
-		PubKey: privKey.PubKey(),
-	}
-	groupKey, err := asset.DeriveGroupKey(genSigner, fakeKeyDesc, genesis)
-	require.NoError(t, err)
-	return groupKey
-}
 
 func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 	t.Helper()
@@ -54,7 +23,7 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 	return &AssetDetails{
 		Type: assetType,
 		ScriptKey: keychain.KeyDescriptor{
-			PubKey: randKey(t).PubKey(),
+			PubKey: test.RandPrivKey(t).PubKey(),
 		},
 		Amount:           amount,
 		LockTime:         rand.Uint64(),
@@ -67,37 +36,20 @@ func randAsset(t *testing.T, genesis asset.Genesis,
 
 	t.Helper()
 
-	pubKey := randKey(t).PubKey()
-	units := rand.Uint64() + 1
-
-	switch genesis.Type {
-	case asset.Normal:
-
-	case asset.Collectible:
-		units = 1
-
-	default:
-		t.Fatal("unhandled asset type", genesis.Type)
-		return nil // unreachable
-	}
-
-	a, err := asset.New(
-		genesis, units, 0, 0, asset.NewScriptKey(pubKey), groupKey,
-	)
-	require.NoError(t, err)
-	return a
+	scriptKey := asset.RandScriptKey(t)
+	return asset.RandAssetWithValues(t, genesis, groupKey, scriptKey)
 }
 
 // TestNewAssetCommitment tests edge cases around NewAssetCommitment.
 func TestNewAssetCommitment(t *testing.T) {
 	t.Parallel()
 
-	genesis1 := randGenesis(t, asset.Normal)
-	genesis1Collectible := randGenesis(t, asset.Collectible)
-	genesis2 := randGenesis(t, asset.Normal)
-	groupKey1 := randGroupKey(t, genesis1)
-	groupKey1Collectible := randGroupKey(t, genesis1Collectible)
-	groupKey2 := randGroupKey(t, genesis2)
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	genesis1Collectible := asset.RandGenesis(t, asset.Collectible)
+	genesis2 := asset.RandGenesis(t, asset.Normal)
+	groupKey1 := asset.RandGroupKey(t, genesis1)
+	groupKey1Collectible := asset.RandGroupKey(t, genesis1Collectible)
+	groupKey2 := asset.RandGroupKey(t, genesis2)
 	copyOfGroupKey1Collectible := &asset.GroupKey{
 		RawKey:      groupKey1Collectible.RawKey,
 		GroupPubKey: groupKey1Collectible.GroupPubKey,
@@ -228,10 +180,10 @@ func TestNewAssetCommitment(t *testing.T) {
 func TestMintTaroCommitment(t *testing.T) {
 	t.Parallel()
 
-	genesisNormal := randGenesis(t, asset.Normal)
-	genesisCollectible := randGenesis(t, asset.Collectible)
+	genesisNormal := asset.RandGenesis(t, asset.Normal)
+	genesisCollectible := asset.RandGenesis(t, asset.Collectible)
 	pubKey := keychain.KeyDescriptor{
-		PubKey: randKey(t).PubKey(),
+		PubKey: test.RandPrivKey(t).PubKey(),
 	}
 
 	testCases := []struct {
@@ -330,7 +282,7 @@ func TestMintTaroCommitment(t *testing.T) {
 		},
 		{
 			name: "invalid asset type",
-			g:    randGenesis(t, asset.Type(255)),
+			g:    asset.RandGenesis(t, asset.Type(255)),
 			f: func() *AssetDetails {
 				return &AssetDetails{
 					Type:             asset.Type(255),
@@ -347,7 +299,7 @@ func TestMintTaroCommitment(t *testing.T) {
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			details := testCase.f()
-			groupKey := randGroupKey(t, testCase.g)
+			groupKey := asset.RandGroupKey(t, testCase.g)
 			_, _, err := Mint(testCase.g, groupKey, details)
 			if testCase.valid {
 				require.NoError(t, err)
@@ -371,8 +323,8 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	const assetType = asset.Normal
 	const numAssets = 5
 
-	genesis1 := randGenesis(t, assetType)
-	groupKey1 := randGroupKey(t, genesis1)
+	genesis1 := asset.RandGenesis(t, assetType)
+	groupKey1 := asset.RandGroupKey(t, genesis1)
 	assetDetails := make([]*AssetDetails, 0, numAssets)
 	for i := 0; i < numAssets; i++ {
 		details := randAssetDetails(t, assetType)
@@ -438,8 +390,8 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	// not included in the above Taro commitment (non-inclusion proofs).
 	// We'll reuse the same asset details, except we'll mint them with a
 	// distinct genesis and group key.
-	genesis2 := randGenesis(t, assetType)
-	groupKey2 := randGroupKey(t, genesis2)
+	genesis2 := asset.RandGenesis(t, assetType)
+	groupKey2 := asset.RandGroupKey(t, genesis2)
 	_, nonExistentAssetGroup, err := Mint(
 		genesis2, groupKey2, assetDetails...,
 	)
@@ -453,10 +405,10 @@ func TestSplitCommitment(t *testing.T) {
 	t.Parallel()
 
 	outPoint := wire.OutPoint{}
-	genesisNormal := randGenesis(t, asset.Normal)
-	genesisCollectible := randGenesis(t, asset.Collectible)
-	groupKeyNormal := randGroupKey(t, genesisNormal)
-	groupKeyCollectible := randGroupKey(t, genesisCollectible)
+	genesisNormal := asset.RandGenesis(t, asset.Normal)
+	genesisCollectible := asset.RandGenesis(t, asset.Collectible)
+	groupKeyNormal := asset.RandGroupKey(t, genesisNormal)
+	groupKeyCollectible := asset.RandGroupKey(t, genesisCollectible)
 
 	testCases := []struct {
 		name string
@@ -479,17 +431,13 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisCollectible.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: input.Amount,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      input.Amount,
 				}, {
 					OutputIndex: 1,
 					AssetID:     genesisCollectible.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: input.Amount,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      input.Amount,
 				}}
 				return input, root, external
 			},
@@ -511,10 +459,8 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisCollectible.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: input.Amount,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      input.Amount,
 				}}
 				return input, root, external
 			},
@@ -585,18 +531,14 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: 1,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      1,
 				}, {
 
 					OutputIndex: 2,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: 1,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      1,
 				}}
 
 				return input, root, external
@@ -641,10 +583,8 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: 2,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      2,
 				}}
 
 				return input, root, external
@@ -670,10 +610,8 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: 3,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      3,
 				}}
 
 				return input, root, external
@@ -699,10 +637,8 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: 0,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      0,
 				}}
 
 				return input, root, external
@@ -726,10 +662,8 @@ func TestSplitCommitment(t *testing.T) {
 				external := []*SplitLocator{{
 					OutputIndex: 1,
 					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						randKey(t).PubKey(),
-					),
-					Amount: 3,
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      3,
 				}}
 
 				return input, root, external
@@ -833,11 +767,11 @@ func TestTaroCommitmentKeyPopulation(t *testing.T) {
 			assetType = asset.Collectible
 		}
 
-		genesis := randGenesis(t, assetType)
+		genesis := asset.RandGenesis(t, assetType)
 
 		var groupKey *asset.GroupKey
 		if assetDesc.HasGroupKey {
-			groupKey = randGroupKey(t, genesis)
+			groupKey = asset.RandGroupKey(t, genesis)
 		}
 
 		a := randAsset(t, genesis, groupKey)
@@ -863,12 +797,12 @@ func TestTaroCommitmentKeyPopulation(t *testing.T) {
 func TestUpdateAssetCommitment(t *testing.T) {
 	t.Parallel()
 
-	genesis1 := randGenesis(t, asset.Normal)
-	genesis2 := randGenesis(t, asset.Normal)
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	genesis2 := asset.RandGenesis(t, asset.Normal)
 	genesis1collect := genesis1
 	genesis1collect.Type = asset.Collectible
-	groupKey1 := randGroupKey(t, genesis1)
-	groupKey2 := randGroupKey(t, genesis2)
+	groupKey1 := asset.RandGroupKey(t, genesis1)
+	groupKey2 := asset.RandGroupKey(t, genesis2)
 	copyOfGroupKey1 := &asset.GroupKey{
 		RawKey:      groupKey1.RawKey,
 		GroupPubKey: groupKey1.GroupPubKey,
@@ -994,10 +928,10 @@ func TestUpdateTaroCommitment(t *testing.T) {
 
 	// Create two assets with different geneses and groupKeys, to ensure
 	// they are not in the same AssetCommitment.
-	genesis1 := randGenesis(t, asset.Normal)
-	genesis2 := randGenesis(t, asset.Normal)
-	groupKey1 := randGroupKey(t, genesis1)
-	groupKey2 := randGroupKey(t, genesis2)
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	genesis2 := asset.RandGenesis(t, asset.Normal)
+	groupKey1 := asset.RandGroupKey(t, genesis1)
+	groupKey2 := asset.RandGroupKey(t, genesis2)
 
 	asset1 := randAsset(t, genesis1, groupKey1)
 	asset2 := randAsset(t, genesis2, groupKey2)
@@ -1051,7 +985,7 @@ func TestAssetCommitmentDeepCopy(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll make a commitment with two random assets.
-	genesis := randGenesis(t, asset.Normal)
+	genesis := asset.RandGenesis(t, asset.Normal)
 	asset1 := randAsset(t, genesis, nil)
 	asset2 := randAsset(t, genesis, nil)
 
@@ -1079,12 +1013,12 @@ func TestTaroCommitmentDeepCopy(t *testing.T) {
 
 	// Fist, we'll make two asset commitments with a random asset, then
 	// make a taro commitment out of that.
-	genesis1 := randGenesis(t, asset.Normal)
-	groupKey1 := randGroupKey(t, genesis1)
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	groupKey1 := asset.RandGroupKey(t, genesis1)
 	asset1 := randAsset(t, genesis1, groupKey1)
 
-	genesis2 := randGenesis(t, asset.Normal)
-	groupKey2 := randGroupKey(t, genesis2)
+	genesis2 := asset.RandGenesis(t, asset.Normal)
+	groupKey2 := asset.RandGroupKey(t, genesis2)
 	asset2 := randAsset(t, genesis2, groupKey2)
 
 	assetCommitment1, err := NewAssetCommitment(asset1)

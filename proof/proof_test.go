@@ -94,7 +94,7 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
-	groupKey := asset.RandGroupKey(t, &genesis)
+	groupKey := asset.RandGroupKey(t, genesis)
 
 	commitment, assets, err := commitment.Mint(
 		genesis, groupKey, &commitment.AssetDetails{
@@ -209,7 +209,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 
 	genesisPrivKey := test.RandPrivKey(t)
 	assetGenesis := asset.RandGenesis(t, assetType)
-	assetGroupKey := asset.RandGroupKey(t, &assetGenesis)
+	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type: assetType,

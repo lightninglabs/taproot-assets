@@ -26,7 +26,7 @@ func TestNewMintingBlobs(t *testing.T) {
 		genesisPrivKey.PubKey(),
 	)
 	assetGenesis := asset.RandGenesis(t, asset.Collectible)
-	assetGroupKey := asset.RandGroupKey(t, &assetGenesis)
+	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
 	taroCommitment, _, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
