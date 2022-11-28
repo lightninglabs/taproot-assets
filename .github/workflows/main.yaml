@@ -47,6 +47,16 @@ jobs:
       - name: Generate RPC stubs and check REST annotations
         run: make rpc-check
 
+  mod-check:
+    name: go mod check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: Run go mod tidy
+        run: make mod-check
+
   ########################
   # Format, compilation and lint check
   ########################
