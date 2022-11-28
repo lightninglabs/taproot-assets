@@ -104,11 +104,11 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 // validateSplit attempts to validate an asset resulting from a split on its
 // input. This is done by verifying the asset split is committed to within the
 // new asset's split commitment root through its split commitment proof.
-func (vm *Engine) validateSplit() error {
+func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	// The asset type must match for all parts of a split, and the change
 	// asset should have a split commitment root.
 	switch {
-	case vm.newAsset.Type != vm.splitAsset.Type:
+	case vm.newAsset.Type != splitAsset.Type:
 		return newErrKind(ErrInvalidSplitAssetType)
 
 	case vm.newAsset.SplitCommitmentRoot == nil:
@@ -117,7 +117,7 @@ func (vm *Engine) validateSplit() error {
 
 	// Split assets should always have a single witness with a non-nil
 	// PrevID and empty TxWitness.
-	if !vm.splitAsset.Asset.HasSplitCommitmentWitness() {
+	if !splitAsset.Asset.HasSplitCommitmentWitness() {
 		return newErrKind(ErrInvalidSplitCommitmentWitness)
 	}
 
@@ -126,7 +126,7 @@ func (vm *Engine) validateSplit() error {
 	//
 	// TODO(roasbeef): revisit post multi input
 	rootWitness := vm.newAsset.PrevWitnesses[0]
-	splitWitness := vm.splitAsset.PrevWitnesses[0]
+	splitWitness := splitAsset.PrevWitnesses[0]
 
 	// The prevID of the split commitment should be the ID of the asset
 	// generating the split in the transaction.
@@ -137,7 +137,7 @@ func (vm *Engine) validateSplit() error {
 		return ErrNoInputs
 	}
 	err := matchesAssetParams(
-		&vm.splitAsset.Asset, prevAsset, &rootWitness,
+		&splitAsset.Asset, prevAsset, &rootWitness,
 	)
 	if err != nil {
 		return err
@@ -152,19 +152,19 @@ func (vm *Engine) validateSplit() error {
 
 	// If we are validating the root asset of the split, the root split must
 	// also be unspendable.
-	if vm.splitAsset.Amount == 0 && !vm.splitAsset.IsUnspendable() {
+	if splitAsset.Amount == 0 && !splitAsset.IsUnspendable() {
 		return newErrKind(ErrInvalidRootAsset)
 	}
 
 	// Finally, verify that the split commitment proof for the split asset
 	// resolves to the split commitment root found within the change asset.
 	locator := &commitment.SplitLocator{
-		OutputIndex: vm.splitAsset.OutputIndex,
-		AssetID:     vm.splitAsset.Genesis.ID(),
-		ScriptKey:   asset.ToSerialized(vm.splitAsset.ScriptKey.PubKey),
-		Amount:      vm.splitAsset.Amount,
+		OutputIndex: splitAsset.OutputIndex,
+		AssetID:     splitAsset.Genesis.ID(),
+		ScriptKey:   asset.ToSerialized(splitAsset.ScriptKey.PubKey),
+		Amount:      splitAsset.Amount,
 	}
-	splitNoWitness := vm.splitAsset.Copy()
+	splitNoWitness := splitAsset.Copy()
 	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
 	splitLeaf, err := splitNoWitness.Leaf()
 	if err != nil {
@@ -313,7 +313,7 @@ func (vm *Engine) Execute() error {
 	// transition by verifying the split commitment proof before verify the
 	// final asset witness.
 	if vm.splitAsset != nil {
-		if err := vm.validateSplit(); err != nil {
+		if err := vm.validateSplit(vm.splitAsset); err != nil {
 			return err
 		}
 	}
