@@ -7,6 +7,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -46,7 +47,7 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 func (l *LndRpcKeyRing) DeriveNextTaroKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
-	keyFam := int32(tarogarden.TaroKeyFamily)
+	keyFam := int32(taroscript.TaroKeyFamily)
 
 	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 

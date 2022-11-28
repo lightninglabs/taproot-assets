@@ -614,7 +614,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// If the key found for the input UTXO is not from the Taro
 		// keyfamily, something has gone wrong with the DB.
-		if assetInput.InternalKey.Family != tarogarden.TaroKeyFamily {
+		if assetInput.InternalKey.Family != taroscript.TaroKeyFamily {
 			return nil, fmt.Errorf("invalid internal key family "+
 				"for selected input: %v %v",
 				assetInput.InternalKey.Family,
@@ -668,7 +668,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// TODO(jhb): ScriptKey derivation instructions should be
 		// specified in the AssetParcel
 		currentPkg.SenderNewInternalKey, err = p.cfg.KeyRing.DeriveNextKey(
-			ctx, tarogarden.TaroKeyFamily,
+			ctx, taroscript.TaroKeyFamily,
 		)
 		if err != nil {
 			return nil, err
@@ -681,7 +681,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			currentPkg.SenderScriptKey = asset.NUMSScriptKey
 		} else {
 			senderScriptKey, err := p.cfg.KeyRing.DeriveNextKey(
-				ctx, tarogarden.TaroKeyFamily,
+				ctx, taroscript.TaroKeyFamily,
 			)
 			if err != nil {
 				return nil, err
