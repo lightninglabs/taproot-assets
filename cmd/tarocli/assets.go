@@ -17,6 +17,7 @@ var assetsCommands = []cli.Command{
 		Subcommands: []cli.Command{
 			mintAssetCommand,
 			listAssetsCommand,
+			listUtxosCommand,
 			listAssetBalancesCommand,
 			sendAssetsCommand,
 			listTransfersCommand,
@@ -126,6 +127,27 @@ func listAssets(ctx *cli.Context) error {
 	resp, err := client.ListAssets(ctxc, &tarorpc.ListAssetRequest{})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
+	}
+	printRespJSON(resp)
+	return nil
+}
+
+var listUtxosCommand = cli.Command{
+	Name:        "utxos",
+	ShortName:   "u",
+	Usage:       "list all utxos",
+	Description: "list all utxos managing assets",
+	Action:      listUtxos,
+}
+
+func listUtxos(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.ListUtxos(ctxc, &tarorpc.ListUtxosRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to list utxos: %w", err)
 	}
 	printRespJSON(resp)
 	return nil

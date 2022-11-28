@@ -48,6 +48,9 @@ http:
     - selector: tarorpc.Taro.ListBalances
       get: "/v1/taro/assets/balance"
 
+    - selector: tarorpc.Taro.ListUtxos
+      get: "/v1/taro/assets/utxos"
+
     - selector: tarorpc.Taro.SendAsset
       post: "/v1/taro/send"
       body: "*"

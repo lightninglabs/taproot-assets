@@ -302,6 +302,29 @@
         ]
       }
     },
+    "/v1/taro/assets/utxos": {
+      "get": {
+        "summary": "tarocli: `assets utxos`\nListUtxos lists the UTXOs managed by the target daemon, and the assets they\nhold.",
+        "operationId": "Taro_ListUtxos",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcListUtxosResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/debuglevel": {
       "post": {
         "summary": "tarocli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntarod. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
@@ -1012,6 +1035,49 @@
             "$ref": "#/definitions/tarorpcAssetTransfer"
           },
           "description": "The unordered list of outgoing asset transfers."
+        }
+      }
+    },
+    "tarorpcListUtxosResponse": {
+      "type": "object",
+      "properties": {
+        "managed_utxos": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/tarorpcManagedUtxo"
+          },
+          "description": "The set of UTXOs managed by the daemon."
+        }
+      }
+    },
+    "tarorpcManagedUtxo": {
+      "type": "object",
+      "properties": {
+        "out_point": {
+          "type": "string",
+          "description": "The outpoint of the UTXO."
+        },
+        "amt_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The UTXO amount in satoshis."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal key used for the on-chain output."
+        },
+        "taro_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taro root that commits to the set of assets at this UTXO."
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAsset"
+          },
+          "description": "The assets held at this UTXO."
         }
       }
     },

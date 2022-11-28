@@ -835,6 +835,62 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 	return i, err
 }
 
+const fetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, key_family, key_index
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+`
+
+type FetchManagedUTXOsRow struct {
+	UtxoID           int32
+	Outpoint         []byte
+	AmtSats          int64
+	InternalKeyID    int32
+	TapscriptSibling []byte
+	TaroRoot         []byte
+	TxnID            int32
+	KeyID            int32
+	RawKey           []byte
+	KeyFamily        int32
+	KeyIndex         int32
+}
+
+func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchManagedUTXOs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchManagedUTXOsRow
+	for rows.Next() {
+		var i FetchManagedUTXOsRow
+		if err := rows.Scan(
+			&i.UtxoID,
+			&i.Outpoint,
+			&i.AmtSats,
+			&i.InternalKeyID,
+			&i.TapscriptSibling,
+			&i.TaroRoot,
+			&i.TxnID,
+			&i.KeyID,
+			&i.RawKey,
+			&i.KeyFamily,
+			&i.KeyIndex,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchMintingBatch = `-- name: FetchMintingBatch :one
 SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches

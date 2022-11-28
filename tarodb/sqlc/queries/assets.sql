@@ -380,6 +380,12 @@ WHERE (
     (utxos.outpoint = sqlc.narg('outpoint') OR sqlc.narg('outpoint') IS NULL)
 );
 
+-- name: FetchManagedUTXOs :many
+SELECT *
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id;
+
 -- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (
     SELECT script_key_id

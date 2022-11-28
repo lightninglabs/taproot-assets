@@ -56,6 +56,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/tarorpc.Taro/ListUtxos": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/tarorpc.Taro/ListBalances": {{
 			Entity: "assets",
 			Action: "read",
@@ -321,6 +325,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
 
+	rpcAssets, err := r.fetchRpcAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tarorpc.ListAssetResponse{
+		Assets: rpcAssets,
+	}, nil
+}
+
+func (r *rpcServer) fetchRpcAssets(ctx context.Context) (
+	[]*tarorpc.Asset, error) {
+
 	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
@@ -380,9 +397,7 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		}
 	}
 
-	return &tarorpc.ListAssetResponse{
-		Assets: rpcAssets,
-	}, nil
+	return rpcAssets, nil
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
@@ -460,6 +475,49 @@ func (r *rpcServer) listBalancesByFamilyKey(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
+// hold.
+func (r *rpcServer) ListUtxos(ctx context.Context,
+	_ *tarorpc.ListUtxosRequest) (*tarorpc.ListUtxosResponse, error) {
+
+	rpcAssets, err := r.fetchRpcAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	managedUtxos, err := r.cfg.AssetStore.FetchManagedUTXOs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	utxos := make(map[string]*tarorpc.ManagedUtxo)
+	for _, u := range managedUtxos {
+		utxos[u.OutPoint.String()] = &tarorpc.ManagedUtxo{
+			OutPoint:    u.OutPoint.String(),
+			AmtSat:      int64(u.OutputValue),
+			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
+			TaroRoot:    u.TaroRoot,
+		}
+	}
+
+	// Populate the assets managed by each UTXO.
+	for _, a := range rpcAssets {
+		op := a.ChainAnchor.AnchorOutpoint
+		utxo, ok := utxos[op]
+		if !ok {
+			return nil, fmt.Errorf("unable to find utxo %s for "+
+				"asset_id=%x", op, a.AssetGenesis.AssetId)
+		}
+
+		utxo.Assets = append(utxo.Assets, a)
+		utxos[op] = utxo
+	}
+
+	return &tarorpc.ListUtxosResponse{
+		ManagedUtxos: utxos,
+	}, nil
 }
 
 // ListBalances lists the asset balances owned by the daemon.
