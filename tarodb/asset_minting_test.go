@@ -177,16 +177,16 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		scriptKey, _ := randKeyDesc(t)
 
-		var familyKey *asset.FamilyKey
+		var groupKey *asset.GroupKey
 		if seedling.EnableEmission {
-			famKeyRaw, famPriv := randKeyDesc(t)
-			famKey, err := asset.DeriveFamilyKey(
-				asset.NewRawKeyGenesisSigner(famPriv),
-				famKeyRaw, assetGen,
+			groupKeyRaw, groupPriv := randKeyDesc(t)
+			grpKey, err := asset.DeriveGroupKey(
+				asset.NewRawKeyGenesisSigner(groupPriv),
+				groupKeyRaw, assetGen,
 			)
 			require.NoError(t, err)
 
-			familyKey = famKey
+			groupKey = grpKey
 		}
 
 		var amount uint64
@@ -199,7 +199,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		newAsset, err := asset.New(
 			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBIP0086(scriptKey), familyKey,
+			asset.NewScriptKeyBIP0086(scriptKey), groupKey,
 		)
 		require.NoError(t, err)
 
@@ -506,37 +506,37 @@ func TestCommitBatchChainActions(t *testing.T) {
 		require.Equal(t, newAsset.Amount, assetBalance.Balance)
 	}
 
-	// We'll also now ensure that if we group by key family, then we're
+	// We'll also now ensure that if we group by key group, then we're
 	// also able to verify the correct balances.
-	keyFamSumReducer := func(count int, asset *asset.Asset) int {
-		if asset.FamilyKey != nil {
+	keyGroupSumReducer := func(count int, asset *asset.Asset) int {
+		if asset.GroupKey != nil {
 			return count + 1
 		}
 
 		return count
 	}
-	numKeyFams := chanutils.Reduce(mintedAssets, keyFamSumReducer)
-	assetBalancesByFam, err := confAssets.QueryAssetBalancesByFamily(ctx, nil)
+	numKeyGroups := chanutils.Reduce(mintedAssets, keyGroupSumReducer)
+	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(ctx, nil)
 	require.NoError(t, err)
-	require.Equal(t, numKeyFams, len(assetBalancesByFam))
+	require.Equal(t, numKeyGroups, len(assetBalancesByGroup))
 
 	for _, newAsset := range mintedAssets {
-		if newAsset.FamilyKey == nil {
+		if newAsset.GroupKey == nil {
 			continue
 		}
 
-		famKey := asset.ToSerialized(&newAsset.FamilyKey.FamKey)
-		assetBalance, ok := assetBalancesByFam[famKey]
+		groupKey := asset.ToSerialized(&newAsset.GroupKey.GroupPubKey)
+		assetBalance, ok := assetBalancesByGroup[groupKey]
 		require.True(t, ok)
 
 		require.Equal(t, newAsset.Amount, assetBalance.Balance)
 	}
 }
 
-// TestDuplicateFamilyKey tests that if we attempt to insert a family key with
+// TestDuplicateGroupKey tests that if we attempt to insert a group key with
 // the exact same tweaked key blob, then the noop UPSERT logic triggers, and we
 // get the ID of that same key.
-func TestDuplicateFamilyKey(t *testing.T) {
+func TestDuplicateGroupKey(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -557,27 +557,27 @@ func TestDuplicateFamilyKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Before we can insert the family key, we also need to insert a valid
+	// Before we can insert the group key, we also need to insert a valid
 	// genesis point as well. We'll just use the key again as uniqueness is
 	// what matters.
 	genesisPointID, err := db.UpsertGenesisPoint(ctx, rawKey)
 	require.NoError(t, err)
 
-	// We'll just use the same family key here as it doesn't really matter
+	// We'll just use the same group key here as it doesn't really matter
 	// what it is. What matters is that it's unique.
-	assetKey := AssetFamilyKey{
-		TweakedFamKey:  rawKey,
-		InternalKeyID:  keyID,
-		GenesisPointID: genesisPointID,
+	assetKey := AssetGroupKey{
+		TweakedGroupKey: rawKey,
+		InternalKeyID:   keyID,
+		GenesisPointID:  genesisPointID,
 	}
-	famID, err := db.UpsertAssetFamilyKey(ctx, assetKey)
+	groupID, err := db.UpsertAssetGroupKey(ctx, assetKey)
 	require.NoError(t, err)
 
-	// Now we'll try to insert that same key family again. We should get no
-	// error, and the same famID back.
-	famID2, err := db.UpsertAssetFamilyKey(ctx, assetKey)
+	// Now we'll try to insert that same key group again. We should get no
+	// error, and the same groupID back.
+	groupID2, err := db.UpsertAssetGroupKey(ctx, assetKey)
 	require.NoError(t, err)
-	require.Equal(t, famID, famID2)
+	require.Equal(t, groupID, groupID2)
 }
 
 func init() {

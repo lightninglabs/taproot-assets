@@ -551,39 +551,39 @@ func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "ScriptVersion", l, 2)
 }
 
-func FamilyKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**FamilyKey); ok {
-		key := &(*t).FamKey
+func GroupKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**GroupKey); ok {
+		key := &(*t).GroupPubKey
 		if err := CompressedPubKeyEncoder(w, &key, buf); err != nil {
 			return err
 		}
 		sig := (*t).Sig
 		return SchnorrSignatureEncoder(w, &sig, buf)
 	}
-	return tlv.NewTypeForEncodingErr(val, "*FamilyKey")
+	return tlv.NewTypeForEncodingErr(val, "*GroupKey")
 }
 
-func FamilyKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
-	if typ, ok := val.(**FamilyKey); ok {
+func GroupKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
+	if typ, ok := val.(**GroupKey); ok {
 		var (
-			familyKey FamilyKey
-			famKey    *btcec.PublicKey
+			groupKey    GroupKey
+			groupPubKey *btcec.PublicKey
 		)
 		err := CompressedPubKeyDecoder(
-			r, &famKey, buf, btcec.PubKeyBytesLenCompressed,
+			r, &groupPubKey, buf, btcec.PubKeyBytesLenCompressed,
 		)
 		if err != nil {
 			return err
 		}
 		err = SchnorrSignatureDecoder(
-			r, &familyKey.Sig, buf, schnorr.SignatureSize,
+			r, &groupKey.Sig, buf, schnorr.SignatureSize,
 		)
 		if err != nil {
 			return err
 		}
-		familyKey.FamKey = *famKey
-		*typ = &familyKey
+		groupKey.GroupPubKey = *groupPubKey
+		*typ = &groupKey
 		return nil
 	}
-	return tlv.NewTypeForEncodingErr(val, "*FamilyKey")
+	return tlv.NewTypeForEncodingErr(val, "*GroupKey")
 }

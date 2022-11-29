@@ -30,8 +30,8 @@ func (m *MockVerifier) Verify(_ context.Context, _ io.Reader) (*AssetSnapshot,
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
 
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *test.RandPubKey(m.t),
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *test.RandPubKey(m.t),
 			},
 			ScriptKey: asset.NewScriptKey(test.RandPubKey(m.t)),
 		},

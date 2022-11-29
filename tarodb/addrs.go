@@ -235,14 +235,14 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 					"taproot key: %w", err)
 			}
 
-			var famKeyBytes []byte
-			if addr.FamilyKey != nil {
-				famKeyBytes = addr.FamilyKey.SerializeCompressed()
+			var groupKeyBytes []byte
+			if addr.GroupKey != nil {
+				groupKeyBytes = addr.GroupKey.SerializeCompressed()
 			}
 			_, err = db.InsertAddr(ctx, NewAddr{
 				Version:        int16(addr.Version),
 				GenesisAssetID: genAssetID,
-				FamKey:         famKeyBytes,
+				GroupKey:       groupKeyBytes,
 				ScriptKeyID:    scriptKeyID,
 				TaprootKeyID:   taprootKeyID,
 				TaprootOutputKey: schnorr.SerializePubKey(
@@ -312,12 +312,12 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					err)
 			}
 
-			var famKey *btcec.PublicKey
-			if addr.FamKey != nil {
-				famKey, err = btcec.ParsePubKey(addr.FamKey)
+			var groupKey *btcec.PublicKey
+			if addr.GroupKey != nil {
+				groupKey, err = btcec.ParsePubKey(addr.GroupKey)
 				if err != nil {
 					return fmt.Errorf("unable to decode "+
-						"fam key: %w", err)
+						"group key: %w", err)
 				}
 			}
 
@@ -370,7 +370,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 				Taro: &address.Taro{
 					Version:     asset.Version(addr.Version),
 					Genesis:     assetGenesis,
-					FamilyKey:   famKey,
+					GroupKey:    groupKey,
 					ScriptKey:   *scriptKey,
 					InternalKey: *internalKey,
 					Amount:      uint64(addr.Amount),
@@ -438,11 +438,11 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		return nil, fmt.Errorf("error fetching genesis: %w", err)
 	}
 
-	var famKey *btcec.PublicKey
-	if dbAddr.FamKey != nil {
-		famKey, err = btcec.ParsePubKey(dbAddr.FamKey)
+	var groupKey *btcec.PublicKey
+	if dbAddr.GroupKey != nil {
+		groupKey, err = btcec.ParsePubKey(dbAddr.GroupKey)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode fam key: %w",
+			return nil, fmt.Errorf("unable to decode group key: %w",
 				err)
 		}
 	}
@@ -484,7 +484,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		Taro: &address.Taro{
 			Version:     asset.Version(dbAddr.Version),
 			Genesis:     genesis,
-			FamilyKey:   famKey,
+			GroupKey:    groupKey,
 			ScriptKey:   *scriptKey,
 			InternalKey: *internalKey,
 			Amount:      uint64(dbAddr.Amount),

@@ -30,7 +30,7 @@ const (
 	LeafSplitCommitmentRoot LeafTlvType = 7
 	LeafScriptVersion       LeafTlvType = 8
 	LeafScriptKey           LeafTlvType = 9
-	LeafFamilyKey           LeafTlvType = 10
+	LeafGroupKey            LeafTlvType = 10
 )
 
 // WitnessTlvType represents the different TLV types for Asset Witness TLV
@@ -143,17 +143,17 @@ func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
 	)
 }
 
-func NewLeafFamilyKeyRecord(familyKey **FamilyKey) tlv.Record {
+func NewLeafGroupKeyRecord(groupKey **GroupKey) tlv.Record {
 	const recordSize = btcec.PubKeyBytesLenCompressed + schnorr.SignatureSize
 	return tlv.MakeStaticRecord(
-		LeafFamilyKey, familyKey, recordSize, FamilyKeyEncoder,
-		FamilyKeyDecoder,
+		LeafGroupKey, groupKey, recordSize, GroupKeyEncoder,
+		GroupKeyDecoder,
 	)
 }
 
-func NewLeafFamilyKeyOnlyRecord(familyKey **btcec.PublicKey) tlv.Record {
+func NewLeafGroupKeyOnlyRecord(groupKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		LeafFamilyKey, familyKey, btcec.PubKeyBytesLenCompressed,
+		LeafGroupKey, groupKey, btcec.PubKeyBytesLenCompressed,
 		CompressedPubKeyEncoder, CompressedPubKeyDecoder,
 	)
 }

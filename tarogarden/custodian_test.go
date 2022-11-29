@@ -176,9 +176,9 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	require.NoError(t, err)
 	pubKey := privKey.PubKey()
 
-	var familyKey *btcec.PublicKey
+	var groupKey *btcec.PublicKey
 	if rand.Int31()%2 == 0 {
-		familyKey = pubKey
+		groupKey = pubKey
 	}
 
 	scriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
@@ -188,7 +188,7 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 
 	genesis := asset.RandGenesis(t, assetType)
 	taro, err := address.New(
-		genesis, familyKey, *scriptKey.PubKey, pubKeyCopy2, amount,
+		genesis, groupKey, *scriptKey.PubKey, pubKeyCopy2, amount,
 		&address.RegressionNetTaro,
 	)
 	require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestCustodianNewAddr(t *testing.T) {
 	ctx := context.Background()
 	addr := randAddr(t)
 	dbAddr, err := h.addrBook.NewAddress(
-		ctx, addr.Genesis, addr.FamilyKey, addr.Amount,
+		ctx, addr.Genesis, addr.GroupKey, addr.Amount,
 	)
 	require.NoError(t, err)
 
@@ -358,7 +358,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 		a      *asset.Asset
 		result bool
 	}{{
-		name: "both family keys nil",
+		name: "both group keys nil",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{},
 		},
@@ -369,15 +369,15 @@ func TestAddrMatchesAsset(t *testing.T) {
 		},
 		result: true,
 	}, {
-		name: "no family key nil",
+		name: "no group key nil",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{
-				FamilyKey: randKey1,
+				GroupKey: randKey1,
 			},
 		},
 		a: &asset.Asset{
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *randKey1,
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *randKey1,
 			},
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
@@ -385,15 +385,15 @@ func TestAddrMatchesAsset(t *testing.T) {
 		},
 		result: true,
 	}, {
-		name: "no family key nil but mismatch",
+		name: "no group key nil but mismatch",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{
-				FamilyKey: randKey1,
+				GroupKey: randKey1,
 			},
 		},
 		a: &asset.Asset{
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *randKey2,
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *randKey2,
 			},
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
@@ -401,13 +401,13 @@ func TestAddrMatchesAsset(t *testing.T) {
 		},
 		result: false,
 	}, {
-		name: "one family key nil",
+		name: "one group key nil",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{},
 		},
 		a: &asset.Asset{
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *randKey1,
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *randKey1,
 			},
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
@@ -418,14 +418,14 @@ func TestAddrMatchesAsset(t *testing.T) {
 		name: "id mismatch",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{
-				FamilyKey: randKey1,
-				Genesis:   randGen1,
+				GroupKey: randKey1,
+				Genesis:  randGen1,
 			},
 		},
 		a: &asset.Asset{
 			Genesis: randGen2,
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *randKey1,
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *randKey1,
 			},
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
@@ -436,15 +436,15 @@ func TestAddrMatchesAsset(t *testing.T) {
 		name: "script key mismatch",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{
-				FamilyKey: randKey1,
+				GroupKey:  randKey1,
 				Genesis:   randGen1,
 				ScriptKey: *randKey1,
 			},
 		},
 		a: &asset.Asset{
 			Genesis: randGen1,
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *randKey1,
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *randKey1,
 			},
 			ScriptKey: asset.ScriptKey{
 				PubKey: randKey2,
@@ -455,15 +455,15 @@ func TestAddrMatchesAsset(t *testing.T) {
 		name: "all match",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{
-				FamilyKey: randKey1,
+				GroupKey:  randKey1,
 				Genesis:   randGen1,
 				ScriptKey: *randKey2,
 			},
 		},
 		a: &asset.Asset{
 			Genesis: randGen1,
-			FamilyKey: &asset.FamilyKey{
-				FamKey: *randKey1,
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *randKey1,
 			},
 			ScriptKey: asset.ScriptKey{
 				PubKey: randKey2,

@@ -42,15 +42,15 @@ var (
 )
 
 // Locator is able to uniquely identify a proof in the extended Taro Universe
-// by a combination of the: top-level asset ID, the family key, and also the
+// by a combination of the: top-level asset ID, the group key, and also the
 // script key.
 type Locator struct {
 	// AssetID the asset ID of the proof to fetch. This is an optional field.
 	AssetID *asset.ID
 
-	// FamilyKey the family key of the asset to fetch. This is an optional
+	// GroupKey the group key of the asset to fetch. This is an optional
 	// field.
-	FamilyKey *btcec.PublicKey
+	GroupKey *btcec.PublicKey
 
 	// ScriptKey specifies the script key of the asset to fetch/store. This
 	// field MUST be specified.
@@ -292,8 +292,8 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 			assetID := finalAsset.ID()
 			proof.AssetID = &assetID
 
-			if finalAsset.FamilyKey != nil {
-				proof.FamilyKey = &finalAsset.FamilyKey.FamKey
+			if finalAsset.GroupKey != nil {
+				proof.GroupKey = &finalAsset.GroupKey.GroupPubKey
 			}
 
 			proof.ScriptKey = *finalAsset.ScriptKey.PubKey

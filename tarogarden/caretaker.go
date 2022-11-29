@@ -321,23 +321,23 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				"key: %w", err)
 		}
 
-		var familyKey *asset.FamilyKey
+		var groupKey *asset.GroupKey
 		// If emission is enabled, then we'll need to generate another
-		// public key, then use that to derive the key family signature
-		// along with the tweaked key family.
+		// public key, then use that to derive the key group signature
+		// along with the tweaked key group.
 		if seedling.EnableEmission {
-			rawFamilyKey, err := b.cfg.KeyRing.DeriveNextKey(
+			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
 				ctx, TaroKeyFamily,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to derive "+
-					"family key: %v", err)
+					"group key: %v", err)
 			}
-			familyKey, err = asset.DeriveFamilyKey(
-				b.cfg.GenSigner, rawFamilyKey, assetGen,
+			groupKey, err = asset.DeriveGroupKey(
+				b.cfg.GenSigner, rawGroupKey, assetGen,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to tweak	family "+
+				return nil, fmt.Errorf("unable to tweak	group "+
 					"key: %v", err)
 			}
 		}
@@ -354,7 +354,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 		newAsset, err := asset.New(
 			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBIP0086(scriptKey), familyKey,
+			asset.NewScriptKeyBIP0086(scriptKey), groupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %v",

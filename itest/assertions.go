@@ -128,17 +128,17 @@ func commitmentKey(t *testing.T, rpcAsset *tarorpc.Asset) [32]byte {
 	scriptKey, err := btcec.ParsePubKey(rpcAsset.ScriptKey)
 	require.NoError(t, err)
 
-	var familyKey *btcec.PublicKey
-	if rpcAsset.AssetFamily != nil &&
-		len(rpcAsset.AssetFamily.TweakedFamilyKey) > 0 {
+	var groupKey *btcec.PublicKey
+	if rpcAsset.AssetGroup != nil &&
+		len(rpcAsset.AssetGroup.TweakedGroupKey) > 0 {
 
-		familyKey, err = btcec.ParsePubKey(
-			rpcAsset.AssetFamily.TweakedFamilyKey,
+		groupKey, err = btcec.ParsePubKey(
+			rpcAsset.AssetGroup.TweakedGroupKey,
 		)
 		require.NoError(t, err)
 	}
 
-	return asset.AssetCommitmentKey(assetID, scriptKey, familyKey == nil)
+	return asset.AssetCommitmentKey(assetID, scriptKey, groupKey == nil)
 }
 
 // assertAssetProofs makes sure the proofs for the given asset can be retrieved
@@ -246,19 +246,19 @@ func assertAddr(t *testing.T, expected *tarorpc.Asset, actual *tarorpc.Addr) {
 	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
 	require.Equal(t, expected.AssetType, actual.AssetType)
 
-	if expected.AssetFamily == nil {
-		require.Nil(t, actual.FamilyKey)
+	if expected.AssetGroup == nil {
+		require.Nil(t, actual.GroupKey)
 	} else {
 		// TODO(guggero): Address 33-byte vs. 32-byte issue in encoded
 		// address vs. database.
 		require.Equal(
-			t, expected.AssetFamily.TweakedFamilyKey[1:],
-			actual.FamilyKey[1:],
+			t, expected.AssetGroup.TweakedGroupKey[1:],
+			actual.GroupKey[1:],
 		)
 	}
 
 	// The script key must explicitly NOT be the same, as that would lead
-	// to a collision with assets that have a family key.
+	// to a collision with assets that have a group key.
 	require.NotEqual(t, expected.ScriptKey, actual.ScriptKey)
 }
 

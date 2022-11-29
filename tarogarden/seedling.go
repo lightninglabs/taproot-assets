@@ -84,7 +84,7 @@ type Seedling struct {
 	// Amount is the total amount of the asset.
 	Amount uint64
 
-	// EnableEmission if true, then an asset family key will be specified
+	// EnableEmission if true, then an asset group key will be specified
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
 

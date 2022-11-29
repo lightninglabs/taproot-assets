@@ -32,7 +32,7 @@ var (
 	assetMetaName     = "meta"
 	assetEmissionName = "enable_emission"
 	skipBatchName     = "skip_batch"
-	groupByFamilyName = "by_family"
+	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
 )
 
@@ -161,8 +161,8 @@ var listAssetBalancesCommand = cli.Command{
 	Action:      listAssetBalances,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  groupByFamilyName,
-			Usage: "Group asset balances by family key",
+			Name:  groupByGroupName,
+			Usage: "Group asset balances by group key",
 		},
 		cli.StringFlag{
 			Name: assetIDName,
@@ -170,10 +170,10 @@ var listAssetBalancesCommand = cli.Command{
 				"against",
 		},
 		cli.StringFlag{
-			Name: keyFamName,
-			Usage: "A specific asset family key to run the " +
+			Name: groupKeyName,
+			Usage: "A specific asset group key to run the " +
 				"balance query against. Must be used " +
-				"together with --by_family",
+				"together with --by_group",
 		},
 	},
 }
@@ -187,7 +187,7 @@ func listAssetBalances(ctx *cli.Context) error {
 
 	req := &tarorpc.ListBalancesRequest{}
 
-	if !ctx.Bool(groupByFamilyName) {
+	if !ctx.Bool(groupByGroupName) {
 		req.GroupBy = &tarorpc.ListBalancesRequest_AssetId{
 			AssetId: true,
 		}
@@ -204,14 +204,14 @@ func listAssetBalances(ctx *cli.Context) error {
 			}
 		}
 	} else {
-		req.GroupBy = &tarorpc.ListBalancesRequest_FamKey{
-			FamKey: true,
+		req.GroupBy = &tarorpc.ListBalancesRequest_GroupKey{
+			GroupKey: true,
 		}
 
-		assetFamKeyHexStr := ctx.String(keyFamName)
-		req.FamilyKeyFilter, err = hex.DecodeString(assetFamKeyHexStr)
+		assetGroupKeyHexStr := ctx.String(groupKeyName)
+		req.GroupKeyFilter, err = hex.DecodeString(assetGroupKeyHexStr)
 		if err != nil {
-			return fmt.Errorf("invalid family key")
+			return fmt.Errorf("invalid group key")
 		}
 	}
 

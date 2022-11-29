@@ -11,9 +11,9 @@ CREATE TABLE IF NOT EXISTS addrs (
     -- send/recv.
     genesis_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
 
-    -- fam_key is the raw blob of the family key. For assets w/o a family key,
+    -- group_key is the raw blob of the group key. For assets w/o a group key,
     -- this field will be NULL.
-    fam_key BLOB,
+    group_key BLOB,
 
     -- script_key_id points to the internal key that we created to serve as the
     -- script key to be able to receive this asset.
@@ -42,9 +42,9 @@ CREATE TABLE IF NOT EXISTS addrs (
     managed_from TIMESTAMP
 );
 
--- We'll create some indexes over the asset ID, family key, and also creation
+-- We'll create some indexes over the asset ID, group key, and also creation
 -- time to speed up common queries.
 CREATE INDEX IF NOT EXISTS addr_asset_genesis_ids ON addrs (genesis_asset_id);
-CREATE INDEX IF NOT EXISTS addr_fam_keys ON addrs (fam_key);
+CREATE INDEX IF NOT EXISTS addr_group_keys ON addrs (group_key);
 CREATE INDEX IF NOT EXISTS addr_creation_time ON addrs (creation_time);
 CREATE INDEX IF NOT EXISTS addr_managed_from ON addrs (managed_from);

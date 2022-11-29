@@ -13,7 +13,7 @@ type Addr struct {
 	ID               int32
 	Version          int16
 	GenesisAssetID   int32
-	FamKey           []byte
+	GroupKey         []byte
 	ScriptKeyID      int32
 	TaprootKeyID     int32
 	TaprootOutputKey []byte
@@ -40,7 +40,7 @@ type Asset struct {
 	GenesisID                int32
 	Version                  int32
 	ScriptKeyID              int32
-	AssetFamilySigID         sql.NullInt32
+	AssetGroupSigID          sql.NullInt32
 	ScriptVersion            int32
 	Amount                   int64
 	LockTime                 sql.NullInt32
@@ -62,18 +62,18 @@ type AssetDelta struct {
 	ProofID                  int32
 }
 
-type AssetFamily struct {
-	FamilyID       int32
-	TweakedFamKey  []byte
-	InternalKeyID  int32
-	GenesisPointID int32
+type AssetGroup struct {
+	GroupID         int32
+	TweakedGroupKey []byte
+	InternalKeyID   int32
+	GenesisPointID  int32
 }
 
-type AssetFamilySig struct {
+type AssetGroupSig struct {
 	SigID      int32
 	GenesisSig []byte
 	GenAssetID int32
-	KeyFamID   int32
+	GroupKeyID int32
 }
 
 type AssetMintingBatch struct {
@@ -163,14 +163,14 @@ type InternalKey struct {
 	KeyIndex  int32
 }
 
-type KeyFamInfoView struct {
-	SigID         int32
-	GenAssetID    int32
-	GenesisSig    []byte
-	TweakedFamKey []byte
-	RawKey        []byte
-	KeyIndex      int32
-	KeyFamily     int32
+type KeyGroupInfoView struct {
+	SigID           int32
+	GenAssetID      int32
+	GenesisSig      []byte
+	TweakedGroupKey []byte
+	RawKey          []byte
+	KeyIndex        int32
+	KeyFamily       int32
 }
 
 type Macaroon struct {

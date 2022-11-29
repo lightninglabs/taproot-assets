@@ -48,8 +48,8 @@ type (
 	// key.
 	MintingBatchTuple = sqlc.UpdateMintingBatchStateParams
 
-	// AssetFamilyKey is used to insert a new asset key family into the DB.
-	AssetFamilyKey = sqlc.UpsertAssetFamilyKeyParams
+	// AssetGroupKey is used to insert a new asset key group into the DB.
+	AssetGroupKey = sqlc.UpsertAssetGroupKeyParams
 
 	// BatchChainUpdate is used to update a batch with the minting
 	// transaction associated with it.
@@ -81,9 +81,9 @@ type (
 	// the DB.
 	GenesisAsset = sqlc.UpsertGenesisAssetParams
 
-	// AssetFamSig is used to insert the family key signature for a given
+	// AssetGroupSig is used to insert the group key signature for a given
 	// asset on disk.
-	AssetFamSig = sqlc.UpsertAssetFamilySigParams
+	AssetGroupSig = sqlc.UpsertAssetGroupSigParams
 
 	// AssetSprout is used to fetch the set of assets from disk.
 	AssetSprout = sqlc.FetchAssetsForBatchRow
@@ -352,7 +352,7 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 //
 // NOTE: In order for this query to work properly, until
 // https://github.com/kyleconroy/sqlc/issues/1334 is fixed in sqlc, after code
-// generation, the FamKeyFamily and FamKeyIndex fields of the
+// generation, the GroupKeyFamily and GroupKeyIndex fields of the
 // FetchAssetsForBatchRow need to be manually modified to be sql.NullInt32.
 func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 	rawKey []byte) (*commitment.TaroCommitment, error) {
@@ -380,42 +380,42 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 			},
 		}
 
-		// Not all assets have a key family, so we only need to
+		// Not all assets have a key group, so we only need to
 		// populate this information for those that signalled the
 		// requirement of on going emission.
-		var familyKey *asset.FamilyKey
-		if sprout.TweakedFamKey != nil {
-			tweakedFamKey, err := btcec.ParsePubKey(
-				sprout.TweakedFamKey,
+		var groupKey *asset.GroupKey
+		if sprout.TweakedGroupKey != nil {
+			tweakedGroupKey, err := btcec.ParsePubKey(
+				sprout.TweakedGroupKey,
 			)
 			if err != nil {
 				return nil, err
 			}
-			rawFamKey, err := btcec.ParsePubKey(sprout.FamKeyRaw)
+			rawGroupKey, err := btcec.ParsePubKey(sprout.GroupKeyRaw)
 			if err != nil {
 				return nil, err
 			}
-			famSig, err := schnorr.ParseSignature(sprout.GenesisSig)
+			groupSig, err := schnorr.ParseSignature(sprout.GenesisSig)
 			if err != nil {
 				return nil, err
 			}
 
-			familyKey = &asset.FamilyKey{
+			groupKey = &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
-					PubKey: rawFamKey,
+					PubKey: rawGroupKey,
 					KeyLocator: keychain.KeyLocator{
 						Index: extractSqlInt32[uint32](
-							sprout.FamKeyIndex,
+							sprout.GroupKeyIndex,
 						),
 						Family: keychain.KeyFamily(
 							extractSqlInt32[keychain.KeyFamily](
-								sprout.FamKeyFamily,
+								sprout.GroupKeyFamily,
 							),
 						),
 					},
 				},
-				FamKey: *tweakedFamKey,
-				Sig:    *famSig,
+				GroupPubKey: *tweakedGroupKey,
+				Sig:         *groupSig,
 			}
 		}
 
@@ -454,7 +454,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
-			asset.NewScriptKeyBIP0086(scriptKey), familyKey,
+			asset.NewScriptKeyBIP0086(scriptKey), groupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+

@@ -34,7 +34,7 @@ type AssetCommitments map[[32]byte]*AssetCommitment
 // TaroCommitment represents the outer MS-SMT within the Taro protocol
 // committing to a set of asset commitments. Asset commitments, which are
 // leaves represented as `asset_version || asset_tree_root || asset_sum`, are
-// keyed by their `asset_family_key` or `asset_id` otherwise.
+// keyed by their `asset_group_key` or `asset_id` otherwise.
 type TaroCommitment struct {
 	// Version is the maximum Taro asset version found within all of the
 	// assets committed.

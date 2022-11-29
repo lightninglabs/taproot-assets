@@ -109,20 +109,20 @@ INSERT INTO genesis_points(
     DO UPDATE SET prev_out = EXCLUDED.prev_out
 RETURNING genesis_id;
 
--- name: UpsertAssetFamilyKey :one
-INSERT INTO asset_families (
-    tweaked_fam_key, internal_key_id, genesis_point_id 
+-- name: UpsertAssetGroupKey :one
+INSERT INTO asset_groups (
+    tweaked_group_key, internal_key_id, genesis_point_id 
 ) VALUES (
     $1, $2, $3
-) ON CONFLICT (tweaked_fam_key)
+) ON CONFLICT (tweaked_group_key)
     -- This is not a NOP, update the genesis point ID in case it wasn't set
     -- before.
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
-RETURNING family_id;
+RETURNING group_id;
 
--- name: UpsertAssetFamilySig :one
-INSERT INTO asset_family_sigs (
-    genesis_sig, gen_asset_id, key_fam_id
+-- name: UpsertAssetGroupSig :one
+INSERT INTO asset_group_sigs (
+    genesis_sig, gen_asset_id, group_key_id
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (gen_asset_id)
@@ -141,7 +141,7 @@ RETURNING gen_asset_id;
 
 -- name: InsertNewAsset :one
 INSERT INTO assets (
-    genesis_id, version, script_key_id, asset_family_sig_id, script_version, 
+    genesis_id, version, script_key_id, asset_group_sig_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9
@@ -166,27 +166,27 @@ WITH genesis_info AS (
     JOIN internal_keys keys
         ON keys.key_id = batches.batch_id
     WHERE keys.raw_key = $1
-), key_fam_info AS (
+), key_group_info AS (
     -- This CTE is used to perform a series of joins that allow us to extract
-    -- the family key information, as well as the family sigs for the series of
+    -- the group key information, as well as the group sigs for the series of
     -- assets we care about. We obtain only the assets found in the batch
     -- above, with the WHERE query at the bottom.
     SELECT 
-        sig_id, gen_asset_id, genesis_sig, tweaked_fam_key, raw_key, key_index, key_family
-    FROM asset_family_sigs sigs
-    JOIN asset_families fams
-        ON sigs.key_fam_id = fams.family_id
+        sig_id, gen_asset_id, genesis_sig, tweaked_group_key, raw_key, key_index, key_family
+    FROM asset_group_sigs sigs
+    JOIN asset_groups groups
+        ON sigs.group_key_id = groups.group_id
     JOIN internal_keys keys
-        ON keys.key_id = fams.internal_key_id
+        ON keys.key_id = groups.internal_key_id
     -- TODO(roasbeef): or can join do this below?
     WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
     version, script_keys.tweak, script_keys.tweaked_script_key, 
     internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index, key_fam_info.genesis_sig, 
-    key_fam_info.tweaked_fam_key, key_fam_info.raw_key AS fam_key_raw,
-    key_fam_info.key_family AS fam_key_family, key_fam_info.key_index AS fam_key_index,
+    internal_keys.key_index AS script_key_index, key_group_info.genesis_sig, 
+    key_group_info.tweaked_group_key, key_group_info.raw_key AS group_key_raw,
+    key_group_info.key_family AS group_key_family, key_group_info.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, 
     genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_data, 
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
@@ -194,12 +194,12 @@ SELECT
 FROM assets
 JOIN genesis_info
     ON assets.genesis_id = genesis_info.gen_asset_id
--- We use a LEFT JOIN here as not every asset has a family key, so this'll
+-- We use a LEFT JOIN here as not every asset has a group key, so this'll
 -- generate rows that have NULL values for the faily key fields if an asset
--- doesn't have a family key. See the comment in fetchAssetSprouts for a work
+-- doesn't have a group key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
-LEFT JOIN key_fam_info
-    ON assets.genesis_id = key_fam_info.gen_asset_id
+LEFT JOIN key_group_info
+    ON assets.genesis_id = key_group_info.gen_asset_id
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
@@ -216,26 +216,26 @@ JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND
       (genesis_info_view.asset_id = sqlc.narg('asset_id_filter') OR
         sqlc.narg('asset_id_filter') IS NULL)
--- We use a LEFT JOIN here as not every asset has a family key, so this'll
--- generate rows that have NULL values for the family key fields if an asset
--- doesn't have a family key. See the comment in fetchAssetSprouts for a work
+-- We use a LEFT JOIN here as not every asset has a group key, so this'll
+-- generate rows that have NULL values for the group key fields if an asset
+-- doesn't have a group key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
-LEFT JOIN key_fam_info_view
-    ON assets.genesis_id = key_fam_info_view.gen_asset_id
+LEFT JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          version, genesis_info_view.asset_tag, genesis_info_view.meta_data,
          genesis_info_view.asset_type, genesis_info_view.output_index,
          genesis_info_view.prev_out;
 
--- name: QueryAssetBalancesByFamily :many
+-- name: QueryAssetBalancesByGroup :many
 SELECT
-    key_fam_info_view.tweaked_fam_key, SUM(amount) balance
+    key_group_info_view.tweaked_group_key, SUM(amount) balance
 FROM assets
-JOIN key_fam_info_view
-    ON assets.genesis_id = key_fam_info_view.gen_asset_id AND
-      (key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter') OR
-        sqlc.narg('key_fam_filter') IS NULL)
-GROUP BY key_fam_info_view.tweaked_fam_key;
+JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id AND
+      (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
+        sqlc.narg('key_group_filter') IS NULL)
+GROUP BY key_group_info_view.tweaked_group_key;
 
 -- name: QueryAssets :many
 SELECT
@@ -245,11 +245,11 @@ SELECT
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
-    key_fam_info_view.genesis_sig, 
-    key_fam_info_view.tweaked_fam_key,
-    key_fam_info_view.raw_key AS fam_key_raw,
-    key_fam_info_view.key_family AS fam_key_family,
-    key_fam_info_view.key_index AS fam_key_index,
+    key_group_info_view.genesis_sig, 
+    key_group_info_view.tweaked_group_key,
+    key_group_info_view.raw_key AS group_key_raw,
+    key_group_info_view.key_family AS group_key_family,
+    key_group_info_view.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
@@ -266,12 +266,12 @@ JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id AND
       (genesis_info_view.asset_id = sqlc.narg('asset_id_filter') OR
         sqlc.narg('asset_id_filter') IS NULL)
--- We use a LEFT JOIN here as not every asset has a family key, so this'll
--- generate rows that have NULL values for the family key fields if an asset
--- doesn't have a family key. See the comment in fetchAssetSprouts for a work
+-- We use a LEFT JOIN here as not every asset has a group key, so this'll
+-- generate rows that have NULL values for the group key fields if an asset
+-- doesn't have a group key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
-LEFT JOIN key_fam_info_view
-    ON assets.genesis_id = key_fam_info_view.gen_asset_id
+LEFT JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
 JOIN script_keys
     on assets.script_key_id = script_keys.script_key_id
 JOIN internal_keys
@@ -290,8 +290,8 @@ JOIN chain_txns txns
 -- specified.
 WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
-    (key_fam_info_view.tweaked_fam_key = sqlc.narg('key_fam_filter') OR
-      sqlc.narg('key_fam_filter') IS NULL)
+    (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
+      sqlc.narg('key_group_filter') IS NULL)
 );
 
 -- name: AllAssets :many

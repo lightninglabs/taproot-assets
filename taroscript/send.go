@@ -254,7 +254,7 @@ func IsValidInput(input *commitment.TaroCommitment,
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		addr.ID(), &inputScriptKey, addr.FamilyKey == nil,
+		addr.ID(), &inputScriptKey, addr.GroupKey == nil,
 	)
 	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
 	if err != nil {
@@ -302,7 +302,7 @@ func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
 
 	// Generate the keys used to look up split locators for each receiver.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID(), &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.GroupKey == nil,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 
@@ -524,7 +524,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	// build an AssetCommitment for the receiver.
 	if spend.SplitCommitment == nil {
 		senderStateKey = asset.AssetCommitmentKey(
-			addr.ID(), &senderScriptKey, addr.FamilyKey == nil,
+			addr.ID(), &senderScriptKey, addr.GroupKey == nil,
 		)
 		var err error
 		receiverCommitment, err = commitment.NewAssetCommitment(
@@ -604,7 +604,7 @@ func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
 
 	// Fetch the TaroCommitment for both sender and receiver.
 	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID(), &scriptKey, addr.FamilyKey == nil,
+		addr.ID(), &scriptKey, addr.GroupKey == nil,
 	)
 	receiverStateKey := addr.AssetCommitmentKey()
 

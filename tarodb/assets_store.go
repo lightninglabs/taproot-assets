@@ -30,9 +30,9 @@ type (
 	// or all assets tracked by this daemon.
 	RawAssetBalance = sqlc.QueryAssetBalancesByAssetRow
 
-	// RawAssetFamilyBalance holds a balance query result for a particular
-	// asset family or all asset families tracked by this daemon.
-	RawAssetFamilyBalance = sqlc.QueryAssetBalancesByFamilyRow
+	// RawAssetGroupBalance holds a balance query result for a particular
+	// asset group or all asset groups tracked by this daemon.
+	RawAssetGroupBalance = sqlc.QueryAssetBalancesByGroupRow
 
 	// AssetProof is the asset proof for a given asset, identified by its
 	// script key.
@@ -121,11 +121,11 @@ type ActiveAssetsStore interface {
 	QueryAssetBalancesByAsset(context.Context, []byte) ([]RawAssetBalance,
 		error)
 
-	// QueryAssetBalancesByFamily queries the asset balances for asset
-	// families or alternatively for a selected one that matches the passed
+	// QueryAssetBalancesByGroup queries the asset balances for asset
+	// groups or alternatively for a selected one that matches the passed
 	// filter.
-	QueryAssetBalancesByFamily(context.Context,
-		[]byte) ([]RawAssetFamilyBalance, error)
+	QueryAssetBalancesByGroup(context.Context,
+		[]byte) ([]RawAssetGroupBalance, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -234,11 +234,11 @@ type AssetBalance struct {
 	OutputIndex  uint32
 }
 
-// AssetFamilyBalance holds abalance query result for a particular asset family
-// or all asset families tracked by this daemon.
-type AssetFamilyBalance struct {
-	FamKey  *btcec.PublicKey
-	Balance uint64
+// AssetGroupBalance holds abalance query result for a particular asset group
+// or all asset groups tracked by this daemon.
+type AssetGroupBalance struct {
+	GroupKey *btcec.PublicKey
+	Balance  uint64
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -422,40 +422,40 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			},
 		}
 
-		// Not all assets have a key family, so we only need to
+		// Not all assets have a key group, so we only need to
 		// populate this information for those that signalled the
 		// requirement of ongoing emission.
-		var familyKey *asset.FamilyKey
-		if sprout.TweakedFamKey != nil {
-			tweakedFamKey, err := btcec.ParsePubKey(
-				sprout.TweakedFamKey,
+		var groupKey *asset.GroupKey
+		if sprout.TweakedGroupKey != nil {
+			tweakedGroupKey, err := btcec.ParsePubKey(
+				sprout.TweakedGroupKey,
 			)
 			if err != nil {
 				return nil, err
 			}
-			rawFamKey, err := btcec.ParsePubKey(sprout.FamKeyRaw)
+			rawGroupKey, err := btcec.ParsePubKey(sprout.GroupKeyRaw)
 			if err != nil {
 				return nil, err
 			}
-			famSig, err := schnorr.ParseSignature(sprout.GenesisSig)
+			groupSig, err := schnorr.ParseSignature(sprout.GenesisSig)
 			if err != nil {
 				return nil, err
 			}
 
-			familyKey = &asset.FamilyKey{
+			groupKey = &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
-					PubKey: rawFamKey,
+					PubKey: rawGroupKey,
 					KeyLocator: keychain.KeyLocator{
 						Index: extractSqlInt32[uint32](
-							sprout.FamKeyIndex,
+							sprout.GroupKeyIndex,
 						),
 						Family: extractSqlInt32[keychain.KeyFamily](
-							sprout.FamKeyFamily,
+							sprout.GroupKeyFamily,
 						),
 					},
 				},
-				FamKey: *tweakedFamKey,
-				Sig:    *famSig,
+				GroupPubKey: *tweakedGroupKey,
+				Sig:         *groupSig,
 			}
 		}
 
@@ -506,7 +506,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
-			scriptKey, familyKey,
+			scriptKey, groupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
@@ -610,9 +610,9 @@ func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 			assetID := query.AssetID[:]
 			assetFilter.AssetIDFilter = assetID
 		}
-		if query.FamilyKey != nil {
-			famKey := query.FamilyKey.SerializeCompressed()
-			assetFilter.KeyFamFilter = famKey
+		if query.GroupKey != nil {
+			groupKey := query.GroupKey.SerializeCompressed()
+			assetFilter.KeyGroupFilter = groupKey
 		}
 		// TODO(roasbeef): only want to allow asset ID or other and not
 		// both?
@@ -713,43 +713,43 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 	return balances, nil
 }
 
-// QueryAssetBalancesByFamily queries the asset balances for asset families or
+// QueryAssetBalancesByGroup queries the asset balances for asset groups or
 // alternatively for a selected one that matches the passed filter.
-func (a *AssetStore) QueryAssetBalancesByFamily(ctx context.Context,
-	famKey *btcec.PublicKey) (map[asset.SerializedKey]AssetFamilyBalance,
+func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
+	groupKey *btcec.PublicKey) (map[asset.SerializedKey]AssetGroupBalance,
 	error) {
 
-	var famFilter []byte
-	if famKey != nil {
-		famKeySerialized := famKey.SerializeCompressed()
-		famFilter = famKeySerialized[:]
+	var groupFilter []byte
+	if groupKey != nil {
+		groupKeySerialized := groupKey.SerializeCompressed()
+		groupFilter = groupKeySerialized[:]
 	}
 
-	balances := make(map[asset.SerializedKey]AssetFamilyBalance)
+	balances := make(map[asset.SerializedKey]AssetGroupBalance)
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		dbBalances, err := q.QueryAssetBalancesByFamily(ctx, famFilter)
+		dbBalances, err := q.QueryAssetBalancesByGroup(ctx, groupFilter)
 		if err != nil {
 			return fmt.Errorf("unable to query asset "+
 				"balances by asset: %w", err)
 		}
 
-		for _, famBalance := range dbBalances {
-			var famKey *btcec.PublicKey
-			if famBalance.TweakedFamKey != nil {
-				famKey, err = btcec.ParsePubKey(
-					famBalance.TweakedFamKey,
+		for _, groupBalance := range dbBalances {
+			var groupKey *btcec.PublicKey
+			if groupBalance.TweakedGroupKey != nil {
+				groupKey, err = btcec.ParsePubKey(
+					groupBalance.TweakedGroupKey,
 				)
 				if err != nil {
 					return err
 				}
 			}
 
-			serializedKey := asset.ToSerialized(famKey)
-			balances[serializedKey] = AssetFamilyBalance{
-				FamKey:  famKey,
-				Balance: uint64(famBalance.Balance),
+			serializedKey := asset.ToSerialized(groupKey)
+			balances[serializedKey] = AssetGroupBalance{
+				GroupKey: groupKey,
+				Balance:  uint64(groupBalance.Balance),
 			}
 		}
 

@@ -27,11 +27,11 @@ var (
 		"asset commitment: genesis mismatch",
 	)
 
-	// ErrAssetFamilyKeyMismatch is an error returned when we attempt to
+	// ErrAssetGroupKeyMismatch is an error returned when we attempt to
 	// create a new asset commitment and two assets disagree on their
-	// family key.
-	ErrAssetFamilyKeyMismatch = errors.New(
-		"asset commitment: family key mismatch",
+	// group key.
+	ErrAssetGroupKeyMismatch = errors.New(
+		"asset commitment: group key mismatch",
 	)
 
 	// ErrAssetDuplicateScriptKey is an error returned when we attempt to
@@ -43,7 +43,7 @@ var (
 
 	// ErrAssetGenesisInvalidSig is an error returned when we attempt to
 	// create a new asset commitment from a genesis with an invalid
-	// signature with their family key.
+	// signature with their group key.
 	ErrAssetGenesisInvalidSig = errors.New(
 		"asset commitment: invalid genesis signature",
 	)
@@ -54,7 +54,7 @@ var (
 type CommittedAssets map[[32]byte]*asset.Asset
 
 // AssetCommitment represents the inner MS-SMT within the Taro protocol
-// committing to a set of assets under the same ID/family. Assets within this
+// committing to a set of assets under the same ID/group. Assets within this
 // tree, which are leaves represented as the serialized asset TLV payload, are
 // keyed by their `asset_script_key`.
 type AssetCommitment struct {
@@ -63,7 +63,7 @@ type AssetCommitment struct {
 
 	// AssetID is the common identifier for all assets found within the
 	// AssetCommitment. This can either be an asset.ID, which every
-	// committed asset must match, or the hash of an asset.FamilyKey which
+	// committed asset must match, or the hash of an asset.GroupKey which
 	// every committed asset must match if their asset.ID differs.
 	AssetID [32]byte
 
@@ -93,23 +93,23 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 
 	maxVersion := asset.Version(0)
 	assetGenesis := assets[0].Genesis.ID()
-	assetFamilyKey := assets[0].FamilyKey
+	assetGroupKey := assets[0].GroupKey
 	assetsMap := make(CommittedAssets, len(assets))
 	for _, asset := range assets {
 		switch {
-		case !assetFamilyKey.IsEqual(asset.FamilyKey):
-			return nil, ErrAssetFamilyKeyMismatch
+		case !assetGroupKey.IsEqual(asset.GroupKey):
+			return nil, ErrAssetGroupKeyMismatch
 
-		case assetFamilyKey == nil:
+		case assetGroupKey == nil:
 			if assetGenesis != asset.Genesis.ID() {
 				return nil, ErrAssetGenesisMismatch
 			}
 
-		case assetFamilyKey != nil:
+		case assetGroupKey != nil:
 			// There should be a valid Schnorr sig over the asset ID
-			// in the family key struct.
+			// in the group key struct.
 			validSig := asset.Genesis.VerifySignature(
-				&assetFamilyKey.Sig, &assetFamilyKey.FamKey,
+				&assetGroupKey.Sig, &assetGroupKey.GroupPubKey,
 			)
 			if !validSig {
 				return nil, ErrAssetGenesisInvalidSig
@@ -128,15 +128,15 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	}
 
 	// The assetID here is what will be used to place this asset commitment
-	// into the top-level Taro commitment. For assets without a family key,
+	// into the top-level Taro commitment. For assets without a group key,
 	// then this will be the normal asset ID. Otherwise, this'll be the
-	// sha256 of the family key.
+	// sha256 of the group key.
 	var assetID [32]byte
-	if assetFamilyKey == nil {
+	if assetGroupKey == nil {
 		assetID = assetGenesis
 	} else {
 		assetID = sha256.Sum256(
-			schnorr.SerializePubKey(&assetFamilyKey.FamKey),
+			schnorr.SerializePubKey(&assetGroupKey.GroupPubKey),
 		)
 	}
 
@@ -149,7 +149,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 
 // NewAssetCommitment constructs a new commitment for the given assets capable
 // of computing merkle proofs. All assets provided should be related, i.e.,
-// their `ID` or `FamilyKey` should match.
+// their `ID` or `GroupKey` should match.
 func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 	commitment, err := parseCommon(assets...)
 	if err != nil {
@@ -188,11 +188,11 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 	}
 
 	// The given Asset must have an ID that matches the AssetCommitment ID.
-	// The AssetCommitment ID is either a hash of the familyKey, or the ID
+	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
 	if asset.TaroCommitmentKey() != c.AssetID {
-		if asset.FamilyKey != nil {
-			return ErrAssetFamilyKeyMismatch
+		if asset.GroupKey != nil {
+			return ErrAssetGroupKeyMismatch
 		}
 		return ErrAssetGenesisMismatch
 	}

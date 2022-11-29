@@ -23,12 +23,12 @@ import (
 // care about the amount. In the case of Taro, we also need to worry about the
 // asset ID, and also the type of asset we need.
 //
-// NOTE: Only the FamilyKey or the AssetID should be set.
+// NOTE: Only the GroupKey or the AssetID should be set.
 type CommitmentConstraints struct {
-	// FamilyKey is the required family key. This is an optional field, if
+	// GroupKey is the required group key. This is an optional field, if
 	// set then the asset returned may have a distinct asset ID to the one
 	// specified below.
-	FamilyKey *btcec.PublicKey
+	GroupKey *btcec.PublicKey
 
 	// AssetID is the asset ID that needs to be satisfied.
 	AssetID *asset.ID

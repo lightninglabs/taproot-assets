@@ -18,8 +18,8 @@ const (
 	// addrAssetGenesisType is the TLV type of the asset genesis.
 	addrAssetGenesisType addressTLVType = 2
 
-	// addrFamKeyType is the TLV type of the family key of the asset.
-	addrFamKeyType addressTLVType = 3
+	// addrGroupKeyType is the TLV type of the group key of the asset.
+	addrGroupKeyType addressTLVType = 3
 
 	// addrScriptKeyType is the TLV type of the script key for the asset.
 	addrScriptKeyType addressTLVType = 4
@@ -55,9 +55,9 @@ func newAddressGenesisRecord(genesis *asset.Genesis) tlv.Record {
 	)
 }
 
-func newAddressFamilyKeyRecord(familyKey **btcec.PublicKey) tlv.Record {
+func newAddressGroupKeyRecord(groupKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
-		addrFamKeyType, familyKey, btcec.PubKeyBytesLenCompressed,
+		addrGroupKeyType, groupKey, btcec.PubKeyBytesLenCompressed,
 		asset.CompressedPubKeyEncoder, asset.CompressedPubKeyDecoder,
 	)
 }

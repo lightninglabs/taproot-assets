@@ -39,12 +39,12 @@ type UpsertAssetStore interface {
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 
-	// UpsertAssetFamilySig inserts a new asset family sig into the DB.
-	UpsertAssetFamilySig(ctx context.Context, arg AssetFamSig) (int32, error)
+	// UpsertAssetGroupSig inserts a new asset group sig into the DB.
+	UpsertAssetGroupSig(ctx context.Context, arg AssetGroupSig) (int32, error)
 
-	// UpsertAssetFamilyKey inserts a new or updates an existing family key
+	// UpsertAssetGroupKey inserts a new or updates an existing group key
 	// on disk, and returns the primary key.
-	UpsertAssetFamilyKey(ctx context.Context, arg AssetFamilyKey) (int32,
+	UpsertAssetGroupKey(ctx context.Context, arg AssetGroupKey) (int32,
 		error)
 
 	// InsertNewAsset inserts a new asset on disk.
@@ -110,7 +110,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 	}
 
 	// We'll now insert each asset into the database. Some assets have a key
-	// family, so we'll need to insert them before we can insert the asset
+	// group, so we'll need to insert them before we can insert the asset
 	// itself.
 	assetIDs := make([]int32, len(assets))
 	for idx, a := range assets {
@@ -124,14 +124,14 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 				"%w", err)
 		}
 
-		// This asset has as key family, so we'll insert it into the
+		// This asset has as key group, so we'll insert it into the
 		// database. If it doesn't exist, the UPSERT query will still
-		// return the family_id we'll need.
-		familySigID, err := upsertFamilyKey(
-			ctx, a.FamilyKey, q, genesisPointID, genAssetID,
+		// return the group_id we'll need.
+		groupSigID, err := upsertGroupKey(
+			ctx, a.GroupKey, q, genesisPointID, genAssetID,
 		)
 		if err != nil {
-			return 0, nil, fmt.Errorf("unable to upsert family "+
+			return 0, nil, fmt.Errorf("unable to upsert group "+
 				"key: %w", err)
 		}
 
@@ -154,7 +154,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 				GenesisID:        genAssetID,
 				Version:          int32(a.Version),
 				ScriptKeyID:      scriptKeyID,
-				AssetFamilySigID: familySigID,
+				AssetGroupSigID:  groupSigID,
 				ScriptVersion:    int32(a.ScriptVersion),
 				Amount:           int64(a.Amount),
 				LockTime:         sqlInt32(a.LockTime),
@@ -171,68 +171,68 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 	return genesisPointID, assetIDs, nil
 }
 
-// upsertFamilyKey inserts or updates a family key and its associated internal
+// upsertGroupKey inserts or updates a group key and its associated internal
 // key.
-func upsertFamilyKey(ctx context.Context, familyKey *asset.FamilyKey,
+func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 	q UpsertAssetStore, genesisPointID, genAssetID int32) (sql.NullInt32,
 	error) {
 
-	// No family key, this asset is not re-issuable.
+	// No group key, this asset is not re-issuable.
 	var nullID sql.NullInt32
-	if familyKey == nil {
+	if groupKey == nil {
 		return nullID, nil
 	}
 
-	// Before we can insert a new asset key family, we'll also need to
-	// insert an internal key which will be referenced by the key family.
+	// Before we can insert a new asset key group, we'll also need to
+	// insert an internal key which will be referenced by the key group.
 	// When we insert a proof, we don't know the raw key. So we just insert
 	// the tweaked key as the internal key.
 	//
 	// TODO(roasbeef):
 	//   * don't have the key desc information here necessarily
-	//   * inserting the fam key rn, which is ok as its external w/ no key
+	//   * inserting the group key rn, which is ok as its external w/ no key
 	//     desc info
-	tweakedKeyBytes := familyKey.FamKey.SerializeCompressed()
-	rawKeyBytes := familyKey.FamKey.SerializeCompressed()
-	if familyKey.RawKey.PubKey != nil {
-		rawKeyBytes = familyKey.RawKey.PubKey.SerializeCompressed()
+	tweakedKeyBytes := groupKey.GroupPubKey.SerializeCompressed()
+	rawKeyBytes := groupKey.GroupPubKey.SerializeCompressed()
+	if groupKey.RawKey.PubKey != nil {
+		rawKeyBytes = groupKey.RawKey.PubKey.SerializeCompressed()
 	}
 
 	keyID, err := q.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    rawKeyBytes,
-		KeyFamily: int32(familyKey.RawKey.Family),
-		KeyIndex:  int32(familyKey.RawKey.Index),
+		KeyFamily: int32(groupKey.RawKey.Family),
+		KeyIndex:  int32(groupKey.RawKey.Index),
 	})
 	if err != nil {
 		return nullID, fmt.Errorf("unable to insert internal key: %w",
 			err)
 	}
-	famID, err := q.UpsertAssetFamilyKey(ctx, AssetFamilyKey{
-		TweakedFamKey:  tweakedKeyBytes,
-		InternalKeyID:  keyID,
-		GenesisPointID: genesisPointID,
+	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
+		TweakedGroupKey: tweakedKeyBytes,
+		InternalKeyID:   keyID,
+		GenesisPointID:  genesisPointID,
 	})
 	if err != nil {
-		return nullID, fmt.Errorf("unable to insert family key: %w",
+		return nullID, fmt.Errorf("unable to insert group key: %w",
 			err)
 	}
 
 	// With the statement above complete, we'll now insert the
-	// asset_family_sig entry for this, which has a one-to-many relationship
-	// with family keys (there can be many sigs for a family key which link
+	// asset_group_sig entry for this, which has a one-to-many relationship
+	// with group keys (there can be many sigs for a group key which link
 	// together otherwise disparate asset IDs).
 	//
 	// TODO(roasbeef): sig here doesn't actually matter?
-	famSigID, err := q.UpsertAssetFamilySig(ctx, AssetFamSig{
-		GenesisSig: familyKey.Sig.Serialize(),
+	groupSigID, err := q.UpsertAssetGroupSig(ctx, AssetGroupSig{
+		GenesisSig: groupKey.Sig.Serialize(),
 		GenAssetID: genAssetID,
-		KeyFamID:   famID,
+		GroupKeyID: groupID,
 	})
 	if err != nil {
-		return nullID, fmt.Errorf("unable to insert fam sig: %w", err)
+		return nullID, fmt.Errorf("unable to insert group sig: %w", err)
 	}
 
-	return sqlInt32(famSigID), nil
+	return sqlInt32(groupSigID), nil
 }
 
 // upsertScriptKey inserts or updates a script key and its associated internal

@@ -15,7 +15,7 @@ func testCollectibleSend(t *harnessTest) {
 		t, t.tarod, []*tarorpc.MintAssetRequest{issuableAssets[1]},
 	)
 
-	familyKey := rpcAssets[0].AssetFamily.TweakedFamilyKey
+	groupKey := rpcAssets[0].AssetGroup.TweakedGroupKey
 	genInfo := rpcAssets[0].AssetGenesis
 	genBootstrap := rpcAssets[0].AssetGenesis.GenesisBootstrapInfo
 
@@ -47,7 +47,7 @@ func testCollectibleSend(t *harnessTest) {
 			receiverAddr, err = secondTarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
 					GenesisBootstrapInfo: genBootstrap,
-					FamKey:               familyKey,
+					GroupKey:             groupKey,
 					Amt:                  fullAmount,
 				},
 			)
@@ -64,7 +64,7 @@ func testCollectibleSend(t *harnessTest) {
 			receiverAddr, err = t.tarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
 					GenesisBootstrapInfo: genBootstrap,
-					FamKey:               familyKey,
+					GroupKey:             groupKey,
 					Amt:                  fullAmount,
 				},
 			)
