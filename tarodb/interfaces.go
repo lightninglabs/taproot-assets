@@ -113,14 +113,14 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	}()
 
 	if err := txBody(t.createQuery(tx)); err != nil {
-		return err
+		return MapSQLError(err)
 	}
 
 	// Commit transaction.
 	//
 	// TODO(roasbeef): need to handle SQLITE_BUSY here?
 	if err = tx.Commit(); err != nil {
-		return err
+		return MapSQLError(err)
 	}
 
 	return nil

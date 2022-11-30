@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/stretchr/testify/require"
 )
@@ -272,4 +273,50 @@ func assertAssetBalances(t *harnessTest,
 			}
 		}
 	}
+}
+
+// testMintAssetNameCollisionError tests that an error is produced when
+// attempting to mint an asset whose name collides with an existing minted asset.
+func testMintAssetNameCollisionError(t *harnessTest) {
+	// Asset name which will be common between minted asset and colliding
+	// asset.
+	commonAssetName := "test-asset-name"
+
+	// Define and mint a single asset.
+	assetMint := tarorpc.MintAssetRequest{
+		AssetType: tarorpc.AssetType_NORMAL,
+		Name:      commonAssetName,
+		MetaData:  []byte("metadata-1"),
+		Amount:    5000,
+	}
+	rpcSimpleAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*tarorpc.MintAssetRequest{&assetMint},
+	)
+
+	// Ensure minted asset with requested name was successfully minted.
+	mintedAssetName := rpcSimpleAssets[0].AssetGenesis.Name
+	require.Equal(
+		t.t, mintedAssetName, commonAssetName,
+	)
+
+	// Attempt to mint another asset whose name should collide with the
+	// existing minted asset. No other fields should collide.
+	assetCollide := tarorpc.MintAssetRequest{
+		AssetType: tarorpc.AssetType_COLLECTIBLE,
+		Name:      commonAssetName,
+		MetaData:  []byte("metadata-2"),
+		Amount:    1,
+	}
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	_, actualErr := t.tarod.MintAsset(ctxt, &assetCollide)
+
+	// Ensure error includes correct error type.
+	// Note that `errors.Is` won't work with the error returned by
+	// `t.tarod.MintAsset`.
+	expectedErr := tarogarden.ErrDuplicateSeedlingName
+	require.ErrorContains(t.t, actualErr, expectedErr.Error())
 }
