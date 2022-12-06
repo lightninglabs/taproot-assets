@@ -669,6 +669,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
 
+		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
 		// the assets. In case the lnd wallet creates a P2TR change
@@ -698,7 +700,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"%w", err)
 		}
 
-		mintingProofs, err := proof.NewMintingBlobs(baseProof)
+		mintingProofs, err := proof.NewMintingBlobs(
+			baseProof, headerVerifier,
+		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to construct minting "+
 				"proofs: %w", err)
@@ -713,7 +717,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			scriptPubKey := newAsset.ScriptKey.PubKey
 			scriptKey := asset.ToSerialized(scriptPubKey)
 			err := b.cfg.ProofFiles.ImportProofs(
-				ctx, &proof.AnnotatedProof{
+				ctx, headerVerifier, &proof.AnnotatedProof{
 					Locator: proof.Locator{
 						AssetID:   &assetID,
 						ScriptKey: *scriptPubKey,
@@ -772,4 +776,17 @@ func GetTxFee(pkt *psbt.Packet) (int64, error) {
 	}
 
 	return inputValue - outputValue, nil
+}
+
+// GenHeaderVerifier generates a block header on-chain verification callback
+// function given a chain bridge.
+func GenHeaderVerifier(ctx context.Context,
+	chainBridge ChainBridge) func(header wire.BlockHeader) error {
+
+	return func(blockHeader wire.BlockHeader) error {
+		_, err := chainBridge.GetBlock(
+			ctx, blockHeader.BlockHash(),
+		)
+		return err
+	}
 }

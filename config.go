@@ -67,6 +67,8 @@ type Config struct {
 
 	AssetCustodian *tarogarden.Custodian
 
+	ChainBridge tarogarden.ChainBridge
+
 	AddrBook *address.Book
 
 	ProofArchive proof.Archiver

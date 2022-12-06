@@ -402,8 +402,11 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		},
 		Blob: updatedReceiverProof.Bytes(),
 	}
+
+	// Use callback to verify that block header exists on chain.
+	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	err = p.cfg.AssetProofs.ImportProofs(
-		ctx, receiverProof, newSenderProof,
+		ctx, headerVerifier, receiverProof, newSenderProof,
 	)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)

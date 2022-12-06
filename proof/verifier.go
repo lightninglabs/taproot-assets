@@ -21,7 +21,8 @@ type Verifier interface {
 	// Verify takes the passed serialized proof file, and returns a nil
 	// error if the proof file is valid. A valid file should return an
 	// AssetSnapshot of the final state transition of the file.
-	Verify(c context.Context, blobReader io.Reader) (*AssetSnapshot, error)
+	Verify(c context.Context, blobReader io.Reader,
+		headerVerifier HeaderVerifier) (*AssetSnapshot, error)
 }
 
 // BaseVerifier implements a simple verifier that loads the entire proof file
@@ -32,8 +33,8 @@ type BaseVerifier struct {
 // Verify takes the passed serialized proof file, and returns a nil
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
-func (b *BaseVerifier) Verify(ctx context.Context,
-	blobReader io.Reader) (*AssetSnapshot, error) {
+func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
+	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
 
 	var proofFile File
 	err := proofFile.Decode(blobReader)
@@ -41,7 +42,7 @@ func (b *BaseVerifier) Verify(ctx context.Context,
 		return nil, fmt.Errorf("unable to parse proof: %w", err)
 	}
 
-	return proofFile.Verify(ctx)
+	return proofFile.Verify(ctx, headerVerifier)
 }
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
@@ -157,7 +158,8 @@ func (p *Proof) verifyExclusionProofs() error {
 // state transition. This method returns the split asset information if this
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
-	prev *AssetSnapshot) (*commitment.SplitAsset, error) {
+	prev *AssetSnapshot, headerVerifier HeaderVerifier) (
+	*commitment.SplitAsset, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -201,7 +203,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		inputProof := inputProof
 
 		errGroup.Go(func() error {
-			result, err := inputProof.Verify(ctx)
+			result, err := inputProof.Verify(ctx, headerVerifier)
 			if err != nil {
 				return err
 			}
@@ -236,6 +238,10 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	return splitAsset, engine.Execute()
 }
 
+// HeaderVerifier is a callback function which returns an error if the given
+// block header is invalid (usually: not present on chain).
+type HeaderVerifier func(blockHeader wire.BlockHeader) error
+
 // Verify verifies the proof by ensuring that:
 //
 //  1. A transaction that spends the previous asset output has a valid merkle
@@ -246,8 +252,8 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 //  4. A set of valid exclusion proofs for the resulting asset are included.
 //  5. A set of asset inputs with valid witnesses are included that satisfy the
 //     resulting state transition.
-func (p *Proof) Verify(ctx context.Context,
-	prev *AssetSnapshot) (*AssetSnapshot, error) {
+func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
+	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
 
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
@@ -257,7 +263,14 @@ func (p *Proof) Verify(ctx context.Context,
 	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
 		return nil, ErrInvalidTaprootProof // TODO
 	}
-	// TODO: Cross check BlockHeader with a bitcoin node.
+
+	// Cross-check block header with a bitcoin node.
+	err := headerVerifier(p.BlockHeader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate proof block "+
+			"header: %w", err)
+	}
+
 	if !p.TxMerkleProof.Verify(&p.AnchorTx, p.BlockHeader.MerkleRoot) {
 		return nil, ErrInvalidTxMerkleProof
 	}
@@ -288,7 +301,7 @@ func (p *Proof) Verify(ctx context.Context,
 
 	// 5. A set of asset inputs with valid witnesses are included that
 	// satisfy the resulting state transition.
-	splitAsset, err := p.verifyAssetStateTransition(ctx, prev)
+	splitAsset, err := p.verifyAssetStateTransition(ctx, prev, headerVerifier)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +330,9 @@ func (p *Proof) Verify(ctx context.Context,
 // verification loop.
 //
 // TODO(roasbeef): pass in the expected genesis point here?
-func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
+func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier) (
+	*AssetSnapshot, error) {
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -337,7 +352,7 @@ func (f *File) Verify(ctx context.Context) (*AssetSnapshot, error) {
 			return nil, err
 		}
 
-		result, err := decodedProof.Verify(ctx, prev)
+		result, err := decodedProof.Verify(ctx, prev, headerVerifier)
 		if err != nil {
 			return nil, err
 		}

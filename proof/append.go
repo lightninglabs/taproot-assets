@@ -42,8 +42,8 @@ type TransitionParams struct {
 // on-chain output, this function takes the script key of the asset to return
 // the proof for. This method returns both the encoded full provenance (proof
 // chain) and the added latest proof.
-func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
-	error) {
+func AppendTransition(blob Blob, params *TransitionParams,
+	headerVerifier HeaderVerifier) (Blob, *Proof, error) {
 
 	// Decode the proof blob into a proper file structure first.
 	f := NewEmptyFile(V0)
@@ -81,7 +81,7 @@ func AppendTransition(blob Blob, params *TransitionParams) (Blob, *Proof,
 	if err := f.AppendProof(*newProof); err != nil {
 		return nil, nil, fmt.Errorf("error appending proof: %w", err)
 	}
-	if _, err := f.Verify(ctx); err != nil {
+	if _, err := f.Verify(ctx, headerVerifier); err != nil {
 		return nil, nil, fmt.Errorf("error verifying proof: %w", err)
 	}
 

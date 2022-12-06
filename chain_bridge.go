@@ -55,6 +55,18 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}, errChan, nil
 }
 
+// GetBlock returns a chain block given its hash.
+func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
+	hash chainhash.Hash) (*wire.MsgBlock, error) {
+
+	block, err := l.lnd.ChainKit.GetBlock(ctx, hash)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve block: %w", err)
+	}
+
+	return block, nil
+}
+
 // CurrentHeight return the current height of the main chain.
 func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
 	info, err := l.lnd.Client.GetInfo(ctx)

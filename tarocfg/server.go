@@ -165,6 +165,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				ProofCourier: hashMailCourier,
 			},
 		),
+		ChainBridge:  chainBridge,
 		AddrBook:     addrBook,
 		ProofArchive: proofArchive,
 		ChainPorter: tarofreighter.NewChainPorter(&tarofreighter.ChainPorterConfig{
