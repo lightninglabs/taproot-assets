@@ -82,6 +82,7 @@ type AssetMintingBatch struct {
 	MintingTxPsbt      []byte
 	MintingOutputIndex sql.NullInt16
 	GenesisID          sql.NullInt32
+	HeightHint         int32
 	CreationTimeUnix   time.Time
 }
 
@@ -107,6 +108,7 @@ type AssetTransfer struct {
 	OldAnchorPoint   []byte
 	NewInternalKey   int32
 	NewAnchorUtxo    int32
+	HeightHint       int32
 	TransferTimeUnix time.Time
 }
 

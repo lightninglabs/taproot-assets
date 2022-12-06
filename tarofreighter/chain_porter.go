@@ -265,20 +265,10 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 
 	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
 
-	// Before we can broadcast, we want to find out the current height to
-	// pass as a height hint.
-	ctx, cancel := p.WithCtxQuit()
-	defer cancel()
-	currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
-	if err != nil {
-		p.cfg.ErrChan <- mkErr("unable to get current height: %v", err)
-		return
-	}
-
 	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
 		confCtx, &txHash, pkg.AnchorTx.TxOut[0].PkScript, 1,
-		currentHeight, true,
+		pkg.AnchorTxHeightHint, true,
 	)
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("unable to register for tx conf: %v",
@@ -315,7 +305,7 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	// write the receiver's proof file to disk.
 	//
 	// First, we'll fetch the sender's current proof file.
-	ctx, cancel = p.CtxBlocking()
+	ctx, cancel := p.CtxBlocking()
 	defer cancel()
 	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, proof.Locator{
 		AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
@@ -926,6 +916,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"for psbt: %w", err)
 		}
 
+		// Before we can broadcast, we want to find out the current height to
+		// pass as a height hint.
+		ctx, cancel := p.WithCtxQuit()
+		defer cancel()
+		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get current "+
+				"height: %v", err)
+		}
+
 		// Before we broadcast, we'll write to disk that we have a
 		// pending outbound parcel. If we crash before this point,
 		// we'll start all over. Otherwise, we'll come back to this
@@ -940,9 +940,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				Hash:  currentPkg.TransferTx.TxHash(),
 				Index: anchorOutputIndex,
 			},
-			NewInternalKey: currentPkg.SenderNewInternalKey,
-			TaroRoot:       taroRoot[:],
-			AnchorTx:       currentPkg.TransferTx,
+			NewInternalKey:     currentPkg.SenderNewInternalKey,
+			TaroRoot:           taroRoot[:],
+			AnchorTx:           currentPkg.TransferTx,
+			AnchorTxHeightHint: currentHeight,
 			AssetSpendDeltas: []AssetSpendDelta{
 				{
 					OldScriptKey:        *currentPkg.InputAsset.Asset.ScriptKey.PubKey,
@@ -961,7 +962,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		// Don't allow shutdown while we're attempting to store proofs.
-		ctx, cancel := p.CtxBlocking()
+		ctx, cancel = p.CtxBlocking()
 		defer cancel()
 
 		log.Infof("Committing pending parcel to disk")

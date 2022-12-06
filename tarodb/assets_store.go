@@ -1383,6 +1383,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			OldAnchorPoint:   oldAnchorPointBytes,
 			NewInternalKey:   internalKeyID,
 			NewAnchorUtxo:    newUtxoID,
+			HeightHint:       int32(spend.AnchorTxHeightHint),
 			TransferTimeUnix: spend.TransferTime,
 		})
 		if err != nil {
@@ -1733,12 +1734,13 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 						Index:  uint32(xfer.InternalKeyIndex),
 					},
 				},
-				TaroRoot:         xfer.TaroRoot,
-				TapscriptSibling: xfer.TapscriptSibling,
-				AnchorTx:         anchorTx,
-				AssetSpendDeltas: spendDeltas,
-				TransferTime:     xfer.TransferTimeUnix,
-				ChainFees:        xfer.ChainFees,
+				TaroRoot:           xfer.TaroRoot,
+				TapscriptSibling:   xfer.TapscriptSibling,
+				AnchorTx:           anchorTx,
+				AssetSpendDeltas:   spendDeltas,
+				AnchorTxHeightHint: uint32(xfer.HeightHint),
+				TransferTime:       xfer.TransferTimeUnix,
+				ChainFees:          xfer.ChainFees,
 			})
 		}
 

@@ -19,6 +19,11 @@ type MintingBatch struct {
 	// CreationTime is the time that this batch was created.
 	CreationTime time.Time
 
+	// HeightHint is the recorded block height at time of creating this
+	// batch. We use it to know where to start looking for the signed batch
+	// transaction.
+	HeightHint uint32
+
 	// BatchState is the state of the batch.
 	BatchState BatchState
 

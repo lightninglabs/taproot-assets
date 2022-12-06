@@ -34,10 +34,6 @@ type (
 	// on the batch key of the batch.
 	AssetSeedlingItem = sqlc.InsertAssetSeedlingIntoBatchParams
 
-	// MintingBatch is an alias for a minting batch including the internal
-	// key info.
-	MintingBatch = sqlc.FetchMintingBatchesByStateRow
-
 	// MintingBatchI is an alias for a minting batch including the internal
 	// key info. This is used to query for batches where the state doesn't
 	// match a certain value.
@@ -125,11 +121,6 @@ type PendingAssetStore interface {
 	// batch based on the batch key its included in.
 	InsertAssetSeedlingIntoBatch(ctx context.Context,
 		arg AssetSeedlingItem) error
-
-	// FetchMintingBatchesByState is used to fetch minting batches with a
-	// particular state.
-	FetchMintingBatchesByState(ctx context.Context,
-		batchState int16) ([]MintingBatch, error)
 
 	// FetchMintingBatchesByInverseState is used to fetch minting batches
 	// that don't have a particular state.
@@ -254,6 +245,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// batch which references the target internal key.
 		if err := q.NewMintingBatch(ctx, MintingBatchInit{
 			BatchID:          batchID,
+			HeightHint:       int32(newBatch.HeightHint),
 			CreationTimeUnix: newBatch.CreationTime.UTC(),
 		}); err != nil {
 			return fmt.Errorf("unable to insert minting "+
@@ -535,6 +527,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 					},
 					PubKey: batchKey,
 				},
+				HeightHint:   uint32(batch.HeightHint),
 				CreationTime: batch.CreationTimeUnix.UTC(),
 			}
 

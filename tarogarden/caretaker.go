@@ -595,16 +595,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// assets later.
 		//
 		// TODO(roasbeef): eventually want to be able to RBF the bump
-		currentHeight, err := b.cfg.ChainBridge.CurrentHeight(ctx)
-		if err != nil {
-			return 0, fmt.Errorf("unable to get current "+
-				"height: %v", err)
-		}
+		heightHint := b.cfg.Batch.HeightHint
 		txHash := signedTx.TxHash()
 		confCtx, confCancel := b.WithCtxQuitNoTimeout()
 		confNtfn, errChan, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
 			confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
-			currentHeight, true,
+			heightHint, true,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to register for "+

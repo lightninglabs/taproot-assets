@@ -56,6 +56,7 @@ func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
 			},
 		},
 		Seedlings:    RandSeedlings(t, numSeedlings),
+		HeightHint:   rand.Uint32(),
 		CreationTime: time.Now(),
 	}
 }

@@ -221,8 +221,14 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 func randGenesisPacket(t *testing.T) *tarogarden.FundedPsbt {
 	tx := wire.NewMsgTx(2)
+
+	var hash chainhash.Hash
+	_, err := rand.Read(hash[:])
+	require.NoError(t, err)
+
 	tx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
+			Hash:  hash,
 			Index: 1,
 		},
 	})

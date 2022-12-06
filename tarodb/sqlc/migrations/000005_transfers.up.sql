@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
 
     new_anchor_utxo INTEGER NOT NULL REFERENCES managed_utxos(utxo_id),
 
+    height_hint INTEGER NOT NULL,
+
     transfer_time_unix TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS transfer_lookup on asset_transfers (transfer_time_unix);

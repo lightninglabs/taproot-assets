@@ -727,6 +727,7 @@ func TestAssetExportLog(t *testing.T) {
 		PkScript: bytes.Repeat([]byte{0x01}, 34),
 		Value:    1000,
 	})
+	const heightHint = 1450
 
 	newScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
 		PubKey: test.RandPubKey(t),
@@ -772,8 +773,9 @@ func TestAssetExportLog(t *testing.T) {
 		},
 		// This can be anything since we assume the application sets it
 		// properly.
-		TaroRoot: bytes.Repeat([]byte{0x01}, 100),
-		AnchorTx: newAnchorTx,
+		TaroRoot:           bytes.Repeat([]byte{0x01}, 100),
+		AnchorTx:           newAnchorTx,
+		AnchorTxHeightHint: heightHint,
 		// We'll actually modify only one of the assets. This simulates
 		// us create a split of the asset to send to another party.
 		AssetSpendDeltas: []tarofreighter.AssetSpendDelta{

@@ -263,9 +263,9 @@ func (q *Queries) InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaPara
 
 const insertAssetTransfer = `-- name: InsertAssetTransfer :one
 INSERT INTO asset_transfers (
-    old_anchor_point, new_internal_key, new_anchor_utxo, transfer_time_unix
+    old_anchor_point, new_internal_key, new_anchor_utxo, height_hint, transfer_time_unix
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 ) RETURNING id
 `
 
@@ -273,6 +273,7 @@ type InsertAssetTransferParams struct {
 	OldAnchorPoint   []byte
 	NewInternalKey   int32
 	NewAnchorUtxo    int32
+	HeightHint       int32
 	TransferTimeUnix time.Time
 }
 
@@ -281,6 +282,7 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 		arg.OldAnchorPoint,
 		arg.NewInternalKey,
 		arg.NewAnchorUtxo,
+		arg.HeightHint,
 		arg.TransferTimeUnix,
 	)
 	var id int32
@@ -312,12 +314,12 @@ func (q *Queries) InsertSpendProofs(ctx context.Context, arg InsertSpendProofsPa
 const queryAssetTransfers = `-- name: QueryAssetTransfers :many
 SELECT 
     asset_transfers.old_anchor_point, utxos.outpoint AS new_anchor_point,
-    utxos.taro_root, utxos.tapscript_sibling, 
-    utxos.utxo_id AS new_anchor_utxo_id, txns.raw_tx AS anchor_tx_bytes, 
-    txns.txid AS anchor_txid, txns.txn_id AS anchor_tx_primary_key, 
+    utxos.taro_root, utxos.tapscript_sibling,
+    utxos.utxo_id AS new_anchor_utxo_id, txns.raw_tx AS anchor_tx_bytes,
+    txns.txid AS anchor_txid, txns.txn_id AS anchor_tx_primary_key,
     txns.chain_fees, transfer_time_unix, keys.raw_key AS internal_key_bytes,
     keys.key_family AS internal_key_fam, keys.key_index AS internal_key_index,
-    id AS transfer_id, transfer_time_unix
+    id AS transfer_id, height_hint, transfer_time_unix
 FROM asset_transfers
 JOIN internal_keys keys
     ON asset_transfers.new_internal_key = keys.key_id
@@ -361,6 +363,7 @@ type QueryAssetTransfersRow struct {
 	InternalKeyFam     int32
 	InternalKeyIndex   int32
 	TransferID         int32
+	HeightHint         int32
 	TransferTimeUnix_2 time.Time
 }
 
@@ -388,6 +391,7 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 			&i.InternalKeyFam,
 			&i.InternalKeyIndex,
 			&i.TransferID,
+			&i.HeightHint,
 			&i.TransferTimeUnix_2,
 		); err != nil {
 			return nil, err
