@@ -347,23 +347,27 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 
 	// Make sure everything we just loaded makes sense.
 	cleanCfg, cfgLogger, err := ValidateConfig(cfg, interceptor)
-	if usageErr, ok := err.(*usageError); ok {
+	if err != nil {
+		// Log help message in case of usage error.
+		if _, ok := err.(*usageError); ok {
+			// The logging system might not yet be initialized, so
+			// we also write to stderr to make sure the message
+			// appears somewhere.
+			_, _ = fmt.Fprintln(os.Stderr, usageMessage)
+			if cfgLogger != nil {
+				cfgLogger.Warnf("Incorrect usage: %v",
+					usageMessage)
+			}
+		}
+
 		// The logging system might not yet be initialized, so we also
 		// write to stderr to make sure the error appears somewhere.
-		_, _ = fmt.Fprintln(os.Stderr, usageMessage)
-		cfgLogger.Warnf("Incorrect usage: %v", usageMessage)
-
-		// The log subsystem might not yet be initialized. But we still
-		// try to log the error there since some packaging solutions
-		// might only look at the log and not stdout/stderr.
-		cfgLogger.Warnf("Error validating config: %v", usageErr.err)
-	}
-	if err != nil {
-		// The log subsystem might not yet be initialized. But we still
-		// try to log the error there since some packaging solutions
-		// might only look at the log and not stdout/stderr.
-		cfgLogger.Warnf("Error validating config: %v", err)
-
+		// We still try to log the error there since some packaging
+		// solutions might only look at the log and not stdout/stderr.
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+		if cfgLogger != nil {
+			cfgLogger.Warnf("Error validating config: %v", err)
+		}
 		return nil, nil, err
 	}
 
@@ -619,7 +623,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
 	if err != nil {
 		str := "error parsing debug level: %v"
-		return nil, nil, &usageError{mkErr(str, err)}
+		return nil, taroCfgLog, &usageError{mkErr(str, err)}
 	}
 
 	// At least one RPCListener is required. So listen on localhost per
@@ -646,7 +650,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
-		return nil, nil, mkErr("error normalizing RPC listen addrs: %v", err)
+		return nil, taroCfgLog, mkErr("error normalizing RPC listen addrs: %v", err)
 	}
 
 	// Add default port to all REST listener addresses if needed and remove
@@ -656,7 +660,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
-		return nil, nil, mkErr("error normalizing REST listen addrs: %v", err)
+		return nil, taroCfgLog, mkErr("error normalizing REST listen addrs: %v", err)
 	}
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
@@ -667,7 +671,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		cfg.rpcListeners, !cfg.RpcConf.NoMacaroons, true,
 	)
 	if err != nil {
-		return nil, nil, mkErr("error enforcing safe authentication on "+
+		return nil, taroCfgLog, mkErr("error enforcing safe authentication on "+
 			"RPC ports: %v", err)
 	}
 
@@ -680,7 +684,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 			!cfg.RpcConf.DisableRestTLS,
 		)
 		if err != nil {
-			return nil, nil, mkErr("error enforcing safe "+
+			return nil, taroCfgLog, mkErr("error enforcing safe "+
 				"authentication on REST ports: %v", err)
 		}
 	}
