@@ -347,23 +347,27 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 
 	// Make sure everything we just loaded makes sense.
 	cleanCfg, cfgLogger, err := ValidateConfig(cfg, interceptor)
-	if usageErr, ok := err.(*usageError); ok {
+	if err != nil {
+		// Log help message in case of usage error.
+		if _, ok := err.(*usageError); ok {
+			// The logging system might not yet be initialized, so
+			// we also write to stderr to make sure the message
+			// appears somewhere.
+			_, _ = fmt.Fprintln(os.Stderr, usageMessage)
+			if cfgLogger != nil {
+				cfgLogger.Warnf("Incorrect usage: %v",
+					usageMessage)
+			}
+		}
+
 		// The logging system might not yet be initialized, so we also
 		// write to stderr to make sure the error appears somewhere.
-		_, _ = fmt.Fprintln(os.Stderr, usageMessage)
-		cfgLogger.Warnf("Incorrect usage: %v", usageMessage)
-
-		// The log subsystem might not yet be initialized. But we still
-		// try to log the error there since some packaging solutions
-		// might only look at the log and not stdout/stderr.
-		cfgLogger.Warnf("Error validating config: %v", usageErr.err)
-	}
-	if err != nil {
-		// The log subsystem might not yet be initialized. But we still
-		// try to log the error there since some packaging solutions
-		// might only look at the log and not stdout/stderr.
-		cfgLogger.Warnf("Error validating config: %v", err)
-
+		// We still try to log the error there since some packaging
+		// solutions might only look at the log and not stdout/stderr.
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+		if cfgLogger != nil {
+			cfgLogger.Warnf("Error validating config: %v", err)
+		}
 		return nil, nil, err
 	}
 
