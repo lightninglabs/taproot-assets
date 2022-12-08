@@ -299,7 +299,9 @@ func TestImportAssetProof(t *testing.T) {
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
 	require.NoError(
-		t, assetStore.ImportProofs(context.Background(), testProof),
+		t, assetStore.ImportProofs(
+			context.Background(), proof.MockHeaderVerifier, testProof,
+		),
 	)
 
 	// We should now be able to retrieve the set of all assets inserted on

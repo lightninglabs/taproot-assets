@@ -186,7 +186,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Append the new transition to the genesis blob.
 	transitionBlob, transitionProof, err := AppendTransition(
-		genesisBlob, transitionParams,
+		genesisBlob, transitionParams, MockHeaderVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
@@ -321,7 +321,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	split1Blob, split1Proof, err := AppendTransition(
-		transitionBlob, split1Params,
+		transitionBlob, split1Params, MockHeaderVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
@@ -356,7 +356,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	split2Blob, split2Proof, err := AppendTransition(
-		transitionBlob, split2Params,
+		transitionBlob, split2Params, MockHeaderVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
@@ -415,7 +415,7 @@ func verifyBlob(t testing.TB, blob Blob) *AssetSnapshot {
 	f := NewEmptyFile(V0)
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
-	finalSnapshot, err := f.Verify(context.Background())
+	finalSnapshot, err := f.Verify(context.Background(), MockHeaderVerifier)
 	require.NoError(t, err)
 
 	return finalSnapshot

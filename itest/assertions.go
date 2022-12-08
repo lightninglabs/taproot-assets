@@ -192,7 +192,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)
 
-	snapshot, err := f.Verify(ctxt)
+	snapshot, err := f.Verify(ctxt, proof.MockHeaderVerifier)
 	require.NoError(t, err)
 
 	return f, snapshot

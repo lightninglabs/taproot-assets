@@ -334,7 +334,9 @@ func TestGenesisProofVerification(t *testing.T) {
 				tt, tc.assetType, tc.amount,
 				tc.tapscriptPreimage,
 			)
-			_, err := genesisProof.Verify(context.Background(), nil)
+			_, err := genesisProof.Verify(
+				context.Background(), nil, MockHeaderVerifier,
+			)
 			require.NoError(tt, err)
 		})
 	}
