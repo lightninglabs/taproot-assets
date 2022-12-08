@@ -9,9 +9,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -192,7 +194,15 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)
 
-	snapshot, err := f.Verify(ctxt, proof.MockHeaderVerifier)
+	headerVerifier := func(blockHeader wire.BlockHeader) error {
+		hash := blockHeader.BlockHash()
+		req := &chainrpc.GetBlockRequest{
+			BlockHash: hash.CloneBytes(),
+		}
+		_, err := tarod.cfg.LndNode.ChainKit.GetBlock(ctxb, req)
+		return err
+	}
+	snapshot, err := f.Verify(ctxt, headerVerifier)
 	require.NoError(t, err)
 
 	return f, snapshot
