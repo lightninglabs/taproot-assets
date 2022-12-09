@@ -345,8 +345,8 @@ func createSpend(t *testing.T, state *spendData, spend taroscript.SpendDelta,
 	require.NoError(t, err)
 
 	spendCompleted, err := taroscript.CompleteAssetSpend(
-		state.spenderPubKey, state.asset2PrevID,
-		*spendPrepared, state.signer, state.validator,
+		state.spenderPubKey, *spendPrepared, state.signer,
+		state.validator,
 	)
 	require.NoError(t, err)
 
@@ -980,8 +980,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			spendPrepared.InputAssets[state.asset1PrevID].
 				Genesis = state.genesis1collect
 			_, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			spendPrepared.InputAssets[state.asset1PrevID].
 				Genesis = state.genesis1
@@ -1002,8 +1002,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			spendPrepared.NewAsset.PrevWitnesses[0].
 				PrevID.OutPoint.Index = 1337
 			_, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			return err
 		},
@@ -1023,8 +1023,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 				spendPrepared.InputAssets, state.asset1PrevID,
 			)
 			_, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			return err
 		},
@@ -1044,9 +1044,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			)
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey,
-				state.asset1CollectGroupPrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1070,8 +1069,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 			)
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1097,8 +1096,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1125,8 +1124,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1155,9 +1154,8 @@ var completeAssetSpendTestCases = []completeAssetSpendTestCase{
 
 			unvalidatedAsset := spendPrepared.NewAsset
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey,
-				state.asset1CollectGroupPrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1205,8 +1203,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 				state.address1, state.asset1PrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1242,8 +1240,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 				state.address1, state.asset1PrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1285,8 +1283,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1321,9 +1319,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 				state.asset1CollectGroupPrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey,
-				state.asset1CollectGroupPrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1361,8 +1358,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 				state.address1, state.asset1PrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1401,8 +1398,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1442,8 +1439,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1485,9 +1482,8 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey,
-				state.asset1CollectGroupPrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1550,8 +1546,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 				state.address1, state.asset1PrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1593,8 +1589,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 				state.address1, state.asset1PrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1638,9 +1634,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 				state.asset1CollectGroupPrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey,
-				state.asset1CollectGroupPrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1697,8 +1692,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 				state.address1, state.asset1PrevID, spend,
 			)
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset1PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1755,8 +1750,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1809,8 +1804,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey, state.asset2PrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
@@ -1865,9 +1860,8 @@ var createSpendOutputsTestCases = []createSpendOutputsTestCase{
 			require.NoError(t, err)
 
 			spendCompleted, err := taroscript.CompleteAssetSpend(
-				state.spenderPubKey,
-				state.asset1CollectGroupPrevID,
-				*spendPrepared, state.signer, state.validator,
+				state.spenderPubKey, *spendPrepared,
+				state.signer, state.validator,
 			)
 			require.NoError(t, err)
 
