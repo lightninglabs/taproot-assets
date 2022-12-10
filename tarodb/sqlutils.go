@@ -37,28 +37,6 @@ func extractSqlInt32[T constraints.Integer](num sql.NullInt32) T {
 	return T(num.Int32)
 }
 
-// sqlInt16 turns a numerical integer type into the NullInt16 that sql/sqlc
-// uses when an integer field can be permitted to be NULL.
-//
-// We use this constraints.Integer constraint here which maps to all signed and
-// unsigned integer types.
-func sqlInt16[T constraints.Integer](num T) sql.NullInt16 {
-	return sql.NullInt16{
-		Int16: int16(num),
-		Valid: true,
-	}
-}
-
-// extractSqlInt16 turns a NullInt16 into a numerical type. This can be useful
-// when reading directly from the database, as this function handles extracting
-// the inner value from the "option"-like struct.
-//
-// TODO(roasbeef): can make a single version of these, but only if the NullInt
-// structs had a better interface? or some reflection
-func extractSqlInt16[T constraints.Integer](num sql.NullInt16) T {
-	return T(num.Int16)
-}
-
 // readOutPoint reads the next sequence of bytes from r as an OutPoint.
 //
 // NOTE: This function is intended to be used along with the wire.WriteOutPoint

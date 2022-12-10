@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -314,7 +315,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, TaroKeyFamily,
+			ctx, taroscript.TaroKeyFamily,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to obtain script "+
@@ -327,7 +328,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// along with the tweaked key group.
 		if seedling.EnableEmission {
 			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
-				ctx, TaroKeyFamily,
+				ctx, taroscript.TaroKeyFamily,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to derive "+
@@ -670,12 +671,10 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
-		// the assets.
-		//
-		// TODO(guggero): Add exclusion proofs once FundPsbt actually
-		// returns a transaction with P2TR change outputs and also
-		// decorates the output with the internal key correctly.
-		mintingProofs, err := proof.NewMintingBlobs(&proof.MintParams{
+		// the assets. In case the lnd wallet creates a P2TR change
+		// output we need to create an exclusion proof for it (and for
+		// all other P2TR outputs, we just assume BIP0086 here).
+		baseProof := &proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
 				Block:       confInfo.Block,
 				Tx:          confInfo.Tx,
@@ -687,10 +686,22 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			GenesisPoint: extractGenesisOutpoint(
 				b.cfg.Batch.GenesisPacket.Pkt.UnsignedTx,
 			),
-		})
+		}
+		err := proof.AddExclusionProofs(
+			&baseProof.BaseProofParams,
+			b.cfg.Batch.GenesisPacket.Pkt, func(idx uint32) bool {
+				return idx == b.anchorOutputIndex
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to add exclusion proofs: "+
+				"%w", err)
+		}
+
+		mintingProofs, err := proof.NewMintingBlobs(baseProof)
 		if err != nil {
 			return 0, fmt.Errorf("unable to construct minting "+
-				"proofs: %v", err)
+				"proofs: %w", err)
 		}
 
 		// Before we confirm the batch, we'll also update the on disk
@@ -699,16 +710,20 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// TODO(roasbeef): rely on the upsert here instead
 		for _, newAsset := range b.cfg.Batch.RootAssetCommitment.CommittedAssets() {
 			assetID := newAsset.ID()
-			scriptKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
-			err := b.cfg.ProofFiles.ImportProofs(ctx, &proof.AnnotatedProof{
-				Locator: proof.Locator{
-					AssetID:   &assetID,
-					ScriptKey: *newAsset.ScriptKey.PubKey,
+			scriptPubKey := newAsset.ScriptKey.PubKey
+			scriptKey := asset.ToSerialized(scriptPubKey)
+			err := b.cfg.ProofFiles.ImportProofs(
+				ctx, &proof.AnnotatedProof{
+					Locator: proof.Locator{
+						AssetID:   &assetID,
+						ScriptKey: *scriptPubKey,
+					},
+					Blob: mintingProofs[scriptKey],
 				},
-				Blob: mintingProofs[scriptKey],
-			})
+			)
 			if err != nil {
-				return 0, fmt.Errorf("unable to insert proofs: %v", err)
+				return 0, fmt.Errorf("unable to insert "+
+					"proofs: %w", err)
 			}
 		}
 

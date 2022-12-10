@@ -306,7 +306,7 @@ WITH target_batch AS (
     WHERE keys.raw_key = $1
 )
 UPDATE asset_minting_batches 
-SET minting_tx_psbt = $2, minting_output_index = $3, genesis_id = $4
+SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
 WHERE batch_id IN (SELECT batch_id FROM target_batch);
 
 -- name: UpdateBatchGenesisTx :exec

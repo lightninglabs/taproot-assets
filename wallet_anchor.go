@@ -76,7 +76,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 
 	return tarogarden.FundedPsbt{
 		Pkt:               pkt,
-		ChangeOutputIndex: uint32(changeIndex),
+		ChangeOutputIndex: changeIndex,
 		LockedUTXOs:       lockedUtxos,
 	}, nil
 }

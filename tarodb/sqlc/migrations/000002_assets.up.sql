@@ -224,8 +224,7 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
 
     minting_tx_psbt BLOB,
 
-    -- TODO(roasbeef): redundant w/ info in genesis_assets table?
-    minting_output_index SMALLINT,
+    change_output_index INTEGER,
 
     genesis_id INTEGER REFERENCES genesis_points(genesis_id),
 

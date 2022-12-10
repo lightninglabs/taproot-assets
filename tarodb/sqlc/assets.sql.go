@@ -86,24 +86,24 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const allMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
 ON asset_minting_batches.batch_id = internal_keys.key_id
 `
 
 type AllMintingBatchesRow struct {
-	BatchID            int32
-	BatchState         int16
-	MintingTxPsbt      []byte
-	MintingOutputIndex sql.NullInt16
-	GenesisID          sql.NullInt32
-	HeightHint         int32
-	CreationTimeUnix   time.Time
-	KeyID              int32
-	RawKey             []byte
-	KeyFamily          int32
-	KeyIndex           int32
+	BatchID           int32
+	BatchState        int16
+	MintingTxPsbt     []byte
+	ChangeOutputIndex sql.NullInt32
+	GenesisID         sql.NullInt32
+	HeightHint        int32
+	CreationTimeUnix  time.Time
+	KeyID             int32
+	RawKey            []byte
+	KeyFamily         int32
+	KeyIndex          int32
 }
 
 func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error) {
@@ -119,7 +119,7 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 			&i.BatchID,
 			&i.BatchState,
 			&i.MintingTxPsbt,
-			&i.MintingOutputIndex,
+			&i.ChangeOutputIndex,
 			&i.GenesisID,
 			&i.HeightHint,
 			&i.CreationTimeUnix,
@@ -332,22 +332,22 @@ WITH target_batch AS (
     WHERE keys.raw_key = $1
 )
 UPDATE asset_minting_batches 
-SET minting_tx_psbt = $2, minting_output_index = $3, genesis_id = $4
+SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
 `
 
 type BindMintingBatchWithTxParams struct {
-	RawKey             []byte
-	MintingTxPsbt      []byte
-	MintingOutputIndex sql.NullInt16
-	GenesisID          sql.NullInt32
+	RawKey            []byte
+	MintingTxPsbt     []byte
+	ChangeOutputIndex sql.NullInt32
+	GenesisID         sql.NullInt32
 }
 
 func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error {
 	_, err := q.db.ExecContext(ctx, bindMintingBatchWithTx,
 		arg.RawKey,
 		arg.MintingTxPsbt,
-		arg.MintingOutputIndex,
+		arg.ChangeOutputIndex,
 		arg.GenesisID,
 	)
 	return err
@@ -894,7 +894,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 }
 
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, minting_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -902,17 +902,17 @@ WHERE batches.batch_state != $1
 `
 
 type FetchMintingBatchesByInverseStateRow struct {
-	BatchID            int32
-	BatchState         int16
-	MintingTxPsbt      []byte
-	MintingOutputIndex sql.NullInt16
-	GenesisID          sql.NullInt32
-	HeightHint         int32
-	CreationTimeUnix   time.Time
-	KeyID              int32
-	RawKey             []byte
-	KeyFamily          int32
-	KeyIndex           int32
+	BatchID           int32
+	BatchState        int16
+	MintingTxPsbt     []byte
+	ChangeOutputIndex sql.NullInt32
+	GenesisID         sql.NullInt32
+	HeightHint        int32
+	CreationTimeUnix  time.Time
+	KeyID             int32
+	RawKey            []byte
+	KeyFamily         int32
+	KeyIndex          int32
 }
 
 func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error) {
@@ -928,7 +928,7 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 			&i.BatchID,
 			&i.BatchState,
 			&i.MintingTxPsbt,
-			&i.MintingOutputIndex,
+			&i.ChangeOutputIndex,
 			&i.GenesisID,
 			&i.HeightHint,
 			&i.CreationTimeUnix,

@@ -16,6 +16,7 @@ COMMIT := $(shell git describe --tags --dirty)
 GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
 GOTEST := GO111MODULE=on go test 
+GOMOD := GO111MODULE=on go mod
 
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'
 GOLIST_COVER := $$(go list -deps $(PKG)/... | grep '$(PKG)')
@@ -202,6 +203,14 @@ list:
 		awk -F':' '/^[a-zA-Z0-9][^$$#\/\t=]*:([^=]|$$)/ {split($$1,A,/ /);for(i in A)print A[i]}' | \
 		grep -v Makefile | \
 		sort
+
+mod-tidy:
+	@$(call print, "Tidying modules.")
+	$(GOMOD) tidy
+
+mod-check: mod-tidy
+	@$(call print, "Checking modules.")
+	if test -n "$$(git status | grep -e "go.mod\|go.sum")"; then echo "Running go mod tidy changes go.mod/go.sum"; git status; git diff; exit 1; fi
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")

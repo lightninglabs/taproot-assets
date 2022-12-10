@@ -294,7 +294,7 @@ func InputPrevOutFetcher(prevAsset asset.Asset) (*txscript.CannedPrevOutputFetch
 // a specific Taro input that can be spent through the key path. This is the
 // message over which signatures are generated over.
 func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
-	idx uint32) ([]byte, error) {
+	idx uint32, sigHashType txscript.SigHashType) ([]byte, error) {
 
 	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
 	prevOutFetcher, err := InputPrevOutFetcher(*input)
@@ -303,7 +303,7 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	}
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)
 	return txscript.CalcTaprootSignatureHash(
-		sigHashes, txscript.SigHashDefault, virtualTxCopy, zeroIndex,
+		sigHashes, sigHashType, virtualTxCopy, zeroIndex,
 		prevOutFetcher,
 	)
 }
@@ -312,7 +312,8 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 // for a specific Taro input that can be spent through the script path. This is
 // the message over which signatures are generated over.
 func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
-	idx uint32, tapLeaf *txscript.TapLeaf) ([]byte, error) {
+	idx uint32, sigHashType txscript.SigHashType,
+	tapLeaf *txscript.TapLeaf) ([]byte, error) {
 
 	virtualTxCopy := VirtualTxWithInput(virtualTx, input, idx, nil)
 	prevOutFetcher, err := InputPrevOutFetcher(*input)
@@ -321,7 +322,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	}
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)
 	return txscript.CalcTapscriptSignaturehash(
-		sigHashes, txscript.SigHashDefault, virtualTxCopy, zeroIndex,
+		sigHashes, sigHashType, virtualTxCopy, zeroIndex,
 		prevOutFetcher, *tapLeaf,
 	)
 }
@@ -330,7 +331,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 // spending a Taro input through the key path, following BIP 86. This signature
 // is attached to a Taro output asset before state transition validation.
 func SignTaprootKeySpend(internalKey btcec.PublicKey, virtualTx *wire.MsgTx,
-	inputAsset *asset.Asset, idx int,
+	inputAsset *asset.Asset, idx int, sigHashType txscript.SigHashType,
 	txSigner Signer) (*wire.TxWitness, error) {
 
 	// Compute a virtual prevOut from the input asset for the signer.
@@ -348,7 +349,7 @@ func SignTaprootKeySpend(internalKey btcec.PublicKey, virtualTx *wire.MsgTx,
 		},
 		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
 		Output:     prevOut,
-		HashType:   txscript.SigHashDefault,
+		HashType:   sigHashType,
 		InputIndex: idx,
 	}
 

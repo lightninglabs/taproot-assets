@@ -540,8 +540,8 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 				}
 				batches[i].GenesisPacket = &tarogarden.FundedPsbt{
 					Pkt: genesisPkt,
-					ChangeOutputIndex: extractSqlInt16[uint32](
-						batch.MintingOutputIndex,
+					ChangeOutputIndex: extractSqlInt32[int32](
+						batch.ChangeOutputIndex,
 					),
 				}
 			}
@@ -639,7 +639,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 			RawKey:        rawBatchKey,
 			MintingTxPsbt: psbtBuf.Bytes(),
-			MintingOutputIndex: sqlInt16(
+			ChangeOutputIndex: sqlInt32(
 				genesisPacket.ChangeOutputIndex,
 			),
 			GenesisID: sqlInt32(genesisPointID),

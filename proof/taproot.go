@@ -8,8 +8,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -30,6 +32,18 @@ var (
 	// ErrInvalidTapscriptProof is an error returned upon attempting to
 	// prove a malformed TapscriptProof.
 	ErrInvalidTapscriptProof = errors.New("invalid tapscript proof")
+
+	// ErrInvalidEmptyTapscriptPreimage is an error returned upon attempting
+	// to generate the tap hash of an empty preimage.
+	ErrInvalidEmptyTapscriptPreimage = errors.New(
+		"invalid empty tapscript preimage",
+	)
+
+	// ErrInvalidTapscriptPreimageLen is an error returned upon attempting
+	// to generate the tap hash of a branch preimage with invalid length.
+	ErrInvalidTapscriptPreimageLen = errors.New(
+		"invalid tapscript preimage length",
+	)
 )
 
 // TapscriptPreimageType denotes the type of tapscript sibling preimage.
@@ -69,6 +83,38 @@ type TapscriptPreimage struct {
 	SiblingType TapscriptPreimageType
 }
 
+// NewPreimageFromLeaf creates a new TapscriptPreimage from a single tap leaf.
+func NewPreimageFromLeaf(leaf txscript.TapLeaf) *TapscriptPreimage {
+	// The leaf encoding is: leafVersion || compactSizeof(script) ||
+	// script, where compactSizeof returns the compact size needed to
+	// encode the value.
+	var encodedLeaf bytes.Buffer
+
+	_ = encodedLeaf.WriteByte(byte(leaf.LeafVersion))
+	_ = wire.WriteVarBytes(&encodedLeaf, 0, leaf.Script)
+
+	return &TapscriptPreimage{
+		SiblingPreimage: encodedLeaf.Bytes(),
+		SiblingType:     LeafPreimage,
+	}
+}
+
+// NewPreimageFromBranch creates a new TapscriptPreimage from a tap branch.
+func NewPreimageFromBranch(branch txscript.TapBranch) *TapscriptPreimage {
+	var (
+		encodedBranch bytes.Buffer
+		leftHash      = branch.Left().TapHash()
+		rightHash     = branch.Right().TapHash()
+	)
+	_, _ = encodedBranch.Write(leftHash[:])
+	_, _ = encodedBranch.Write(rightHash[:])
+
+	return &TapscriptPreimage{
+		SiblingPreimage: encodedBranch.Bytes(),
+		SiblingType:     BranchPreimage,
+	}
+}
+
 // IsEmpty returns true if the sibling pre-image is empty.
 func (t *TapscriptPreimage) IsEmpty() bool {
 	if t == nil {
@@ -76,6 +122,31 @@ func (t *TapscriptPreimage) IsEmpty() bool {
 	}
 
 	return len(t.SiblingPreimage) == 0
+}
+
+// TapHash returns the tap hash of this preimage according to its type.
+func (t *TapscriptPreimage) TapHash() (*chainhash.Hash, error) {
+	if t.IsEmpty() {
+		return nil, ErrInvalidEmptyTapscriptPreimage
+	}
+
+	switch t.SiblingType {
+	// The sibling is actually a leaf pre-image, so we'll verify that it
+	// isn't a Taro commitment, and then hash it with the commitment to
+	// obtain our root.
+	case LeafPreimage:
+		return tapLeafHash(t.SiblingPreimage)
+
+	// The sibling is actually a branch pre-image, so we'll verify that the
+	// branch pre-image is 64-bytes (the two 32-byte hashes of the left
+	// and right nodes), and then derive the key from that.
+	case BranchPreimage:
+		return tapBranchHash(t.SiblingPreimage)
+
+	default:
+		return nil, fmt.Errorf("unknown sibling type: <%d>",
+			t.SiblingType)
+	}
 }
 
 // CommitmentProof represents a full commitment proof for an asset. It can
@@ -261,28 +332,26 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 }
 
 // tapBranchHash computes the TapHash of a TapBranch node from its preimage
-// if possible, otherwise `nil` is returned.
-func tapBranchHash(preimage []byte) *chainhash.Hash {
-	// Empty preimage or leaf preimage, return nil.
-	//
-	// TODO(roasbeef): error case instead?
+// if possible, otherwise an error is returned.
+func tapBranchHash(preimage []byte) (*chainhash.Hash, error) {
+	// Empty preimage or leaf preimage, return typed error.
 	if len(preimage) != tapBranchPreimageLen {
-		return nil
+		return nil, ErrInvalidTapscriptPreimageLen
 	}
 
 	left := (*chainhash.Hash)(preimage[:chainhash.HashSize])
 	right := (*chainhash.Hash)(preimage[chainhash.HashSize:])
 	h := newTapBranchHash(*left, *right)
 
-	return &h
+	return &h, nil
 }
 
 // tapLeafHash computes the TapHash of a TapLeaf node from its preimage
-// if possible, otherwise `nil` is returned.
+// if possible, otherwise an error is returned.
 func tapLeafHash(preimage []byte) (*chainhash.Hash, error) {
 	// Empty preimage.
 	if len(preimage) == 0 {
-		return nil, nil
+		return nil, ErrInvalidEmptyTapscriptPreimage
 	}
 
 	// Enforce that it is not including another Taro commitment.
@@ -291,7 +360,16 @@ func tapLeafHash(preimage []byte) (*chainhash.Hash, error) {
 	}
 
 	version := txscript.TapscriptLeafVersion(preimage[0])
-	script := preimage[1:]
+
+	// The script is encoded with a leading VarByte that indicates its total
+	// length.
+	remaining := preimage[1:]
+	script, err := wire.ReadVarBytes(
+		bytes.NewReader(remaining), 0, uint32(len(remaining)), "script",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding leaf pre-image: %w", err)
+	}
 
 	h := txscript.NewTapLeaf(version, script).TapHash()
 	return &h, nil
@@ -321,58 +399,24 @@ func deriveTaprootKeysFromTaroCommitment(commitment *commitment.TaroCommitment,
 	internalKey *btcec.PublicKey, siblingTapPreimage *TapscriptPreimage) (
 	*btcec.PublicKey, error) {
 
-	var (
-		taprootOutputKey *btcec.PublicKey
-		err              error
-	)
+	// If there's no actual sibling pre-image, meaning the only thing
+	// committed to is the Taro asset root, then this will remain nil.
+	var siblingHash *chainhash.Hash
 
-	// There're three cases we need to handle:
-	switch {
-	// 1. There's no actual sibling pre-image, meaning the only thing
-	// committed to is the Taro asset root.
-	case siblingTapPreimage == nil:
-		taprootOutputKey, err = deriveTaprootKeyFromTaroCommitment(
-			commitment, nil, internalKey,
-		)
+	// If there is a sibling pre-image, it's either a leaf or a branch that
+	// we need to hash in order to get our sibling hash.
+	if siblingTapPreimage != nil {
+		var err error
+		siblingHash, err = siblingTapPreimage.TapHash()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error calculating tapscript "+
+				"sibling hash: %w", err)
 		}
-
-	//  2. The sibling is actually a leaf pre-image, so we'll verify that
-	//  it isn't a Taro commitment, and then hash it with the commitment to
-	//  obtain our root.
-	case siblingTapPreimage.SiblingType == LeafPreimage:
-		leaf, err := tapLeafHash(siblingTapPreimage.SiblingPreimage)
-		if err != nil {
-			return nil, err
-		}
-
-		taprootOutputKey, err = deriveTaprootKeyFromTaroCommitment(
-			commitment, leaf, internalKey,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-	// 3. The sibling is actually a branch pre-image, so we'll verify that
-	// the branch pre-image is 64-bytes (the two 32-byte hashes of the left
-	// and right nodes), and then derive the key from that.
-	case siblingTapPreimage.SiblingType == BranchPreimage:
-		branch := tapBranchHash(siblingTapPreimage.SiblingPreimage)
-
-		taprootOutputKey, err = deriveTaprootKeyFromTaroCommitment(
-			commitment, branch, internalKey,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-	default:
-		return nil, fmt.Errorf("unknown sibling type: %v",
-			siblingTapPreimage.SiblingType)
 	}
 
-	return taprootOutputKey, nil
+	return deriveTaprootKeyFromTaroCommitment(
+		commitment, siblingHash, internalKey,
+	)
 }
 
 // DeriveByAssetInclusion derives the unique taproot output key backing a Taro
@@ -507,10 +551,16 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 		p.TapPreimage1.SiblingType == BranchPreimage &&
 		p.TapPreimage2.SiblingType == BranchPreimage:
 
-		rootHash := newTapBranchHash(
-			*tapBranchHash(p.TapPreimage1.SiblingPreimage),
-			*tapBranchHash(p.TapPreimage2.SiblingPreimage),
-		)
+		branch1, err := tapBranchHash(p.TapPreimage1.SiblingPreimage)
+		if err != nil {
+			return nil, err
+		}
+		branch2, err := tapBranchHash(p.TapPreimage2.SiblingPreimage)
+		if err != nil {
+			return nil, err
+		}
+
+		rootHash := newTapBranchHash(*branch1, *branch2)
 		tapscriptRoot = rootHash[:]
 
 	// Two pre-images are specified, with one of them being a leaf and the
@@ -526,11 +576,12 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 			return nil, err
 		}
 
-		branchHash := tapBranchHash(p.TapPreimage2.SiblingPreimage)
+		branchHash, err := tapBranchHash(p.TapPreimage2.SiblingPreimage)
+		if err != nil {
+			return nil, err
+		}
 
-		rootHash := newTapBranchHash(
-			*leafHash, *branchHash,
-		)
+		rootHash := newTapBranchHash(*leafHash, *branchHash)
 		tapscriptRoot = rootHash[:]
 
 	// Only a single pre-image was specified, and the pre-image is a leaf.
@@ -578,4 +629,65 @@ func (p TaprootProof) DeriveByTapscriptProof() (*btcec.PublicKey, error) {
 		return nil, ErrInvalidTapscriptProof
 	}
 	return p.TapscriptProof.DeriveTaprootKeys(p.InternalKey)
+}
+
+// AddExclusionProofs adds exclusion proofs to the base proof for each P2TR
+// output in the given PSBT that isn't an anchor output itself. To determine
+// which output is the anchor output, the passed isAnchor function should
+// return true for the output index that houses the anchor TX.
+func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
+	isAnchor func(uint32) bool) error {
+
+	for outIdx := range packet.Outputs {
+		txOut := packet.UnsignedTx.TxOut[outIdx]
+
+		// Skip any anchor output since that will get an inclusion proof
+		// instead.
+		if isAnchor(uint32(outIdx)) {
+			continue
+		}
+
+		// We only need to add exclusion proofs for P2TR outputs as only
+		// those could commit to a Taro tree.
+		if !txscript.IsPayToTaproot(txOut.PkScript) {
+			continue
+		}
+
+		// For a P2TR output the internal key must be declared and must
+		// be a valid 32-byte x-only public key.
+		out := packet.Outputs[outIdx]
+		if len(out.TaprootInternalKey) != schnorr.PubKeyBytesLen {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d is a P2TR output but is missing the "+
+				"internal key in the PSBT", outIdx)
+		}
+		internalKey, err := schnorr.ParsePubKey(out.TaprootInternalKey)
+		if err != nil {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d is a P2TR output but the internal key is "+
+				"invalid: %w", outIdx, err)
+		}
+
+		// Make sure this is a BIP0086 key spend as that is the only
+		// method we currently support here.
+		if len(out.TaprootTapTree) > 0 {
+			return fmt.Errorf("cannot add exclusion proof, output "+
+				"%d uses a tap tree which is currently not "+
+				"supported", outIdx)
+		}
+
+		// Okay, we now know this is a normal BIP0086 key spend and can
+		// add the exclusion proof accordingly.
+		baseProof.ExclusionProofs = append(
+			baseProof.ExclusionProofs, TaprootProof{
+				OutputIndex: uint32(outIdx),
+				InternalKey: internalKey,
+				TapscriptProof: &TapscriptProof{
+					BIP86: true,
+				},
+			},
+		)
+	}
+
+	return nil
 }

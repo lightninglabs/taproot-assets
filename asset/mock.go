@@ -28,23 +28,69 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 }
 
 // RandGroupKey creates a random group key for testing.
-func RandGroupKey(t testing.TB, genesis *Genesis) *GroupKey {
+func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
 	privateKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	genSigner := NewRawKeyGenesisSigner(privateKey)
 
 	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()), *genesis,
+		genSigner, test.PubToKeyDesc(privateKey.PubKey()), genesis,
 	)
 	require.NoError(t, err)
 	return groupKey
+}
+
+// RandScriptKey creates a random script key for testing.
+func RandScriptKey(t testing.TB) ScriptKey {
+	return NewScriptKey(test.RandPrivKey(t).PubKey())
+}
+
+// RandSerializedKey creates a random serialized key for testing.
+func RandSerializedKey(t testing.TB) SerializedKey {
+	return ToSerialized(test.RandPrivKey(t).PubKey())
 }
 
 // RandID creates a random asset ID.
 func RandID(t testing.TB) ID {
 	var a ID
 	_, err := rand.Read(a[:])
+	require.NoError(t, err)
+
+	return a
+}
+
+// RandAsset creates a random asset of the given type for testing.
+func RandAsset(t testing.TB, assetType Type) *Asset {
+	t.Helper()
+
+	genesis := RandGenesis(t, assetType)
+	familyKey := RandGroupKey(t, genesis)
+	scriptKey := RandScriptKey(t)
+
+	return RandAssetWithValues(t, genesis, familyKey, scriptKey)
+}
+
+// RandAssetWithValues creates a random asset with the given genesis and keys
+// for testing.
+func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
+	scriptKey ScriptKey) *Asset {
+
+	t.Helper()
+
+	units := test.RandInt[uint64]() + 1
+
+	switch genesis.Type {
+	case Normal:
+
+	case Collectible:
+		units = 1
+
+	default:
+		t.Fatal("unhandled asset type", genesis.Type)
+	}
+
+	a, err := New(genesis, units, 0, 0, scriptKey, groupKey)
 	require.NoError(t, err)
 
 	return a

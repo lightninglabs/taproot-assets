@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taroscript"
@@ -79,31 +80,10 @@ var (
 		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 )
 
-func randKey(t *testing.T) *btcec.PrivateKey {
-	t.Helper()
-	key, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	return key
-}
-
-func randGroupKey(t *testing.T, genesis asset.Genesis) *asset.GroupKey {
-	t.Helper()
-	privKey := randKey(t)
-	genSigner := asset.NewRawKeyGenesisSigner(privKey)
-	fakeKeyDesc := keychain.KeyDescriptor{
-		PubKey: privKey.PubKey(),
-	}
-	groupKey, err := asset.DeriveGroupKey(genSigner, fakeKeyDesc, genesis)
-	require.NoError(t, err)
-
-	return groupKey
-}
-
 func initSpendScenario(t *testing.T) spendData {
 	t.Helper()
 
-	// Amounts and genesises, needed for addresses and assets. We need both
+	// Amounts and geneses, needed for addresses and assets. We need both
 	// a normal and collectible asset, and three amounts to test splits.
 	state := spendData{
 		collectAmt:      1,
@@ -129,10 +109,10 @@ func initSpendScenario(t *testing.T) spendData {
 	state.receiverPrivKey = *receiverPrivKey
 	state.receiverPubKey = *receiverPubKey
 
-	groupKey := randGroupKey(t, state.genesis1collect)
+	groupKey := asset.RandGroupKey(t, state.genesis1collect)
 	state.groupKey = *groupKey
 
-	// Addesses to cover both asset types and all three asset values.
+	// Addresses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
 	address1, err := address.New(
 		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
@@ -2243,14 +2223,12 @@ func TestPayToAddrScript(t *testing.T) {
 		sendAmt    = 2
 	)
 	gen := asset.RandGenesis(t, asset.Normal)
-	ownerKey := randKey(t)
-	ownerScriptKey := ownerKey.PubKey()
-	ownerDescriptor := keychain.KeyDescriptor{PubKey: ownerScriptKey}
+	ownerDescriptor := test.PubToKeyDesc(test.RandPrivKey(t).PubKey())
 
-	internalKey := randKey(t).PubKey()
-	recipientScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
-		PubKey: randKey(t).PubKey(),
-	})
+	internalKey := test.RandPrivKey(t).PubKey()
+	recipientScriptKey := asset.NewScriptKeyBIP0086(test.PubToKeyDesc(
+		test.RandPrivKey(t).PubKey(),
+	))
 
 	// Create an asset and derive a commitment for sending 2 of the 5 asset
 	// units.

@@ -188,17 +188,6 @@ type ChainBridge interface {
 		confTarget uint32) (chainfee.SatPerKWeight, error)
 }
 
-// TaroKeyFamily is the key family used to generate internal keys that taro
-// will use creating internal taproot keys and also any other keys used for
-// asset script keys. This was derived via: sum(map(lambda y: ord(y), 'taro')).
-// In order words: take the word taro and return the integer representation of
-// each character and sum those. We get 438, then divide that by 2, to allow
-// use to fit this into just a 2-byte integer and to ensure compatibility with
-// the remote signer.
-//
-// TODO(roasbeef): move to taroscript?
-const TaroKeyFamily = 219
-
 // FundedPsbt represents a fully funded PSBT transaction.
 type FundedPsbt struct {
 	// Pkt is the PSBT packet itself.
@@ -207,7 +196,7 @@ type FundedPsbt struct {
 	// ChangeOutputIndex denotes which output in the PSBT packet is the
 	// change output. We use this to figure out which output will store our
 	// Taro commitment (the non-change output).
-	ChangeOutputIndex uint32
+	ChangeOutputIndex int32
 
 	// ChainFees is the amount in sats paid in on-chain fees for this
 	// transaction.

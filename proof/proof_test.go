@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
@@ -94,7 +95,7 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
-	groupKey := asset.RandGroupKey(t, &genesis)
+	groupKey := asset.RandGroupKey(t, genesis)
 
 	commitment, assets, err := commitment.Mint(
 		genesis, groupKey, &commitment.AssetDetails{
@@ -203,13 +204,14 @@ func TestProofEncoding(t *testing.T) {
 }
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
-	amt *uint64) (Proof, *btcec.PrivateKey) {
+	amt *uint64, tapscriptPreimage *TapscriptPreimage) (Proof,
+	*btcec.PrivateKey) {
 
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
 	assetGenesis := asset.RandGenesis(t, assetType)
-	assetGroupKey := asset.RandGroupKey(t, &assetGenesis)
+	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type: assetType,
@@ -229,8 +231,14 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	)
 	require.NoError(t, err)
 
+	var tapscriptSibling *chainhash.Hash
+	if tapscriptPreimage != nil {
+		tapscriptSibling, err = tapscriptPreimage.TapHash()
+		require.NoError(t, err)
+	}
+
 	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
-	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
+	tapscriptRoot := taroCommitment.TapscriptRoot(tapscriptSibling)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
@@ -265,7 +273,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 			InternalKey: internalKey,
 			CommitmentProof: &CommitmentProof{
 				Proof:              *commitmentProof,
-				TapSiblingPreimage: nil,
+				TapSiblingPreimage: tapscriptPreimage,
 			},
 			TapscriptProof: nil,
 		},
@@ -277,9 +285,59 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 func TestGenesisProofVerification(t *testing.T) {
 	t.Parallel()
 
-	genesisProof, _ := genRandomGenesisWithProof(t, asset.Collectible, nil)
-	_, err := genesisProof.Verify(context.Background(), nil)
-	require.NoError(t, err)
+	// Create a script tree that we'll use for our tapscript sibling test
+	// cases.
+	scriptInternalKey := test.RandPrivKey(t).PubKey()
+	leaf1 := test.ScriptHashLock(t, []byte("foobar"))
+	leaf2 := test.ScriptSchnorrSig(t, scriptInternalKey)
+
+	// The order doesn't matter here as they are sorted before hashing.
+	branch := txscript.NewTapBranch(leaf1, leaf2)
+	amount := uint64(5000)
+
+	testCases := []struct {
+		name              string
+		assetType         asset.Type
+		amount            *uint64
+		tapscriptPreimage *TapscriptPreimage
+	}{{
+		name:      "collectible genesis",
+		assetType: asset.Collectible,
+	}, {
+		name:              "collectible with leaf preimage",
+		assetType:         asset.Collectible,
+		tapscriptPreimage: NewPreimageFromLeaf(leaf1),
+	}, {
+		name:              "collectible with branch preimage",
+		assetType:         asset.Collectible,
+		tapscriptPreimage: NewPreimageFromBranch(branch),
+	}, {
+		name:      "normal genesis",
+		assetType: asset.Normal,
+		amount:    &amount,
+	}, {
+		name:              "normal with leaf preimage",
+		assetType:         asset.Normal,
+		amount:            &amount,
+		tapscriptPreimage: NewPreimageFromLeaf(leaf1),
+	}, {
+		name:              "normal with branch preimage",
+		assetType:         asset.Normal,
+		amount:            &amount,
+		tapscriptPreimage: NewPreimageFromBranch(branch),
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(tt *testing.T) {
+			genesisProof, _ := genRandomGenesisWithProof(
+				tt, tc.assetType, tc.amount,
+				tc.tapscriptPreimage,
+			)
+			_, err := genesisProof.Verify(context.Background(), nil)
+			require.NoError(tt, err)
+		})
+	}
 }
 
 func BenchmarkProofEncoding(b *testing.B) {
@@ -287,7 +345,7 @@ func BenchmarkProofEncoding(b *testing.B) {
 
 	// Start with a minted genesis asset.
 	genesisProof, _ := genRandomGenesisWithProof(
-		b, asset.Normal, &amt,
+		b, asset.Normal, &amt, nil,
 	)
 
 	// We create a file with 10k proofs (the same one) and test encoding/
@@ -319,5 +377,3 @@ func BenchmarkProofEncoding(b *testing.B) {
 		require.Len(b, f2.proofs, numProofs)
 	}
 }
-
-// TODO(roasbeef): additional tests for the diff sibling preimage combinations
