@@ -307,3 +307,18 @@ func assertTransfers(t *testing.T, tarod *tarodHarness, amts []int64) {
 		require.Equal(t, amts[i], transfer.AssetSpendDeltas[0].NewAmt)
 	}
 }
+
+// assertGroup asserts that an asset returned from the ListGroups call matches
+// a specific asset and has the same group key.
+func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
+	groupKey []byte) {
+
+	require.Equal(t, a.AssetGenesis.AssetId, b.Id)
+	require.Equal(t, a.Amount, int64(b.Amount))
+	require.Equal(t, a.LockTime, b.LockTime)
+	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
+	require.Equal(t, a.AssetGenesis.Name, b.Tag)
+	require.Equal(t, a.AssetGenesis.Meta, b.MetaData)
+	require.Equal(t, a.AssetType, b.Type)
+	require.Equal(t, a.AssetGroup.TweakedGroupKey, groupKey)
+}
