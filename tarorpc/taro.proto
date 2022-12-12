@@ -22,6 +22,12 @@ service Taro {
     */
     rpc ListUtxos (ListUtxosRequest) returns (ListUtxosResponse);
 
+    /* tarocli: `assets groups`
+    ListGroups lists the asset groups known to the target daemon, and the assets
+    held in each group.
+    */
+    rpc ListGroups (ListGroupsRequest) returns (ListGroupsResponse);
+
     /* tarocli: `assets balance`
     ListBalances lists asset balances
     */
@@ -275,6 +281,42 @@ message ManagedUtxo {
 message ListUtxosResponse {
     // The set of UTXOs managed by the daemon.
     map<string, ManagedUtxo> managed_utxos = 1;
+}
+
+message ListGroupsRequest {
+}
+
+message AssetHumanReadable {
+    // The ID of the asset.
+    bytes id = 1;
+
+    // The amount of the asset.
+    uint64 amount = 2;
+
+    // An optional locktime, as with Bitcoin transactions.
+    int32 lock_time = 3;
+
+    // An optional relative locktime, as with Bitcoin transactions.
+    int32 relative_lock_time = 4;
+
+    // The name of the asset.
+    string tag = 5;
+
+    // The opaque metadata of the asset.
+    bytes meta_data = 6;
+
+    // The type of the asset.
+    AssetType type = 7;
+}
+
+message GroupedAssets {
+    // A list of assets with the same group key.
+    repeated AssetHumanReadable assets = 1;
+}
+
+message ListGroupsResponse {
+    // The set of assets with a group key.
+    map<string, GroupedAssets> groups = 1;
 }
 
 message ListBalancesRequest {

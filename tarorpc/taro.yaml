@@ -51,6 +51,9 @@ http:
     - selector: tarorpc.Taro.ListUtxos
       get: "/v1/taro/assets/utxos"
 
+    - selector: tarorpc.Taro.ListGroups
+      get: "/v1/taro/assets/groups"
+
     - selector: tarorpc.Taro.SendAsset
       post: "/v1/taro/send"
       body: "*"

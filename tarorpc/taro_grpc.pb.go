@@ -29,6 +29,10 @@ type TaroClient interface {
 	//ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 	//hold.
 	ListUtxos(ctx context.Context, in *ListUtxosRequest, opts ...grpc.CallOption) (*ListUtxosResponse, error)
+	// tarocli: `assets groups`
+	//ListGroups lists the asset groups known to the target daemon, and the assets
+	//held in each group.
+	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
 	// tarocli: `assets balance`
 	//ListBalances lists asset balances
 	ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error)
@@ -108,6 +112,15 @@ func (c *taroClient) ListAssets(ctx context.Context, in *ListAssetRequest, opts 
 func (c *taroClient) ListUtxos(ctx context.Context, in *ListUtxosRequest, opts ...grpc.CallOption) (*ListUtxosResponse, error) {
 	out := new(ListUtxosResponse)
 	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ListUtxos", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error) {
+	out := new(ListGroupsResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ListGroups", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +250,10 @@ type TaroServer interface {
 	//ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 	//hold.
 	ListUtxos(context.Context, *ListUtxosRequest) (*ListUtxosResponse, error)
+	// tarocli: `assets groups`
+	//ListGroups lists the asset groups known to the target daemon, and the assets
+	//held in each group.
+	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
 	// tarocli: `assets balance`
 	//ListBalances lists asset balances
 	ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error)
@@ -300,6 +317,9 @@ func (UnimplementedTaroServer) ListAssets(context.Context, *ListAssetRequest) (*
 }
 func (UnimplementedTaroServer) ListUtxos(context.Context, *ListUtxosRequest) (*ListUtxosResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListUtxos not implemented")
+}
+func (UnimplementedTaroServer) ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListGroups not implemented")
 }
 func (UnimplementedTaroServer) ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBalances not implemented")
@@ -400,6 +420,24 @@ func _Taro_ListUtxos_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaroServer).ListUtxos(ctx, req.(*ListUtxosRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_ListGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).ListGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/ListGroups",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).ListGroups(ctx, req.(*ListGroupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -638,6 +676,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListUtxos",
 			Handler:    _Taro_ListUtxos_Handler,
+		},
+		{
+			MethodName: "ListGroups",
+			Handler:    _Taro_ListGroups_Handler,
 		},
 		{
 			MethodName: "ListBalances",
