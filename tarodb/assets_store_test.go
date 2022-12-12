@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -962,4 +963,96 @@ func TestAssetGroupSigUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, groupSigID, groupSigID2)
+}
+
+// TestFetchGroupedAssets tests that the FetchGroupedAssets query corectly
+// excludes assets with nil group keys, groups assets with matching group
+// keys, and returns other asset fields accurately.
+func TestFetchGroupedAssets(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, _ := newAssetStore(t)
+	ctx := context.Background()
+
+	// Make four assets and create only two group keys. We want one asset
+	// with no group, one group with only one asset, and two assets to be
+	// in the same group.
+	const numAssets = 4
+	assetGen := newAssetGenerator(t, numAssets, 2)
+	// Need to add type variation also
+	assetDescs := []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+			noGroupKey:  true,
+			amt:         88,
+		},
+		{
+			assetGen:    assetGen.assetGens[1],
+			anchorPoint: assetGen.anchorPoints[1],
+			keyGroup:    assetGen.groupKeys[0],
+			amt:         44,
+		},
+		{
+			assetGen:    assetGen.assetGens[2],
+			anchorPoint: assetGen.anchorPoints[2],
+			keyGroup:    assetGen.groupKeys[1],
+			amt:         22,
+		},
+		{
+			assetGen:    assetGen.assetGens[2],
+			anchorPoint: assetGen.anchorPoints[3],
+			keyGroup:    assetGen.groupKeys[1],
+			amt:         2,
+		},
+	}
+
+	assetGen.genAssets(t, assetsStore, assetDescs)
+
+	groupedAssets, err := assetsStore.FetchGroupedAssets(ctx)
+	require.Nil(t, err)
+
+	// The one asset with no group should not be returned.
+	require.Equal(t, numAssets-1, len(groupedAssets))
+
+	// Sort the assets to match the order of the asset descriptors, for
+	// easier comparison.
+	sort.Slice(groupedAssets, func(i, j int) bool {
+		return groupedAssets[i].Amount > groupedAssets[j].Amount
+	})
+
+	// Group keys should not match between assets 1 and 2, and match for
+	// assets 2 and 3.
+	require.NotEqual(
+		t, groupedAssets[0].GroupKey.SerializeCompressed(),
+		groupedAssets[1].GroupKey.SerializeCompressed(),
+	)
+	require.Equal(
+		t, groupedAssets[1].GroupKey.SerializeCompressed(),
+		groupedAssets[2].GroupKey.SerializeCompressed(),
+	)
+
+	// Fetch all assets to check the accuracy of other asset fields.
+	allAssets, err := assetsStore.FetchAllAssets(ctx, nil)
+	require.NoError(t, err)
+
+	// Sort assets to match the order of the asset descriptors.
+	sort.Slice(allAssets, func(i, j int) bool {
+		return allAssets[i].Amount > allAssets[j].Amount
+	})
+
+	// Check for equality of all asset fields.
+	equalityCheck := func(a *asset.Asset, b *AssetHumanReadable) {
+		require.Equal(t, a.ID(), b.ID)
+		require.Equal(t, a.Amount, b.Amount)
+		require.Equal(t, a.LockTime, b.LockTime)
+		require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
+		require.Equal(t, a.Tag, b.Tag)
+		require.Equal(t, a.Metadata, b.Metadata)
+		require.Equal(t, a.Type, b.Type)
+	}
+
+	equalityCheck(allAssets[1].Asset, groupedAssets[0])
+	equalityCheck(allAssets[2].Asset, groupedAssets[1])
+	equalityCheck(allAssets[3].Asset, groupedAssets[2])
 }

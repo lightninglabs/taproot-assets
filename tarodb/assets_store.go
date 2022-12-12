@@ -50,6 +50,10 @@ type (
 	// along the asset ID that the witness belong to.
 	AssetWitness = sqlc.FetchAssetWitnessesRow
 
+	// RawGroupedAsset holds the human-readable fields of a single asset
+	// with a non-nil group key.
+	RawGroupedAsset = sqlc.FetchGroupedAssetsRow
+
 	// QueryAssetFilters lets us query assets in the database based on some
 	// set filters. This is useful to get the balance of a set of assets,
 	// or for things like coin selection.
@@ -126,6 +130,9 @@ type ActiveAssetsStore interface {
 	// filter.
 	QueryAssetBalancesByGroup(context.Context,
 		[]byte) ([]RawAssetGroupBalance, error)
+
+	// FetchGroupedAssets fetches all assets with non-nil group keys.
+	FetchGroupedAssets(context.Context) ([]RawGroupedAsset, error)
 
 	// FetchAssetProofs fetches all the asset proofs we have stored on
 	// disk.
@@ -303,6 +310,38 @@ type ManagedUTXO struct {
 	// TapscriptSibling is the tapscript sibling of this asset. This will
 	// usually be blank.
 	TapscriptSibling []byte
+}
+
+// AssetHumanReadable is a subset of the base asset struct that only includes
+// human-readable asset fields.
+type AssetHumanReadable struct {
+	// ID is the unique identifier for the asset.
+	ID asset.ID
+
+	// Amount is the number of units represented by the asset.
+	Amount uint64
+
+	// LockTime, if non-zero, restricts an asset from being moved prior to
+	// the represented block height in the chain.
+	LockTime uint64
+
+	// RelativeLockTime, if non-zero, restricts an asset from being moved
+	// until a number of blocks after the confirmation height of the latest
+	// transaction for the asset is reached.
+	RelativeLockTime uint64
+
+	// Tag is the human-readable identifier for the asset.
+	Tag string
+
+	// Metadata encodes metadata related to the asset.
+	Metadata []byte
+
+	// Type uniquely identifies the type of Taro asset.
+	Type asset.Type
+
+	// GroupKey is the tweaked public key that is used to associate assets
+	// together across distinct asset IDs.
+	GroupKey *btcec.PublicKey
 }
 
 // assetWitnesses maps the primary key of an asset to a slice of its previous
@@ -760,6 +799,54 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 	}
 
 	return balances, nil
+}
+
+// FetchGroupedAssets fetches the set of assets with non-nil group keys.
+func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
+	[]*AssetHumanReadable, error) {
+
+	var (
+		dbAssets []RawGroupedAsset
+		err      error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbAssets, err = q.FetchGroupedAssets(ctx)
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	groupedAssets := make([]*AssetHumanReadable, len(dbAssets))
+	for i, a := range dbAssets {
+		amount := uint64(a.Amount)
+		locktime := extractSqlInt32[uint64](a.LockTime)
+		relativeLocktime := extractSqlInt32[uint64](a.RelativeLockTime)
+		assetType := asset.Type(a.AssetType)
+
+		var assetID asset.ID
+		copy(assetID[:], a.AssetID[:])
+
+		groupKey, err := btcec.ParsePubKey(a.TweakedGroupKey)
+		if err != nil {
+			return nil, err
+		}
+
+		groupedAssets[i] = &AssetHumanReadable{
+			ID:               assetID,
+			Amount:           amount,
+			LockTime:         locktime,
+			RelativeLockTime: relativeLocktime,
+			Tag:              a.AssetTag,
+			Metadata:         a.MetaData,
+			Type:             assetType,
+			GroupKey:         groupKey,
+		}
+	}
+
+	return groupedAssets, nil
 }
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
