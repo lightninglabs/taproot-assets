@@ -2,9 +2,12 @@ package itest
 
 import (
 	"context"
+	"encoding/hex"
+	"sort"
 
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 // testCollectibleSend tests that we can properly send a collectible asset
@@ -88,4 +91,39 @@ func testCollectibleSend(t *harnessTest) {
 
 	assertTransfers(t.t, secondTarod, []int64{0})
 	assertBalance(t.t, secondTarod, genInfo.AssetId, int64(fullAmount))
+
+	// The second daemon should list one group with two assets.
+	listGroupsResp, err := secondTarod.ListGroups(
+		ctxb, &tarorpc.ListGroupsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	groupKeys := maps.Keys(listGroupsResp.Groups)
+	require.Equal(t.t, 1, len(groupKeys))
+
+	rpcGroupKey, err := hex.DecodeString(groupKeys[0])
+	require.NoError(t.t, err)
+	require.Equal(t.t, groupKey, rpcGroupKey)
+
+	groupedAssets := listGroupsResp.Groups[groupKeys[0]].Assets
+	require.Equal(t.t, 2, len(groupedAssets))
+
+	// Sort the assets with a group by amount, descending.
+	sort.Slice(groupedAssets, func(i, j int) bool {
+		return groupedAssets[i].Amount > groupedAssets[j].Amount
+	})
+
+	listAssetsResp, err := secondTarod.ListAssets(
+		ctxb, &tarorpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Sort all assets by amount, descending.
+	allAssets := listAssetsResp.Assets
+	sort.Slice(allAssets, func(i, j int) bool {
+		return allAssets[i].Amount > allAssets[j].Amount
+	})
+
+	// Only compare the spendable asset.
+	assertGroup(t.t, allAssets[0], groupedAssets[0], rpcGroupKey)
 }

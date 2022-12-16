@@ -60,6 +60,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/tarorpc.Taro/ListGroups": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/tarorpc.Taro/ListBalances": {{
 			Entity: "assets",
 			Action: "read",
@@ -518,6 +522,45 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 	return &tarorpc.ListUtxosResponse{
 		ManagedUtxos: utxos,
 	}, nil
+}
+
+// ListGroups lists known groups and the assets held in each group.
+func (r *rpcServer) ListGroups(ctx context.Context,
+	_ *tarorpc.ListGroupsRequest) (*tarorpc.ListGroupsResponse, error) {
+
+	groupedAssets, err := r.cfg.AssetStore.FetchGroupedAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	groupsWithAssets := make(map[string]*tarorpc.GroupedAssets)
+
+	// Populate the map of group keys to assets in that group.
+	for _, a := range groupedAssets {
+		groupKey := hex.EncodeToString(a.GroupKey.SerializeCompressed())
+		asset := &tarorpc.AssetHumanReadable{
+			Id:               a.ID[:],
+			Amount:           a.Amount,
+			LockTime:         int32(a.LockTime),
+			RelativeLockTime: int32(a.RelativeLockTime),
+			Tag:              a.Tag,
+			MetaData:         a.Metadata[:],
+			Type:             tarorpc.AssetType(a.Type),
+		}
+
+		_, ok := groupsWithAssets[groupKey]
+		if !ok {
+			groupsWithAssets[groupKey] = &tarorpc.GroupedAssets{
+				Assets: []*tarorpc.AssetHumanReadable{},
+			}
+		}
+
+		groupsWithAssets[groupKey].Assets = append(
+			groupsWithAssets[groupKey].Assets, asset,
+		)
+	}
+
+	return &tarorpc.ListGroupsResponse{Groups: groupsWithAssets}, nil
 }
 
 // ListBalances lists the asset balances owned by the daemon.

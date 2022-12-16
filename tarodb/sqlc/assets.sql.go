@@ -788,6 +788,66 @@ func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sq
 	return i, err
 }
 
+const fetchGroupedAssets = `-- name: FetchGroupedAssets :many
+SELECT
+    assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 
+    genesis_info_view.asset_id AS asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_data, 
+    genesis_info_view.asset_type,
+    key_group_info_view.tweaked_group_key
+FROM assets
+JOIN genesis_info_view
+    ON assets.genesis_id = genesis_info_view.gen_asset_id
+JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
+`
+
+type FetchGroupedAssetsRow struct {
+	AssetPrimaryKey  int32
+	Amount           int64
+	LockTime         sql.NullInt32
+	RelativeLockTime sql.NullInt32
+	AssetID          []byte
+	AssetTag         string
+	MetaData         []byte
+	AssetType        int16
+	TweakedGroupKey  []byte
+}
+
+func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchGroupedAssets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchGroupedAssetsRow
+	for rows.Next() {
+		var i FetchGroupedAssetsRow
+		if err := rows.Scan(
+			&i.AssetPrimaryKey,
+			&i.Amount,
+			&i.LockTime,
+			&i.RelativeLockTime,
+			&i.AssetID,
+			&i.AssetTag,
+			&i.MetaData,
+			&i.AssetType,
+			&i.TweakedGroupKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
 SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos

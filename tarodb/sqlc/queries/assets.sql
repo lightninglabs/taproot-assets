@@ -223,6 +223,20 @@ JOIN key_group_info_view
         sqlc.narg('key_group_filter') IS NULL)
 GROUP BY key_group_info_view.tweaked_group_key;
 
+-- name: FetchGroupedAssets :many
+SELECT
+    assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 
+    genesis_info_view.asset_id AS asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_data, 
+    genesis_info_view.asset_type,
+    key_group_info_view.tweaked_group_key
+FROM assets
+JOIN genesis_info_view
+    ON assets.genesis_id = genesis_info_view.gen_asset_id
+JOIN key_group_info_view
+    ON assets.genesis_id = key_group_info_view.gen_asset_id;
+
 -- name: QueryAssets :many
 SELECT
     assets.asset_id AS asset_primary_key, assets.genesis_id, version,

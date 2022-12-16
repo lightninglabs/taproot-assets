@@ -279,6 +279,29 @@
         ]
       }
     },
+    "/v1/taro/assets/groups": {
+      "get": {
+        "summary": "tarocli: `assets groups`\nListGroups lists the asset groups known to the target daemon, and the assets\nheld in each group.",
+        "operationId": "Taro_ListGroups",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcListGroupsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/assets/transfers": {
       "get": {
         "summary": "tarocli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
@@ -808,6 +831,44 @@
         }
       }
     },
+    "tarorpcAssetHumanReadable": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the asset."
+        },
+        "lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional locktime, as with Bitcoin transactions."
+        },
+        "relative_lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional relative locktime, as with Bitcoin transactions."
+        },
+        "tag": {
+          "type": "string",
+          "description": "The name of the asset."
+        },
+        "meta_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The opaque metadata of the asset."
+        },
+        "type": {
+          "$ref": "#/definitions/tarorpcAssetType",
+          "description": "The type of the asset."
+        }
+      }
+    },
     "tarorpcAssetOutput": {
       "type": "object",
       "properties": {
@@ -983,6 +1044,18 @@
         }
       }
     },
+    "tarorpcGroupedAssets": {
+      "type": "object",
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetHumanReadable"
+          },
+          "description": "A list of assets with the same group key."
+        }
+      }
+    },
     "tarorpcImportProofRequest": {
       "type": "object",
       "properties": {
@@ -1023,6 +1096,18 @@
           "additionalProperties": {
             "$ref": "#/definitions/tarorpcAssetGroupBalance"
           }
+        }
+      }
+    },
+    "tarorpcListGroupsResponse": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/tarorpcGroupedAssets"
+          },
+          "description": "The set of assets with a group key."
         }
       }
     },

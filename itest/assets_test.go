@@ -3,11 +3,13 @@ package itest
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -53,6 +55,9 @@ func mintAssets(t *harnessTest) {
 	// calls to ensure that we're able to retrieve the proper balance for
 	// them all.
 	assertAssetBalances(t, rpcSimpleAssets, rpcIssuableAssets)
+
+	// Check that we can retrieve the group keys for the issuable assets.
+	assertGroups(t, issuableAssets)
 
 	// Make sure the proof files for the freshly minted assets can be
 	// retrieved and are fully valid.
@@ -273,6 +278,48 @@ func assertAssetBalances(t *harnessTest,
 			}
 		}
 	}
+}
+
+func assertGroups(t *harnessTest, issuableAssets []*tarorpc.MintAssetRequest) {
+	t.t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We should be able to fetch two groups of one asset each.
+	assetGroups, err := t.tarod.ListGroups(
+		ctxt, &tarorpc.ListGroupsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	groupKeys := maps.Keys(assetGroups.Groups)
+	require.Equal(t.t, 2, len(groupKeys))
+
+	groupedAssets := assetGroups.Groups[groupKeys[0]].Assets
+	require.Equal(t.t, 1, len(groupedAssets))
+	require.Equal(t.t, 1, len(assetGroups.Groups[groupKeys[1]].Assets))
+
+	groupedAssets = append(
+		groupedAssets, assetGroups.Groups[groupKeys[1]].Assets[0],
+	)
+
+	// Sort the listed assets to match the order of issuableAssets.
+	sort.Slice(groupedAssets, func(i, j int) bool {
+		return groupedAssets[i].Amount > groupedAssets[j].Amount
+	})
+
+	equalityCheck := func(a *tarorpc.MintAssetRequest,
+		b *tarorpc.AssetHumanReadable) {
+
+		require.Equal(t.t, a.AssetType, b.Type)
+		require.Equal(t.t, a.Name, b.Tag)
+		require.Equal(t.t, a.MetaData, b.MetaData)
+		require.Equal(t.t, a.Amount, int64(b.Amount))
+	}
+
+	equalityCheck(issuableAssets[0], groupedAssets[0])
+	equalityCheck(issuableAssets[1], groupedAssets[1])
 }
 
 // testMintAssetNameCollisionError tests that an error is produced when
