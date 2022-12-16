@@ -350,7 +350,12 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			ctx, cancel = c.CtxBlocking()
 			defer cancel()
 
-			err = c.cfg.ProofArchive.ImportProofs(ctx, proof)
+			headerVerifier := GenHeaderVerifier(
+				ctx, c.cfg.ChainBridge,
+			)
+			err = c.cfg.ProofArchive.ImportProofs(
+				ctx, headerVerifier, proof,
+			)
 			if err != nil {
 				log.Errorf("unable to import proofs: %v", err)
 				return

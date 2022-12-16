@@ -83,7 +83,8 @@ type Archiver interface {
 	// previous outpoint of the first state transition will be used as the
 	// Genesis point. The final resting place of the asset will be used as
 	// the script key itself.
-	ImportProofs(ctx context.Context, proofs ...*AnnotatedProof) error
+	ImportProofs(ctx context.Context, headerVerifier HeaderVerifier,
+		proofs ...*AnnotatedProof) error
 }
 
 // FileArchiver implements proof Archiver backed by an on-disk file system. The
@@ -173,7 +174,7 @@ func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error)
 //
 // NOTE: This implements the Archiver interface.
 func (f *FileArchiver) ImportProofs(ctx context.Context,
-	proofs ...*AnnotatedProof) error {
+	_ HeaderVerifier, proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
 		proofPath, err := genProofFilePath(f.proofPath, proof.Locator)
@@ -263,7 +264,7 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
 func (m *MultiArchiver) ImportProofs(ctx context.Context,
-	proofs ...*AnnotatedProof) error {
+	headerVerifier HeaderVerifier, proofs ...*AnnotatedProof) error {
 
 	// Before we import the proofs into the archive, we want to make sure
 	// that they're all valid. Along the way, we may augment the locator
@@ -271,7 +272,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	f := func(c context.Context, proof *AnnotatedProof) error {
 		// First, we'll decode and then also verify the proof.
 		finalStateTransition, err := m.proofVerifier.Verify(
-			c, bytes.NewReader(proof.Blob),
+			c, bytes.NewReader(proof.Blob), headerVerifier,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to verify proof: %w", err)
@@ -310,7 +311,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	// additional supplementary information into the locator, we'll attempt
 	// to import each proof our archive backends.
 	for _, archive := range m.backends {
-		err := archive.ImportProofs(ctx, proofs...)
+		err := archive.ImportProofs(ctx, headerVerifier, proofs...)
 		if err != nil {
 			return err
 		}

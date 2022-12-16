@@ -79,7 +79,9 @@ func encodeAsProofFile(proof *Proof) (Blob, error) {
 // NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
-func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
+func NewMintingBlobs(params *MintParams,
+	headerVerifier HeaderVerifier) (AssetBlobs, error) {
+
 	base, err := baseProof(&params.BaseProofParams, params.GenesisPoint)
 	if err != nil {
 		return nil, err
@@ -97,7 +99,7 @@ func NewMintingBlobs(params *MintParams) (AssetBlobs, error) {
 
 		// Before we encode the proof file, we'll verify that we
 		// generate a valid proof.
-		if _, err := proof.Verify(ctx, nil); err != nil {
+		if _, err := proof.Verify(ctx, nil, headerVerifier); err != nil {
 			return nil, fmt.Errorf("invalid proof file generated: "+
 				"%w", err)
 		}

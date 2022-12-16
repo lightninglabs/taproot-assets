@@ -289,6 +289,13 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	return req, errChan, nil
 }
 
+// GetBlock returns a chain block given its hash.
+func (m *MockChainBridge) GetBlock(ctx context.Context,
+	hash chainhash.Hash) (*wire.MsgBlock, error) {
+
+	return &wire.MsgBlock{}, nil
+}
+
 func (m *MockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
@@ -417,6 +424,7 @@ func (m *MockProofArchive) FetchProof(ctx context.Context,
 }
 
 func (m *MockProofArchive) ImportProofs(ctx context.Context,
+	headerVerifier proof.HeaderVerifier,
 	proofs ...*proof.AnnotatedProof) error {
 
 	return nil

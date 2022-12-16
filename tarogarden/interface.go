@@ -176,6 +176,9 @@ type ChainBridge interface {
 		includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error,
 		error)
 
+	// GetBlock returns a chain block given its hash.
+	GetBlock(context.Context, chainhash.Hash) (*wire.MsgBlock, error)
+
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)
 

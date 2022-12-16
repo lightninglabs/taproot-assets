@@ -1103,6 +1103,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context,
+	headerVerifier proof.HeaderVerifier,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions

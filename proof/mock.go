@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
 )
@@ -24,8 +25,8 @@ func (m *MockVerifier) feedLocator(loc *Locator) {
 	m.loc = *loc
 }
 
-func (m *MockVerifier) Verify(_ context.Context, _ io.Reader) (*AssetSnapshot,
-	error) {
+func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
+	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
@@ -36,4 +37,13 @@ func (m *MockVerifier) Verify(_ context.Context, _ io.Reader) (*AssetSnapshot,
 			ScriptKey: asset.NewScriptKey(test.RandPubKey(m.t)),
 		},
 	}, nil
+}
+
+// MockHeaderVerifier is a mock verifier which approves of all block headers.
+//
+// Header verification usually involves cross-referencing with chain data.
+// Chain data is not available in unit tests. This function is useful for unit
+// tests which are not primarily concerned with block header verification.
+func MockHeaderVerifier(blockHeader wire.BlockHeader) error {
+	return nil
 }

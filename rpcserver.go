@@ -754,7 +754,10 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
 
-	_, err = proofFile.Verify(ctx)
+	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	_, err = proofFile.Verify(
+		ctx, headerVerifier,
+	)
 	valid := err == nil
 
 	// TODO(roasbeef): also show additional final resting anchor
@@ -811,11 +814,13 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
+	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
-	err := r.cfg.ProofArchive.ImportProofs(ctx, &proof.AnnotatedProof{
-		Blob: in.ProofFile,
-	})
+	err := r.cfg.ProofArchive.ImportProofs(
+		ctx, headerVerifier, &proof.AnnotatedProof{Blob: in.ProofFile},
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,8 @@ package proof
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -334,10 +336,52 @@ func TestGenesisProofVerification(t *testing.T) {
 				tt, tc.assetType, tc.amount,
 				tc.tapscriptPreimage,
 			)
-			_, err := genesisProof.Verify(context.Background(), nil)
+			_, err := genesisProof.Verify(
+				context.Background(), nil, MockHeaderVerifier,
+			)
 			require.NoError(tt, err)
 		})
 	}
+}
+
+// TestProofBlockHeaderVerification ensures that an error returned by the
+// HeaderVerifier callback is correctly propagated by the Verify proof method.
+func TestProofBlockHeaderVerification(t *testing.T) {
+	t.Parallel()
+
+	proof, _ := genRandomGenesisWithProof(t, asset.Collectible, nil, nil)
+
+	// Create a base reference for the block header. We will later modify
+	// the proof block header.
+	originalBlockHeader := proof.BlockHeader
+
+	// Header verifier compares given header to expected header. Verifier
+	// does not return error.
+	errHeaderVerifier := fmt.Errorf("invalid block header")
+	headerVerifier := func(blockHeader wire.BlockHeader) error {
+		// Compare given block header against base reference block
+		// header.
+		if blockHeader != originalBlockHeader {
+			return errHeaderVerifier
+		}
+		return nil
+	}
+
+	// Verify that the original proof block header is as expected and
+	// therefore an error is not returned.
+	_, err := proof.Verify(
+		context.Background(), nil, headerVerifier,
+	)
+	require.NoError(t, err)
+
+	// Modify proof block header, then check that the verification function
+	// propagates the correct error.
+	proof.BlockHeader.Nonce += 1
+	_, actualErr := proof.Verify(
+		context.Background(), nil, headerVerifier,
+	)
+	actualErrInner := errors.Unwrap(actualErr)
+	require.Equal(t, actualErrInner, errHeaderVerifier)
 }
 
 func BenchmarkProofEncoding(b *testing.B) {
