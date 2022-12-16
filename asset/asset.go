@@ -630,7 +630,7 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 		RelativeLockTime: relativeLocktime,
 		PrevWitnesses: []Witness{{
 			// Valid genesis asset witness.
-			PrevID:          &PrevID{},
+			PrevID:          &ZeroPrevID,
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}},
