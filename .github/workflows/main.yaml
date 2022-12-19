@@ -67,10 +67,8 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: compile code
         run: go install -v ./...
@@ -85,10 +83,8 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run lint
         run: make lint
@@ -103,10 +99,8 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run format
         run: make fmt
@@ -129,21 +123,8 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            taro-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
@@ -165,21 +146,8 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            taro-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run itest
         run: make itest
@@ -206,21 +174,8 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            taro-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run itest
         run: make itest dbbackend=postgres
