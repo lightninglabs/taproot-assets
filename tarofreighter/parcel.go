@@ -192,7 +192,7 @@ type PendingParcel struct {
 
 // sendPackage houses the information we need to complete a package transfer.
 type sendPackage struct {
-	// SendState is the current state state of this parcel.
+	// SendState is the current send state of this parcel.
 	SendState SendState
 
 	// SenderNewInternalKey is the new internal key for the sender. This is

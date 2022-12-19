@@ -222,7 +222,7 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 
 // taroPorter is the main goroutine of the ChainPorter. This takes in incoming
 // requests, and attempt to complete a transfer. A response is sent back to the
-// caller if a transfer can be completed. Otherwise an error is returned.
+// caller if a transfer can be completed. Otherwise, an error is returned.
 func (p *ChainPorter) taroPorter() {
 	defer p.Wg.Done()
 
@@ -251,7 +251,7 @@ func (p *ChainPorter) taroPorter() {
 			}
 
 			// With the transaction broadcast, we'll deliver a
-			// a response back to the original caller.
+			// response back to the original caller.
 			advancedPkg.deliverResponse(req.respChan)
 
 			// Now that we broadcast the transaction, we'll
