@@ -6,7 +6,7 @@ runs:
 
   steps:
     - name: Query cache for go artifacts
-      uses: actions/cache@v1
+      uses: actions/cache@v3
       with:
         path: /home/runner/work/go
         key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
