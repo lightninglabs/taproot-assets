@@ -696,13 +696,23 @@ func (a *Asset) HasGenesisWitness() bool {
 	}
 
 	witness := a.PrevWitnesses[0]
-	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
-		witness.SplitCommitment != nil {
-
+	if witness.PrevID == nil || *witness.PrevID != ZeroPrevID {
 		return false
 	}
 
-	return *witness.PrevID == ZeroPrevID
+	// TODO(halseth): can we just return true at this point?
+
+	// Witness must be either empty (for non-reissuable assets) or on the
+	// form <raw key> <sig> for assets that can be re-issued.
+	if len(witness.TxWitness) != 0 && len(witness.TxWitness) != 2 {
+		return false
+	}
+
+	if witness.SplitCommitment != nil {
+		return false
+	}
+
+	return true
 }
 
 // HasSplitCommitmentWitness returns true if an asset has a split commitment
