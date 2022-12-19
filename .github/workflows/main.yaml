@@ -157,7 +157,7 @@ jobs:
         run: 7z a logs-itest.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest
@@ -185,7 +185,7 @@ jobs:
         run: 7z a logs-itest-postgres.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest-postgres
