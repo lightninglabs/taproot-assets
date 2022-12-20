@@ -206,18 +206,13 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 		OutboundPkg: pkg,
 		SendState:   SendStateBroadcast,
 	}
-	_, err := p.advanceStateUntil(
-		&restartSendPkg, nil, SendStateBroadcast,
-	)
+
+	err := p.advanceState(&restartSendPkg, nil)
 	if err != nil {
 		// TODO(roasbef): no req to send the error back to here
 		log.Warnf("unable to advance state machine: %v", err)
 		return
 	}
-
-	// Now that the transfer tx has (maybe) been rebroadcast, we'll now
-	// trigger to wait for the final package information.
-	p.waitForTransferTxConf(&restartSendPkg)
 }
 
 // taroPorter is the main goroutine of the ChainPorter. This takes in incoming
@@ -238,43 +233,14 @@ func (p *ChainPorter) taroPorter() {
 				ReceiverAddr: req.Dest,
 			}
 
-			// Advance the state machine for this package until we
-			// reach the state that we broadcast the transaction
-			// that completes the transfer.
-			advancedPkg, err := p.advanceStateUntil(
-				&sendPkg, req.respChan, SendStateWaitTxConf,
-			)
+			// Advance the state machine for this package as far as
+			// possible.
+			err := p.advanceState(&sendPkg, req.respChan)
 			if err != nil {
 				log.Warnf("unable to advance state machine: %v", err)
 				req.errChan <- err
 				continue
 			}
-
-			// The remaining state transitions are evaluated using
-			// a goroutine because tx confirmation and proof
-			// transfer could take a while.
-			p.Wg.Add(1)
-			go func(sendPkg *sendPackage) {
-				defer p.Wg.Done()
-
-				if sendPkg.SendState == SendStateWaitTxConf {
-					// At this point, transaction broadcast
-					// is complete. We go on to wait for the
-					// transfer transaction to confirm
-					// on-chain.
-					p.waitForTransferTxConf(sendPkg)
-				}
-
-				if sendPkg.SendState == SendStateStoreProofs {
-					// At this point, the transfer
-					// transaction is confirmed  on-chain.
-					// We go on to store the sender and
-					// receiver proofs in the proof archive
-					// and then attempt to deliver the
-					// receiver proof.
-					p.storeAndTransferProofs(sendPkg)
-				}
-			}(advancedPkg)
 
 		case <-p.Quit:
 			return
@@ -523,39 +489,66 @@ func (p *ChainPorter) storeAndTransferProofs(pkg *sendPackage) {
 	return
 }
 
-// advanceStateUntil advances the state machine up to, but not including, the
-// target state.
-func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
-	txBroadcastRespChan chan *PendingParcel,
-	targetState SendState) (*sendPackage, error) {
+// advanceState advances the state machine.
+func (p *ChainPorter) advanceState(currentPkg *sendPackage,
+	txBroadcastRespChan chan *PendingParcel) error {
 
-	log.Infof("ChainPorter advancing from state=%v to state=%v",
-		currentPkg.SendState, targetState)
+	logState := func(sendState SendState) {
+		log.Infof("ChainPorter advancing from state: %v", sendState)
+	}
 
-	continueStateProgression := currentPkg.SendState < targetState
+	// Advance through sync evaluated states. (Up to, but not including,
+	// SendStateWaitTxConf.)
+	continueStateProgression := currentPkg.SendState < SendStateWaitTxConf
 	for continueStateProgression {
+		logState(currentPkg.SendState)
+
 		// Before we attempt a state transition, make sure that we
 		// aren't trying to shut down.
 		select {
 		case <-p.Quit:
-			return nil, fmt.Errorf("porter shutting down")
+			return fmt.Errorf("porter shutting down")
 
 		default:
 		}
 
 		updatedPkg, err := p.stateStep(*currentPkg, txBroadcastRespChan)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// Continue state progression whilst target state has not yet
 		// been reached. Stop before evaluating target state.
-		continueStateProgression = updatedPkg.SendState < targetState
+		continueStateProgression = updatedPkg.SendState < SendStateWaitTxConf
 
 		currentPkg = updatedPkg
 	}
 
-	return currentPkg, nil
+	// The remaining state transitions are evaluated using a goroutine
+	// because tx confirmation and proof transfer could take a while.
+	p.Wg.Add(1)
+	go func(sendPkg *sendPackage) {
+		defer p.Wg.Done()
+
+		if sendPkg.SendState == SendStateWaitTxConf {
+			// At this point, transaction broadcast is complete.
+			// We go on to wait for the transfer transaction to
+			// confirm on-chain.
+			logState(sendPkg.SendState)
+			p.waitForTransferTxConf(sendPkg)
+		}
+
+		if sendPkg.SendState == SendStateStoreProofs {
+			// At this point, the transfer transaction is confirmed
+			// on-chain. We go on to store the sender and receiver
+			// proofs in the proof archive and then attempt to
+			// deliver the receiver proof.
+			logState(sendPkg.SendState)
+			p.storeAndTransferProofs(sendPkg)
+		}
+	}(currentPkg)
+
+	return nil
 }
 
 // createDummyOutput creates a new Bitcoin transaction output that is later
