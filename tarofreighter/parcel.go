@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -76,10 +77,21 @@ const (
 	// ensure it properly tracks the coins allocated to the anchor output.
 	SendStateBroadcast
 
-	// SendStateWaitingConf is the final terminal state. In this state,
-	// we'll register for a confirmation request, and also handle the final
-	// proof transfer.
-	SendStateWaitingConf
+	// SendStateWaitTxConf is a state in which we will wait for the transfer
+	// transaction to confirm on-chain.
+	SendStateWaitTxConf
+
+	// SendStateStoreProofs is the state in which we will write the sender
+	// and receiver proofs to the proof archive.
+	SendStateStoreProofs
+
+	// SendStateReceiverProofTransfer is the state in which we will commence
+	// the receiver proof transfer process.
+	SendStateReceiverProofTransfer
+
+	// SendStateComplete is the state which is reached once entire asset
+	// transfer process is complete.
+	SendStateComplete
 )
 
 // String returns a human readable version of SendState.
@@ -118,8 +130,17 @@ func (s SendState) String() string {
 	case SendStateBroadcast:
 		return "SendStateBroadcast"
 
-	case SendStateWaitingConf:
-		return "SendStateWaitingConf"
+	case SendStateWaitTxConf:
+		return "SendStateWaitTxConf"
+
+	case SendStateStoreProofs:
+		return "SendStateStoreProofs"
+
+	case SendStateReceiverProofTransfer:
+		return "SendStateReceiverProofTransfer"
+
+	case SendStateComplete:
+		return "SendStateComplete"
 
 	default:
 		return fmt.Sprintf("<unknown_state(%d)>", s)
@@ -246,6 +267,10 @@ type sendPackage struct {
 	// TargetFeeRate is the target fee rate for this send expressed in
 	// sat/kw.
 	TargetFeeRate chainfee.SatPerKWeight
+
+	// TransferTxConfEvent contains transfer transaction on-chain
+	// confirmation data.
+	TransferTxConfEvent *chainntnfs.TxConfirmation
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input
