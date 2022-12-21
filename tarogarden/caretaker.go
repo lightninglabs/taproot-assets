@@ -335,7 +335,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 					"group key: %v", err)
 			}
 			groupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, rawGroupKey, assetGen,
+				b.cfg.GenSigner, rawGroupKey, assetGen, nil,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to tweak	group "+

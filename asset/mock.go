@@ -35,7 +35,8 @@ func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
 	genSigner := NewRawKeyGenesisSigner(privateKey)
 
 	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()), genesis,
+		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
+		genesis, nil,
 	)
 	require.NoError(t, err)
 	return groupKey

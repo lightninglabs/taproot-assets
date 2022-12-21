@@ -407,11 +407,12 @@ func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
 }
 
 func (m *MockGenSigner) SignGenesis(desc keychain.KeyDescriptor,
-	gen asset.Genesis) (*btcec.PublicKey, *schnorr.Signature, error) {
+	initialGen asset.Genesis, currentGen *asset.Genesis) (*btcec.PublicKey,
+	*schnorr.Signature, error) {
 
 	priv := m.KeyRing.Keys[desc.KeyLocator]
 	signer := asset.NewRawKeyGenesisSigner(priv)
-	return signer.SignGenesis(desc, gen)
+	return signer.SignGenesis(desc, initialGen, currentGen)
 }
 
 type MockProofArchive struct {

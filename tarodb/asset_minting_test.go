@@ -182,7 +182,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			groupKeyRaw, groupPriv := randKeyDesc(t)
 			grpKey, err := asset.DeriveGroupKey(
 				asset.NewRawKeyGenesisSigner(groupPriv),
-				groupKeyRaw, assetGen,
+				groupKeyRaw, assetGen, nil,
 			)
 			require.NoError(t, err)
 
