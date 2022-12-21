@@ -418,6 +418,23 @@ FROM genesis_assets;
 SELECT * 
 FROM genesis_points;
 
+-- name: FetchGenesisID :one
+WITH target_point(genesis_id) AS (
+    SELECT genesis_id
+    FROM genesis_points
+    WHERE genesis_points.prev_out = @prev_out
+)
+SELECT gen_asset_id
+FROM genesis_assets
+WHERE (
+    genesis_assets.genesis_point_id IN (SELECT genesis_id FROM target_point) AND
+    genesis_assets.asset_id = @asset_id AND
+    genesis_assets.asset_tag = @asset_tag AND
+    genesis_assets.meta_data = @meta_data AND
+    genesis_assets.output_index = @output_index AND
+    genesis_assets.asset_type = @asset_type
+);
+
 -- name: FetchAssetsByAnchorTx :many
 SELECT *
 FROM assets

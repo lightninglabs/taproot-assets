@@ -27,6 +27,11 @@ type UpsertAssetStore interface {
 	//  * or use a sort of mix-in type?
 	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
 
+	// FetchGenesisID is used to fetch the database ID of asset genesis
+	// information already in the DB.
+	FetchGenesisID(ctx context.Context,
+		arg sqlc.FetchGenesisIDParams) (int32, error)
+
 	// FetchScriptKeyIDByTweakedKey determines the database ID of a script
 	// key by querying it by the tweaked key.
 	FetchScriptKeyIDByTweakedKey(ctx context.Context,
@@ -90,6 +95,32 @@ func upsertGenesis(ctx context.Context, q UpsertAssetStore,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("unable to insert genesis asset: %w", err)
+	}
+
+	return genAssetID, nil
+}
+
+// fetchGenesisID fetches the primary key ID for a genesis record already
+// in the database.
+func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
+	genesis asset.Genesis) (int32, error) {
+
+	genPoint, err := encodeOutpoint(genesis.FirstPrevOut)
+	if err != nil {
+		return 0, fmt.Errorf("unable to encode genesis point: %w", err)
+	}
+
+	assetID := genesis.ID()
+	genAssetID, err := q.FetchGenesisID(ctx, sqlc.FetchGenesisIDParams{
+		AssetID:     assetID[:],
+		AssetTag:    genesis.Tag,
+		MetaData:    genesis.Metadata,
+		OutputIndex: int32(genesis.OutputIndex),
+		AssetType:   int16(genesis.Type),
+		PrevOut:     genPoint,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch genesis asset: %w", err)
 	}
 
 	return genAssetID, nil

@@ -775,6 +775,47 @@ func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int32) (Fetch
 	return i, err
 }
 
+const fetchGenesisID = `-- name: FetchGenesisID :one
+WITH target_point(genesis_id) AS (
+    SELECT genesis_id
+    FROM genesis_points
+    WHERE genesis_points.prev_out = $6
+)
+SELECT gen_asset_id
+FROM genesis_assets
+WHERE (
+    genesis_assets.genesis_point_id IN (SELECT genesis_id FROM target_point) AND
+    genesis_assets.asset_id = $1 AND
+    genesis_assets.asset_tag = $2 AND
+    genesis_assets.meta_data = $3 AND
+    genesis_assets.output_index = $4 AND
+    genesis_assets.asset_type = $5
+)
+`
+
+type FetchGenesisIDParams struct {
+	AssetID     []byte
+	AssetTag    string
+	MetaData    []byte
+	OutputIndex int32
+	AssetType   int16
+	PrevOut     []byte
+}
+
+func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, fetchGenesisID,
+		arg.AssetID,
+		arg.AssetTag,
+		arg.MetaData,
+		arg.OutputIndex,
+		arg.AssetType,
+		arg.PrevOut,
+	)
+	var gen_asset_id int32
+	err := row.Scan(&gen_asset_id)
+	return gen_asset_id, err
+}
+
 const fetchGenesisPointByAnchorTx = `-- name: FetchGenesisPointByAnchorTx :one
 SELECT genesis_id, prev_out, anchor_tx_id 
 FROM genesis_points
