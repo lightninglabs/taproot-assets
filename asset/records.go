@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -144,14 +143,6 @@ func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
 }
 
 func NewLeafGroupKeyRecord(groupKey **GroupKey) tlv.Record {
-	const recordSize = btcec.PubKeyBytesLenCompressed + schnorr.SignatureSize
-	return tlv.MakeStaticRecord(
-		LeafGroupKey, groupKey, recordSize, GroupKeyEncoder,
-		GroupKeyDecoder,
-	)
-}
-
-func NewLeafGroupKeyOnlyRecord(groupKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
 		LeafGroupKey, groupKey, btcec.PubKeyBytesLenCompressed,
 		CompressedPubKeyEncoder, CompressedPubKeyDecoder,
