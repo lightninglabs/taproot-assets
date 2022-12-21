@@ -255,18 +255,34 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				"batch: %w", err)
 		}
 
-		// Now that our minting batch is in place, which defences the
+		// Now that our minting batch is in place, which references the
 		// internal key inserted above, we can create the set of new
 		// seedlings.
 		for _, seedling := range newBatch.Seedlings {
-			err := q.InsertAssetSeedling(ctx, AssetSeedlingShell{
+			dbSeedling := AssetSeedlingShell{
 				BatchID:         batchID,
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
 				AssetMeta:       seedling.Metadata,
 				EmissionEnabled: seedling.EnableEmission,
-			})
+			}
+
+			// If this seedling is being issued to an existing
+			// group, we need to reference the genesis that
+			// was first used to create the group.
+			if seedling.HasGroupKey() {
+				genesisID, err := fetchGenesisID(
+					ctx, q, *seedling.GroupInfo.Genesis,
+				)
+				if err != nil {
+					return err
+				}
+
+				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
+			}
+
+			err = q.InsertAssetSeedling(ctx, dbSeedling)
 			if err != nil {
 				return err
 			}
@@ -308,6 +324,21 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				AssetMeta:       seedling.Metadata,
 				EmissionEnabled: seedling.EnableEmission,
 			}
+
+			// If this seedling is being issued to an existing
+			// group, we need to reference the genesis that
+			// was first used to create the group.
+			if seedling.HasGroupKey() {
+				genesisID, err := fetchGenesisID(
+					ctx, q, *seedling.GroupInfo.Genesis,
+				)
+				if err != nil {
+					return err
+				}
+
+				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
+			}
+
 			err := q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
 				return fmt.Errorf("unable to insert "+
@@ -334,17 +365,31 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 	}
 
 	seedlings := make(map[string]*tarogarden.Seedling)
-	for _, seedling := range dbSeedlings {
+	for _, dbSeedling := range dbSeedlings {
 		seedling := &tarogarden.Seedling{
 			AssetType: asset.Type(
-				seedling.AssetType,
+				dbSeedling.AssetType,
 			),
-			AssetName: seedling.AssetName,
-			Metadata:  seedling.AssetMeta,
+			AssetName: dbSeedling.AssetName,
+			Metadata:  dbSeedling.AssetMeta,
 			Amount: uint64(
-				seedling.AssetSupply,
+				dbSeedling.AssetSupply,
 			),
-			EnableEmission: seedling.EmissionEnabled,
+			EnableEmission: dbSeedling.EmissionEnabled,
+		}
+
+		// Fetch the group info for seedlings with a specific group.
+		// There can only be one group per genesis.
+		if dbSeedling.GroupGenesisID.Valid {
+			genID := extractSqlInt32[int32](
+				dbSeedling.GroupGenesisID,
+			)
+			seedlingGroup, err := fetchGroupByGenesis(ctx, q, genID)
+			if err != nil {
+				return nil, err
+			}
+
+			seedling.GroupInfo = seedlingGroup
 		}
 
 		seedlings[seedling.AssetName] = seedling

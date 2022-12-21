@@ -459,6 +459,27 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		return false, err
 	}
 
+	// If emission is enabled and a group key is specified, we need to
+	// make sure the asset types match and that we can sign with that key.
+	if req.HasGroupKey() {
+		groupInfo, err := c.cfg.Log.FetchGroupByGroupKey(
+			ctx, &req.GroupInfo.GroupPubKey,
+		)
+		if err != nil {
+			groupKeyBytes := req.GroupInfo.GroupPubKey.
+				SerializeCompressed()
+			return false, fmt.Errorf("group key %x not found: %w",
+				groupKeyBytes, err,
+			)
+		}
+
+		if err := req.validateGroupKey(*groupInfo); err != nil {
+			return false, err
+		}
+
+		req.GroupInfo = groupInfo
+	}
+
 	// Now that we know the field are valid, we'll check to see if a batch
 	// already exists.
 	switch {
