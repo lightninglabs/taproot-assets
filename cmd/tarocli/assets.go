@@ -32,6 +32,7 @@ var (
 	assetSupplyName   = "supply"
 	assetMetaName     = "meta"
 	assetEmissionName = "enable_emission"
+	assetGroupKeyName = "group_key"
 	skipBatchName     = "skip_batch"
 	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
@@ -64,6 +65,11 @@ var mintAssetCommand = cli.Command{
 			Usage: "if true, then the asset supports on going " +
 				"emission",
 		},
+		cli.StringFlag{
+			Name: assetGroupKeyName,
+			Usage: "the specific group key to use to mint the " +
+				"asset.",
+		},
 		cli.BoolFlag{
 			Name:  skipBatchName,
 			Usage: "if true, then the asset will be minted immediately",
@@ -94,11 +100,22 @@ func mintAsset(ctx *cli.Context) error {
 		return nil
 	}
 
+	var groupKey []byte
+	var err error
+	groupKeyStr := ctx.String(assetGroupKeyName)
+	if len(groupKeyStr) != 0 {
+		groupKey, err = hex.DecodeString(groupKeyStr)
+		if err != nil {
+			return fmt.Errorf("invalid group key")
+		}
+	}
+
 	resp, err := client.MintAsset(ctxc, &tarorpc.MintAssetRequest{
 		AssetType:      parseAssetType(ctx),
 		Name:           ctx.String(assetTagName),
 		MetaData:       []byte(ctx.String(assetMetaName)),
 		Amount:         ctx.Int64(assetSupplyName),
+		GroupKey:       groupKey,
 		EnableEmission: ctx.Bool(assetEmissionName),
 		SkipBatch:      ctx.Bool(skipBatchName),
 	})
