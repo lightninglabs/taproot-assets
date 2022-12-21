@@ -62,25 +62,25 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, fmt.Errorf("unable to open database: %v", err)
 	}
 
-	rksDB := tarodb.NewTransactionExecutor[tarodb.KeyStore](
+	rksDB := tarodb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tarodb.KeyStore {
 			return db.WithTx(tx)
 		},
 	)
-	mintingStore := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore](
+	mintingStore := tarodb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tarodb.PendingAssetStore {
 			return db.WithTx(tx)
 		},
 	)
 	assetMintingStore := tarodb.NewAssetMintingStore(mintingStore)
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore](
+	assetDB := tarodb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tarodb.ActiveAssetsStore {
 			return db.WithTx(tx)
 		},
 	)
 
-	addrBookDB := tarodb.NewTransactionExecutor[tarodb.AddrBook](
+	addrBookDB := tarodb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tarodb.AddrBook {
 			return db.WithTx(tx)
 		},
