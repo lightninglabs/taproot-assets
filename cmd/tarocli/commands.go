@@ -57,6 +57,14 @@ func printRespJSON(resp proto.Message) {
 	fmt.Println(jsonStr)
 }
 
+// reverseTxIDBytes reverses the bytes of a transaction hash.
+func reverseTxIDBytes(txid []byte) {
+	size := len(txid)
+	for i := 0; i < size/2; i++ {
+		txid[i], txid[size-1-i] = txid[size-1-i], txid[i]
+	}
+}
+
 var debugLevelCommand = cli.Command{
 	Name:  "debuglevel",
 	Usage: "Set the debug level.",

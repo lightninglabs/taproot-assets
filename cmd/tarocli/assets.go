@@ -123,12 +123,16 @@ func listAssets(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	// TODO(roasbeef): need to reverse txid
-
 	resp, err := client.ListAssets(ctxc, &tarorpc.ListAssetRequest{})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
 	}
+
+	// Reverse TxIDs before printing them.
+	for i := range resp.Assets {
+		reverseTxIDBytes(resp.Assets[i].ChainAnchor.AnchorTxid)
+	}
+
 	printRespJSON(resp)
 	return nil
 }
@@ -279,6 +283,9 @@ func sendAssets(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)
 	}
+
+	// Reverse TxID before printing them.
+	reverseTxIDBytes(resp.TransferTxid)
 
 	printRespJSON(resp)
 	return nil
