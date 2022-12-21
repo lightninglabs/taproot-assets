@@ -99,8 +99,8 @@ type AssetSeedling struct {
 	AssetSupply     int64
 	AssetMeta       []byte
 	EmissionEnabled bool
-	GenesisID       sql.NullInt32
 	BatchID         int32
+	GroupGenesisID  sql.NullInt32
 }
 
 type AssetTransfer struct {

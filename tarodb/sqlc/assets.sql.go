@@ -1032,7 +1032,7 @@ WITH target_batch(batch_id) AS (
     WHERE keys.raw_key = $1
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, genesis_id, batch_id
+    emission_enabled, batch_id, group_genesis_id
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
 `
@@ -1053,8 +1053,8 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.AssetSupply,
 			&i.AssetMeta,
 			&i.EmissionEnabled,
-			&i.GenesisID,
 			&i.BatchID,
+			&i.GroupGenesisID,
 		); err != nil {
 			return nil, err
 		}
@@ -1136,9 +1136,9 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id
+    emission_enabled, batch_id, group_genesis_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6
+   $1, $2, $3, $4, $5, $6, $7
 )
 `
 
@@ -1149,6 +1149,7 @@ type InsertAssetSeedlingParams struct {
 	AssetMeta       []byte
 	EmissionEnabled bool
 	BatchID         int32
+	GroupGenesisID  sql.NullInt32
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -1159,6 +1160,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.AssetMeta,
 		arg.EmissionEnabled,
 		arg.BatchID,
+		arg.GroupGenesisID,
 	)
 	return err
 }
@@ -1176,9 +1178,10 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id
+    emission_enabled, batch_id, group_genesis_id
 ) VALUES (
-    $2, $3, $4, $5, $6, (SELECT key_id FROM target_key_id)
+    $2, $3, $4, $5, $6,
+    (SELECT key_id FROM target_key_id), $7
 )
 `
 
@@ -1189,6 +1192,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	AssetSupply     int64
 	AssetMeta       []byte
 	EmissionEnabled bool
+	GroupGenesisID  sql.NullInt32
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -1199,6 +1203,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.AssetSupply,
 		arg.AssetMeta,
 		arg.EmissionEnabled,
+		arg.GroupGenesisID,
 	)
 	return err
 }

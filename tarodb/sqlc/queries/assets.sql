@@ -39,9 +39,9 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 -- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id
+    emission_enabled, batch_id, group_genesis_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6
+   $1, $2, $3, $4, $5, $6, sqlc.narg('group_genesis_id')
 );
 
 -- name: AllInternalKeys :many
@@ -67,9 +67,10 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id
+    emission_enabled, batch_id, group_genesis_id
 ) VALUES (
-    $2, $3, $4, $5, $6, (SELECT key_id FROM target_key_id)
+    $2, $3, $4, $5, $6,
+    (SELECT key_id FROM target_key_id), sqlc.narg('group_genesis_id')
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -81,7 +82,7 @@ WITH target_batch(batch_id) AS (
     WHERE keys.raw_key = $1
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, genesis_id, batch_id
+    emission_enabled, batch_id, group_genesis_id
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 

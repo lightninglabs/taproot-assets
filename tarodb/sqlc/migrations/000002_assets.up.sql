@@ -251,9 +251,9 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     emission_enabled BOOLEAN NOT NULL,
 
-    genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id),
+    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id),
 
-    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id)
+    group_genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id)
 );
 
 -- TODO(roasbeef): need on delete cascade for all these?
