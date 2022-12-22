@@ -251,7 +251,7 @@ func (p *ChainPorter) taroPorter() {
 // waitForTransferTxConf waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
-func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) {
+func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	mkErr := func(format string, args ...interface{}) error {
 		logFormat := strings.ReplaceAll(format, "%w", "%v")
 		log.Errorf("Error waiting for package confirmation: "+
@@ -270,9 +270,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) {
 		outboundPkg.AnchorTxHeightHint, true,
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("unable to register for tx conf: %v",
-			err)
-		return
+		return mkErr("unable to register for tx conf: %v", err)
 	}
 
 	// Launch a goroutine that'll notify us when the transaction confirms.
@@ -286,28 +284,26 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) {
 		pkg.SendState = SendStateStoreProofs
 
 	case err := <-errChan:
-		p.cfg.ErrChan <- mkErr("error getting confirmation: %w", err)
-		return
+		return mkErr("error getting confirmation: %w", err)
 
 	case <-confCtx.Done():
 		log.Debugf("Skipping TX confirmation, context done")
 
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
-		return
+		return err
 	}
 
 	if confEvent == nil {
-		p.cfg.ErrChan <- mkErr("got empty confirmation event in batch")
-		return
+		return mkErr("got empty confirmation event in batch")
 	}
 
-	return
+	return nil
 }
 
 // storeProofs writes the updated sender and receiver proof files to the proof
 // archive.
-func (p *ChainPorter) storeProofs(pkg *sendPackage) {
+func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	mkErr := func(format string, args ...interface{}) error {
 		logFormat := strings.ReplaceAll(format, "%w", "%v")
 		log.Errorf("Error storing proofs: "+logFormat, args...)
@@ -334,14 +330,12 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 
 	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error fetching proof: %v", err)
-		return
+		return mkErr("error fetching proof: %v", err)
 	}
 	senderProof := proof.NewEmptyFile(proof.V0)
 	err = senderProof.Decode(bytes.NewReader(senderFullProofBytes))
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error decoding proof: %v", err)
-		return
+		return mkErr("error decoding proof: %v", err)
 	}
 
 	// Now that we have the sender's proof file, we'll decode the new
@@ -351,8 +345,7 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 		bytes.NewReader(spendDeltas[0].SenderAssetProof),
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error decoding proof suffix: %v", err)
-		return
+		return mkErr("error decoding proof suffix: %v", err)
 	}
 	err = senderProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
 		Block:   confEvent.Block,
@@ -360,21 +353,18 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 		TxIndex: int(confEvent.TxIndex),
 	})
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error updating sender transition "+
-			"proof: %v", err)
-		return
+		return mkErr("error updating sender transition proof: "+
+			"%v", err)
 	}
 
 	// With the proof suffix updated, we can append the proof, then encode
 	// it to get the final sender proof.
 	var updatedSenderProof bytes.Buffer
 	if err := senderProof.AppendProof(senderProofSuffix); err != nil {
-		p.cfg.ErrChan <- mkErr("error appending sender proof: %v", err)
-		return
+		return mkErr("error appending sender proof: %v", err)
 	}
 	if err := senderProof.Encode(&updatedSenderProof); err != nil {
-		p.cfg.ErrChan <- mkErr("error encoding sender proof: %v", err)
-		return
+		return mkErr("error encoding sender proof: %v", err)
 	}
 	newSenderProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
@@ -390,8 +380,7 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 		bytes.NewReader(spendDeltas[0].ReceiverAssetProof),
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error decoding receiver proof: %v", err)
-		return
+		return mkErr("error decoding receiver proof: %v", err)
 	}
 	err = receiverProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
 		Block:   confEvent.Block,
@@ -399,9 +388,8 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 		TxIndex: int(confEvent.TxIndex),
 	})
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error updating receiver transition "+
-			"proof: %v", err)
-		return
+		return mkErr("error updating receiver transition proof: "+
+			"%v", err)
 	}
 
 	log.Infof("Importing receiver proof into local Proof Archive")
@@ -410,12 +398,10 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 	// archive.
 	var updatedReceiverProof bytes.Buffer
 	if err := senderProof.ReplaceLastProof(receiverProofSuffix); err != nil {
-		p.cfg.ErrChan <- mkErr("error replacing receiver proof: %v", err)
-		return
+		return mkErr("error replacing receiver proof: %v", err)
 	}
 	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
-		p.cfg.ErrChan <- mkErr("error encoding receiver proof: %v", err)
-		return
+		return mkErr("error encoding receiver proof: %v", err)
 	}
 	receiverProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
@@ -433,20 +419,20 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 		ctx, headerVerifier, receiverProof, newSenderProof,
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)
-		return
+		return mkErr("error importing proof: %v", err)
 	}
 
 	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
 		senderProof.NumProofs())
 
 	pkg.SendState = SendStateReceiverProofTransfer
+	return nil
 }
 
 // transferReceiverProof retrieves the sender and receiver proofs from the
 // archive and then transfers the receiver's proof to the receiver. Upon
 // successful transfer, the asset parcel delivery is marked as complete.
-func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) {
+func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	mkErr := func(format string, args ...interface{}) error {
 		logFormat := strings.ReplaceAll(format, "%w", "%v")
 		log.Errorf("Error transferring receiver proof: "+
@@ -466,8 +452,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) {
 		},
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error fetching sender proof: %v", err)
-		return
+		return mkErr("error fetching sender proof: %v", err)
 	}
 
 	// Retrieve receiver proof from proof archive.
@@ -477,8 +462,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) {
 	}
 	receiverProofBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error fetching receiver proof: %v", err)
-		return
+		return mkErr("error fetching receiver proof: %v", err)
 	}
 	receiverProof := &proof.AnnotatedProof{
 		Locator: locator,
@@ -520,12 +504,11 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) {
 		FinalSenderProof: senderProofBlob,
 	})
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("unable to log tx conf: %w", err)
-		return
+		return mkErr("unable to log tx conf: %w", err)
 	}
 
 	pkg.SendState = SendStateComplete
-	return
+	return nil
 }
 
 // advanceState advances the state machine.
@@ -533,7 +516,7 @@ func (p *ChainPorter) advanceState(currentPkg *sendPackage,
 	txBroadcastRespChan chan *PendingParcel) error {
 
 	logState := func(sendState SendState) {
-		log.Infof("ChainPorter advancing from state: %v", sendState)
+		log.Infof("ChainPorter executing state: %v", sendState)
 	}
 
 	// Advance through sync evaluated states. (Up to, but not including,
@@ -574,17 +557,34 @@ func (p *ChainPorter) advanceState(currentPkg *sendPackage,
 			// We go on to wait for the transfer transaction to
 			// confirm on-chain.
 			logState(sendPkg.SendState)
-			p.waitForTransferTxConf(sendPkg)
+			err := p.waitForTransferTxConf(sendPkg)
+			if err != nil {
+				p.cfg.ErrChan <- err
+				return
+			}
 		}
 
 		if sendPkg.SendState == SendStateStoreProofs {
 			// At this point, the transfer transaction is confirmed
 			// on-chain. We go on to store the sender and receiver
-			// proofs in the proof archive and then attempt to
-			// deliver the receiver proof.
+			// proofs in the proof archive.
 			logState(sendPkg.SendState)
-			p.storeAndTransferProofs(sendPkg)
+			err := p.storeProofs(sendPkg)
+			if err != nil {
+				p.cfg.ErrChan <- err
+			}
 		}
+
+		if sendPkg.SendState == SendStateReceiverProofTransfer {
+			// Retrieve sender proof and receiver proof from archive
+			// and then attempt to deliver the receiver proof.
+			logState(sendPkg.SendState)
+			err := p.transferReceiverProof(sendPkg)
+			if err != nil {
+				p.cfg.ErrChan <- err
+			}
+		}
+
 	}(currentPkg)
 
 	return nil
