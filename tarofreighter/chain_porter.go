@@ -305,13 +305,12 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) {
 	return
 }
 
-// storeAndTransferProofs writes the sender and receiver proof files to the proof
-// archive and then attempts to deliver a proof to the receiver.
-func (p *ChainPorter) storeAndTransferProofs(pkg *sendPackage) {
+// storeProofs writes the updated sender and receiver proof files to the proof
+// archive.
+func (p *ChainPorter) storeProofs(pkg *sendPackage) {
 	mkErr := func(format string, args ...interface{}) error {
 		logFormat := strings.ReplaceAll(format, "%w", "%v")
-		log.Errorf("Error storing and delivering proofs: "+
-			logFormat, args...)
+		log.Errorf("Error storing proofs: "+logFormat, args...)
 		return fmt.Errorf(format, args...)
 	}
 
@@ -428,6 +427,8 @@ func (p *ChainPorter) storeAndTransferProofs(pkg *sendPackage) {
 
 	// Use callback to verify that block header exists on chain.
 	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+
+	// Import sender proof and receiver proof into proof archive.
 	err = p.cfg.AssetProofs.ImportProofs(
 		ctx, headerVerifier, receiverProof, newSenderProof,
 	)
@@ -439,12 +440,55 @@ func (p *ChainPorter) storeAndTransferProofs(pkg *sendPackage) {
 	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
 		senderProof.NumProofs())
 
+	pkg.SendState = SendStateReceiverProofTransfer
+}
+
+// transferReceiverProof retrieves the sender and receiver proofs from the
+// archive and then transfers the receiver's proof to the receiver. Upon
+// successful transfer, the asset parcel delivery is marked as complete.
+func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) {
+	mkErr := func(format string, args ...interface{}) error {
+		logFormat := strings.ReplaceAll(format, "%w", "%v")
+		log.Errorf("Error transferring receiver proof: "+
+			logFormat, args...)
+		return fmt.Errorf(format, args...)
+	}
+
+	ctx, cancel := p.CtxBlocking()
+	defer cancel()
+
+	// Retrieve sender proof from proof archive.
+	assetId := pkg.OutboundPkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID
+	senderProofBlob, err := p.cfg.AssetProofs.FetchProof(
+		ctx, proof.Locator{
+			AssetID:   &assetId,
+			ScriptKey: *pkg.SenderScriptKey.PubKey,
+		},
+	)
+	if err != nil {
+		p.cfg.ErrChan <- mkErr("error fetching sender proof: %v", err)
+		return
+	}
+
+	// Retrieve receiver proof from proof archive.
+	locator := proof.Locator{
+		AssetID:   &assetId,
+		ScriptKey: pkg.ReceiverAddr.ScriptKey,
+	}
+	receiverProofBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
+	if err != nil {
+		p.cfg.ErrChan <- mkErr("error fetching receiver proof: %v", err)
+		return
+	}
+	receiverProof := &proof.AnnotatedProof{
+		Locator: locator,
+		Blob:    receiverProofBlob,
+	}
+
 	// If we have a proof courier instance active, then we'll launch a new
 	// goroutine to deliver the proof to the receiver.
 	//
 	// TODO(roasbeef): move earlier?
-	pkg.SendState = SendStateReceiverProofTransfer
-
 	if p.cfg.ProofCourier != nil {
 		p.Wg.Add(1)
 		go func() {
@@ -452,15 +496,10 @@ func (p *ChainPorter) storeAndTransferProofs(pkg *sendPackage) {
 
 			// TODO(roasbeef): should actually also serialize the
 			// addr of the remote party here
-			addr := address.Taro{
-				Genesis:   receiverProofSuffix.Asset.Genesis,
-				ScriptKey: receiverProof.ScriptKey,
-				Amount:    receiverProofSuffix.Asset.Amount,
-			}
 			ctx, cancel := p.WithCtxQuitNoTimeout()
 			defer cancel()
 			err := p.cfg.ProofCourier.DeliverProof(
-				ctx, addr, receiverProof,
+				ctx, *pkg.ReceiverAddr, receiverProof,
 			)
 			if err != nil {
 				log.Errorf("unable to deliver proof: %v", err)
@@ -469,16 +508,16 @@ func (p *ChainPorter) storeAndTransferProofs(pkg *sendPackage) {
 	}
 
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
-		outboundPkg.AnchorTx.TxHash())
+		pkg.OutboundPkg.AnchorTx.TxHash())
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint:      outboundPkg.NewAnchorPoint,
-		BlockHash:        *confEvent.BlockHash,
-		BlockHeight:      int32(confEvent.BlockHeight),
-		TxIndex:          int32(confEvent.TxIndex),
-		FinalSenderProof: updatedSenderProof.Bytes(),
+		AnchorPoint:      pkg.OutboundPkg.NewAnchorPoint,
+		BlockHash:        *pkg.TransferTxConfEvent.BlockHash,
+		BlockHeight:      int32(pkg.TransferTxConfEvent.BlockHeight),
+		TxIndex:          int32(pkg.TransferTxConfEvent.TxIndex),
+		FinalSenderProof: senderProofBlob,
 	})
 	if err != nil {
 		p.cfg.ErrChan <- mkErr("unable to log tx conf: %w", err)
