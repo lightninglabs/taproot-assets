@@ -512,80 +512,41 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 }
 
 // advanceState advances the state machine.
-func (p *ChainPorter) advanceState(currentPkg *sendPackage,
+func (p *ChainPorter) advanceState(pkg *sendPackage,
 	txBroadcastRespChan chan *PendingParcel) error {
 
-	logState := func(sendState SendState) {
-		log.Infof("ChainPorter executing state: %v", sendState)
-	}
-
-	// Advance through sync evaluated states. (Up to, but not including,
-	// SendStateWaitTxConf.)
-	continueStateProgression := currentPkg.SendState < SendStateWaitTxConf
-	for continueStateProgression {
-		logState(currentPkg.SendState)
-
-		// Before we attempt a state transition, make sure that we
-		// aren't trying to shut down.
-		select {
-		case <-p.Quit:
-			return fmt.Errorf("porter shutting down")
-
-		default:
-		}
-
-		updatedPkg, err := p.stateStep(*currentPkg, txBroadcastRespChan)
-		if err != nil {
-			return err
-		}
-
-		// Continue state progression whilst target state has not yet
-		// been reached. Stop before evaluating target state.
-		continueStateProgression = updatedPkg.SendState < SendStateWaitTxConf
-
-		currentPkg = updatedPkg
-	}
-
-	// The remaining state transitions are evaluated using a goroutine
-	// because tx confirmation and proof transfer could take a while.
+	// Some states require a goroutine because tx confirmation and proof
+	// transfer can take a while.
 	p.Wg.Add(1)
-	go func(sendPkg *sendPackage) {
+	go func(pkg *sendPackage) {
 		defer p.Wg.Done()
 
-		if sendPkg.SendState == SendStateWaitTxConf {
-			// At this point, transaction broadcast is complete.
-			// We go on to wait for the transfer transaction to
-			// confirm on-chain.
-			logState(sendPkg.SendState)
-			err := p.waitForTransferTxConf(sendPkg)
+		// Continue state transitions whilst state complete has not yet
+		// been reached.
+		for pkg.SendState < SendStateComplete {
+			log.Infof("ChainPorter executing state: %v",
+				pkg.SendState)
+
+			// Before we attempt a state transition, make sure that
+			// we aren't trying to shut down.
+			select {
+			case <-p.Quit:
+				err := fmt.Errorf("porter shutting down")
+				p.cfg.ErrChan <- err
+				return
+
+			default:
+			}
+
+			updatedPkg, err := p.stateStep(*pkg, txBroadcastRespChan)
 			if err != nil {
 				p.cfg.ErrChan <- err
 				return
 			}
-		}
 
-		if sendPkg.SendState == SendStateStoreProofs {
-			// At this point, the transfer transaction is confirmed
-			// on-chain. We go on to store the sender and receiver
-			// proofs in the proof archive.
-			logState(sendPkg.SendState)
-			err := p.storeProofs(sendPkg)
-			if err != nil {
-				p.cfg.ErrChan <- err
-			}
+			pkg = updatedPkg
 		}
-
-		if sendPkg.SendState == SendStateReceiverProofTransfer {
-			// Retrieve sender proof and receiver proof from archive
-			// and then attempt to deliver the receiver proof.
-			logState(sendPkg.SendState)
-			err := p.transferReceiverProof(sendPkg)
-			if err != nil {
-				p.cfg.ErrChan <- err
-			}
-		}
-
-	}(currentPkg)
+	}(pkg)
 
 	return nil
 }
@@ -1177,6 +1138,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage,
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf
 		return &currentPkg, nil
+
+	// At this point, transaction broadcast is complete. We go on to wait
+	// for the transfer transaction to confirm on-chain.
+	case SendStateWaitTxConf:
+		err := p.waitForTransferTxConf(&currentPkg)
+		return &currentPkg, err
+
+	// At this point, the transfer transaction is confirmed on-chain. We go
+	// on to store the sender and receiver proofs in the proof archive.
+	case SendStateStoreProofs:
+		err := p.storeProofs(&currentPkg)
+		return &currentPkg, err
+
+	// At this point, the transfer transaction is confirmed on-chain. We go
+	// on to store the sender and receiver proofs in the proof archive.
+	case SendStateReceiverProofTransfer:
+		err := p.transferReceiverProof(&currentPkg)
+		return &currentPkg, err
 
 	default:
 		return &currentPkg, fmt.Errorf("unknown state: %v",
