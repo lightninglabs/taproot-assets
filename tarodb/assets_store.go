@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -226,6 +227,16 @@ type ActiveAssetsStore interface {
 	// ID.
 	FetchSpendProofs(ctx context.Context,
 		transferID int32) (sqlc.FetchSpendProofsRow, error)
+
+	// InsertReceiverProofTransferAttempt inserts a new receiver proof
+	// transfer attempt record.
+	InsertReceiverProofTransferAttempt(ctx context.Context,
+		arg sqlc.InsertReceiverProofTransferAttemptParams) error
+
+	// QueryReceiverProofTransferAttempt returns timestamps which correspond
+	// to receiver proof delivery attempts.
+	QueryReceiverProofTransferAttempt(ctx context.Context,
+		proofLocatorHash []byte) ([]time.Time, error)
 }
 
 // AssetBalance holds a balance query result for a particular asset or all
@@ -1554,6 +1565,56 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 		return nil
 	})
+}
+
+// StoreProofDeliveryAttempt logs a proof delivery attempt to disk.
+func (a *AssetStore) StoreProofDeliveryAttempt(ctx context.Context,
+	locator proof.Locator) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		// Log proof delivery attempt and timestamp using the current
+		// time.
+		proofLocatorHash := locator.Hash()
+		err := q.InsertReceiverProofTransferAttempt(
+			ctx, sqlc.InsertReceiverProofTransferAttemptParams{
+				ProofLocatorHash: proofLocatorHash[:],
+				TimeUnix:         time.Now().UTC(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert receiver proof "+
+				"transfer attempt log entry: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// QueryProofDeliveryLog returns timestamps which correspond to logged proof
+// delivery attempts.
+func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
+	locator proof.Locator) ([]time.Time, error) {
+
+	var (
+		timestamps []time.Time
+		err        error
+	)
+	readOpts := NewAssetStoreReadTx()
+
+	err = a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		proofLocatorHash := locator.Hash()
+		timestamps, err = q.QueryReceiverProofTransferAttempt(
+			ctx, proofLocatorHash[:],
+		)
+		if err != nil {
+			return fmt.Errorf("unable to query receiver proof "+
+				"transfer attempt log: %w", err)
+		}
+
+		return nil
+	})
+	return timestamps, err
 }
 
 // ConfirmParcelDelivery marks a spend event on disk as confirmed. This updates
