@@ -165,7 +165,7 @@ message AnchorInfo {
     bytes anchor_tx = 1;
 
     // The txid of the above transaction.
-    bytes anchor_txid = 2;
+    string anchor_txid = 2;
 
     // The block hash the contains the anchor transaction above.
     bytes anchor_block_hash = 3;
@@ -618,7 +618,8 @@ message TaroTransfer {
 }
 
 message SendAssetResponse {
-    bytes transfer_txid = 1;
+    string transfer_txid = 1;
+
     int32 anchor_output_index = 2;
 
     bytes transfer_tx_bytes = 3;

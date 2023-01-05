@@ -708,7 +708,6 @@
         },
         "anchor_txid": {
           "type": "string",
-          "format": "byte",
           "description": "The txid of the above transaction."
         },
         "anchor_block_hash": {
@@ -1287,8 +1286,7 @@
       "type": "object",
       "properties": {
         "transfer_txid": {
-          "type": "string",
-          "format": "byte"
+          "type": "string"
         },
         "anchor_output_index": {
           "type": "integer",

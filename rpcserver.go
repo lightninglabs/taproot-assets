@@ -385,7 +385,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context) (
 			ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
 			ChainAnchor: &tarorpc.AnchorInfo{
 				AnchorTx:        anchorTxBytes,
-				AnchorTxid:      a.AnchorTxid[:],
+				AnchorTxid:      a.AnchorTxid.String(),
 				AnchorBlockHash: a.AnchorBlockHash[:],
 				AnchorOutpoint:  a.AnchorOutpoint.String(),
 				InternalKey:     a.AnchorInternalKey.SerializeCompressed(),
@@ -1091,7 +1091,7 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 	}
 
 	return &tarorpc.SendAssetResponse{
-		TransferTxid:      transferTXID[:],
+		TransferTxid:      transferTXID.String(),
 		AnchorOutputIndex: int32(resp.NewAnchorPoint.Index),
 		TransferTxBytes:   transferTxBytes,
 		TaroTransfer: &tarorpc.TaroTransfer{
