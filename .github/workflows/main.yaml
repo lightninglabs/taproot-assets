@@ -35,7 +35,7 @@ jobs:
         uses: satackey/action-docker-layer-caching@v0.0.11
 
       - name: Generate sql models
-        run: make sqlc
+        run: make sqlc-check
 
   rpc-check:
     name: RPC check
