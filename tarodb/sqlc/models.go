@@ -205,6 +205,11 @@ type MssmtRoot struct {
 	RootHash  []byte
 }
 
+type ReceiverProofTransferAttempt struct {
+	ProofLocatorHash []byte
+	TimeUnix         time.Time
+}
+
 type ScriptKey struct {
 	ScriptKeyID      int32
 	InternalKeyID    int32
