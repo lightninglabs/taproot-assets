@@ -52,7 +52,7 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 			return fmt.Errorf("asset is missing chain anchor field")
 		}
 
-		if !bytes.Equal(a.ChainAnchor.AnchorTxid, txid[:]) {
+		if a.ChainAnchor.AnchorTxid != txid.String() {
 			return fmt.Errorf("unexpected asset anchor TXID, got "+
 				"%x wanted %x", a.ChainAnchor.AnchorTxid,
 				txid[:])
