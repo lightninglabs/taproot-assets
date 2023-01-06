@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: docker image cache
         uses: satackey/action-docker-layer-caching@v0.0.11
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Generate RPC stubs and check REST annotations
         run: make rpc-check
@@ -52,34 +52,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Run go mod tidy
         run: make mod-check
 
   ########################
-  # Format, compilation and lint check
+  # Compilation check.
   ########################
-  lint-check:
-    name: Format, compilation and lint check
+  compile-check:
+    name: Compilation check
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: run format
-        run: make fmt
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: compile code
         run: go install -v ./...
 
+  ########################
+  # Lint check.
+  ########################
+  lint-check:
+    name: Lint check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
+
       - name: run lint
         run: make lint
+
+  ########################
+  # Format check.
+  ########################
+  format-check:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
+
+      - name: run format
+        run: make fmt
 
   ########################
   # run unit tests
@@ -97,23 +121,10 @@ jobs:
           - unit dbbackend=postgres
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            taro-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
@@ -133,23 +144,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            taro-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run itest
         run: make itest
@@ -159,7 +157,7 @@ jobs:
         run: 7z a logs-itest.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest
@@ -174,23 +172,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            taro-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: run itest
         run: make itest dbbackend=postgres
@@ -200,7 +185,7 @@ jobs:
         run: 7z a logs-itest-postgres.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest-postgres
