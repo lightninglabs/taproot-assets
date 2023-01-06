@@ -93,7 +93,7 @@ tarocli assets send --addr tarotb1q[...]tywpre3a
 
 ### API
 
-Taro exposes a GRPC (port 10029) and a REST (port 8089) API. Connections are encrypted with TLS and authenticated using macaroons.
+Taro exposes a GRPC (port 10029) and a REST (port 8089) API. Connections are encrypted with TLS and authenticated using macaroons. [The API is documented here](https://lightning.engineering/api-docs/api/taro/). Further guides [can be found here](https://docs.lightning.engineering/lightning-network-tools/taro).
 
 ### Mainnet
 
@@ -106,3 +106,4 @@ The [GitHub issue tracker](https://github.com/lightninglabs/taro/issues) can be 
 ## Join us on Slack
 
 Join us in the [Lightning Labs Slack](https://lightning.engineering/slack.html) and join the `#taro` channel to ask questions and interact with the community.
+
