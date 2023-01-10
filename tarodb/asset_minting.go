@@ -105,6 +105,9 @@ type PendingAssetStore interface {
 	// assets.
 	UpsertAssetStore
 
+	// GroupStore houses the methods related to querying asset groups.
+	GroupStore
+
 	// NewMintingBatch creates a new minting batch.
 	NewMintingBatch(ctx context.Context, arg MintingBatchInit) error
 
@@ -818,6 +821,52 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		}
 		return nil
 	})
+}
+
+// FetchGroupByGenesis fetches the asset group created by the genesis referenced
+// by the given ID.
+func (a *AssetMintingStore) FetchGroupByGenesis(ctx context.Context,
+	genesisID int32) (*asset.AssetGroup, error) {
+
+	var (
+		dbGroup *asset.AssetGroup
+		err     error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
+		dbGroup, err = fetchGroupByGenesis(ctx, a, genesisID)
+		return err
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return dbGroup, nil
+}
+
+// FetchGroupByGroupKey fetches the asset group with a matching tweaked key,
+// including the genesis information used to create the group.
+func (a *AssetMintingStore) FetchGroupByGroupKey(ctx context.Context,
+	groupKey *btcec.PublicKey) (*asset.AssetGroup, error) {
+
+	var (
+		dbGroup *asset.AssetGroup
+		err     error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
+		dbGroup, err = fetchGroupByGroupKey(ctx, a, groupKey)
+		return err
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return dbGroup, nil
 }
 
 // A compile-time assertion to ensure that AssetMintingStore meets the

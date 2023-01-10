@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -163,6 +164,16 @@ type MintingStore interface {
 	MarkBatchConfirmed(ctx context.Context, batchKey *btcec.PublicKey,
 		blockHash *chainhash.Hash, blockHeight uint32,
 		txIndex uint32, mintingProofs proof.AssetBlobs) error
+
+	// FetchGroupByGenesis fetches the asset group created by the genesis
+	// referenced by the given ID.
+	FetchGroupByGenesis(ctx context.Context,
+		genesisID int32) (*asset.AssetGroup, error)
+
+	// FetchGroupByGroupKey fetches the asset group with a matching tweaked
+	// key, including the genesis information used to create the group.
+	FetchGroupByGroupKey(ctx context.Context,
+		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation
