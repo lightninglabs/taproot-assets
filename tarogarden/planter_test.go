@@ -211,7 +211,10 @@ func (t *mintingTestHarness) assertNoPendingBatch() {
 func (t *mintingTestHarness) tickMintingBatch() {
 	t.Helper()
 
-	t.ticker.Force <- time.Time{}
+	ticked, err := t.planter.ForceBatch()
+
+	require.NoError(t, err)
+	require.True(t, ticked)
 }
 
 // assertNumCaretakersActive asserts that the specified number of caretakers

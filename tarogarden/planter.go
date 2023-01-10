@@ -88,6 +88,7 @@ type reqType uint8
 const (
 	reqTypePendingBatch = iota
 	reqTypeNumActiveBatches
+	reqTypeForceBatch
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
@@ -386,6 +387,13 @@ func (c *ChainPlanter) gardener() {
 				req.Resolve(c.pendingBatch)
 			case reqTypeNumActiveBatches:
 				req.Resolve(len(c.caretakers))
+			case reqTypeForceBatch:
+				// A force tick must be sent in a separate
+				// goroutine to prevent deadlock.
+				go func() {
+					c.cfg.BatchTicker.Force <- time.Time{}
+				}()
+				req.Resolve(true)
 			}
 
 		case <-c.Quit:
@@ -421,6 +429,21 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 
 	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return 0, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, nil
+}
+
+// ForceBatch sends a signal to the planter to finalize the current batch.
+func (c *ChainPlanter) ForceBatch() (bool, error) {
+	req := &stateReq[bool]{
+		resp:    make(chan bool, 1),
+		err:     make(chan error, 1),
+		reqType: reqTypeForceBatch,
+	}
+
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return false, fmt.Errorf("chain planter shutting down")
 	}
 
 	return <-req.resp, nil
