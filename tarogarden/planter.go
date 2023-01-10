@@ -47,7 +47,7 @@ type PlanterConfig struct {
 
 	// BatchTicker is used to notify the planter than it should assemble
 	// all asset requests into a new batch.
-	BatchTicker ticker.Ticker
+	BatchTicker *ticker.Force
 
 	// ErrChan is the main error channel the planter will report back
 	// critical errors to the main server.
@@ -206,6 +206,8 @@ func (c *ChainPlanter) Start() error {
 		// new minting requests.
 		c.Wg.Add(1)
 		go c.gardener()
+
+		c.cfg.BatchTicker.Resume()
 	})
 
 	return startErr
@@ -270,33 +272,9 @@ func (c *ChainPlanter) gardener() {
 
 	log.Infof("Gardener for ChainPlanter now active!")
 
-	// TODO(roasbeef): use top level ticker.Force instead?
-	batchTicker := make(chan time.Time, 1)
-
-	c.Wg.Add(1)
-	go func() {
-		defer c.Wg.Done()
-
-		// Forward any ticks from the main ticker into this channel.
-		// This lets us trigger manual ticks, but also make sure we're
-		// grabbing the real set of ticks.
-		select {
-		case tick := <-c.cfg.BatchTicker.Ticks():
-
-			select {
-			case batchTicker <- tick:
-			case <-c.Quit:
-				return
-			}
-
-		case <-c.Quit:
-			return
-		}
-	}()
-
 	for {
 		select {
-		case <-batchTicker:
+		case <-c.cfg.BatchTicker.Ticks():
 			// No pending batch, so we can just continue back to
 			// the top of the loop.
 			if c.pendingBatch == nil {
@@ -371,7 +349,11 @@ func (c *ChainPlanter) gardener() {
 			// current batch.
 			if batchNow {
 				log.Infof("Forcing new batch for %v", req)
-				batchTicker <- time.Time{}
+				// A force tick must be sent in a separate
+				// goroutine to prevent deadlock.
+				go func() {
+					c.cfg.BatchTicker.Force <- time.Time{}
+				}()
 			}
 
 		// A caretaker has finished processing their batch to full Taro

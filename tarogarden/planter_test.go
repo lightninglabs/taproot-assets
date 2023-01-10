@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
@@ -28,6 +29,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Default to a large interval so the planter never actually ticks and only
+// rely on our manual ticks.
+var defaultInterval = time.Hour * 24
 var defaultTimeout = time.Second * 5
 
 // newMintingStore creates a new instance of the TaroAddressBook book.
@@ -73,18 +77,16 @@ type mintingTestHarness struct {
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T,
-	store tarogarden.MintingStore) *mintingTestHarness {
+func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore,
+	interval time.Duration) *mintingTestHarness {
 
 	keyRing := tarogarden.NewMockKeyRing()
 	genSigner := tarogarden.NewMockGenSigner(keyRing)
 
 	return &mintingTestHarness{
-		T:     t,
-		store: store,
-		// Use a larger internal so it'll never actually tick and only
-		// rely on our manual ticks.
-		ticker:    ticker.NewForce(time.Hour * 24),
+		T:         t,
+		store:     store,
+		ticker:    ticker.NewForce(interval),
 		wallet:    tarogarden.NewMockWalletAnchor(),
 		chain:     tarogarden.NewMockChainBridge(),
 		keyRing:   keyRing,
@@ -240,15 +242,22 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
 	)
 	require.NoError(t, err)
 
-	// Finally, we'll assert that the dummy output we added is found in the
-	// packet.
+	// Finally, we'll assert that the dummy output or a valid P2TR output
+	// is found in the packet.
 	var found bool
 	for _, txOut := range (*pkt).Pkt.UnsignedTx.TxOut {
-		if bytes.Equal(txOut.PkScript, tarogarden.GenesisDummyScript[:]) &&
-			txOut.Value == int64(tarogarden.GenesisAmtSats) {
+		txOut := txOut
 
-			found = true
-			break
+		if txOut.Value == int64(tarogarden.GenesisAmtSats) {
+			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
+			isDummyScript := bytes.Equal(
+				txOut.PkScript, tarogarden.GenesisDummyScript[:],
+			)
+
+			if isP2TR || isDummyScript {
+				found = true
+				break
+			}
 		}
 	}
 	if !found {
@@ -459,9 +468,9 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	_ = t.assertGenesisTxFunded()
 
 	// For each seedling created above, we expect a new set of keys to be
+	// created for the asset script key and an additional key if emission
+	// was enabled.
 	for i := 0; i < numSeedlings; i++ {
-		// The seedlings require ongoing emission, then we'll expect an
-		// additional key to be derived.
 		t.assertKeyDerived()
 
 		if seedlings[i].EnableEmission {
@@ -533,10 +542,92 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 }
 
+func testMintingTicker(t *mintingTestHarness) {
+	t.Helper()
+
+	// First, create a new chain planter instance using the supplied test
+	// harness.
+	t.refreshChainPlanter()
+
+	// Next make 5 new random seedlings, and queue each of them up within
+	// the main state machine for batched minting.
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(seedlings...)
+
+	// At this point, there should be a single pending batch with 5
+	// seedlings. The batch stored in the log should also match up exactly.
+	t.assertPendingBatchExists(numSeedlings)
+	t.assertSeedlingsExist(seedlings)
+
+	// A single caretaker should have been
+	// launched as well. Next, assert that the caretaker has requested a
+	// genesis tx to be funded.
+	_ = t.assertGenesisTxFunded()
+	t.assertNumCaretakersActive(1)
+
+	// For each seedling created above, we expect a new set of keys to be
+	// created for the asset script key and an additional key if emission
+	// was enabled.
+	for i := 0; i < numSeedlings; i++ {
+		t.assertKeyDerived()
+
+		if seedlings[i].EnableEmission {
+			t.assertKeyDerived()
+		}
+	}
+
+	// Now that the batch has been ticked, and the caretaker started, there
+	// should no longer be a pending batch.
+	t.assertNoPendingBatch()
+
+	// If we fetch the pending batch just created on disk, then it should
+	// match up with the seedlings we specified, and also the genesis
+	// transaction sent above.
+	t.assertSeedlingsMatchSprouts(seedlings)
+
+	// We should now transition to the next state where we'll attempt to
+	// sign this PSBT packet generated above.
+	t.assertGenesisPsbtFinalized()
+
+	// With the PSBT packet finalized for the caretaker, we should now
+	// receive a request to publish a transaction followed by a
+	// confirmation request.
+	tx := t.assertTxPublished()
+
+	// With the transaction published, we should now receive a confirmation
+	// request. To ensure the file proof is constructed properly, we'll
+	// also make a "fake" block that includes our transaction.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+	sendConfNtfn := t.assertConfReqSent(tx, block)
+
+	// We'll now send the confirmation notification which should result in
+	// the batch being finalized, and the caretaker being cleaned up.
+	sendConfNtfn()
+
+	// This time no error should be sent anywhere as we should've handled
+	// all notifications.
+	t.assertNoError()
+
+	// At this point there should be no active caretakers.
+	t.assertNumCaretakersActive(0)
+}
+
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
 	name     string
+	interval time.Duration
 	testFunc func(t *mintingTestHarness)
 }
 
@@ -544,7 +635,13 @@ type mintingStoreTestCase struct {
 var testCases = []mintingStoreTestCase{
 	{
 		name:     "basic_asset_creation",
+		interval: defaultInterval,
 		testFunc: testBasicAssetCreation,
+	},
+	{
+		name:     "creation_by_minting_ticker",
+		interval: time.Second,
+		testFunc: testMintingTicker,
 	},
 }
 
@@ -554,13 +651,14 @@ var testCases = []mintingStoreTestCase{
 func TestBatchedAssetIssuance(t *testing.T) {
 	t.Helper()
 
-	mintingStore := newMintingStore(t)
-
 	for _, testCase := range testCases {
+		mintingStore := newMintingStore(t)
 		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
-			mintTest := newMintingTestHarness(t, mintingStore)
+			mintTest := newMintingTestHarness(
+				t, mintingStore, testCase.interval,
+			)
 			testCase.testFunc(mintTest)
 		})
 	}
