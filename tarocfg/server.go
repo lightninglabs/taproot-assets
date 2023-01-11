@@ -151,7 +151,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				),
 				ProofFiles: proofFileStore,
 			},
-			BatchTicker: ticker.New(cfg.BatchMintingInterval),
+			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,
 		}),
 		AssetCustodian: tarogarden.NewCustodian(
