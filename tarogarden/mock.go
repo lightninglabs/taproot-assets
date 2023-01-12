@@ -21,7 +21,6 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -341,7 +340,7 @@ func NewMockKeyRing() *MockKeyRing {
 func (m *MockKeyRing) DeriveNextTaroKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
-	return m.DeriveNextKey(ctx, taroscript.TaroKeyFamily)
+	return m.DeriveNextKey(ctx, asset.TaroKeyFamily)
 }
 
 func (m *MockKeyRing) DeriveNextKey(ctx context.Context,

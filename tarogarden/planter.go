@@ -9,7 +9,6 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -472,7 +471,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		// internal key, which'll be used in the output we create, and
 		// also will serve as the primary identifier for a batch.
 		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
-			ctx, taroscript.TaroKeyFamily,
+			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
 			return false, err

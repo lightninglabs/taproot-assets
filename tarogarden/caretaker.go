@@ -15,7 +15,6 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -315,7 +314,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, taroscript.TaroKeyFamily,
+			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to obtain script "+
@@ -328,7 +327,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// along with the tweaked key group.
 		if seedling.EnableEmission {
 			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
-				ctx, taroscript.TaroKeyFamily,
+				ctx, asset.TaroKeyFamily,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to derive "+
