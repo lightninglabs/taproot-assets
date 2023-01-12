@@ -829,6 +829,71 @@ func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sq
 	return i, err
 }
 
+const fetchGroupByGenesis = `-- name: FetchGroupByGenesis :one
+SELECT
+    key_group_info_view.tweaked_group_key AS tweaked_group_key,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.gen_asset_id = $1
+)
+`
+
+type FetchGroupByGenesisRow struct {
+	TweakedGroupKey []byte
+	RawKey          []byte
+	KeyIndex        int32
+	KeyFamily       int32
+}
+
+func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (FetchGroupByGenesisRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchGroupByGenesis, genesisID)
+	var i FetchGroupByGenesisRow
+	err := row.Scan(
+		&i.TweakedGroupKey,
+		&i.RawKey,
+		&i.KeyIndex,
+		&i.KeyFamily,
+	)
+	return i, err
+}
+
+const fetchGroupByGroupKey = `-- name: FetchGroupByGroupKey :one
+SELECT 
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = $1
+)
+ORDER BY key_group_info_view.sig_id
+LIMIT 1
+`
+
+type FetchGroupByGroupKeyRow struct {
+	GenAssetID int32
+	RawKey     []byte
+	KeyIndex   int32
+	KeyFamily  int32
+}
+
+// Sort and limit to return the genesis ID for initial genesis of the group.
+func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (FetchGroupByGroupKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchGroupByGroupKey, groupKey)
+	var i FetchGroupByGroupKeyRow
+	err := row.Scan(
+		&i.GenAssetID,
+		&i.RawKey,
+		&i.KeyIndex,
+		&i.KeyFamily,
+	)
+	return i, err
+}
+
 const fetchGroupedAssets = `-- name: FetchGroupedAssets :many
 SELECT
     assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 

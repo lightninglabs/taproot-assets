@@ -395,6 +395,14 @@ const (
 	ScriptV0 ScriptVersion = 0
 )
 
+// AssetGroup holds information about an asset group, including the genesis
+// information needed re-tweak the raw key.
+type AssetGroup struct {
+	*Genesis
+
+	*GroupKey
+}
+
 // GroupKey is the tweaked public key that is used to associate assets together
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
@@ -433,6 +441,13 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 
 	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey) &&
 		g.Sig.IsEqual(&otherGroupKey.Sig)
+}
+
+// IsLocal returns true if the private key that corresponds to this group key
+// is held by this daemon. A non-local group key is stored with the internal key
+// family and index set to their default values, 0.
+func (g *GroupKey) IsLocal() bool {
+	return g.RawKey.Family == TaroKeyFamily
 }
 
 // EqualKeyDescriptors returns true if the two key descriptors are equal.

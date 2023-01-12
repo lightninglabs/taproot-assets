@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // UpsertAssetStore is a sub-set of the main sqlc.Querier interface that
@@ -363,5 +366,115 @@ func fetchGenesis(ctx context.Context, q FetchGenesisStore,
 		Metadata:     gen.MetaData,
 		OutputIndex:  uint32(gen.OutputIndex),
 		Type:         asset.Type(gen.AssetType),
+	}, nil
+}
+
+// GroupStore houses the methods related to fetching specific asset groups.
+type GroupStore interface {
+	FetchGenesisStore
+
+	// FetchGroupByGenesis fetches information on the asset group created
+	// with the asset genesis referenced by a specific genesis ID.
+	FetchGroupByGenesis(ctx context.Context,
+		genesisID int32) (sqlc.FetchGroupByGenesisRow, error)
+
+	// FetchGroupByGroupKey fetches information on the asset group with
+	// a matching group key.
+	FetchGroupByGroupKey(ctx context.Context,
+		groupKey []byte) (sqlc.FetchGroupByGroupKeyRow, error)
+}
+
+// fetchGroupByGenesis fetches the asset group created by the genesis referenced
+// by the given ID.
+func fetchGroupByGenesis(ctx context.Context, q GroupStore,
+	genID int32) (*asset.AssetGroup, error) {
+
+	groupInfo, err := q.FetchGroupByGenesis(ctx, genID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, fmt.Errorf("no matching asset group: %w", err)
+	case err != nil:
+		return nil, err
+	}
+
+	groupGenesis, err := fetchGenesis(ctx, q, genID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch group genesis info: "+
+			"%w", err)
+	}
+
+	groupKey, err := parseGroupKeyInfo(
+		groupInfo.TweakedGroupKey, groupInfo.RawKey,
+		groupInfo.KeyFamily, groupInfo.KeyIndex,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &asset.AssetGroup{
+		Genesis:  &groupGenesis,
+		GroupKey: groupKey,
+	}, nil
+}
+
+// fetchGroupByGroupKey fetches the asset group with a matching tweaked key,
+// including the genesis information used to create the group.
+func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
+	tweakedKey *btcec.PublicKey) (*asset.AssetGroup, error) {
+
+	groupKeyQuery := tweakedKey.SerializeCompressed()
+	groupInfo, err := q.FetchGroupByGroupKey(ctx, groupKeyQuery[:])
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, fmt.Errorf("no matching asset group: %w", err)
+	case err != nil:
+		return nil, err
+	}
+
+	groupGenesis, err := fetchGenesis(ctx, q, groupInfo.GenAssetID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch group genesis info: "+
+			"%w", err)
+	}
+
+	groupKey, err := parseGroupKeyInfo(
+		groupKeyQuery, groupInfo.RawKey,
+		groupInfo.KeyFamily, groupInfo.KeyIndex,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &asset.AssetGroup{
+		Genesis:  &groupGenesis,
+		GroupKey: groupKey,
+	}, nil
+}
+
+// parseGroupKeyInfo maps information on a group key into a GroupKey.
+func parseGroupKeyInfo(tweakedKey, rawKey []byte,
+	keyFamily, keyIndex int32) (*asset.GroupKey, error) {
+
+	tweakedGroupKey, err := btcec.ParsePubKey(tweakedKey)
+	if err != nil {
+		return nil, err
+	}
+
+	untweakedKey, err := btcec.ParsePubKey(rawKey)
+	if err != nil {
+		return nil, err
+	}
+
+	groupRawKey := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(keyFamily),
+			Index:  uint32(keyIndex),
+		},
+		PubKey: untweakedKey,
+	}
+
+	return &asset.GroupKey{
+		RawKey:      groupRawKey,
+		GroupPubKey: *tweakedGroupKey,
 	}, nil
 }
