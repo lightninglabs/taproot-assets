@@ -54,7 +54,9 @@ type tarodConfig struct {
 
 // newTarodHarness creates a new tarod server harness with the given
 // configuration.
-func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
+func newTarodHarness(ht *harnessTest, cfg tarodConfig,
+	enableHashMail bool) (*tarodHarness, error) {
+
 	if cfg.BaseDir == "" {
 		var err error
 		cfg.BaseDir, err = os.MkdirTemp("", "itest-tarod")
@@ -114,11 +116,15 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
 		return nil, err
 	}
 
-	// We'll modify the config slightly here, since we don't need to use
-	// the hashmail system for integration tests.
+	// Conditionally avoid setting up the hashmail system. Many
+	// tests don't require the hashmail system.
+	//
+	// We can skip setting up the hashmail system by modifying the config.
 	//
 	// TODO(roasbeef): make local aperture instance in future
-	finalCfg.HashMailAddr = ""
+	if !enableHashMail {
+		finalCfg.HashMailAddr = ""
+	}
 
 	return &tarodHarness{
 		cfg:       &cfg,

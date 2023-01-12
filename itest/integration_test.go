@@ -129,7 +129,7 @@ func TestTaroDaemon(t *testing.T) {
 			// created and later discarded for each test run to
 			// assure no state is taken over between runs.
 			tarodHarness, universeServer := setupHarnesses(
-				t1, ht, lndHarness,
+				t1, ht, lndHarness, testCase.enableHashMail,
 			)
 			lndHarness.EnsureConnected(
 				t1, lndHarness.Alice, lndHarness.Bob,

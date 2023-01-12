@@ -216,7 +216,8 @@ func nextAvailablePort() int {
 // setupHarnesses creates new server and client harnesses that are connected
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
-	lndHarness *lntest.NetworkHarness) (*tarodHarness, *serverHarness) {
+	lndHarness *lntest.NetworkHarness,
+	enableHashMail bool) (*tarodHarness, *serverHarness) {
 
 	mockServerAddr := fmt.Sprintf(
 		lntest.ListenerFormat, lntest.NextAvailablePort(),
@@ -228,6 +229,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	// Create a tarod that uses Bob and connect it to the universe server.
 	tarodHarness := setupTarodHarness(
 		t, ht, lndHarness.BackendCfg, lndHarness.Alice, universeServer,
+		enableHashMail,
 	)
 	return tarodHarness, universeServer
 }
@@ -236,12 +238,12 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 // and to the given universe server.
 func setupTarodHarness(t *testing.T, ht *harnessTest,
 	backend lntest.BackendConfig, node *lntest.HarnessNode,
-	universe *serverHarness) *tarodHarness {
+	universe *serverHarness, enableHashMail bool) *tarodHarness {
 
 	tarodHarness, err := newTarodHarness(ht, tarodConfig{
 		NetParams: harnessNetParams,
 		LndNode:   node,
-	})
+	}, enableHashMail)
 	require.NoError(t, err)
 
 	// Start the tarod harness now.
