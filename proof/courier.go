@@ -303,7 +303,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
 	senderStreamID := deriveSenderStreamID(addr)
 	log.Infof("Creating sender mailbox w/ sid=%x", senderStreamID)
 	if err := h.mailbox.Init(ctx, senderStreamID); err != nil {
-		return err
+		return fmt.Errorf("failed to init sender stream mailbox: %w",
+			err)
 	}
 
 	// Now that the stream has been initialized, we'll write the proof over
@@ -313,7 +314,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
 	log.Infof("Sending receiver proof via sid=%x", senderStreamID)
 	err := h.mailbox.WriteProof(ctx, senderStreamID, proof.Blob)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to send proof to asset transfer "+
+			"receiver: %w", err)
 	}
 
 	// With the proof delivered, we'll now wait to receive the ACK from the
@@ -324,7 +326,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
 	receiverStreamID := deriveReceiverStreamID(addr)
 	log.Infof("Creating receiver mailbox w/ sid=%x", receiverStreamID)
 	if err := h.mailbox.Init(ctx, receiverStreamID); err != nil {
-		return err
+		return fmt.Errorf("failed to init receiver ACK mailbox: %w",
+			err)
 	}
 
 	// We'll wait to receive the ACK from the remote party over their
@@ -339,9 +342,13 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
 	// Once we receive this ACK, we can clean up our mailbox and also the
 	// receiver's mailbox.
 	if err := h.mailbox.CleanUp(ctx, senderStreamID); err != nil {
-		return err
+		return fmt.Errorf("failed to cleanup sender mailbox: %w", err)
 	}
-	return h.mailbox.CleanUp(ctx, receiverStreamID)
+	if err := h.mailbox.CleanUp(ctx, receiverStreamID); err != nil {
+		return fmt.Errorf("failed to cleanup receiver mailbox: %w", err)
+	}
+
+	return nil
 }
 
 // ReceiveProof attempts to obtain a proof as identified by the passed locator
