@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarofreighter"
@@ -101,6 +103,10 @@ var (
 			Action: "write",
 		}},
 		"/tarorpc.Taro/SendAsset": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/tarorpc.Taro/SubscribeSendAssetEventNtfns": {{
 			Entity: "assets",
 			Action: "write",
 		}},
@@ -1102,4 +1108,87 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		},
 		TotalFeeSats: int64(resp.TotalFees),
 	}, nil
+}
+
+// SubscribeSendAssetEventNtfns registers a subscription to the event
+// notification stream which relates to the asset sending process.
+func (r *rpcServer) SubscribeSendAssetEventNtfns(
+	in *tarorpc.SubscribeSendAssetEventNtfnsRequest,
+	ntfnStream tarorpc.Taro_SubscribeSendAssetEventNtfnsServer) error {
+
+	// Create a new event subscriber and pass a copy to the chain porter.
+	// We will then read events from the subscriber.
+	eventSubscriber := chanutils.NewEventReceiver[tarofreighter.Event](
+		chanutils.DefaultQueueSize,
+	)
+	defer eventSubscriber.Stop()
+
+	err := r.cfg.ChainPorter.RegisterSubscriber(eventSubscriber, false, false)
+	if err != nil {
+		return fmt.Errorf("failed to register event notifications "+
+			"subscription: %w", err)
+	}
+
+	// Loop and read from the ChainPorter event subscription and forward to
+	// the RPC stream.
+	for {
+		select {
+		// Handle receiving a new event from the ChainPorter.
+		// The event will be mapped to the RPC event type and
+		// sent over the stream.
+		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+
+			rpcEvent, err := marshallSendAssetEvent(event)
+			if err != nil {
+				return fmt.Errorf("failed to marshall "+
+					"ChainPorter event into RPC event: "+
+					"%w", err)
+			}
+
+			err = ntfnStream.Send(rpcEvent)
+			if err != nil {
+				return fmt.Errorf("failed to RPC stream send "+
+					"event: %w", err)
+			}
+
+		// Handle the case where the RPC stream is closed by the
+		// client.
+		case <-ntfnStream.Context().Done():
+			// Don't return an error if a normal context
+			// cancellation has occurred.
+			isCanceledContext := errors.Is(
+				ntfnStream.Context().Err(), context.Canceled,
+			)
+			if isCanceledContext {
+				return nil
+			}
+
+			return ntfnStream.Context().Err()
+
+		// Handle the case where the RPC server is shutting down.
+		case <-r.quit:
+			return nil
+		}
+	}
+}
+
+// marshallSendAssetEvent maps a ChainPorter event to its RPC counterpart.
+func marshallSendAssetEvent(
+	eventInterface tarofreighter.Event) (*tarorpc.SendAssetEvent, error) {
+
+	switch event := eventInterface.(type) {
+	case *tarofreighter.ExecuteSendStateEvent:
+		eventRpc := &tarorpc.SendAssetEvent_ExecuteSendStateEvent{
+			ExecuteSendStateEvent: &tarorpc.ExecuteSendStateEvent{
+				Timestamp: event.Timestamp().UnixMicro(),
+				SendState: event.SendState.String(),
+			},
+		}
+		return &tarorpc.SendAssetEvent{
+			Event: eventRpc,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
+	}
 }
