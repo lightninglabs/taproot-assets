@@ -578,6 +578,11 @@ func adjustFundedPsbt(pkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 // stateStep attempts to step through the state machine to complete a Taro
 // transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
+	// Notify subscribers that the state machine is about to execute a
+	// state.
+	stateEvent := NewExecuteSendStateEvent(currentPkg.SendState)
+	p.publishSubscriberEvent(stateEvent)
+
 	switch currentPkg.SendState {
 	// In this initial state, we'll set up some initial state we need to
 	// carry out the send flow.
@@ -1158,6 +1163,29 @@ func (p *ChainPorter) publishSubscriberEvent(event Event) {
 // A compile-time assertion to make sure ChainPorter satisfies the
 // chanutils.EventPublisher interface.
 var _ chanutils.EventPublisher[Event, bool] = (*ChainPorter)(nil)
+
+// ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
+// subscribers before a state is executed.
+type ExecuteSendStateEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// SendState is the state that is about to be executed.
+	SendState SendState
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *ExecuteSendStateEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// NewExecuteSendStateEvent creates a new ExecuteSendStateEvent.
+func NewExecuteSendStateEvent(state SendState) *ExecuteSendStateEvent {
+	return &ExecuteSendStateEvent{
+		timestamp: time.Now().UTC(),
+		SendState: state,
+	}
+}
 
 // copyPsbt creates a deep copy of a PSBT packet by serializing and
 // de-serializing it.
