@@ -97,8 +97,8 @@ func testFullValueSend(t *harnessTest) {
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
 	assertTransfers(t.t, t.tarod, []int64{0, 0})
-	assertBalance(t.t, t.tarod, genInfo.AssetId, int64(0))
+	assertBalanceByID(t.t, t.tarod, genInfo.AssetId, int64(0))
 
 	assertTransfers(t.t, secondTarod, []int64{0})
-	assertBalance(t.t, secondTarod, genInfo.AssetId, int64(fullAmount))
+	assertBalanceByID(t.t, secondTarod, genInfo.AssetId, int64(fullAmount))
 }

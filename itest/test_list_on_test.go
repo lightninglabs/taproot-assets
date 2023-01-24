@@ -33,4 +33,12 @@ var testCases = []*testCase{
 		name: "collectible send",
 		test: testCollectibleSend,
 	},
+	{
+		name: "reissuance",
+		test: testReissuance,
+	},
+	{
+		name: "mint with group key errors",
+		test: testMintWithGroupKeyErrors,
+	},
 }
