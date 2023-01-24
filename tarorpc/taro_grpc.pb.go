@@ -81,6 +81,10 @@ type TaroClient interface {
 	//The method returns information w.r.t the on chain send, as well as the
 	//proof file information the receiver needs to fully receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
+	//
+	//SubscribeSendAssetEventNtfns registers a subscription to the event
+	//notification stream which relates to the asset sending process.
+	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (Taro_SubscribeSendAssetEventNtfnsClient, error)
 }
 
 type taroClient struct {
@@ -235,6 +239,38 @@ func (c *taroClient) SendAsset(ctx context.Context, in *SendAssetRequest, opts .
 	return out, nil
 }
 
+func (c *taroClient) SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (Taro_SubscribeSendAssetEventNtfnsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Taro_ServiceDesc.Streams[0], "/tarorpc.Taro/SubscribeSendAssetEventNtfns", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taroSubscribeSendAssetEventNtfnsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Taro_SubscribeSendAssetEventNtfnsClient interface {
+	Recv() (*SendAssetEvent, error)
+	grpc.ClientStream
+}
+
+type taroSubscribeSendAssetEventNtfnsClient struct {
+	grpc.ClientStream
+}
+
+func (x *taroSubscribeSendAssetEventNtfnsClient) Recv() (*SendAssetEvent, error) {
+	m := new(SendAssetEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // TaroServer is the server API for Taro service.
 // All implementations must embed UnimplementedTaroServer
 // for forward compatibility
@@ -302,6 +338,10 @@ type TaroServer interface {
 	//The method returns information w.r.t the on chain send, as well as the
 	//proof file information the receiver needs to fully receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
+	//
+	//SubscribeSendAssetEventNtfns registers a subscription to the event
+	//notification stream which relates to the asset sending process.
+	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, Taro_SubscribeSendAssetEventNtfnsServer) error
 	mustEmbedUnimplementedTaroServer()
 }
 
@@ -356,6 +396,9 @@ func (UnimplementedTaroServer) ImportProof(context.Context, *ImportProofRequest)
 }
 func (UnimplementedTaroServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
+}
+func (UnimplementedTaroServer) SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, Taro_SubscribeSendAssetEventNtfnsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeSendAssetEventNtfns not implemented")
 }
 func (UnimplementedTaroServer) mustEmbedUnimplementedTaroServer() {}
 
@@ -658,6 +701,27 @@ func _Taro_SendAsset_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Taro_SubscribeSendAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeSendAssetEventNtfnsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaroServer).SubscribeSendAssetEventNtfns(m, &taroSubscribeSendAssetEventNtfnsServer{stream})
+}
+
+type Taro_SubscribeSendAssetEventNtfnsServer interface {
+	Send(*SendAssetEvent) error
+	grpc.ServerStream
+}
+
+type taroSubscribeSendAssetEventNtfnsServer struct {
+	grpc.ServerStream
+}
+
+func (x *taroSubscribeSendAssetEventNtfnsServer) Send(m *SendAssetEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // Taro_ServiceDesc is the grpc.ServiceDesc for Taro service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -730,6 +794,12 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Taro_SendAsset_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeSendAssetEventNtfns",
+			Handler:       _Taro_SubscribeSendAssetEventNtfns_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "taro.proto",
 }

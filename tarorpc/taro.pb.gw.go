@@ -515,6 +515,31 @@ func local_request_Taro_SendAsset_0(ctx context.Context, marshaler runtime.Marsh
 
 }
 
+func request_Taro_SubscribeSendAssetEventNtfns_0(ctx context.Context, marshaler runtime.Marshaler, client TaroClient, req *http.Request, pathParams map[string]string) (Taro_SubscribeSendAssetEventNtfnsClient, runtime.ServerMetadata, error) {
+	var protoReq SubscribeSendAssetEventNtfnsRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.SubscribeSendAssetEventNtfns(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
 // RegisterTaroHandlerServer registers the http handlers for service Taro to "mux".
 // UnaryRPC     :call TaroServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -889,6 +914,13 @@ func RegisterTaroHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 
 	})
 
+	mux.Handle("POST", pattern_Taro_SubscribeSendAssetEventNtfns_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+
 	return nil
 }
 
@@ -1250,6 +1282,26 @@ func RegisterTaroHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 
 	})
 
+	mux.Handle("POST", pattern_Taro_SubscribeSendAssetEventNtfns_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/tarorpc.Taro/SubscribeSendAssetEventNtfns", runtime.WithHTTPPathPattern("/v1/taro/send/ntfs"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Taro_SubscribeSendAssetEventNtfns_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_SubscribeSendAssetEventNtfns_0(ctx, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -1285,6 +1337,8 @@ var (
 	pattern_Taro_ImportProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taro", "proofs", "import"}, ""))
 
 	pattern_Taro_SendAsset_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taro", "send"}, ""))
+
+	pattern_Taro_SubscribeSendAssetEventNtfns_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taro", "send", "ntfs"}, ""))
 )
 
 var (
@@ -1319,4 +1373,6 @@ var (
 	forward_Taro_ImportProof_0 = runtime.ForwardResponseMessage
 
 	forward_Taro_SendAsset_0 = runtime.ForwardResponseMessage
+
+	forward_Taro_SubscribeSendAssetEventNtfns_0 = runtime.ForwardResponseStream
 )

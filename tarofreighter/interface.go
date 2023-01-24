@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/tarogarden"
@@ -240,4 +241,13 @@ type Porter interface {
 	// Stop signals that the asset minter should attempt a graceful
 	// shutdown.
 	Stop() error
+
+	// EventPublisher is a subscription interface that allows callers to
+	// subscribe to events that are relevant to the Porter.
+	chanutils.EventPublisher[Event, bool]
+}
+
+// Event is an event that can be sent to a subscriber.
+type Event interface {
+	Timestamp() time.Time
 }

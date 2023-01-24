@@ -81,6 +81,14 @@ type ChainPorter struct {
 
 	exportReqs chan *AssetParcel
 
+	// subscribers is a map of components that want to be notified on new
+	// events, keyed by their subscription ID.
+	subscribers map[uint64]*chanutils.EventReceiver[Event]
+
+	// subscriberMtx guards the subscribers map and access to the
+	// subscriptionID.
+	subscriberMtx sync.Mutex
+
 	*chanutils.ContextGuard
 }
 
@@ -88,8 +96,9 @@ type ChainPorter struct {
 // config.
 func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	return &ChainPorter{
-		cfg:        cfg,
-		exportReqs: make(chan *AssetParcel),
+		cfg:         cfg,
+		exportReqs:  make(chan *AssetParcel),
+		subscribers: make(map[uint64]*chanutils.EventReceiver[Event]),
 		ContextGuard: &chanutils.ContextGuard{
 			DefaultTimeout: tarogarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -140,6 +149,15 @@ func (p *ChainPorter) Stop() error {
 	p.stopOnce.Do(func() {
 		close(p.Quit)
 		p.Wg.Wait()
+
+		// Remove all subscribers.
+		for _, sub := range p.subscribers {
+			err := p.RemoveSubscriber(sub)
+			if err != nil {
+				stopErr = err
+				break
+			}
+		}
 	})
 
 	return stopErr
@@ -560,6 +578,11 @@ func adjustFundedPsbt(pkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 // stateStep attempts to step through the state machine to complete a Taro
 // transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
+	// Notify subscribers that the state machine is about to execute a
+	// state.
+	stateEvent := NewExecuteSendStateEvent(currentPkg.SendState)
+	p.publishSubscriberEvent(stateEvent)
+
 	switch currentPkg.SendState {
 	// In this initial state, we'll set up some initial state we need to
 	// carry out the send flow.
@@ -1086,6 +1109,81 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	default:
 		return &currentPkg, fmt.Errorf("unknown state: %v",
 			currentPkg.SendState)
+	}
+}
+
+// RegisterSubscriber adds a new subscriber to the set of subscribers that will
+// be notified of any new events that are broadcast.
+//
+// TODO(ffranr): Add support for delivering existing events to new subscribers.
+func (p *ChainPorter) RegisterSubscriber(
+	receiver *chanutils.EventReceiver[Event],
+	deliverExisting bool, deliverFrom bool) error {
+
+	p.subscriberMtx.Lock()
+	defer p.subscriberMtx.Unlock()
+
+	p.subscribers[receiver.ID()] = receiver
+
+	return nil
+}
+
+// RemoveSubscriber removes a subscriber from the set of subscribers that will
+// be notified of any new events that are broadcast.
+func (p *ChainPorter) RemoveSubscriber(
+	subscriber *chanutils.EventReceiver[Event]) error {
+
+	p.subscriberMtx.Lock()
+	defer p.subscriberMtx.Unlock()
+
+	_, ok := p.subscribers[subscriber.ID()]
+	if !ok {
+		return fmt.Errorf("subscriber with ID %d not found",
+			subscriber.ID())
+	}
+
+	subscriber.Stop()
+	delete(p.subscribers, subscriber.ID())
+
+	return nil
+}
+
+// publishSubscriberEvent publishes an event to all subscribers.
+func (p *ChainPorter) publishSubscriberEvent(event Event) {
+	// Lock the subscriber mutex to ensure that we don't modify the
+	// subscriber map while we're iterating over it.
+	p.subscriberMtx.Lock()
+	defer p.subscriberMtx.Unlock()
+
+	for _, sub := range p.subscribers {
+		sub.NewItemCreated.ChanIn() <- event
+	}
+}
+
+// A compile-time assertion to make sure ChainPorter satisfies the
+// chanutils.EventPublisher interface.
+var _ chanutils.EventPublisher[Event, bool] = (*ChainPorter)(nil)
+
+// ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
+// subscribers before a state is executed.
+type ExecuteSendStateEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// SendState is the state that is about to be executed.
+	SendState SendState
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *ExecuteSendStateEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// NewExecuteSendStateEvent creates a new ExecuteSendStateEvent.
+func NewExecuteSendStateEvent(state SendState) *ExecuteSendStateEvent {
+	return &ExecuteSendStateEvent{
+		timestamp: time.Now().UTC(),
+		SendState: state,
 	}
 }
 

@@ -99,6 +99,13 @@ service Taro {
     proof file information the receiver needs to fully receive the asset.
     */
     rpc SendAsset (SendAssetRequest) returns (SendAssetResponse);
+
+    /*
+    SubscribeSendAssetEventNtfns registers a subscription to the event
+    notification stream which relates to the asset sending process.
+    */
+    rpc SubscribeSendAssetEventNtfns (SubscribeSendAssetEventNtfnsRequest)
+        returns (stream SendAssetEvent);
 }
 
 enum AssetType {
@@ -627,4 +634,22 @@ message SendAssetResponse {
     TaroTransfer taro_transfer = 4;
 
     int64 total_fee_sats = 5;
+}
+
+message SubscribeSendAssetEventNtfnsRequest {
+}
+
+message SendAssetEvent {
+    oneof event {
+        // An event which indicates that a send state is about to be executed.
+        ExecuteSendStateEvent execute_send_state_event = 1;
+    }
+}
+
+message ExecuteSendStateEvent {
+    // Execute timestamp.
+    int64 timestamp = 1;
+
+    // The send state that is about to be executed.
+    string send_state = 2;
 }

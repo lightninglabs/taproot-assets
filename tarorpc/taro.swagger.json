@@ -513,6 +513,48 @@
         ]
       }
     },
+    "/v1/taro/send/ntfs": {
+      "post": {
+        "summary": "SubscribeSendAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset sending process.",
+        "operationId": "Taro_SubscribeSendAssetEventNtfns",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/tarorpcSendAssetEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of tarorpcSendAssetEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tarorpcSubscribeSendAssetEventNtfnsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/stop": {
       "post": {
         "summary": "tarocli: `stop`\nStopDaemon will send a shutdown request to the interrupt handler, triggering\na graceful shutdown of the daemon.",
@@ -992,6 +1034,20 @@
         }
       }
     },
+    "tarorpcExecuteSendStateEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Execute timestamp."
+        },
+        "send_state": {
+          "type": "string",
+          "description": "The send state that is about to be executed."
+        }
+      }
+    },
     "tarorpcExportProofRequest": {
       "type": "object",
       "properties": {
@@ -1274,6 +1330,15 @@
         }
       }
     },
+    "tarorpcSendAssetEvent": {
+      "type": "object",
+      "properties": {
+        "execute_send_state_event": {
+          "$ref": "#/definitions/tarorpcExecuteSendStateEvent",
+          "description": "An event which indicates that a send state is about to be executed."
+        }
+      }
+    },
     "tarorpcSendAssetRequest": {
       "type": "object",
       "properties": {
@@ -1309,6 +1374,9 @@
       "type": "object"
     },
     "tarorpcStopResponse": {
+      "type": "object"
+    },
+    "tarorpcSubscribeSendAssetEventNtfnsRequest": {
       "type": "object"
     },
     "tarorpcTaroTransfer": {
