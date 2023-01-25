@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -103,33 +102,49 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// IsValidInput verifies that the Taro commitment of the input contains an
-// asset that could be spent to the given Taro address.
-func IsValidInput(input *commitment.TaroCommitment,
-	addr address.Taro, inputScriptKey btcec.PublicKey,
-	net address.ChainParams) (*asset.Asset, bool, error) {
+// RecipientDescriptor describes a recipient of an asset. It is a subset of the
+// information contained in a Taro address.
+type RecipientDescriptor struct {
+	// ID is the asset ID of the asset being transferred.
+	ID asset.ID
+
+	// GroupKey is the optional group key of the asset to transfer.
+	GroupKey *btcec.PublicKey
+
+	// ScriptKey is the script key of the recipient.
+	ScriptKey btcec.PublicKey
+
+	// Amount is the amount of the asset to transfer.
+	Amount uint64
+}
+
+// TaroCommitmentKey is the key that maps to the root commitment for the asset
+// group specified by a recipient descriptor.
+func (r *RecipientDescriptor) TaroCommitmentKey() [32]byte {
+	return asset.TaroCommitmentKey(r.ID, r.GroupKey)
+}
+
+// IsValidInput verifies that the Taro commitment of the input contains an asset
+// that could be spent to the given recipient.
+func IsValidInput(input *commitment.TaroCommitment, desc *RecipientDescriptor,
+	inputScriptKey btcec.PublicKey) (*asset.Asset, bool, error) {
 
 	fullValue := false
-
-	// The input and address networks must match.
-	if !address.IsForNet(addr.ChainParams.TaroHRP, &net) {
-		return nil, fullValue, address.ErrMismatchedHRP
-	}
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
 	// specified in the address.
 	inputCommitments := input.Commitments()
-	assetCommitment, ok := inputCommitments[addr.TaroCommitmentKey()]
+	assetCommitment, ok := inputCommitments[desc.TaroCommitmentKey()]
 	if !ok {
 		return nil, fullValue, fmt.Errorf("input commitment does "+
-			"not contain asset_id=%x: %w", addr.TaroCommitmentKey(),
+			"not contain asset_id=%x: %w", desc.TaroCommitmentKey(),
 			ErrMissingInputAsset)
 	}
 
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		addr.ID(), &inputScriptKey, addr.GroupKey == nil,
+		desc.ID, &inputScriptKey, desc.GroupKey == nil,
 	)
 	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
 	if err != nil {
@@ -148,11 +163,11 @@ func IsValidInput(input *commitment.TaroCommitment,
 	// If the input amount is exactly the amount specified in the address,
 	// the spend must use an unspendable zero-value root split.
 	if inputAsset.Type == asset.Normal {
-		if inputAsset.Amount < addr.Amount {
+		if inputAsset.Amount < desc.Amount {
 			return nil, fullValue, ErrInsufficientInputAsset
 		}
 
-		if inputAsset.Amount == addr.Amount {
+		if inputAsset.Amount == desc.Amount {
 			fullValue = true
 		}
 	} else {

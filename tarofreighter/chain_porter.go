@@ -597,26 +597,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		// We need to find a commitment that has enough assets to
-		// satisfy this send request. We'll map the address to a set of
-		// constraints, so we can use that to do Taro asset coin
-		// selection.
-		//
-		// TODO(roasbeef): send logic assumes just one input (no
-		// merges) so we pass in the amount here to ensure we have
-		// enough to send
-		assetID := currentPkg.ReceiverAddr.ID()
-		constraints := CommitmentConstraints{
-			GroupKey: currentPkg.ReceiverAddr.GroupKey,
-			AssetID:  &assetID,
-			MinAmt:   currentPkg.ReceiverAddr.Amount,
-		}
-		packet, inputCommitment, err := p.cfg.AssetWallet.SelectCommitments(
-			ctx, constraints, *currentPkg.ReceiverAddr,
+		packet, inputCommitment, err := p.cfg.AssetWallet.FundAddressSend(
+			ctx, *currentPkg.ReceiverAddr,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to complete coin "+
-				"selection: %w", err)
+			return nil, fmt.Errorf("unable to fund address send: "+
+				"%w", err)
 		}
 
 		currentPkg.VirtualPacket = packet
@@ -709,7 +695,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			ctx, taroscript.SendConfTarget,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to estimate fee: %w", err)
+			return nil, fmt.Errorf("unable to estimate fee: %w",
+				err)
 		}
 		fundedSendPacket, err := p.cfg.Wallet.FundPsbt(
 			ctx, sendPacket, 1, feeRate,

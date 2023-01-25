@@ -15,12 +15,17 @@ import (
 
 // Wallet is an interface for funding and signing asset transfers.
 type Wallet interface {
-	// SelectCommitments funds a virtual transaction, selecting assets to
-	// spend that match the given commitment constraints.
-	SelectCommitments(ctx context.Context,
-		constraints CommitmentConstraints,
+	// FundAddressSend funds a virtual transaction, selecting assets to
+	// spend in order to pay the given address.
+	FundAddressSend(ctx context.Context,
 		receiverAddr address.Taro) (*taropsbt.VPacket,
 		*commitment.TaroCommitment, error)
+
+	// FundPacket funds a virtual transaction, selecting assets to spend
+	// in order to pay the given recipient. The selected input is then added
+	// to the given virtual transaction.
+	FundPacket(ctx context.Context, desc *taroscript.RecipientDescriptor,
+		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -62,27 +67,66 @@ func NewAssetWallet(cfg *WalletConfig) *AssetWallet {
 	}
 }
 
-// SelectCommitments funds a virtual transaction, selecting assets to spend that
-// match the given commitment constraints.
+// FundAddressSend funds a virtual transaction, selecting assets to spend in
+// order to pay the given address.
 //
 // NOTE: This is part of the Wallet interface.
-func (f *AssetWallet) SelectCommitments(ctx context.Context,
-	constraints CommitmentConstraints,
+func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	receiverAddr address.Taro) (*taropsbt.VPacket,
 	*commitment.TaroCommitment, error) {
 
+	// We start by creating a new virtual transaction that will be used to
+	// hold the asset transfer. Because sending to an address is always a
+	// non-interactive process, we can use this function that always creates
+	// a change output.
+	vPkt := taropsbt.FromAddress(&receiverAddr)
+
+	desc := &taroscript.RecipientDescriptor{
+		ID:       receiverAddr.ID(),
+		GroupKey: receiverAddr.GroupKey,
+		Amount:   receiverAddr.Amount,
+	}
+	inputCommitment, err := f.FundPacket(ctx, desc, vPkt)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return vPkt, inputCommitment, nil
+}
+
+// FundPacket funds a virtual transaction, selecting assets to spend in order to
+// pay the given recipient. The selected input is then added to the given
+// virtual transaction.
+func (f *AssetWallet) FundPacket(ctx context.Context,
+	desc *taroscript.RecipientDescriptor,
+	vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error) {
+
+	// The input and address networks must match.
+	if !address.IsForNet(vPkt.ChainParams.TaroHRP, f.cfg.ChainParams) {
+		return nil, address.ErrMismatchedHRP
+	}
+
+	// We need to find a commitment that has enough assets to satisfy this
+	// send request. We'll map the address to a set of constraints, so we
+	// can use that to do Taro asset coin selection.
+	//
+	// TODO(roasbeef): send logic assumes just one input (no merges) so we
+	// pass in the amount here to ensure we have enough to send
+	constraints := CommitmentConstraints{
+		GroupKey: desc.GroupKey,
+		AssetID:  &desc.ID,
+		MinAmt:   desc.Amount,
+	}
 	eligibleCommitments, err := f.cfg.CoinSelector.SelectCommitment(
 		ctx, constraints,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to complete coin "+
+		return nil, fmt.Errorf("unable to complete coin "+
 			"selection: %w", err)
 	}
 
-	receiverScriptKey := &receiverAddr.ScriptKey
 	log.Infof("Selected %v possible asset inputs for send to %x",
-		len(eligibleCommitments),
-		receiverScriptKey.SerializeCompressed())
+		len(eligibleCommitments), desc.ScriptKey.SerializeCompressed())
 
 	// We'll take just the first commitment here as we need enough
 	// to complete the send w/o merging inputs.
@@ -92,19 +136,19 @@ func (f *AssetWallet) SelectCommitments(ctx context.Context,
 	// something has gone wrong with the DB.
 	internalKey := assetInput.InternalKey
 	if internalKey.Family != asset.TaroKeyFamily {
-		return nil, nil, fmt.Errorf("invalid internal key family "+
+		return nil, fmt.Errorf("invalid internal key family "+
 			"for selected input: %v %v", internalKey.Family,
 			internalKey.Index)
 	}
 
 	inBip32Derivation, inTrBip32Derivation :=
 		taropsbt.Bip32DerivationFromKeyDesc(
-			internalKey, receiverAddr.ChainParams.HDCoinType,
+			internalKey, f.cfg.ChainParams.HDCoinType,
 		)
 
 	anchorPkScript, anchorMerkleRoot, err := inputAnchorPkScript(assetInput)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cannot calculate input asset pk "+
+		return nil, fmt.Errorf("cannot calculate input asset pk "+
 			"script: %w", err)
 	}
 
@@ -116,17 +160,14 @@ func (f *AssetWallet) SelectCommitments(ctx context.Context,
 		assetInput.Asset.AssetCommitmentKey(),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cannot create inclusion proof "+
-			"for input asset: %w", err)
+		return nil, fmt.Errorf("cannot create inclusion proof for "+
+			"input asset: %w", err)
 	}
 
 	// At this point, we have a valid "coin" to spend in the commitment, so
 	// we'll add the relevant information to the virtual TX's input.
 	//
 	// TODO(roasbeef): still need to add family key to PrevID.
-	vPkt := &taropsbt.VPacket{
-		Outputs: make([]*taropsbt.VOutput, 2),
-	}
 	vPkt.Inputs = []*taropsbt.VInput{{
 		PrevID: asset.PrevID{
 			OutPoint: assetInput.AnchorPoint,
@@ -153,32 +194,26 @@ func (f *AssetWallet) SelectCommitments(ctx context.Context,
 	// gain the asset that we'll use as an input and info w.r.t if we need
 	// to use an un-spendable zero-value root.
 	inputAsset, fullValue, err := taroscript.IsValidInput(
-		assetInput.Commitment, receiverAddr,
-		*vPkt.Inputs[0].Asset().ScriptKey.PubKey, *f.cfg.ChainParams,
+		assetInput.Commitment, desc,
+		*vPkt.Inputs[0].Asset().ScriptKey.PubKey,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// If we are sending the full value of the input asset, or sending a
-	// collectible, we will need to create a split with un-spendable change.
-	vPkt.Outputs[0] = &taropsbt.VOutput{
-		Amount:            0,
-		IsChange:          true,
-		AnchorOutputIndex: 0,
-		ScriptKey:         asset.NUMSScriptKey,
-	}
+	// We expect some change back, so let's create a script key to receive
+	// the change on.
 	if !fullValue {
 		senderScriptKey, err := f.cfg.KeyRing.DeriveNextKey(
 			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		// We'll assume BIP 86 everywhere, and use the tweaked key from
 		// here on out.
-		vPkt.Outputs[0].Amount = inputAsset.Amount - receiverAddr.Amount
+		vPkt.Outputs[0].Amount = inputAsset.Amount - desc.Amount
 		vPkt.Outputs[0].ScriptKey = asset.NewScriptKeyBIP0086(
 			senderScriptKey,
 		)
@@ -190,30 +225,18 @@ func (f *AssetWallet) SelectCommitments(ctx context.Context,
 		ctx, asset.TaroKeyFamily,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
-		changeInternalKey, receiverAddr.ChainParams.HDCoinType,
+		changeInternalKey, f.cfg.ChainParams.HDCoinType,
 	)
 
-	// The output at index 1 is the receiver's output.
-	vPkt.Outputs[1] = &taropsbt.VOutput{
-		Amount:            receiverAddr.Amount,
-		IsChange:          false,
-		Interactive:       false,
-		AnchorOutputIndex: 1,
-		ScriptKey: asset.NewScriptKey(
-			&receiverAddr.ScriptKey,
-		),
-		AnchorOutputInternalKey: &receiverAddr.InternalKey,
-	}
-
 	if err := taroscript.PrepareOutputAssets(vPkt); err != nil {
-		return nil, nil, fmt.Errorf("unable to create split commit: %w",
+		return nil, fmt.Errorf("unable to create split commit: %w",
 			err)
 	}
 
-	return vPkt, assetInput.Commitment, nil
+	return assetInput.Commitment, nil
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input

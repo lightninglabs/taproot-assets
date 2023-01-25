@@ -1801,6 +1801,14 @@ func TestAddressValidInput(t *testing.T) {
 	}
 }
 
+func addrToDesc(addr address.Taro) *taroscript.RecipientDescriptor {
+	return &taroscript.RecipientDescriptor{
+		ID:       addr.ID(),
+		GroupKey: addr.GroupKey,
+		Amount:   addr.Amount,
+	}
+}
+
 type addressValidInputTestCase struct {
 	name string
 	f    func(t *testing.T) (*asset.Asset, *asset.Asset, error)
@@ -1812,8 +1820,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
 		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, state.address1,
-			state.spenderScriptKey, address.MainNetTaro,
+			&state.asset1TaroTree, addrToDesc(state.address1),
+			state.spenderScriptKey,
 		)
 		require.True(t, fullValue)
 		return &state.asset1, inputAsset, err
@@ -1825,8 +1833,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		inputAsset, fullValue, err := taroscript.IsValidInput(
 			&state.asset1CollectGroupTaroTree,
-			state.address1CollectGroup,
-			state.spenderScriptKey, address.TestNet3Taro,
+			addrToDesc(state.address1CollectGroup),
+			state.spenderScriptKey,
 		)
 		require.True(t, fullValue)
 		return &state.asset1CollectGroup, inputAsset, err
@@ -1837,8 +1845,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
 		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset2TaroTree, state.address1,
-			state.spenderScriptKey, address.MainNetTaro,
+			&state.asset2TaroTree, addrToDesc(state.address1),
+			state.spenderScriptKey,
 		)
 		require.False(t, fullValue)
 		return &state.asset2, inputAsset, err
@@ -1849,8 +1857,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
 		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, state.address2,
-			state.spenderScriptKey, address.MainNetTaro,
+			&state.asset1TaroTree, addrToDesc(state.address2),
+			state.spenderScriptKey,
 		)
 		require.False(t, fullValue)
 		return &state.asset1, inputAsset, err
@@ -1862,8 +1870,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		inputAsset, fullValue, err := taroscript.IsValidInput(
 			&state.asset1TaroTree,
-			state.address1CollectGroup,
-			state.spenderScriptKey, address.TestNet3Taro,
+			addrToDesc(state.address1CollectGroup),
+			state.spenderScriptKey,
 		)
 		require.False(t, fullValue)
 		return &state.asset1, inputAsset, err
@@ -1880,31 +1888,13 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		)
 		require.NoError(t, err)
 		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, *address1testnet,
-			state.receiverPubKey, address.TestNet3Taro,
+			&state.asset1TaroTree, addrToDesc(*address1testnet),
+			state.receiverPubKey,
 		)
 		require.False(t, fullValue)
 		return &state.asset1, inputAsset, err
 	},
 	err: taroscript.ErrMissingInputAsset,
-}, {
-	name: "normal with mismatched network",
-	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
-		state := initSpendScenario(t)
-		address1testnet, err := address.New(
-			state.genesis1, nil, state.receiverPubKey,
-			state.receiverPubKey, state.normalAmt1,
-			&address.TestNet3Taro,
-		)
-		require.NoError(t, err)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, *address1testnet,
-			state.receiverPubKey, address.MainNetTaro,
-		)
-		require.False(t, fullValue)
-		return &state.asset1, inputAsset, err
-	},
-	err: address.ErrMismatchedHRP,
 }}
 
 // TestPayToAddrScript tests edge cases around creating a P2TR script with
