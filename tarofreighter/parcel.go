@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -13,6 +12,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -313,16 +313,9 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 
 	// Given the above information, we'll now construct the BIP 32
 	// derivation information the wallet needs for signing.
-	bip32Derivation := &psbt.Bip32Derivation{
-		PubKey: internalKey.PubKey.SerializeCompressed(),
-		Bip32Path: []uint32{
-			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
-			s.ReceiverAddr.ChainParams.HDCoinType + hdkeychain.HardenedKeyStart,
-			uint32(internalKey.Family) + uint32(hdkeychain.HardenedKeyStart),
-			0,
-			internalKey.Index,
-		},
-	}
+	bip32Derivation, trBip32Derivation := taropsbt.Bip32DerivationFromKeyDesc(
+		internalKey, s.ReceiverAddr.ChainParams.HDCoinType,
+	)
 
 	// With the BIP 32 information completed, we'll now add the information
 	// as a partial input and also add the input to the unsigned
@@ -335,11 +328,9 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		SighashType:       txscript.SigHashDefault,
 		Bip32Derivation:   []*psbt.Bip32Derivation{bip32Derivation},
 		TaprootMerkleRoot: merkleRoot,
-		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{{
-			XOnlyPubKey:          bip32Derivation.PubKey[1:],
-			MasterKeyFingerprint: bip32Derivation.MasterKeyFingerprint,
-			Bip32Path:            bip32Derivation.Bip32Path,
-		}},
+		TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+			trBip32Derivation,
+		},
 	})
 	s.SendPkt.UnsignedTx.TxIn = append(
 		s.SendPkt.UnsignedTx.TxIn, &wire.TxIn{
