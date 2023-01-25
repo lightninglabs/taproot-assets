@@ -403,6 +403,19 @@ type GroupKey struct {
 	Sig schnorr.Signature
 }
 
+// NewGroupKey is a helper function that creates a new group key wrapper from a
+// group public key. If the public key is nil then a nil group key struct is
+// returned.
+func NewGroupKey(groupPubKey *btcec.PublicKey) *GroupKey {
+	if groupPubKey == nil {
+		return nil
+	}
+
+	return &GroupKey{
+		GroupPubKey: *groupPubKey,
+	}
+}
+
 // IsEqual returns true if this group key is equivalent to the passed other
 // group key.
 func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
