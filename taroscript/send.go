@@ -255,6 +255,105 @@ func SignVirtualTransaction(input *taropsbt.VInput, outputs []*taropsbt.VOutput,
 	return nil
 }
 
+// CreateOutputCommitments creates the final set of TaroCommitments representing
+// the asset send. The input TaroCommitment must be set.
+func CreateOutputCommitments(inputCommitment *commitment.TaroCommitment,
+	input *taropsbt.VInput,
+	outputs []*taropsbt.VOutput) ([]*commitment.TaroCommitment, error) {
+
+	inputAsset := input.Asset()
+
+	// Remove the spent Asset from the AssetCommitment of the sender. Fail
+	// if the input AssetCommitment or Asset were not in the input
+	// TaroCommitment.
+	changeTaroCommitment, err := inputCommitment.Copy()
+	if err != nil {
+		return nil, err
+	}
+
+	inputCommitments := changeTaroCommitment.Commitments()
+	changeCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
+	if !ok {
+		return nil, ErrMissingAssetCommitment
+	}
+
+	// Just a sanity check that the asset we're spending really was in the
+	// list of input assets.
+	_, ok = changeCommitment.Assets()[inputAsset.AssetCommitmentKey()]
+	if !ok {
+		return nil, ErrMissingInputAsset
+	}
+
+	// Remove the input asset from the asset commitment tree.
+	if err := changeCommitment.Update(inputAsset, true); err != nil {
+		return nil, err
+	}
+
+	// If there was a split, we need to include the root asset in the change
+	// commitment, which is stored in the change output.
+	if input.IsSplit {
+		err := changeCommitment.Update(outputs[0].Asset, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	outputCommitments := make([]*commitment.TaroCommitment, len(outputs))
+	for idx := range outputs {
+		vOut := outputs[idx]
+
+		// The change output was already committed to above.
+		if vOut.IsChange {
+			// Update the top-level TaroCommitment of the change
+			// output (sender). This'll effectively commit to all
+			// the new spend details.
+			//
+			// TODO(jhb): Add emptiness check for changeCommitment,
+			// to prune the AssetCommitment entirely when possible.
+			err = changeTaroCommitment.Update(
+				changeCommitment, false,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			outputCommitments[idx] = changeTaroCommitment
+
+			continue
+		}
+
+		// If the receiver of this output is receiving through an
+		// address (non-interactive), we need to blank out the split
+		// commitment proof, as the receiver doesn't know of this
+		// information yet. The final commitment will be to a leaf
+		// without the split commitment proof, that proof will be
+		// delivered in the proof file as part of the non-interactive
+		// send.
+		committedAsset := vOut.Asset
+		if !outputs[idx].Interactive {
+			committedAsset = committedAsset.Copy()
+			committedAsset.PrevWitnesses[0].SplitCommitment = nil
+		}
+
+		// This is a new output which only commits to a single asset
+		// leaf.
+		sendCommitment, err := commitment.NewAssetCommitment(
+			committedAsset,
+		)
+		if err != nil {
+			return nil, err
+		}
+		outputCommitments[idx], err = commitment.NewTaroCommitment(
+			sendCommitment,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return outputCommitments, nil
+}
+
 // interactiveFullValueSend returns true if the given outputs spend the input
 // fully and interactively.
 func interactiveFullValueSend(input *taropsbt.VInput,
