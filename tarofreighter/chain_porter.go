@@ -622,7 +622,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			AssetID:  &assetID,
 			MinAmt:   currentPkg.ReceiverAddr.Amount,
 		}
-		elgigibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
+		eligibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
 			ctx, constraints,
 		)
 		if err != nil {
@@ -631,12 +631,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		log.Infof("Selected %v possible asset inputs for send to %x",
-			len(elgigibleCommitments),
+			len(eligibleCommitments),
 			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
 
 		// We'll take just the first commitment here as we need enough
 		// to complete the send w/o merging inputs.
-		assetInput := elgigibleCommitments[0]
+		assetInput := eligibleCommitments[0]
 
 		// If the key found for the input UTXO is not from the Taro
 		// keyfamily, something has gone wrong with the DB.
