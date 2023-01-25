@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tarorpc;
 
-option go_package = "github.com/lightninglabs/tarorpc";
+option go_package = "github.com/lightninglabs/taro/tarorpc";
 
 service Taro {
     /* tarocli: `assets mint`
