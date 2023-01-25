@@ -81,29 +81,6 @@ func TxMerkleProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "TxMerkleProof")
 }
 
-func AssetLeafEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*asset.Asset); ok {
-		return t.Encode(w)
-	}
-	return tlv.NewTypeForEncodingErr(val, "asset.Asset")
-}
-
-func AssetLeafDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*asset.Asset); ok {
-		var assetBytes []byte
-		if err := tlv.DVarBytes(r, &assetBytes, buf, l); err != nil {
-			return err
-		}
-		var asset asset.Asset
-		if err := asset.Decode(bytes.NewReader(assetBytes)); err != nil {
-			return err
-		}
-		*typ = asset
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "asset.Asset")
-}
-
 func TaprootProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*TaprootProof); ok {
 		return t.Encode(w)
