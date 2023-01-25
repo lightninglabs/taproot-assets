@@ -15,7 +15,8 @@ func FromAddress(receiverAddr *address.Taro) *VPacket {
 				ID: receiverAddr.ID(),
 			},
 		},
-		Outputs: make([]*VOutput, 2),
+		Outputs:     make([]*VOutput, 2),
+		ChainParams: receiverAddr.ChainParams,
 	}
 
 	// If we are sending the full value of the input asset, or sending a
