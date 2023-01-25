@@ -13,12 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	statusDetected  = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED
-	statusConfirmed = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
-	statusCompleted = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
-)
-
 func testAddresses(t *harnessTest) {
 	// First, mint a few assets, so we have some to create addresses for.
 	// We mint all of them in individual batches to avoid needing to sign
@@ -137,29 +131,8 @@ func testAddresses(t *harnessTest) {
 		sendProof(t, t.tarod, secondTarod, receiverAddr, assetGen)
 	}
 
-	// And finally, they should be marked as completed with a proof
-	// available.
-	err = wait.NoError(func() error {
-		resp, err := secondTarod.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{},
-		)
-		require.NoError(t.t, err)
-		require.Len(t.t, resp.Events, len(rpcAssets))
-
-		for _, event := range resp.Events {
-			if event.Status != statusCompleted {
-				return fmt.Errorf("got status %v, wanted %v",
-					resp.Events[0].Status, statusCompleted)
-			}
-
-			if !event.HasProof {
-				return fmt.Errorf("wanted proof, but was false")
-			}
-		}
-
-		return nil
-	}, defaultWaitTimeout/2)
-	require.NoError(t.t, err)
+	// Make sure we have imported and finalized all proofs.
+	assertReceiveComplete(t, secondTarod, len(rpcAssets))
 
 	// Now sanity check that we can actually list the transfer.
 	err = wait.NoError(func() error {
@@ -180,20 +153,18 @@ func testAddresses(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
-func sendProof(t *harnessTest, src, dst *tarodHarness, rpcAddr *tarorpc.Addr,
+func sendProof(t *harnessTest, src, dst *tarodHarness,
+	recipientAddr *tarorpc.Addr,
 	genInfo *tarorpc.GenesisInfo) *tarorpc.ImportProofResponse {
 
 	ctxb := context.Background()
 
 	var proofResp *tarorpc.ProofFile
 	waitErr := wait.NoError(func() error {
-		resp, err := src.ExportProof(
-			ctxb,
-			&tarorpc.ExportProofRequest{
-				AssetId:   rpcAddr.AssetId,
-				ScriptKey: rpcAddr.ScriptKey,
-			},
-		)
+		resp, err := src.ExportProof(ctxb, &tarorpc.ExportProofRequest{
+			AssetId:   genInfo.AssetId,
+			ScriptKey: recipientAddr.ScriptKey,
+		})
 		if err != nil {
 			return err
 		}
@@ -203,13 +174,10 @@ func sendProof(t *harnessTest, src, dst *tarodHarness, rpcAddr *tarorpc.Addr,
 	}, defaultWaitTimeout)
 	require.NoError(t.t, waitErr)
 
-	importResp, err := dst.ImportProof(
-		ctxb,
-		&tarorpc.ImportProofRequest{
-			ProofFile:    proofResp.RawProof,
-			GenesisPoint: genInfo.GenesisPoint,
-		},
-	)
+	importResp, err := dst.ImportProof(ctxb, &tarorpc.ImportProofRequest{
+		ProofFile:    proofResp.RawProof,
+		GenesisPoint: genInfo.GenesisPoint,
+	})
 	require.NoError(t.t, err)
 
 	return importResp
@@ -217,15 +185,15 @@ func sendProof(t *harnessTest, src, dst *tarodHarness, rpcAddr *tarorpc.Addr,
 
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
-func sendAssetsToAddr(t *harnessTest, tarod *tarodHarness,
-	rpcAddr *tarorpc.Addr) *tarorpc.SendAssetResponse {
+func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
+	receiverAddr *tarorpc.Addr) *tarorpc.SendAssetResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	resp, err := tarod.SendAsset(ctxt, &tarorpc.SendAssetRequest{
-		TaroAddr: rpcAddr.Encoded,
+	resp, err := sender.SendAsset(ctxt, &tarorpc.SendAssetRequest{
+		TaroAddr: receiverAddr.Encoded,
 	})
 	require.NoError(t.t, err)
 

@@ -33,10 +33,12 @@ func testFullValueSend(t *harnessTest) {
 	// Next, we'll attempt to complete three transfers of the full value of
 	// the asset between our main node and Bob.
 	var (
-		numSends     = 3
-		fullAmount   = rpcAssets[0].Amount
-		receiverAddr *tarorpc.Addr
-		err          error
+		numSends            = 3
+		senderTransferIdx   = 0
+		receiverTransferIdx = 0
+		fullAmount          = rpcAssets[0].Amount
+		receiverAddr        *tarorpc.Addr
+		err                 error
 	)
 
 	for i := 0; i < numSends; i++ {
@@ -55,10 +57,15 @@ func testFullValueSend(t *harnessTest) {
 			assertAddrCreated(
 				t.t, secondTarod, rpcAssets[0], receiverAddr,
 			)
-			_ = sendAssetsToAddr(t, t.tarod, receiverAddr)
-			confirmSend(
+			sendResp := sendAssetsToAddr(t, t.tarod, receiverAddr)
+			confirmAndAssertOutboundTransfer(
+				t, t.tarod, sendResp, genInfo.AssetId,
+				0, senderTransferIdx, senderTransferIdx+1,
+			)
+			_ = sendProof(
 				t, t.tarod, secondTarod, receiverAddr, genInfo,
 			)
+			senderTransferIdx++
 		} else {
 			receiverAddr, err = t.tarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
@@ -71,10 +78,17 @@ func testFullValueSend(t *harnessTest) {
 			assertAddrCreated(
 				t.t, t.tarod, rpcAssets[0], receiverAddr,
 			)
-			_ = sendAssetsToAddr(t, secondTarod, receiverAddr)
-			confirmSend(
+			sendResp := sendAssetsToAddr(
+				t, secondTarod, receiverAddr,
+			)
+			confirmAndAssertOutboundTransfer(
+				t, secondTarod, sendResp, genInfo.AssetId,
+				0, receiverTransferIdx, receiverTransferIdx+1,
+			)
+			_ = sendProof(
 				t, secondTarod, t.tarod, receiverAddr, genInfo,
 			)
+			receiverTransferIdx++
 		}
 	}
 

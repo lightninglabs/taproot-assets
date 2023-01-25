@@ -11,11 +11,18 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	statusDetected  = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED
+	statusConfirmed = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
+	statusCompleted = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
 )
 
 // assetCheck is a function type that checks an RPC asset's property.
@@ -248,6 +255,103 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 
 	// Does the address in the list contain all information we expect?
 	assertAddr(t, expected, rpcAddr)
+}
+
+// confirmAndAssertOutboundTransfer makes sure the given outbound transfer has
+// the correct state before confirming it and then asserting the confirmed state
+// with the node.
+func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
+	sendResp *tarorpc.SendAssetResponse, assetID []byte,
+	expectedAmount int64, currentTransferIdx, numTransfers int) {
+
+	ctxb := context.Background()
+
+	// Check that we now have two new outputs, and that they differ
+	// in outpoints and scripts.
+	outputs := sendResp.TaroTransfer.NewOutputs
+	require.Len(t.t, outputs, 2)
+
+	outpoints := make(map[string]struct{})
+	scripts := make(map[string]struct{})
+	for _, o := range outputs {
+		_, ok := outpoints[o.AnchorPoint]
+		require.False(t.t, ok)
+
+		_, ok = scripts[string(o.ScriptKey)]
+		require.False(t.t, ok)
+
+		outpoints[o.AnchorPoint] = struct{}{}
+		scripts[string(o.ScriptKey)] = struct{}{}
+	}
+
+	sendRespJSON, err := formatProtoJSON(sendResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from sending assets: %v", sendRespJSON)
+
+	// Mine a block to force the send we created above to confirm.
+	_ = mineBlocks(t, t.lndHarness, 1, 1)
+
+	// Confirm that we can externally view the transfer.
+	err = wait.Predicate(func() bool {
+		resp, err := sender.ListTransfers(
+			ctxb, &tarorpc.ListTransfersRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, resp.Transfers, numTransfers)
+
+		// Assert the new outpoint, script and amount is in the
+		// list.
+		transfer := resp.Transfers[currentTransferIdx]
+		require.Contains(t.t, outpoints, transfer.NewAnchorPoint)
+
+		delta := transfer.AssetSpendDeltas[0]
+		require.Contains(t.t, scripts, string(delta.NewScriptKey))
+		require.Equal(t.t, expectedAmount, delta.NewAmt)
+
+		sameAssetID := func(xfer *tarorpc.AssetTransfer) bool {
+			return bytes.Equal(
+				xfer.AssetSpendDeltas[0].AssetId, assetID,
+			)
+		}
+
+		// Check asset ID is unchanged.
+		return chanutils.All(resp.Transfers, sameAssetID)
+	}, defaultTimeout/2)
+	require.NoError(t.t, err)
+}
+
+// assertReceiveComplete makes sure the given receiver has the correct number of
+// completed inbound asset transfers in their list of events.
+func assertReceiveComplete(t *harnessTest, receiver *tarodHarness,
+	totalInboundTransfers int) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// And finally, they should be marked as completed with a proof
+	// available.
+	err := wait.NoError(func() error {
+		resp, err := receiver.AddrReceives(
+			ctxt, &tarorpc.AddrReceivesRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, resp.Events, totalInboundTransfers)
+
+		for _, event := range resp.Events {
+			if event.Status != statusCompleted {
+				return fmt.Errorf("got status %v, wanted %v",
+					resp.Events[0].Status, statusCompleted)
+			}
+
+			if !event.HasProof {
+				return fmt.Errorf("wanted proof, but was false")
+			}
+		}
+
+		return nil
+	}, defaultWaitTimeout/2)
+	require.NoError(t.t, err)
 }
 
 // assertAddr asserts that an address contains the correct information of an
