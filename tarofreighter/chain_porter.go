@@ -630,19 +630,18 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taro layer.
 	case SendStateSigned:
+		vPacket := currentPkg.VirtualPacket
+		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
 		log.Infof("Generating Taro witnesses for send to: %x",
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			receiverScriptKey.SerializeCompressed())
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// taro leaves. The witness data for each input will be
 		// assigned for us.
-		err := taroscript.SignVirtualTransaction(
-			currentPkg.VirtualPacket, 0, p.cfg.Signer,
-			p.cfg.TxValidator,
-		)
+		err := p.cfg.AssetWallet.SignVirtualPacket(vPacket)
 		if err != nil {
-			return nil, fmt.Errorf("unable to generate taro "+
-				"witness data: %w", err)
+			return nil, fmt.Errorf("unable to sign and commit "+
+				"virtual packet: %w", err)
 		}
 
 		currentPkg.SendState = SendStateCommitmentsUpdated

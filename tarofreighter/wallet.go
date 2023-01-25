@@ -26,6 +26,9 @@ type Wallet interface {
 	// to the given virtual transaction.
 	FundPacket(ctx context.Context, desc *taroscript.RecipientDescriptor,
 		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
+
+	// SignVirtualPacket signs the virtual transaction of the given packet.
+	SignVirtualPacket(vPkt *taropsbt.VPacket) error
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -237,6 +240,26 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	}
 
 	return assetInput.Commitment, nil
+}
+
+// SignVirtualPacket signs the virtual transaction of the given packet.
+//
+// NOTE: This is part of the Wallet interface.
+func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) error {
+	// Now we'll use the signer to sign all the inputs for the new
+	// taro leaves. The witness data for each input will be
+	// assigned for us.
+	for idx := range vPkt.Inputs {
+		err := taroscript.SignVirtualTransaction(
+			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to generate taro witness "+
+				"data: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input
