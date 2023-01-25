@@ -188,6 +188,14 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "with_witness",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Taro"
         ]
@@ -816,6 +824,12 @@
         "chain_anchor": {
           "$ref": "#/definitions/tarorpcAnchorInfo",
           "description": "Describes where in the chain the asset is currently anchored."
+        },
+        "prev_witnesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcPrevWitness"
+          }
         }
       }
     },
@@ -1299,6 +1313,24 @@
         }
       }
     },
+    "tarorpcPrevWitness": {
+      "type": "object",
+      "properties": {
+        "prev_id": {
+          "$ref": "#/definitions/tarorpcPrevInputAsset"
+        },
+        "tx_witness": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          }
+        },
+        "split_commitment": {
+          "$ref": "#/definitions/tarorpcSplitCommitment"
+        }
+      }
+    },
     "tarorpcProofFile": {
       "type": "object",
       "properties": {
@@ -1367,6 +1399,14 @@
         "total_fee_sats": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "tarorpcSplitCommitment": {
+      "type": "object",
+      "properties": {
+        "root_asset": {
+          "$ref": "#/definitions/tarorpcAsset"
         }
       }
     },
