@@ -17,46 +17,18 @@ import (
 type SendState uint8
 
 const (
-	// SendStateInitializing is that staring state of a transfer. In this
-	// state, the initial context needed for a transfer is created.
-	SendStateInitializing SendState = iota
-
-	// SendStateCommitmentSelect is the state for performing input coin
+	// SendStateVirtualCommitmentSelect is the state for performing input coin
 	// selection to pick out which assets inputs should be spent.
-	SendStateCommitmentSelect
+	SendStateVirtualCommitmentSelect SendState = iota
 
-	// SendStateValidatedInput validates the inputs to ensure that the set
-	// of selected commitments can satisfy the transfer.
-	SendStateValidatedInput
-
-	// SendStatePreparedSplit prepares the splits (if needed) for a
-	// transfer that will create a change output.
-	SendStatePreparedSplit
-
-	// SendStatePreparedComplete is the alternative to
-	// SendStatePreparedSplit. We enter this state when a split isn't
-	// required.
-	SendStatePreparedComplete
-
-	// SendStateSigned is used to generate the Taro level witness data for
+	// SendStateVirtualSign is used to generate the Taro level witness data for
 	// any inputs being spent.
-	SendStateSigned
+	SendStateVirtualSign
 
-	// SendStateCommitmentsUpdated is the state we enter to after we sign
-	// each of the new Taro asset leaves. In this state, we'll construct
-	// the final commitments that both sides will find in the chain.
-	SendStateCommitmentsUpdated
-
-	// SendStatePsbtFund is the state we enter after we have all the Taro
-	// level witness data created. In this state, we'll ask the wallet to
-	// fund a PSBT with enough fund for the transfer transaction at the
-	// specified fee rate.
-	SendStatePsbtFund
-
-	// SendStatePsbtSign is the state we enter after the PSBT has been
+	// SendStateAnchorSign is the state we enter after the PSBT has been
 	// funded. In this state, we'll ask the wallet to sign the PSBT and
 	// then finalize to place the necessary signatures in the transaction.
-	SendStatePsbtSign
+	SendStateAnchorSign
 
 	// SendStateLogCommit is the final in memory state. In this state,
 	// we'll extract the signed transaction from the PSBT and log the
@@ -75,35 +47,17 @@ const (
 	SendStateWaitingConf
 )
 
-// String returns a human readable version of SendState.
+// String returns a human-readable version of SendState.
 func (s SendState) String() string {
 	switch s {
-	case SendStateInitializing:
-		return "SendStateInitializing"
+	case SendStateVirtualCommitmentSelect:
+		return "SendStateVirtualCommitmentSelect"
 
-	case SendStateCommitmentSelect:
-		return "SendStateCommitmentSelect"
+	case SendStateVirtualSign:
+		return "SendStateVirtualSign"
 
-	case SendStateValidatedInput:
-		return "SendStateValidatedInput"
-
-	case SendStatePreparedSplit:
-		return "SendStatePreparedSplit"
-
-	case SendStatePreparedComplete:
-		return "SendStatePreparedComplete"
-
-	case SendStateSigned:
-		return "SendStateSigned"
-
-	case SendStateCommitmentsUpdated:
-		return "SendStateCommitmentsUpdated"
-
-	case SendStatePsbtFund:
-		return "SendStatePsbtFund"
-
-	case SendStatePsbtSign:
-		return "SendStatePsbtSign"
+	case SendStateAnchorSign:
+		return "SendStateAnchorSign"
 
 	case SendStateLogCommit:
 		return "SendStateLogCommit"
