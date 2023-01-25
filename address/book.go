@@ -153,6 +153,17 @@ func (b *Book) NewAddress(ctx context.Context, genesis asset.Genesis,
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
 
+	return b.NewAddressWithKeys(
+		ctx, genesis, groupKey, amount, scriptKey, internalKeyDesc,
+	)
+}
+
+// NewAddressWithKeys creates a new Taro address based on the input parameters
+// that include pre-derived script and internal keys.
+func (b *Book) NewAddressWithKeys(ctx context.Context, genesis asset.Genesis,
+	groupKey *btcec.PublicKey, amount uint64, scriptKey asset.ScriptKey,
+	internalKeyDesc keychain.KeyDescriptor) (*AddrWithKeyInfo, error) {
+
 	baseAddr, err := New(
 		genesis, groupKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
 		amount, &b.cfg.Chain,

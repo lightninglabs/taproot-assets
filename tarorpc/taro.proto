@@ -511,6 +511,70 @@ message NewAddrRequest {
     bytes group_key = 2;
 
     int64 amt = 3;
+
+    /*
+    The optional script key that the receiving asset should be locked to. If no
+    script key is provided, a normal BIP-86 key will be derived from the
+    underlying wallet.
+
+    NOTE: The script_key and internal_key fields should either both be set or
+    both be empty.
+    */
+    ScriptKey script_key = 4;
+
+    /*
+    The optional internal key of the receiving BTC level transaction output on
+    which the receiving asset transfers will be committed to. If no internal key
+    is provided, a key will be derived from the underlying wallet.
+
+    NOTE: The script_key and internal_key fields should either both be set or
+    both be empty.
+    */
+    KeyDescriptor internal_key = 5;
+}
+
+message ScriptKey {
+    /*
+    The full Taproot output key the asset is locked to. This is either a BIP-86
+    key if the tap_tweak below is empty, or a key with the tap tweak applied to
+    it.
+    */
+    bytes pub_key = 1;
+
+    /*
+    The key descriptor describing the internal key of the above Taproot key.
+    */
+    KeyDescriptor key_desc = 2;
+
+    /*
+    The optional Taproot tweak to apply to the above internal key. If this is
+    empty then a BIP-86 style tweak is applied to the internal key.
+    */
+    bytes tap_tweak = 3;
+}
+
+message KeyLocator {
+    /*
+    The family of key being identified.
+    */
+    int32 key_family = 1;
+
+    /*
+    The precise index of the key being identified.
+    */
+    int32 key_index = 2;
+}
+
+message KeyDescriptor {
+    /*
+    The raw bytes of the key being identified.
+    */
+    bytes raw_key_bytes = 1;
+
+    /*
+    The key locator that identifies which key to use for signing.
+    */
+    KeyLocator key_loc = 2;
 }
 
 message DecodeAddrRequest {
