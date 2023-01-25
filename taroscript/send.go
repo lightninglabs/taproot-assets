@@ -4,11 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -433,6 +438,130 @@ func CreateOutputCommitments(inputCommitment *commitment.TaroCommitment,
 	}
 
 	return outputCommitments, nil
+}
+
+// AreValidAnchorOutputIndexes checks a set of virtual outputs for the minimum
+// number of outputs, and tests if the external indexes could be used for a
+// Taro-only spend, i.e. a TX that does not need other outputs added to be
+// valid.
+func AreValidAnchorOutputIndexes(outputs []*taropsbt.VOutput) (bool, error) {
+	// Sanity check the output indexes provided by the sender. There must be
+	// at least one output.
+	if len(outputs) < 1 {
+		return false, ErrInvalidOutputIndexes
+	}
+
+	// If the indexes start from 0 and form a continuous range, then the
+	// resulting TX would be valid without any changes (Taro-only spend).
+	taroOnlySpend := true
+	sortedCopy := slices.Clone(outputs)
+	sort.Slice(sortedCopy, func(i, j int) bool {
+		return sortedCopy[i].AnchorOutputIndex <
+			sortedCopy[j].AnchorOutputIndex
+	})
+	for i := 0; i < len(sortedCopy); i++ {
+		if sortedCopy[i].AnchorOutputIndex != uint32(i) {
+			taroOnlySpend = false
+			break
+		}
+	}
+
+	return taroOnlySpend, nil
+}
+
+// CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
+func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
+	// Check if our outputs are valid, and if we will need to add extra
+	// outputs to fill in the gaps between outputs.
+	taroOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the number of outputs we need for our template TX.
+	maxOutputIndex := uint32(len(outputs))
+
+	// If there is a gap in our outputs, we need to find the
+	// largest output index to properly size our template TX.
+	if !taroOnlySpend {
+		maxOutputIndex = 0
+		for _, out := range outputs {
+			if out.AnchorOutputIndex > maxOutputIndex {
+				maxOutputIndex = out.AnchorOutputIndex
+			}
+		}
+
+		// Output indexes are 0-indexed, so we need to increment this
+		// to account for the 0th output.
+		maxOutputIndex++
+	}
+
+	txTemplate := wire.NewMsgTx(2)
+	for i := uint32(0); i < maxOutputIndex; i++ {
+		txTemplate.AddTxOut(createDummyOutput())
+	}
+
+	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	return spendPkt, nil
+}
+
+// UpdateTaprootOutputKeys updates a PSBT with outputs embedding TaroCommitments
+// involved in an asset send. The sender must attach the Bitcoin input holding
+// the corresponding Taro input asset to this PSBT before finalizing the TX.
+// Locators MUST be checked beforehand.
+func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
+	outputCommitments []*commitment.TaroCommitment) error {
+
+	// Add the commitment outputs to the BTC level PSBT now.
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+		outputCommitment := outputCommitments[idx]
+
+		// The commitment must be defined at this point.
+		//
+		// TODO(guggero): Merge multiple Taro level commitments that use
+		// the same external output index.
+		if outputCommitment == nil {
+			return ErrMissingTaroCommitment
+		}
+
+		// The external output index cannot be out of bounds of the
+		// actual TX outputs. This should be checked earlier and is just
+		// a final safeguard here.
+		if vOut.AnchorOutputIndex >= uint32(len(btcPacket.Outputs)) {
+			return ErrInvalidOutputIndexes
+		}
+
+		btcOut := btcPacket.Outputs[vOut.AnchorOutputIndex]
+		internalKey, err := schnorr.ParsePubKey(
+			btcOut.TaprootInternalKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Create the scripts corresponding to the receiver's
+		// TaroCommitment.
+		//
+		// NOTE: We currently default to the Taro commitment having no
+		// sibling in the Tapscript tree. Any sibling would need to be
+		// checked to verify that it is not also a Taro commitment.
+		script, err := PayToAddrScript(
+			*internalKey, nil, *outputCommitment,
+		)
+		if err != nil {
+			return err
+		}
+
+		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
+		btcTxOut.PkScript = script
+	}
+
+	return nil
 }
 
 // interactiveFullValueSend returns true if there is exactly one output that

@@ -4,9 +4,12 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightninglabs/taro/vm"
@@ -216,6 +219,112 @@ func checkOutputCommitments(t *testing.T, vPkt *taropsbt.VPacket,
 			true, true, true,
 		)
 	}
+}
+
+func checkTaprootOutputs(t *testing.T, outputs []*taropsbt.VOutput,
+	outputCommitments []*commitment.TaroCommitment,
+	spendingPsbt *psbt.Packet, senderAsset *asset.Asset, isSplit bool) {
+
+	t.Helper()
+
+	receiverAsset := outputs[0].Asset
+	receiverIndex := outputs[0].AnchorOutputIndex
+	receiverTaroTree := outputCommitments[0]
+	if len(outputs) > 1 {
+		receiverAsset = outputs[1].Asset
+		receiverIndex = outputs[1].AnchorOutputIndex
+		receiverTaroTree = outputCommitments[1]
+	}
+
+	// Build a TaprootProof for each receiver to prove inclusion or
+	// exclusion for each output.
+	senderIndex := outputs[0].AnchorOutputIndex
+	senderTaroTree := outputCommitments[0]
+	senderProofAsset, senderTaroProof, err := senderTaroTree.Proof(
+		senderAsset.TaroCommitmentKey(),
+		senderAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	if senderProofAsset != nil {
+		if !senderAsset.DeepEqual(senderProofAsset) {
+			require.Equal(t, senderAsset, senderProofAsset)
+			require.Fail(t, "sender asset mismatch")
+		}
+	}
+
+	senderInternalKey, err := schnorr.ParsePubKey(
+		spendingPsbt.Outputs[senderIndex].TaprootInternalKey,
+	)
+	require.NoError(t, err)
+
+	senderProof := &proof.TaprootProof{
+		OutputIndex: senderIndex,
+		InternalKey: senderInternalKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof:              *senderTaroProof,
+			TapSiblingPreimage: nil,
+		},
+		TapscriptProof: nil,
+	}
+
+	receiverProofAsset, receiverTaroProof, err := receiverTaroTree.Proof(
+		receiverAsset.TaroCommitmentKey(),
+		receiverAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	// For this assertion, we unset the split commitment, since the leaf in
+	// the receivers tree doesn't have this value.
+	receiverAsset.PrevWitnesses[0].SplitCommitment = nil
+	require.True(t, receiverAsset.DeepEqual(receiverProofAsset))
+
+	receiverInternalKey, err := schnorr.ParsePubKey(
+		spendingPsbt.Outputs[receiverIndex].TaprootInternalKey,
+	)
+	require.NoError(t, err)
+	receiverProof := &proof.TaprootProof{
+		OutputIndex: receiverIndex,
+		InternalKey: receiverInternalKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof:              *receiverTaroProof,
+			TapSiblingPreimage: nil,
+		},
+		TapscriptProof: nil,
+	}
+
+	// The sender proof should prove inclusion of the split commitment root
+	// if there was an asset split, and exclusion of the input asset
+	// otherwise.
+	var senderProofKey *btcec.PublicKey
+	if isSplit {
+		senderProofKey, _, err = senderProof.DeriveByAssetInclusion(
+			senderAsset,
+		)
+		require.NoError(t, err)
+	} else {
+		senderProofKey, err = senderProof.DeriveByAssetExclusion(
+			senderAsset.AssetCommitmentKey(),
+			senderAsset.TaroCommitmentKey(),
+		)
+		require.NoError(t, err)
+	}
+
+	receiverProofKey, _, err := receiverProof.DeriveByAssetInclusion(
+		receiverAsset,
+	)
+	require.NoError(t, err)
+
+	unsignedTxOut := spendingPsbt.UnsignedTx.TxOut
+	senderPsbtKey := unsignedTxOut[senderIndex].PkScript[2:]
+	receiverPsbtKey := unsignedTxOut[receiverIndex].PkScript[2:]
+
+	require.Equal(
+		t, schnorr.SerializePubKey(receiverProofKey), receiverPsbtKey,
+	)
+	require.Equal(
+		t, schnorr.SerializePubKey(senderProofKey), senderPsbtKey,
+	)
 }
 
 // TestPrepareOutputAssets tests the creating of split commitment data with
@@ -735,6 +844,329 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		checkOutputCommitments(t, pkt, outputCommitments, true)
+		return nil
+	},
+	err: nil,
+}}
+
+// TestUpdateTaprootOutputKeys tests edge cases around creating Bitcoin outputs
+// that embed TaroCommitments.
+func TestUpdateTaprootOutputKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range updateTaprootOutputKeysTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f(t)
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+var updateTaprootOutputKeysTestCases = []testCase{{
+	name: "missing change commitment",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		outputCommitments[0] = nil
+
+		return taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+	},
+	err: taroscript.ErrMissingTaroCommitment,
+}, {
+	name: "missing receiver commitment",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
+		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
+			&state.address1.InternalKey,
+		)
+		outputCommitments[1] = nil
+
+		return taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+	},
+	err: taroscript.ErrMissingTaroCommitment,
+}, {
+	name: "interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets, true,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1CollectGroupTaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
+		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
+			&state.address1CollectGroup.InternalKey,
+		)
+
+		err = taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+		require.NoError(t, err)
+
+		checkTaprootOutputs(
+			t, pkt.Outputs, outputCommitments, btcPkt,
+			&state.asset1CollectGroup, false,
+		)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "interactive normal asset full value send",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets, true,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
+		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
+			&state.address1.InternalKey,
+		)
+
+		err = taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+		require.NoError(t, err)
+
+		checkTaprootOutputs(
+			t, pkt.Outputs, outputCommitments, btcPkt,
+			&state.asset1, false,
+		)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "non-interactive normal asset split",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1, state.asset2PrevID,
+			state.spenderScriptKey, state.asset2InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset2TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
+		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
+			&state.address1.InternalKey,
+		)
+
+		err = taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+		require.NoError(t, err)
+
+		checkTaprootOutputs(
+			t, pkt.Outputs, outputCommitments, btcPkt,
+			pkt.Outputs[0].Asset, true,
+		)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "non-interactive normal asset full value send",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address2, state.asset2PrevID,
+			state.spenderScriptKey, state.asset2InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset2TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
+		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
+			&state.address2.InternalKey,
+		)
+
+		err = taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+		require.NoError(t, err)
+
+		checkTaprootOutputs(
+			t, pkt.Outputs, outputCommitments, btcPkt,
+			pkt.Outputs[0].Asset, true,
+		)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "non-interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1CollectGroupTaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+		require.NoError(t, err)
+
+		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			&state.spenderPubKey,
+		)
+		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
+		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
+			&state.address1CollectGroup.InternalKey,
+		)
+
+		err = taroscript.UpdateTaprootOutputKeys(
+			btcPkt, pkt, outputCommitments,
+		)
+		require.NoError(t, err)
+
+		checkTaprootOutputs(
+			t, pkt.Outputs, outputCommitments, btcPkt,
+			pkt.Outputs[0].Asset, true,
+		)
 		return nil
 	},
 	err: nil,
