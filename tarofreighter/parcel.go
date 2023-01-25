@@ -4,17 +4,12 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
-	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // SendState is an enum that describes the current state of a pending outbound
@@ -205,121 +200,13 @@ type sendPackage struct {
 	// InputCommitment is the full Taro tree of the asset being spent.
 	InputCommitment *commitment.TaroCommitment
 
-	// OutputCommitments is the set of Taro commitments that will be
-	// committed to by the outputs of the virtual transaction.
-	//
-	// TODO(guggero): This is only temporary, will be removed in a future
-	// commit of this PR.
-	OutputCommitments []*commitment.TaroCommitment
-
-	// FundedPkt is the PSBT that was funded by the lnd internal wallet.
-	// This will not be updated once the PSBT is signed and finalized in
-	// order to keep the change output information around that is needed for
-	// creating the exclusion proofs.
-	FundedPkt *tarogarden.FundedPsbt
-
-	// SendPkt is the PSBT that will complete the transfer. This will be
-	// updated along the way from funded, signed to finalized.
-	SendPkt *psbt.Packet
-
-	// TransferTx is the final signed transfer transaction.
-	TransferTx *wire.MsgTx
+	// AnchorTx is the BTC level anchor transaction with all its information
+	// as it was used when funding/signing it.
+	AnchorTx *AnchorTransaction
 
 	// OutboundPkg is the on-disk level information that tracks the pending
 	// transfer.
 	OutboundPkg *OutboundParcelDelta
-
-	// TargetFeeRate is the target fee rate for this send expressed in
-	// sat/kw.
-	TargetFeeRate chainfee.SatPerKWeight
-}
-
-// addAnchorPsbtInput adds the input anchor information to the PSBT packet.
-// This is called after the PSBT has been funded, but before signing.
-func (s *sendPackage) addAnchorPsbtInput() error {
-	// With the BIP 32 information completed, we'll now add the information
-	// as a partial input and also add the input to the unsigned
-	// transaction.
-	vIn := s.VirtualPacket.Inputs[0]
-	s.SendPkt.Inputs = append(s.SendPkt.Inputs, vIn.PInput)
-	s.SendPkt.UnsignedTx.TxIn = append(
-		s.SendPkt.UnsignedTx.TxIn, &wire.TxIn{
-			PreviousOutPoint: vIn.PrevID.OutPoint,
-		},
-	)
-
-	// Now that we've added an extra input, we'll want to re-calculate the
-	// total weight of the transaction, so we can ensure we're paying
-	// enough in fees.
-	var (
-		weightEstimator     input.TxWeightEstimator
-		inputAmt, outputAmt int64
-	)
-	for _, pIn := range s.SendPkt.Inputs {
-		inputAmt += pIn.WitnessUtxo.Value
-
-		inputPkScript := pIn.WitnessUtxo.PkScript
-		switch {
-		case txscript.IsPayToWitnessPubKeyHash(inputPkScript):
-			weightEstimator.AddP2WKHInput()
-
-		case txscript.IsPayToScriptHash(inputPkScript):
-			weightEstimator.AddNestedP2WKHInput()
-
-		case txscript.IsPayToTaproot(inputPkScript):
-			weightEstimator.AddTaprootKeySpendInput(
-				txscript.SigHashDefault,
-			)
-		default:
-			return fmt.Errorf("unknown pkScript: %x",
-				inputPkScript)
-		}
-	}
-	for _, txOut := range s.SendPkt.UnsignedTx.TxOut {
-		outputAmt += txOut.Value
-
-		addrType, _, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, s.ReceiverAddr.ChainParams.Params,
-		)
-		if err != nil {
-			return err
-		}
-
-		switch addrType {
-		case txscript.WitnessV0PubKeyHashTy:
-			weightEstimator.AddP2WKHOutput()
-
-		case txscript.WitnessV0ScriptHashTy:
-			weightEstimator.AddP2WSHOutput()
-
-		case txscript.WitnessV1TaprootTy:
-			weightEstimator.AddP2TROutput()
-		default:
-			return fmt.Errorf("unknwon pkscript: %x",
-				txOut.PkScript)
-		}
-	}
-
-	// With this, we can now calculate the total fee we need to pay. We'll
-	// also make sure to round up the required fee to the floor.
-	totalWeight := int64(weightEstimator.Weight())
-	requiredFee := s.TargetFeeRate.FeeForWeight(totalWeight)
-
-	// Given the current fee (which doesn't account for our input) and the
-	// total fee we want to pay, we'll adjust the wallet's change output
-	// accordingly.
-	//
-	// Earlier in adjustFundedPsbt we set wallet's change output to be the
-	// very last output in the transaction.
-	lastIdx := len(s.SendPkt.UnsignedTx.TxOut) - 1
-	currentFee := inputAmt - outputAmt
-	feeDelta := int64(requiredFee) - currentFee
-	s.SendPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
-
-	log.Infof("Adjusting send pkt by delta of %v from %v sats to %v sats",
-		feeDelta, int64(currentFee), int64(requiredFee))
-
-	return nil
 }
 
 // createProofs creates the new set of proofs for the sender and the receiver.
@@ -334,10 +221,10 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 			BaseProofParams: proof.BaseProofParams{
 				Block: &wire.MsgBlock{
 					Transactions: []*wire.MsgTx{
-						s.TransferTx,
+						s.AnchorTx.FinalTx,
 					},
 				},
-				Tx:      s.TransferTx,
+				Tx:      s.AnchorTx.FinalTx,
 				TxIndex: 0,
 			},
 		}
@@ -352,14 +239,15 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 	// the outputs indexes of each tree commitment.
 	inputAsset := s.VirtualPacket.Inputs[0].Asset()
 	inputPrevID := s.VirtualPacket.Inputs[0].PrevID
+	outputCommitments := s.AnchorTx.OutputCommitments
 
 	senderOut := s.VirtualPacket.Outputs[0]
-	senderTaroTree := s.OutputCommitments[0]
+	senderTaroTree := outputCommitments[senderOut.AnchorOutputIndex]
 	senderAsset := senderOut.Asset
 	senderIndex := senderOut.AnchorOutputIndex
 
 	receiverOut := s.VirtualPacket.Outputs[1]
-	receiverTaroTree := s.OutputCommitments[1]
+	receiverTaroTree := outputCommitments[receiverOut.AnchorOutputIndex]
 	receiverAsset := receiverOut.Asset
 	receiverIndex := receiverOut.AnchorOutputIndex
 
@@ -450,7 +338,7 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 	}}
 
 	// We also need to account for any P2TR change outputs.
-	if s.FundedPkt.ChangeOutputIndex > -1 {
+	if s.AnchorTx.FundedPsbt.ChangeOutputIndex > -1 {
 		isAnchor := func(idx uint32) bool {
 			// We exclude both sender and receiver
 			// commitments because those get their own,
@@ -459,8 +347,8 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 		}
 
 		err := proof.AddExclusionProofs(
-			&senderParams.BaseProofParams, s.FundedPkt.Pkt,
-			isAnchor,
+			&senderParams.BaseProofParams,
+			s.AnchorTx.FundedPsbt.Pkt, isAnchor,
 		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error adding exclusion "+
@@ -468,8 +356,8 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 		}
 
 		err = proof.AddExclusionProofs(
-			&receiverParams.BaseProofParams, s.FundedPkt.Pkt,
-			isAnchor,
+			&receiverParams.BaseProofParams,
+			s.AnchorTx.FundedPsbt.Pkt, isAnchor,
 		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error adding exclusion "+

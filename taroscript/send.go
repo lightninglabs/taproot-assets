@@ -677,9 +677,11 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
-	outputCommitments []*commitment.TaroCommitment) error {
+	outputCommitments []*commitment.TaroCommitment) (
+	map[uint32]*commitment.TaroCommitment, error) {
 
 	// Add the commitment outputs to the BTC level PSBT now.
+	mergedCommitments := make(map[uint32]*commitment.TaroCommitment)
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
 		outputCommitment := outputCommitments[idx]
@@ -689,14 +691,15 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 		// TODO(guggero): Merge multiple Taro level commitments that use
 		// the same external output index.
 		if outputCommitment == nil {
-			return ErrMissingTaroCommitment
+			return nil, ErrMissingTaroCommitment
 		}
+		mergedCommitments[vOut.AnchorOutputIndex] = outputCommitment
 
 		// The external output index cannot be out of bounds of the
 		// actual TX outputs. This should be checked earlier and is just
 		// a final safeguard here.
 		if vOut.AnchorOutputIndex >= uint32(len(btcPacket.Outputs)) {
-			return ErrInvalidOutputIndexes
+			return nil, ErrInvalidOutputIndexes
 		}
 
 		btcOut := btcPacket.Outputs[vOut.AnchorOutputIndex]
@@ -704,7 +707,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 			btcOut.TaprootInternalKey,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// Create the scripts corresponding to the receiver's
@@ -717,14 +720,14 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 			*internalKey, nil, *outputCommitment,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
 		btcTxOut.PkScript = script
 	}
 
-	return nil
+	return mergedCommitments, nil
 }
 
 // interactiveFullValueSend returns true if there is exactly one output that
