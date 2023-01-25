@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/vm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,6 +90,30 @@ func checkPreparedOutputsInteractive(t *testing.T, packet *taropsbt.VPacket,
 	require.Equal(t, *receiverAsset.PrevWitnesses[0].PrevID, prevInput)
 	require.Nil(t, receiverAsset.PrevWitnesses[0].TxWitness)
 	require.Nil(t, receiverAsset.PrevWitnesses[0].SplitCommitment)
+}
+
+func checkSignedAsset(t *testing.T, raw, signed *asset.Asset, split bool) {
+	t.Helper()
+
+	require.Equal(t, raw.Version, signed.Version)
+	require.Equal(t, raw.Genesis, signed.Genesis)
+	require.Equal(t, raw.Type, signed.Type)
+	require.Equal(t, raw.Amount, signed.Amount)
+	require.Equal(t, raw.LockTime, signed.LockTime)
+	require.Equal(t, raw.RelativeLockTime, signed.RelativeLockTime)
+	require.Equal(t, len(raw.PrevWitnesses), len(signed.PrevWitnesses))
+
+	// The signed asset should have a single signature in the witness stack.
+	require.NotNil(t, signed.PrevWitnesses[0].TxWitness)
+	require.Len(t, signed.PrevWitnesses[0].TxWitness, 1)
+	require.Len(t, signed.PrevWitnesses[0].TxWitness[0], 64)
+	if split {
+		require.NotNil(t, signed.SplitCommitmentRoot)
+	}
+
+	require.Equal(t, raw.ScriptVersion, signed.ScriptVersion)
+	require.Equal(t, raw.ScriptKey.PubKey, signed.ScriptKey.PubKey)
+	require.Equal(t, raw.GroupKey, signed.GroupKey)
 }
 
 // TestPrepareOutputAssets tests the creating of split commitment data with
@@ -199,4 +224,189 @@ var prepareOutputAssetsTestCases = []testCase{{
 		return taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
 	},
 	err: commitment.ErrInvalidScriptKey,
+}}
+
+// TestSignVirtualTransaction tests edge cases around signing a witness for
+// an asset transfer and validating that transfer with the Taro VM.
+func TestSignVirtualTransaction(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range signVirtualTransactionTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f(t)
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+var signVirtualTransactionTestCases = []testCase{{
+	name: "validate with invalid InputAsset",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets,
+		)
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		pkt.Input.Asset().Genesis = state.genesis1collect
+		return taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+	},
+	err: vm.Error{Kind: vm.ErrIDMismatch},
+}, {
+	name: "validate with invalid NewAsset",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets,
+		)
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		firstPrevID := pkt.Outputs[0].Asset.PrevWitnesses[0].PrevID
+		firstPrevID.OutPoint.Index = 1337
+
+		return taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+	},
+	err: vm.ErrNoInputs,
+}, {
+	name: "validate non-interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets,
+		)
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
+		err = taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		checkSignedAsset(
+			t, unvalidatedAsset, pkt.Outputs[0].Asset, false,
+		)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "validate interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets,
+		)
+		pkt.Outputs[1].Interactive = true
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		unvalidatedAsset := pkt.Outputs[1].Asset.Copy()
+		err = taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		checkSignedAsset(
+			t, unvalidatedAsset, pkt.Outputs[1].Asset, false,
+		)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "validate interactive normal asset full send",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets,
+		)
+		pkt.Outputs[1].Interactive = true
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		unvalidatedAsset := pkt.Outputs[1].Asset.Copy()
+		err = taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		checkSignedAsset(
+			t, unvalidatedAsset, pkt.Outputs[1].Asset, false,
+		)
+		return nil
+	},
+}, {
+	name: "validate asset split",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1, state.asset2PrevID,
+			state.spenderScriptKey, state.asset2InputAssets,
+		)
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
+		err = taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		checkSignedAsset(
+			t, unvalidatedAsset, pkt.Outputs[0].Asset, true,
+		)
+		return nil
+	},
+}, {
+	name: "validate non-interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets,
+		)
+		err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+		require.NoError(t, err)
+
+		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
+		err = taroscript.SignVirtualTransaction(
+			pkt.Input, pkt.Outputs, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		checkSignedAsset(
+			t, unvalidatedAsset, pkt.Outputs[0].Asset, false,
+		)
+		return nil
+	},
+	err: nil,
 }}

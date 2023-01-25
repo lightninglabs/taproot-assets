@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -148,6 +149,107 @@ func PrepareOutputAssets(input *taropsbt.VInput,
 
 		outputs[idx].Asset = &splitAsset.Asset
 		outputs[idx].Asset.ScriptKey = outputs[idx].ScriptKey
+	}
+
+	return nil
+}
+
+// SignVirtualTransaction updates the new asset (the root asset located at the
+// change output in case of a non-interactive or partial amount send or the
+// full asset in case of an interactive full amount send) by creating a
+// signature over the asset transfer, verifying the transfer with the Taro VM,
+// and attaching that signature to the new Asset.
+func SignVirtualTransaction(input *taropsbt.VInput, outputs []*taropsbt.VOutput,
+	signer Signer, validator TxValidator) error {
+
+	prevAssets := commitment.InputSet{
+		input.PrevID: input.Asset(),
+	}
+	newAsset := outputs[1].Asset
+	if input.IsSplit {
+		newAsset = outputs[0].Asset
+	}
+
+	// Create a Taro virtual transaction representing the asset transfer.
+	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
+	if err != nil {
+		return err
+	}
+
+	// For each input asset leaf, we need to produce a witness. Update the
+	// input of the virtual TX, generate a witness, and attach it to the
+	// copy of the new Asset.
+	//
+	// TODO(guggero): I think this is wrong... We shouldn't look at
+	// PrevWitnesses of the single asset we spend but instead have multiple
+	// inputs if we want to spend multiple coins of the same asset?
+	prevWitnessCount := len(newAsset.PrevWitnesses)
+	for idx := 0; idx < prevWitnessCount; idx++ {
+		prevAssetID := newAsset.PrevWitnesses[idx].PrevID
+		prevAsset := prevAssets[*prevAssetID]
+		virtualTxCopy := VirtualTxWithInput(
+			virtualTx, prevAsset, uint32(idx), nil,
+		)
+
+		newWitness, err := SignTaprootKeySpend(
+			*input.Asset().ScriptKey.RawKey.PubKey, virtualTxCopy,
+			prevAsset, 0, txscript.SigHashDefault, signer,
+		)
+		if err != nil {
+			return err
+		}
+
+		newAsset.PrevWitnesses[idx].TxWitness = *newWitness
+	}
+
+	// Create an instance of the Taro VM and validate the transfer.
+	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
+		newAssetCopy := newAsset.Copy()
+		err := validator.Execute(newAssetCopy, splitAssets, prevAssets)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// If the transfer contains no asset splits, we only need to validate
+	// the new asset with its witness attached.
+	if !input.IsSplit {
+		if err := verifySpend(nil); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// If the transfer includes an asset split, we have to validate each
+	// split asset to ensure that our new Asset is committing to
+	// a valid SplitCommitment.
+	splitAssets := make([]*commitment.SplitAsset, 0, len(outputs)-1)
+	for idx := range outputs {
+		if outputs[idx].IsChange || outputs[idx].Interactive {
+			continue
+		}
+
+		splitAssets = append(splitAssets, &commitment.SplitAsset{
+			Asset:       *outputs[idx].Asset,
+			OutputIndex: outputs[idx].AnchorOutputIndex,
+		})
+	}
+	if err := verifySpend(splitAssets); err != nil {
+		return err
+	}
+
+	// Update each split asset to store the root asset with the witness
+	// attached, so the receiver can verify inclusion of the root asset.
+	for idx := range outputs {
+		if outputs[idx].IsChange || outputs[idx].Interactive {
+			continue
+		}
+
+		splitAsset := outputs[idx].Asset
+		splitCommitment := splitAsset.PrevWitnesses[0].SplitCommitment
+		splitCommitment.RootAsset = *newAsset.Copy()
 	}
 
 	return nil
