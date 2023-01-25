@@ -148,12 +148,16 @@ func (f *AssetWallet) SelectCommitments(ctx context.Context,
 		return nil, nil, err
 	}
 
+	// The output at index 1 is the receiver's output.
 	pkt.Outputs[1] = &taropsbt.VOutput{
 		Amount:            receiverAddr.Amount,
 		IsChange:          false,
 		Interactive:       false,
 		AnchorOutputIndex: 1,
-		ScriptKey:         asset.NewScriptKey(&receiverAddr.ScriptKey),
+		ScriptKey: asset.NewScriptKey(
+			&receiverAddr.ScriptKey,
+		),
+		AnchorOutputInternalKey: &receiverAddr.InternalKey,
 	}
 
 	// If we are sending the full value of the input asset, or sending a
@@ -179,6 +183,18 @@ func (f *AssetWallet) SelectCommitments(ctx context.Context,
 			senderScriptKey,
 		)
 	}
+
+	// Before we can prepare output assets for our send, we need to generate
+	// a new internal key for the anchor output of the asset change output.
+	changeInternalKey, err := f.cfg.KeyRing.DeriveNextKey(
+		ctx, taroscript.TaroKeyFamily,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	pkt.Outputs[0].SetAnchorInternalKey(
+		changeInternalKey, receiverAddr.ChainParams.HDCoinType,
+	)
 
 	err = taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
 	if err != nil {

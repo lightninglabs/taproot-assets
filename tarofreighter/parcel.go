@@ -14,7 +14,6 @@ import (
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -198,10 +197,6 @@ type sendPackage struct {
 	// VirtualPacket is the virtual packet that we'll use to construct the
 	// virtual asset transition transaction.
 	VirtualPacket *taropsbt.VPacket
-
-	// SenderNewInternalKey is the new internal key for the sender. This is
-	// where the change assets will be anchored at.
-	SenderNewInternalKey keychain.KeyDescriptor
 
 	// ReceiverAddr is the address of the receiver that kicked off the
 	// transfer.
@@ -406,7 +401,7 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 		// us prove that their split is valid.
 		receiverParams.NewAsset = receiverAsset
 		receiverParams.RootOutputIndex = senderIndex
-		receiverParams.RootInternalKey = s.SenderNewInternalKey.PubKey
+		receiverParams.RootInternalKey = senderOut.AnchorOutputInternalKey
 		receiverParams.RootTaroTree = senderTaroTree
 	} else {
 		// Otherwise, if there's no split, then we can just compute a
@@ -436,11 +431,11 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 	// sender and receiver to generate a proof of this new state
 	// transition.
 	senderParams.OutputIndex = int(senderIndex)
-	senderParams.InternalKey = s.SenderNewInternalKey.PubKey
+	senderParams.InternalKey = senderOut.AnchorOutputInternalKey
 	senderParams.TaroRoot = senderTaroTree
 	senderParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: receiverIndex,
-		InternalKey: &s.ReceiverAddr.InternalKey,
+		InternalKey: receiverOut.AnchorOutputInternalKey,
 		CommitmentProof: &proof.CommitmentProof{
 			Proof: *senderExclusionProof,
 		},
@@ -451,7 +446,7 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 	receiverParams.TaroRoot = receiverTaroTree
 	receiverParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: senderIndex,
-		InternalKey: s.SenderNewInternalKey.PubKey,
+		InternalKey: senderOut.AnchorOutputInternalKey,
 		CommitmentProof: &proof.CommitmentProof{
 			Proof: *receiverExclusionProof,
 		},
