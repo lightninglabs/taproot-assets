@@ -32,4 +32,8 @@ var testCases = []*testCase{
 		name: "collectible send",
 		test: testCollectibleSend,
 	},
+	{
+		name: "psbt send",
+		test: testPsbtSend,
+	},
 }
