@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -804,13 +805,59 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v, "+
 		"type=%v", assetID[:], in.Amt, asset.Type(genesis.Type))
 
-	// Now that we have all the params, we'll try to add a new address to
-	// the addr book.
-	addr, err := r.cfg.AddrBook.NewAddress(
-		ctx, genesis, groupKey, uint64(in.Amt),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make new addr: %w", err)
+	var addr *address.AddrWithKeyInfo
+	switch {
+	// No key was specified, we'll let the address book derive them.
+	case in.ScriptKey == nil && in.InternalKey == nil:
+		// Now that we have all the params, we'll try to add a new
+		// address to the addr book.
+		addr, err = r.cfg.AddrBook.NewAddress(
+			ctx, genesis, groupKey, uint64(in.Amt),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make new addr: %w",
+				err)
+		}
+
+	// Only the script key was specified.
+	case in.ScriptKey != nil && in.InternalKey == nil:
+		return nil, fmt.Errorf("internal key must be specified as " +
+			"well if script key is specified")
+
+	// Only the internal key was specified.
+	case in.ScriptKey == nil && in.InternalKey != nil:
+		return nil, fmt.Errorf("script key must be specified as " +
+			"well if internal key is specified")
+
+	// Both the script and internal keys were specified.
+	default:
+		scriptKey, err := unmarshalScriptKey(in.ScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
+		}
+
+		rpcsLog.Debugf("Decoded script key %x (internal %x, tweak %x)",
+			scriptKey.PubKey.SerializeCompressed(),
+			scriptKey.RawKey.PubKey.SerializeCompressed(),
+			scriptKey.Tweak[:])
+
+		internalKey, err := unmarshalKeyDescriptor(in.InternalKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode internal "+
+				"key: %w", err)
+		}
+
+		// Now that we have all the params, we'll try to add a new
+		// address to the addr book.
+		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
+			ctx, genesis, groupKey, uint64(in.Amt), scriptKey,
+			internalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make new addr: %w",
+				err)
+		}
 	}
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
@@ -1250,4 +1297,52 @@ func marshallSendAssetEvent(
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
 	}
+}
+
+// unmarshalScriptKey parses the RPC script key into the native counterpart.
+func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (asset.ScriptKey, error) {
+	var scriptKey asset.ScriptKey
+	if rpcKey.KeyDesc != nil {
+		keyDesc, err := unmarshalKeyDescriptor(rpcKey.KeyDesc)
+		if err != nil {
+			return scriptKey, err
+		}
+		scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
+			RawKey: keyDesc,
+			Tweak:  rpcKey.TapTweak,
+		}
+	}
+
+	var err error
+	scriptKey.PubKey, err = schnorr.ParsePubKey(rpcKey.PubKey)
+	if err != nil {
+		return scriptKey, err
+	}
+
+	return scriptKey, nil
+}
+
+// unmarshalKeyDescriptor parses the RPC key descriptor into the native
+// counterpart.
+func unmarshalKeyDescriptor(
+	rpcDesc *tarorpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
+
+	var (
+		desc keychain.KeyDescriptor
+		err  error
+	)
+
+	desc.PubKey, err = btcec.ParsePubKey(rpcDesc.RawKeyBytes)
+	if err != nil {
+		return desc, err
+	}
+
+	if rpcDesc.KeyLoc != nil {
+		desc.KeyLocator = keychain.KeyLocator{
+			Family: keychain.KeyFamily(rpcDesc.KeyLoc.KeyFamily),
+			Index:  uint32(rpcDesc.KeyLoc.KeyIndex),
+		}
+	}
+
+	return desc, nil
 }
