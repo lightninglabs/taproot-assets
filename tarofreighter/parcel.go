@@ -79,6 +79,10 @@ type AssetParcel struct {
 	// Dest is the address that should be used to satisfy the transfer.
 	Dest *address.Taro
 
+	// pkg is the actual package that is being shipped. This is not set in
+	// case we request delivery to a destination address.
+	pkg *sendPackage
+
 	// respChan is the channel a response will be sent over.
 	respChan chan *PendingParcel
 

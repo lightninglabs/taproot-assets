@@ -169,7 +169,7 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 	req.errChan = make(chan error, 1)
 	req.respChan = make(chan *PendingParcel, 1)
 
-	log.Infof("New asset shipment request to addr: %v", spew.Sdump(req))
+	log.Infof("New asset shipment request to addr: %v", req.Dest)
 
 	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
@@ -185,6 +185,25 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 	case <-p.Quit:
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
+}
+
+// RequestSignedDelivery requests a shipment of a virtual transaction that has
+// already been signed. This directly injects the deliverable into the state
+// machine at the state where it is anchored on chain.
+func (p *ChainPorter) RequestSignedDelivery(vPacket *taropsbt.VPacket,
+	inputCommitment *commitment.TaroCommitment) (*PendingParcel,
+	error) {
+
+	// To allow external signing of virtual transactions, we need to be able
+	// to inject a packet for delivery into the state machine with a
+	// specific state.
+	return p.RequestShipment(&AssetParcel{
+		pkg: &sendPackage{
+			SendState:       SendStateAnchorSign,
+			VirtualPacket:   vPacket,
+			InputCommitment: inputCommitment,
+		},
+	})
 }
 
 // resumePendingParcel attempts to resume a pending parcel. A pending parcel
@@ -229,28 +248,45 @@ func (p *ChainPorter) taroPorter() {
 	for {
 		select {
 		case req := <-p.exportReqs:
-			log.Infof("Received to send request to: %x:%x",
-				req.Dest.ID(),
-				req.Dest.ScriptKey.SerializeCompressed())
+			var sendPkg *sendPackage
 
-			// Initialize a package with the destination address.
-			sendPkg := sendPackage{
-				ReceiverAddr: req.Dest,
+			// The request either has a destination address we want
+			// to send to, or a send package is already initialized.
+			switch {
+			case req.Dest != nil:
+				log.Infof("Received to send request to: %x:%x",
+					req.Dest.ID(),
+					req.Dest.ScriptKey.SerializeCompressed())
+
+				// Initialize a package with the destination
+				// address.
+				sendPkg = &sendPackage{
+					ReceiverAddr: req.Dest,
+				}
+
+			case req.pkg != nil:
+				sendPkg = req.pkg
+
+			default:
+				req.errChan <- fmt.Errorf("invalid export " +
+					"request")
+				continue
 			}
 
 			// Advance the state machine for this package until we
 			// reach the state that we broadcast the transaction
 			// that completes the transfer.
 			advancedPkg, err := p.advanceStateUntil(
-				&sendPkg, SendStateBroadcast,
+				sendPkg, SendStateBroadcast,
 			)
 			if err != nil {
-				log.Warnf("unable to advance state machine: %v", err)
+				log.Warnf("unable to advance state machine: %v",
+					err)
 				req.errChan <- err
 				continue
 			}
 
-			// With the transaction broadcast, we'll deliver a
+			// With the transaction broadcast, we'll deliver
 			// a response back to the original caller.
 			advancedPkg.deliverResponse(req.respChan)
 

@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -234,6 +235,13 @@ type Porter interface {
 	// through the chain porter. If successful, an initial response will be
 	// returned with the pending transfer information.
 	RequestShipment(req *AssetParcel) (*PendingParcel, error)
+
+	// RequestSignedDelivery requests a shipment of a virtual transaction
+	// that has already been signed. This directly injects the deliverable
+	// into the state machine at the state where it is anchored on chain.
+	RequestSignedDelivery(vPacket *taropsbt.VPacket,
+		inputCommitment *commitment.TaroCommitment) (*PendingParcel,
+		error)
 
 	// Start signals that the asset minter should being operations.
 	Start() error
