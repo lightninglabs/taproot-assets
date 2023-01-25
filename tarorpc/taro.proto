@@ -165,6 +165,7 @@ message MintAssetResponse {
 }
 
 message ListAssetRequest {
+    bool with_witness = 1;
 }
 
 message AnchorInfo {
@@ -259,6 +260,20 @@ message Asset {
 
     // Describes where in the chain the asset is currently anchored.
     AnchorInfo chain_anchor = 11;
+
+    repeated PrevWitness prev_witnesses = 12;
+}
+
+message PrevWitness {
+    PrevInputAsset prev_id = 1;
+
+    repeated bytes tx_witness = 2;
+
+    SplitCommitment split_commitment = 3;
+}
+
+message SplitCommitment {
+    Asset root_asset = 1;
 }
 
 message ListAssetResponse {
