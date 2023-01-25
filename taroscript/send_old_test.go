@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -301,63 +302,65 @@ func createGenesisProof(t *testing.T, state *spendData) {
 	state.asset2GenesisProof = asset2GenesisProof
 }
 
-func createSpend(t *testing.T, state *spendData, spend taroscript.SpendDelta,
-	full bool) (psbt.Packet, [32]byte, taroscript.SpendDelta,
-	taroscript.SpendCommitments) {
+func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
+	full bool) (*psbt.Packet, *taropsbt.VPacket,
+	[]*commitment.TaroCommitment) {
 
-	var (
-		spendAddress     address.Taro
-		receiverStateKey [32]byte
-	)
+	spendAddress := state.address1
 
 	if full {
 		spendAddress = state.address2
-		receiverStateKey = state.address2StateKey
-	} else {
-		spendAddress = state.address1
-		receiverStateKey = state.address1StateKey
+		state.spenderScriptKey = *asset.NUMSPubKey
 	}
 
-	spendPrepared, err := taroscript.PrepareAssetSplitSpend(
-		spendAddress, state.asset2PrevID,
-		state.spenderScriptKey, spend,
+	pkt := createPacket(
+		spendAddress, state.asset2PrevID, state.spenderScriptKey,
+		inputSet,
+	)
+
+	// For all other tests it's okay to test external indexes that are
+	// different from the output index. But here we create an actual TX that
+	// will be inspected by the proof verification, so we need to have
+	// correct outputs.
+	pkt.Outputs[1].AnchorOutputIndex = 1
+
+	err := taroscript.PrepareOutputAssets(pkt.Input, pkt.Outputs)
+	require.NoError(t, err)
+	err = taroscript.SignVirtualTransaction(
+		pkt.Input, pkt.Outputs, state.signer, state.validator,
 	)
 	require.NoError(t, err)
 
-	spendCompleted, err := taroscript.CompleteAssetSpend(
-		state.spenderPubKey, *spendPrepared, state.signer,
-		state.validator,
+	inputCommitment := &state.asset2TaroTree
+	outputCommitments, err := taroscript.CreateOutputCommitments(
+		inputCommitment, pkt.Input, pkt.Outputs,
 	)
 	require.NoError(t, err)
 
-	spendCommitments, err := taroscript.CreateSpendCommitments(
-		&state.asset2TaroTree, state.asset2PrevID,
-		*spendCompleted, spendAddress,
-		state.spenderScriptKey,
+	btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
+	require.NoError(t, err)
+
+	btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+		&state.spenderPubKey,
+	)
+	btcPkt.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
+		&spendAddress.InternalKey,
+	)
+
+	err = taroscript.UpdateTaprootOutputKeys(
+		btcPkt, pkt.Outputs, outputCommitments,
 	)
 	require.NoError(t, err)
 
-	spendPsbt, err := taroscript.CreateTemplatePsbt(
-		spendCompleted.Locators,
-	)
-	require.NoError(t, err)
-	err = taroscript.CreateSpendOutputs(
-		spendAddress, spendCompleted.Locators,
-		state.spenderPubKey, state.spenderScriptKey,
-		spendCommitments, spendPsbt,
-	)
-	require.NoError(t, err)
-
-	return *spendPsbt, receiverStateKey, *spendCompleted, spendCommitments
+	return btcPkt, pkt, outputCommitments
 }
 
 func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
-	spendCompleted taroscript.SpendDelta, spendPsbt psbt.Packet,
-	receiverStateKey [32]byte,
-	spendCommitments taroscript.SpendCommitments) []proof.TransitionParams {
+	btcPkt *psbt.Packet, pkt *taropsbt.VPacket,
+	outputCommitments []*commitment.TaroCommitment) []proof.TransitionParams {
 
-	spendPsbt.UnsignedTx.AddTxIn(&genesisTxIn)
-	spendTx := spendPsbt.UnsignedTx.Copy()
+	btcPkt.UnsignedTx.AddTxIn(&genesisTxIn)
+	spendTx := btcPkt.UnsignedTx.Copy()
 	merkleTree := blockchain.BuildMerkleTreeStore(
 		[]*btcutil.Tx{btcutil.NewTx(spendTx)}, false,
 	)
@@ -365,20 +368,14 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 	genesisHash := state.asset2GenesisProof.BlockHeader.BlockHash()
 	blockHeader := wire.NewBlockHeader(0, &genesisHash, merkleRoot, 0, 0)
 
-	receiverLocator := spendCompleted.
-		Locators[receiverStateKey]
-	receiverAsset := spendCompleted.SplitCommitment.
-		SplitAssets[receiverLocator].Asset
-	senderStateKey := asset.AssetCommitmentKey(
-		state.address1.ID(),
-		&state.spenderScriptKey, true,
-	)
-	senderTaroTree := spendCommitments[senderStateKey]
-	receiverTaroTree := spendCommitments[receiverStateKey]
+	senderAsset := pkt.Outputs[0].Asset
+	receiverAsset := pkt.Outputs[1].Asset
+	senderTaroTree := outputCommitments[0]
+	receiverTaroTree := outputCommitments[1]
 
 	_, senderExclusionProof, err := receiverTaroTree.Proof(
-		spendCompleted.NewAsset.TaroCommitmentKey(),
-		spendCompleted.NewAsset.AssetCommitmentKey(),
+		senderAsset.TaroCommitmentKey(),
+		senderAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 	_, receiverExclusionProof, err := senderTaroTree.Proof(
@@ -397,7 +394,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 			TxIndex:     0,
 			OutputIndex: 0,
 			InternalKey: &state.spenderPubKey,
-			TaroRoot:    &senderTaroTree,
+			TaroRoot:    senderTaroTree,
 			ExclusionProofs: []proof.TaprootProof{{
 				OutputIndex: 1,
 				InternalKey: &state.receiverPubKey,
@@ -406,7 +403,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				},
 			}},
 		},
-		NewAsset: &spendCompleted.NewAsset,
+		NewAsset: senderAsset,
 	}
 
 	receiverParams := proof.TransitionParams{
@@ -419,7 +416,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 			TxIndex:     0,
 			OutputIndex: 1,
 			InternalKey: &state.receiverPubKey,
-			TaroRoot:    &receiverTaroTree,
+			TaroRoot:    receiverTaroTree,
 			ExclusionProofs: []proof.TaprootProof{{
 				OutputIndex: 0,
 				InternalKey: &state.spenderPubKey,
@@ -428,10 +425,10 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				},
 			}},
 		},
-		NewAsset:        &receiverAsset,
+		NewAsset:        receiverAsset,
 		RootOutputIndex: 0,
 		RootInternalKey: &state.spenderPubKey,
-		RootTaroTree:    &senderTaroTree,
+		RootTaroTree:    senderTaroTree,
 	}
 
 	return []proof.TransitionParams{senderParams, receiverParams}
@@ -1927,19 +1924,14 @@ func TestProofVerify(t *testing.T) {
 	}
 
 	// Perform a split spend of asset 2.
-	spend := taroscript.SpendDelta{
-		InputAssets: state.asset2InputAssets,
-	}
-
-	spendPsbt, receiverStateKey, spendCompleted, spendCommitments := createSpend(
-		t, &state, spend, false,
+	btcPkt, pkt, outputCommitments := createSpend(
+		t, &state, state.asset2InputAssets, false,
 	)
 
 	genesisTxIn := wire.TxIn{PreviousOutPoint: *genesisOutPoint}
 
 	proofParams := createProofParams(
-		t, genesisTxIn, state, spendCompleted, spendPsbt,
-		receiverStateKey, spendCommitments,
+		t, genesisTxIn, state, btcPkt, pkt, outputCommitments,
 	)
 
 	// Create a proof for each receiver and verify it.
@@ -1993,21 +1985,16 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	}
 
 	// Perform a full value split spend of asset 2.
-	spend := taroscript.SpendDelta{
-		InputAssets: state.asset2InputAssets,
-	}
-
 	state.spenderScriptKey = *asset.NUMSPubKey
 
-	spendPsbt, receiverStateKey, spendCompleted, spendCommitments := createSpend(
-		t, &state, spend, true,
+	btcPkt, pkt, outputCommitments := createSpend(
+		t, &state, state.asset2InputAssets, true,
 	)
 
 	genesisTxIn := wire.TxIn{PreviousOutPoint: *genesisOutPoint}
 
 	proofParams := createProofParams(
-		t, genesisTxIn, state, spendCompleted, spendPsbt,
-		receiverStateKey, spendCommitments,
+		t, genesisTxIn, state, btcPkt, pkt, outputCommitments,
 	)
 
 	// Create a proof for each receiver and verify it.
@@ -2031,56 +2018,44 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestValidIndexes tests various sets of asset locators to assert that we can
-// detect an incomplete set of locators, and sets that form a valid Bitcoin
-// transaction.
-func TestValidIndexes(t *testing.T) {
+// TestAreValidAnchorOutputIndexes tests various sets of asset locators to
+// assert that we can detect an incomplete set of locators, and sets that form a
+// valid Bitcoin transaction.
+func TestAreValidAnchorOutputIndexes(t *testing.T) {
 	t.Parallel()
 
-	state := initSpendScenario(t)
-
-	spenderStateKey := asset.AssetCommitmentKey(
-		state.asset1.ID(), &state.spenderScriptKey, true,
-	)
-	receiverStateKey := state.address1.AssetCommitmentKey()
-	receiver2StateKey := state.address2.AssetCommitmentKey()
-
-	locators := make(taroscript.SpendLocators)
-
 	// Insert a locator for the sender.
-	locators[spenderStateKey] = commitment.SplitLocator{
-		OutputIndex: 0,
-	}
+	outputs := []*taropsbt.VOutput{{
+		AnchorOutputIndex: 0,
+	}}
 
-	// Reject groups of locators smaller than 2.
-	taroOnlySpend, err := taroscript.AreValidIndexes(locators)
+	// Reject groups of outputs smaller than 2.
+	taroOnlySpend, err := taroscript.AreValidAnchorOutputIndexes(outputs)
 	require.False(t, taroOnlySpend)
 	require.ErrorIs(t, err, taroscript.ErrInvalidOutputIndexes)
 
 	// Insert a locator for the receiver, that would form a Taro-only spend.
-	locators[receiverStateKey] = commitment.SplitLocator{
-		OutputIndex: 1,
-	}
+	outputs = append(outputs, &taropsbt.VOutput{
+		AnchorOutputIndex: 1,
+	})
 
-	taroOnlySpend, err = taroscript.AreValidIndexes(locators)
+	taroOnlySpend, err = taroscript.AreValidAnchorOutputIndexes(outputs)
 	require.True(t, taroOnlySpend)
 	require.NoError(t, err)
 
 	// Modify the receiver locator so the indexes are no longer continuous.
-	locators[receiverStateKey] = commitment.SplitLocator{
-		OutputIndex: 2,
-	}
+	outputs[1].AnchorOutputIndex = 2
 
-	taroOnlySpend, err = taroscript.AreValidIndexes(locators)
+	taroOnlySpend, err = taroscript.AreValidAnchorOutputIndexes(outputs)
 	require.False(t, taroOnlySpend)
 	require.NoError(t, err)
 
-	// Check for correctness with more than 2 locators.
-	locators[receiver2StateKey] = commitment.SplitLocator{
-		OutputIndex: 1,
-	}
+	// Check for correctness with more than 2 outputs.
+	outputs = append(outputs, &taropsbt.VOutput{
+		AnchorOutputIndex: 1,
+	})
 
-	taroOnlySpend, err = taroscript.AreValidIndexes(locators)
+	taroOnlySpend, err = taroscript.AreValidAnchorOutputIndexes(outputs)
 	require.True(t, taroOnlySpend)
 	require.NoError(t, err)
 }
