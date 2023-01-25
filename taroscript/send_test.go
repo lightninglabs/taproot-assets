@@ -24,7 +24,7 @@ type testCase struct {
 }
 
 func createPacket(addr address.Taro, prevInput asset.PrevID,
-	scriptKey btcec.PublicKey, inputSet commitment.InputSet,
+	changeScriptKey btcec.PublicKey, inputSet commitment.InputSet,
 	fullValueInteractive bool) *taropsbt.VPacket {
 
 	inputAsset := inputSet[prevInput]
@@ -33,7 +33,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 	}}
 	outputs := []*taropsbt.VOutput{{
 		Amount:            inputAsset.Amount - addr.Amount,
-		ScriptKey:         asset.NewScriptKey(&scriptKey),
+		ScriptKey:         asset.NewScriptKey(&changeScriptKey),
 		AnchorOutputIndex: 0,
 		IsChange:          true,
 	}, {
@@ -46,7 +46,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 		outputs = []*taropsbt.VOutput{{
 			Interactive:       true,
 			Amount:            addr.Amount,
-			ScriptKey:         asset.NewScriptKey(&scriptKey),
+			ScriptKey:         asset.NewScriptKey(&addr.ScriptKey),
 			AnchorOutputIndex: receiverExternalIdx,
 		}}
 	}
@@ -141,6 +141,83 @@ func checkSignedAsset(t *testing.T, raw, signed *asset.Asset, split,
 	require.Equal(t, raw.GroupKey, signed.GroupKey)
 }
 
+func checkOutputCommitments(t *testing.T, vPkt *taropsbt.VPacket,
+	outputCommitments []*commitment.TaroCommitment, isSplit bool) {
+
+	t.Helper()
+
+	// Assert deletion of the input asset and possible deletion of the
+	// matching AssetCommitment tree.
+	senderTree := outputCommitments[0]
+	receiverTree := outputCommitments[0]
+
+	// If there are multiple outputs, the receiver should be the second one.
+	if len(vPkt.Outputs) > 1 {
+		receiverTree = outputCommitments[1]
+	}
+
+	input := vPkt.Inputs[0]
+	outputs := vPkt.Outputs
+	inputAsset := input.Asset()
+
+	newAsset := outputs[0].Asset
+
+	pkgIsSplit, err := vPkt.HasSplitCommitment()
+	require.NoError(t, err)
+
+	require.Equal(t, isSplit, pkgIsSplit)
+
+	includesAssetCommitment := true
+	senderCommitments := senderTree.Commitments()
+	_, ok := senderCommitments[inputAsset.TaroCommitmentKey()]
+	if !ok {
+		includesAssetCommitment = false
+	}
+
+	inputMatchingAsset := !isSplit
+
+	// If our spend creates an un-spendable root, no asset should exist
+	// at the location of the input asset. The same goes for an interactive
+	// full value send, which is only a single output.
+	if newAsset.IsUnspendable() && isSplit {
+		inputMatchingAsset = true
+	}
+
+	// Input asset should always be excluded.
+	checkTaroCommitment(
+		t, []*asset.Asset{inputAsset}, senderTree,
+		false, includesAssetCommitment, inputMatchingAsset,
+	)
+
+	// Assert inclusion of the validated asset in the receiver tree
+	// when not splitting.
+	if !isSplit {
+		checkTaroCommitment(
+			t, []*asset.Asset{newAsset}, receiverTree,
+			true, true, true,
+		)
+	} else {
+		// For splits, assert inclusion for the validated asset in the
+		// sender tree, and for the receiver split asset in the receiver
+		// tree.
+		receiver := outputs[1].Asset
+		checkTaroCommitment(
+			t, []*asset.Asset{newAsset}, senderTree,
+			true, true, true,
+		)
+
+		// Before we go to compare the commitments, we'll remove the
+		// split commitment witness from the receiver asset, since the
+		// actual tree doesn't explicitly commit to this value.
+		receiver.PrevWitnesses[0].SplitCommitment = nil
+
+		checkTaroCommitment(
+			t, []*asset.Asset{receiver}, receiverTree,
+			true, true, true,
+		)
+	}
+}
+
 // TestPrepareOutputAssets tests the creating of split commitment data with
 // different sets of split locators. The validity of locators is assumed to be
 // checked earlier via areValidIndexes().
@@ -199,7 +276,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 	name: "full value interactive send with un-spendable change",
 	f: func(t *testing.T) error {
 		state := initSpendScenario(t)
-		state.spenderScriptKey = *asset.NUMSPubKey
+		state.address2.ScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
@@ -438,6 +515,226 @@ var signVirtualTransactionTestCases = []testCase{{
 		checkSignedAsset(
 			t, unvalidatedAsset, pkt.Outputs[0].Asset, true, true,
 		)
+		return nil
+	},
+	err: nil,
+}}
+
+// TestCreateOutputCommitments tests edge cases around creating TaroCommitments
+// to represent an asset transfer.
+func TestCreateOutputCommitments(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range createOutputCommitmentsTestCases {
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.f(t)
+			require.ErrorIs(t, err, testCase.err)
+		})
+		if !success {
+			return
+		}
+	}
+}
+
+var createOutputCommitmentsTestCases = []testCase{{
+	name: "missing input asset commitment",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1TaroTree
+		inputCommitments := inputCommitment.Commitments()
+		asset1Key := state.asset1.TaroCommitmentKey()
+		senderCommitment, ok := inputCommitments[asset1Key]
+		require.True(t, ok)
+
+		err = inputCommitment.Delete(senderCommitment)
+		require.NoError(t, err)
+
+		_, err = taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		return err
+	},
+	err: taroscript.ErrMissingAssetCommitment,
+}, {
+	name: "missing input asset",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1TaroTree
+		inputCommitments := inputCommitment.Commitments()
+		asset1Key := state.asset1.TaroCommitmentKey()
+		senderCommitment, ok := inputCommitments[asset1Key]
+		require.True(t, ok)
+
+		err = senderCommitment.Delete(&state.asset1)
+		require.NoError(t, err)
+
+		err = inputCommitment.Upsert(senderCommitment)
+		require.NoError(t, err)
+
+		_, err = taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		return err
+	},
+	err: taroscript.ErrMissingInputAsset,
+}, {
+	name: "non-interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1CollectGroupTaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		checkOutputCommitments(t, pkt, outputCommitments, true)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "interactive normal asset full value send",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state.spenderScriptKey, state.asset1InputAssets, true,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		checkOutputCommitments(t, pkt, outputCommitments, false)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "non-interactive normal asset split",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1, state.asset2PrevID,
+			state.spenderScriptKey, state.asset2InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset2TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		checkOutputCommitments(t, pkt, outputCommitments, true)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "non-interactive normal asset full value send",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address2, state.asset2PrevID,
+			state.spenderScriptKey, state.asset2InputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset2TaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		checkOutputCommitments(t, pkt, outputCommitments, true)
+		return nil
+	},
+	err: nil,
+}, {
+	name: "non-interactive collectible with group key",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupInputAssets, false,
+		)
+		err := taroscript.PrepareOutputAssets(pkt)
+		require.NoError(t, err)
+		err = taroscript.SignVirtualTransaction(
+			pkt, 0, state.signer, state.validator,
+		)
+		require.NoError(t, err)
+
+		inputCommitment := &state.asset1CollectGroupTaroTree
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			inputCommitment, pkt,
+		)
+		require.NoError(t, err)
+
+		checkOutputCommitments(t, pkt, outputCommitments, true)
 		return nil
 	},
 	err: nil,

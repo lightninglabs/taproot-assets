@@ -512,15 +512,19 @@ func checkTaroCommitment(t *testing.T, assets []*asset.Asset,
 		require.NoError(t, err)
 
 		if includesAsset {
-			// Check the included asset is equal to the one provided
+			// Check the included asset is equal to the one
+			// provided.
 			require.NotNil(t, proofAsset)
-			require.True(t, proofAsset.DeepEqual(asset))
+			if !proofAsset.DeepEqual(asset) {
+				require.Equal(t, asset, proofAsset)
+				require.Fail(t, "asset mismatch")
+			}
 		} else {
 			if !matchingAsset {
 				// Check the included asset is not equal to
 				// the one provided; used for the sender tree
 				// when the asset was split and the script key
-				// is reused
+				// is reused.
 				require.NotNil(t, proofAsset)
 				require.NotEqual(t, *proofAsset, *asset)
 			} else {
@@ -534,31 +538,34 @@ func checkTaroCommitment(t *testing.T, assets []*asset.Asset,
 			require.Nil(t, proof.AssetProof)
 		}
 
-		var (
-			taroCommitment *commitment.TaroCommitment
-		)
-		if includesAsset && includesAssetCommitment {
+		// Different root hash if asset is mismatched.
+		if !matchingAsset {
+			continue
+		}
+
+		var taroCommitment *commitment.TaroCommitment
+		switch {
+		case includesAsset && includesAssetCommitment:
 			taroCommitment, err = proof.DeriveByAssetInclusion(
 				asset,
 			)
-		} else if includesAssetCommitment {
+
+		case includesAssetCommitment:
 			taroCommitment, err = proof.DeriveByAssetExclusion(
 				asset.AssetCommitmentKey(),
 			)
-		} else {
+
+		default:
 			taroCommitment, err = proof.
 				DeriveByAssetCommitmentExclusion(
 					asset.TaroCommitmentKey(),
 				)
 		}
 		require.NoError(t, err)
-		// different root hash if asset is mismatched
-		if matchingAsset {
-			require.Equal(
-				t, inputCommitment.TapLeaf(),
-				taroCommitment.TapLeaf(),
-			)
-		}
+
+		require.Equal(
+			t, inputCommitment.TapLeaf(), taroCommitment.TapLeaf(),
+		)
 	}
 }
 
