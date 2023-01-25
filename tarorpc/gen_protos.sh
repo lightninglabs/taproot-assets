@@ -6,7 +6,7 @@ set -e
 function generate() {
   echo "Generating root gRPC server protos"
 
-  PROTOS="taro.proto"
+  PROTOS="taro.proto assetwalletrpc/assetwallet.proto"
 
   # For each of the sub-servers, we then generate their protos, but a restricted
   # set as they don't yet require REST proxies, or swagger docs.
@@ -37,7 +37,7 @@ function generate() {
       --openapiv2_opt json_names_for_fields=false \
       "${file}"
   done
-  
+
   # Generate the JSON/WASM client stubs.
   falafel=$(which falafel)
   pkg="tarorpc"
@@ -47,9 +47,8 @@ function generate() {
     --custom_out=. \
     --custom_opt="$opts" \
     taro.proto
-  
-  # No sub-severs yet, but we'll retain the infrastructure.
-  PACKAGES=""
+
+  PACKAGES="assetwalletrpc"
   for package in $PACKAGES; do
 
     opts="package_name=$package,manual_import=$manual_import,js_stubs=1,build_tags=// +build js"

@@ -121,7 +121,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	// hold the asset transfer. Because sending to an address is always a
 	// non-interactive process, we can use this function that always creates
 	// a change output.
-	pkt := taropsbt.FromAddress(&receiverAddr)
+	pkt := taropsbt.FromAddress(&receiverAddr, 1)
 
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
