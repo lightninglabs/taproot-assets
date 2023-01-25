@@ -80,17 +80,17 @@ func TxMerkleProofRecord(proof *TxMerkleProof) tlv.Record {
 	)
 }
 
-func AssetLeafRecord(asset *asset.Asset) tlv.Record {
+func AssetLeafRecord(a *asset.Asset) tlv.Record {
 	sizeFunc := func() uint64 {
 		var buf bytes.Buffer
-		if err := asset.Encode(&buf); err != nil {
+		if err := a.Encode(&buf); err != nil {
 			panic(err)
 		}
 		return uint64(len(buf.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
-		AssetLeafType, asset, sizeFunc, AssetLeafEncoder,
-		AssetLeafDecoder,
+		AssetLeafType, a, sizeFunc, asset.LeafEncoder,
+		asset.LeafDecoder,
 	)
 }
 
