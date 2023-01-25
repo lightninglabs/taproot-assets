@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -313,27 +312,23 @@ func SignVirtualTransaction(input *taropsbt.VInput, outputs []*taropsbt.VOutput,
 	// input of the virtual TX, generate a witness, and attach it to the
 	// copy of the new Asset.
 	//
-	// TODO(guggero): I think this is wrong... We shouldn't look at
-	// PrevWitnesses of the single asset we spend but instead have multiple
-	// inputs if we want to spend multiple coins of the same asset?
-	prevWitnessCount := len(newAsset.PrevWitnesses)
-	for idx := 0; idx < prevWitnessCount; idx++ {
-		prevAssetID := newAsset.PrevWitnesses[idx].PrevID
-		prevAsset := prevAssets[*prevAssetID]
-		virtualTxCopy := VirtualTxWithInput(
-			virtualTx, prevAsset, uint32(idx), nil,
-		)
+	// TODO(guggero): Update this once we want to support more than one
+	// asset being spent in a single transaction.
+	inputIdx := 0
+	virtualTxCopy := VirtualTxWithInput(
+		virtualTx, input.Asset(), uint32(inputIdx), nil,
+	)
 
-		newWitness, err := SignTaprootKeySpend(
-			*input.Asset().ScriptKey.RawKey.PubKey, virtualTxCopy,
-			prevAsset, 0, txscript.SigHashDefault, signer,
-		)
-		if err != nil {
-			return err
-		}
-
-		newAsset.PrevWitnesses[idx].TxWitness = *newWitness
+	// Sign the virtual transaction based on the input script
+	// information (key spend or script spend).
+	newWitness, err := CreateTaprootSignature(
+		input, virtualTxCopy, inputIdx, signer,
+	)
+	if err != nil {
+		return fmt.Errorf("error creating taproot signature: %w", err)
 	}
+
+	newAsset.PrevWitnesses[inputIdx].TxWitness = newWitness
 
 	// Create an instance of the Taro VM and validate the transfer.
 	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
