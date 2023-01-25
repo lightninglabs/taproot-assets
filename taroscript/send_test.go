@@ -1217,9 +1217,10 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		outputCommitments[0] = nil
 
-		return taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
+		return err
 	},
 	err: taroscript.ErrMissingTaroCommitment,
 }, {
@@ -1250,9 +1251,10 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		outputCommitments[1] = nil
 
-		return taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
+		return err
 	},
 	err: taroscript.ErrMissingTaroCommitment,
 }, {
@@ -1283,7 +1285,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		err = taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1322,7 +1324,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		err = taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1359,7 +1361,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		err = taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1397,7 +1399,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		err = taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1436,7 +1438,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		err = taroscript.UpdateTaprootOutputKeys(
+		_, err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt.Outputs, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1487,7 +1489,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 	require.NoError(t, err)
 
-	err = taroscript.UpdateTaprootOutputKeys(
+	_, err = taroscript.UpdateTaprootOutputKeys(
 		btcPkt, pkt.Outputs, outputCommitments,
 	)
 	require.NoError(t, err)

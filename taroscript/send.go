@@ -583,9 +583,11 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 // Locators MUST be checked beforehand.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet,
 	outputs []*taropsbt.VOutput,
-	outputCommitments []*commitment.TaroCommitment) error {
+	outputCommitments []*commitment.TaroCommitment) (
+	map[uint32]*commitment.TaroCommitment, error) {
 
 	// Add the commitment outputs to the BTC level PSBT now.
+	mergedCommitments := make(map[uint32]*commitment.TaroCommitment)
 	for idx := range outputs {
 		vOut := outputs[idx]
 		outputCommitment := outputCommitments[idx]
@@ -594,7 +596,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet,
 		// actual TX outputs. This should be checked earlier and is just
 		// a final safeguard here.
 		if vOut.AnchorOutputIndex >= uint32(len(btcPacket.Outputs)) {
-			return ErrInvalidOutputIndexes
+			return nil, ErrInvalidOutputIndexes
 		}
 
 		btcOut := btcPacket.Outputs[vOut.AnchorOutputIndex]
@@ -602,7 +604,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet,
 			btcOut.TaprootInternalKey,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// The commitment must be defined at this point.
@@ -610,8 +612,9 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet,
 		// TODO(guggero): Merge multiple Taro level commitments that use
 		// the same external output index.
 		if outputCommitment == nil {
-			return ErrMissingTaroCommitment
+			return nil, ErrMissingTaroCommitment
 		}
+		mergedCommitments[vOut.AnchorOutputIndex] = outputCommitment
 
 		// Create the scripts corresponding to the receiver's
 		// TaroCommitment.
@@ -623,14 +626,14 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet,
 			*internalKey, nil, *outputCommitment,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
 		btcTxOut.PkScript = script
 	}
 
-	return nil
+	return mergedCommitments, nil
 }
 
 // interactiveFullValueSend returns true if the given outputs spend the input
