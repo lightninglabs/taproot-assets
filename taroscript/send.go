@@ -6,14 +6,29 @@ import (
 	"math"
 	"sort"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
 	"golang.org/x/exp/slices"
+)
+
+const (
+	// DummyAmtSats is the default amount of sats we'll use in Bitcoin
+	// outputs embedding Taro commitments. This value just needs to be
+	// greater than dust, and we assume that this value is updated to match
+	// the input asset bearing UTXOs before finalizing the transfer TX.
+	DummyAmtSats = btcutil.Amount(1_000)
+
+	// SendConfTarget is the confirmation target we'll use to query for
+	// a fee estimate.
+	SendConfTarget = 6
 )
 
 var (
@@ -34,7 +49,120 @@ var (
 	ErrInvalidSplitAmounts = errors.New(
 		"fund: invalid split amounts, sum doesn't match input",
 	)
+
+	// ErrMissingInputAsset is an error returned when we attempt to spend
+	// to a Taro address from an input that does not contain
+	// the matching asset.
+	ErrMissingInputAsset = errors.New(
+		"send: Input does not contain requested asset",
+	)
+
+	// ErrInsufficientInputAsset is an error returned when we attempt
+	// to spend to a Taro address from an input that contains
+	// insufficient asset funds.
+	ErrInsufficientInputAsset = errors.New(
+		"send: Input asset value is insufficient",
+	)
+
+	// ErrInvalidOutputIndexes is an error returned when we attempt to spend
+	// to Bitcoin output indexes that do not start at 0 or
+	// are not continuous.
+	ErrInvalidOutputIndexes = errors.New(
+		"send: Output indexes not starting at 0 and continuous",
+	)
+
+	// ErrMissingSplitAsset is an error returned when we attempt to look up
+	// a split asset in a map and the specified asset is not found.
+	ErrMissingSplitAsset = errors.New(
+		"send: split asset not found",
+	)
+
+	// ErrMissingAssetCommitment is an error returned when we attempt to
+	// look up an Asset commitment in a map and the specified commitment
+	// is not found.
+	ErrMissingAssetCommitment = errors.New(
+		"send: Asset commitment not found",
+	)
+
+	// ErrMissingTaroCommitment is an error returned when we attempt to
+	// look up a Taro commitment in a map and the specified commitment
+	// is not found.
+	ErrMissingTaroCommitment = errors.New(
+		"send: Taro commitment not found",
+	)
 )
+
+// createDummyOutput creates a new Bitcoin transaction output that is later
+// used to embed a Taro commitment.
+func createDummyOutput() *wire.TxOut {
+	// The dummy PkScript is the same size as an encoded P2TR output.
+	newOutput := wire.TxOut{
+		Value:    int64(DummyAmtSats),
+		PkScript: make([]byte, 34),
+	}
+	return &newOutput
+}
+
+// IsValidInput verifies that the Taro commitment of the input contains an
+// asset that could be spent to the given Taro address.
+func IsValidInput(input *commitment.TaroCommitment,
+	addr address.Taro, inputScriptKey btcec.PublicKey,
+	net address.ChainParams) (*asset.Asset, bool, error) {
+
+	fullValue := false
+
+	// The input and address networks must match.
+	if !address.IsForNet(addr.ChainParams.TaroHRP, &net) {
+		return nil, fullValue, address.ErrMismatchedHRP
+	}
+
+	// The top-level Taro tree must have a non-empty asset tree at the leaf
+	// specified in the address.
+	inputCommitments := input.Commitments()
+	assetCommitment, ok := inputCommitments[addr.TaroCommitmentKey()]
+	if !ok {
+		return nil, fullValue, fmt.Errorf("input commitment does "+
+			"not contain asset_id=%x: %w", addr.TaroCommitmentKey(),
+			ErrMissingInputAsset)
+	}
+
+	// The asset tree must have a non-empty Asset at the location
+	// specified by the sender's script key.
+	assetCommitmentKey := asset.AssetCommitmentKey(
+		addr.ID(), &inputScriptKey, addr.GroupKey == nil,
+	)
+	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
+	if err != nil {
+		return nil, fullValue, err
+	}
+
+	if inputAsset == nil {
+		return nil, fullValue, fmt.Errorf("input commitment does not "+
+			"contain leaf with script_key=%x: %w",
+			inputScriptKey.SerializeCompressed(),
+			ErrMissingInputAsset)
+	}
+
+	// For Normal assets, we also check that the input asset amount is
+	// at least as large as the amount specified in the address.
+	// If the input amount is exactly the amount specified in the address,
+	// the spend must use an unspendable zero-value root split.
+	if inputAsset.Type == asset.Normal {
+		if inputAsset.Amount < addr.Amount {
+			return nil, fullValue, ErrInsufficientInputAsset
+		}
+
+		if inputAsset.Amount == addr.Amount {
+			fullValue = true
+		}
+	} else {
+		// Collectible assets always require the spending split to use an
+		// unspendable zero-value root split.
+		fullValue = true
+	}
+
+	return inputAsset, fullValue, nil
+}
 
 // PrepareOutputAssets prepares the assets of the given outputs depending on
 // the amounts set on the transaction. If a split is necessary (non-interactive
