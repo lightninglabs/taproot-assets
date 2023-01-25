@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -216,6 +217,110 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 
 		outputs[idx].Asset = &splitAsset.Asset
 		outputs[idx].Asset.ScriptKey = outputs[idx].ScriptKey
+	}
+
+	return nil
+}
+
+// SignVirtualTransaction updates the new asset (the root asset located at the
+// change output in case of a non-interactive or partial amount send or the
+// full asset in case of an interactive full amount send) by creating a
+// signature over the asset transfer, verifying the transfer with the Taro VM,
+// and attaching that signature to the new Asset.
+//
+// TODO(guggero): We also need to take into account any other assets that were
+// in the same commitment as the asset we spend. We need to re-sign those as
+// well and place them in the change output of this transaction.
+// See https://github.com/lightninglabs/taro/issues/241.
+func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
+	signer Signer, validator TxValidator) error {
+
+	// We currently only support a single input.
+	//
+	// TODO(guggero): Support multiple inputs.
+	if len(vPkt.Inputs) != 1 || inputIdx != 0 {
+		return fmt.Errorf("only a single input is currently supported")
+	}
+	input := vPkt.Inputs[0]
+	outputs := vPkt.Outputs
+
+	// If this is a split transfer, it means that the asset to be signed is
+	// the root asset, which is located at the change output.
+	isSplit, err := vPkt.HasSplitCommitment()
+	if err != nil {
+		return err
+	}
+
+	prevAssets := commitment.InputSet{
+		input.PrevID: input.Asset(),
+	}
+	newAsset := outputs[0].Asset
+
+	// Create a Taro virtual transaction representing the asset transfer.
+	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
+	if err != nil {
+		return err
+	}
+
+	// For each input asset leaf, we need to produce a witness. Update the
+	// input of the virtual TX, generate a witness, and attach it to the
+	// copy of the new Asset.
+	virtualTxCopy := VirtualTxWithInput(
+		virtualTx, input.Asset(), uint32(inputIdx), nil,
+	)
+	newWitness, err := SignTaprootKeySpend(
+		*input.Asset().ScriptKey.RawKey.PubKey, virtualTxCopy,
+		input.Asset(), inputIdx, txscript.SigHashDefault, signer,
+	)
+	if err != nil {
+		return err
+	}
+
+	newAsset.PrevWitnesses[inputIdx].TxWitness = *newWitness
+
+	// Create an instance of the Taro VM and validate the transfer.
+	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
+		newAssetCopy := newAsset.Copy()
+		return validator.Execute(newAssetCopy, splitAssets, prevAssets)
+	}
+
+	// If the transfer contains no asset splits, we only need to validate
+	// the new asset with its witness attached, then we can exit early.
+	if !isSplit {
+		return verifySpend(nil)
+	}
+
+	// If the transfer includes an asset split, we have to validate each
+	// split asset to ensure that our new Asset is committing to a valid
+	// SplitCommitment.
+	splitAssets := make([]*commitment.SplitAsset, 0, len(outputs)-1)
+	for idx := range outputs {
+		// The change output houses the root asset in case of a split,
+		// which doesn't count towards the split assets. And in the
+		// interactive case we also don't have a split.
+		if outputs[idx].IsChange || outputs[idx].Interactive {
+			continue
+		}
+
+		splitAssets = append(splitAssets, &commitment.SplitAsset{
+			Asset:       *outputs[idx].Asset,
+			OutputIndex: outputs[idx].AnchorOutputIndex,
+		})
+	}
+	if err := verifySpend(splitAssets); err != nil {
+		return err
+	}
+
+	// Update each split asset to store the root asset with the witness
+	// attached, so the receiver can verify inclusion of the root asset.
+	for idx := range outputs {
+		if outputs[idx].IsChange || outputs[idx].Interactive {
+			continue
+		}
+
+		splitAsset := outputs[idx].Asset
+		splitCommitment := splitAsset.PrevWitnesses[0].SplitCommitment
+		splitCommitment.RootAsset = *newAsset.Copy()
 	}
 
 	return nil
