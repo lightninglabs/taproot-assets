@@ -116,14 +116,13 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		return nil, err
 	}
 
-	// Conditionally avoid setting up the hashmail system. Many
-	// tests don't require the hashmail system.
-	//
-	// We can skip setting up the hashmail system by modifying the config.
-	//
-	// TODO(roasbeef): make local aperture instance in future
-	if !enableHashMail {
-		finalCfg.HashMailAddr = ""
+	// Conditionally use the local hashmail service.
+	finalCfg.HashMailCourier = nil
+	if enableHashMail {
+		finalCfg.HashMailCourier = &tarocfg.HashMailCourierCfg{
+			Addr:        ht.apertureHarness.ListenAddr,
+			TlsCertPath: ht.apertureHarness.TlsCertPath,
+		}
 	}
 
 	return &tarodHarness{

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
@@ -78,6 +79,10 @@ type harnessTest struct {
 	// current test case.
 	testCase *testCase
 
+	// apertureHarness is a reference to the current aperture harness.
+	// Will be nil if not yet set up.
+	apertureHarness *ApertureHarness
+
 	// lndHarness is a reference to the current network harness. Will be
 	// nil if not yet set up.
 	lndHarness *lntest.NetworkHarness
@@ -97,12 +102,13 @@ func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.NetworkHarness,
 	universeServer *serverHarness, tarod *tarodHarness) *harnessTest {
 
 	return &harnessTest{
-		t:              t,
-		lndHarness:     net,
-		universeServer: universeServer,
-		tarod:          tarod,
-		logWriter:      h.logWriter,
-		interceptor:    h.interceptor,
+		t:               t,
+		apertureHarness: h.apertureHarness,
+		lndHarness:      net,
+		universeServer:  universeServer,
+		tarod:           tarod,
+		logWriter:       h.logWriter,
+		interceptor:     h.interceptor,
 	}
 }
 
@@ -171,7 +177,9 @@ func (h *harnessTest) setupLogging() {
 	var err error
 	h.interceptor, err = signal.Intercept()
 	require.NoError(h.t, err)
+
 	taro.SetupLoggers(h.logWriter, h.interceptor)
+	aperture.SetupLoggers(h.logWriter, h.interceptor)
 }
 
 func (h *harnessTest) newLndClient(

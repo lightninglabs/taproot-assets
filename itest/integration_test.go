@@ -98,6 +98,10 @@ func TestTaroDaemon(t *testing.T) {
 	err = lndHarness.SetUp(ht.t, "taro-itest", lndDefaultArgs)
 	require.NoError(ht.t, err)
 
+	// Start aperture service and attach to test harness.
+	apertureHarness := setupApertureHarness(ht.t)
+	ht.apertureHarness = &apertureHarness
+
 	// Before we continue on below, we'll wait here until the specified
 	// number of blocks has been mined, to ensure we have complete control
 	// over the extension of the chain. 10 extra block are mined as the
