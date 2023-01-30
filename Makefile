@@ -26,6 +26,7 @@ RM := rm -f
 CP := cp
 MAKE := make
 XARGS := xargs -L 1
+UNAME_S := $(shell uname -s)
 
 include make/testing_flags.mk
 include make/release_flags.mk
@@ -135,10 +136,18 @@ unit-race:
 
 itest: build-itest itest-only
 
-itest-only:
+itest-only: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/regtest; date
 	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
+
+aperture-dir:
+ifeq ($(UNAME_S),Linux)
+	mkdir -p $$HOME/.aperture
+endif
+ifeq ($(UNAME_S),Darwin)
+	mkdir -p "$$HOME/Library/Application Support/Aperture"
+endif
 
 # =============
 # FLAKE HUNTING
