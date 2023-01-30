@@ -62,8 +62,9 @@ const (
 
 // testCase is a struct that holds a single test case.
 type testCase struct {
-	name string
-	test func(t *harnessTest)
+	name           string
+	test           func(t *harnessTest)
+	enableHashMail bool
 }
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
