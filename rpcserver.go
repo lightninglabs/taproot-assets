@@ -21,10 +21,12 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
+	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -335,7 +337,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx)
+	rpcAssets, err := r.fetchRpcAssets(ctx, req.WithWitness)
 	if err != nil {
 		return nil, err
 	}
@@ -345,8 +347,8 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}, nil
 }
 
-func (r *rpcServer) fetchRpcAssets(ctx context.Context) (
-	[]*tarorpc.Asset, error) {
+func (r *rpcServer) fetchRpcAssets(ctx context.Context,
+	withWitness bool) ([]*tarorpc.Asset, error) {
 
 	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, nil)
 	if err != nil {
@@ -355,59 +357,117 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context) (
 
 	rpcAssets := make([]*tarorpc.Asset, len(assets))
 	for i, a := range assets {
-		assetID := a.Genesis.ID()
-
-		var bootstrapInfoBuf bytes.Buffer
-		if err := a.Genesis.Encode(&bootstrapInfoBuf); err != nil {
-			return nil, fmt.Errorf("unable to encode genesis: %w",
+		rpcAssets[i], err = marshalChainAsset(a, withWitness)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal asset: %w",
 				err)
-		}
-
-		var anchorTxBytes []byte
-		if a.AnchorTx != nil {
-			var anchorTxBuf bytes.Buffer
-			err := a.AnchorTx.Serialize(&anchorTxBuf)
-			if err != nil {
-				return nil, fmt.Errorf("unable to serialize "+
-					"anchor tx: %w", err)
-			}
-			anchorTxBytes = anchorTxBuf.Bytes()
-		}
-		rpcAssets[i] = &tarorpc.Asset{
-			Version: int32(a.Version),
-			AssetGenesis: &tarorpc.GenesisInfo{
-				GenesisPoint:         a.Genesis.FirstPrevOut.String(),
-				Name:                 a.Genesis.Tag,
-				Meta:                 a.Genesis.Metadata,
-				AssetId:              assetID[:],
-				OutputIndex:          a.Genesis.OutputIndex,
-				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
-			},
-			AssetType:        tarorpc.AssetType(a.Type),
-			Amount:           int64(a.Amount),
-			LockTime:         int32(a.LockTime),
-			RelativeLockTime: int32(a.RelativeLockTime),
-			ScriptVersion:    int32(a.ScriptVersion),
-			ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
-			ChainAnchor: &tarorpc.AnchorInfo{
-				AnchorTx:        anchorTxBytes,
-				AnchorTxid:      a.AnchorTxid.String(),
-				AnchorBlockHash: a.AnchorBlockHash[:],
-				AnchorOutpoint:  a.AnchorOutpoint.String(),
-				InternalKey:     a.AnchorInternalKey.SerializeCompressed(),
-			},
-		}
-
-		if a.GroupKey != nil {
-			rpcAssets[i].AssetGroup = &tarorpc.AssetGroup{
-				RawGroupKey:     a.GroupKey.RawKey.PubKey.SerializeCompressed(),
-				TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
-				AssetIdSig:      a.GroupKey.Sig.Serialize(),
-			}
 		}
 	}
 
 	return rpcAssets, nil
+}
+
+func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
+	error) {
+
+	rpcAsset, err := marshalAsset(a.Asset, withWitness)
+	if err != nil {
+		return nil, err
+	}
+
+	var bootstrapInfoBuf bytes.Buffer
+	if err := a.Genesis.Encode(&bootstrapInfoBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode genesis: %w", err)
+	}
+	rpcAsset.AssetGenesis.GenesisBootstrapInfo = bootstrapInfoBuf.Bytes()
+
+	var anchorTxBytes []byte
+	if a.AnchorTx != nil {
+		var anchorTxBuf bytes.Buffer
+		err := a.AnchorTx.Serialize(&anchorTxBuf)
+		if err != nil {
+			return nil, fmt.Errorf("unable to serialize anchor "+
+				"tx: %w", err)
+		}
+		anchorTxBytes = anchorTxBuf.Bytes()
+	}
+
+	rpcAsset.ChainAnchor = &tarorpc.AnchorInfo{
+		AnchorTx:        anchorTxBytes,
+		AnchorTxid:      a.AnchorTxid.String(),
+		AnchorBlockHash: a.AnchorBlockHash[:],
+		AnchorOutpoint:  a.AnchorOutpoint.String(),
+		InternalKey:     a.AnchorInternalKey.SerializeCompressed(),
+	}
+
+	return rpcAsset, nil
+}
+
+func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
+	assetID := a.Genesis.ID()
+
+	rpcAsset := &tarorpc.Asset{
+		Version: int32(a.Version),
+		AssetGenesis: &tarorpc.GenesisInfo{
+			GenesisPoint: a.Genesis.FirstPrevOut.String(),
+			Name:         a.Genesis.Tag,
+			Meta:         a.Genesis.Metadata,
+			AssetId:      assetID[:],
+			OutputIndex:  a.Genesis.OutputIndex,
+		},
+		AssetType:        tarorpc.AssetType(a.Type),
+		Amount:           int64(a.Amount),
+		LockTime:         int32(a.LockTime),
+		RelativeLockTime: int32(a.RelativeLockTime),
+		ScriptVersion:    int32(a.ScriptVersion),
+		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
+	}
+
+	if a.GroupKey != nil {
+		rpcAsset.AssetGroup = &tarorpc.AssetGroup{
+			RawGroupKey:     a.GroupKey.RawKey.PubKey.SerializeCompressed(),
+			TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
+			AssetIdSig:      a.GroupKey.Sig.Serialize(),
+		}
+	}
+
+	if withWitness {
+		for idx := range a.PrevWitnesses {
+			witness := a.PrevWitnesses[idx]
+
+			prevID := witness.PrevID
+			rpcPrevID := &tarorpc.PrevInputAsset{
+				AnchorPoint: prevID.OutPoint.String(),
+				AssetId:     prevID.ID[:],
+				ScriptKey:   prevID.ScriptKey[:],
+			}
+
+			var rpcSplitCommitment *tarorpc.SplitCommitment
+			if witness.SplitCommitment != nil {
+				rootAsset, err := marshalAsset(
+					&witness.SplitCommitment.RootAsset,
+					true,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				rpcSplitCommitment = &tarorpc.SplitCommitment{
+					RootAsset: rootAsset,
+				}
+			}
+
+			rpcAsset.PrevWitnesses = append(
+				rpcAsset.PrevWitnesses, &tarorpc.PrevWitness{
+					PrevId:          rpcPrevID,
+					TxWitness:       witness.TxWitness,
+					SplitCommitment: rpcSplitCommitment,
+				},
+			)
+		}
+	}
+
+	return rpcAsset, nil
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
@@ -492,7 +552,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	_ *tarorpc.ListUtxosRequest) (*tarorpc.ListUtxosResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx)
+	rpcAssets, err := r.fetchRpcAssets(ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -745,13 +805,59 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v, "+
 		"type=%v", assetID[:], in.Amt, asset.Type(genesis.Type))
 
-	// Now that we have all the params, we'll try to add a new address to
-	// the addr book.
-	addr, err := r.cfg.AddrBook.NewAddress(
-		ctx, genesis, groupKey, uint64(in.Amt),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make new addr: %w", err)
+	var addr *address.AddrWithKeyInfo
+	switch {
+	// No key was specified, we'll let the address book derive them.
+	case in.ScriptKey == nil && in.InternalKey == nil:
+		// Now that we have all the params, we'll try to add a new
+		// address to the addr book.
+		addr, err = r.cfg.AddrBook.NewAddress(
+			ctx, genesis, groupKey, uint64(in.Amt),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make new addr: %w",
+				err)
+		}
+
+	// Only the script key was specified.
+	case in.ScriptKey != nil && in.InternalKey == nil:
+		return nil, fmt.Errorf("internal key must also be specified " +
+			"if script key is specified")
+
+	// Only the internal key was specified.
+	case in.ScriptKey == nil && in.InternalKey != nil:
+		return nil, fmt.Errorf("script key must also be specified " +
+			"if internal key is specified")
+
+	// Both the script and internal keys were specified.
+	default:
+		scriptKey, err := unmarshalScriptKey(in.ScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
+		}
+
+		rpcsLog.Debugf("Decoded script key %x (internal %x, tweak %x)",
+			scriptKey.PubKey.SerializeCompressed(),
+			scriptKey.RawKey.PubKey.SerializeCompressed(),
+			scriptKey.Tweak[:])
+
+		internalKey, err := unmarshalKeyDescriptor(in.InternalKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode internal "+
+				"key: %w", err)
+		}
+
+		// Now that we have all the params, we'll try to add a new
+		// address to the addr book.
+		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
+			ctx, genesis, groupKey, uint64(in.Amt), *scriptKey,
+			internalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make new addr: %w",
+				err)
+		}
 	}
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
@@ -1191,4 +1297,65 @@ func marshallSendAssetEvent(
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
 	}
+}
+
+// unmarshalScriptKey parses the RPC script key into the native counterpart.
+func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
+	var (
+		scriptKey asset.ScriptKey
+		err       error
+	)
+
+	// The script public key is a Taproot key, so 32-byte x-only.
+	scriptKey.PubKey, err = schnorr.ParsePubKey(rpcKey.PubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// The key descriptor is optional for script keys that are completely
+	// independent of the backing wallet.
+	if rpcKey.KeyDesc != nil {
+		keyDesc, err := unmarshalKeyDescriptor(rpcKey.KeyDesc)
+		if err != nil {
+			return nil, err
+		}
+		scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
+			RawKey: keyDesc,
+
+			// The tweak is optional, if it's empty it means the key
+			// is derived using BIP 86.
+			Tweak: rpcKey.TapTweak,
+		}
+	}
+
+	return &scriptKey, nil
+}
+
+// unmarshalKeyDescriptor parses the RPC key descriptor into the native
+// counterpart.
+func unmarshalKeyDescriptor(
+	rpcDesc *tarorpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
+
+	var (
+		desc keychain.KeyDescriptor
+		err  error
+	)
+
+	// The public key of a key descriptor is mandatory. It is enough to
+	// locate the corresponding private key in the backing wallet. But to
+	// speed things up (and for additional context), the locator should
+	// still be provided if available.
+	desc.PubKey, err = btcec.ParsePubKey(rpcDesc.RawKeyBytes)
+	if err != nil {
+		return desc, err
+	}
+
+	if rpcDesc.KeyLoc != nil {
+		desc.KeyLocator = keychain.KeyLocator{
+			Family: keychain.KeyFamily(rpcDesc.KeyLoc.KeyFamily),
+			Index:  uint32(rpcDesc.KeyLoc.KeyIndex),
+		}
+	}
+
+	return desc, nil
 }

@@ -11,14 +11,14 @@ import (
 // testRoundTripSend tests that we can properly send the full value of a
 // normal asset.
 func testRoundTripSend(t *harnessTest) {
-	// First, we'll make an normal assets with enough units to allow us to
+	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
 		t, t.tarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := rpcAssets[0].AssetGenesis.GenesisBootstrapInfo
+	genBootstrap := genInfo.GenesisBootstrapInfo
 
 	ctxb := context.Background()
 
@@ -50,7 +50,10 @@ func testRoundTripSend(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
-	confirmSend(t, t.tarod, secondTarod, bobAddr, genInfo)
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, genInfo.AssetId, bobAmt, 0, 1,
+	)
+	_ = sendProof(t, t.tarod, secondTarod, bobAddr, genInfo)
 
 	// Now, Alice will request half of the assets she sent to Bob.
 	aliceAddr, err := t.tarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -65,7 +68,10 @@ func testRoundTripSend(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
-	confirmSend(t, secondTarod, t.tarod, aliceAddr, genInfo)
+	confirmAndAssertOutboundTransfer(
+		t, secondTarod, sendResp, genInfo.AssetId, aliceAmt, 0, 1,
+	)
+	_ = sendProof(t, secondTarod, t.tarod, aliceAddr, genInfo)
 
 	// Check the final state of both nodes. Each node should list
 	// one transfer, and Alice should have 3/4 of the total units.
@@ -79,13 +85,4 @@ func testRoundTripSend(t *harnessTest) {
 		return nil
 	}, defaultTimeout/2)
 	require.NoError(t.t, err)
-}
-
-// confirmSend mines a new block and passes proofs for the asset transfer
-// between the sender and receiver,
-func confirmSend(t *harnessTest, src, dst *tarodHarness, rpcAddr *tarorpc.Addr,
-	genInfo *tarorpc.GenesisInfo) {
-
-	_ = mineBlocks(t, t.lndHarness, 1, 1)
-	_ = sendProof(t, src, dst, rpcAddr, genInfo)
 }

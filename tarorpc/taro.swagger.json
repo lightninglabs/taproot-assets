@@ -188,6 +188,14 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "with_witness",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Taro"
         ]
@@ -816,6 +824,12 @@
         "chain_anchor": {
           "$ref": "#/definitions/tarorpcAnchorInfo",
           "description": "Describes where in the chain the asset is currently anchored."
+        },
+        "prev_witnesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcPrevWitness"
+          }
         }
       }
     },
@@ -1126,6 +1140,35 @@
     "tarorpcImportProofResponse": {
       "type": "object"
     },
+    "tarorpcKeyDescriptor": {
+      "type": "object",
+      "properties": {
+        "raw_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the key being identified."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/tarorpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        }
+      }
+    },
+    "tarorpcKeyLocator": {
+      "type": "object",
+      "properties": {
+        "key_family": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The family of key being identified."
+        },
+        "key_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The precise index of the key being identified."
+        }
+      }
+    },
     "tarorpcListAssetResponse": {
       "type": "object",
       "properties": {
@@ -1276,6 +1319,14 @@
         "amt": {
           "type": "string",
           "format": "int64"
+        },
+        "script_key": {
+          "$ref": "#/definitions/tarorpcScriptKey",
+          "description": "The optional script key that the receiving asset should be locked to. If no\nscript key is provided, a normal BIP-86 key will be derived from the\nunderlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
+        },
+        "internal_key": {
+          "$ref": "#/definitions/tarorpcKeyDescriptor",
+          "description": "The optional internal key of the receiving BTC level transaction output on\nwhich the receiving asset transfers will be committed to. If no internal key\nis provided, a key will be derived from the underlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
         }
       }
     },
@@ -1296,6 +1347,24 @@
         "amount": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "tarorpcPrevWitness": {
+      "type": "object",
+      "properties": {
+        "prev_id": {
+          "$ref": "#/definitions/tarorpcPrevInputAsset"
+        },
+        "tx_witness": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          }
+        },
+        "split_commitment": {
+          "$ref": "#/definitions/tarorpcSplitCommitment"
         }
       }
     },
@@ -1327,6 +1396,25 @@
           "items": {
             "$ref": "#/definitions/tarorpcAddr"
           }
+        }
+      }
+    },
+    "tarorpcScriptKey": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
+        },
+        "key_desc": {
+          "$ref": "#/definitions/tarorpcKeyDescriptor",
+          "description": "The key descriptor describing the internal key of the above Taproot key."
+        },
+        "tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional Taproot tweak to apply to the above internal key. If this is\nempty then a BIP-86 style tweak is applied to the internal key."
         }
       }
     },
@@ -1367,6 +1455,14 @@
         "total_fee_sats": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "tarorpcSplitCommitment": {
+      "type": "object",
+      "properties": {
+        "root_asset": {
+          "$ref": "#/definitions/tarorpcAsset"
         }
       }
     },
