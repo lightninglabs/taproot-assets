@@ -274,7 +274,6 @@ func DefaultConfig() Config {
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
-		ProofCourierMode:     "hashmail",
 		HashMailCourier: &HashMailCourierCfg{
 			Addr: defaultHashMailAddr,
 		},

@@ -63,9 +63,23 @@ type HashMailBox struct {
 
 // serverDialOpts returns the set of server options needed to connect to the
 // server using a TLS connection.
-func serverDialOpts() ([]grpc.DialOption, error) {
+func serverDialOpts(tlsCertPath string) ([]grpc.DialOption, error) {
 	var opts []grpc.DialOption
 
+	if tlsCertPath != "" {
+		// Read in the specified TLS certificate and build transport
+		// credentials with it.
+		creds, err := credentials.NewClientTLSFromFile(tlsCertPath, "")
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+
+		return opts, nil
+	}
+
+	// If TLS certificate file path not given, use the system's TLS trust
+	// store.
 	creds := credentials.NewTLS(&tls.Config{})
 	opts = append(opts, grpc.WithTransportCredentials(creds))
 
@@ -74,8 +88,13 @@ func serverDialOpts() ([]grpc.DialOption, error) {
 
 // NewHashMailBox makes a new mailbox by dialing to the server specified by the
 // address above.
-func NewHashMailBox(serverAddr string) (*HashMailBox, error) {
-	dialOpts, err := serverDialOpts()
+//
+// NOTE: The TLS certificate path argument (tlsCertPath) is optional. If unset,
+// then the system's TLS trust store is used.
+func NewHashMailBox(serverAddr string,
+	tlsCertPath string) (*HashMailBox, error) {
+
+	dialOpts, err := serverDialOpts(tlsCertPath)
 	if err != nil {
 		return nil, err
 	}
