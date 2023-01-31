@@ -48,12 +48,9 @@ type tarodHarness struct {
 // tarodConfig holds all configuration items that are required to start a tarod
 // server.
 type tarodConfig struct {
-	UniverseServer string
-	BackendCfg     lntest.BackendConfig
-	ServerTLSPath  string
-	LndNode        *lntest.HarnessNode
-	NetParams      *chaincfg.Params
-	BaseDir        string
+	LndNode   *lntest.HarnessNode
+	NetParams *chaincfg.Params
+	BaseDir   string
 }
 
 // newTarodHarness creates a new tarod server harness with the given

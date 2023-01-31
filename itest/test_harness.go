@@ -5,12 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"path"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
@@ -239,14 +237,9 @@ func setupTarodHarness(t *testing.T, ht *harnessTest,
 	backend lntest.BackendConfig, node *lntest.HarnessNode,
 	universe *serverHarness) *tarodHarness {
 
-	apertureDataDir := btcutil.AppDataDir("aperture", false)
-
 	tarodHarness, err := newTarodHarness(ht, tarodConfig{
-		UniverseServer: universe.serverHost,
-		ServerTLSPath:  path.Join(apertureDataDir, "tls.cert"),
-		BackendCfg:     backend,
-		NetParams:      harnessNetParams,
-		LndNode:        node,
+		NetParams: harnessNetParams,
+		LndNode:   node,
 	})
 	require.NoError(t, err)
 
