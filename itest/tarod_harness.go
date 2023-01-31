@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -58,7 +57,7 @@ type tarodConfig struct {
 func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
 	if cfg.BaseDir == "" {
 		var err error
-		cfg.BaseDir, err = ioutil.TempDir("", "itest-tarod")
+		cfg.BaseDir, err = os.MkdirTemp("", "itest-tarod")
 		if err != nil {
 			return nil, err
 		}
@@ -242,7 +241,7 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 // gRPC dial options from it.
 func readMacaroon(macaroonPath string) (grpc.DialOption, error) {
 	// Load the specified macaroon file.
-	macBytes, err := ioutil.ReadFile(macaroonPath)
+	macBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read macaroon path : %v", err)
 	}
