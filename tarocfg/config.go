@@ -201,7 +201,9 @@ type Config struct {
 
 	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
 
-	HashMailAddr string `long:"hashmailaddr" description:"The full host:port that should be used to optionally deliver proofs files for asynchronous sends"`
+	// The following options are used to configure the proof courier.
+	ProofCourierMode string              `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
+	HashMailCourier  *HashMailCourierCfg `group:"proofcourier" namespace:"hashmailproofcourier"`
 
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
@@ -228,6 +230,12 @@ type Config struct {
 	restListeners []net.Addr
 
 	net tor.Net
+}
+
+// HashMailCourierCfg is the config for the hashmail proof courier.
+type HashMailCourierCfg struct {
+	Addr        string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
+	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -266,7 +274,10 @@ func DefaultConfig() Config {
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
-		HashMailAddr:         defaultHashMailAddr,
+		ProofCourierMode:     "hashmail",
+		HashMailCourier: &HashMailCourierCfg{
+			Addr: defaultHashMailAddr,
+		},
 	}
 }
 

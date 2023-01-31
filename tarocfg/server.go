@@ -124,8 +124,11 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 
 	var hashMailCourier proof.Courier[address.Taro]
-	if cfg.HashMailAddr != "" {
-		hashMailBox, err := proof.NewHashMailBox(cfg.HashMailAddr)
+	if cfg.HashMailCourier != nil {
+		hashMailBox, err := proof.NewHashMailBox(
+			cfg.HashMailCourier.Addr,
+			cfg.HashMailCourier.TlsCertPath,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make "+
 				"mailbox: %v", err)
