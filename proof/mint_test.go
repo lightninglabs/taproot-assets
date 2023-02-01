@@ -1,6 +1,7 @@
 package proof
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -25,7 +26,18 @@ func TestNewMintingBlobs(t *testing.T) {
 	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
 		genesisPrivKey.PubKey(),
 	)
+
+	// We'll modify the returned genesis to instead commit to some actual
+	// metadata (known pre-image).
+	var metaBlob [100]byte
+	_, err := rand.Read(metaBlob[:])
+	require.NoError(t, err)
+	metaReveal := &MetaReveal{
+		Data: metaBlob[:],
+	}
 	assetGenesis := asset.RandGenesis(t, asset.Collectible)
+	assetGenesis.MetaHash = metaReveal.MetaHash()
+
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
 	taroCommitment, _, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
@@ -72,8 +84,15 @@ func TestNewMintingBlobs(t *testing.T) {
 		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
 	)
 
+	newAsset := taroCommitment.CommittedAssets()[0]
+	assetScriptKey := newAsset.ScriptKey
+
+	metaReveals := map[asset.SerializedKey]*MetaReveal{
+		asset.ToSerialized(assetScriptKey.PubKey): metaReveal,
+	}
+
 	// The NewMintingBlobs will return an error if the generated proof is
-	// invalid.
+	// invalid. We'll also add the optional meta reveal data as well
 	_, err = NewMintingBlobs(&MintParams{
 		BaseProofParams: BaseProofParams{
 			Block: &wire.MsgBlock{
@@ -94,6 +113,6 @@ func TestNewMintingBlobs(t *testing.T) {
 			}},
 		},
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
-	}, MockHeaderVerifier)
+	}, MockHeaderVerifier, WithAssetMetaReveals(metaReveals))
 	require.NoError(t, err)
 }
