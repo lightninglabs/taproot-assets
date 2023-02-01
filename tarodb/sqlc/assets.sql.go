@@ -188,7 +188,7 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 }
 
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
-SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
+SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
 FROM assets 
 JOIN genesis_assets 
     ON assets.genesis_id = genesis_assets.gen_asset_id
@@ -213,7 +213,7 @@ type AssetsByGenesisPointRow struct {
 	GenAssetID               int32
 	AssetID_2                []byte
 	AssetTag                 string
-	MetaData                 []byte
+	MetaDataID               sql.NullInt32
 	OutputIndex              int32
 	AssetType                int16
 	GenesisPointID           int32
@@ -247,7 +247,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 			&i.GenAssetID,
 			&i.AssetID_2,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaDataID,
 			&i.OutputIndex,
 			&i.AssetType,
 			&i.GenesisPointID,
@@ -270,9 +270,11 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 
 const assetsInBatch = `-- name: AssetsInBatch :many
 SELECT
-    gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
-    genesis_points.prev_out prev_out
+    gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash, 
+    output_index, asset_type, genesis_points.prev_out prev_out
 FROM genesis_assets
+LEFT JOIN assets_meta
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
 JOIN genesis_points
     ON genesis_assets.genesis_point_id = genesis_points.genesis_id
 JOIN asset_minting_batches batches
@@ -283,13 +285,13 @@ WHERE keys.raw_key = $1
 `
 
 type AssetsInBatchRow struct {
-	GenAssetID  int32
-	AssetID     []byte
-	AssetTag    string
-	MetaData    []byte
-	OutputIndex int32
-	AssetType   int16
-	PrevOut     []byte
+	GenAssetID   int32
+	AssetID      []byte
+	AssetTag     string
+	MetaDataHash []byte
+	OutputIndex  int32
+	AssetType    int16
+	PrevOut      []byte
 }
 
 func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error) {
@@ -305,7 +307,7 @@ func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInB
 			&i.GenAssetID,
 			&i.AssetID,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaDataHash,
 			&i.OutputIndex,
 			&i.AssetType,
 			&i.PrevOut,
@@ -423,6 +425,65 @@ WHERE outpoint = $1
 func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteManagedUTXO, outpoint)
 	return err
+}
+
+const fetchAssetMeta = `-- name: FetchAssetMeta :one
+SELECT meta_data_hash, meta_data_blob, meta_data_type
+FROM assets_meta
+WHERE meta_id = $1
+`
+
+type FetchAssetMetaRow struct {
+	MetaDataHash []byte
+	MetaDataBlob []byte
+	MetaDataType sql.NullInt16
+}
+
+func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int32) (FetchAssetMetaRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAssetMeta, metaID)
+	var i FetchAssetMetaRow
+	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	return i, err
+}
+
+const fetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
+SELECT meta_data_hash, meta_data_blob, meta_data_type
+FROM assets_meta
+WHERE meta_data_hash = $1
+`
+
+type FetchAssetMetaByHashRow struct {
+	MetaDataHash []byte
+	MetaDataBlob []byte
+	MetaDataType sql.NullInt16
+}
+
+func (q *Queries) FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAssetMetaByHash, metaDataHash)
+	var i FetchAssetMetaByHashRow
+	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	return i, err
+}
+
+const fetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
+SELECT meta_data_hash, meta_data_blob, meta_data_type
+FROM genesis_assets assets
+JOIN assets_meta
+    ON assets.meta_data_id = assets_meta.meta_id
+WHERE assets.asset_id = $1
+`
+
+type FetchAssetMetaForAssetRow struct {
+	MetaDataHash []byte
+	MetaDataBlob []byte
+	MetaDataType sql.NullInt16
+}
+
+func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAssetMetaForAsset, assetID)
+	var i FetchAssetMetaForAssetRow
+	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	return i, err
 }
 
 const fetchAssetProof = `-- name: FetchAssetProof :one
@@ -602,9 +663,13 @@ WITH genesis_info AS (
     -- points, to the internal key that reference the batch, then restricted
     -- for internal keys that match our main batch key.
     SELECT
-        gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
-        genesis_points.prev_out prev_out
+        gen_asset_id, asset_id, asset_tag, output_index, asset_type,
+        genesis_points.prev_out prev_out, 
+        assets_meta.meta_data_hash meta_hash, assets_meta.meta_data_type meta_type,
+        assets_meta.meta_data_blob meta_blob
     FROM genesis_assets
+    LEFT JOIN assets_meta
+        ON genesis_assets.meta_data_id = assets_meta.meta_id
     JOIN genesis_points
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id
     JOIN asset_minting_batches batches
@@ -634,7 +699,8 @@ SELECT
     key_group_info.tweaked_group_key, key_group_info.raw_key AS group_key_raw,
     key_group_info.key_family AS group_key_family, key_group_info.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, 
-    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_data, 
+    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_hash, 
+    genesis_info.meta_type, genesis_info.meta_blob, 
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
@@ -666,7 +732,9 @@ type FetchAssetsForBatchRow struct {
 	RelativeLockTime   sql.NullInt32
 	AssetID            []byte
 	AssetTag           string
-	MetaData           []byte
+	MetaHash           []byte
+	MetaType           sql.NullInt16
+	MetaBlob           []byte
 	GenesisOutputIndex int32
 	AssetType          int16
 	GenesisPrevOut     []byte
@@ -703,7 +771,9 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 			&i.RelativeLockTime,
 			&i.AssetID,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaHash,
+			&i.MetaType,
+			&i.MetaBlob,
 			&i.GenesisOutputIndex,
 			&i.AssetType,
 			&i.GenesisPrevOut,
@@ -744,21 +814,23 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 
 const fetchGenesisByID = `-- name: FetchGenesisByID :one
 SELECT
-    asset_id, asset_tag, meta_data, output_index, asset_type,
+    asset_id, asset_tag, assets_meta.meta_data_hash, output_index, asset_type,
     genesis_points.prev_out prev_out
 FROM genesis_assets
+LEFT JOIN assets_meta
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
 JOIN genesis_points
   ON genesis_assets.genesis_point_id = genesis_points.genesis_id
 WHERE gen_asset_id = $1
 `
 
 type FetchGenesisByIDRow struct {
-	AssetID     []byte
-	AssetTag    string
-	MetaData    []byte
-	OutputIndex int32
-	AssetType   int16
-	PrevOut     []byte
+	AssetID      []byte
+	AssetTag     string
+	MetaDataHash []byte
+	OutputIndex  int32
+	AssetType    int16
+	PrevOut      []byte
 }
 
 func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int32) (FetchGenesisByIDRow, error) {
@@ -767,7 +839,7 @@ func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int32) (Fetch
 	err := row.Scan(
 		&i.AssetID,
 		&i.AssetTag,
-		&i.MetaData,
+		&i.MetaDataHash,
 		&i.OutputIndex,
 		&i.AssetType,
 		&i.PrevOut,
@@ -783,11 +855,13 @@ WITH target_point(genesis_id) AS (
 )
 SELECT gen_asset_id
 FROM genesis_assets
+LEFT JOIN assets_meta   
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
 WHERE (
     genesis_assets.genesis_point_id IN (SELECT genesis_id FROM target_point) AND
     genesis_assets.asset_id = $1 AND
     genesis_assets.asset_tag = $2 AND
-    genesis_assets.meta_data = $3 AND
+    assets_meta.meta_data_hash = $3 AND
     genesis_assets.output_index = $4 AND
     genesis_assets.asset_type = $5
 )
@@ -796,7 +870,7 @@ WHERE (
 type FetchGenesisIDParams struct {
 	AssetID     []byte
 	AssetTag    string
-	MetaData    []byte
+	MetaHash    []byte
 	OutputIndex int32
 	AssetType   int16
 	PrevOut     []byte
@@ -806,7 +880,7 @@ func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) 
 	row := q.db.QueryRowContext(ctx, fetchGenesisID,
 		arg.AssetID,
 		arg.AssetTag,
-		arg.MetaData,
+		arg.MetaHash,
 		arg.OutputIndex,
 		arg.AssetType,
 		arg.PrevOut,
@@ -899,7 +973,7 @@ SELECT
     assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
-    genesis_info_view.meta_data, 
+    genesis_info_view.meta_Hash, 
     genesis_info_view.asset_type,
     key_group_info_view.tweaked_group_key
 FROM assets
@@ -916,7 +990,7 @@ type FetchGroupedAssetsRow struct {
 	RelativeLockTime sql.NullInt32
 	AssetID          []byte
 	AssetTag         string
-	MetaData         []byte
+	MetaHash         []byte
 	AssetType        int16
 	TweakedGroupKey  []byte
 }
@@ -937,7 +1011,7 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 			&i.RelativeLockTime,
 			&i.AssetID,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaHash,
 			&i.AssetType,
 			&i.TweakedGroupKey,
 		); err != nil {
@@ -1137,27 +1211,46 @@ WITH target_batch(batch_id) AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id, group_genesis_id
+SELECT seedling_id, asset_name, asset_type, asset_supply, 
+    assets_meta.meta_data_hash, assets_meta.meta_data_type, 
+    assets_meta.meta_data_blob, emission_enabled, batch_id, 
+    group_genesis_id
 FROM asset_seedlings 
+LEFT JOIN assets_meta
+    ON asset_seedlings.asset_meta_id = assets_meta.meta_id
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
 `
 
-func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error) {
+type FetchSeedlingsForBatchRow struct {
+	SeedlingID      int32
+	AssetName       string
+	AssetType       int16
+	AssetSupply     int64
+	MetaDataHash    []byte
+	MetaDataType    sql.NullInt16
+	MetaDataBlob    []byte
+	EmissionEnabled bool
+	BatchID         int32
+	GroupGenesisID  sql.NullInt32
+}
+
+func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
 	rows, err := q.db.QueryContext(ctx, fetchSeedlingsForBatch, rawKey)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AssetSeedling
+	var items []FetchSeedlingsForBatchRow
 	for rows.Next() {
-		var i AssetSeedling
+		var i FetchSeedlingsForBatchRow
 		if err := rows.Scan(
 			&i.SeedlingID,
 			&i.AssetName,
 			&i.AssetType,
 			&i.AssetSupply,
-			&i.AssetMeta,
+			&i.MetaDataHash,
+			&i.MetaDataType,
+			&i.MetaDataBlob,
 			&i.EmissionEnabled,
 			&i.BatchID,
 			&i.GroupGenesisID,
@@ -1176,7 +1269,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 }
 
 const genesisAssets = `-- name: GenesisAssets :many
-SELECT gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id 
+SELECT gen_asset_id, asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id 
 FROM genesis_assets
 `
 
@@ -1193,7 +1286,7 @@ func (q *Queries) GenesisAssets(ctx context.Context) ([]GenesisAsset, error) {
 			&i.GenAssetID,
 			&i.AssetID,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaDataID,
 			&i.OutputIndex,
 			&i.AssetType,
 			&i.GenesisPointID,
@@ -1241,7 +1334,7 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
-    asset_name, asset_type, asset_supply, asset_meta,
+    asset_name, asset_type, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id
 ) VALUES (
    $1, $2, $3, $4, $5, $6, $7
@@ -1252,7 +1345,7 @@ type InsertAssetSeedlingParams struct {
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
-	AssetMeta       []byte
+	AssetMetaID     int32
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
@@ -1263,7 +1356,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.AssetName,
 		arg.AssetType,
 		arg.AssetSupply,
-		arg.AssetMeta,
+		arg.AssetMetaID,
 		arg.EmissionEnabled,
 		arg.BatchID,
 		arg.GroupGenesisID,
@@ -1283,7 +1376,7 @@ WITH target_key_id AS (
     WHERE keys.raw_key = $1
 )
 INSERT INTO asset_seedlings(
-    asset_name, asset_type, asset_supply, asset_meta,
+    asset_name, asset_type, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id
 ) VALUES (
     $2, $3, $4, $5, $6,
@@ -1296,7 +1389,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
-	AssetMeta       []byte
+	AssetMetaID     int32
 	EmissionEnabled bool
 	GroupGenesisID  sql.NullInt32
 }
@@ -1307,7 +1400,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.AssetName,
 		arg.AssetType,
 		arg.AssetSupply,
-		arg.AssetMeta,
+		arg.AssetMetaID,
 		arg.EmissionEnabled,
 		arg.GroupGenesisID,
 	)
@@ -1402,7 +1495,7 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 const queryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, version, SUM(amount) balance,
-    genesis_info_view.asset_tag, genesis_info_view.meta_data,
+    genesis_info_view.asset_tag, genesis_info_view.meta_hash,
     genesis_info_view.asset_type, genesis_info_view.output_index,
     genesis_info_view.prev_out AS genesis_point
 FROM assets
@@ -1413,7 +1506,7 @@ JOIN genesis_info_view
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
-         version, genesis_info_view.asset_tag, genesis_info_view.meta_data,
+         version, genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
          genesis_info_view.prev_out
 `
@@ -1423,7 +1516,7 @@ type QueryAssetBalancesByAssetRow struct {
 	Version      int32
 	Balance      int64
 	AssetTag     string
-	MetaData     []byte
+	MetaHash     []byte
 	AssetType    int16
 	OutputIndex  int32
 	GenesisPoint []byte
@@ -1447,7 +1540,7 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter [
 			&i.Version,
 			&i.Balance,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaHash,
 			&i.AssetType,
 			&i.OutputIndex,
 			&i.GenesisPoint,
@@ -1520,7 +1613,7 @@ SELECT
     script_version, amount, lock_time, relative_lock_time, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
-    genesis_info_view.meta_data, 
+    genesis_info_view.meta_hash, 
     genesis_info_view.output_index AS genesis_output_index,
     genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
@@ -1581,7 +1674,7 @@ type QueryAssetsRow struct {
 	RelativeLockTime         sql.NullInt32
 	AssetID                  []byte
 	AssetTag                 string
-	MetaData                 []byte
+	MetaHash                 []byte
 	GenesisOutputIndex       int32
 	AssetType                int16
 	GenesisPrevOut           []byte
@@ -1636,7 +1729,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.RelativeLockTime,
 			&i.AssetID,
 			&i.AssetTag,
-			&i.MetaData,
+			&i.MetaHash,
 			&i.GenesisOutputIndex,
 			&i.AssetType,
 			&i.GenesisPrevOut,
@@ -1759,6 +1852,33 @@ func (q *Queries) UpsertAssetGroupSig(ctx context.Context, arg UpsertAssetGroupS
 	return sig_id, err
 }
 
+const upsertAssetMeta = `-- name: UpsertAssetMeta :one
+INSERT INTO assets_meta (
+    meta_data_hash, meta_data_blob, meta_data_type
+) VALUES (
+    $1, $2, $3 
+) ON CONFLICT (meta_data_hash)
+    -- In this case, we may be inserting the data+type for an existing blob. So
+    -- we'll set both of those values. At this layer we assume the meta hash
+    -- has been validated elsewhere.
+    DO UPDATE SET meta_data_blob = EXCLUDED.meta_data_blob, 
+        meta_data_type = EXCLUDED.meta_data_type
+RETURNING meta_id
+`
+
+type UpsertAssetMetaParams struct {
+	MetaDataHash []byte
+	MetaDataBlob []byte
+	MetaDataType sql.NullInt16
+}
+
+func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertAssetMeta, arg.MetaDataHash, arg.MetaDataBlob, arg.MetaDataType)
+	var meta_id int32
+	err := row.Scan(&meta_id)
+	return meta_id, err
+}
+
 const upsertAssetProof = `-- name: UpsertAssetProof :exec
 WITH target_asset(asset_id) AS (
     SELECT asset_id
@@ -1828,10 +1948,15 @@ func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (i
 }
 
 const upsertGenesisAsset = `-- name: UpsertGenesisAsset :one
+WITH target_meta_id AS (
+    SELECT meta_id
+    FROM assets_meta
+    WHERE meta_data_hash = $1
+)
 INSERT INTO genesis_assets (
-    asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
+    asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $2, $3, (SELECT meta_id FROM target_meta_id), $4, $5, $6
 ) ON CONFLICT (asset_tag)
     -- This is a NOP, asset_tag is the unique field that caused the conflict.
     DO UPDATE SET asset_tag = EXCLUDED.asset_tag
@@ -1839,9 +1964,9 @@ RETURNING gen_asset_id
 `
 
 type UpsertGenesisAssetParams struct {
+	MetaDataHash   []byte
 	AssetID        []byte
 	AssetTag       string
-	MetaData       []byte
 	OutputIndex    int32
 	AssetType      int16
 	GenesisPointID int32
@@ -1849,9 +1974,9 @@ type UpsertGenesisAssetParams struct {
 
 func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error) {
 	row := q.db.QueryRowContext(ctx, upsertGenesisAsset,
+		arg.MetaDataHash,
 		arg.AssetID,
 		arg.AssetTag,
-		arg.MetaData,
 		arg.OutputIndex,
 		arg.AssetType,
 		arg.GenesisPointID,

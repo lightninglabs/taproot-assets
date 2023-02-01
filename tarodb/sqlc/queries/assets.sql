@@ -83,7 +83,7 @@ WITH target_batch(batch_id) AS (
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
-    assets_meta.meta_data_blob, emission_enabled, genesis_id, batch_id, 
+    assets_meta.meta_data_blob, emission_enabled, batch_id, 
     group_genesis_id
 FROM asset_seedlings 
 LEFT JOIN assets_meta
@@ -467,11 +467,13 @@ WITH target_point(genesis_id) AS (
 )
 SELECT gen_asset_id
 FROM genesis_assets
+LEFT JOIN assets_meta   
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
 WHERE (
     genesis_assets.genesis_point_id IN (SELECT genesis_id FROM target_point) AND
     genesis_assets.asset_id = @asset_id AND
     genesis_assets.asset_tag = @asset_tag AND
-    genesis_assets.meta_data = @meta_data AND
+    assets_meta.meta_data_hash = @meta_hash AND
     genesis_assets.output_index = @output_index AND
     genesis_assets.asset_type = @asset_type
 );
