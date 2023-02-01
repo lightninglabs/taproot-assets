@@ -63,6 +63,16 @@ type Proof struct {
 	// asset of the split.
 	SplitRootProof *TaprootProof
 
+	// MetaReveal is the set of bytes that were revealed to prove the
+	// derivation of the meta data hash contained in the genesis asset.
+	//
+	// TODO(roasbeef): use even/odd framing here?
+	//
+	// NOTE: This field is optional, and can only be specified if the asset
+	// above is a genesis asset. If specified, then verifiers _should_ also
+	// verify the hashes match up.
+	MetaReveal *MetaReveal
+
 	// AdditionalInputs is a nested full proof for any additional inputs
 	// found within the resulting asset.
 	AdditionalInputs []File
@@ -87,6 +97,9 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 			&p.SplitRootProof,
 		))
 	}
+	if p.MetaReveal != nil {
+		records = append(records, MetaRevealRecord(&p.MetaReveal))
+	}
 	if len(p.AdditionalInputs) > 0 {
 		records = append(records, AdditionalInputsRecord(
 			&p.AdditionalInputs,
@@ -106,6 +119,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		InclusionProofRecord(&p.InclusionProof),
 		ExclusionProofsRecord(&p.ExclusionProofs),
 		SplitRootProofRecord(&p.SplitRootProof),
+		MetaRevealRecord(&p.MetaReveal),
 		AdditionalInputsRecord(&p.AdditionalInputs),
 	}
 }
