@@ -76,18 +76,53 @@ func encodeAsProofFile(proof *Proof) (Blob, error) {
 	return b.Bytes(), nil
 }
 
+// MintingBlobOption allows the caller to modify how the final set of minting
+// blobs is created. This can be used to attach optional data to the proof
+// file.
+type MintingBlobOption func(*mintingBlobOpts)
+
+// mintingBlobOpts is a set of options that can be used to modify the final
+// proof files created.
+type mintingBlobOpts struct {
+	metaReveals map[asset.SerializedKey]*MetaReveal
+}
+
+// defaultMintingBlobOpts returns the default set of options for creating a
+// minting blob.
+func defaultMintingBlobOpts() *mintingBlobOpts {
+	return &mintingBlobOpts{
+		metaReveals: make(map[asset.SerializedKey]*MetaReveal),
+	}
+}
+
+// WithAssetMetaReveals is a MintingBlobOption that allows the caller to attach
+// meta reveal information to the initial minting blob created.
+func WithAssetMetaReveals(
+	metaReveals map[asset.SerializedKey]*MetaReveal) MintingBlobOption {
+
+	return func(o *mintingBlobOpts) {
+		o.metaReveals = metaReveals
+	}
+}
+
 // NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
 func NewMintingBlobs(params *MintParams,
-	headerVerifier HeaderVerifier) (AssetBlobs, error) {
+	headerVerifier HeaderVerifier,
+	blobOpts ...MintingBlobOption) (AssetBlobs, error) {
+
+	opts := defaultMintingBlobOpts()
+	for _, blobOpt := range blobOpts {
+		blobOpt(opts)
+	}
 
 	base, err := baseProof(&params.BaseProofParams, params.GenesisPoint)
 	if err != nil {
 		return nil, err
 	}
 
-	proofs, err := committedProofs(base, params.TaroRoot)
+	proofs, err := committedProofs(base, params.TaroRoot, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -155,9 +190,8 @@ func coreProof(params *BaseProofParams) (*Proof, error) {
 
 // committedProofs creates a map of proofs, keyed by the script key of each of
 // the assets committed to in the Taro root of the given params.
-func committedProofs(baseProof *Proof,
-	taroRoot *commitment.TaroCommitment) (map[asset.SerializedKey]*Proof,
-	error) {
+func committedProofs(baseProof *Proof, taroRoot *commitment.TaroCommitment,
+	opts *mintingBlobOpts) (map[asset.SerializedKey]*Proof, error) {
 
 	// For each asset we'll construct the asset specific proof information,
 	// then encode that as a proof file blob in the blobs map.
@@ -190,10 +224,18 @@ func committedProofs(baseProof *Proof,
 			Proof: *assetMerkleProof,
 		}
 
+		scriptKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
+
+		// With all the base data set above, we'll also check to see if
+		// we have any meta reveals. If so, then we'll attach that as
+		// well.
+		if metaReveal, ok := opts.metaReveals[scriptKey]; ok {
+			assetProof.MetaReveal = metaReveal
+		}
+
 		// With all the information for this asset populated, we'll
 		// now reference the proof by the script key used.
-		serializedKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
-		proofs[serializedKey] = &assetProof
+		proofs[scriptKey] = &assetProof
 	}
 
 	return proofs, nil

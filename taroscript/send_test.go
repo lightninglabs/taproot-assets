@@ -104,6 +104,10 @@ func initSpendScenario(t *testing.T) spendData {
 		genesis1collect: asset.RandGenesis(t, asset.Collectible),
 	}
 
+	// We don't have a meta reveal for these assets.
+	state.genesis1.MetaHash = [32]byte{}
+	state.genesis1collect.MetaHash = [32]byte{}
+
 	// Keys for sender, receiver, and group. Default to keypath spend
 	// for the spender ScriptKey.
 	spenderPrivKey, spenderPubKey := btcec.PrivKeyFromBytes(key1Bytes)
