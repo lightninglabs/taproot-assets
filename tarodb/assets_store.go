@@ -254,6 +254,16 @@ type ActiveAssetsStore interface {
 	// their on-chain outpoint.
 	DeletePendingPassiveAsset(ctx context.Context,
 		prevOutpoint []byte) error
+
+	// FetchAssetMetaByHash fetches the asset meta for a given meta hash.
+	//
+	// TODO(roasbeef): split into MetaStore?
+	FetchAssetMetaByHash(ctx context.Context,
+		metaDataHash []byte) (sqlc.FetchAssetMetaByHashRow, error)
+
+	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 }
 
 type InsertRecvProofTxAttemptParams = sqlc.InsertReceiverProofTransferAttemptParams
@@ -2157,6 +2167,70 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 	}
 
 	return deltas, nil
+}
+
+// ErrAssetMetaNotFound is returned when an asset meta is not found in the
+// database.
+var ErrAssetMetaNotFound = fmt.Errorf("asset meta not found")
+
+// FetchAssetMetaForAsset attempts to fetch an asset meta based on an asset ID.
+func (a *AssetStore) FetchAssetMetaForAsset(ctx context.Context,
+	assetID asset.ID) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbMeta, err := q.FetchAssetMetaForAsset(ctx, assetID[:])
+		if err != nil {
+			return err
+		}
+
+		assetMeta = &proof.MetaReveal{
+			Data: dbMeta.MetaDataBlob,
+			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
+}
+
+// FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
+func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
+	metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbMeta, err := q.FetchAssetMetaByHash(ctx, metaHash[:])
+		if err != nil {
+			return err
+		}
+
+		assetMeta = &proof.MetaReveal{
+			Data: dbMeta.MetaDataBlob,
+			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
 }
 
 // A compile-time constraint to ensure that AssetStore meets the proof.Archiver
