@@ -31,6 +31,21 @@ CREATE TABLE IF NOT EXISTS genesis_points (
     anchor_tx_id INTEGER REFERENCES chain_txns(txn_id)
 );
 
+-- assets_meta is a table that holds all the metadata information for genesis
+-- assets that we either created, or bootstrapped from the relevant Base
+-- Universe.
+CREATE TABLE IF NOT EXISTS assets_meta (
+    meta_id INTEGER PRIMARY KEY,
+
+    meta_data_hash BLOB CHECK(length(meta_data_hash) = 32) UNIQUE,
+
+    -- TODO(roasbeef): also have other opque blob here for future fields?
+    meta_data_blob BLOB,
+
+    meta_data_type SMALLINT
+);
+CREATE INDEX IF NOT EXISTS meta_hash_index on assets_meta(meta_data_hash);
+
 -- genesis_assets stores the base information for a given asset. This includes
 -- all the information needed to derive the assetID for an asset. This table
 -- reference the genesis point which is also a necessary component for
@@ -42,7 +57,7 @@ CREATE TABLE IF NOT EXISTS genesis_assets (
 
     asset_tag TEXT UNIQUE NOT NULL,
 
-    meta_data BLOB,
+    meta_data_id INTEGER REFERENCES assets_meta(meta_id),
 
     output_index INTEGER NOT NULL,
 
@@ -247,7 +262,7 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     asset_supply BIGINT NOT NULL,
 
-    asset_meta BLOB,
+    asset_meta_id INTEGER NOT NULL REFERENCES assets_meta(meta_id),
 
     emission_enabled BOOLEAN NOT NULL,
 
@@ -266,9 +281,13 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 -- for internal keys that match our main batch key.
 CREATE VIEW genesis_info_view AS
     SELECT
-        gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
-        genesis_points.prev_out prev_out
+        gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash meta_hash,
+        output_index, asset_type, genesis_points.prev_out prev_out
     FROM genesis_assets
+    -- We do a LEFT JOIN here, as not every asset has a set of
+    -- metadata that matches the asset.
+    LEFT JOIN assets_meta
+        ON genesis_assets.meta_data_id = assets_meta.meta_id
     JOIN genesis_points
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id;
 

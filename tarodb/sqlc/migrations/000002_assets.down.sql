@@ -17,3 +17,5 @@ DROP TABLE IF EXISTS asset_minting_batches;
 DROP INDEX IF EXISTS batch_state_lookup;
 DROP VIEW IF EXISTS genesis_info_view;
 DROP VIEW IF EXISTS key_group_info_view;
+DROP TABLE IF EXISTS assets_meta;
+DROP INDEX IF EXISTS meta_hash_index;
