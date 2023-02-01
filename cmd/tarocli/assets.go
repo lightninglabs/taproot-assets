@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 
+	"github.com/lightninglabs/taro/tarocfg"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/urfave/cli"
@@ -29,15 +31,15 @@ var assetsCommands = []cli.Command{
 }
 
 var (
-	assetTypeName     = "type"
-	assetTagName      = "name"
-	assetSupplyName   = "supply"
-	assetMetaName     = "meta"
-	assetEmissionName = "enable_emission"
-	assetGroupKeyName = "group_key"
-	batchKeyName      = "batch_key"
-	groupByGroupName  = "by_group"
-	assetIDName       = "asset_id"
+	assetTypeName      = "type"
+	assetTagName       = "name"
+	assetSupplyName    = "supply"
+	assetMetaBytesName = "meta_bytes"
+	assetEmissionName  = "enable_emission"
+	assetGroupKeyName  = "group_key"
+	skipBatchName      = "skip_batch"
+	groupByGroupName   = "by_group"
+	assetIDName        = "asset_id"
 )
 
 var mintAssetCommand = cli.Command{
@@ -59,8 +61,17 @@ var mintAssetCommand = cli.Command{
 			Usage: "the target supply of the minted asset",
 		},
 		cli.StringFlag{
-			Name:  assetMetaName,
-			Usage: "the metadata associated with the asset",
+			Name:  assetMetaBytesName,
+			Usage: "the raw metadata associated with the asset",
+		},
+		cli.StringFlag{
+			Name: assetMetaFilePathName,
+			Usage: "a path to a file on disk that should be read " +
+				"and used as the asset meta",
+		},
+		cli.IntFlag{
+			Name:  assetMetaTypeName,
+			Usage: "the type of the meta data for the asset",
 		},
 		cli.BoolFlag{
 			Name: assetEmissionName,
@@ -114,14 +125,41 @@ func mintAsset(ctx *cli.Context) error {
 		}
 	}
 
+	// Both the meta bytes and the meta path can be set.
+	var assetMeta *tarorpc.AssetMeta
+	switch {
+	case ctx.String(assetMetaBytesName) != "" &&
+		ctx.String(assetMetaFilePathName) != "":
+		return fmt.Errorf("meta bytes or meta file path cannot " +
+			"be both set")
+
+	case ctx.String(assetMetaBytesName) != "":
+		assetMeta = &tarorpc.AssetMeta{
+			Data: []byte(ctx.String(assetMetaBytesName)),
+			Type: tarorpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
+		}
+
+	case ctx.String(assetMetaFilePathName) != "":
+		metaPath := tarocfg.CleanAndExpandPath(
+			ctx.String(assetMetaFilePathName),
+		)
+		metaFileBytes, err := ioutil.ReadFile(metaPath)
+		if err != nil {
+			return fmt.Errorf("unable to read meta file: %w", err)
+		}
+
+		assetMeta = &tarorpc.AssetMeta{
+			Data: metaFileBytes,
+			Type: tarorpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
+		}
+	}
+
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
-		Asset: &mintrpc.MintAsset{
-			AssetType: parseAssetType(ctx),
-			Name:      ctx.String(assetTagName),
-			MetaData:  []byte(ctx.String(assetMetaName)),
-			Amount:    ctx.Uint64(assetSupplyName),
-			GroupKey:  groupKey,
-		},
+		AssetType:      parseAssetType(ctx),
+		Name:           ctx.String(assetTagName),
+		AssetMeta:      assetMeta,
+		Amount:         ctx.Uint64(assetSupplyName),
+		GroupKey:       groupKey,
 		EnableEmission: ctx.Bool(assetEmissionName),
 	})
 	if err != nil {
