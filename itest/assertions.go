@@ -78,7 +78,7 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
 func assertAssetState(t *harnessTest, tarod *tarodHarness, name string,
-	meta []byte, assetChecks ...assetCheck) *tarorpc.Asset {
+	metaHash []byte, assetChecks ...assetCheck) *tarorpc.Asset {
 
 	t.t.Helper()
 
@@ -99,7 +99,7 @@ func assertAssetState(t *harnessTest, tarod *tarodHarness, name string,
 		for _, rpcAsset := range listResp.Assets {
 			rpcGen := rpcAsset.AssetGenesis
 			if rpcGen.Name == name &&
-				bytes.Equal(rpcGen.Meta, meta) {
+				bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
 
 				a = rpcAsset
 
@@ -455,7 +455,7 @@ func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
 	require.Equal(t, a.LockTime, b.LockTime)
 	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
 	require.Equal(t, a.AssetGenesis.Name, b.Tag)
-	require.Equal(t, a.AssetGenesis.Meta, b.MetaData)
+	require.Equal(t, a.AssetGenesis.MetaHash, b.MetaHash)
 	require.Equal(t, a.AssetType, b.Type)
 	require.Equal(t, a.AssetGroup.TweakedGroupKey, groupKey)
 }
