@@ -88,6 +88,11 @@ const (
 	V0 Version = 0
 )
 
+const (
+	// MetaHashLen is the length of the metadata hash.
+	MetaHashLen = 32
+)
+
 // Genesis encodes an asset's genesis metadata which directly maps to its unique
 // ID within the Taro protocol.
 type Genesis struct {
@@ -104,14 +109,13 @@ type Genesis struct {
 	// NOTE: This is immutable for the lifetime of the asset.
 	Tag string
 
-	// Metadata encodes metadata related to the asset.
+	// MetaHash is the hash of the set of encoded meta data. This value is
+	// carried along for all assets transferred in the "light cone" of the
+	// genesis asset. The preimage for this field may optionally be
+	// revealed within the genesis asset proof for this asset.
 	//
 	// NOTE: This is immutable for the lifetime of the asset.
-	//
-	// TODO: Would this usually be a JSON blob? It may be worth
-	// standardizing a schema subset for interoperability across wallets
-	// when displaying this metadata.
-	Metadata []byte
+	MetaHash [MetaHashLen]byte
 
 	// OutputIndex is the index of the output that carries the unique Taro
 	// commitment in the genesis transaction.
@@ -123,12 +127,9 @@ type Genesis struct {
 
 // TagHash computes the SHA-256 hash of the asset's tag.
 func (g Genesis) TagHash() [sha256.Size]byte {
+	// TODO(roasbeef): make the tag similar to the meta data here?
+	//  * would then mean the Genesis struct is also constant sized
 	return sha256.Sum256([]byte(g.Tag))
-}
-
-// MetadataHash computes the SHA-256 hash of the asset's metadata.
-func (g Genesis) MetadataHash() [sha256.Size]byte {
-	return sha256.Sum256(g.Metadata)
 }
 
 // ID serves as a unique identifier of an asset, resulting from:
@@ -140,12 +141,11 @@ type ID [sha256.Size]byte
 // ID computes an asset's unique identifier from its metadata.
 func (g Genesis) ID() ID {
 	tagHash := g.TagHash()
-	metadataHash := g.MetadataHash()
 
 	h := sha256.New()
 	_ = wire.WriteOutPoint(h, 0, 0, &g.FirstPrevOut)
 	_, _ = h.Write(tagHash[:])
-	_, _ = h.Write(metadataHash[:])
+	_, _ = h.Write(g.MetaHash[:])
 	_ = binary.Write(h, binary.BigEndian, g.OutputIndex)
 	_ = binary.Write(h, binary.BigEndian, g.Type)
 	return *(*ID)(h.Sum(nil))
@@ -788,10 +788,6 @@ func (a *Asset) IsUnspendable() bool {
 // Copy returns a deep copy of an Asset.
 func (a *Asset) Copy() *Asset {
 	assetCopy := *a
-
-	// Perform a deep copy of all pointer data types.
-	assetCopy.Genesis.Metadata = make([]byte, len(a.Genesis.Metadata))
-	copy(assetCopy.Genesis.Metadata, a.Genesis.Metadata)
 
 	assetCopy.PrevWitnesses = make([]Witness, 0, len(a.PrevWitnesses))
 	for _, witness := range a.PrevWitnesses {

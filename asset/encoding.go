@@ -271,7 +271,7 @@ func GenesisEncoder(w io.Writer, val any, buf *[8]byte) error {
 		if err := VarBytesEncoder(w, &tagBytes, buf); err != nil {
 			return err
 		}
-		if err := VarBytesEncoder(w, &t.Metadata, buf); err != nil {
+		if err := tlv.EBytes32(w, &t.MetaHash, buf); err != nil {
 			return err
 		}
 		if err := tlv.EUint32T(w, t.OutputIndex, buf); err != nil {
@@ -294,7 +294,7 @@ func GenesisDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 			return err
 		}
 		genesis.Tag = string(tag)
-		err = VarBytesDecoder(r, &genesis.Metadata, buf, 0)
+		err = tlv.DBytes32(r, &genesis.MetaHash, buf, MetaHashLen)
 		if err != nil {
 			return err
 		}

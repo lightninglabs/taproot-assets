@@ -183,7 +183,7 @@ func TestAssetEncoding(t *testing.T) {
 				Index: 1,
 			},
 			Tag:         "asset",
-			Metadata:    []byte{1, 2, 3},
+			MetaHash:    [MetaHashLen]byte{1, 2, 3},
 			OutputIndex: 1,
 			Type:        1,
 		},
@@ -250,7 +250,7 @@ func TestAssetEncoding(t *testing.T) {
 				Index: 2,
 			},
 			Tag:         "asset",
-			Metadata:    []byte{1, 2, 3},
+			MetaHash:    [MetaHashLen]byte{1, 2, 3},
 			OutputIndex: 2,
 			Type:        2,
 		},
@@ -295,7 +295,7 @@ func TestAssetType(t *testing.T) {
 			Index: 1,
 		},
 		Tag:         "normal asset",
-		Metadata:    []byte{1, 2, 3},
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 1,
 		Type:        Normal,
 	}
@@ -305,7 +305,7 @@ func TestAssetType(t *testing.T) {
 			Index: 1,
 		},
 		Tag:         "collectible asset",
-		Metadata:    []byte{1, 2, 3},
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 2,
 		Type:        Collectible,
 	}
@@ -334,17 +334,16 @@ func TestAssetID(t *testing.T) {
 			Index: 99,
 		},
 		Tag:         "collectible asset 1",
-		Metadata:    []byte{1, 2, 3},
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 21,
 		Type:        Collectible,
 	}
 	tagHash := sha256.Sum256([]byte(g.Tag))
-	metadataHash := sha256.Sum256(g.Metadata)
 
 	h := sha256.New()
 	_ = wire.WriteOutPoint(h, 0, 0, &g.FirstPrevOut)
 	_, _ = h.Write(tagHash[:])
-	_, _ = h.Write(metadataHash[:])
+	_, _ = h.Write(g.MetaHash[:])
 	_, _ = h.Write([]byte{0, 0, 0, 21, 1})
 	result := h.Sum(nil)
 
@@ -359,7 +358,7 @@ func TestAssetID(t *testing.T) {
 			Index: 99,
 		},
 		Tag:         "collectible asset 1",
-		Metadata:    []byte{1, 2, 3},
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 21,
 		Type:        Normal,
 	}
@@ -385,7 +384,7 @@ func TestAssetGroupKey(t *testing.T) {
 			Index: 99,
 		},
 		Tag:         "normal asset 1",
-		Metadata:    []byte{1, 2, 3},
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 21,
 		Type:        Collectible,
 	}
