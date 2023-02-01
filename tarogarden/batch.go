@@ -6,10 +6,16 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
+
+// AssetMetas maps the serialized script key of an asset to the meta reveal for
+// that asset, if it has one.
+type AssetMetas map[asset.SerializedKey]*proof.MetaReveal
 
 // MintingBatch packages the pending state of a batch, this includes the batch
 // key, the state of the batch and the assets to be created.
@@ -51,6 +57,10 @@ type MintingBatch struct {
 	// NOTE: This field is only set if the state is beyond
 	// BatchStateCommitted.
 	RootAssetCommitment *commitment.TaroCommitment
+
+	// AssetMetas maps the serialized script key of an asset to the meta
+	// reveal for that asset, if it has one.
+	AssetMetas AssetMetas
 
 	// mintingPubKey is the top-level Taproot output key that will be
 	// used to commit to the Taro commitment above.

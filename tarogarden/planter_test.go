@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
 	_ "github.com/lightninglabs/taro/tarodb" // Register relevant drivers.
 	"github.com/lightninglabs/taro/tarogarden"
@@ -133,9 +134,11 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Se
 
 		assetName := hex.EncodeToString(n[:])
 		seedlings[i] = &tarogarden.Seedling{
-			AssetType:      asset.Type(rand.Int31n(2)),
-			AssetName:      assetName,
-			Metadata:       n[:],
+			AssetType: asset.Type(rand.Int31n(2)),
+			AssetName: assetName,
+			Meta: &proof.MetaReveal{
+				Data: n[:],
+			},
 			EnableEmission: test.RandBool(),
 		}
 		if seedlings[i].AssetType == asset.Normal {
@@ -351,7 +354,7 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 
 		require.Equal(t, seedling.AssetType, batchSeedling.AssetType)
 		require.Equal(t, seedling.AssetName, batchSeedling.AssetName)
-		require.Equal(t, seedling.Metadata, batchSeedling.Metadata)
+		require.Equal(t, seedling.Meta, batchSeedling.Meta)
 		require.Equal(t, seedling.Amount, batchSeedling.Amount)
 		require.Equal(
 			t, seedling.EnableEmission, batchSeedling.EnableEmission,
@@ -430,7 +433,9 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		// asset.
 		require.Equal(t, seedling.AssetType, assetSprout.Type)
 		require.Equal(t, seedling.AssetName, assetSprout.Genesis.Tag)
-		require.Equal(t, seedling.Metadata, assetSprout.Genesis.Metadata)
+		require.Equal(
+			t, seedling.Meta.MetaHash(), assetSprout.Genesis.MetaHash,
+		)
 		require.Equal(t, seedling.Amount, assetSprout.Amount)
 		require.Equal(
 			t, seedling.EnableEmission, assetSprout.GroupKey != nil,

@@ -382,9 +382,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
-			Metadata:     seedling.Metadata,
 			OutputIndex:  taroOutputIndex,
 			Type:         seedling.AssetType,
+		}
+
+		// If the seedling has a meta data reveal set, then we'll bind
+		// that by including the hash of the meta data in the asset
+		// genesis.
+		if seedling.Meta != nil {
+			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
@@ -567,6 +573,22 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		b.cfg.Batch.GenesisPacket = genesisTxPkt
+
+		// Now that we know the script key for all the assets, we'll
+		// populate the asset metas map as we need that to create the
+		// asset proofs. On restart, we'll get these in the batch
+		// pre-populated.
+		for _, newAsset := range taroCommitment.CommittedAssets() {
+			seedling, ok := b.cfg.Batch.Seedlings[newAsset.Tag]
+			if !ok {
+				continue
+			}
+
+			scriptKey := asset.ToSerialized(
+				newAsset.ScriptKey.PubKey,
+			)
+			b.cfg.Batch.AssetMetas[scriptKey] = seedling.Meta
+		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
 			b.batchKey, BatchStateFrozen, BatchStateCommitted)
@@ -799,6 +821,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		mintingProofs, err := proof.NewMintingBlobs(
 			baseProof, headerVerifier,
+			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to construct minting "+
