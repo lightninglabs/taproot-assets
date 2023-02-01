@@ -37,14 +37,13 @@ CREATE TABLE IF NOT EXISTS genesis_points (
 CREATE TABLE IF NOT EXISTS assets_meta (
     meta_id INTEGER PRIMARY KEY,
 
-    meta_data_hash BLOB CHECK(length(meta_data_hash) = 32) UNIQUE,
+    meta_data_hash BLOB UNIQUE CHECK(length(meta_data_hash) = 32),
 
     -- TODO(roasbeef): also have other opque blob here for future fields?
     meta_data_blob BLOB,
 
     meta_data_type SMALLINT
 );
-CREATE INDEX IF NOT EXISTS meta_hash_index on assets_meta(meta_data_hash);
 
 -- genesis_assets stores the base information for a given asset. This includes
 -- all the information needed to derive the assetID for an asset. This table

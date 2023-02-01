@@ -56,6 +56,8 @@ func assertBatchState(t *testing.T, batch *tarogarden.MintingBatch,
 }
 
 func assertBatchEqual(t *testing.T, a, b *tarogarden.MintingBatch) {
+	t.Helper()
+
 	require.Equal(t, a.CreationTime.Unix(), b.CreationTime.Unix())
 	require.Equal(t, a.BatchState, b.BatchState)
 	require.Equal(t, a.BatchKey, b.BatchKey)
@@ -263,9 +265,12 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
-			Metadata:     seedling.Metadata,
 			OutputIndex:  0,
 			Type:         seedling.AssetType,
+		}
+
+		if seedling.Meta != nil {
+			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
 
 		scriptKey, _ := randKeyDesc(t)
@@ -418,6 +423,16 @@ func TestAddSproutsToBatch(t *testing.T) {
 	_, seedlingGroups, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
+
+	// Modify a random seedling to not actually have a meta reveal. This
+	// lets us test the logic that detects if an asset doesn't actually
+	// have an asset meta reveal.
+	for k := range mintingBatch.Seedlings {
+		mintingBatch.Seedlings[k].Meta = nil
+		break
+	}
+
+	// First, we'll create a new batch, then add some sample seedlings.
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -444,6 +459,10 @@ func TestAddSproutsToBatch(t *testing.T) {
 	assertBatchState(t, mintingBatches[0], tarogarden.BatchStateCommitted)
 	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
+
+	// We also expect that for each of the assets we created above, we're
+	// able to obtain the asset meta for them all.
+	require.Len(t, mintingBatches[0].AssetMetas, numSeedlings)
 }
 
 func addRandAssets(t *testing.T, ctx context.Context,

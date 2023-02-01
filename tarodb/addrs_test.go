@@ -91,6 +91,8 @@ func assertEqualAddrs(t *testing.T, expected, actual []address.AddrWithKeyInfo) 
 // assertEqualAddr makes sure the given actual address matches the expected
 // one
 func assertEqualAddr(t *testing.T, expected, actual address.AddrWithKeyInfo) {
+	t.Helper()
+
 	// Time values cannot be compared based on their struct contents
 	// since the same time can be represented in different ways.
 	// We compare the addresses without the timestamps and then

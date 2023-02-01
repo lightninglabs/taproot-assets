@@ -248,7 +248,7 @@ type AssetBalance struct {
 	Version      int32
 	Balance      uint64
 	Tag          string
-	Meta         []byte
+	MetaHash     [asset.MetaHashLen]byte
 	Type         asset.Type
 	GenesisPoint wire.OutPoint
 	OutputIndex  uint32
@@ -346,8 +346,8 @@ type AssetHumanReadable struct {
 	// Tag is the human-readable identifier for the asset.
 	Tag string
 
-	// Metadata encodes metadata related to the asset.
-	Metadata []byte
+	// MetaHash is the hash of the meta data for this asset.
+	MetaHash [asset.MetaHashLen]byte
 
 	// Type uniquely identifies the type of Taro asset.
 	Type asset.Type
@@ -525,9 +525,12 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		assetGenesis := asset.Genesis{
 			FirstPrevOut: genesisPrevOut,
 			Tag:          sprout.AssetTag,
-			Metadata:     sprout.MetaData,
 			OutputIndex:  uint32(sprout.GenesisOutputIndex),
 			Type:         asset.Type(sprout.AssetType),
+		}
+
+		if len(sprout.MetaHash) != 0 {
+			copy(assetGenesis.MetaHash[:], sprout.MetaHash)
 		}
 
 		// With the base information extracted, we'll use that to
@@ -748,10 +751,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 			}
 
 			copy(assetIDBalance.ID[:], assetBalance.AssetID)
-			assetIDBalance.Meta = make(
-				[]byte, len(assetBalance.MetaData),
-			)
-			copy(assetIDBalance.Meta, assetBalance.MetaData)
+			copy(assetIDBalance.MetaHash[:], assetBalance.MetaHash)
 
 			balances[assetID] = assetIDBalance
 		}
@@ -853,10 +853,10 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 			LockTime:         lockTime,
 			RelativeLockTime: relativeLockTime,
 			Tag:              a.AssetTag,
-			Metadata:         a.MetaData,
 			Type:             assetType,
 			GroupKey:         groupKey,
 		}
+		copy(groupedAssets[i].MetaHash[:], a.MetaHash)
 	}
 
 	return groupedAssets, nil
@@ -1169,6 +1169,16 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	}
 
 	newAsset := proof.Asset
+
+	// If this proof also has a meta reveal (should only exist for genesis
+	// assets, so we skip that validation here), then we'll insert this now
+	// so the upsert below functions properly.
+	_, err = maybeUpsertAssetMeta(
+		ctx, db, &newAsset.Genesis, proof.MetaReveal,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert asset meta: %w", err)
+	}
 
 	// Insert/update the asset information in the database now.
 	_, assetIDs, err := upsertAssetsWithGenesis(
