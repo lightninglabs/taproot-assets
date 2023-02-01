@@ -106,6 +106,12 @@ service Taro {
     */
     rpc SubscribeSendAssetEventNtfns (SubscribeSendAssetEventNtfnsRequest)
         returns (stream SendAssetEvent);
+
+    /*
+    FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+    either by the asset ID for that asset, or a meta hash.
+    */
+    rpc FetchAssetMeta (FetchAssetMetaRequest) returns (AssetMeta);
 }
 
 enum AssetType {
@@ -123,6 +129,32 @@ enum AssetType {
     */
     COLLECTIBLE = 1;
 }
+
+enum AssetMetaType {
+    /*
+    Opaque is used for asset meta blobs that have no true structure and instead
+    should be interpreted as opaque blobs.
+    */
+    MTEA_TYPE_OPAQUE = 0;
+}
+
+message AssetMeta {
+    /*
+    The raw data of the asset meta data. Based on the type below, this may be
+    structured data such as a text file or PDF.
+    */
+    bytes data = 1;
+
+    // The type of the asset meta data.
+    AssetMetaType type = 2;
+
+    /*
+    The hash of the meta. This is the hash of the TLV serialization of the meta
+    itself.
+    */
+    bytes meta_hash = 3;
+}
+
 message MintAssetRequest {
     // The type of the asset to be created.
     AssetType asset_type = 1;
@@ -131,10 +163,10 @@ message MintAssetRequest {
     string name = 2;
 
     /*
-    An opaque blob that resents metadata related to the asset. This will affect
-    the final asset ID.
+    A blob that resents metadata related to the asset. This will affect the
+    final asset ID.
     */
-    bytes meta_data = 3;
+    AssetMeta asset_meta = 3;
 
     /*
     The total amount of units of the new asset that should be created. If the
@@ -199,8 +231,8 @@ message GenesisInfo {
     // The name of the asset.
     string name = 2;
 
-    // The opaque meta data of the asset.
-    bytes meta = 3;
+    // The hash of the meta data for this genesis asset.
+    bytes meta_hash = 3;
 
     // The asset ID that uniquely identifies the asset.
     bytes asset_id = 4;
@@ -329,8 +361,8 @@ message AssetHumanReadable {
     // The name of the asset.
     string tag = 5;
 
-    // The opaque metadata of the asset.
-    bytes meta_data = 6;
+    // The metadata hash of the asset.
+    bytes meta_hash = 6;
 
     // The type of the asset.
     AssetType type = 7;
@@ -753,4 +785,14 @@ message ReceiverProofBackoffWaitEvent {
     // course of the current backoff procedure to deliver the proof to the
     // receiver.
     int64 tries_counter = 3;
+}
+
+message FetchAssetMetaRequest {
+    oneof asset {
+        // The asset ID of the asset to fetch the meta for.
+        bytes asset_id = 1;
+
+        // The 32-byte meta hash of the asset meta.
+        bytes meta_hash = 2;
+    }
 }

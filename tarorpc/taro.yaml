@@ -64,3 +64,6 @@ http:
 
     - selector: tarorpc.Taro.ListTransfers
       get: "/v1/taro/assets/transfers"
+
+    - selector: tarorpc.Taro.FetchAssetMeta
+      get: "/v1/taro/assets/meta"

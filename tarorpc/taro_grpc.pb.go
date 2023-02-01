@@ -85,6 +85,10 @@ type TaroClient interface {
 	//SubscribeSendAssetEventNtfns registers a subscription to the event
 	//notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (Taro_SubscribeSendAssetEventNtfnsClient, error)
+	//
+	//FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+	//either by the asset ID for that asset, or a meta hash.
+	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error)
 }
 
 type taroClient struct {
@@ -271,6 +275,15 @@ func (x *taroSubscribeSendAssetEventNtfnsClient) Recv() (*SendAssetEvent, error)
 	return m, nil
 }
 
+func (c *taroClient) FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error) {
+	out := new(AssetMeta)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/FetchAssetMeta", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaroServer is the server API for Taro service.
 // All implementations must embed UnimplementedTaroServer
 // for forward compatibility
@@ -342,6 +355,10 @@ type TaroServer interface {
 	//SubscribeSendAssetEventNtfns registers a subscription to the event
 	//notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, Taro_SubscribeSendAssetEventNtfnsServer) error
+	//
+	//FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+	//either by the asset ID for that asset, or a meta hash.
+	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error)
 	mustEmbedUnimplementedTaroServer()
 }
 
@@ -399,6 +416,9 @@ func (UnimplementedTaroServer) SendAsset(context.Context, *SendAssetRequest) (*S
 }
 func (UnimplementedTaroServer) SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, Taro_SubscribeSendAssetEventNtfnsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeSendAssetEventNtfns not implemented")
+}
+func (UnimplementedTaroServer) FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchAssetMeta not implemented")
 }
 func (UnimplementedTaroServer) mustEmbedUnimplementedTaroServer() {}
 
@@ -722,6 +742,24 @@ func (x *taroSubscribeSendAssetEventNtfnsServer) Send(m *SendAssetEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Taro_FetchAssetMeta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchAssetMetaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).FetchAssetMeta(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/FetchAssetMeta",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).FetchAssetMeta(ctx, req.(*FetchAssetMetaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Taro_ServiceDesc is the grpc.ServiceDesc for Taro service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -792,6 +830,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendAsset",
 			Handler:    _Taro_SendAsset_Handler,
+		},
+		{
+			MethodName: "FetchAssetMeta",
+			Handler:    _Taro_FetchAssetMeta_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
