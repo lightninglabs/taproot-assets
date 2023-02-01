@@ -5,17 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"path"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
@@ -64,8 +63,9 @@ const (
 
 // testCase is a struct that holds a single test case.
 type testCase struct {
-	name string
-	test func(t *harnessTest)
+	name           string
+	test           func(t *harnessTest)
+	enableHashMail bool
 }
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -78,6 +78,10 @@ type harnessTest struct {
 	// testCase is populated during test execution and represents the
 	// current test case.
 	testCase *testCase
+
+	// apertureHarness is a reference to the current aperture harness.
+	// Will be nil if not yet set up.
+	apertureHarness *ApertureHarness
 
 	// lndHarness is a reference to the current network harness. Will be
 	// nil if not yet set up.
@@ -98,12 +102,13 @@ func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.NetworkHarness,
 	universeServer *serverHarness, tarod *tarodHarness) *harnessTest {
 
 	return &harnessTest{
-		t:              t,
-		lndHarness:     net,
-		universeServer: universeServer,
-		tarod:          tarod,
-		logWriter:      h.logWriter,
-		interceptor:    h.interceptor,
+		t:               t,
+		apertureHarness: h.apertureHarness,
+		lndHarness:      net,
+		universeServer:  universeServer,
+		tarod:           tarod,
+		logWriter:       h.logWriter,
+		interceptor:     h.interceptor,
 	}
 }
 
@@ -172,7 +177,9 @@ func (h *harnessTest) setupLogging() {
 	var err error
 	h.interceptor, err = signal.Intercept()
 	require.NoError(h.t, err)
+
 	taro.SetupLoggers(h.logWriter, h.interceptor)
+	aperture.SetupLoggers(h.logWriter, h.interceptor)
 }
 
 func (h *harnessTest) newLndClient(
@@ -217,7 +224,8 @@ func nextAvailablePort() int {
 // setupHarnesses creates new server and client harnesses that are connected
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
-	lndHarness *lntest.NetworkHarness) (*tarodHarness, *serverHarness) {
+	lndHarness *lntest.NetworkHarness,
+	enableHashMail bool) (*tarodHarness, *serverHarness) {
 
 	mockServerAddr := fmt.Sprintf(
 		lntest.ListenerFormat, lntest.NextAvailablePort(),
@@ -229,6 +237,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	// Create a tarod that uses Bob and connect it to the universe server.
 	tarodHarness := setupTarodHarness(
 		t, ht, lndHarness.BackendCfg, lndHarness.Alice, universeServer,
+		enableHashMail,
 	)
 	return tarodHarness, universeServer
 }
@@ -237,17 +246,12 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 // and to the given universe server.
 func setupTarodHarness(t *testing.T, ht *harnessTest,
 	backend lntest.BackendConfig, node *lntest.HarnessNode,
-	universe *serverHarness) *tarodHarness {
-
-	apertureDataDir := btcutil.AppDataDir("aperture", false)
+	universe *serverHarness, enableHashMail bool) *tarodHarness {
 
 	tarodHarness, err := newTarodHarness(ht, tarodConfig{
-		UniverseServer: universe.serverHost,
-		ServerTLSPath:  path.Join(apertureDataDir, "tls.cert"),
-		BackendCfg:     backend,
-		NetParams:      harnessNetParams,
-		LndNode:        node,
-	})
+		NetParams: harnessNetParams,
+		LndNode:   node,
+	}, enableHashMail)
 	require.NoError(t, err)
 
 	// Start the tarod harness now.

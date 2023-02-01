@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -48,20 +47,19 @@ type tarodHarness struct {
 // tarodConfig holds all configuration items that are required to start a tarod
 // server.
 type tarodConfig struct {
-	UniverseServer string
-	BackendCfg     lntest.BackendConfig
-	ServerTLSPath  string
-	LndNode        *lntest.HarnessNode
-	NetParams      *chaincfg.Params
-	BaseDir        string
+	LndNode   *lntest.HarnessNode
+	NetParams *chaincfg.Params
+	BaseDir   string
 }
 
 // newTarodHarness creates a new tarod server harness with the given
 // configuration.
-func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
+func newTarodHarness(ht *harnessTest, cfg tarodConfig,
+	enableHashMail bool) (*tarodHarness, error) {
+
 	if cfg.BaseDir == "" {
 		var err error
-		cfg.BaseDir, err = ioutil.TempDir("", "itest-tarod")
+		cfg.BaseDir, err = os.MkdirTemp("", "itest-tarod")
 		if err != nil {
 			return nil, err
 		}
@@ -118,11 +116,14 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig) (*tarodHarness, error) {
 		return nil, err
 	}
 
-	// We'll modify the config slightly here, since we don't need to use
-	// the hashmail system for integration tests.
-	//
-	// TODO(roasbeef): make local aperture instance in future
-	finalCfg.HashMailAddr = ""
+	// Conditionally use the local hashmail service.
+	finalCfg.HashMailCourier = nil
+	if enableHashMail {
+		finalCfg.HashMailCourier = &tarocfg.HashMailCourierCfg{
+			Addr:        ht.apertureHarness.ListenAddr,
+			TlsCertPath: ht.apertureHarness.TlsCertPath,
+		}
+	}
 
 	return &tarodHarness{
 		cfg:       &cfg,
@@ -245,7 +246,7 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 // gRPC dial options from it.
 func readMacaroon(macaroonPath string) (grpc.DialOption, error) {
 	// Load the specified macaroon file.
-	macBytes, err := ioutil.ReadFile(macaroonPath)
+	macBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read macaroon path : %v", err)
 	}

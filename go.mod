@@ -19,6 +19,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20201024163028-a0d42d470451
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/lib/pq v1.10.3
+	github.com/lightninglabs/aperture v0.1.19-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
 	github.com/lightninglabs/lndclient v0.16.0-6
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
