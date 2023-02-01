@@ -643,3 +643,33 @@ RETURNING script_key_id;
 SELECT script_key_id
 FROM script_keys
 WHERE tweaked_script_key = $1;
+
+-- name: UpsertAssetMeta :one
+INSERT INTO assets_meta (
+    meta_data_hash, meta_data_blob, meta_data_type
+) VALUES (
+    $1, $2, $3 
+) ON CONFLICT (meta_data_hash)
+    -- In this case, we may be inserting the data+type for an existing blob. So
+    -- we'll set both of those values. At this layer we assume the meta hash
+    -- has been validated elsewhere.
+    DO UPDATE SET meta_data_blob = EXCLUDED.meta_data_blob, 
+        meta_data_type = EXCLUDED.meta_data_type
+RETURNING meta_id;
+
+-- name: FetchAssetMeta :one
+SELECT meta_data_hash, meta_data_blob, meta_data_type
+FROM assets_meta
+WHERE meta_id = $1;
+
+-- name: FetchAssetMetaByHash :one
+SELECT meta_data_hash, meta_data_blob, meta_data_type
+FROM assets_meta
+WHERE meta_data_hash = $1;
+
+-- name: FetchAssetMetaForAsset :one
+SELECT meta_data_hash, meta_data_blob, meta_data_type
+FROM genesis_assets assets
+JOIN assets_meta
+    ON assets.meta_data_id = assets_meta.meta_id
+WHERE assets.asset_id = $1;
