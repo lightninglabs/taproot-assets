@@ -31,11 +31,14 @@ import (
 func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	seedlings := make(map[string]*Seedling)
 	for i := 0; i < numSeedlings; i++ {
+		metaBlob := test.RandBytes(32)
 		assetName := hex.EncodeToString(test.RandBytes(32))
 		seedlings[assetName] = &Seedling{
-			AssetType:      asset.Type(rand.Int31n(2)),
-			AssetName:      assetName,
-			Metadata:       test.RandBytes(32),
+			AssetType: asset.Type(rand.Int31n(2)),
+			AssetName: assetName,
+			Meta: &proof.MetaReveal{
+				Data: metaBlob,
+			},
 			Amount:         uint64(rand.Int63()),
 			EnableEmission: test.RandBool(),
 		}

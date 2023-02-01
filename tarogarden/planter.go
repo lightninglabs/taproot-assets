@@ -194,6 +194,13 @@ func (c *ChainPlanter) Start() error {
 			log.Infof("Launching ChainCaretaker(%x)",
 				batch.BatchKey.PubKey.SerializeCompressed())
 
+			// For batches before the actual assets have been
+			// committed, we'll need to populate this field
+			// manually.
+			if batch.AssetMetas == nil {
+				batch.AssetMetas = make(AssetMetas)
+			}
+
 			caretaker := c.newCaretakerForBatch(batch)
 			if err := caretaker.Start(); err != nil {
 				startErr = err
@@ -516,6 +523,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 			Seedlings: map[string]*Seedling{
 				req.AssetName: req,
 			},
+			AssetMetas: make(AssetMetas),
 		}
 		ctx, cancel = c.WithCtxQuit()
 		defer cancel()

@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/proof"
 )
 
 var (
@@ -76,10 +77,8 @@ type Seedling struct {
 	// AssetName is the name of the asset.
 	AssetName string
 
-	// Metadata is the set of metadata associated with the asset.
-	//
-	// TODO(roasbeef): redundant w/ the above?
-	Metadata []byte
+	// Meta is the set of metadata associated with the asset.
+	Meta *proof.MetaReveal
 
 	// Amount is the total amount of the asset.
 	Amount uint64
