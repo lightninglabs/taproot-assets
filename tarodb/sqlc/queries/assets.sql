@@ -38,7 +38,7 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
-    asset_name, asset_type, asset_supply, asset_meta,
+    asset_name, asset_type, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id
 ) VALUES (
    $1, $2, $3, $4, $5, $6, sqlc.narg('group_genesis_id')
@@ -66,7 +66,7 @@ WITH target_key_id AS (
     WHERE keys.raw_key = $1
 )
 INSERT INTO asset_seedlings(
-    asset_name, asset_type, asset_supply, asset_meta,
+    asset_name, asset_type, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id
 ) VALUES (
     $2, $3, $4, $5, $6,
@@ -81,9 +81,13 @@ WITH target_batch(batch_id) AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id, group_genesis_id
+SELECT seedling_id, asset_name, asset_type, asset_supply, 
+    assets_meta.meta_data_hash, assets_meta.meta_data_type, 
+    assets_meta.meta_data_blob, emission_enabled, genesis_id, batch_id, 
+    group_genesis_id
 FROM asset_seedlings 
+LEFT JOIN assets_meta
+    ON asset_seedlings.asset_meta_id = assets_meta.meta_id
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: UpsertGenesisPoint :one
@@ -117,10 +121,15 @@ INSERT INTO asset_group_sigs (
 RETURNING sig_id;
 
 -- name: UpsertGenesisAsset :one
+WITH target_meta_id AS (
+    SELECT meta_id
+    FROM assets_meta
+    WHERE meta_data_hash = $1
+)
 INSERT INTO genesis_assets (
-    asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
+    asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $2, $3, (SELECT meta_id FROM target_meta_id), $4, $5, $6
 ) ON CONFLICT (asset_tag)
     -- This is a NOP, asset_tag is the unique field that caused the conflict.
     DO UPDATE SET asset_tag = EXCLUDED.asset_tag
@@ -143,9 +152,13 @@ WITH genesis_info AS (
     -- points, to the internal key that reference the batch, then restricted
     -- for internal keys that match our main batch key.
     SELECT
-        gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
-        genesis_points.prev_out prev_out
+        gen_asset_id, asset_id, asset_tag, output_index, asset_type,
+        genesis_points.prev_out prev_out, 
+        assets_meta.meta_data_hash meta_hash, assets_meta.meta_data_type meta_type,
+        assets_meta.meta_data_blob meta_blob
     FROM genesis_assets
+    LEFT JOIN assets_meta
+        ON genesis_assets.meta_data_id = assets_meta.meta_id
     JOIN genesis_points
         ON genesis_assets.genesis_point_id = genesis_points.genesis_id
     JOIN asset_minting_batches batches
@@ -175,7 +188,8 @@ SELECT
     key_group_info.tweaked_group_key, key_group_info.raw_key AS group_key_raw,
     key_group_info.key_family AS group_key_family, key_group_info.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, 
-    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_data, 
+    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_hash, 
+    genesis_info.meta_type, genesis_info.meta_blob, 
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
@@ -195,7 +209,7 @@ JOIN internal_keys
 -- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, version, SUM(amount) balance,
-    genesis_info_view.asset_tag, genesis_info_view.meta_data,
+    genesis_info_view.asset_tag, genesis_info_view.meta_hash,
     genesis_info_view.asset_type, genesis_info_view.output_index,
     genesis_info_view.prev_out AS genesis_point
 FROM assets
@@ -210,7 +224,7 @@ JOIN genesis_info_view
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
-         version, genesis_info_view.asset_tag, genesis_info_view.meta_data,
+         version, genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
          genesis_info_view.prev_out;
 
@@ -229,7 +243,7 @@ SELECT
     assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
-    genesis_info_view.meta_data, 
+    genesis_info_view.meta_Hash, 
     genesis_info_view.asset_type,
     key_group_info_view.tweaked_group_key
 FROM assets
@@ -279,7 +293,7 @@ SELECT
     script_version, amount, lock_time, relative_lock_time, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
-    genesis_info_view.meta_data, 
+    genesis_info_view.meta_hash, 
     genesis_info_view.output_index AS genesis_output_index,
     genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
@@ -326,9 +340,11 @@ FROM assets;
 
 -- name: AssetsInBatch :many
 SELECT
-    gen_asset_id, asset_id, asset_tag, meta_data, output_index, asset_type,
-    genesis_points.prev_out prev_out
+    gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash, 
+    output_index, asset_type, genesis_points.prev_out prev_out
 FROM genesis_assets
+LEFT JOIN assets_meta
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
 JOIN genesis_points
     ON genesis_assets.genesis_point_id = genesis_points.genesis_id
 JOIN asset_minting_batches batches
@@ -482,9 +498,11 @@ WHERE anchor_tx_id = $1;
 
 -- name: FetchGenesisByID :one
 SELECT
-    asset_id, asset_tag, meta_data, output_index, asset_type,
+    asset_id, asset_tag, assets_meta.meta_data_hash, output_index, asset_type,
     genesis_points.prev_out prev_out
 FROM genesis_assets
+LEFT JOIN assets_meta
+    ON genesis_assets.meta_data_id = assets_meta.meta_id
 JOIN genesis_points
   ON genesis_assets.genesis_point_id = genesis_points.genesis_id
 WHERE gen_asset_id = $1;

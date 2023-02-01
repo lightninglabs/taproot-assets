@@ -202,6 +202,17 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 				return fmt.Errorf("unable to insert genesis "+
 					"point: %w", err)
 			}
+
+			// In case we haven't yet stored the asset meta, we'll
+			// grab that from the genesis in the addr.
+			_, err = maybeUpsertAssetMeta(
+				ctx, db, &addr.Genesis, nil,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert asset "+
+					"meta: %w", err)
+			}
+
 			genAssetID, err := upsertGenesis(
 				ctx, db, genesisPointID, addr.Genesis,
 			)
