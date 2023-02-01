@@ -38,10 +38,10 @@ message MintAsset {
     string name = 2;
 
     /*
-    An opaque blob that resents metadata related to the asset. This will affect
-    the final asset ID.
+    A blob that resents metadata related to the asset. This will affect the
+    final asset ID.
     */
-    bytes meta_data = 3;
+    tarorpc.AssetMeta asset_meta = 3;
 
     /*
     The total amount of units of the new asset that should be created. If the
