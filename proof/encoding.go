@@ -336,3 +336,46 @@ func BoolDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 	return tlv.NewTypeForEncodingErr(val, "bool")
 }
+
+func MetaRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**MetaReveal); ok {
+		return (*t).Encode(w)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*MetaReveal")
+}
+
+func MetaRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(**MetaReveal); ok {
+		var revealBytes []byte
+		if err := tlv.DVarBytes(r, &revealBytes, buf, l); err != nil {
+			return err
+		}
+		var reveal MetaReveal
+		err := reveal.Decode(bytes.NewReader(revealBytes))
+		if err != nil {
+			return err
+		}
+		*typ = &reveal
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "*MetaReveal")
+}
+
+func MetaTypeEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*MetaType); ok {
+		return tlv.EUint8T(w, uint8(*t), buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "MetaType")
+}
+
+func MetaTypeDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*MetaType); ok {
+		var metaType uint8
+		if err := tlv.DUint8(r, &metaType, buf, l); err != nil {
+			return err
+		}
+		*typ = MetaType(metaType)
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "MetaType")
+}

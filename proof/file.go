@@ -367,4 +367,9 @@ type AssetSnapshot struct {
 	// resulted from splitting an asset. If this is true then the root asset
 	// of the split can be found in the asset witness' split commitment.
 	SplitAsset bool
+
+	// MetaReveal is the pre-image to the meta data hash of the above
+	// asset. This is only populated if the asset is a genesis asset, and
+	// the proof had a valid meta reveal.
+	MetaReveal *MetaReveal
 }
