@@ -20,6 +20,11 @@ func testBasicSend(t *harnessTest) {
 		wg   sync.WaitGroup
 	)
 
+	const (
+		numUnits = 10
+		numSends = 2
+	)
+
 	// Subscribe to receive assent send events from primary taro node.
 	eventNtfns, err := t.tarod.SubscribeSendAssetEventNtfns(
 		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
@@ -34,8 +39,31 @@ func testBasicSend(t *harnessTest) {
 	go func() {
 		defer wg.Done()
 
-		assertRecvSendSateExecEvent(
-			t, eventNtfns, tarofreighter.SendStateBroadcast,
+		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+			switch eventTyped := event.Event.(type) {
+			case *tarorpc.SendAssetEvent_ExecuteSendStateEvent:
+				ev := eventTyped.ExecuteSendStateEvent
+
+				// Log send state execution.
+				timestamp := time.UnixMicro(
+					ev.Timestamp,
+				)
+				t.Logf("Executing send state (%v): %v",
+					timestamp.Format(time.RFC3339Nano),
+					ev.SendState,
+				)
+
+				return ev.SendState ==
+					tarofreighter.SendStateBroadcast.String()
+			}
+
+			return false
+		}
+
+		ctx, cancel := context.WithTimeout(ctxb, 10*time.Second)
+		defer cancel()
+		assertRecvNtfsEvent(
+			t, ctx, eventNtfns, targetEventSelector, numSends,
 		)
 	}()
 
@@ -60,10 +88,6 @@ func testBasicSend(t *harnessTest) {
 
 	// Next, we'll attempt to complete two transfers with distinct
 	// addresses from our main node to Bob.
-	const (
-		numUnits = 10
-		numSends = 2
-	)
 	currentUnits := simpleAssets[0].Amount
 
 	for i := 0; i < numSends; i++ {
@@ -98,19 +122,21 @@ func testBasicSend(t *harnessTest) {
 	wg.Wait()
 }
 
-// assertRecvSendSateExecEvent asserts that the given send state execution event
-// notification was received. This function will block until the event is
-// received or the event stream is closed.
-func assertRecvSendSateExecEvent(
-	t *harnessTest,
+// assertRecvNtfsEvent asserts that the given event notification was received.
+// This function will block until the event is received or the event stream is
+// closed.
+func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
 	eventNtfns tarorpc.Taro_SubscribeSendAssetEventNtfnsClient,
-	targetSendState tarofreighter.SendState,
+	targetEventSelector func(*tarorpc.SendAssetEvent) bool,
+	expectedCount int,
 ) {
 
-	targetSendStateStr := targetSendState.String()
-	foundTargetState := false
+	countFound := 0
 	for {
-		if foundTargetState {
+		// Ensure that the context has not been cancelled.
+		require.NoError(t.t, ctx.Err())
+
+		if countFound == expectedCount {
 			break
 		}
 
@@ -130,25 +156,11 @@ func assertRecvSendSateExecEvent(
 		// If err is not EOF, then we expect it to be nil.
 		require.NoError(t.t, err)
 
-		// Check for the transaction broadcast state.
-		switch eventTyped := event.Event.(type) {
-		case *tarorpc.SendAssetEvent_ExecuteSendStateEvent:
-			executeSendStateEvent := eventTyped.ExecuteSendStateEvent
-
-			// Log send state execution.
-			timestamp := time.UnixMicro(
-				executeSendStateEvent.Timestamp,
-			)
-			t.Logf("Executing send state (%v): %v",
-				timestamp.Format(time.RFC3339Nano),
-				executeSendStateEvent.SendState,
-			)
-
-			if executeSendStateEvent.SendState == targetSendStateStr {
-				foundTargetState = true
-			}
+		// Check for target state.
+		if targetEventSelector(event) {
+			countFound++
 		}
 	}
 
-	require.True(t.t, foundTargetState)
+	require.Equal(t.t, countFound, expectedCount)
 }
