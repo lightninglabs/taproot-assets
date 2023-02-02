@@ -494,28 +494,20 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 func (p *ChainPorter) advanceState(pkg *sendPackage,
 	txBroadcastRespChan chan *PendingParcel) error {
 
-	// Some states require a goroutine because tx confirmation and proof
-	// transfer can take a while.
-	p.Wg.Add(1)
-	go func(pkg *sendPackage) {
-		defer p.Wg.Done()
+	// Continue state transitions whilst state complete has not yet
+	// been reached.
+	for pkg.SendState < SendStateComplete {
+		log.Infof("ChainPorter executing state: %v",
+			pkg.SendState)
 
-		// Continue state transitions whilst state complete has not yet
-		// been reached.
-		for pkg.SendState < SendStateComplete {
-			log.Infof("ChainPorter executing state: %v",
-				pkg.SendState)
+		// Before we attempt a state transition, make sure that
+		// we aren't trying to shut down.
+		select {
+		case <-p.Quit:
+			return nil
 
-			// Before we attempt a state transition, make sure that
-			// we aren't trying to shut down.
-			select {
-			case <-p.Quit:
-				err := fmt.Errorf("porter shutting down")
-				p.cfg.ErrChan <- err
-				return
-
-			default:
-			}
+		default:
+		}
 
 			updatedPkg, err := p.stateStep(
 				*pkg, txBroadcastRespChan,
@@ -524,12 +516,11 @@ func (p *ChainPorter) advanceState(pkg *sendPackage,
 				p.cfg.ErrChan <- err
 				log.Errorf("Error evaluating state (%v): %v",
 					pkg.SendState, err)
-				return
+				return err
 			}
 
-			pkg = updatedPkg
-		}
-	}(pkg)
+		pkg = updatedPkg
+	}
 
 	return nil
 }
