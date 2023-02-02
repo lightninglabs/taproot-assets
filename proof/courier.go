@@ -284,6 +284,10 @@ type HashMailCourierCfg struct {
 
 	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
 
+	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
+	// acknowledge the proof.
+	ReceiverAckTimeout time.Duration `long:"receiveracktimeout" description:"The maximum time to wait for the receiver to acknowledge the proof."`
+
 	// BackoffCfg configures the behaviour of the proof delivery
 	// functionality.
 	BackoffCfg *BackoffCfg
@@ -392,9 +396,15 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
 
 	// We'll wait to receive the ACK from the remote party over their
 	// stream.
-	log.Infof("Waiting for receiver ACK via sid=%x", receiverStreamID)
-	if err := h.mailbox.RecvAck(ctx, receiverStreamID); err != nil {
-		return err
+	log.Infof("Waiting (%v) for receiver ACK via sid=%x",
+		h.cfg.ReceiverAckTimeout, receiverStreamID)
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, h.cfg.ReceiverAckTimeout)
+	defer cancel()
+	err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
+	if err != nil {
+		return fmt.Errorf("failed to receive ACK from receiver within "+
+			"timeout: %w", err)
 	}
 
 	log.Infof("Received ACK from receiver! Cleaning up mailboxes...")

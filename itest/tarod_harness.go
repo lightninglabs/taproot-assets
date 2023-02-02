@@ -121,8 +121,9 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 	finalCfg.HashMailCourier = nil
 	if enableHashMail {
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
-			Addr:        ht.apertureHarness.ListenAddr,
-			TlsCertPath: ht.apertureHarness.TlsCertPath,
+			Addr:               ht.apertureHarness.ListenAddr,
+			TlsCertPath:        ht.apertureHarness.TlsCertPath,
+			ReceiverAckTimeout: 5 * time.Second,
 
 			// Use minimal wait times for asset proof transfer
 			// backoff procedure.
@@ -143,7 +144,7 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 }
 
 // start spins up the tarod server listening for gRPC connections.
-func (hs *tarodHarness) start() error {
+func (hs *tarodHarness) start(expectErrExit bool) error {
 	cfgLogger := hs.ht.logWriter.GenSubLogger("CONF", func() {})
 
 	var (
@@ -160,7 +161,7 @@ func (hs *tarodHarness) start() error {
 	hs.wg.Add(1)
 	go func() {
 		err := hs.server.RunUntilShutdown(mainErrChan)
-		if err != nil {
+		if err != nil && !expectErrExit {
 			hs.ht.Fatalf("Error running server: %v", err)
 		}
 	}()

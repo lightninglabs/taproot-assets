@@ -83,6 +83,10 @@ const (
 	// defaultProofTransferMaxBackoff is the default maximum backoff time
 	// we'll use for proof transfers.
 	defaultProofTransferMaxBackoff = 5 * time.Minute
+
+	// defaultProofTransferReceiverAckTimeout is the default timeout we'll
+	// use for waiting for a receiver to acknowledge a proof transfer.
+	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
 var (
@@ -286,7 +290,8 @@ func DefaultConfig() Config {
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
 		HashMailCourier: &proof.HashMailCourierCfg{
-			Addr: defaultHashMailAddr,
+			Addr:               defaultHashMailAddr,
+			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
 			BackoffCfg: &proof.BackoffCfg{
 				BackoffResetWait: defaultProofTransferBackoffResetWait,
 				NumTries:         defaultProofTransferNumTries,
