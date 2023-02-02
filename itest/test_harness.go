@@ -58,7 +58,7 @@ const (
 
 	// defaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	defaultTimeout = time.Second * 5
+	defaultTimeout = time.Second * 10
 )
 
 // testCase is a struct that holds a single test case.

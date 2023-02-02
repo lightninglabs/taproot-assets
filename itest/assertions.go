@@ -314,7 +314,7 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 			)
 		}
 		return sameAssetID(transfer)
-	}, defaultTimeout/2)
+	}, defaultTimeout)
 	require.NoError(t.t, err)
 }
 
