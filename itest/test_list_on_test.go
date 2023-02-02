@@ -22,6 +22,11 @@ var testCases = []*testCase{
 		enableHashMail: true,
 	},
 	{
+		name:           "reattempt failed asset send",
+		test:           testReattemptFailedAssetSend,
+		enableHashMail: true,
+	},
+	{
 		name: "round trip send",
 		test: testRoundTripSend,
 	},

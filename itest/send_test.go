@@ -124,6 +124,95 @@ func testBasicSend(t *harnessTest) {
 	wg.Wait()
 }
 
+// testReattemptFailedAssetSend tests that a failed attempt at sending an asset
+// proof will be reattempted by the taro node.
+func testReattemptFailedAssetSend(t *harnessTest) {
+	var (
+		ctxb = context.Background()
+		wg   sync.WaitGroup
+	)
+
+	// Make a new node which will send the asset to the primary taro node.
+	// We expect this node to fail because our send call will time out
+	// whilst the porter continues to attempt to send the asset.
+	sendTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
+		t.universeServer, func(params *tarodHarnessParams) {
+			params.enableHashMail = true
+			params.expectErrExit = true
+		},
+	)
+
+	// Subscribe to receive asset send events from primary taro node.
+	eventNtfns, err := sendTarod.SubscribeSendAssetEventNtfns(
+		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Test to ensure that we receive the expected number of backoff wait
+	// event notifications.
+	// This test is executed in a goroutine to ensure that we can receive
+	// the event notification(s) from the taro node as the rest of the test
+	// proceeds.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Define a target event selector to match the backoff wait
+		// event. This function selects for a specific event type.
+		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+			switch eventTyped := event.Event.(type) {
+			case *tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+				ev := eventTyped.ReceiverProofBackoffWaitEvent
+				t.Logf("Found event ntfs: %v", ev)
+				return true
+			}
+
+			return false
+		}
+
+		// Default number of proof delivery attempts in tests is 3,
+		// therefore expect at least 2 backoff wait events
+		// (not waiting on first attempt).
+		expectedEventCount := 2
+
+		ctx, cancel := context.WithTimeout(ctxb, 10*time.Second)
+		defer cancel()
+
+		assertRecvNtfsEvent(
+			t, ctx, eventNtfns, targetEventSelector,
+			expectedEventCount,
+		)
+	}()
+
+	// Mint an asset for sending.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, sendTarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+	genBootstrap := genInfo.GenesisBootstrapInfo
+
+	// Create a new address for the receiver node.
+	recvAddr, err := t.tarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			GenesisBootstrapInfo: genBootstrap,
+			Amt:                  10,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, t.tarod, rpcAssets[0], recvAddr)
+
+	// Stop aperture to simulate a failure.
+	require.NoError(t.t, t.apertureHarness.Service.Stop())
+
+	// Send asset and then mine to confirm the associated on-chain tx.
+	sendAssetsToAddr(t, sendTarod, recvAddr)
+	_ = mineBlocks(t, t.lndHarness, 1, 1)
+
+	wg.Wait()
+}
+
 // assertRecvNtfsEvent asserts that the given event notification was received.
 // This function will block until the event is received or the event stream is
 // closed.
