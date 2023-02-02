@@ -457,21 +457,16 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	//
 	// TODO(roasbeef): move earlier?
 	if p.cfg.ProofCourier != nil {
-		p.Wg.Add(1)
-		go func() {
-			defer p.Wg.Done()
-
-			// TODO(roasbeef): should actually also serialize the
-			// addr of the remote party here
-			ctx, cancel := p.WithCtxQuitNoTimeout()
-			defer cancel()
-			err := p.cfg.ProofCourier.DeliverProof(
-				ctx, *pkg.ReceiverAddr, receiverProof,
-			)
-			if err != nil {
-				log.Errorf("unable to deliver proof: %v", err)
-			}
-		}()
+		// TODO(roasbeef): should actually also serialize the
+		// addr of the remote party here
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+		err := p.cfg.ProofCourier.DeliverProof(
+			ctx, *pkg.ReceiverAddr, receiverProof,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to deliver proof: %w", err)
+		}
 	}
 
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
