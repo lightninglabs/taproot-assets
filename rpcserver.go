@@ -1315,6 +1315,18 @@ func marshallSendAssetEvent(
 			Event: eventRpc,
 		}, nil
 
+	case *proof.ReceiverProofBackoffWaitEvent:
+		eventRpc := tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent{
+			ReceiverProofBackoffWaitEvent: &tarorpc.ReceiverProofBackoffWaitEvent{
+				Timestamp:    event.Timestamp().UnixMicro(),
+				Backoff:      event.Backoff.Microseconds(),
+				TriesCounter: event.TriesCounter,
+			},
+		}
+		return &tarorpc.SendAssetEvent{
+			Event: &eventRpc,
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
 	}

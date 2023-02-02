@@ -1054,7 +1054,7 @@
         "timestamp": {
           "type": "string",
           "format": "int64",
-          "description": "Execute timestamp."
+          "description": "Execute timestamp (microseconds)."
         },
         "send_state": {
           "type": "string",
@@ -1404,6 +1404,26 @@
         }
       }
     },
+    "tarorpcReceiverProofBackoffWaitEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Transfer attempt timestamp (microseconds)."
+        },
+        "backoff": {
+          "type": "string",
+          "format": "int64",
+          "description": "Backoff is the active backoff wait duration."
+        },
+        "tries_counter": {
+          "type": "string",
+          "format": "int64",
+          "description": "Tries counter is the number of tries we've made so far during the\ncourse of the current backoff procedure to deliver the proof to the\nreceiver."
+        }
+      }
+    },
     "tarorpcScriptKey": {
       "type": "object",
       "properties": {
@@ -1429,6 +1449,10 @@
         "execute_send_state_event": {
           "$ref": "#/definitions/tarorpcExecuteSendStateEvent",
           "description": "An event which indicates that a send state is about to be executed."
+        },
+        "receiver_proof_backoff_wait_event": {
+          "$ref": "#/definitions/tarorpcReceiverProofBackoffWaitEvent",
+          "description": "An event which indicates that the proof send backoff wait period will\nstart imminently."
         }
       }
     },
