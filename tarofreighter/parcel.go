@@ -239,10 +239,6 @@ type sendPackage struct {
 	// transfer.
 	NeedsSplit bool
 
-	// ReceiverAddr is the address of the receiver that kicked off the
-	// transfer.
-	ReceiverAddr *address.Taro
-
 	// SendDelta contains the information needed to craft a final transfer
 	// transaction.
 	SendDelta *taroscript.SpendDelta
@@ -346,7 +342,8 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		PubKey: internalKey.PubKey.SerializeCompressed(),
 		Bip32Path: []uint32{
 			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
-			s.ReceiverAddr.ChainParams.HDCoinType + hdkeychain.HardenedKeyStart,
+			s.ReqAssetTransfer.Dest.ChainParams.HDCoinType +
+				hdkeychain.HardenedKeyStart,
 			uint32(internalKey.Family) + uint32(hdkeychain.HardenedKeyStart),
 			0,
 			internalKey.Index,
@@ -407,7 +404,8 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		outputAmt += txOut.Value
 
 		addrType, _, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, s.ReceiverAddr.ChainParams.Params,
+			txOut.PkScript,
+			s.ReqAssetTransfer.Dest.ChainParams.Params,
 		)
 		if err != nil {
 			return err
@@ -488,7 +486,7 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 		s.InputAsset.Asset.ID(), s.SenderScriptKey.PubKey,
 		s.InputAsset.Asset.GroupKey == nil,
 	)
-	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+	receiverStateKey := s.ReqAssetTransfer.Dest.AssetCommitmentKey()
 
 	// With the state key, we can fetch the new Taro trees for the
 	// sender+receiver and also the outputs indexes of each tree
@@ -573,14 +571,14 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	senderParams.TaroRoot = &senderTaroTree
 	senderParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: receiverIndex,
-		InternalKey: &s.ReceiverAddr.InternalKey,
+		InternalKey: &s.ReqAssetTransfer.Dest.InternalKey,
 		CommitmentProof: &proof.CommitmentProof{
 			Proof: *senderExclusionProof,
 		},
 	}}
 
 	receiverParams.OutputIndex = int(receiverIndex)
-	receiverParams.InternalKey = &s.ReceiverAddr.InternalKey
+	receiverParams.InternalKey = &s.ReqAssetTransfer.Dest.InternalKey
 	receiverParams.TaroRoot = &receiverTaroTree
 	receiverParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: senderIndex,
@@ -632,8 +630,8 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	}
 
 	return spendProofs{
-		asset.ToSerialized(s.SenderScriptKey.PubKey):  *senderProof,
-		asset.ToSerialized(&s.ReceiverAddr.ScriptKey): *receiverProof,
+		asset.ToSerialized(s.SenderScriptKey.PubKey):           *senderProof,
+		asset.ToSerialized(&s.ReqAssetTransfer.Dest.ScriptKey): *receiverProof,
 	}, nil
 }
 
@@ -645,20 +643,22 @@ func (s *sendPackage) deliverResponse() {
 	// a restart.
 	if s.ReqAssetTransfer == nil {
 		log.Warnf("No response channel for parcel %x:%x, not "+
-			"delivering notification", s.ReceiverAddr.ID(),
-			s.ReceiverAddr.ScriptKey.SerializeCompressed())
+			"delivering notification", s.ReqAssetTransfer.Dest.ID(),
+			s.ReqAssetTransfer.Dest.ScriptKey.SerializeCompressed())
 		return
 	}
 
 	oldRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
 
 	log.Infof("Outbound parcel now pending for %x:%x, delivering "+
-		"notification", s.ReceiverAddr.ID(),
-		s.ReceiverAddr.ScriptKey.SerializeCompressed())
+		"notification", s.ReqAssetTransfer.Dest.ID(),
+		s.ReqAssetTransfer.Dest.ScriptKey.SerializeCompressed())
 
 	// Get the output index of the receiver from the spend locators.
-	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+	receiverStateKey := s.ReqAssetTransfer.Dest.AssetCommitmentKey()
 	receiverIndex := s.SendDelta.Locators[receiverStateKey].OutputIndex
+
+	recvAddr := s.ReqAssetTransfer.Dest
 
 	s.ReqAssetTransfer.respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
@@ -678,7 +678,7 @@ func (s *sendPackage) deliverResponse() {
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
 						OutPoint: s.OutboundPkg.NewAnchorPoint,
-						ID:       s.ReceiverAddr.ID(),
+						ID:       recvAddr.ID(),
 						ScriptKey: asset.ToSerialized(
 							s.OutboundPkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
 						),
@@ -695,13 +695,13 @@ func (s *sendPackage) deliverResponse() {
 							Hash:  s.OutboundPkg.NewAnchorPoint.Hash,
 							Index: receiverIndex,
 						},
-						ID: s.ReceiverAddr.ID(),
+						ID: recvAddr.ID(),
 						ScriptKey: asset.ToSerialized(
-							&s.ReceiverAddr.ScriptKey,
+							&recvAddr.ScriptKey,
 						),
 					},
 					Amount: btcutil.Amount(
-						s.ReceiverAddr.Amount,
+						recvAddr.Amount,
 					),
 				},
 			},

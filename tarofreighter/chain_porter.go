@@ -231,7 +231,6 @@ func (p *ChainPorter) taroPorter() {
 			// Initialize a package with the destination address.
 			sendPkg := sendPackage{
 				ReqAssetTransfer: req,
-				ReceiverAddr:     req.Dest,
 			}
 
 			// Advance the state machine for this package as far as
@@ -442,7 +441,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// Retrieve receiver proof from proof archive.
 	locator := proof.Locator{
 		AssetID:   &assetId,
-		ScriptKey: pkg.ReceiverAddr.ScriptKey,
+		ScriptKey: pkg.ReqAssetTransfer.Dest.ScriptKey,
 	}
 	receiverProofBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
@@ -463,7 +462,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 		err := p.cfg.ProofCourier.DeliverProof(
-			ctx, *pkg.ReceiverAddr, receiverProof,
+			ctx, *pkg.ReqAssetTransfer.Dest, receiverProof,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to deliver proof: %w", err)
@@ -619,11 +618,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// TODO(roasbeef): send logic assumes just one input (no
 		// merges) so we pass in the amount here to ensure we have
 		// enough to send
-		assetID := currentPkg.ReceiverAddr.ID()
+		assetID := currentPkg.ReqAssetTransfer.Dest.ID()
 		constraints := CommitmentConstraints{
-			GroupKey: currentPkg.ReceiverAddr.GroupKey,
+			GroupKey: currentPkg.ReqAssetTransfer.Dest.GroupKey,
 			AssetID:  &assetID,
-			MinAmt:   currentPkg.ReceiverAddr.Amount,
+			MinAmt:   currentPkg.ReqAssetTransfer.Dest.Amount,
 		}
 		eligibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
 			ctx, constraints,
@@ -633,9 +632,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"selection: %w", err)
 		}
 
+		taroAddr := currentPkg.ReqAssetTransfer.Dest
 		log.Infof("Selected %v possible asset inputs for send to %x",
 			len(eligibleCommitments),
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			taroAddr.ScriptKey.SerializeCompressed())
 
 		// We'll take just the first commitment here as we need enough
 		// to complete the send w/o merging inputs.
@@ -679,7 +679,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// we'll gain the asset that we'll use as an input and info
 		// w.r.t if we need to use an unspendable zero-value root.
 		inputAsset, fullValue, err := taroscript.IsValidInput(
-			currentPkg.InputAsset.Commitment, *currentPkg.ReceiverAddr,
+			currentPkg.InputAsset.Commitment,
+			*currentPkg.ReqAssetTransfer.Dest,
 			*currentPkg.InputAsset.Asset.ScriptKey.PubKey,
 			*p.cfg.ChainParams,
 		)
@@ -732,8 +733,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// of the created outputs.
 	case SendStatePreparedSplit:
 		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
-			*currentPkg.ReceiverAddr, currentPkg.InputAssetPrevID,
-			*currentPkg.SenderScriptKey.PubKey, *currentPkg.SendDelta,
+			*currentPkg.ReqAssetTransfer.Dest,
+			currentPkg.InputAssetPrevID,
+			*currentPkg.SenderScriptKey.PubKey,
+			*currentPkg.SendDelta,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create split "+
@@ -749,8 +752,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taro layer.
 	case SendStateSigned:
+		addr := currentPkg.ReqAssetTransfer.Dest
 		log.Infof("Generating Taro witnesses for send to: %x",
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			addr.ScriptKey.SerializeCompressed())
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// taro leaves. The witness data for each input will be
@@ -777,7 +781,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		spendCommitments, err := taroscript.CreateSpendCommitments(
 			currentPkg.InputAsset.Commitment,
 			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
-			*currentPkg.ReceiverAddr,
+			*currentPkg.ReqAssetTransfer.Dest,
 			*currentPkg.SenderScriptKey.PubKey,
 		)
 		if err != nil {
@@ -785,8 +789,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"commitments: %w", err)
 		}
 
+		addr := currentPkg.ReqAssetTransfer.Dest
 		log.Infof("Constructing new Taro commitments for send to: %x",
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			addr.ScriptKey.SerializeCompressed())
 
 		currentPkg.NewOutputCommitments = spendCommitments
 
@@ -868,7 +873,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// First, we'll update the PSBT packets to insert the _real_
 		// outputs we need to commit to the asset transfer.
 		err := taroscript.CreateSpendOutputs(
-			*currentPkg.ReceiverAddr, currentPkg.SendDelta.Locators,
+			*currentPkg.ReqAssetTransfer.Dest,
+			currentPkg.SendDelta.Locators,
 			*currentPkg.SenderNewInternalKey.PubKey,
 			*currentPkg.SenderScriptKey.PubKey,
 			currentPkg.NewOutputCommitments, currentPkg.SendPkt,
@@ -965,7 +971,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		receiverAssetProof := spendProofs[asset.ToSerialized(
-			&currentPkg.ReceiverAddr.ScriptKey,
+			&currentPkg.ReqAssetTransfer.Dest.ScriptKey,
 		)]
 		var receiverProofBuf bytes.Buffer
 		if err := receiverAssetProof.Encode(&receiverProofBuf); err != nil {
@@ -1202,6 +1208,38 @@ func NewExecuteSendStateEvent(state SendState) *ExecuteSendStateEvent {
 	return &ExecuteSendStateEvent{
 		timestamp: time.Now().UTC(),
 		SendState: state,
+	}
+}
+
+// ReceiverProofBackoffWaitEvent is an event that is sent to a subscriber each
+// time we wait via the Backoff procedure before retrying to deliver a proof to
+// the receiver.
+type ReceiverProofBackoffWaitEvent struct {
+	// timeStamp is the time the event was created.
+	timestamp time.Time
+
+	// Backoff is the current Backoff duration.
+	Backoff time.Duration
+
+	// TriesCounter is the number of tries we've made so far during the
+	// course of the current Backoff procedure to deliver the proof to the
+	// receiver.
+	TriesCounter int64
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *ReceiverProofBackoffWaitEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// NewReceiverProofBackoffWaitEvent creates a new ReceiverProofBackoffWaitEvent.
+func NewReceiverProofBackoffWaitEvent(
+	backoff time.Duration, triesCounter int64) *ReceiverProofBackoffWaitEvent {
+
+	return &ReceiverProofBackoffWaitEvent{
+		timestamp:    time.Now().UTC(),
+		Backoff:      backoff,
+		TriesCounter: triesCounter,
 	}
 }
 
