@@ -1106,7 +1106,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
-		currentPkg.deliverResponse()
+		currentPkg.deliverTxBroadcastResp()
 
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf

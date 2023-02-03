@@ -635,9 +635,9 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	}, nil
 }
 
-// deliverResponse delivers a response for the parcel back to the
+// deliverTxBroadcastResp delivers a response for the parcel back to the
 // receiver over the response channel.
-func (s *sendPackage) deliverResponse() {
+func (s *sendPackage) deliverTxBroadcastResp() {
 	// Ensure that we have a response channel to deliver the response over.
 	// We may not have one if the package send process was recommenced after
 	// a restart.
