@@ -207,7 +207,7 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 		SendState:   SendStateBroadcast,
 	}
 
-	err := p.advanceState(&restartSendPkg, nil)
+	err := p.advanceState(&restartSendPkg)
 	if err != nil {
 		// TODO(roasbef): no req to send the error back to here
 		log.Warnf("unable to advance state machine: %v", err)
@@ -236,7 +236,7 @@ func (p *ChainPorter) taroPorter() {
 
 			// Advance the state machine for this package as far as
 			// possible.
-			err := p.advanceState(&sendPkg, req.respChan)
+			err := p.advanceState(&sendPkg)
 			if err != nil {
 				log.Warnf("unable to advance state machine: %v", err)
 				req.errChan <- err
@@ -492,9 +492,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 }
 
 // advanceState advances the state machine.
-func (p *ChainPorter) advanceState(pkg *sendPackage,
-	txBroadcastRespChan chan *PendingParcel) error {
-
+func (p *ChainPorter) advanceState(pkg *sendPackage) error {
 	// Continue state transitions whilst state complete has not yet
 	// been reached.
 	for pkg.SendState < SendStateComplete {
@@ -510,15 +508,13 @@ func (p *ChainPorter) advanceState(pkg *sendPackage,
 		default:
 		}
 
-			updatedPkg, err := p.stateStep(
-				*pkg, txBroadcastRespChan,
-			)
-			if err != nil {
-				p.cfg.ErrChan <- err
-				log.Errorf("Error evaluating state (%v): %v",
-					pkg.SendState, err)
-				return err
-			}
+		updatedPkg, err := p.stateStep(*pkg)
+		if err != nil {
+			p.cfg.ErrChan <- err
+			log.Errorf("Error evaluating state (%v): %v",
+				pkg.SendState, err)
+			return err
+		}
 
 		pkg = updatedPkg
 	}
@@ -584,9 +580,7 @@ func adjustFundedPsbt(pkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 
 // stateStep attempts to step through the state machine to complete a Taro
 // transfer.
-func (p *ChainPorter) stateStep(currentPkg sendPackage,
-	txBroadcastRespChan chan *PendingParcel) (*sendPackage, error) {
-
+func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Notify subscribers that the state machine is about to execute a
 	// state.
 	stateEvent := NewExecuteSendStateEvent(currentPkg.SendState)
@@ -1106,9 +1100,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage,
 
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
-		if txBroadcastRespChan != nil {
-			currentPkg.deliverResponse(txBroadcastRespChan)
-		}
+		currentPkg.deliverResponse()
 
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf

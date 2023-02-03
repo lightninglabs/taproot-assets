@@ -637,9 +637,19 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	}, nil
 }
 
-// deliverResponse delivers a response for the parcel back to the receiver over
-// the specified response channel.
-func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
+// deliverResponse delivers a response for the parcel back to the
+// receiver over the response channel.
+func (s *sendPackage) deliverResponse() {
+	// Ensure that we have a response channel to deliver the response over.
+	// We may not have one if the package send process was recommenced after
+	// a restart.
+	if s.ReqAssetTransfer == nil {
+		log.Warnf("No response channel for parcel %x:%x, not "+
+			"delivering notification", s.ReceiverAddr.ID(),
+			s.ReceiverAddr.ScriptKey.SerializeCompressed())
+		return
+	}
+
 	oldRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
 
 	log.Infof("Outbound parcel now pending for %x:%x, delivering "+
@@ -650,7 +660,7 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
 	receiverIndex := s.SendDelta.Locators[receiverStateKey].OutputIndex
 
-	respChan <- &PendingParcel{
+	s.ReqAssetTransfer.respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
 		TransferTx:     s.OutboundPkg.AnchorTx,
 		OldTaroRoot:    oldRoot[:],
