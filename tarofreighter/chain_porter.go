@@ -230,7 +230,8 @@ func (p *ChainPorter) taroPorter() {
 
 			// Initialize a package with the destination address.
 			sendPkg := sendPackage{
-				ReceiverAddr: req.Dest,
+				ReqAssetTransfer: req,
+				ReceiverAddr:     req.Dest,
 			}
 
 			// Advance the state machine for this package as far as

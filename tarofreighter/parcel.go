@@ -216,6 +216,10 @@ type sendPackage struct {
 	// SendState is the current send state of this parcel.
 	SendState SendState
 
+	// ReqAssetTransfer is the asset transfer request that kicked off this
+	// transfer.
+	ReqAssetTransfer *AssetParcel
+
 	// SenderNewInternalKey is the new internal key for the sender. This is
 	// where the change assets will be anchored at.
 	SenderNewInternalKey keychain.KeyDescriptor
