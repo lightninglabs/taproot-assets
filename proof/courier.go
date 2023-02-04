@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"crypto/tls"
 	"fmt"
+	"time"
 
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taro/address"
@@ -274,14 +275,21 @@ func deriveReceiverStreamID(addr address.Taro) streamID {
 // HashMailCourier is an implementation of the Courier interfaces that
 type HashMailCourier struct {
 	mailbox ProofMailbox
+
+	// deliveryLog is the log that the courier will use to record the
+	// attempted delivery of proofs to the receiver.
+	deliveryLog DeliveryLog
 }
 
 // NewHashMailCourier implements the Courier interface using the specified
 // ProofMailbox. This instance of the Courier relies on the taro address itself
 // as the parametrized address type.
-func NewHashMailCourier(mailbox ProofMailbox) (*HashMailCourier, error) {
+func NewHashMailCourier(mailbox ProofMailbox,
+	deliveryLog DeliveryLog) (*HashMailCourier, error) {
+
 	return &HashMailCourier{
-		mailbox: mailbox,
+		mailbox:     mailbox,
+		deliveryLog: deliveryLog,
 	}, nil
 }
 
@@ -395,3 +403,14 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context, addr address.Taro,
 // A compile-time assertion to ensure the HashMailCourier meets the
 // proof.Courier interface.
 var _ Courier[address.Taro] = (*HashMailCourier)(nil)
+
+// DeliveryLog is an interface that allows the courier to log the (attempted)
+// delivery of a proof.
+type DeliveryLog interface {
+	// StoreProofDeliveryAttempt logs a proof delivery attempt to disk.
+	StoreProofDeliveryAttempt(context.Context, Locator) error
+
+	// QueryProofDeliveryLog returns timestamps which correspond to logged
+	// proof delivery attempts.
+	QueryProofDeliveryLog(context.Context, Locator) ([]time.Time, error)
+}
