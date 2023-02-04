@@ -83,7 +83,7 @@ type ChainPorter struct {
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
-	subscribers map[uint64]*chanutils.EventReceiver[Event]
+	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
@@ -95,10 +95,13 @@ type ChainPorter struct {
 // NewChainPorter creates a new instance of the ChainPorter given a valid
 // config.
 func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
+	subscribers := make(
+		map[uint64]*chanutils.EventReceiver[chanutils.Event],
+	)
 	return &ChainPorter{
 		cfg:         cfg,
 		exportReqs:  make(chan *AssetParcel),
-		subscribers: make(map[uint64]*chanutils.EventReceiver[Event]),
+		subscribers: subscribers,
 		ContextGuard: &chanutils.ContextGuard{
 			DefaultTimeout: tarogarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -1141,7 +1144,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 //
 // TODO(ffranr): Add support for delivering existing events to new subscribers.
 func (p *ChainPorter) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[Event],
+	receiver *chanutils.EventReceiver[chanutils.Event],
 	deliverExisting bool, deliverFrom bool) error {
 
 	p.subscriberMtx.Lock()
@@ -1155,7 +1158,7 @@ func (p *ChainPorter) RegisterSubscriber(
 // RemoveSubscriber removes a subscriber from the set of subscribers that will
 // be notified of any new events that are broadcast.
 func (p *ChainPorter) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[Event]) error {
+	subscriber *chanutils.EventReceiver[chanutils.Event]) error {
 
 	p.subscriberMtx.Lock()
 	defer p.subscriberMtx.Unlock()
@@ -1173,7 +1176,7 @@ func (p *ChainPorter) RemoveSubscriber(
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
-func (p *ChainPorter) publishSubscriberEvent(event Event) {
+func (p *ChainPorter) publishSubscriberEvent(event chanutils.Event) {
 	// Lock the subscriber mutex to ensure that we don't modify the
 	// subscriber map while we're iterating over it.
 	p.subscriberMtx.Lock()
@@ -1186,7 +1189,7 @@ func (p *ChainPorter) publishSubscriberEvent(event Event) {
 
 // A compile-time assertion to make sure ChainPorter satisfies the
 // chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[Event, bool] = (*ChainPorter)(nil)
+var _ chanutils.EventPublisher[chanutils.Event, bool] = (*ChainPorter)(nil)
 
 // ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
 // subscribers before a state is executed.

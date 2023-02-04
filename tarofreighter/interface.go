@@ -244,10 +244,5 @@ type Porter interface {
 
 	// EventPublisher is a subscription interface that allows callers to
 	// subscribe to events that are relevant to the Porter.
-	chanutils.EventPublisher[Event, bool]
-}
-
-// Event is an event that can be sent to a subscriber.
-type Event interface {
-	Timestamp() time.Time
+	chanutils.EventPublisher[chanutils.Event, bool]
 }

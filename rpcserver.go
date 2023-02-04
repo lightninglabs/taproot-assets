@@ -1245,7 +1245,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 	// Create a new event subscriber and pass a copy to the chain porter.
 	// We will then read events from the subscriber.
-	eventSubscriber := chanutils.NewEventReceiver[tarofreighter.Event](
+	eventSubscriber := chanutils.NewEventReceiver[chanutils.Event](
 		chanutils.DefaultQueueSize,
 	)
 	defer eventSubscriber.Stop()
@@ -1301,7 +1301,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 // marshallSendAssetEvent maps a ChainPorter event to its RPC counterpart.
 func marshallSendAssetEvent(
-	eventInterface tarofreighter.Event) (*tarorpc.SendAssetEvent, error) {
+	eventInterface chanutils.Event) (*tarorpc.SendAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *tarofreighter.ExecuteSendStateEvent:
