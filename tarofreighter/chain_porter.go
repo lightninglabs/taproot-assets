@@ -1152,6 +1152,11 @@ func (p *ChainPorter) RegisterSubscriber(
 
 	p.subscribers[receiver.ID()] = receiver
 
+	// If we have a proof courier, we'll also update its subscribers.
+	if p.cfg.ProofCourier != nil {
+		p.cfg.ProofCourier.SetSubscribers(p.subscribers)
+	}
+
 	return nil
 }
 
@@ -1171,6 +1176,11 @@ func (p *ChainPorter) RemoveSubscriber(
 
 	subscriber.Stop()
 	delete(p.subscribers, subscriber.ID())
+
+	// If we have a proof courier, we'll also update its subscribers.
+	if p.cfg.ProofCourier != nil {
+		p.cfg.ProofCourier.SetSubscribers(p.subscribers)
+	}
 
 	return nil
 }
