@@ -6,10 +6,12 @@ import (
 	"crypto/sha512"
 	"crypto/tls"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/chanutils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -30,6 +32,10 @@ type Courier[Addr any] interface {
 	// ReceiveProof attempts to obtain a proof as identified by the passed
 	// locator from the source encapsulated within the specified address.
 	ReceiveProof(context.Context, Addr, Locator) (*AnnotatedProof, error)
+
+	// SetSubscribers sets the set of subscribers that will be notified
+	// of proof courier related events.
+	SetSubscribers(map[uint64]*chanutils.EventReceiver[chanutils.Event])
 }
 
 // ProofMailbox represents an abstract store-and-forward maillbox that can be
@@ -279,6 +285,14 @@ type HashMailCourier struct {
 	// deliveryLog is the log that the courier will use to record the
 	// attempted delivery of proofs to the receiver.
 	deliveryLog DeliveryLog
+
+	// subscribers is a map of components that want to be notified on new
+	// events, keyed by their subscription ID.
+	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]
+
+	// subscriberMtx guards the subscribers map and access to the
+	// subscriptionID.
+	subscriberMtx sync.Mutex
 }
 
 // NewHashMailCourier implements the Courier interface using the specified
@@ -287,9 +301,13 @@ type HashMailCourier struct {
 func NewHashMailCourier(mailbox ProofMailbox,
 	deliveryLog DeliveryLog) (*HashMailCourier, error) {
 
+	subscribers := make(
+		map[uint64]*chanutils.EventReceiver[chanutils.Event],
+	)
 	return &HashMailCourier{
 		mailbox:     mailbox,
 		deliveryLog: deliveryLog,
+		subscribers: subscribers,
 	}, nil
 }
 
@@ -398,6 +416,18 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context, addr address.Taro,
 		},
 		Blob: Blob(proof),
 	}, nil
+}
+
+// SetSubscribers sets the subscribers for the courier. This method is
+// thread-safe.
+func (h *HashMailCourier) SetSubscribers(
+	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]) {
+
+	h.subscriberMtx.Lock()
+	defer h.subscriberMtx.Unlock()
+
+	h.subscribers = subscribers
+	return
 }
 
 // A compile-time assertion to ensure the HashMailCourier meets the
