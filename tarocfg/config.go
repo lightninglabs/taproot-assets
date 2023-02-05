@@ -67,6 +67,22 @@ const (
 
 	// DatabaseBackendPostgres is the name of the Postgres database backend.
 	DatabaseBackendPostgres = "postgres"
+
+	// defaultProofTransferBackoffResetWait is the default amount of time
+	// we'll wait before resetting the backoff of a proof transfer.
+	defaultProofTransferBackoffResetWait = 10 * time.Minute
+
+	// defaultProofTransferNumTries is the default number of times we'll
+	// attempt to transfer a proof before ending the backoff procedure.
+	defaultProofTransferNumTries = 4
+
+	// defaultProofTransferInitialBackoff is the default initial backoff
+	// time we'll use for proof transfers.
+	defaultProofTransferInitialBackoff = 30 * time.Second
+
+	// defaultProofTransferMaxBackoff is the default maximum backoff time
+	// we'll use for proof transfers.
+	defaultProofTransferMaxBackoff = 5 * time.Minute
 )
 
 var (
@@ -271,6 +287,12 @@ func DefaultConfig() Config {
 		BatchMintingInterval: defaultBatchMintingInterval,
 		HashMailCourier: &proof.HashMailCourierCfg{
 			Addr: defaultHashMailAddr,
+			BackoffCfg: &proof.BackoffCfg{
+				BackoffResetWait: defaultProofTransferBackoffResetWait,
+				NumTries:         defaultProofTransferNumTries,
+				InitialBackoff:   defaultProofTransferInitialBackoff,
+				MaxBackoff:       defaultProofTransferMaxBackoff,
+			},
 		},
 	}
 }

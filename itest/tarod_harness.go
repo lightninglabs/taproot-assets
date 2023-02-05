@@ -123,6 +123,15 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
 			Addr:        ht.apertureHarness.ListenAddr,
 			TlsCertPath: ht.apertureHarness.TlsCertPath,
+
+			// Use minimal wait times for asset proof transfer
+			// backoff procedure.
+			BackoffCfg: &proof.BackoffCfg{
+				BackoffResetWait: 20 * time.Second,
+				NumTries:         3,
+				InitialBackoff:   2 * time.Second,
+				MaxBackoff:       2 * time.Second,
+			},
 		}
 	}
 

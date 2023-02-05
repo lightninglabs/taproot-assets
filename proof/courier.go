@@ -280,8 +280,32 @@ func deriveReceiverStreamID(addr address.Taro) streamID {
 
 // HashMailCourierCfg is the config for the hashmail proof courier.
 type HashMailCourierCfg struct {
-	Addr        string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
+	Addr string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
+
 	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
+
+	// BackoffCfg configures the behaviour of the proof delivery
+	// functionality.
+	BackoffCfg *BackoffCfg
+}
+
+// BackoffCfg configures the behaviour of the proof delivery backoff procedure.
+type BackoffCfg struct {
+	// BackoffResetWait is the amount of time we'll wait before
+	// resetting the backoff counter to its initial state.
+	BackoffResetWait time.Duration `long:"backoffresetwait" description:"The amount of time to wait before resetting the backoff counter."`
+
+	// NumTries is the number of times we'll try to deliver the proof to the
+	// receiver before the BackoffResetWait delay is enforced.
+	NumTries int `long:"numtries" description:"The number of proof delivery attempts before the backoff counter is reset."`
+
+	// InitialBackoff is the initial backoff time we'll use to wait before
+	// retrying to deliver the proof to the receiver.
+	InitialBackoff time.Duration `long:"initialbackoff" description:"The initial backoff time to wait before retrying to deliver the proof to the receiver."`
+
+	// MaxBackoff is the maximum backoff time we'll use to wait before
+	// retrying to deliver the proof to the receiver.
+	MaxBackoff time.Duration `long:"maxbackoff" description:"The maximum backoff time to wait before retrying to deliver the proof to the receiver."`
 }
 
 // HashMailCourier is an implementation of the Courier interfaces that
