@@ -134,7 +134,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				"mailbox: %v", err)
 		}
 		hashMailCourier, err = proof.NewHashMailCourier(
-			hashMailBox, assetStore,
+			cfg.HashMailCourier, hashMailBox, assetStore,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make hashmail "+

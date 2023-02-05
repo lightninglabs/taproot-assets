@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarocfg"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarorpc"
@@ -119,7 +120,7 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 	// Conditionally use the local hashmail service.
 	finalCfg.HashMailCourier = nil
 	if enableHashMail {
-		finalCfg.HashMailCourier = &tarocfg.HashMailCourierCfg{
+		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
 			Addr:        ht.apertureHarness.ListenAddr,
 			TlsCertPath: ht.apertureHarness.TlsCertPath,
 		}

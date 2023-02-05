@@ -19,6 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
@@ -202,8 +203,8 @@ type Config struct {
 	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
 
 	// The following options are used to configure the proof courier.
-	ProofCourierMode string              `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
-	HashMailCourier  *HashMailCourierCfg `group:"proofcourier" namespace:"hashmailproofcourier"`
+	ProofCourierMode string                    `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
+	HashMailCourier  *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
 
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
@@ -230,12 +231,6 @@ type Config struct {
 	restListeners []net.Addr
 
 	net tor.Net
-}
-
-// HashMailCourierCfg is the config for the hashmail proof courier.
-type HashMailCourierCfg struct {
-	Addr        string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
-	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -274,7 +269,7 @@ func DefaultConfig() Config {
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
-		HashMailCourier: &HashMailCourierCfg{
+		HashMailCourier: &proof.HashMailCourierCfg{
 			Addr: defaultHashMailAddr,
 		},
 	}

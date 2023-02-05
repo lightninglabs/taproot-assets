@@ -278,8 +278,17 @@ func deriveReceiverStreamID(addr address.Taro) streamID {
 	return sid
 }
 
+// HashMailCourierCfg is the config for the hashmail proof courier.
+type HashMailCourierCfg struct {
+	Addr        string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
+	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
+}
+
 // HashMailCourier is an implementation of the Courier interfaces that
 type HashMailCourier struct {
+	// cfg contains the courier's configuration parameters.
+	cfg *HashMailCourierCfg
+
 	mailbox ProofMailbox
 
 	// deliveryLog is the log that the courier will use to record the
@@ -298,13 +307,14 @@ type HashMailCourier struct {
 // NewHashMailCourier implements the Courier interface using the specified
 // ProofMailbox. This instance of the Courier relies on the taro address itself
 // as the parametrized address type.
-func NewHashMailCourier(mailbox ProofMailbox,
+func NewHashMailCourier(cfg *HashMailCourierCfg, mailbox ProofMailbox,
 	deliveryLog DeliveryLog) (*HashMailCourier, error) {
 
 	subscribers := make(
 		map[uint64]*chanutils.EventReceiver[chanutils.Event],
 	)
 	return &HashMailCourier{
+		cfg:         cfg,
 		mailbox:     mailbox,
 		deliveryLog: deliveryLog,
 		subscribers: subscribers,
