@@ -2,6 +2,7 @@ package tarofreighter
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -464,11 +465,20 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		// addr of the remote party here
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
+
 		err := p.cfg.ProofCourier.DeliverProof(
 			ctx, *pkg.ReqAssetTransfer.Dest, receiverProof,
 		)
+
+		// If the proof courier returned a backoff error, then
+		// we'll just return nil here so that we can retry
+		// later.
+		var backoffExecErr *proof.BackoffExecError
+		if errors.As(err, &backoffExecErr) {
+			return nil
+		}
 		if err != nil {
-			return fmt.Errorf("unable to deliver proof: %w", err)
+			return fmt.Errorf("error delivering proof: %w", err)
 		}
 	}
 
@@ -1221,38 +1231,6 @@ func NewExecuteSendStateEvent(state SendState) *ExecuteSendStateEvent {
 	return &ExecuteSendStateEvent{
 		timestamp: time.Now().UTC(),
 		SendState: state,
-	}
-}
-
-// ReceiverProofBackoffWaitEvent is an event that is sent to a subscriber each
-// time we wait via the Backoff procedure before retrying to deliver a proof to
-// the receiver.
-type ReceiverProofBackoffWaitEvent struct {
-	// timeStamp is the time the event was created.
-	timestamp time.Time
-
-	// Backoff is the current Backoff duration.
-	Backoff time.Duration
-
-	// TriesCounter is the number of tries we've made so far during the
-	// course of the current Backoff procedure to deliver the proof to the
-	// receiver.
-	TriesCounter int64
-}
-
-// Timestamp returns the timestamp of the event.
-func (e *ReceiverProofBackoffWaitEvent) Timestamp() time.Time {
-	return e.timestamp
-}
-
-// NewReceiverProofBackoffWaitEvent creates a new ReceiverProofBackoffWaitEvent.
-func NewReceiverProofBackoffWaitEvent(
-	backoff time.Duration, triesCounter int64) *ReceiverProofBackoffWaitEvent {
-
-	return &ReceiverProofBackoffWaitEvent{
-		timestamp:    time.Now().UTC(),
-		Backoff:      backoff,
-		TriesCounter: triesCounter,
 	}
 }
 
