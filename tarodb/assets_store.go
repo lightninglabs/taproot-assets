@@ -231,13 +231,15 @@ type ActiveAssetsStore interface {
 	// InsertReceiverProofTransferAttempt inserts a new receiver proof
 	// transfer attempt record.
 	InsertReceiverProofTransferAttempt(ctx context.Context,
-		arg sqlc.InsertReceiverProofTransferAttemptParams) error
+		arg InsertRecvProofTxAttemptParams) error
 
 	// QueryReceiverProofTransferAttempt returns timestamps which correspond
 	// to receiver proof delivery attempts.
 	QueryReceiverProofTransferAttempt(ctx context.Context,
 		proofLocatorHash []byte) ([]time.Time, error)
 }
+
+type InsertRecvProofTxAttemptParams = sqlc.InsertReceiverProofTransferAttemptParams
 
 // AssetBalance holds a balance query result for a particular asset or all
 // assets tracked by this daemon.
@@ -1577,7 +1579,7 @@ func (a *AssetStore) StoreProofDeliveryAttempt(ctx context.Context,
 		// time.
 		proofLocatorHash := locator.Hash()
 		err := q.InsertReceiverProofTransferAttempt(
-			ctx, sqlc.InsertReceiverProofTransferAttemptParams{
+			ctx, InsertRecvProofTxAttemptParams{
 				ProofLocatorHash: proofLocatorHash[:],
 				TimeUnix:         time.Now().UTC(),
 			},
