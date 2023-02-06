@@ -830,7 +830,7 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			name: "group key mismatch",
 			f: func() (*asset.Asset, error) {
 				mismatchedAsset := randAsset(t, genesis1, groupKey2)
-				return nil, groupAssetCommitment.Update(mismatchedAsset, false)
+				return nil, groupAssetCommitment.Upsert(mismatchedAsset)
 			},
 			numAssets: 0,
 			err:       ErrAssetGroupKeyMismatch,
@@ -839,7 +839,7 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			name: "genesis mismatch",
 			f: func() (*asset.Asset, error) {
 				mismatchedAsset := randAsset(t, genesis2, nil)
-				return nil, groupAssetCommitment.Update(mismatchedAsset, false)
+				return nil, groupAssetCommitment.Upsert(mismatchedAsset)
 			},
 			numAssets: 0,
 			err:       ErrAssetGenesisMismatch,
@@ -856,7 +856,7 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			name: "insertion of collectible with group key",
 			f: func() (*asset.Asset, error) {
 				newAsset := randAsset(t, genesis1collect, copyOfGroupKey1)
-				return newAsset, groupAssetCommitment.Update(newAsset, false)
+				return newAsset, groupAssetCommitment.Upsert(newAsset)
 			},
 			numAssets: 2,
 			err:       nil,

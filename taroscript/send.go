@@ -540,7 +540,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 		// AssetCommitment of the sender.
 		senderStateKey = spend.NewAsset.AssetCommitmentKey()
 
-		err := senderCommitment.Update(&spend.NewAsset, false)
+		err := senderCommitment.Upsert(&spend.NewAsset)
 		if err != nil {
 			return nil, err
 		}
