@@ -864,8 +864,8 @@ func TestUpdateAssetCommitment(t *testing.T) {
 		{
 			name: "deletion with no group key",
 			f: func() (*asset.Asset, error) {
-				return copyOfAssetNoGroup, soloAssetCommitment.Update(
-					copyOfAssetNoGroup, true,
+				return copyOfAssetNoGroup, soloAssetCommitment.Delete(
+					copyOfAssetNoGroup,
 				)
 			},
 			numAssets: 0,
