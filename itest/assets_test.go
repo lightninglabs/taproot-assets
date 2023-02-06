@@ -72,7 +72,6 @@ func mintAssets(t *harnessTest) {
 	charlie := t.lndHarness.NewNode(t.t, "charlie", lndDefaultArgs)
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.BackendCfg, charlie, t.universeServer,
-		false,
 	)
 	defer shutdownAndAssert(t, charlie, secondTarod)
 
