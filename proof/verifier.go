@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
@@ -187,6 +188,51 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 					prev.Asset.ScriptKey.PubKey,
 				),
 			}: prev.Asset,
+		}
+	} else {
+		// If we had no previous assets, this must be a minting
+		// transaction.
+		//
+		// If the asset has a group key specified, verify there must be
+		// a valid signature in the witness.
+		if p.Asset.GroupKey != nil {
+			// Verify signature over asset ID from genesis witness.
+			if len(p.Asset.PrevWitnesses[0].TxWitness) != 2 {
+				return nil, fmt.Errorf("unexpected number of " +
+					"witness elements")
+			}
+
+			rawKeyBytes := p.Asset.PrevWitnesses[0].TxWitness[0]
+			rawSigBytes := p.Asset.PrevWitnesses[0].TxWitness[1]
+
+			rawKey, err := btcec.ParsePubKey(rawKeyBytes)
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse raw "+
+					"pubkey: %w", err)
+			}
+
+			sig, err := schnorr.ParseSignature(rawSigBytes)
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse raw "+
+					"signature: %w", err)
+			}
+
+			tweakedGroupKey := txscript.ComputeTaprootOutputKey(
+				rawKey, p.Asset.GroupKeyTweak(),
+			)
+			// Make sure we got the expected group key.
+			if !tweakedGroupKey.IsEqual(&newAsset.GroupKey.GroupPubKey) {
+				return nil, fmt.Errorf("unexpected group key")
+			}
+
+			if !p.Asset.Genesis.VerifySignature(sig, tweakedGroupKey) {
+				return nil, fmt.Errorf("invalid genesis signature")
+			}
+		} else {
+			// No group key set, witness must be empty.
+			if len(p.Asset.PrevWitnesses[0].TxWitness) != 0 {
+				return nil, fmt.Errorf("unexpected witness elements")
+			}
 		}
 	}
 

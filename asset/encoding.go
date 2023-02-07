@@ -551,43 +551,6 @@ func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "ScriptVersion", l, 2)
 }
 
-func GroupKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**GroupKey); ok {
-		key := &(*t).GroupPubKey
-		if err := CompressedPubKeyEncoder(w, &key, buf); err != nil {
-			return err
-		}
-		sig := (*t).Sig
-		return SchnorrSignatureEncoder(w, &sig, buf)
-	}
-	return tlv.NewTypeForEncodingErr(val, "*GroupKey")
-}
-
-func GroupKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
-	if typ, ok := val.(**GroupKey); ok {
-		var (
-			groupKey    GroupKey
-			groupPubKey *btcec.PublicKey
-		)
-		err := CompressedPubKeyDecoder(
-			r, &groupPubKey, buf, btcec.PubKeyBytesLenCompressed,
-		)
-		if err != nil {
-			return err
-		}
-		err = SchnorrSignatureDecoder(
-			r, &groupKey.Sig, buf, schnorr.SignatureSize,
-		)
-		if err != nil {
-			return err
-		}
-		groupKey.GroupPubKey = *groupPubKey
-		*typ = &groupKey
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "*GroupKey")
-}
-
 func LeafEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*Asset); ok {
 		return t.Encode(w)
