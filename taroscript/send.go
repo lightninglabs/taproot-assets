@@ -510,7 +510,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 		return nil, ErrMissingInputAsset
 	}
 
-	if err := senderCommitment.Update(inputAsset, true); err != nil {
+	if err := senderCommitment.Delete(inputAsset); err != nil {
 		return nil, err
 	}
 
@@ -540,7 +540,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 		// AssetCommitment of the sender.
 		senderStateKey = spend.NewAsset.AssetCommitmentKey()
 
-		err := senderCommitment.Update(&spend.NewAsset, false)
+		err := senderCommitment.Upsert(&spend.NewAsset)
 		if err != nil {
 			return nil, err
 		}

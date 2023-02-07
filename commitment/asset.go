@@ -180,9 +180,9 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 	return commitment, nil
 }
 
-// Update modifies one entry in the AssetCommitment by inserting or deleting it
-// in the inner MS-SMT and adding or deleting it in the internal asset map.
-func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
+// Upsert modifies one entry in the AssetCommitment by inserting (or updating)
+// it in the inner MS-SMT and adding (or updating) it in the internal asset map.
+func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
 	if asset == nil {
 		return ErrNoAssets
 	}
@@ -202,21 +202,6 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 	// TODO(bhandras): thread the context through.
 	ctx := context.TODO()
 
-	if deletion {
-		_, err := c.tree.Delete(ctx, key)
-		if err != nil {
-			return err
-		}
-
-		c.TreeRoot, err = c.tree.Root(ctx)
-		if err != nil {
-			return err
-		}
-
-		delete(c.assets, key)
-		return nil
-	}
-
 	leaf, err := asset.Leaf()
 	if err != nil {
 		return err
@@ -233,6 +218,42 @@ func (c *AssetCommitment) Update(asset *asset.Asset, deletion bool) error {
 	}
 
 	c.assets[key] = asset
+	return nil
+}
+
+// Delete modifies one entry in the AssetCommitment by deleting it in the inner
+// MS-SMT and deleting it in the internal asset map.
+func (c *AssetCommitment) Delete(asset *asset.Asset) error {
+	if asset == nil {
+		return ErrNoAssets
+	}
+
+	// The given Asset must have an ID that matches the AssetCommitment ID.
+	// The AssetCommitment ID is either a hash of the groupKey, or the ID
+	// of all the assets in the AssetCommitment.
+	if asset.TaroCommitmentKey() != c.AssetID {
+		if asset.GroupKey != nil {
+			return ErrAssetGroupKeyMismatch
+		}
+		return ErrAssetGenesisMismatch
+	}
+
+	key := asset.AssetCommitmentKey()
+
+	// TODO(bhandras): thread the context through.
+	ctx := context.TODO()
+
+	_, err := c.tree.Delete(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	c.TreeRoot, err = c.tree.Root(ctx)
+	if err != nil {
+		return err
+	}
+
+	delete(c.assets, key)
 	return nil
 }
 

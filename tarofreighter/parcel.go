@@ -277,7 +277,7 @@ func (s *sendPackage) inputAnchorPkScript() ([]byte, []byte, error) {
 		inputCommitments := inputAnchorCommitmentCopy.Commitments()
 		inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
 		inputAssetTree := inputCommitments[inputCommitmentKey]
-		err = inputAssetTree.Update(inputAssetCopy, false)
+		err = inputAssetTree.Upsert(inputAssetCopy)
 		if err != nil {
 			return nil, nil, err
 		}
