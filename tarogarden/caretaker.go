@@ -15,7 +15,6 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -315,7 +314,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, taroscript.TaroKeyFamily,
+			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to obtain script "+
@@ -323,23 +322,41 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		var groupKey *asset.GroupKey
-		// If emission is enabled, then we'll need to generate another
-		// public key, then use that to derive the key group signature
+
+		// If the seedling has a group key specified,
+		// that group key was validated earlier. We need to
+		// sign the new genesis with that group key.
+		if seedling.HasGroupKey() {
+			groupKey, err = asset.DeriveGroupKey(
+				b.cfg.GenSigner,
+				seedling.GroupInfo.GroupKey.RawKey,
+				*seedling.GroupInfo.Genesis, &assetGen,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to"+
+					"tweak group key: %v", err)
+			}
+		}
+
+		// If emission is enabled without a group key specified,
+		// then we'll need to generate another public key,
+		// then use that to derive the key group signature
 		// along with the tweaked key group.
 		if seedling.EnableEmission {
 			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
-				ctx, taroscript.TaroKeyFamily,
+				ctx, asset.TaroKeyFamily,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to derive "+
-					"group key: %v", err)
+				return nil, fmt.Errorf("unable to"+
+					"derive group key: %v", err)
 			}
 			groupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, rawGroupKey, assetGen,
+				b.cfg.GenSigner, rawGroupKey,
+				assetGen, nil,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to tweak	group "+
-					"key: %v", err)
+				return nil, fmt.Errorf("unable to"+
+					"tweak group key: %v", err)
 			}
 		}
 

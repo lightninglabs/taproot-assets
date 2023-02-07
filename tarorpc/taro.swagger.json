@@ -1285,6 +1285,11 @@
           "format": "int64",
           "description": "The total amount of units of the new asset that should be created. If the\nAssetType is Collectible, then this field cannot be set."
         },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The specific group key this asset should be minted with."
+        },
         "enable_emission": {
           "type": "boolean",
           "description": "If true, then the asset will be created with a key group, which allows for\nfuture asset issuance."

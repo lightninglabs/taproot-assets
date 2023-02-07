@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -314,7 +313,7 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 				xfer.AssetSpendDeltas[0].AssetId, assetID,
 			)
 		}
-		return chanutils.All(resp.Transfers, sameAssetID)
+		return sameAssetID(transfer)
 	}, defaultTimeout/2)
 	require.NoError(t.t, err)
 }
@@ -375,9 +374,11 @@ func assertAddr(t *testing.T, expected *tarorpc.Asset, actual *tarorpc.Addr) {
 	require.NotEqual(t, expected.ScriptKey, actual.ScriptKey)
 }
 
-// assertBalance asserts that the balance of a given asset on the given daemon
-// is correct.
-func assertBalance(t *testing.T, tarod *tarodHarness, id []byte, amt int64) {
+// assertBalanceByID asserts that the balance of a single asset,
+// specified by ID, on the given daemon is correct.
+func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
+	amt int64) {
+
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
 		ctxb, &tarorpc.ListBalancesRequest{
@@ -388,10 +389,32 @@ func assertBalance(t *testing.T, tarod *tarodHarness, id []byte, amt int64) {
 		},
 	)
 	require.NoError(t, err)
-	require.Len(t, balancesResp.AssetBalances, 1)
 
-	balance := balancesResp.AssetBalances[hex.EncodeToString(id)]
+	balance, ok := balancesResp.AssetBalances[hex.EncodeToString(id)]
+	require.True(t, ok)
 	require.Equal(t, balance.Balance, amt)
+}
+
+// assertBalanceByGroup asserts that the balance of a single asset group
+// on the given daemon is correct.
+func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
+	amt int64) {
+
+	ctxb := context.Background()
+	balancesResp, err := tarod.ListBalances(
+		ctxb, &tarorpc.ListBalancesRequest{
+			GroupBy: &tarorpc.ListBalancesRequest_GroupKey{
+				GroupKey: true,
+			},
+			GroupKeyFilter: groupKey,
+		},
+	)
+	require.NoError(t, err)
+
+	encodedGroupKey := hex.EncodeToString(groupKey)
+	balance, ok := balancesResp.AssetGroupBalances[encodedGroupKey]
+	require.True(t, ok)
+	require.Equal(t, amt, balance.Balance)
 }
 
 // assertTransfers asserts that the value of each transfer initiated on the
@@ -409,6 +432,17 @@ func assertTransfers(t *testing.T, tarod *tarodHarness, amts []int64) {
 		require.Len(t, transfer.AssetSpendDeltas, 1)
 		require.Equal(t, amts[i], transfer.AssetSpendDeltas[0].NewAmt)
 	}
+}
+
+// assertNumGroups asserts that the number of groups the daemon is aware of
+// is correct.
+func assertNumGroups(t *testing.T, tarod *tarodHarness, num int) {
+	ctxb := context.Background()
+	groupResp, err := tarod.ListGroups(
+		ctxb, &tarorpc.ListGroupsRequest{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, num, len(groupResp.Groups))
 }
 
 // assertGroup asserts that an asset returned from the ListGroups call matches

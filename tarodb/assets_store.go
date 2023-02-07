@@ -822,8 +822,8 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 	groupedAssets := make([]*AssetHumanReadable, len(dbAssets))
 	for i, a := range dbAssets {
 		amount := uint64(a.Amount)
-		locktime := extractSqlInt32[uint64](a.LockTime)
-		relativeLocktime := extractSqlInt32[uint64](a.RelativeLockTime)
+		lockTime := extractSqlInt32[uint64](a.LockTime)
+		relativeLockTime := extractSqlInt32[uint64](a.RelativeLockTime)
 		assetType := asset.Type(a.AssetType)
 
 		var assetID asset.ID
@@ -837,8 +837,8 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 		groupedAssets[i] = &AssetHumanReadable{
 			ID:               assetID,
 			Amount:           amount,
-			LockTime:         locktime,
-			RelativeLockTime: relativeLocktime,
+			LockTime:         lockTime,
+			RelativeLockTime: relativeLockTime,
 			Tag:              a.AssetTag,
 			Metadata:         a.MetaData,
 			Type:             assetType,

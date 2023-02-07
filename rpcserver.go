@@ -302,6 +302,11 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 func (r *rpcServer) MintAsset(ctx context.Context,
 	req *tarorpc.MintAssetRequest) (*tarorpc.MintAssetResponse, error) {
 
+	// Using a specific group key implies disabling emission.
+	if req.EnableEmission && len(req.GroupKey) != 0 {
+		return nil, fmt.Errorf("must disable emission")
+	}
+
 	seedling := &tarogarden.Seedling{
 		AssetType:      asset.Type(req.AssetType),
 		AssetName:      req.Name,
@@ -310,6 +315,22 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		EnableEmission: req.EnableEmission,
 		NoBatch:        req.SkipBatch,
 	}
+
+	// If a group key is provided, parse the provided group public key
+	// before creating the asset seedling.
+	if len(req.GroupKey) != 0 {
+		groupTweakedKey, err := btcec.ParsePubKey(req.GroupKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid group key: %w", err)
+		}
+
+		seedling.GroupInfo = &asset.AssetGroup{
+			GroupKey: &asset.GroupKey{
+				GroupPubKey: *groupTweakedKey,
+			},
+		}
+	}
+
 	updates, err := r.cfg.AssetMinter.QueueNewSeedling(seedling)
 	if err != nil {
 		return nil, fmt.Errorf("unable to mint new asset: %w", err)
@@ -594,7 +615,7 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 func (r *rpcServer) ListGroups(ctx context.Context,
 	_ *tarorpc.ListGroupsRequest) (*tarorpc.ListGroupsResponse, error) {
 
-	groupedAssets, err := r.cfg.AssetStore.FetchGroupedAssets(ctx)
+	readableAssets, err := r.cfg.AssetStore.FetchGroupedAssets(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +623,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 	groupsWithAssets := make(map[string]*tarorpc.GroupedAssets)
 
 	// Populate the map of group keys to assets in that group.
-	for _, a := range groupedAssets {
+	for _, a := range readableAssets {
 		groupKey := hex.EncodeToString(a.GroupKey.SerializeCompressed())
 		asset := &tarorpc.AssetHumanReadable{
 			Id:               a.ID[:],

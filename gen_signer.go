@@ -26,20 +26,40 @@ func NewLndRpcGenSigner(lnd *lndclient.LndServices) *LndRpcGenSigner {
 	}
 }
 
-// SignGenesis signs the passed Genesis description using the public key
-// identified by the passed key descriptor. The final tweaked public key and
-// the signature are returned.
+// SignGenesis tweaks the public key identified by the passed key
+// descriptor with the the first passed Genesis description, and signs
+// the second passed Genesis description with the tweaked public key.
+// For minting the first asset in a group, only one Genesis object is
+// needed, since we tweak with and sign over the same Genesis object.
+// The final tweaked public key and the signature are returned.
 func (l *LndRpcGenSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
-	assetGen asset.Genesis) (*btcec.PublicKey, *schnorr.Signature, error) {
+	initialGen asset.Genesis, currentGen *asset.Genesis) (*btcec.PublicKey,
+	*schnorr.Signature, error) {
 
 	tweakedPubKey := txscript.ComputeTaprootOutputKey(
-		keyDesc.PubKey, assetGen.GroupKeyTweak(),
+		keyDesc.PubKey, initialGen.GroupKeyTweak(),
 	)
 
-	id := assetGen.ID()
+	// If the current genesis is not set, we are minting the first asset in
+	// the group. This means that we use the same Genesis object for both
+	// the key tweak and to create the asset ID we sign. If the current
+	// genesis is set, the asset type of the new asset must match the type
+	// of the first asset in the group.
+	id := initialGen.ID()
+	if currentGen != nil {
+		if initialGen.Type != currentGen.Type {
+			return nil, nil, fmt.Errorf(
+				"cannot sign genesis with group key for " +
+					"different asset type",
+			)
+		}
+
+		id = currentGen.ID()
+	}
+
 	sig, err := l.lnd.Signer.SignMessage(
 		context.Background(), id[:], keyDesc.KeyLocator,
-		lndclient.SignSchnorr(assetGen.GroupKeyTweak()),
+		lndclient.SignSchnorr(initialGen.GroupKeyTweak()),
 	)
 	if err != nil {
 		return nil, nil, err

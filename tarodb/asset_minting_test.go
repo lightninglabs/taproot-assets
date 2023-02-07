@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -41,12 +42,9 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 		return db.WithTx(tx)
 	}
 
-	assetMintingDB := NewTransactionExecutor[PendingAssetStore](
-		db, txCreator,
-	)
-	assetsDB := NewTransactionExecutor[ActiveAssetsStore](
-		db, activeTxCreator,
-	)
+	assetMintingDB := NewTransactionExecutor(db, txCreator)
+	assetsDB := NewTransactionExecutor(db, activeTxCreator)
+
 	return NewAssetMintingStore(assetMintingDB), NewAssetStore(assetsDB),
 		db
 }
@@ -76,6 +74,95 @@ func assertSeedlingBatchLen(t *testing.T, batches []*tarogarden.MintingBatch,
 	require.Len(t, batches[0].Seedlings, numSeedlings)
 }
 
+// assertGroupEqual asserts that two asset groups are equal when ignoring the
+// group signatures. Signatures are not returned by queries under the GroupStore
+// interface so we need more permissive equality checking.
+func assertGroupEqual(t *testing.T, a, b *asset.AssetGroup) {
+	require.Equal(t, a.Genesis, b.Genesis)
+	require.Equal(t, a.GroupKey.RawKey, b.GroupKey.RawKey)
+	require.Equal(t, a.GroupKey.GroupPubKey, b.GroupKey.GroupPubKey)
+}
+
+// storeGroupGenesis generates a group genesis asset and inserts it into the DB.
+// The group genesis asset information needs to be in the DB before reissuance.
+func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
+	currentGen *asset.Genesis, store *AssetMintingStore,
+	privDesc keychain.KeyDescriptor,
+	groupPriv *btcec.PrivateKey) (uint64, *btcec.PrivateKey,
+	*asset.AssetGroup) {
+
+	// Generate the signature for our group genesis asset.
+	genSigner := asset.NewRawKeyGenesisSigner(groupPriv)
+	groupKey, err := asset.DeriveGroupKey(
+		genSigner, privDesc, initGen, currentGen,
+	)
+	require.NoError(t, err)
+
+	// Select the correct genesis for the new asset.
+	assetGen := initGen
+	if currentGen != nil {
+		assetGen = *currentGen
+	}
+
+	initialAsset := asset.RandAssetWithValues(
+		t, assetGen, groupKey, asset.RandScriptKey(t),
+	)
+
+	// Insert the group genesis asset, which will also insert the group key
+	// and genesis info needed for reissuance.
+	upsertAsset := func(q PendingAssetStore) error {
+		_, _, err := upsertAssetsWithGenesis(
+			ctx, store.db, assetGen.FirstPrevOut,
+			[]*asset.Asset{initialAsset}, nil,
+		)
+		require.NoError(t, err)
+		return nil
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	err = store.db.ExecTx(ctx, &writeTxOpts, upsertAsset)
+	require.NoError(t, err)
+
+	return initialAsset.Amount, groupPriv, &asset.AssetGroup{
+		Genesis:  &assetGen,
+		GroupKey: groupKey,
+	}
+}
+
+// addRandGroupToBatch selects a random seedling, generates an asset with
+// emission enabled, and stores that asset so the seedling can be minted into
+// an existing group. The seedling is updated with the group key and mapped
+// to the key needed to sign for the reissuance.
+func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
+	ctx context.Context, seedlings map[string]*tarogarden.Seedling) (uint64,
+	map[string]*btcec.PrivateKey, *asset.AssetGroup) {
+
+	// Pick a random seedling.
+	randIndex := rand.Int31n(int32(len(seedlings)))
+	randAssetName := maps.Keys(seedlings)[randIndex]
+	randAssetType := seedlings[randAssetName].AssetType
+
+	// Generate a random genesis and group to match this seedling.
+	privDesc, groupPriv := randKeyDesc(t)
+	randGenesis := asset.RandGenesis(t, randAssetType)
+	genesisAmt, groupPriv, group := storeGroupGenesis(
+		t, ctx, randGenesis, nil, store, privDesc, groupPriv,
+	)
+
+	// Modify the seedling to specify reissuance. Unset the group signature
+	// since seedlings will not have one when fetched.
+	targetSeedling := seedlings[randAssetName]
+	targetSeedling.EnableEmission = true
+	targetSeedling.GroupInfo = group
+	targetSeedling.GroupInfo.GroupKey.Sig = schnorr.Signature{}
+
+	// Associate the asset name and group private key so that a new group
+	// signature can be made for the selected seedling.
+	seedlingGroups := map[string]*btcec.PrivateKey{randAssetName: groupPriv}
+
+	return genesisAmt, seedlingGroups, group
+}
+
 // TestCommitMintingBatchSeedlings tests that we're able to properly write and
 // read a base minting batch on disk. This test covers the state when a batch
 // only has seedlings, without any fully formed assets.
@@ -88,8 +175,10 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	const numSeedlings = 5
 
 	// First, we'll write a new minting batch to disk, including an
-	// internal key and a set of seedlings.
+	// internal key and a set of seedlings. One random seedling will
+	// be a reissuance into a specific group.
 	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	addRandGroupToBatch(t, assetStore, ctx, mintingBatch.Seedlings)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err, "unable to write batch: %v", err)
 
@@ -107,6 +196,9 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 
 	// Now we'll add an additional set of seedlings.
 	seedlings := tarogarden.RandSeedlings(t, numSeedlings)
+
+	// Pick a random seedling and give it a specific group.
+	addRandGroupToBatch(t, assetStore, ctx, seedlings)
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
 	require.NoError(t,
 		assetStore.AddSeedlingsToBatch(
@@ -163,7 +255,8 @@ func randKeyDesc(t *testing.T) (keychain.KeyDescriptor, *btcec.PrivateKey) {
 //
 // TODO(roasbeef): same func in tarogarden can just re-use?
 func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
-	seedlings map[string]*tarogarden.Seedling) *commitment.TaroCommitment {
+	seedlings map[string]*tarogarden.Seedling,
+	groupKeys map[string]*btcec.PrivateKey) *commitment.TaroCommitment {
 
 	assetRoots := make([]*commitment.AssetCommitment, 0, len(seedlings))
 	for _, seedling := range seedlings {
@@ -177,17 +270,32 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		scriptKey, _ := randKeyDesc(t)
 
-		var groupKey *asset.GroupKey
-		if seedling.EnableEmission {
-			groupKeyRaw, groupPriv := randKeyDesc(t)
-			grpKey, err := asset.DeriveGroupKey(
-				asset.NewRawKeyGenesisSigner(groupPriv),
-				groupKeyRaw, assetGen,
-			)
-			require.NoError(t, err)
+		var (
+			groupKey *asset.GroupKey
+			err      error
+		)
 
-			groupKey = grpKey
+		if seedling.EnableEmission {
+			switch seedling.HasGroupKey() {
+			case true:
+				groupPriv, ok := groupKeys[seedling.AssetName]
+				require.True(t, ok)
+
+				groupKey, err = asset.DeriveGroupKey(
+					asset.NewRawKeyGenesisSigner(groupPriv),
+					seedling.GroupInfo.GroupKey.RawKey,
+					*seedling.GroupInfo.Genesis, &assetGen,
+				)
+			case false:
+				groupKeyRaw, groupPriv := randKeyDesc(t)
+				groupKey, err = asset.DeriveGroupKey(
+					asset.NewRawKeyGenesisSigner(groupPriv),
+					groupKeyRaw, assetGen, nil,
+				)
+			}
 		}
+
+		require.NoError(t, err)
 
 		var amount uint64
 		switch seedling.AssetType {
@@ -305,7 +413,11 @@ func TestAddSproutsToBatch(t *testing.T) {
 	assetStore, _, _ := newAssetStore(t)
 
 	// First, we'll create a new batch, then add some sample seedlings.
+	// One random seedling will be a reissuance into a specific group.
 	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	_, seedlingGroups, _ := addRandGroupToBatch(
+		t, assetStore, ctx, mintingBatch.Seedlings,
+	)
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
 	batchKey := mintingBatch.BatchKey.PubKey
@@ -315,7 +427,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 	genesisPacket := randGenesisPacket(t)
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
-		mintingBatch.Seedlings,
+		mintingBatch.Seedlings, seedlingGroups,
 	)
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, batchKey, genesisPacket, assetRoot,
@@ -336,10 +448,13 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 func addRandAssets(t *testing.T, ctx context.Context,
 	assetStore *AssetMintingStore,
-	numAssets int) (*btcec.PublicKey, *tarogarden.FundedPsbt, []byte,
-	*commitment.TaroCommitment) {
+	numAssets int) (*btcec.PublicKey, *btcec.PublicKey, uint64,
+	*tarogarden.FundedPsbt, []byte, *commitment.TaroCommitment) {
 
 	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numAssets)
+	genAmt, seedlingGroups, group := addRandGroupToBatch(
+		t, assetStore, ctx, mintingBatch.Seedlings,
+	)
 	batchKey := mintingBatch.BatchKey.PubKey
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
@@ -347,14 +462,15 @@ func addRandAssets(t *testing.T, ctx context.Context,
 
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
-		mintingBatch.Seedlings,
+		mintingBatch.Seedlings, seedlingGroups,
 	)
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, batchKey, genesisPacket, assetRoot,
 	))
 
 	scriptRoot := assetRoot.TapscriptRoot(nil)
-	return batchKey, genesisPacket, scriptRoot[:], assetRoot
+	return batchKey, &group.GroupKey.GroupPubKey, genAmt,
+		genesisPacket, scriptRoot[:], assetRoot
 }
 
 // TestCommitBatchChainActions tests that we're able to properly write a signed
@@ -369,9 +485,8 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// First, we'll create a new batch, then add some sample seedlings, and
 	// then those seedlings as assets.
-	batchKey, genesisPkt, scriptRoot, assetRoot := addRandAssets(
-		t, ctx, assetStore, numSeedlings,
-	)
+	batchKey, groupKey, groupGenAmt, genesisPkt, scriptRoot, assetRoot :=
+		addRandAssets(t, ctx, assetStore, numSeedlings)
 
 	// The packet needs to be finalized, so we'll insert a fake
 	// FinalScriptSig. The FinalScriptSig doesn't need to be well formed,
@@ -500,10 +615,10 @@ func TestCommitBatchChainActions(t *testing.T) {
 	mintedAssets := assetRoot.CommittedAssets()
 
 	// We'll now query for the set of balances to ensure they all line up
-	// with the assets we just created.
+	// with the assets we just created, including the group genesis asset.
 	assetBalances, err := confAssets.QueryBalancesByAsset(ctx, nil)
 	require.NoError(t, err)
-	require.Equal(t, numSeedlings, len(assetBalances))
+	require.Equal(t, numSeedlings+1, len(assetBalances))
 
 	for _, newAsset := range mintedAssets {
 		assetBalance, ok := assetBalances[newAsset.ID()]
@@ -525,6 +640,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(ctx, nil)
 	require.NoError(t, err)
 	require.Equal(t, numKeyGroups, len(assetBalancesByGroup))
+	existingGroupKey := asset.ToSerialized(groupKey)
 
 	for _, newAsset := range mintedAssets {
 		if newAsset.GroupKey == nil {
@@ -534,6 +650,13 @@ func TestCommitBatchChainActions(t *testing.T) {
 		groupKey := asset.ToSerialized(&newAsset.GroupKey.GroupPubKey)
 		assetBalance, ok := assetBalancesByGroup[groupKey]
 		require.True(t, ok)
+
+		// One asset was minted into an existing group, so the value
+		// of the group genesis asset must be deducted from the group
+		// balance before comparing to the minted asset.
+		if bytes.Equal(groupKey[:], existingGroupKey[:]) {
+			assetBalance.Balance -= groupGenAmt
+		}
 
 		require.Equal(t, newAsset.Amount, assetBalance.Balance)
 	}
@@ -584,6 +707,145 @@ func TestDuplicateGroupKey(t *testing.T) {
 	groupID2, err := db.UpsertAssetGroupKey(ctx, assetKey)
 	require.NoError(t, err)
 	require.Equal(t, groupID, groupID2)
+}
+
+// TestGroupStore tests all the queries exposed via the GroupStore interface,
+// including fetching asset groups via genesis ID or group key.
+func TestGroupStore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// First, we'll open up a new asset store. We only need the mintingStore
+	// pointer, as we're only testing the GroupStore functionality here.
+	assetStore, _, _ := newAssetStore(t)
+
+	// Now we generate and store one group of two assets, and
+	// a collectible in its own group.
+	privDesc1, groupPriv1 := randKeyDesc(t)
+	gen1 := asset.RandGenesis(t, asset.Normal)
+	_, _, group1 := storeGroupGenesis(
+		t, ctx, gen1, nil, assetStore, privDesc1, groupPriv1,
+	)
+	privDesc2, groupPriv2 := randKeyDesc(t)
+	gen2 := asset.RandGenesis(t, asset.Collectible)
+	_, _, group2 := storeGroupGenesis(
+		t, ctx, gen2, nil, assetStore, privDesc2, groupPriv2,
+	)
+	gen3 := asset.RandGenesis(t, asset.Normal)
+	_, _, group3 := storeGroupGenesis(
+		t, ctx, gen1, &gen3, assetStore, privDesc1, groupPriv1,
+	)
+	require.Equal(
+		t, group1.GroupKey.GroupPubKey.SerializeCompressed(),
+		group3.GroupKey.GroupPubKey.SerializeCompressed(),
+	)
+
+	mintGroups := []*asset.AssetGroup{group1, group2, group3}
+
+	// Next, we'll fetch the DB ID for each genesis, to check that they
+	// match the order the geneses were inserted.
+	fetchGenID := func(q PendingAssetStore) error {
+		for i, groupInfo := range mintGroups {
+			genID, err := fetchGenesisID(ctx, q, *groupInfo.Genesis)
+			require.NoError(t, err)
+			expectedID := int32(i + 1)
+			require.Equal(t, expectedID, genID)
+		}
+
+		return nil
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGenID)
+
+	// Lookup of a missing genesis should return a wrapped error.
+	invalidGen := gen1
+	invalidGen.Tag = ""
+
+	fetchInvalidGen := func(q PendingAssetStore) error {
+		_, err := fetchGenesisID(ctx, q, invalidGen)
+		require.ErrorContains(t, err, "unable to fetch genesis")
+		return nil
+	}
+
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGen)
+
+	// We should also be able to look up each asset group with a genesis ID.
+	fetchGroupByGenID := func(q PendingAssetStore) error {
+		for i, groupInfo := range mintGroups {
+			genID := int32(i + 1)
+			dbGroup, err := fetchGroupByGenesis(ctx, q, genID)
+			require.NoError(t, err)
+			assertGroupEqual(t, groupInfo, dbGroup)
+		}
+
+		// The returned group for the group anchor asset and reissued
+		// asset should be the same.
+		anchorGenID := int32(1)
+		reissueGenID := int32(3)
+		anchorGroup, err := fetchGroupByGenesis(ctx, q, anchorGenID)
+		require.NoError(t, err)
+		reissueGroup, err := fetchGroupByGenesis(ctx, q, reissueGenID)
+		require.NoError(t, err)
+
+		require.Equal(
+			t, anchorGroup.GroupKey.RawKey,
+			reissueGroup.GroupKey.RawKey,
+		)
+		require.Equal(
+			t, anchorGroup.GroupKey.GroupPubKey,
+			reissueGroup.GroupKey.GroupPubKey,
+		)
+
+		return nil
+	}
+
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGroupByGenID)
+
+	// Lookup of an invalid genesis ID should return a wrapped error.
+	invalidGenID := int32(len(mintGroups) + 1)
+	fetchInvalidGenID := func(q PendingAssetStore) error {
+		dbGroup, err := fetchGroupByGenesis(ctx, q, invalidGenID)
+		require.Nil(t, dbGroup)
+		require.ErrorContains(t, err, "no matching asset group")
+		return nil
+	}
+
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGenID)
+
+	// We should also be able to look up each asset group with a group key.
+	fetchGroupByKey := func(q PendingAssetStore) error {
+		for i, groupInfo := range mintGroups {
+			groupKey := groupInfo.GroupKey.GroupPubKey
+			dbGroup, err := fetchGroupByGroupKey(ctx, q, &groupKey)
+			require.NoError(t, err)
+
+			// If we are looking up the group of the reissued asset,
+			// the genesis returned will be of the group anchor
+			// asset, not the reissued asset.
+			if i == len(mintGroups)-1 {
+				assertGroupEqual(t, mintGroups[0], dbGroup)
+				continue
+			}
+			assertGroupEqual(t, groupInfo, dbGroup)
+		}
+
+		return nil
+	}
+
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGroupByKey)
+
+	// Lookup of a missing group key should return a wrapped error.
+	invalidGroupKey := groupPriv2.PubKey()
+	fetchInvalidGroupKey := func(q PendingAssetStore) error {
+		dbGroup, err := fetchGroupByGroupKey(ctx, q, invalidGroupKey)
+		require.Nil(t, dbGroup)
+		require.ErrorContains(t, err, "no matching asset group")
+		return nil
+	}
+
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGroupKey)
 }
 
 func init() {

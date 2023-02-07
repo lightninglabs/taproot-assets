@@ -39,9 +39,9 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 -- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id
+    emission_enabled, batch_id, group_genesis_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6
+   $1, $2, $3, $4, $5, $6, sqlc.narg('group_genesis_id')
 );
 
 -- name: AllInternalKeys :many
@@ -67,9 +67,10 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, batch_id
+    emission_enabled, batch_id, group_genesis_id
 ) VALUES (
-    $2, $3, $4, $5, $6, (SELECT key_id FROM target_key_id)
+    $2, $3, $4, $5, $6,
+    (SELECT key_id FROM target_key_id), sqlc.narg('group_genesis_id')
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -81,7 +82,7 @@ WITH target_batch(batch_id) AS (
     WHERE keys.raw_key = $1
 )
 SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta,
-    emission_enabled, genesis_id, batch_id
+    emission_enabled, batch_id, group_genesis_id
 FROM asset_seedlings 
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
@@ -236,6 +237,31 @@ JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
 JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id;
+
+-- name: FetchGroupByGroupKey :one
+SELECT 
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = @group_key
+)
+-- Sort and limit to return the genesis ID for initial genesis of the group.
+ORDER BY key_group_info_view.sig_id
+LIMIT 1;
+
+-- name: FetchGroupByGenesis :one
+SELECT
+    key_group_info_view.tweaked_group_key AS tweaked_group_key,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.gen_asset_id = @genesis_id
+);
 
 -- name: QueryAssets :many
 SELECT
@@ -416,6 +442,23 @@ FROM genesis_assets;
 -- name: GenesisPoints :many
 SELECT * 
 FROM genesis_points;
+
+-- name: FetchGenesisID :one
+WITH target_point(genesis_id) AS (
+    SELECT genesis_id
+    FROM genesis_points
+    WHERE genesis_points.prev_out = @prev_out
+)
+SELECT gen_asset_id
+FROM genesis_assets
+WHERE (
+    genesis_assets.genesis_point_id IN (SELECT genesis_id FROM target_point) AND
+    genesis_assets.asset_id = @asset_id AND
+    genesis_assets.asset_tag = @asset_tag AND
+    genesis_assets.meta_data = @meta_data AND
+    genesis_assets.output_index = @output_index AND
+    genesis_assets.asset_type = @asset_type
+);
 
 -- name: FetchAssetsByAnchorTx :many
 SELECT *

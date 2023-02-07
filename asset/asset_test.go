@@ -398,7 +398,7 @@ func TestAssetGroupKey(t *testing.T) {
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	keyGroup, err := DeriveGroupKey(genSigner, fakeKeyDesc, g)
+	keyGroup, err := DeriveGroupKey(genSigner, fakeKeyDesc, g, nil)
 	require.NoError(t, err)
 
 	require.Equal(

@@ -43,7 +43,11 @@ type Querier interface {
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisByID(ctx context.Context, genAssetID int32) (FetchGenesisByIDRow, error)
+	FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int32, error)
 	FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt32) (GenesisPoint, error)
+	FetchGroupByGenesis(ctx context.Context, genesisID int32) (FetchGroupByGenesisRow, error)
+	// Sort and limit to return the genesis ID for initial genesis of the group.
+	FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (FetchGroupByGroupKeyRow, error)
 	FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)

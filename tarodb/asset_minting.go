@@ -105,6 +105,9 @@ type PendingAssetStore interface {
 	// assets.
 	UpsertAssetStore
 
+	// GroupStore houses the methods related to querying asset groups.
+	GroupStore
+
 	// NewMintingBatch creates a new minting batch.
 	NewMintingBatch(ctx context.Context, arg MintingBatchInit) error
 
@@ -252,18 +255,34 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				"batch: %w", err)
 		}
 
-		// Now that our minting batch is in place, which defences the
+		// Now that our minting batch is in place, which references the
 		// internal key inserted above, we can create the set of new
 		// seedlings.
 		for _, seedling := range newBatch.Seedlings {
-			err := q.InsertAssetSeedling(ctx, AssetSeedlingShell{
+			dbSeedling := AssetSeedlingShell{
 				BatchID:         batchID,
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
 				AssetMeta:       seedling.Metadata,
 				EmissionEnabled: seedling.EnableEmission,
-			})
+			}
+
+			// If this seedling is being issued to an existing
+			// group, we need to reference the genesis that
+			// was first used to create the group.
+			if seedling.HasGroupKey() {
+				genesisID, err := fetchGenesisID(
+					ctx, q, *seedling.GroupInfo.Genesis,
+				)
+				if err != nil {
+					return err
+				}
+
+				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
+			}
+
+			err = q.InsertAssetSeedling(ctx, dbSeedling)
 			if err != nil {
 				return err
 			}
@@ -305,6 +324,21 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				AssetMeta:       seedling.Metadata,
 				EmissionEnabled: seedling.EnableEmission,
 			}
+
+			// If this seedling is being issued to an existing
+			// group, we need to reference the genesis that
+			// was first used to create the group.
+			if seedling.HasGroupKey() {
+				genesisID, err := fetchGenesisID(
+					ctx, q, *seedling.GroupInfo.Genesis,
+				)
+				if err != nil {
+					return err
+				}
+
+				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
+			}
+
 			err := q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
 				return fmt.Errorf("unable to insert "+
@@ -331,17 +365,31 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 	}
 
 	seedlings := make(map[string]*tarogarden.Seedling)
-	for _, seedling := range dbSeedlings {
+	for _, dbSeedling := range dbSeedlings {
 		seedling := &tarogarden.Seedling{
 			AssetType: asset.Type(
-				seedling.AssetType,
+				dbSeedling.AssetType,
 			),
-			AssetName: seedling.AssetName,
-			Metadata:  seedling.AssetMeta,
+			AssetName: dbSeedling.AssetName,
+			Metadata:  dbSeedling.AssetMeta,
 			Amount: uint64(
-				seedling.AssetSupply,
+				dbSeedling.AssetSupply,
 			),
-			EnableEmission: seedling.EmissionEnabled,
+			EnableEmission: dbSeedling.EmissionEnabled,
+		}
+
+		// Fetch the group info for seedlings with a specific group.
+		// There can only be one group per genesis.
+		if dbSeedling.GroupGenesisID.Valid {
+			genID := extractSqlInt32[int32](
+				dbSeedling.GroupGenesisID,
+			)
+			seedlingGroup, err := fetchGroupByGenesis(ctx, q, genID)
+			if err != nil {
+				return nil, err
+			}
+
+			seedling.GroupInfo = seedlingGroup
 		}
 
 		seedlings[seedling.AssetName] = seedling
@@ -818,6 +866,52 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		}
 		return nil
 	})
+}
+
+// FetchGroupByGenesis fetches the asset group created by the genesis referenced
+// by the given ID.
+func (a *AssetMintingStore) FetchGroupByGenesis(ctx context.Context,
+	genesisID int32) (*asset.AssetGroup, error) {
+
+	var (
+		dbGroup *asset.AssetGroup
+		err     error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
+		dbGroup, err = fetchGroupByGenesis(ctx, a, genesisID)
+		return err
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return dbGroup, nil
+}
+
+// FetchGroupByGroupKey fetches the asset group with a matching tweaked key,
+// including the genesis information used to create the group.
+func (a *AssetMintingStore) FetchGroupByGroupKey(ctx context.Context,
+	groupKey *btcec.PublicKey) (*asset.AssetGroup, error) {
+
+	var (
+		dbGroup *asset.AssetGroup
+		err     error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
+		dbGroup, err = fetchGroupByGroupKey(ctx, a, groupKey)
+		return err
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return dbGroup, nil
 }
 
 // A compile-time assertion to ensure that AssetMintingStore meets the

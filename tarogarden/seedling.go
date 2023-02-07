@@ -84,6 +84,10 @@ type Seedling struct {
 	// Amount is the total amount of the asset.
 	Amount uint64
 
+	// GroupInfo contains the information needed to link this asset to an
+	// exiting group.
+	GroupInfo *asset.AssetGroup
+
 	// EnableEmission if true, then an asset group key will be specified
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
@@ -122,6 +126,38 @@ func (c Seedling) validateFields() error {
 	}
 
 	return nil
+}
+
+// validateGroupKey attempts to validate that the non-zero group key provided
+// with a seedling is owned by the daemon and can be used with this seedling.
+func (c Seedling) validateGroupKey(group asset.AssetGroup) error {
+	// We must be able to sign with the group key.
+	if !group.GroupKey.IsLocal() {
+		groupKeyBytes := c.GroupInfo.GroupPubKey.SerializeCompressed()
+		return fmt.Errorf("can't sign with group key %x", groupKeyBytes)
+	}
+
+	// The seedling asset type must match the group asset type.
+	if c.AssetType != group.Genesis.Type {
+		return fmt.Errorf("seedling type does not match "+
+			"group asset type %v", group.Genesis.Type)
+	}
+
+	return nil
+}
+
+// HasGroupKey checks if a seedling specifies a particular group key.
+func (c Seedling) HasGroupKey() bool {
+	// We have to nest these checks to avoid dereferencing a nil pointer and
+	// panicking. If the GroupKey is set, the tweaked public key has already
+	// been parsed.
+	if c.GroupInfo != nil {
+		if c.GroupInfo.GroupKey != nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // String returns a human readable representation for the AssetSeedling.

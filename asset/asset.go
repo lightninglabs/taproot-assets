@@ -74,6 +74,16 @@ var (
 )
 
 const (
+	// TaroKeyFamily is the key family used to generate internal keys that
+	// taro will use creating internal taproot keys and also any other keys
+	// used for asset script keys.
+	// This was derived via: sum(map(lambda y: ord(y), 'taro')).
+	// In order words: take the word taro and return the integer
+	// representation of each character and sum those. We get 438, then
+	// divide that by 2, to allow us to fit this into just a 2-byte integer
+	// and to ensure compatibility with the remote signer.
+	TaroKeyFamily = 219
+
 	// V0 is the initial Taro protocol version.
 	V0 Version = 0
 )
@@ -385,6 +395,14 @@ const (
 	ScriptV0 ScriptVersion = 0
 )
 
+// AssetGroup holds information about an asset group, including the genesis
+// information needed re-tweak the raw key.
+type AssetGroup struct {
+	*Genesis
+
+	*GroupKey
+}
+
 // GroupKey is the tweaked public key that is used to associate assets together
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
@@ -423,6 +441,13 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 
 	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey) &&
 		g.Sig.IsEqual(&otherGroupKey.Sig)
+}
+
+// IsLocal returns true if the private key that corresponds to this group key
+// is held by this daemon. A non-local group key is stored with the internal key
+// family and index set to their default values, 0.
+func (g *GroupKey) IsLocal() bool {
+	return g.RawKey.Family == TaroKeyFamily
 }
 
 // EqualKeyDescriptors returns true if the two key descriptors are equal.
@@ -499,11 +524,14 @@ func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) ScriptKey {
 // GenesisSigner is used to sign the assetID using the group key public key
 // for a given asset.
 type GenesisSigner interface {
-	// SignGenesis signs the passed Genesis description using the public
-	// key identified by the passed key descriptor. The final tweaked
-	// public key and the signature are returned.
-	SignGenesis(keychain.KeyDescriptor, Genesis) (*btcec.PublicKey,
-		*schnorr.Signature, error)
+	// SignGenesis tweaks the public key identified by the passed key
+	// descriptor with the the first passed Genesis description, and signs
+	// the second passed Genesis description with the tweaked public key.
+	// For minting the first asset in a group, only one Genesis object is
+	// needed, since we tweak with and sign over the same Genesis object.
+	// The final tweaked public key and the signature are returned.
+	SignGenesis(keychain.KeyDescriptor, Genesis,
+		*Genesis) (*btcec.PublicKey, *schnorr.Signature, error)
 }
 
 // RawKeyGenesisSigner implements the GenesisSigner interface using a raw
@@ -520,23 +548,43 @@ func NewRawKeyGenesisSigner(priv *btcec.PrivateKey) *RawKeyGenesisSigner {
 	}
 }
 
-// SignGenesis signs the passed Genesis description using the public key
-// identified by the passed key descriptor. The final tweaked public key and
-// the signature are returned.
+// SignGenesis tweaks the public key identified by the passed key
+// descriptor with the the first passed Genesis description, and signs
+// the second passed Genesis description with the tweaked public key.
+// For minting the first asset in a group, only one Genesis object is
+// needed, since we tweak with and sign over the same Genesis object.
+// The final tweaked public key and the signature are returned.
 func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
-	gen Genesis) (*btcec.PublicKey, *schnorr.Signature, error) {
+	initialGen Genesis, currentGen *Genesis) (*btcec.PublicKey,
+	*schnorr.Signature, error) {
 
 	if !keyDesc.PubKey.IsEqual(r.privKey.PubKey()) {
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		*r.privKey, gen.GroupKeyTweak(),
+		*r.privKey, initialGen.GroupKeyTweak(),
 	)
+
+	// If the current genesis is not set, we are minting the first asset in
+	// the group. This means that we use the same Genesis object for both
+	// the key tweak and to create the asset ID we sign. If the current
+	// genesis is set, the asset type of the new asset must match the type
+	// of the first asset in the group.
+	id := initialGen.ID()
+	if currentGen != nil {
+		if initialGen.Type != currentGen.Type {
+			return nil, nil, fmt.Errorf(
+				"cannot sign genesis with group key for " +
+					"different asset type",
+			)
+		}
+
+		id = currentGen.ID()
+	}
 
 	// TODO(roasbeef): this actually needs to sign the digest of the asset
 	// itself
-	id := gen.ID()
 	idHash := sha256.Sum256(id[:])
 	sig, err := schnorr.Sign(tweakedPrivKey, idHash[:])
 	if err != nil {
@@ -551,11 +599,13 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 
 // DeriveGroupKey derives an asset's group key based on an internal public
-// key descriptor key and an asset genesis.
+// key descriptor, the original group asset genesis, and the asset's genesis.
 func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	genesis Genesis) (*GroupKey, error) {
+	initialGen Genesis, currentGen *Genesis) (*GroupKey, error) {
 
-	groupPubKey, sig, err := genSigner.SignGenesis(rawKey, genesis)
+	groupPubKey, sig, err := genSigner.SignGenesis(
+		rawKey, initialGen, currentGen,
+	)
 	if err != nil {
 		return nil, err
 	}

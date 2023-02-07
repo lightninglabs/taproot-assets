@@ -111,7 +111,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	groupKey, sig, err := genSigner.SignGenesis(
 		keychain.KeyDescriptor{
 			PubKey: groupPriv.PubKey(),
-		}, genesis,
+		}, genesis, nil,
 	)
 	require.NoError(t, err)
 
