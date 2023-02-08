@@ -575,7 +575,7 @@ func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
 	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
 	// AssetCommitment entirely when possible.
 	senderTaroCommitment := *inputCommitmentCopy
-	err = senderTaroCommitment.Update(senderCommitment, false)
+	err = senderTaroCommitment.Upsert(senderCommitment)
 	if err != nil {
 		return nil, err
 	}

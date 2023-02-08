@@ -163,6 +163,33 @@ func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
 	return nil
 }
 
+// Upsert modifies one entry in the TaroCommitment by inserting (or updating)
+// it in the inner MS-SMT and in the internal AssetCommitment map.
+func (c *TaroCommitment) Upsert(asset *AssetCommitment) error {
+	if asset == nil {
+		// TODO(jhb): Concrete error types
+		panic("taro commitment update is missing asset commitment")
+	}
+
+	key := asset.TaroCommitmentKey()
+
+	// TODO(bhandras): thread the context through.
+	leaf := asset.TaroCommitmentLeaf()
+	_, err := c.tree.Insert(context.TODO(), key, leaf)
+	if err != nil {
+		return err
+	}
+
+	c.TreeRoot, err = c.tree.Root(context.TODO())
+	if err != nil {
+		return err
+	}
+
+	c.assetCommitments[key] = asset
+
+	return nil
+}
+
 // NewTaroCommitmentWithRoot creates a new Taro commitment backed by the root
 // node. The resulting commitment will not be able to compute merkle proofs as
 // it only knows of the tree's root node, and not the tree itself.
