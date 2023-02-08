@@ -95,6 +95,32 @@ func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 	}, nil
 }
 
+// Delete modifies one entry in the TaroCommitment by deleting it in the inner
+// MS-SMT and in the internal AssetCommitment map.
+func (c *TaroCommitment) Delete(asset *AssetCommitment) error {
+	if asset == nil {
+		// TODO(jhb): Concrete error types
+		panic("taro commitment update is missing asset commitment")
+	}
+
+	key := asset.TaroCommitmentKey()
+
+	// TODO(bhandras): thread the context through.
+	_, err := c.tree.Delete(context.TODO(), key)
+	if err != nil {
+		return err
+	}
+
+	c.TreeRoot, err = c.tree.Root(context.TODO())
+	if err != nil {
+		return err
+	}
+
+	delete(c.assetCommitments, key)
+
+	return nil
+}
+
 // Update modifies one entry in the TaroCommitment by inserting or deleting
 // it in the inner MS-SMT and adding or deleting it in the internal
 // AssetCommitment map.

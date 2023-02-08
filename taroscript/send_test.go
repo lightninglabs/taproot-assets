@@ -1195,9 +1195,7 @@ var createSpendCommitmentsTestCases = []createSpendCommitmentsTestCase{
 			require.True(t, ok)
 
 			senderTaroCommitment := state.asset1TaroTree
-			err = senderTaroCommitment.Update(
-				senderCommitment, true,
-			)
+			err = senderTaroCommitment.Delete(senderCommitment)
 			require.NoError(t, err)
 
 			_, err = taroscript.CreateSpendCommitments(
