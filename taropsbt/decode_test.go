@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,6 +84,10 @@ func TestMinimalContent(t *testing.T) {
 	addr := address.RandAddr(t, testParams)
 
 	pkg := FromAddress(addr.Taro, 1)
+	pkg.Outputs = append(pkg.Outputs, &VOutput{
+		ScriptKey: asset.RandScriptKey(t),
+	})
+
 	var buf bytes.Buffer
 	err := pkg.Serialize(&buf)
 	require.NoError(t, err)

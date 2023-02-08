@@ -72,10 +72,10 @@ func TxMerkleProofRecord(proof *TxMerkleProof) tlv.Record {
 	)
 }
 
-func AssetLeafRecord(a *asset.Asset) tlv.Record {
+func AssetLeafRecord(a **asset.Asset) tlv.Record {
 	sizeFunc := func() uint64 {
 		var buf bytes.Buffer
-		if err := a.Encode(&buf); err != nil {
+		if err := (*a).Encode(&buf); err != nil {
 			panic(err)
 		}
 		return uint64(len(buf.Bytes()))

@@ -199,6 +199,10 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			"value")
 	}
 
+	if o.ScriptKey.PubKey == nil {
+		return pOut, nil, fmt.Errorf("output script key is required")
+	}
+
 	// Before we start with any fields that need to go into the Unknowns
 	// slice, we add the information that we can stuff into the wire TX or
 	// existing PSBT fields.
@@ -319,7 +323,7 @@ func assetEncoder(a *asset.Asset) func() ([]byte, error) {
 		}
 	}
 
-	return tlvEncoder(a, asset.LeafEncoder)
+	return tlvEncoder(&a, asset.LeafEncoder)
 }
 
 // proofEncoder is an encoder that does nothing if the given proof is nil.

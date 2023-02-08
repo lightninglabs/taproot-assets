@@ -387,13 +387,13 @@ func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 		PrevID: prevID,
 	}}
 	inputs := commitment.InputSet{
-		*prevID: &prevProof.Asset,
+		*prevID: prevProof.Asset,
 	}
 
 	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
-		t, *senderPrivKey, virtualTx, &prevProof.Asset, 0,
+		t, *senderPrivKey, virtualTx, prevProof.Asset, 0,
 	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness

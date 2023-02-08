@@ -132,7 +132,7 @@ func TestProofEncoding(t *testing.T) {
 		BlockHeader:   oddTxBlock.Header,
 		AnchorTx:      *oddTxBlock.Transactions[0],
 		TxMerkleProof: *txMerkleProof,
-		Asset:         *asset,
+		Asset:         asset,
 		InclusionProof: TaprootProof{
 			OutputIndex: 1,
 			InternalKey: test.RandPubKey(t),
@@ -269,7 +269,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		BlockHeader:   *blockHeader,
 		AnchorTx:      *genesisTx,
 		TxMerkleProof: *txMerkleProof,
-		Asset:         *genesisAsset,
+		Asset:         genesisAsset,
 		InclusionProof: TaprootProof{
 			OutputIndex: 0,
 			InternalKey: internalKey,

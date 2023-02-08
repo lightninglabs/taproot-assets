@@ -299,7 +299,7 @@ func createGenesisProof(t *testing.T, state *spendData) {
 		BlockHeader:   *blockHeader,
 		AnchorTx:      state.asset2GenesisTx,
 		TxMerkleProof: *txMerkleProof,
-		Asset:         state.asset2,
+		Asset:         &state.asset2,
 		InclusionProof: proof.TaprootProof{
 			OutputIndex: 0,
 			InternalKey: &state.spenderPubKey,

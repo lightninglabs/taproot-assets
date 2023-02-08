@@ -356,10 +356,7 @@ func assetDecoder(a **asset.Asset) func([]byte) error {
 			return nil
 		}
 
-		if *a == nil {
-			*a = &asset.Asset{}
-		}
-		return tlvDecoder(*a, asset.LeafDecoder)(byteVal)
+		return tlvDecoder(a, asset.LeafDecoder)(byteVal)
 	}
 }
 

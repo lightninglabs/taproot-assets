@@ -48,7 +48,7 @@ type Proof struct {
 	TxMerkleProof TxMerkleProof
 
 	// Asset is the resulting asset after its state transition.
-	Asset asset.Asset
+	Asset *asset.Asset
 
 	// InclusionProof is the TaprootProof proving the new inclusion of the
 	// resulting asset within AnchorTx.
@@ -75,7 +75,9 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 	records = append(records, BlockHeaderRecord(&p.BlockHeader))
 	records = append(records, AnchorTxRecord(&p.AnchorTx))
 	records = append(records, TxMerkleProofRecord(&p.TxMerkleProof))
-	records = append(records, AssetLeafRecord(&p.Asset))
+	if p.Asset != nil {
+		records = append(records, AssetLeafRecord(&p.Asset))
+	}
 	records = append(records, InclusionProofRecord(&p.InclusionProof))
 	if len(p.ExclusionProofs) > 0 {
 		records = append(records, ExclusionProofsRecord(

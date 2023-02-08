@@ -589,19 +589,19 @@ func GroupKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 }
 
 func LeafEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*Asset); ok {
-		return t.Encode(w)
+	if t, ok := val.(**Asset); ok {
+		return (*t).Encode(w)
 	}
 	return tlv.NewTypeForEncodingErr(val, "Asset")
 }
 
 func LeafDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*Asset); ok {
+	if typ, ok := val.(**Asset); ok {
 		var assetBytes []byte
 		if err := tlv.DVarBytes(r, &assetBytes, buf, l); err != nil {
 			return err
 		}
-		var asset Asset
+		asset := &Asset{}
 		if err := asset.Decode(bytes.NewReader(assetBytes)); err != nil {
 			return err
 		}

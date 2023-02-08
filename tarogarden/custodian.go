@@ -501,7 +501,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
-	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
+	if AddrMatchesAsset(event.Addr, lastProof.Asset) {
 		return c.setReceiveCompleted(event, *lastProof)
 	}
 
@@ -535,7 +535,7 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
-		if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
+		if AddrMatchesAsset(event.Addr, lastProof.Asset) {
 			// Importing a proof already creates the asset in the
 			// database. Therefore, all we need to do is update the
 			// state of the address event to mark it as completed

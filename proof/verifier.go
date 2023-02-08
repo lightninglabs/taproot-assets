@@ -108,7 +108,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 // verifyInclusionProof verifies the InclusionProof is valid.
 func (p *Proof) verifyInclusionProof() (*commitment.TaroCommitment, error) {
 	return verifyTaprootProof(
-		&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
+		&p.AnchorTx, &p.InclusionProof, p.Asset, true,
 	)
 }
 
@@ -139,7 +139,7 @@ func (p *Proof) verifyExclusionProofs() error {
 	for _, exclusionProof := range p.ExclusionProofs {
 		exclusionProof := exclusionProof
 		_, err := verifyTaprootProof(
-			&p.AnchorTx, &exclusionProof, &p.Asset, false,
+			&p.AnchorTx, &exclusionProof, p.Asset, false,
 		)
 		if err != nil {
 			return err
@@ -163,7 +163,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
-	newAsset := &p.Asset
+	newAsset := p.Asset
 	var splitAsset *commitment.SplitAsset
 	if newAsset.HasSplitCommitmentWitness() {
 		// In this case, an asset was created via a split, so we need
@@ -309,7 +309,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// TODO(roasbeef): need tx index and block height as well
 
 	return &AssetSnapshot{
-		Asset: &p.Asset,
+		Asset: p.Asset,
 		OutPoint: wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
