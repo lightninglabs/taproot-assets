@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -1300,6 +1301,10 @@ func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 func (a *AssetStore) SelectCommitment(
 	ctx context.Context, constraints tarofreighter.CommitmentConstraints) (
 	[]*tarofreighter.AnchoredCommitment, error) {
+
+	if constraints.MinAmt > math.MaxInt64 {
+		return nil, fmt.Errorf("min amount overflow")
+	}
 
 	// First, we'll map the commitment constraints to our database query
 	// filters.
