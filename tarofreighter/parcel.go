@@ -282,7 +282,7 @@ func (s *sendPackage) inputAnchorPkScript() ([]byte, []byte, error) {
 			return nil, nil, err
 		}
 
-		err = inputAnchorCommitmentCopy.Update(inputAssetTree, false)
+		err = inputAnchorCommitmentCopy.Upsert(inputAssetTree)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -95,10 +95,9 @@ func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 	}, nil
 }
 
-// Update modifies one entry in the TaroCommitment by inserting or deleting
-// it in the inner MS-SMT and adding or deleting it in the internal
-// AssetCommitment map.
-func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
+// Delete modifies one entry in the TaroCommitment by deleting it in the inner
+// MS-SMT and in the internal AssetCommitment map.
+func (c *TaroCommitment) Delete(asset *AssetCommitment) error {
 	if asset == nil {
 		// TODO(jhb): Concrete error types
 		panic("taro commitment update is missing asset commitment")
@@ -107,32 +106,44 @@ func (c *TaroCommitment) Update(asset *AssetCommitment, deletion bool) error {
 	key := asset.TaroCommitmentKey()
 
 	// TODO(bhandras): thread the context through.
-	if deletion {
-		_, err := c.tree.Delete(context.TODO(), key)
-		if err != nil {
-			return err
-		}
-
-		c.TreeRoot, err = c.tree.Root(context.TODO())
-		if err != nil {
-			return err
-		}
-
-		delete(c.assetCommitments, key)
-	} else {
-		leaf := asset.TaroCommitmentLeaf()
-		_, err := c.tree.Insert(context.TODO(), key, leaf)
-		if err != nil {
-			return err
-		}
-
-		c.TreeRoot, err = c.tree.Root(context.TODO())
-		if err != nil {
-			return err
-		}
-
-		c.assetCommitments[key] = asset
+	_, err := c.tree.Delete(context.TODO(), key)
+	if err != nil {
+		return err
 	}
+
+	c.TreeRoot, err = c.tree.Root(context.TODO())
+	if err != nil {
+		return err
+	}
+
+	delete(c.assetCommitments, key)
+
+	return nil
+}
+
+// Upsert modifies one entry in the TaroCommitment by inserting (or updating)
+// it in the inner MS-SMT and in the internal AssetCommitment map.
+func (c *TaroCommitment) Upsert(asset *AssetCommitment) error {
+	if asset == nil {
+		// TODO(jhb): Concrete error types
+		panic("taro commitment update is missing asset commitment")
+	}
+
+	key := asset.TaroCommitmentKey()
+
+	// TODO(bhandras): thread the context through.
+	leaf := asset.TaroCommitmentLeaf()
+	_, err := c.tree.Insert(context.TODO(), key, leaf)
+	if err != nil {
+		return err
+	}
+
+	c.TreeRoot, err = c.tree.Root(context.TODO())
+	if err != nil {
+		return err
+	}
+
+	c.assetCommitments[key] = asset
 
 	return nil
 }

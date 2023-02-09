@@ -955,7 +955,7 @@ func TestUpdateTaroCommitment(t *testing.T) {
 
 	// Verify commitment deletion with an empty assetCommitment map
 	// and a proof of non inclusion.
-	require.NoError(t, commitment.Update(assetCommitment1, true))
+	require.NoError(t, commitment.Delete(assetCommitment1))
 	proofAsset1, _, err := commitment.Proof(
 		commitmentKey1, asset1.AssetCommitmentKey(),
 	)
@@ -967,7 +967,7 @@ func TestUpdateTaroCommitment(t *testing.T) {
 
 	// Verify commitment insertion with a proof of inclusion and checking the
 	// assetCommitment map for the inserted assetCommitment.
-	require.NoError(t, copyOfCommitment.Update(assetCommitment2, false))
+	require.NoError(t, copyOfCommitment.Upsert(assetCommitment2))
 	proofAsset2, _, err := copyOfCommitment.Proof(
 		commitmentKey2, asset2.AssetCommitmentKey(),
 	)
