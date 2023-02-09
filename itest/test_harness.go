@@ -19,7 +19,9 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
@@ -424,4 +426,15 @@ func formatProtoJSON(resp proto.Message) (string, error) {
 	}
 
 	return jsonStr, nil
+}
+
+// lndKeyDescToTaro converts an lnd key descriptor to a taro key descriptor.
+func lndKeyDescToTaro(lnd keychain.KeyDescriptor) *tarorpc.KeyDescriptor {
+	return &tarorpc.KeyDescriptor{
+		RawKeyBytes: lnd.PubKey.SerializeCompressed(),
+		KeyLoc: &tarorpc.KeyLocator{
+			KeyFamily: int32(lnd.Family),
+			KeyIndex:  int32(lnd.Index),
+		},
+	}
 }
