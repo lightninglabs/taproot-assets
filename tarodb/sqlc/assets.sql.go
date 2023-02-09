@@ -1524,7 +1524,9 @@ SELECT
     genesis_info_view.output_index AS genesis_output_index,
     genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
-    txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
+    txns.raw_tx AS anchor_tx,
+    txns.txid AS anchor_txid,
+    txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
@@ -1536,29 +1538,32 @@ JOIN genesis_info_view
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
 JOIN script_keys
-    on assets.script_key_id = script_keys.script_key_id
+    ON assets.script_key_id = script_keys.script_key_id AND
+      (script_keys.tweaked_script_key = $2 OR
+       $2 IS NULL)
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
-      (utxos.outpoint = $2 OR
-       $2 IS NULL)
+      (utxos.outpoint = $3 OR
+       $3 IS NULL)
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
-    assets.amount >= COALESCE($3, assets.amount) AND
-    (key_group_info_view.tweaked_group_key = $4 OR
-      $4 IS NULL)
+    assets.amount >= COALESCE($4, assets.amount) AND
+    (key_group_info_view.tweaked_group_key = $5 OR
+      $5 IS NULL)
 )
 `
 
 type QueryAssetsParams struct {
-	AssetIDFilter  []byte
-	AnchorPoint    []byte
-	MinAmt         sql.NullInt64
-	KeyGroupFilter []byte
+	AssetIDFilter    []byte
+	TweakedScriptKey []byte
+	AnchorPoint      []byte
+	MinAmt           sql.NullInt64
+	KeyGroupFilter   []byte
 }
 
 type QueryAssetsRow struct {
@@ -1605,6 +1610,7 @@ type QueryAssetsRow struct {
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssets,
 		arg.AssetIDFilter,
+		arg.TweakedScriptKey,
 		arg.AnchorPoint,
 		arg.MinAmt,
 		arg.KeyGroupFilter,

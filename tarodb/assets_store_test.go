@@ -537,7 +537,7 @@ func TestSelectCommitment(t *testing.T) {
 
 	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
 
-	tests := []struct {
+	testCases := []struct {
 		name string
 
 		assets []assetDesc
@@ -644,28 +644,59 @@ func TestSelectCommitment(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	for _, test := range tests {
-		test := test
+	for _, tc := range testCases {
+		tc := tc
 
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			// First, we'll create a new assets store and then
 			// insert the set of assets described by the asset
-			// descs.
+			// descriptions.
 			_, assetsStore, _ := newAssetStore(t)
 
-			assetGen.genAssets(t, assetsStore, test.assets)
+			assetGen.genAssets(t, assetsStore, tc.assets)
 
 			// With the assets inserted, we'll now attempt to query
 			// for the set of matching assets based on the
 			// constraints.
 			selectedAssets, err := assetsStore.SelectCommitment(
-				ctx, test.constraints,
+				ctx, tc.constraints,
 			)
-			require.ErrorIs(t, test.err, err)
+			require.ErrorIs(t, tc.err, err)
 
 			// The number of selected assets should match up
 			// properly.
-			require.Equal(t, test.numAssets, len(selectedAssets))
+			require.Equal(t, tc.numAssets, len(selectedAssets))
+
+			// If the expectation is to get a single asset, let's
+			// make sure we can fetch the same asset commitment with
+			// the FetchCommitment method.
+			if tc.numAssets != 1 {
+				return
+			}
+
+			sa := selectedAssets[0]
+			assetCommitment, err := assetsStore.FetchCommitment(
+				ctx, sa.Asset.ID(), sa.AnchorPoint,
+				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
+			)
+			require.NoError(t, err)
+
+			assertAssetEqual(t, sa.Asset, assetCommitment.Asset)
+			assertAssetsEqual(
+				t, sa.Commitment, assetCommitment.Commitment,
+			)
+
+			// And make sure we get a proper error if we try to
+			// fetch an asset with an invalid asset ID.
+			wrongID := sa.Asset.ID()
+			wrongID[0] ^= 0x01
+			assetCommitment, err = assetsStore.FetchCommitment(
+				ctx, wrongID, sa.AnchorPoint,
+				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
+			)
+			require.ErrorIs(
+				t, err, tarofreighter.ErrNoPossibleAssetInputs,
+			)
 		})
 	}
 }
