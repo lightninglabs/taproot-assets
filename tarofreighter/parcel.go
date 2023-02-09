@@ -73,17 +73,113 @@ func (s SendState) String() string {
 	}
 }
 
-// AssetParcel is the main request to issue an asset transfer. This packages a
-// destination address, and also response context.
-type AssetParcel struct {
-	// Dest is the address that should be used to satisfy the transfer.
-	Dest *address.Taro
+// Parcel is an interface that each parcel type must implement.
+type Parcel interface {
+	// pkg returns the send package that should be delivered.
+	pkg() *sendPackage
 
+	// kit returns the parcel kit used for delivery.
+	kit() *parcelKit
+}
+
+// parcelKit is a struct that contains the channels that are used to deliver
+// responses to the parcel creator.
+type parcelKit struct {
 	// respChan is the channel a response will be sent over.
 	respChan chan *PendingParcel
 
 	// errChan is the channel the error will be sent over.
 	errChan chan error
+}
+
+// AddressParcel is the main request to issue an asset transfer. This packages a
+// destination address, and also response context.
+type AddressParcel struct {
+	*parcelKit
+
+	// dest is the address that should be used to satisfy the transfer.
+	dest *address.Taro
+}
+
+// A compile-time assertion to ensure AddressParcel implements the parcel
+// interface.
+var _ Parcel = (*AddressParcel)(nil)
+
+// NewAddressParcel creates a new AddressParcel.
+func NewAddressParcel(dest *address.Taro) *AddressParcel {
+	return &AddressParcel{
+		parcelKit: &parcelKit{
+			respChan: make(chan *PendingParcel, 1),
+			errChan:  make(chan error, 1),
+		},
+		dest: dest,
+	}
+}
+
+// pkg returns the send package that should be delivered.
+func (p *AddressParcel) pkg() *sendPackage {
+	log.Infof("Received to send request to: %x:%x", p.dest.ID(),
+		p.dest.ScriptKey.SerializeCompressed())
+
+	// Initialize a package with the destination address.
+	return &sendPackage{
+		ReceiverAddr: p.dest,
+	}
+}
+
+// kit returns the parcel kit used for delivery.
+func (p *AddressParcel) kit() *parcelKit {
+	return p.parcelKit
+}
+
+// PreSignedParcel is a request to issue an asset transfer of a pre-signed
+// parcel. This packages a virtual transaction, the input commitment, and also
+// the response context.
+type PreSignedParcel struct {
+	*parcelKit
+
+	// vPkt is the virtual transaction that should be delivered.
+	vPkt *taropsbt.VPacket
+
+	// inputCommitment is the commitment for the input that is being spent
+	// in the virtual transaction.
+	inputCommitment *commitment.TaroCommitment
+}
+
+// A compile-time assertion to ensure AddressParcel implements the parcel
+// interface.
+var _ Parcel = (*PreSignedParcel)(nil)
+
+// NewPreSignedParcel creates a new PreSignedParcel.
+func NewPreSignedParcel(vPkt *taropsbt.VPacket,
+	inputCommitment *commitment.TaroCommitment) *PreSignedParcel {
+
+	return &PreSignedParcel{
+		parcelKit: &parcelKit{
+			respChan: make(chan *PendingParcel, 1),
+			errChan:  make(chan error, 1),
+		},
+		vPkt:            vPkt,
+		inputCommitment: inputCommitment,
+	}
+}
+
+// pkg returns the send package that should be delivered.
+func (p *PreSignedParcel) pkg() *sendPackage {
+	log.Infof("New signed delivery request with %d outputs",
+		len(p.vPkt.Outputs))
+
+	// Initialize a package with the destination address.
+	return &sendPackage{
+		SendState:       SendStateAnchorSign,
+		VirtualPacket:   p.vPkt,
+		InputCommitment: p.inputCommitment,
+	}
+}
+
+// kit returns the parcel kit used for delivery.
+func (p *PreSignedParcel) kit() *parcelKit {
+	return p.parcelKit
 }
 
 // AssetInput represents a previous asset input.
@@ -110,8 +206,8 @@ type AssetOutput struct {
 	SplitCommitProof *commitment.SplitCommitment
 }
 
-// PendingParcel is the response to an AssetParcel shipment request. This
-// contains all the information of the pending transfer.
+// PendingParcel is the response to a Parcel shipment request. This contains all
+// the information of the pending transfer.
 type PendingParcel struct {
 	// OldTaroRoot is the Taro commitment root of the old anchor point.
 	OldTaroRoot []byte

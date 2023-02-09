@@ -79,7 +79,7 @@ type ChainPorter struct {
 
 	cfg *ChainPorterConfig
 
-	exportReqs chan *AssetParcel
+	exportReqs chan Parcel
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -97,7 +97,7 @@ type ChainPorter struct {
 func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	return &ChainPorter{
 		cfg:         cfg,
-		exportReqs:  make(chan *AssetParcel),
+		exportReqs:  make(chan Parcel),
 		subscribers: make(map[uint64]*chanutils.EventReceiver[Event]),
 		ContextGuard: &chanutils.ContextGuard{
 			DefaultTimeout: tarogarden.DefaultTimeout,
@@ -165,21 +165,16 @@ func (p *ChainPorter) Stop() error {
 
 // RequestShipment is the main external entry point to the porter. This request
 // a new transfer take place.
-func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) {
-	req.errChan = make(chan error, 1)
-	req.respChan = make(chan *PendingParcel, 1)
-
-	log.Infof("New asset shipment request to addr: %v", spew.Sdump(req))
-
+func (p *ChainPorter) RequestShipment(req Parcel) (*PendingParcel, error) {
 	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
 
 	select {
-	case err := <-req.errChan:
+	case err := <-req.kit().errChan:
 		return nil, err
 
-	case resp := <-req.respChan:
+	case resp := <-req.kit().respChan:
 		return resp, nil
 
 	case <-p.Quit:
@@ -229,30 +224,26 @@ func (p *ChainPorter) taroPorter() {
 	for {
 		select {
 		case req := <-p.exportReqs:
-			log.Infof("Received to send request to: %x:%x",
-				req.Dest.ID(),
-				req.Dest.ScriptKey.SerializeCompressed())
-
-			// Initialize a package with the destination address.
-			sendPkg := sendPackage{
-				ReceiverAddr: req.Dest,
-			}
+			// The request either has a destination address we want
+			// to send to, or a send package is already initialized.
+			sendPkg := req.pkg()
 
 			// Advance the state machine for this package until we
 			// reach the state that we broadcast the transaction
 			// that completes the transfer.
 			advancedPkg, err := p.advanceStateUntil(
-				&sendPkg, SendStateBroadcast,
+				sendPkg, SendStateBroadcast,
 			)
 			if err != nil {
-				log.Warnf("unable to advance state machine: %v", err)
-				req.errChan <- err
+				log.Warnf("unable to advance state machine: %v",
+					err)
+				req.kit().errChan <- err
 				continue
 			}
 
-			// With the transaction broadcast, we'll deliver a
+			// With the transaction broadcast, we'll deliver
 			// a response back to the original caller.
-			advancedPkg.deliverResponse(req.respChan)
+			advancedPkg.deliverResponse(req.kit().respChan)
 
 			// Now that we broadcast the transaction, we'll
 			// create a goroutine that'll wait for the confirmation

@@ -233,7 +233,7 @@ type Porter interface {
 	// RequestShipment attempts to request that a new send be funneled
 	// through the chain porter. If successful, an initial response will be
 	// returned with the pending transfer information.
-	RequestShipment(req *AssetParcel) (*PendingParcel, error)
+	RequestShipment(req Parcel) (*PendingParcel, error)
 
 	// Start signals that the asset minter should being operations.
 	Start() error
