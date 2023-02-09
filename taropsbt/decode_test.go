@@ -119,7 +119,7 @@ func TestMinimalContent(t *testing.T) {
 
 	addr := address.RandAddr(t, testParams)
 
-	pkg := FromAddress(addr.Taro)
+	pkg := FromAddress(addr.Taro, 1)
 	var buf bytes.Buffer
 	err := pkg.Serialize(&buf)
 	require.NoError(t, err)

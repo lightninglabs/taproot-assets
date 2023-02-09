@@ -24,9 +24,12 @@ import (
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
+	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -112,6 +115,18 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/assetwalletrpc.AssetWallet/SignVirtualPsbt": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/assetwalletrpc.AssetWallet/AnchorVirtualPsbts": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 	}
 )
 
@@ -122,6 +137,7 @@ type rpcServer struct {
 	shutdown int32
 
 	tarorpc.UnimplementedTaroServer
+	wrpc.UnimplementedAssetWalletServer
 
 	interceptor signal.Interceptor
 
@@ -187,6 +203,7 @@ func (r *rpcServer) Stop() error {
 func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	// Register the main RPC server.
 	tarorpc.RegisterTaroServer(grpcServer, r)
+	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	return nil
 }
 
@@ -198,6 +215,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 	// With our custom REST proxy mux created, register our main RPC and
 	// give all subservers a chance to register as well.
 	err := tarorpc.RegisterTaroHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = walletrpc.RegisterWalletKitHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
@@ -1061,6 +1085,139 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	return resp, nil
 }
 
+// FundVirtualPsbt selects inputs from the available asset commitments to fund
+// a virtual transaction matching the template.
+func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
+	in *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
+	error) {
+
+	if len(in.GetPsbt()) > 0 {
+		return nil, fmt.Errorf("template PSBT not yet supported")
+	}
+
+	if in.GetRaw() == nil {
+		return nil, fmt.Errorf("raw template must be specified")
+	}
+
+	raw := in.GetRaw()
+	if len(raw.Inputs) > 0 {
+		return nil, fmt.Errorf("template inputs not yet supported")
+	}
+	if len(raw.Recipients) > 1 {
+		return nil, fmt.Errorf("only one recipient supported")
+	}
+
+	var (
+		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
+		addr       *address.Taro
+		err        error
+	)
+	for a := range raw.Recipients {
+		addr, err = address.DecodeAddress(a, &taroParams)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode addr: %w", err)
+		}
+	}
+
+	if addr == nil {
+		return nil, fmt.Errorf("no recipients specified")
+	}
+
+	vPacket, _, err := r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
+	if err != nil {
+		return nil, fmt.Errorf("error funding address send: %w", err)
+	}
+
+	var b bytes.Buffer
+	if err := vPacket.Serialize(&b); err != nil {
+		return nil, fmt.Errorf("error serializing packet: %w", err)
+	}
+
+	return &wrpc.FundVirtualPsbtResponse{
+		FundedPsbt:        b.Bytes(),
+		ChangeOutputIndex: 0,
+	}, nil
+}
+
+// SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
+// commitments of the inputs and outputs.
+func (r *rpcServer) SignVirtualPsbt(_ context.Context,
+	in *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
+	error) {
+
+	vPkt, err := taropsbt.NewFromRawBytes(
+		bytes.NewReader(in.FundedPsbt), false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding packet: %w", err)
+	}
+
+	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(vPkt)
+	if err != nil {
+		return nil, fmt.Errorf("error signing packet: %w", err)
+	}
+
+	var b bytes.Buffer
+	if err := vPkt.Serialize(&b); err != nil {
+		return nil, fmt.Errorf("error serializing packet: %w", err)
+	}
+
+	return &wrpc.SignVirtualPsbtResponse{
+		SignedPsbt:   b.Bytes(),
+		SignedInputs: signedInputs,
+	}, nil
+}
+
+// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
+// a single BTC level anchor transaction.
+//
+// TODO(guggero): Actually implement accepting and merging multiple
+// transactions.
+func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
+	in *wrpc.AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse,
+	error) {
+
+	if len(in.VirtualPsbts) > 1 {
+		return nil, fmt.Errorf("only one virtual PSBT supported")
+	}
+
+	vPacket, err := taropsbt.NewFromRawBytes(
+		bytes.NewReader(in.VirtualPsbts[0]), false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding packet: %w", err)
+	}
+
+	if len(vPacket.Inputs) != 1 {
+		return nil, fmt.Errorf("only one input is currently supported")
+	}
+
+	inputAsset := vPacket.Inputs[0].Asset()
+	prevID := vPacket.Inputs[0].PrevID
+	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
+		ctx, inputAsset.ID(), prevID.OutPoint, inputAsset.GroupKey,
+		&inputAsset.ScriptKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching input commitment: %w",
+			err)
+	}
+
+	rpcsLog.Debugf("Selected commitment for anchor point %v, requesting "+
+		"delivery", inputCommitment.AnchorPoint)
+
+	resp, err := r.cfg.ChainPorter.RequestShipment(
+		tarofreighter.NewPreSignedParcel(
+			vPacket, inputCommitment.Commitment,
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error requesting delivery: %w", err)
+	}
+
+	return marshalPendingParcel(resp)
+}
+
 // marshalAddr turns an address into its RPC counterpart.
 func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 	addrStr, err := addr.EncodeAddress()
@@ -1190,18 +1347,26 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		return nil, err
 	}
 
-	transferTXID := resp.TransferTx.TxHash()
+	return marshalPendingParcel(resp)
+}
+
+// marshalPendingParcel turns a pending parcel into its RPC counterpart.
+func marshalPendingParcel(
+	parcel *tarofreighter.PendingParcel) (*tarorpc.SendAssetResponse,
+	error) {
+
+	transferTXID := parcel.TransferTx.TxHash()
 
 	var txBuf bytes.Buffer
-	if err := resp.TransferTx.Serialize(&txBuf); err != nil {
+	if err := parcel.TransferTx.Serialize(&txBuf); err != nil {
 		return nil, err
 	}
 	transferTxBytes := txBuf.Bytes()
 
-	prevInputs := make([]*tarorpc.PrevInputAsset, len(resp.AssetInputs))
-	newOutputs := make([]*tarorpc.AssetOutput, len(resp.AssetOutputs))
+	prevInputs := make([]*tarorpc.PrevInputAsset, len(parcel.AssetInputs))
+	newOutputs := make([]*tarorpc.AssetOutput, len(parcel.AssetOutputs))
 
-	for i, input := range resp.AssetInputs {
+	for i, input := range parcel.AssetInputs {
 		input := input
 
 		prevInputs[i] = &tarorpc.PrevInputAsset{
@@ -1211,7 +1376,7 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 			Amount:      int64(input.Amount),
 		}
 	}
-	for i, output := range resp.AssetOutputs {
+	for i, output := range parcel.AssetOutputs {
 		output := output
 
 		newOutputs[i] = &tarorpc.AssetOutput{
@@ -1225,15 +1390,15 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 
 	return &tarorpc.SendAssetResponse{
 		TransferTxid:      transferTXID.String(),
-		AnchorOutputIndex: int32(resp.NewAnchorPoint.Index),
+		AnchorOutputIndex: int32(parcel.NewAnchorPoint.Index),
 		TransferTxBytes:   transferTxBytes,
 		TaroTransfer: &tarorpc.TaroTransfer{
-			OldTaroRoot: resp.OldTaroRoot,
-			NewTaroRoot: resp.NewTaroRoot,
+			OldTaroRoot: parcel.OldTaroRoot,
+			NewTaroRoot: parcel.NewTaroRoot,
 			PrevInputs:  prevInputs,
 			NewOutputs:  newOutputs,
 		},
-		TotalFeeSats: int64(resp.TotalFees),
+		TotalFeeSats: int64(parcel.TotalFees),
 	}, nil
 }
 

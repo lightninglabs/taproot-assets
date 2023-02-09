@@ -1,0 +1,372 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "assetwalletrpc/assetwallet.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "AssetWallet"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taro/wallet/virtual-psbt/anchor": {
+      "post": {
+        "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction.",
+        "description": "TODO(guggero): Actually implement accepting and merging multiple\ntransactions.",
+        "operationId": "AssetWallet_AnchorVirtualPsbts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcSendAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcAnchorVirtualPsbtsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taro/wallet/virtual-psbt/fund": {
+      "post": {
+        "summary": "FundVirtualPsbt selects inputs from the available asset commitments to fund\na virtual transaction matching the template.",
+        "operationId": "AssetWallet_FundVirtualPsbt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcFundVirtualPsbtResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcFundVirtualPsbtRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taro/wallet/virtual-psbt/sign": {
+      "post": {
+        "summary": "SignVirtualPsbt signs the inputs of a virtual transaction and prepares the\ncommitments of the inputs and outputs.",
+        "operationId": "AssetWallet_SignVirtualPsbt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcSignVirtualPsbtResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcSignVirtualPsbtRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "assetwalletrpcAnchorVirtualPsbtsRequest": {
+      "type": "object",
+      "properties": {
+        "virtual_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The list of virtual transactions that should be merged and committed to in\nthe BTC level anchor transaction."
+        }
+      }
+    },
+    "assetwalletrpcFundVirtualPsbtRequest": {
+      "type": "object",
+      "properties": {
+        "psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "Use an existing PSBT packet as the template for the funded PSBT.\n\nTODO(guggero): Actually implement this. We can't use the \"reserved\"\nkeyword here because we're in a oneof, so we add the field but implement\nit later."
+        },
+        "raw": {
+          "$ref": "#/definitions/assetwalletrpcTxTemplate",
+          "description": "Use the asset outputs and optional asset inputs from this raw template."
+        }
+      }
+    },
+    "assetwalletrpcFundVirtualPsbtResponse": {
+      "type": "object",
+      "properties": {
+        "funded_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The funded but not yet signed PSBT packet."
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the added change output or -1 if no change was left over."
+        }
+      }
+    },
+    "assetwalletrpcOutPoint": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "Raw bytes representing the transaction id."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output on the transaction."
+        }
+      }
+    },
+    "assetwalletrpcPrevId": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/assetwalletrpcOutPoint",
+          "description": "The bitcoin anchor output on chain that contains the input asset."
+        },
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the previous asset tree."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked Taproot output key committing to the possible spending\nconditions of the asset."
+        }
+      }
+    },
+    "assetwalletrpcSignVirtualPsbtRequest": {
+      "type": "object",
+      "properties": {
+        "funded_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The PSBT of the virtual transaction that should be signed. The PSBT must\ncontain all required inputs, outputs, UTXO data and custom fields required\nto identify the signing key."
+        }
+      }
+    },
+    "assetwalletrpcSignVirtualPsbtResponse": {
+      "type": "object",
+      "properties": {
+        "signed_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The signed virtual transaction in PSBT format."
+        },
+        "signed_inputs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": "The indices of signed inputs."
+        }
+      }
+    },
+    "assetwalletrpcTxTemplate": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/assetwalletrpcPrevId"
+          },
+          "description": "An optional list of inputs to use. Every input must be an asset UTXO known\nto the wallet. The sum of all inputs must be greater than or equal to the\nsum of all outputs.\n\nIf no inputs are specified, asset coin selection will be performed instead\nand inputs of sufficient value will be added to the resulting PSBT."
+        },
+        "recipients": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "A map of all Taro addresses mapped to the anchor transaction's output index\nthat should be sent to."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "tarorpcAssetOutput": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "new_proof_blob": {
+          "type": "string",
+          "format": "byte"
+        },
+        "split_commit_proof": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "tarorpcPrevInputAsset": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "tarorpcSendAssetResponse": {
+      "type": "object",
+      "properties": {
+        "transfer_txid": {
+          "type": "string"
+        },
+        "anchor_output_index": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "transfer_tx_bytes": {
+          "type": "string",
+          "format": "byte"
+        },
+        "taro_transfer": {
+          "$ref": "#/definitions/tarorpcTaroTransfer"
+        },
+        "total_fee_sats": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "tarorpcTaroTransfer": {
+      "type": "object",
+      "properties": {
+        "old_taro_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "new_taro_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "prev_inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcPrevInputAsset"
+          }
+        },
+        "new_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcAssetOutput"
+          }
+        }
+      }
+    }
+  }
+}

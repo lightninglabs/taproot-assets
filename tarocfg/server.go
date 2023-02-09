@@ -180,6 +180,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainBridge:  chainBridge,
 		AddrBook:     addrBook,
 		ProofArchive: proofArchive,
+		AssetWallet:  assetWallet,
 		ChainPorter: tarofreighter.NewChainPorter(
 			&tarofreighter.ChainPorterConfig{
 				CoinSelector: assetStore,
