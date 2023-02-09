@@ -36,7 +36,7 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 			AssetType:      asset.Type(rand.Int31n(2)),
 			AssetName:      assetName,
 			Metadata:       test.RandBytes(32),
-			Amount:         uint64(rand.Int63()),
+			Amount:         uint64(rand.Int31()),
 			EnableEmission: test.RandBool(),
 		}
 	}

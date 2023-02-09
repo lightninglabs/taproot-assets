@@ -353,10 +353,10 @@ func randGenesisPacket(t *testing.T) *tarogarden.FundedPsbt {
 		Value:    15,
 	})
 
-	psbt, err := psbt.NewFromUnsignedTx(tx)
+	packet, err := psbt.NewFromUnsignedTx(tx)
 	require.NoError(t, err)
 	return &tarogarden.FundedPsbt{
-		Pkt:               psbt,
+		Pkt:               packet,
 		ChangeOutputIndex: 1,
 		ChainFees:         100,
 	}
@@ -637,7 +637,9 @@ func TestCommitBatchChainActions(t *testing.T) {
 		return count
 	}
 	numKeyGroups := chanutils.Reduce(mintedAssets, keyGroupSumReducer)
-	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(ctx, nil)
+	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(
+		ctx, nil,
+	)
 	require.NoError(t, err)
 	require.Equal(t, numKeyGroups, len(assetBalancesByGroup))
 	existingGroupKey := asset.ToSerialized(groupKey)
