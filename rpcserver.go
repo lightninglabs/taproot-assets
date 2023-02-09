@@ -1183,9 +1183,9 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		return nil, err
 	}
 
-	resp, err := r.cfg.ChainPorter.RequestShipment(&tarofreighter.AssetParcel{
-		Dest: taroAddr,
-	})
+	resp, err := r.cfg.ChainPorter.RequestShipment(
+		tarofreighter.NewAddressParcel(taroAddr),
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -94,17 +94,137 @@ func (s SendState) String() string {
 	}
 }
 
-// AssetParcel is the main request to issue an asset transfer. This packages a
-// destination address, and also response context.
-type AssetParcel struct {
-	// Dest is the address that should be used to satisfy the transfer.
-	Dest *address.Taro
+// Parcel is an interface that each parcel type must implement.
+type Parcel interface {
+	// pkg returns the send package that should be delivered.
+	pkg() *sendPackage
 
+	// kit returns the parcel kit used for delivery.
+	kit() *parcelKit
+
+	// dest returns the destination address for the parcel.
+	dest() *address.Taro
+}
+
+// parcelKit is a struct that contains the channels that are used to deliver
+// responses to the parcel creator.
+type parcelKit struct {
 	// respChan is the channel a response will be sent over.
 	respChan chan *PendingParcel
 
 	// errChan is the channel the error will be sent over.
 	errChan chan error
+}
+
+// AddressParcel is the main request to issue an asset transfer. This packages a
+// destination address, and also response context.
+type AddressParcel struct {
+	*parcelKit
+
+	// destAddr is the address that should be used to satisfy the transfer.
+	destAddr *address.Taro
+}
+
+// A compile-time assertion to ensure AddressParcel implements the parcel
+// interface.
+var _ Parcel = (*AddressParcel)(nil)
+
+// NewAddressParcel creates a new AddressParcel.
+func NewAddressParcel(destAddr *address.Taro) *AddressParcel {
+	return &AddressParcel{
+		parcelKit: &parcelKit{
+			respChan: make(chan *PendingParcel, 1),
+			errChan:  make(chan error, 1),
+		},
+		destAddr: destAddr,
+	}
+}
+
+// pkg returns the send package that should be delivered.
+func (p *AddressParcel) pkg() *sendPackage {
+	log.Infof("Received to send request to: %x:%x", p.destAddr.ID(),
+		p.destAddr.ScriptKey.SerializeCompressed())
+
+	// Initialize a package with the destination address.
+	return &sendPackage{
+		Parcel: p,
+	}
+}
+
+// kit returns the parcel kit used for delivery.
+func (p *AddressParcel) kit() *parcelKit {
+	return p.parcelKit
+}
+
+// dest returns the destination address for the parcel.
+func (p *AddressParcel) dest() *address.Taro {
+	return p.destAddr
+}
+
+// PreSignedParcel is a request to issue an asset transfer of a pre-signed
+// parcel. This packages a virtual transaction, the input commitment, and also
+// the response context.
+type PreSignedParcel struct {
+	*parcelKit
+
+	// vPkt is the virtual transaction that should be delivered.
+	vPkt *taropsbt.VPacket
+
+	// inputCommitment is the commitment for the input that is being spent
+	// in the virtual transaction.
+	inputCommitment *commitment.TaroCommitment
+}
+
+// A compile-time assertion to ensure AddressParcel implements the parcel
+// interface.
+var _ Parcel = (*PreSignedParcel)(nil)
+
+// NewPreSignedParcel creates a new PreSignedParcel.
+func NewPreSignedParcel(vPkt *taropsbt.VPacket,
+	inputCommitment *commitment.TaroCommitment) *PreSignedParcel {
+
+	return &PreSignedParcel{
+		parcelKit: &parcelKit{
+			respChan: make(chan *PendingParcel, 1),
+			errChan:  make(chan error, 1),
+		},
+		vPkt:            vPkt,
+		inputCommitment: inputCommitment,
+	}
+}
+
+// pkg returns the send package that should be delivered.
+func (p *PreSignedParcel) pkg() *sendPackage {
+	log.Infof("New signed delivery request with %d outputs",
+		len(p.vPkt.Outputs))
+
+	// Initialize a package the signed virtual transaction and input
+	// commitment.
+	return &sendPackage{
+		Parcel:          p,
+		SendState:       SendStateAnchorSign,
+		VirtualPacket:   p.vPkt,
+		InputCommitment: p.inputCommitment,
+	}
+}
+
+// kit returns the parcel kit used for delivery.
+func (p *PreSignedParcel) kit() *parcelKit {
+	return p.parcelKit
+}
+
+// dest returns the destination address for the parcel.
+func (p *PreSignedParcel) dest() *address.Taro {
+	// TODO(guggero): Fix for interactive full-value send.
+	vIn := p.vPkt.Inputs[0]
+	vOut := p.vPkt.Outputs[1]
+	return &address.Taro{
+		ChainParams: p.vPkt.ChainParams,
+		Genesis:     vIn.Asset().Genesis,
+		ScriptKey:   *vOut.ScriptKey.PubKey,
+		InternalKey: *vOut.AnchorOutputInternalKey,
+		Amount:      vOut.Amount,
+	}
 }
 
 // AssetInput represents a previous asset input.
@@ -131,8 +251,8 @@ type AssetOutput struct {
 	SplitCommitProof *commitment.SplitCommitment
 }
 
-// PendingParcel is the response to an AssetParcel shipment request. This
-// contains all the information of the pending transfer.
+// PendingParcel is the response to a Parcel shipment request. This contains all
+// the information of the pending transfer.
 type PendingParcel struct {
 	// OldTaroRoot is the Taro commitment root of the old anchor point.
 	OldTaroRoot []byte
@@ -168,13 +288,8 @@ type sendPackage struct {
 	// virtual asset transition transaction.
 	VirtualPacket *taropsbt.VPacket
 
-	// ReqAssetTransfer is the asset transfer request that kicked off this
-	// transfer.
-	ReqAssetTransfer *AssetParcel
-
-	// ReceiverAddr is the address of the receiver that kicked off the
-	// transfer.
-	ReceiverAddr *address.Taro
+	// Parcel is the asset transfer request that kicked off this transfer.
+	Parcel Parcel
 
 	// InputCommitment is the full Taro tree of the asset being spent.
 	InputCommitment *commitment.TaroCommitment
@@ -370,10 +485,9 @@ func (s *sendPackage) deliverTxBroadcastResp() {
 	// Ensure that we have a response channel to deliver the response over.
 	// We may not have one if the package send process was recommenced after
 	// a restart.
-	if s.ReqAssetTransfer == nil {
-		log.Warnf("No response channel for parcel %x:%x, not "+
-			"delivering notification", s.ReqAssetTransfer.Dest.ID(),
-			s.ReqAssetTransfer.Dest.ScriptKey.SerializeCompressed())
+	if s.Parcel == nil {
+		log.Warnf("No response channel for resumed parcel, not " +
+			"delivering notification")
 		return
 	}
 
@@ -389,7 +503,7 @@ func (s *sendPackage) deliverTxBroadcastResp() {
 	vIn := s.VirtualPacket.Inputs[0]
 	receiverIndex := s.VirtualPacket.Outputs[1].AnchorOutputIndex
 
-	s.ReqAssetTransfer.respChan <- &PendingParcel{
+	s.Parcel.kit().respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
 		TransferTx:     s.OutboundPkg.AnchorTx,
 		OldTaroRoot:    oldRoot[:],

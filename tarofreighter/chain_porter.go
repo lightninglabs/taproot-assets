@@ -80,7 +80,7 @@ type ChainPorter struct {
 
 	cfg *ChainPorterConfig
 
-	exportReqs chan *AssetParcel
+	exportReqs chan Parcel
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -101,7 +101,7 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	)
 	return &ChainPorter{
 		cfg:         cfg,
-		exportReqs:  make(chan *AssetParcel),
+		exportReqs:  make(chan Parcel),
 		subscribers: subscribers,
 		ContextGuard: &chanutils.ContextGuard{
 			DefaultTimeout: tarogarden.DefaultTimeout,
@@ -169,21 +169,16 @@ func (p *ChainPorter) Stop() error {
 
 // RequestShipment is the main external entry point to the porter. This request
 // a new transfer take place.
-func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) {
-	req.errChan = make(chan error, 1)
-	req.respChan = make(chan *PendingParcel, 1)
-
-	log.Infof("New asset shipment request to addr: %v", spew.Sdump(req))
-
+func (p *ChainPorter) RequestShipment(req Parcel) (*PendingParcel, error) {
 	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
 
 	select {
-	case err := <-req.errChan:
+	case err := <-req.kit().errChan:
 		return nil, err
 
-	case resp := <-req.respChan:
+	case resp := <-req.kit().respChan:
 		return resp, nil
 
 	case <-p.Quit:
@@ -228,21 +223,17 @@ func (p *ChainPorter) taroPorter() {
 	for {
 		select {
 		case req := <-p.exportReqs:
-			log.Infof("Received to send request to: %x:%x",
-				req.Dest.ID(),
-				req.Dest.ScriptKey.SerializeCompressed())
-
-			// Initialize a package with the destination address.
-			sendPkg := sendPackage{
-				ReqAssetTransfer: req,
-			}
+			// The request either has a destination address we want
+			// to send to, or a send package is already initialized.
+			sendPkg := req.pkg()
 
 			// Advance the state machine for this package as far as
 			// possible.
-			err := p.advanceState(&sendPkg)
+			err := p.advanceState(sendPkg)
 			if err != nil {
-				log.Warnf("unable to advance state machine: %v", err)
-				req.errChan <- err
+				log.Warnf("unable to advance state machine: %w",
+					err)
+				req.kit().errChan <- err
 				continue
 			}
 
@@ -455,7 +446,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// Retrieve receiver proof from proof archive.
 	locator := proof.Locator{
 		AssetID:   &assetId,
-		ScriptKey: pkg.ReqAssetTransfer.Dest.ScriptKey,
+		ScriptKey: pkg.Parcel.dest().ScriptKey,
 	}
 	receiverProofBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
@@ -477,7 +468,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		defer cancel()
 
 		err := p.cfg.ProofCourier.DeliverProof(
-			ctx, *pkg.ReqAssetTransfer.Dest, receiverProof,
+			ctx, *pkg.Parcel.dest(), receiverProof,
 		)
 
 		// If the proof courier returned a backoff error, then
@@ -572,7 +563,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		defer cancel()
 
 		packet, inputCommitment, err := p.cfg.AssetWallet.FundAddressSend(
-			ctx, *currentPkg.ReqAssetTransfer.Dest,
+			ctx, *currentPkg.Parcel.dest(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund address send: "+
