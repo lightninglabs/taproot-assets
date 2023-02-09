@@ -21,9 +21,6 @@ type TxValidator interface {
 type Signer interface {
 	// SignVirtualTx generates a signature according to the passed signing
 	// descriptor and TX.
-	//
-	// NOTE: We currently assume the signature requested is for the/ BIP 86
-	// spending type.
 	SignVirtualTx(signDesc *lndclient.SignDescriptor, tx *wire.MsgTx,
 		prevOut *wire.TxOut) (*schnorr.Signature, error)
 }

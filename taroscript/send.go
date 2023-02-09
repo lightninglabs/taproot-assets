@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -429,15 +428,17 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 	virtualTxCopy := VirtualTxWithInput(
 		virtualTx, input.Asset(), uint32(inputIdx), nil,
 	)
-	newWitness, err := SignTaprootKeySpend(
-		*input.Asset().ScriptKey.RawKey.PubKey, virtualTxCopy,
-		input.Asset(), inputIdx, txscript.SigHashDefault, signer,
+
+	// Sign the virtual transaction based on the input script information
+	// (key spend or script spend).
+	newWitness, err := CreateTaprootSignature(
+		input, virtualTxCopy, inputIdx, signer,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("error creating taproot signature: %w", err)
 	}
 
-	newAsset.PrevWitnesses[inputIdx].TxWitness = *newWitness
+	newAsset.PrevWitnesses[inputIdx].TxWitness = newWitness
 
 	// Create an instance of the Taro VM and validate the transfer.
 	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
