@@ -1,12 +1,13 @@
 package taroscript
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -327,35 +329,123 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	)
 }
 
-// SignTaprootKeySpend computes a signature over a Taro virtual transaction
-// spending a Taro input through the key path, following BIP 86. This signature
-// is attached to a Taro output asset before state transition validation.
-func SignTaprootKeySpend(internalKey btcec.PublicKey, virtualTx *wire.MsgTx,
-	inputAsset *asset.Asset, idx int, sigHashType txscript.SigHashType,
-	txSigner Signer) (*wire.TxWitness, error) {
+// CreateTaprootSignature creates a Taproot signature for the given asset input.
+// Depending on the fields set in the input, this will either create a key path
+// spend or a script path spend.
+func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
+	idx int, txSigner Signer) (wire.TxWitness, error) {
+
+	// Before we even attempt to sign anything, we need to make sure all the
+	// input information we require is present.
+	if len(vIn.TaprootBip32Derivation) == 0 {
+		return nil, fmt.Errorf("missing input Taproot BIP32 derivation")
+	}
+
+	// Currently, we only support creating one signature per input.
+	//
+	// TODO(guggero): Should we support signing multiple paths at the same
+	// time? What are the performance and security implications?
+	if len(vIn.TaprootBip32Derivation) > 1 {
+		return nil, fmt.Errorf("unsupported multiple taproot BIP32 " +
+			"derivation info found, can only sign for one at a" +
+			"time")
+	}
+	if len(vIn.TaprootBip32Derivation[0].LeafHashes) > 1 {
+		return nil, fmt.Errorf("unsupported number of leaf hashes in " +
+			"taproot BIP32 derivation info, can only sign for one " +
+			"at a time")
+	}
+
+	derivation := vIn.TaprootBip32Derivation[0]
 
 	// Compute a virtual prevOut from the input asset for the signer.
-	prevOut, err := InputAssetPrevOut(*inputAsset)
+	prevOut, err := InputAssetPrevOut(*vIn.Asset())
 	if err != nil {
 		return nil, err
 	}
 
-	// Build the signing descriptor for a BIP 86 signature over the Taro
-	// virtual TX. To follow BIP 86, no tweaks nor witness script are
-	// provided, and the untweaked internal key is used as the signing key.
+	// Start with a default sign descriptor and the BIP 86 sign method then
+	// adjust depending on the input parameters.
 	spendDesc := lndclient.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
-			PubKey: &internalKey,
+			PubKey: vIn.Asset().ScriptKey.RawKey.PubKey,
 		},
 		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
 		Output:     prevOut,
-		HashType:   sigHashType,
+		HashType:   vIn.SighashType,
 		InputIndex: idx,
+	}
+
+	// There are three possible signing cases: BIP 86 key spend path, key
+	// spend path with a script root, and script spend path.
+	switch {
+	// If there is no merkle root, we're doing a BIP 86 key spend.
+	case len(vIn.TaprootMerkleRoot) == 0:
+		// This is the default case, so we don't need to do anything.
+
+	// No leaf hash means we're not signing a specific script, so this is
+	// the key spend path with a script root.
+	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
+		len(derivation.LeafHashes) == 0:
+
+		spendDesc.SignMethod = input.TaprootKeySpendSignMethod
+		spendDesc.TapTweak = vIn.TaprootMerkleRoot
+
+	// One leaf hash and a merkle root means we're signing a specific
+	// script.
+	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
+		len(derivation.LeafHashes) == 1:
+
+		// If we're supposed to be signing for a leaf hash, we also
+		// expect the leaf script that hashes to that hash in the
+		// appropriate field.
+		if len(vIn.TaprootLeafScript) != 1 {
+			return nil, fmt.Errorf("specified leaf hash in " +
+				"taproot BIP32 derivation but missing taproot " +
+				"leaf script")
+		}
+
+		leafScript := vIn.TaprootLeafScript[0]
+		leaf := txscript.TapLeaf{
+			LeafVersion: leafScript.LeafVersion,
+			Script:      leafScript.Script,
+		}
+		leafHash := leaf.TapHash()
+		if !bytes.Equal(leafHash[:], derivation.LeafHashes[0]) {
+			return nil, fmt.Errorf("specified leaf hash in " +
+				"taproot BIP32 derivation but corresponding " +
+				"taproot leaf script was not found")
+		}
+
+		spendDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		spendDesc.TapTweak = vIn.TaprootMerkleRoot
+		spendDesc.WitnessScript = leafScript.Script
+
+	// Some invalid combination of fields was specified, it's not clear what
+	// we should do. So rather than fail later, let's return an explicit
+	// error here.
+	default:
+		return nil, fmt.Errorf("unable to determine signing method " +
+			"from virtual transaction packet")
 	}
 
 	sig, err := txSigner.SignVirtualTx(&spendDesc, virtualTx, prevOut)
 	if err != nil {
 		return nil, err
 	}
-	return &wire.TxWitness{sig.Serialize()}, nil
+
+	witness := wire.TxWitness{sig.Serialize()}
+	if vIn.SighashType != txscript.SigHashDefault {
+		witness[0] = append(witness[0], byte(vIn.SighashType))
+	}
+
+	// If this was a script spend, we also have to add the script itself and
+	// the control block to the witness, otherwise the verifier will reject
+	// the generated witness.
+	if spendDesc.SignMethod == input.TaprootScriptSpendSignMethod {
+		witness = append(witness, spendDesc.WitnessScript)
+		witness = append(witness, vIn.TaprootLeafScript[0].ControlBlock)
+	}
+
+	return witness, nil
 }
