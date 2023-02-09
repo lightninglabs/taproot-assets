@@ -1,0 +1,16 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: assetwalletrpc.AssetWallet.FundVirtualPsbt
+      post: "/v1/taro/wallet/virtual-psbt/fund"
+      body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.SignVirtualPsbt
+      post: "/v1/taro/wallet/virtual-psbt/sign"
+      body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.AnchorVirtualPsbts
+      post: "/v1/taro/wallet/virtual-psbt/anchor"
+      body: "*"

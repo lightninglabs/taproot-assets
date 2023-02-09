@@ -73,6 +73,8 @@ type Config struct {
 
 	ProofArchive proof.Archiver
 
+	AssetWallet tarofreighter.Wallet
+
 	ChainPorter tarofreighter.Porter
 
 	// LogWriter is the root logger that all of the daemon's subloggers are

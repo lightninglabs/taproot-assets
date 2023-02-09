@@ -64,8 +64,9 @@ type Wallet interface {
 		receiverScriptKey *btcec.PublicKey,
 		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
 
-	// SignVirtualPacket signs the virtual transaction of the given packet.
-	SignVirtualPacket(vPkt *taropsbt.VPacket) error
+	// SignVirtualPacket signs the virtual transaction of the given packet
+	// and returns the input indexes that were signed.
+	SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32, error)
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets. This
@@ -136,7 +137,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	// hold the asset transfer. Because sending to an address is always a
 	// non-interactive process, we can use this function that always creates
 	// a change output.
-	vPkt := taropsbt.FromAddress(&receiverAddr)
+	vPkt := taropsbt.FromAddress(&receiverAddr, 1)
 
 	fundDesc := &taroscript.FundingDescriptor{
 		ID:       receiverAddr.ID(),
@@ -315,24 +316,30 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	return assetInput.Commitment, nil
 }
 
-// SignVirtualPacket signs the virtual transaction of the given packet.
+// SignVirtualPacket signs the virtual transaction of the given packet and
+// returns the input indexes that were signed (referring to the virtual
+// transaction's inputs).
 //
 // NOTE: This is part of the Wallet interface.
-func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) error {
-	// Now we'll use the signer to sign all the inputs for the new
-	// taro leaves. The witness data for each input will be
-	// assigned for us.
+func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
+	error) {
+
+	// Now we'll use the signer to sign all the inputs for the new taro
+	// leaves. The witness data for each input will be assigned for us.
+	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
 		err := taroscript.SignVirtualTransaction(
 			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to generate taro witness "+
-				"data: %w", err)
+			return nil, fmt.Errorf("unable to generate taro "+
+				"witness data: %w", err)
 		}
+
+		signedInputs[idx] = uint32(idx)
 	}
 
-	return nil
+	return signedInputs, nil
 }
 
 // AnchorVirtualTransactions creates a BTC level anchor transaction that
