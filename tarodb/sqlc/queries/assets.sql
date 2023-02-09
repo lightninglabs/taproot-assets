@@ -283,7 +283,9 @@ SELECT
     genesis_info_view.output_index AS genesis_output_index,
     genesis_info_view.asset_type,
     genesis_info_view.prev_out AS genesis_prev_out,
-    txns.raw_tx AS anchor_tx, txns.txid AS anchor_txid, txns.block_hash AS anchor_block_hash,
+    txns.raw_tx AS anchor_tx,
+    txns.txid AS anchor_txid,
+    txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
@@ -299,7 +301,9 @@ JOIN genesis_info_view
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
 JOIN script_keys
-    on assets.script_key_id = script_keys.script_key_id
+    ON assets.script_key_id = script_keys.script_key_id AND
+      (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key') OR
+       sqlc.narg('tweaked_script_key') IS NULL)
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id
 JOIN managed_utxos utxos
