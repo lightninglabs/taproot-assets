@@ -85,9 +85,9 @@ func mintAssets(t *harnessTest) {
 	}
 
 	// Let's now create a new node and import all assets into that new node.
-	charlie := t.lndHarness.NewNode(t.t, "charlie", lndDefaultArgs)
+	charlie := t.lndHarness.NewNode("charlie", lndDefaultArgs)
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, charlie, t.universeServer,
+		t.t, t, charlie, t.universeServer,
 	)
 	defer shutdownAndAssert(t, charlie, secondTarod)
 

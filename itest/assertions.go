@@ -205,7 +205,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 		req := &chainrpc.GetBlockRequest{
 			BlockHash: hash.CloneBytes(),
 		}
-		_, err := tarod.cfg.LndNode.ChainKit.GetBlock(ctxb, req)
+		_, err := tarod.cfg.LndNode.RPC.ChainKit.GetBlock(ctxb, req)
 		return err
 	}
 	snapshot, err := f.Verify(ctxt, headerVerifier)

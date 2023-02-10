@@ -23,6 +23,8 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
 )
@@ -35,11 +37,8 @@ var (
 	lastPort uint32 = defaultNodePort
 
 	// lndDefaultArgs is the list of default arguments that we pass into the
-	// lnd harness when creating a new node. Currently, this just enables
-	// anchors as they are on by default in 0.14.1.
-	lndDefaultArgs = []string{
-		"--protocol.anchors",
-	}
+	// lnd harness when creating a new node.
+	lndDefaultArgs []string
 
 	// noDelete is a command line flag for disabling deleting the tarod
 	// data directories.
@@ -48,7 +47,7 @@ var (
 )
 
 const (
-	minerMempoolTimeout = lntest.MinerMempoolTimeout
+	minerMempoolTimeout = wait.MinerMempoolTimeout
 	defaultWaitTimeout  = lntest.DefaultTimeout * 60
 
 	// defaultNodePort is the start of the range for listening ports of
@@ -87,7 +86,7 @@ type harnessTest struct {
 
 	// lndHarness is a reference to the current network harness. Will be
 	// nil if not yet set up.
-	lndHarness *lntest.NetworkHarness
+	lndHarness *lntest.HarnessTest
 
 	universeServer *serverHarness
 
@@ -100,7 +99,7 @@ type harnessTest struct {
 
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
-func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.NetworkHarness,
+func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
 	universeServer *serverHarness, tarod *tarodHarness) *harnessTest {
 
 	return &harnessTest{
@@ -124,10 +123,6 @@ func (h *harnessTest) Skipf(format string, args ...interface{}) {
 // integration tests should mark test failures solely with this method due to
 // the error stack traces it produces.
 func (h *harnessTest) Fatalf(format string, a ...interface{}) {
-	if h.lndHarness != nil {
-		h.lndHarness.SaveProfilesPages(h.t)
-	}
-
 	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
 
 	if h.testCase != nil {
@@ -185,7 +180,7 @@ func (h *harnessTest) setupLogging() {
 }
 
 func (h *harnessTest) newLndClient(
-	n *lntest.HarnessNode) (*lndclient.GrpcLndServices, error) {
+	n *node.HarnessNode) (*lndclient.GrpcLndServices, error) {
 
 	return lndclient.NewLndServices(&lndclient.LndServicesConfig{
 		LndAddress:         n.Cfg.RPCAddr(),
@@ -226,11 +221,11 @@ func nextAvailablePort() int {
 // setupHarnesses creates new server and client harnesses that are connected
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
-	lndHarness *lntest.NetworkHarness,
+	lndHarness *lntest.HarnessTest,
 	enableHashMail bool) (*tarodHarness, *serverHarness) {
 
 	mockServerAddr := fmt.Sprintf(
-		lntest.ListenerFormat, lntest.NextAvailablePort(),
+		node.ListenerFormat, node.NextAvailablePort(),
 	)
 	universeServer := newServerHarness(mockServerAddr)
 	err := universeServer.start()
@@ -238,7 +233,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 
 	// Create a tarod that uses Bob and connect it to the universe server.
 	tarodHarness := setupTarodHarness(
-		t, ht, lndHarness.BackendCfg, lndHarness.Alice, universeServer,
+		t, ht, lndHarness.Alice, universeServer,
 		func(params *tarodHarnessParams) {
 			params.enableHashMail = enableHashMail
 		},
@@ -262,8 +257,8 @@ type Option func(*tarodHarnessParams)
 // setupTarodHarness creates a new tarod that connects to the given lnd node
 // and to the given universe server.
 func setupTarodHarness(t *testing.T, ht *harnessTest,
-	backend lntest.BackendConfig, node *lntest.HarnessNode,
-	universe *serverHarness, opts ...Option) *tarodHarness {
+	node *node.HarnessNode, universe *serverHarness,
+	opts ...Option) *tarodHarness {
 
 	// Set parameters by executing option functions.
 	params := &tarodHarnessParams{}
@@ -360,7 +355,7 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock,
 // mineBlocks mine 'num' of blocks and check that blocks are present in
 // node blockchain. numTxs should be set to the number of transactions
 // (excluding the coinbase) we expect to be included in the first mined block.
-func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
+func mineBlocks(t *harnessTest, net *lntest.HarnessTest,
 	num uint32, numTxs int) []*wire.MsgBlock {
 
 	// If we expect transactions to be included in the blocks we'll mine,
@@ -403,14 +398,14 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 
 // shutdownAndAssert shuts down the given node and asserts that no errors
 // occur.
-func shutdownAndAssert(t *harnessTest, node *lntest.HarnessNode,
+func shutdownAndAssert(t *harnessTest, node *node.HarnessNode,
 	tarod *tarodHarness) {
 
 	if tarod != nil {
 		require.NoError(t.t, tarod.stop(!*noDelete))
 	}
 
-	require.NoError(t.t, t.lndHarness.ShutdownNode(node))
+	t.lndHarness.Shutdown(node)
 }
 
 func formatProtoJSON(resp proto.Message) (string, error) {

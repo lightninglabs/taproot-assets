@@ -2,7 +2,7 @@ DEV_TAGS = dev
 RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
 LOG_TAGS =
 TEST_FLAGS =
-ITEST_FLAGS = -logoutput -goroutinedump
+ITEST_FLAGS = -logoutput
 COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
 POSTGRES_START_DELAY = 5
 
@@ -92,4 +92,4 @@ backend = btcd
 endif
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest itest $(backend)
+ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration itest $(backend)

@@ -79,8 +79,8 @@ func testBasicSend(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer, func(params *tarodHarnessParams) {
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
 			params.enableHashMail = true
 		},
 	)
@@ -136,8 +136,8 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	// We expect this node to fail because our send call will time out
 	// whilst the porter continues to attempt to send the asset.
 	sendTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer, func(params *tarodHarnessParams) {
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
 			params.enableHashMail = true
 			params.expectErrExit = true
 		},

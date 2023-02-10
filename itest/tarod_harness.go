@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -50,7 +50,7 @@ type tarodHarness struct {
 // tarodConfig holds all configuration items that are required to start a tarod
 // server.
 type tarodConfig struct {
-	LndNode   *lntest.HarnessNode
+	LndNode   *node.HarnessNode
 	NetParams *chaincfg.Params
 	BaseDir   string
 }

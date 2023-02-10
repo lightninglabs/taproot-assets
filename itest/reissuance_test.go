@@ -41,8 +41,7 @@ func testReissuance(t *harnessTest) {
 	// Create a second node, which will have no information about previously
 	// minted assets or asset groups.
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -237,8 +236,7 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// Create a second node, which will have no information about previously
 	// minted assets or asset groups.
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
