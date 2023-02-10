@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -748,7 +749,16 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 					"sender proof: %w", err)
 			}
 
-			assetID := senderProof.Asset.ID()
+			var assetID asset.ID
+			if senderProof.Asset != nil {
+				assetID = senderProof.Asset.ID()
+			} else if len(senderProof.ExclusionProofs) > 0 {
+				exclusionProof := senderProof.ExclusionProofs[0]
+				cProof := exclusionProof.CommitmentProof
+				aProof := cProof.AssetProof
+				assetID = aProof.AssetID
+
+			}
 			deltas[i] = &tarorpc.AssetSpendDelta{
 				AssetId:      assetID[:],
 				OldScriptKey: delta.OldScriptKey.SerializeCompressed(),
@@ -1091,45 +1101,72 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	in *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
-	if len(in.GetPsbt()) > 0 {
-		return nil, fmt.Errorf("template PSBT not yet supported")
-	}
-
-	if in.GetRaw() == nil {
-		return nil, fmt.Errorf("raw template must be specified")
-	}
-
-	raw := in.GetRaw()
-	if len(raw.Inputs) > 0 {
-		return nil, fmt.Errorf("template inputs not yet supported")
-	}
-	if len(raw.Recipients) > 1 {
-		return nil, fmt.Errorf("only one recipient supported")
-	}
-
 	var (
-		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		addr       *address.Taro
-		err        error
+		vPkt *taropsbt.VPacket
+		err  error
 	)
-	for a := range raw.Recipients {
-		addr, err = address.DecodeAddress(a, &taroParams)
+	switch {
+	case in.GetPsbt() != nil:
+		vPkt, err = taropsbt.NewFromRawBytes(
+			bytes.NewReader(in.GetPsbt()), false,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode addr: %w", err)
+			return nil, fmt.Errorf("unable to decode psbt: %w", err)
 		}
-	}
 
-	if addr == nil {
-		return nil, fmt.Errorf("no recipients specified")
-	}
+		desc, err := taroscript.DescribeRecipients(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to describe packet "+
+				"recipients: %w", err)
+		}
 
-	vPacket, _, err := r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
-	if err != nil {
-		return nil, fmt.Errorf("error funding address send: %w", err)
+		_, err = r.cfg.AssetWallet.FundPacket(ctx, desc, vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error funding packet: %w", err)
+		}
+
+	case in.GetRaw() != nil:
+		raw := in.GetRaw()
+		if len(raw.Inputs) > 0 {
+			return nil, fmt.Errorf("template inputs not yet " +
+				"supported")
+		}
+		if len(raw.Recipients) > 1 {
+			return nil, fmt.Errorf("only one recipient supported")
+		}
+
+		var (
+			taroParams = address.ParamsForChain(
+				r.cfg.ChainParams.Name,
+			)
+			addr *address.Taro
+			err  error
+		)
+		for a := range raw.Recipients {
+			addr, err = address.DecodeAddress(a, &taroParams)
+			if err != nil {
+				return nil, fmt.Errorf("unable to decode "+
+					"addr: %w", err)
+			}
+		}
+
+		if addr == nil {
+			return nil, fmt.Errorf("no recipients specified")
+		}
+
+		vPkt, _, err = r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
+		if err != nil {
+			return nil, fmt.Errorf("error funding address send: "+
+				"%w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("either PSBT or raw template must be " +
+			"specified")
 	}
 
 	var b bytes.Buffer
-	if err := vPacket.Serialize(&b); err != nil {
+	if err := vPkt.Serialize(&b); err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
 

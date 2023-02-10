@@ -102,7 +102,7 @@ func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
 	// We only use the block, transaction, and transaction index parameters,
 	// so we only need to check the nil-ness of the block and transaction.
 	if params.Block == nil || params.Tx == nil {
-		return fmt.Errorf("Missing block or TX to update proof")
+		return fmt.Errorf("missing block or TX to update proof")
 	}
 
 	// Recompute the proof fields that depend on anchor TX confirmation.
@@ -127,7 +127,13 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 		return nil, fmt.Errorf("error creating base proofs: %w", err)
 	}
 
-	proof.Asset = *params.NewAsset.Copy()
+	// If there is no asset to commit to, we don't need to add an inclusion
+	// proof and can exit early.
+	if params.NewAsset == nil {
+		return proof, nil
+	}
+
+	proof.Asset = params.NewAsset.Copy()
 
 	// With the base information contained, we'll now need to generate our
 	// series of MS-SMT inclusion proofs that prove the existence of the

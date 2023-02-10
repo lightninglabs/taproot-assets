@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
@@ -313,12 +314,12 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 		confEvent = pkg.TransferTxConfEvent
 	)
 
-	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
+	inputProofFileBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
 		return fmt.Errorf("error fetching proof: %w", err)
 	}
 	senderProof := proof.NewEmptyFile(proof.V0)
-	err = senderProof.Decode(bytes.NewReader(senderFullProofBytes))
+	err = senderProof.Decode(bytes.NewReader(inputProofFileBytes))
 	if err != nil {
 		return fmt.Errorf("error decoding proof: %w", err)
 	}
@@ -351,12 +352,23 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	if err := senderProof.Encode(&updatedSenderProof); err != nil {
 		return fmt.Errorf("error encoding sender proof: %w", err)
 	}
+
+	// If the sender didn't get a change output, we don't have an asset that
+	// carries the NUMS script key, so we add that here explicitly to the
+	// locator.
+	senderLocator := proof.Locator{
+		AssetID: &outboundAssetID,
+	}
+	senderAsset := senderProofSuffix.Asset
+	if senderAsset == nil {
+		senderLocator.ScriptKey = *asset.NUMSPubKey
+	} else {
+		senderLocator.ScriptKey = *senderAsset.ScriptKey.PubKey
+	}
+
 	newSenderProof := &proof.AnnotatedProof{
-		Locator: proof.Locator{
-			AssetID:   &outboundAssetID,
-			ScriptKey: *senderProofSuffix.Asset.ScriptKey.PubKey,
-		},
-		Blob: updatedSenderProof.Bytes(),
+		Locator: senderLocator,
+		Blob:    updatedSenderProof.Bytes(),
 	}
 
 	// As a final step, we'll do the same for the receiver's proof as well.
@@ -388,12 +400,13 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
 		return fmt.Errorf("error encoding receiver proof: %w", err)
 	}
+	receiverLocator := proof.Locator{
+		AssetID:   &outboundAssetID,
+		ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
+	}
 	receiverProof := &proof.AnnotatedProof{
-		Locator: proof.Locator{
-			AssetID:   &outboundAssetID,
-			ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
-		},
-		Blob: updatedReceiverProof.Bytes(),
+		Locator: receiverLocator,
+		Blob:    updatedReceiverProof.Bytes(),
 	}
 
 	// Use callback to verify that block header exists on chain.
@@ -617,7 +630,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		vPacket := currentPkg.VirtualPacket
-		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
+		firstRecipient, err := vPacket.FirstNonSplitRootOutput()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get first "+
+				"interactive output: %w", err)
+		}
+		receiverScriptKey := firstRecipient.ScriptKey.PubKey
 		log.Infof("Constructing new Taro commitments for send to: %x",
 			receiverScriptKey.SerializeCompressed())
 
@@ -653,6 +671,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		anchorOutputIndex := senderOut.AnchorOutputIndex
 		outputCommitments := currentPkg.AnchorTx.OutputCommitments
 		newSenderCommitment := outputCommitments[anchorOutputIndex]
+
+		var newScriptKey asset.ScriptKey
+		if !senderOut.IsSplitRoot {
+			newScriptKey = asset.NUMSScriptKey
+		} else {
+			newScriptKey = senderOut.ScriptKey
+		}
 
 		var tapscriptSibling *chainhash.Hash
 		if len(input.Anchor.TapscriptSibling) > 0 {
@@ -725,7 +750,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			AssetSpendDeltas: []AssetSpendDelta{{
 				OldScriptKey:        *inputAsset.ScriptKey.PubKey,
 				NewAmt:              newAsset.Amount,
-				NewScriptKey:        senderOut.ScriptKey,
+				NewScriptKey:        newScriptKey,
 				WitnessData:         newAsset.PrevWitnesses,
 				SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
 				SenderAssetProof:    senderProofBuf.Bytes(),
@@ -814,7 +839,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
-		currentPkg.deliverTxBroadcastResp()
+		err = currentPkg.deliverTxBroadcastResp()
+		if err != nil {
+			return nil, err
+		}
 
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf

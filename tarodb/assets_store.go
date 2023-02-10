@@ -1586,10 +1586,6 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 					"%w", err)
 			}
 
-			newCommitRoot := assetDelta.SplitCommitmentRoot
-			splitRootHash := newCommitRoot.NodeHash()
-			splitRootSum := newCommitRoot.NodeSum()
-
 			// Before we can insert the asset delta, we need to
 			// insert the new script key on disk.
 			rawScriptKey := assetDelta.NewScriptKey.RawKey
@@ -1613,19 +1609,28 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				return fmt.Errorf("unable to insert script "+
 					"key: %w", err)
 			}
-			err = q.InsertAssetDelta(ctx, NewAssetDelta{
-				OldScriptKey:            assetDelta.OldScriptKey.SerializeCompressed(),
-				NewAmt:                  int64(assetDelta.NewAmt),
-				NewScriptKey:            scriptKeyID,
-				SerializedWitnesses:     witnessBuf.Bytes(),
-				TransferID:              transferID,
-				ProofID:                 proofID,
-				SplitCommitmentRootHash: splitRootHash[:],
-				SplitCommitmentRootValue: sql.NullInt64{
-					Int64: int64(splitRootSum),
+
+			delta := NewAssetDelta{
+				OldScriptKey:        assetDelta.OldScriptKey.SerializeCompressed(),
+				NewAmt:              int64(assetDelta.NewAmt),
+				NewScriptKey:        scriptKeyID,
+				SerializedWitnesses: witnessBuf.Bytes(),
+				TransferID:          transferID,
+				ProofID:             proofID,
+			}
+
+			// There might not have been a split.
+			if assetDelta.SplitCommitmentRoot != nil {
+				newCommitRoot := assetDelta.SplitCommitmentRoot
+				splitRootHash := newCommitRoot.NodeHash()
+				delta.SplitCommitmentRootHash = splitRootHash[:]
+				delta.SplitCommitmentRootValue = sql.NullInt64{
+					Int64: int64(newCommitRoot.NodeSum()),
 					Valid: true,
-				},
-			})
+				}
+			}
+
+			err = q.InsertAssetDelta(ctx, delta)
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
 					"delta: %w", err)

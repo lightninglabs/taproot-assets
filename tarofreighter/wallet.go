@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -61,7 +60,6 @@ type Wallet interface {
 	// in order to pay the given recipient. The selected input is then added
 	// to the given virtual transaction.
 	FundPacket(ctx context.Context, fundDesc *taroscript.FundingDescriptor,
-		receiverScriptKey *btcec.PublicKey,
 		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
@@ -144,9 +142,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 		GroupKey: receiverAddr.GroupKey,
 		Amount:   receiverAddr.Amount,
 	}
-	inputCommitment, err := f.FundPacket(
-		ctx, fundDesc, &receiverAddr.ScriptKey, vPkt,
-	)
+	inputCommitment, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -159,7 +155,6 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 // virtual transaction.
 func (f *AssetWallet) FundPacket(ctx context.Context,
 	fundDesc *taroscript.FundingDescriptor,
-	receiverScriptKey *btcec.PublicKey,
 	vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error) {
 
 	// The input and address networks must match.
@@ -186,8 +181,8 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			"selection: %w", err)
 	}
 
-	log.Infof("Selected %v possible asset inputs for send to %x",
-		len(eligibleCommitments), receiverScriptKey.SerializeCompressed())
+	log.Infof("Selected %v possible asset inputs for send of %d to %x",
+		len(eligibleCommitments), fundDesc.Amount, fundDesc.ID[:])
 
 	// We'll take just the first commitment here as we need enough
 	// to complete the send w/o merging inputs.

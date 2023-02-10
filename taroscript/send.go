@@ -121,6 +121,28 @@ func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
 	return asset.TaroCommitmentKey(r.ID, r.GroupKey)
 }
 
+// DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
+func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor,
+	error) {
+
+	if len(vPkt.Outputs) < 1 {
+		return nil, fmt.Errorf("packet must have at least one output")
+	}
+
+	if len(vPkt.Inputs) != 1 {
+		return nil, fmt.Errorf("only one input is currently supported")
+	}
+
+	desc := &FundingDescriptor{
+		ID: vPkt.Inputs[0].PrevID.ID,
+	}
+	for idx := range vPkt.Outputs {
+		desc.Amount += vPkt.Outputs[idx].Amount
+	}
+
+	return desc, nil
+}
+
 // IsValidInput verifies that the Taro commitment of the input contains an asset
 // that could be spent to the given recipient.
 func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
@@ -666,6 +688,7 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 
 	for i := range outputs {
 		out := outputs[i]
+
 		psbtOut := &spendPkt.Outputs[out.AnchorOutputIndex]
 		psbtOut.TaprootInternalKey = schnorr.SerializePubKey(
 			out.AnchorOutputInternalKey,
