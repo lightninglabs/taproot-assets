@@ -54,4 +54,8 @@ var testCases = []*testCase{
 		name: "psbt script check sig send",
 		test: testPsbtScriptCheckSigSend,
 	},
+	{
+		name: "psbt interactive full value send",
+		test: testPsbtInteractiveFullValueSend,
+	},
 }

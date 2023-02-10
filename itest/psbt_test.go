@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -309,6 +310,104 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	assetsJSON, err := formatProtoJSON(aliceAssets)
 	require.NoError(t.t, err)
 	t.Logf("Got alice assets: %s", assetsJSON)
+}
+
+// testPsbtInteractiveFullValueSend tests that we can properly send assets back
+// and forth, using the full amount, between nodes with the use of PSBTs.
+func testPsbtInteractiveFullValueSend(t *harnessTest) {
+	// First, we'll make a normal asset with enough units to allow us to
+	// send it around a few times.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+	chainParams := &address.RegressionNetTaro
+
+	ctxb := context.Background()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
+		t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	var (
+		alice = t.tarod
+		bob   = secondTarod
+	)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKeyDesc, bobAnchorInternalKeyDesc := deriveKeys(
+		t.t, t.lndHarness.Bob,
+	)
+
+	var (
+		id           [32]byte
+		fullAmt      = rpcAssets[0].Amount
+		bobScriptKey = asset.NewScriptKeyBIP0086(bobScriptKeyDesc)
+	)
+	copy(id[:], genInfo.AssetId)
+	vPkt := taropsbt.ForInteractiveSend(
+		id, uint64(fullAmt), bobScriptKey, 0,
+		bobAnchorInternalKeyDesc.PubKey, chainParams,
+	)
+
+	// Next, we'll attempt to complete a transfer with PSBTs from our main
+	// node to Bob, using the full amount.
+	fundResp := fundPacket(t, alice, vPkt)
+	t.Logf("Funded PSBT: %v",
+		base64.StdEncoding.EncodeToString(fundResp.FundedPsbt))
+
+	signResp, err := alice.SignVirtualPsbt(ctxb, &wrpc.SignVirtualPsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	})
+	require.NoError(t.t, err)
+
+	t.Logf("Signed PSBT: %v",
+		base64.StdEncoding.EncodeToString(signResp.SignedPsbt))
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signResp.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	confirmAndAssetOutboundTransferWithOutputs(
+		t, alice, sendResp, genInfo.AssetId, fullAmt, 0, 1, 2,
+	)
+
+	t.Logf("Exporting proof for bob script key %x",
+		bobScriptKey.PubKey.SerializeCompressed())
+	_ = sendProof(
+		t, alice, bob, bobScriptKey.PubKey.SerializeCompressed(),
+		genInfo,
+	)
+
+	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
+		WithWitness: true,
+	})
+	require.NoError(t.t, err)
+
+	assetsJSON, err := formatProtoJSON(aliceAssets)
+	require.NoError(t.t, err)
+	t.Logf("Got alice assets: %s", assetsJSON)
+
+	bobAssets, err := bob.ListAssets(ctxb, &tarorpc.ListAssetRequest{
+		WithWitness: true,
+	})
+	require.NoError(t.t, err)
+
+	assetsJSON, err = formatProtoJSON(bobAssets)
+	require.NoError(t.t, err)
+	t.Logf("Got bob assets: %s", assetsJSON)
 }
 
 func deriveKeys(t *testing.T, lnd *lntest.HarnessNode) (keychain.KeyDescriptor,

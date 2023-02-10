@@ -263,12 +263,26 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 	sendResp *tarorpc.SendAssetResponse, assetID []byte,
 	expectedAmount int64, currentTransferIdx, numTransfers int) {
 
+	confirmAndAssetOutboundTransferWithOutputs(
+		t, sender, sendResp, assetID, expectedAmount,
+		currentTransferIdx, numTransfers, 2,
+	)
+}
+
+// confirmAndAssetOutboundTransferWithOutputs makes sure the given outbound
+// transfer has the correct state and number of outputs before confirming it and
+// then asserting the confirmed state with the node.
+func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
+	sender *tarodHarness, sendResp *tarorpc.SendAssetResponse,
+	assetID []byte, expectedAmount int64, currentTransferIdx, numTransfers,
+	numOutputs int) {
+
 	ctxb := context.Background()
 
 	// Check that we now have two new outputs, and that they differ
 	// in outpoints and scripts.
 	outputs := sendResp.TaroTransfer.NewOutputs
-	require.Len(t.t, outputs, 2)
+	require.Len(t.t, outputs, numOutputs)
 
 	outpoints := make(map[string]struct{})
 	scripts := make(map[string]struct{})
@@ -316,6 +330,15 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 		return sameAssetID(transfer)
 	}, defaultTimeout)
 	require.NoError(t.t, err)
+
+	transferResp, err := sender.ListTransfers(
+		ctxb, &tarorpc.ListTransfersRequest{},
+	)
+	require.NoError(t.t, err)
+
+	transferRespJSON, err := formatProtoJSON(transferResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from list transfers: %v", transferRespJSON)
 }
 
 // assertReceiveComplete makes sure the given receiver has the correct number of

@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -222,6 +224,28 @@ func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
 					rpcAddr.Encoded: 1,
 				},
 			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	return resp
+}
+
+// fundPacket asks the wallet to fund the given virtual packet.
+func fundPacket(t *harnessTest, tarod *tarodHarness,
+	vPkg *taropsbt.VPacket) *wrpc.FundVirtualPsbtResponse {
+
+	var buf bytes.Buffer
+	err := vPkg.Serialize(&buf)
+	require.NoError(t.t, err)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := tarod.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
+		Template: &wrpc.FundVirtualPsbtRequest_Psbt{
+			Psbt: buf.Bytes(),
 		},
 	})
 	require.NoError(t.t, err)
