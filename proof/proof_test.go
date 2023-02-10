@@ -3,8 +3,12 @@ package proof
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -20,6 +24,12 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	// proofFileHexFileName is the name of the file that contains the hex
+	// proof file data.
+	proofFileHexFileName = filepath.Join(testDataFileName, "proof-file.hex")
 )
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
@@ -382,6 +392,25 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	)
 	actualErrInner := errors.Unwrap(actualErr)
 	require.Equal(t, actualErrInner, errHeaderVerifier)
+}
+
+// TestProofFileEncoding ensures that the proof file encoding and decoding works
+// as expected.
+func TestProofFileVerification(t *testing.T) {
+	proofHex, err := os.ReadFile(proofFileHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	f := &File{}
+	err = f.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	_, err = f.Verify(context.Background(), MockHeaderVerifier)
+	require.NoError(t, err)
 }
 
 func BenchmarkProofEncoding(b *testing.B) {
