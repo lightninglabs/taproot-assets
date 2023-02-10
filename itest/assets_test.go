@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -46,6 +47,21 @@ var (
 		},
 	}
 )
+
+// copyRequest is a helper function to copy a request so that we can modify it.
+func copyRequest(req *tarorpc.MintAssetRequest) *tarorpc.MintAssetRequest {
+	return proto.Clone(req).(*tarorpc.MintAssetRequest)
+}
+
+// copyRequests is a helper function to copy a slice of requests so that we can
+// modify them.
+func copyRequests(reqs []*tarorpc.MintAssetRequest) []*tarorpc.MintAssetRequest {
+	copied := make([]*tarorpc.MintAssetRequest, len(reqs))
+	for idx := range reqs {
+		copied[idx] = copyRequest(reqs[idx])
+	}
+	return copied
+}
 
 func mintAssets(t *harnessTest) {
 	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
