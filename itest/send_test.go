@@ -113,7 +113,9 @@ func testBasicSend(t *harnessTest) {
 			t, t.tarod, sendResp, genInfo.AssetId, currentUnits,
 			i, i+1,
 		)
-		_ = sendProof(t, t.tarod, secondTarod, bobAddr, genInfo)
+		_ = sendProof(
+			t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo,
+		)
 		assertReceiveComplete(t, secondTarod, i+1)
 	}
 

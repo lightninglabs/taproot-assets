@@ -130,7 +130,10 @@ func testAddresses(t *harnessTest) {
 
 		assetGen := rpcAsset.AssetGenesis
 
-		sendProof(t, t.tarod, secondTarod, receiverAddr, assetGen)
+		sendProof(
+			t, t.tarod, secondTarod, receiverAddr.ScriptKey,
+			assetGen,
+		)
 	}
 
 	// Make sure we have imported and finalized all proofs.
@@ -155,8 +158,7 @@ func testAddresses(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
-func sendProof(t *harnessTest, src, dst *tarodHarness,
-	recipientAddr *tarorpc.Addr,
+func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 	genInfo *tarorpc.GenesisInfo) *tarorpc.ImportProofResponse {
 
 	ctxb := context.Background()
@@ -165,7 +167,7 @@ func sendProof(t *harnessTest, src, dst *tarodHarness,
 	waitErr := wait.NoError(func() error {
 		resp, err := src.ExportProof(ctxb, &tarorpc.ExportProofRequest{
 			AssetId:   genInfo.AssetId,
-			ScriptKey: recipientAddr.ScriptKey,
+			ScriptKey: scriptKey,
 		})
 		if err != nil {
 			return err
@@ -175,6 +177,8 @@ func sendProof(t *harnessTest, src, dst *tarodHarness,
 		return nil
 	}, defaultWaitTimeout)
 	require.NoError(t.t, waitErr)
+
+	t.Logf("Importing proof %x", proofResp.RawProof)
 
 	importResp, err := dst.ImportProof(ctxb, &tarorpc.ImportProofRequest{
 		ProofFile:    proofResp.RawProof,

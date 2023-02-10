@@ -54,7 +54,7 @@ func testRoundTripSend(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, sendResp, genInfo.AssetId, bobAmt, 0, 1,
 	)
-	_ = sendProof(t, t.tarod, secondTarod, bobAddr, genInfo)
+	_ = sendProof(t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo)
 
 	// Now, Alice will request half of the assets she sent to Bob.
 	aliceAddr, err := t.tarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -72,7 +72,7 @@ func testRoundTripSend(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, secondTarod, sendResp, genInfo.AssetId, aliceAmt, 0, 1,
 	)
-	_ = sendProof(t, secondTarod, t.tarod, aliceAddr, genInfo)
+	_ = sendProof(t, secondTarod, t.tarod, aliceAddr.ScriptKey, genInfo)
 
 	// Check the final state of both nodes. Each node should list
 	// one transfer, and Alice should have 3/4 of the total units.

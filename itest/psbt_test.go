@@ -97,7 +97,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, alice, sendResp, genInfo.AssetId, changeUnits, 0, 1,
 	)
-	_ = sendProof(t, alice, bob, bobAddr, genInfo)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
@@ -151,7 +151,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, bob, sendResp, genInfo.AssetId, numUnits/2, 0, 1,
 	)
-	_ = sendProof(t, bob, alice, aliceAddr, genInfo)
+	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
@@ -242,7 +242,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, alice, sendResp, genInfo.AssetId, changeUnits, 0, 1,
 	)
-	_ = sendProof(t, alice, bob, bobAddr, genInfo)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
@@ -298,7 +298,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, bob, sendResp, genInfo.AssetId, numUnits/2, 0, 1,
 	)
-	_ = sendProof(t, bob, alice, aliceAddr, genInfo)
+	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{

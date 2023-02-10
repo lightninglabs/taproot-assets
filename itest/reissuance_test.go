@@ -63,7 +63,10 @@ func testReissuance(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, firstCollectSend, collectGenInfo.AssetId, 0, 0, 1,
 	)
-	sendProof(t, t.tarod, secondTarod, collectGroupAddr, collectGenInfo)
+	sendProof(
+		t, t.tarod, secondTarod, collectGroupAddr.ScriptKey,
+		collectGenInfo,
+	)
 
 	// Check the state of both nodes. The first node should show one
 	// zero-value transfer representing the send of the collectible.
@@ -89,7 +92,10 @@ func testReissuance(t *harnessTest) {
 		t, t.tarod, firstNormalSend, normalGenInfo.AssetId,
 		normalGroupMintHalf, 1, 2,
 	)
-	sendProof(t, t.tarod, secondTarod, normalGroupAddr, normalGenInfo)
+	sendProof(
+		t, t.tarod, secondTarod, normalGroupAddr.ScriptKey,
+		normalGenInfo,
+	)
 
 	// Reissue one more collectible and half the original mint amount for
 	// the normal asset.
@@ -151,7 +157,10 @@ func testReissuance(t *harnessTest) {
 		t, t.tarod, secondCollectSend,
 		collectReissueInfo.AssetId, 0, 2, 3,
 	)
-	sendProof(t, t.tarod, secondTarod, collectReissueAddr, collectReissueInfo)
+	sendProof(
+		t, t.tarod, secondTarod, collectReissueAddr.ScriptKey,
+		collectReissueInfo,
+	)
 
 	// The second node should show two groups, with two assets in
 	// the collectible group and a total balance of 2 for that group.
@@ -181,7 +190,10 @@ func testReissuance(t *harnessTest) {
 		t, secondTarod, thirdCollectSend,
 		collectGenInfo.AssetId, 0, 0, 1,
 	)
-	sendProof(t, secondTarod, t.tarod, collectReissueAddr, collectReissueInfo)
+	sendProof(
+		t, secondTarod, t.tarod, collectReissueAddr.ScriptKey,
+		collectReissueInfo,
+	)
 
 	// The collectible balance on the minting node should be 1, and there
 	// should still be only two groups.
@@ -264,7 +276,10 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, collectSend, collectGenInfo.AssetId, 0, 0, 1,
 	)
-	sendProof(t, t.tarod, secondTarod, collectGroupAddr, collectGenInfo)
+	sendProof(
+		t, t.tarod, secondTarod, collectGroupAddr.ScriptKey,
+		collectGenInfo,
+	)
 
 	// A reissuance with the second node should still fail because the
 	// group key was not created by that node.
