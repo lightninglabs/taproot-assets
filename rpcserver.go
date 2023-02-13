@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -55,23 +56,7 @@ var (
 			Entity: "daemon",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/MintAsset": {{
-			Entity: "assets",
-			Action: "write",
-		}},
-		"/tarorpc.Taro/FinalizeBatch": {{
-			Entity: "assets",
-			Action: "read",
-		}},
-		"/tarorpc.Taro/CancelBatch": {{
-			Entity: "assets",
-			Action: "read",
-		}},
 		"/tarorpc.Taro/ListAssets": {{
-			Entity: "assets",
-			Action: "read",
-		}},
-		"/tarorpc.Taro/ListBatches": {{
 			Entity: "assets",
 			Action: "read",
 		}},
@@ -139,6 +124,22 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/mintrpc.Mint/MintAsset": {{
+			Entity: "mint",
+			Action: "write",
+		}},
+		"/mintrpc.Mint/FinalizeBatch": {{
+			Entity: "mint",
+			Action: "write",
+		}},
+		"/mintrpc.Mint/CancelBatch": {{
+			Entity: "mint",
+			Action: "write",
+		}},
+		"/mintrpc.Mint/ListBatches": {{
+			Entity: "mint",
+			Action: "read",
+		}},
 	}
 )
 
@@ -150,6 +151,7 @@ type rpcServer struct {
 
 	tarorpc.UnimplementedTaroServer
 	wrpc.UnimplementedAssetWalletServer
+	mintrpc.UnimplementedMintServer
 
 	interceptor signal.Interceptor
 
@@ -216,6 +218,7 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	// Register the main RPC server.
 	tarorpc.RegisterTaroServer(grpcServer, r)
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
+	mintrpc.RegisterMintServer(grpcServer, r)
 	return nil
 }
 
@@ -234,6 +237,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 	}
 
 	err = walletrpc.RegisterWalletKitHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = mintrpc.RegisterMintHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
@@ -336,7 +346,7 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 // MintAsset attempts to mint the set of assets (async by default to ensure
 // proper batching) specified in the request.
 func (r *rpcServer) MintAsset(ctx context.Context,
-	req *tarorpc.MintAssetRequest) (*tarorpc.MintAssetResponse, error) {
+	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
 
 	// Using a specific group key implies disabling emission.
 	if req.EnableEmission && len(req.Asset.GroupKey) != 0 {
@@ -383,17 +393,15 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 				update.Error)
 		}
 
-		return &tarorpc.MintAssetResponse{
+		return &mintrpc.MintAssetResponse{
 			BatchKey: update.BatchKey.SerializeCompressed(),
 		}, nil
 	}
 }
 
-// TODO(jhb): FinalizeBatch and CancelBatch calls
-
 // FinalizeBatch attempts to finalize the current pending batch.
-func (r *rpcServer) FinalizeBatch(ctx context.Context,
-	req *tarorpc.FinalizeBatchRequest) (*tarorpc.FinalizeBatchResponse,
+func (r *rpcServer) FinalizeBatch(_ context.Context,
+	_ *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
 	batchKey, err := r.cfg.AssetMinter.FinalizeBatch()
@@ -403,17 +411,17 @@ func (r *rpcServer) FinalizeBatch(ctx context.Context,
 
 	// If there was no batch to finalize, return an empty response.
 	if batchKey == nil {
-		return &tarorpc.FinalizeBatchResponse{}, nil
+		return &mintrpc.FinalizeBatchResponse{}, nil
 	}
 
-	return &tarorpc.FinalizeBatchResponse{
+	return &mintrpc.FinalizeBatchResponse{
 		BatchKey: batchKey.SerializeCompressed(),
 	}, nil
 }
 
 // CancelBatch attempts to cancel the current pending batch.
-func (r *rpcServer) CancelBatch(ctx context.Context,
-	req *tarorpc.CancelBatchRequest) (*tarorpc.CancelBatchResponse,
+func (r *rpcServer) CancelBatch(_ context.Context,
+	_ *mintrpc.CancelBatchRequest) (*mintrpc.CancelBatchResponse,
 	error) {
 
 	batchKey, err := r.cfg.AssetMinter.CancelBatch()
@@ -423,18 +431,18 @@ func (r *rpcServer) CancelBatch(ctx context.Context,
 
 	// If there was no batch to cancel, return an empty response.
 	if batchKey == nil {
-		return &tarorpc.CancelBatchResponse{}, nil
+		return &mintrpc.CancelBatchResponse{}, nil
 	}
 
-	return &tarorpc.CancelBatchResponse{
+	return &mintrpc.CancelBatchResponse{
 		BatchKey: batchKey.SerializeCompressed(),
 	}, nil
 }
 
 // ListBatches lists the set of batches submitted for minting, including pending
 // and cancelled batches.
-func (r *rpcServer) ListBatches(ctx context.Context,
-	req *tarorpc.ListBatchRequest) (*tarorpc.ListBatchResponse, error) {
+func (r *rpcServer) ListBatches(_ context.Context,
+	req *mintrpc.ListBatchRequest) (*mintrpc.ListBatchResponse, error) {
 
 	var (
 		batchKey *btcec.PublicKey
@@ -458,7 +466,7 @@ func (r *rpcServer) ListBatches(ctx context.Context,
 		return nil, err
 	}
 
-	return &tarorpc.ListBatchResponse{
+	return &mintrpc.ListBatchResponse{
 		Batches: rpcBatches,
 	}, nil
 }
@@ -1583,10 +1591,10 @@ func marshallSendAssetEvent(
 }
 
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
-func marshalMintingBatch(batch *tarogarden.MintingBatch) (*tarorpc.MintingBatch,
+func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 	error) {
 
-	rpcAssets := make([]*tarorpc.MintAsset, 0, len(batch.Seedlings))
+	rpcAssets := make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
 	for _, seedling := range batch.Seedlings {
 		var groupKeyBytes []byte
 		if seedling.HasGroupKey() {
@@ -1595,7 +1603,7 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*tarorpc.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		rpcAssets = append(rpcAssets, &tarorpc.MintAsset{
+		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType: tarorpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
 			MetaData:  seedling.Metadata,
@@ -1609,7 +1617,7 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*tarorpc.MintingBatch,
 		return nil, err
 	}
 
-	return &tarorpc.MintingBatch{
+	return &mintrpc.MintingBatch{
 		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
 		State:    rpcBatchState,
 		Assets:   rpcAssets,
@@ -1617,33 +1625,33 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*tarorpc.MintingBatch,
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
-func marshalBatchState(batch *tarogarden.MintingBatch) (tarorpc.BatchState,
+func marshalBatchState(batch *tarogarden.MintingBatch) (mintrpc.BatchState,
 	error) {
 
 	switch batch.BatchState {
 	case tarogarden.BatchStatePending:
-		return tarorpc.BatchState_BATCH_STATE_PEDNING, nil
+		return mintrpc.BatchState_BATCH_STATE_PEDNING, nil
 
 	case tarogarden.BatchStateFrozen:
-		return tarorpc.BatchState_BATCH_STATE_FROZEN, nil
+		return mintrpc.BatchState_BATCH_STATE_FROZEN, nil
 
 	case tarogarden.BatchStateCommitted:
-		return tarorpc.BatchState_BATCH_STATE_COMMITTED, nil
+		return mintrpc.BatchState_BATCH_STATE_COMMITTED, nil
 
 	case tarogarden.BatchStateBroadcast:
-		return tarorpc.BatchState_BATCH_STATE_BROADCAST, nil
+		return mintrpc.BatchState_BATCH_STATE_BROADCAST, nil
 
 	case tarogarden.BatchStateConfirmed:
-		return tarorpc.BatchState_BATCH_STATE_CONFIRMED, nil
+		return mintrpc.BatchState_BATCH_STATE_CONFIRMED, nil
 
 	case tarogarden.BatchStateFinalized:
-		return tarorpc.BatchState_BATCH_STATE_FINALIZED, nil
+		return mintrpc.BatchState_BATCH_STATE_FINALIZED, nil
 
 	case tarogarden.BatchStateSeedlingCancelled:
-		return tarorpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED, nil
+		return mintrpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED, nil
 
 	case tarogarden.BatchStateSproutCancelled:
-		return tarorpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
+		return mintrpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
 		return 0, fmt.Errorf("unknown batch state: %d",

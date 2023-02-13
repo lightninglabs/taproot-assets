@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,7 +71,7 @@ func testBasicSend(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -138,9 +139,9 @@ func testSendPassiveAsset(t *harnessTest) {
 	}()
 
 	// Mint two different assets.
-	assets := []*tarorpc.MintAssetRequest{
+	assets := []*mintrpc.MintAssetRequest{
 		{
-			Asset: &tarorpc.MintAsset{
+			Asset: &mintrpc.MintAsset{
 				AssetType: tarorpc.AssetType_NORMAL,
 				Name:      "first-itestbuxx",
 				MetaData:  []byte("itest-metadata"),
@@ -148,7 +149,7 @@ func testSendPassiveAsset(t *harnessTest) {
 			},
 		},
 		{
-			Asset: &tarorpc.MintAsset{
+			Asset: &mintrpc.MintAsset{
 				AssetType: tarorpc.AssetType_NORMAL,
 				Name:      "second-itestbuxx",
 				MetaData:  []byte("itest-metadata"),
@@ -293,7 +294,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 	// Mint an asset for sending.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, sendTarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
+		t, sendTarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis

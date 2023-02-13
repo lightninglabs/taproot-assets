@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/urfave/cli"
 )
 
@@ -89,7 +90,7 @@ func parseAssetType(ctx *cli.Context) tarorpc.AssetType {
 
 func mintAsset(ctx *cli.Context) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
 	switch {
@@ -113,8 +114,8 @@ func mintAsset(ctx *cli.Context) error {
 		}
 	}
 
-	resp, err := client.MintAsset(ctxc, &tarorpc.MintAssetRequest{
-		Asset: &tarorpc.MintAsset{
+	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
 			AssetType: parseAssetType(ctx),
 			Name:      ctx.String(assetTagName),
 			MetaData:  []byte(ctx.String(assetMetaName)),
@@ -141,10 +142,10 @@ var finalizeBatchCommand = cli.Command{
 
 func finalizeBatch(ctx *cli.Context) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.FinalizeBatch(ctxc, &tarorpc.FinalizeBatchRequest{})
+	resp, err := client.FinalizeBatch(ctxc, &mintrpc.FinalizeBatchRequest{})
 	if err != nil {
 		return fmt.Errorf("unable to finalize batch: %w", err)
 	}
@@ -163,10 +164,10 @@ var cancelBatchCommand = cli.Command{
 
 func cancelBatch(ctx *cli.Context) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.CancelBatch(ctxc, &tarorpc.CancelBatchRequest{})
+	resp, err := client.CancelBatch(ctxc, &mintrpc.CancelBatchRequest{})
 	if err != nil {
 		return fmt.Errorf("unable to cancel batch: %w", err)
 	}
@@ -190,7 +191,7 @@ var listBatchesCommand = cli.Command{
 
 func listBatches(ctx *cli.Context) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
 	var (
@@ -205,7 +206,7 @@ func listBatches(ctx *cli.Context) error {
 		}
 	}
 
-	resp, err := client.ListBatches(ctxc, &tarorpc.ListBatchRequest{
+	resp, err := client.ListBatches(ctxc, &mintrpc.ListBatchRequest{
 		BatchKey: batchKey,
 	})
 	if err != nil {

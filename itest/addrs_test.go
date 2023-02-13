@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func testAddresses(t *harnessTest) {
 	// asset within a commitment if we only move one of them.
 	var rpcAssets []*tarorpc.Asset
 	rpcAssets = append(rpcAssets, mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)...)
 
 	ctxb := context.Background()

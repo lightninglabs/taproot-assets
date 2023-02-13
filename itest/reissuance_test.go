@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,10 +15,10 @@ func testReissuance(t *harnessTest) {
 	// First, we'll mint a collectible and a normal asset, both with
 	// emission enabled.
 	normalGroupGen := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{issuableAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 	collectGroupGen := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{issuableAssets[1]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{issuableAssets[1]},
 	)
 	require.Equal(t.t, 1, len(normalGroupGen))
 	require.Equal(t.t, 1, len(collectGroupGen))
@@ -99,10 +100,10 @@ func testReissuance(t *harnessTest) {
 	reissuedAssets[1].Asset.GroupKey = collectGroupKey
 
 	normalReissueGen := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{reissuedAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{reissuedAssets[0]},
 	)
 	collectReissueGen := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{reissuedAssets[1]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{reissuedAssets[1]},
 	)
 	require.Equal(t.t, 1, len(normalReissueGen))
 	require.Equal(t.t, 1, len(collectReissueGen))
@@ -193,7 +194,7 @@ func testReissuance(t *harnessTest) {
 func testMintWithGroupKeyErrors(t *harnessTest) {
 	// First, mint a collectible with emission enabled to create one group.
 	collectGroupGen := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{issuableAssets[1]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{issuableAssets[1]},
 	)
 	require.Equal(t.t, 1, len(collectGroupGen))
 

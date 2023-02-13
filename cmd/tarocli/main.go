@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -65,6 +66,16 @@ func getClient(ctx *cli.Context) (tarorpc.TaroClient, func()) {
 	}
 
 	return tarorpc.NewTaroClient(conn), cleanUp
+}
+
+func getMintClient(ctx *cli.Context) (mintrpc.MintClient, func()) {
+	conn := getClientConn(ctx, false)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return mintrpc.NewMintClient(conn), cleanUp
 }
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {

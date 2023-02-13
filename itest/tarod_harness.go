@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -45,6 +46,7 @@ type tarodHarness struct {
 
 	tarorpc.TaroClient
 	assetwalletrpc.AssetWalletClient
+	mintrpc.MintClient
 }
 
 // tarodConfig holds all configuration items that are required to start a tarod
@@ -182,6 +184,7 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 	}
 	hs.TaroClient = tarorpc.NewTaroClient(rpcConn)
 	hs.AssetWalletClient = assetwalletrpc.NewAssetWalletClient(rpcConn)
+	hs.MintClient = mintrpc.NewMintClient(rpcConn)
 
 	return nil
 }

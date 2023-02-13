@@ -6,7 +6,7 @@ set -e
 function generate() {
   echo "Generating root gRPC server protos"
 
-  PROTOS="taro.proto assetwalletrpc/assetwallet.proto"
+  PROTOS="taro.proto assetwalletrpc/assetwallet.proto mintrpc/mint.proto"
 
   # For each of the sub-servers, we then generate their protos, but a restricted
   # set as they don't yet require REST proxies, or swagger docs.
