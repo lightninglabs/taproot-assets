@@ -42,3 +42,10 @@ CREATE TABLE IF NOT EXISTS asset_deltas (
     
     proof_id INTEGER NOT NULL REFERENCES transfer_proofs(proof_id) 
 );
+
+CREATE TABLE IF NOT EXISTS receiver_proof_transfer_attempts (
+    proof_locator_hash BLOB NOT NULL,
+
+    time_unix TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS proof_locator_hash_index on receiver_proof_transfer_attempts (proof_locator_hash);

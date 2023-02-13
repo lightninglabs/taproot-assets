@@ -35,7 +35,7 @@ func testAddresses(t *harnessTest) {
 	// assets made above.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer, false,
+		t.universeServer,
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))

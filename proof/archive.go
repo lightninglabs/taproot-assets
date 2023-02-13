@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -55,6 +56,21 @@ type Locator struct {
 	// ScriptKey specifies the script key of the asset to fetch/store. This
 	// field MUST be specified.
 	ScriptKey btcec.PublicKey
+}
+
+// Hash returns a SHA256 hash of the bytes serialized locator.
+func (l *Locator) Hash() [32]byte {
+	var buf bytes.Buffer
+	if l.AssetID != nil {
+		buf.Write(l.AssetID[:])
+	}
+	if l.GroupKey != nil {
+		buf.Write(l.GroupKey.SerializeCompressed())
+	}
+	buf.Write(l.ScriptKey.SerializeCompressed())
+
+	// Hash the buffer.
+	return sha256.Sum256(buf.Bytes())
 }
 
 // AnnotatedProof an annotated proof contains the raw proof blob along with a

@@ -1,6 +1,9 @@
 package chanutils
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"time"
+)
 
 const (
 	// DefaultQueueSize is the default size to use for concurrent queues.
@@ -70,4 +73,9 @@ type EventPublisher[T any, Q any] interface {
 	// RemoveSubscriber removes the given subscriber and also stops it from
 	// processing events.
 	RemoveSubscriber(subscriber *EventReceiver[T]) error
+}
+
+// Event is a generic event that can be sent to a subscriber.
+type Event interface {
+	Timestamp() time.Time
 }

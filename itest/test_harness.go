@@ -58,7 +58,7 @@ const (
 
 	// defaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	defaultTimeout = time.Second * 5
+	defaultTimeout = time.Second * 10
 )
 
 // testCase is a struct that holds a single test case.
@@ -237,25 +237,46 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	// Create a tarod that uses Bob and connect it to the universe server.
 	tarodHarness := setupTarodHarness(
 		t, ht, lndHarness.BackendCfg, lndHarness.Alice, universeServer,
-		enableHashMail,
+		func(params *tarodHarnessParams) {
+			params.enableHashMail = enableHashMail
+		},
 	)
 	return tarodHarness, universeServer
 }
+
+// tarodHarnessParams contains parameters that can be set when creating a new
+// tarodHarness.
+type tarodHarnessParams struct {
+	// enableHashMail enables hashmail in the taro daemon.
+	enableHashMail bool
+
+	// expectErrExit indicates whether tarod is expected to exit with an
+	// error.
+	expectErrExit bool
+}
+
+type Option func(*tarodHarnessParams)
 
 // setupTarodHarness creates a new tarod that connects to the given lnd node
 // and to the given universe server.
 func setupTarodHarness(t *testing.T, ht *harnessTest,
 	backend lntest.BackendConfig, node *lntest.HarnessNode,
-	universe *serverHarness, enableHashMail bool) *tarodHarness {
+	universe *serverHarness, opts ...Option) *tarodHarness {
+
+	// Set parameters by executing option functions.
+	params := &tarodHarnessParams{}
+	for _, opt := range opts {
+		opt(params)
+	}
 
 	tarodHarness, err := newTarodHarness(ht, tarodConfig{
 		NetParams: harnessNetParams,
 		LndNode:   node,
-	}, enableHashMail)
+	}, params.enableHashMail)
 	require.NoError(t, err)
 
 	// Start the tarod harness now.
-	err = tarodHarness.start()
+	err = tarodHarness.start(params.expectErrExit)
 	require.NoError(t, err)
 	return tarodHarness
 }

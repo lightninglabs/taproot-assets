@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -76,10 +77,21 @@ const (
 	// ensure it properly tracks the coins allocated to the anchor output.
 	SendStateBroadcast
 
-	// SendStateWaitingConf is the final terminal state. In this state,
-	// we'll register for a confirmation request, and also handle the final
-	// proof transfer.
-	SendStateWaitingConf
+	// SendStateWaitTxConf is a state in which we will wait for the transfer
+	// transaction to confirm on-chain.
+	SendStateWaitTxConf
+
+	// SendStateStoreProofs is the state in which we will write the sender
+	// and receiver proofs to the proof archive.
+	SendStateStoreProofs
+
+	// SendStateReceiverProofTransfer is the state in which we will commence
+	// the receiver proof transfer process.
+	SendStateReceiverProofTransfer
+
+	// SendStateComplete is the state which is reached once entire asset
+	// transfer process is complete.
+	SendStateComplete
 )
 
 // String returns a human readable version of SendState.
@@ -118,8 +130,17 @@ func (s SendState) String() string {
 	case SendStateBroadcast:
 		return "SendStateBroadcast"
 
-	case SendStateWaitingConf:
-		return "SendStateWaitingConf"
+	case SendStateWaitTxConf:
+		return "SendStateWaitTxConf"
+
+	case SendStateStoreProofs:
+		return "SendStateStoreProofs"
+
+	case SendStateReceiverProofTransfer:
+		return "SendStateReceiverProofTransfer"
+
+	case SendStateComplete:
+		return "SendStateComplete"
 
 	default:
 		return fmt.Sprintf("<unknown_state(%d)>", s)
@@ -192,8 +213,12 @@ type PendingParcel struct {
 
 // sendPackage houses the information we need to complete a package transfer.
 type sendPackage struct {
-	// SendState is the current state state of this parcel.
+	// SendState is the current send state of this parcel.
 	SendState SendState
+
+	// ReqAssetTransfer is the asset transfer request that kicked off this
+	// transfer.
+	ReqAssetTransfer *AssetParcel
 
 	// SenderNewInternalKey is the new internal key for the sender. This is
 	// where the change assets will be anchored at.
@@ -213,10 +238,6 @@ type sendPackage struct {
 	// NeedsSplit is true if a change output is required during the
 	// transfer.
 	NeedsSplit bool
-
-	// ReceiverAddr is the address of the receiver that kicked off the
-	// transfer.
-	ReceiverAddr *address.Taro
 
 	// SendDelta contains the information needed to craft a final transfer
 	// transaction.
@@ -246,6 +267,10 @@ type sendPackage struct {
 	// TargetFeeRate is the target fee rate for this send expressed in
 	// sat/kw.
 	TargetFeeRate chainfee.SatPerKWeight
+
+	// TransferTxConfEvent contains transfer transaction on-chain
+	// confirmation data.
+	TransferTxConfEvent *chainntnfs.TxConfirmation
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input
@@ -317,7 +342,8 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		PubKey: internalKey.PubKey.SerializeCompressed(),
 		Bip32Path: []uint32{
 			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
-			s.ReceiverAddr.ChainParams.HDCoinType + hdkeychain.HardenedKeyStart,
+			s.ReqAssetTransfer.Dest.ChainParams.HDCoinType +
+				hdkeychain.HardenedKeyStart,
 			uint32(internalKey.Family) + uint32(hdkeychain.HardenedKeyStart),
 			0,
 			internalKey.Index,
@@ -378,7 +404,8 @@ func (s *sendPackage) addAnchorPsbtInput() error {
 		outputAmt += txOut.Value
 
 		addrType, _, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, s.ReceiverAddr.ChainParams.Params,
+			txOut.PkScript,
+			s.ReqAssetTransfer.Dest.ChainParams.Params,
 		)
 		if err != nil {
 			return err
@@ -459,7 +486,7 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 		s.InputAsset.Asset.ID(), s.SenderScriptKey.PubKey,
 		s.InputAsset.Asset.GroupKey == nil,
 	)
-	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+	receiverStateKey := s.ReqAssetTransfer.Dest.AssetCommitmentKey()
 
 	// With the state key, we can fetch the new Taro trees for the
 	// sender+receiver and also the outputs indexes of each tree
@@ -544,14 +571,14 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	senderParams.TaroRoot = &senderTaroTree
 	senderParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: receiverIndex,
-		InternalKey: &s.ReceiverAddr.InternalKey,
+		InternalKey: &s.ReqAssetTransfer.Dest.InternalKey,
 		CommitmentProof: &proof.CommitmentProof{
 			Proof: *senderExclusionProof,
 		},
 	}}
 
 	receiverParams.OutputIndex = int(receiverIndex)
-	receiverParams.InternalKey = &s.ReceiverAddr.InternalKey
+	receiverParams.InternalKey = &s.ReqAssetTransfer.Dest.InternalKey
 	receiverParams.TaroRoot = &receiverTaroTree
 	receiverParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: senderIndex,
@@ -603,25 +630,37 @@ func (s *sendPackage) createProofs() (spendProofs, error) {
 	}
 
 	return spendProofs{
-		asset.ToSerialized(s.SenderScriptKey.PubKey):  *senderProof,
-		asset.ToSerialized(&s.ReceiverAddr.ScriptKey): *receiverProof,
+		asset.ToSerialized(s.SenderScriptKey.PubKey):           *senderProof,
+		asset.ToSerialized(&s.ReqAssetTransfer.Dest.ScriptKey): *receiverProof,
 	}, nil
 }
 
-// deliverResponse delivers a response for the parcel back to the receiver over
-// the specified response channel.
-func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
+// deliverTxBroadcastResp delivers a response for the parcel back to the
+// receiver over the response channel.
+func (s *sendPackage) deliverTxBroadcastResp() {
+	// Ensure that we have a response channel to deliver the response over.
+	// We may not have one if the package send process was recommenced after
+	// a restart.
+	if s.ReqAssetTransfer == nil {
+		log.Warnf("No response channel for parcel %x:%x, not "+
+			"delivering notification", s.ReqAssetTransfer.Dest.ID(),
+			s.ReqAssetTransfer.Dest.ScriptKey.SerializeCompressed())
+		return
+	}
+
 	oldRoot := s.InputAsset.Commitment.TapscriptRoot(nil)
 
 	log.Infof("Outbound parcel now pending for %x:%x, delivering "+
-		"notification", s.ReceiverAddr.ID(),
-		s.ReceiverAddr.ScriptKey.SerializeCompressed())
+		"notification", s.ReqAssetTransfer.Dest.ID(),
+		s.ReqAssetTransfer.Dest.ScriptKey.SerializeCompressed())
 
 	// Get the output index of the receiver from the spend locators.
-	receiverStateKey := s.ReceiverAddr.AssetCommitmentKey()
+	receiverStateKey := s.ReqAssetTransfer.Dest.AssetCommitmentKey()
 	receiverIndex := s.SendDelta.Locators[receiverStateKey].OutputIndex
 
-	respChan <- &PendingParcel{
+	recvAddr := s.ReqAssetTransfer.Dest
+
+	s.ReqAssetTransfer.respChan <- &PendingParcel{
 		NewAnchorPoint: s.OutboundPkg.NewAnchorPoint,
 		TransferTx:     s.OutboundPkg.AnchorTx,
 		OldTaroRoot:    oldRoot[:],
@@ -639,7 +678,7 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 				AssetInput: AssetInput{
 					PrevID: asset.PrevID{
 						OutPoint: s.OutboundPkg.NewAnchorPoint,
-						ID:       s.ReceiverAddr.ID(),
+						ID:       recvAddr.ID(),
 						ScriptKey: asset.ToSerialized(
 							s.OutboundPkg.AssetSpendDeltas[0].NewScriptKey.PubKey,
 						),
@@ -656,13 +695,13 @@ func (s *sendPackage) deliverResponse(respChan chan<- *PendingParcel) {
 							Hash:  s.OutboundPkg.NewAnchorPoint.Hash,
 							Index: receiverIndex,
 						},
-						ID: s.ReceiverAddr.ID(),
+						ID: recvAddr.ID(),
 						ScriptKey: asset.ToSerialized(
-							&s.ReceiverAddr.ScriptKey,
+							&recvAddr.ScriptKey,
 						),
 					},
 					Amount: btcutil.Amount(
-						s.ReceiverAddr.Amount,
+						recvAddr.Amount,
 					),
 				},
 			},

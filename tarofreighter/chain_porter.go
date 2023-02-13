@@ -2,6 +2,7 @@ package tarofreighter
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -83,7 +84,7 @@ type ChainPorter struct {
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
-	subscribers map[uint64]*chanutils.EventReceiver[Event]
+	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
@@ -95,10 +96,13 @@ type ChainPorter struct {
 // NewChainPorter creates a new instance of the ChainPorter given a valid
 // config.
 func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
+	subscribers := make(
+		map[uint64]*chanutils.EventReceiver[chanutils.Event],
+	)
 	return &ChainPorter{
 		cfg:         cfg,
 		exportReqs:  make(chan *AssetParcel),
-		subscribers: make(map[uint64]*chanutils.EventReceiver[Event]),
+		subscribers: subscribers,
 		ContextGuard: &chanutils.ContextGuard{
 			DefaultTimeout: tarogarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -206,23 +210,18 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 		OutboundPkg: pkg,
 		SendState:   SendStateBroadcast,
 	}
-	_, err := p.advanceStateUntil(
-		&restartSendPkg, SendStateBroadcast,
-	)
+
+	err := p.advanceState(&restartSendPkg)
 	if err != nil {
 		// TODO(roasbef): no req to send the error back to here
 		log.Warnf("unable to advance state machine: %v", err)
 		return
 	}
-
-	// Now that the transfer tx has (maybe) been rebroadcast, we'll now
-	// trigger to wait for the final package information.
-	p.waitForPkgConfirmation(pkg)
 }
 
 // taroPorter is the main goroutine of the ChainPorter. This takes in incoming
 // requests, and attempt to complete a transfer. A response is sent back to the
-// caller if a transfer can be completed. Otherwise an error is returned.
+// caller if a transfer can be completed. Otherwise, an error is returned.
 func (p *ChainPorter) taroPorter() {
 	defer p.Wg.Done()
 
@@ -235,30 +234,17 @@ func (p *ChainPorter) taroPorter() {
 
 			// Initialize a package with the destination address.
 			sendPkg := sendPackage{
-				ReceiverAddr: req.Dest,
+				ReqAssetTransfer: req,
 			}
 
-			// Advance the state machine for this package until we
-			// reach the state that we broadcast the transaction
-			// that completes the transfer.
-			advancedPkg, err := p.advanceStateUntil(
-				&sendPkg, SendStateBroadcast,
-			)
+			// Advance the state machine for this package as far as
+			// possible.
+			err := p.advanceState(&sendPkg)
 			if err != nil {
 				log.Warnf("unable to advance state machine: %v", err)
 				req.errChan <- err
 				continue
 			}
-
-			// With the transaction broadcast, we'll deliver a
-			// a response back to the original caller.
-			advancedPkg.deliverResponse(req.respChan)
-
-			// Now that we broadcast the transaction, we'll
-			// create a goroutine that'll wait for the confirmation
-			// then update everything on disk.
-			p.Wg.Add(1)
-			go p.waitForPkgConfirmation(advancedPkg.OutboundPkg)
 
 		case <-p.Quit:
 			return
@@ -266,32 +252,23 @@ func (p *ChainPorter) taroPorter() {
 	}
 }
 
-// waitForPkgConfirmation waits for the confirmation of the final transaction
+// waitForTransferTxConf waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
-func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
-	defer p.Wg.Done()
+func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
+	outboundPkg := pkg.OutboundPkg
 
-	mkErr := func(format string, args ...interface{}) error {
-		logFormat := strings.ReplaceAll(format, "%w", "%v")
-		log.Errorf("Error waiting for package confirmation: "+
-			logFormat, args...)
-		return fmt.Errorf(format, args...)
-	}
-
-	txHash := pkg.AnchorTx.TxHash()
-
+	txHash := outboundPkg.AnchorTx.TxHash()
 	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
 
 	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		confCtx, &txHash, pkg.AnchorTx.TxOut[0].PkScript, 1,
-		pkg.AnchorTxHeightHint, true,
+		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
+		outboundPkg.AnchorTxHeightHint, true,
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("unable to register for tx conf: %v",
+		return fmt.Errorf("unable to register for package tx conf: %w",
 			err)
-		return
 	}
 
 	// Launch a goroutine that'll notify us when the transaction confirms.
@@ -301,54 +278,68 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	select {
 	case confEvent = <-confNtfn.Confirmed:
 		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
+		pkg.TransferTxConfEvent = confEvent
+		pkg.SendState = SendStateStoreProofs
 
 	case err := <-errChan:
-		p.cfg.ErrChan <- mkErr("error getting confirmation: %w", err)
-		return
+		return fmt.Errorf("error whilst waiting for package tx "+
+			"confirmation: %w", err)
 
 	case <-confCtx.Done():
 		log.Debugf("Skipping TX confirmation, context done")
 
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
-		return
+		return nil
 	}
 
 	if confEvent == nil {
-		p.cfg.ErrChan <- mkErr("got empty confirmation event in batch")
-		return
+		return fmt.Errorf("got empty package tx confirmation event in " +
+			"batch")
 	}
 
+	return nil
+}
+
+// storeProofs writes the updated sender and receiver proof files to the proof
+// archive.
+func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	// Now we'll enter the final phase of the send process, where we'll
 	// write the receiver's proof file to disk.
 	//
 	// First, we'll fetch the sender's current proof file.
 	ctx, cancel := p.CtxBlocking()
 	defer cancel()
-	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, proof.Locator{
-		AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
-		ScriptKey: pkg.AssetSpendDeltas[0].OldScriptKey,
-	})
+
+	var (
+		outboundPkg     = pkg.OutboundPkg
+		spendDeltas     = outboundPkg.AssetSpendDeltas
+		outboundAssetID = spendDeltas[0].WitnessData[0].PrevID.ID
+		locator         = proof.Locator{
+			AssetID:   &outboundAssetID,
+			ScriptKey: spendDeltas[0].OldScriptKey,
+		}
+		confEvent = pkg.TransferTxConfEvent
+	)
+
+	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error fetching proof: %v", err)
-		return
+		return fmt.Errorf("error fetching proof: %w", err)
 	}
 	senderProof := proof.NewEmptyFile(proof.V0)
 	err = senderProof.Decode(bytes.NewReader(senderFullProofBytes))
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error decoding proof: %v", err)
-		return
+		return fmt.Errorf("error decoding proof: %w", err)
 	}
 
 	// Now that we have the sender's proof file, we'll decode the new
 	// suffix we want to add so we can append it to the sender's file.
 	var senderProofSuffix proof.Proof
 	err = senderProofSuffix.Decode(
-		bytes.NewReader(pkg.AssetSpendDeltas[0].SenderAssetProof),
+		bytes.NewReader(spendDeltas[0].SenderAssetProof),
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error decoding proof suffix: %v", err)
-		return
+		return fmt.Errorf("error decoding proof suffix: %w", err)
 	}
 	err = senderProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
 		Block:   confEvent.Block,
@@ -356,25 +347,22 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		TxIndex: int(confEvent.TxIndex),
 	})
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error updating sender transition "+
-			"proof: %v", err)
-		return
+		return fmt.Errorf("error updating sender transition proof: "+
+			"%w", err)
 	}
 
 	// With the proof suffix updated, we can append the proof, then encode
 	// it to get the final sender proof.
 	var updatedSenderProof bytes.Buffer
 	if err := senderProof.AppendProof(senderProofSuffix); err != nil {
-		p.cfg.ErrChan <- mkErr("error appending sender proof: %v", err)
-		return
+		return fmt.Errorf("error appending sender proof: %w", err)
 	}
 	if err := senderProof.Encode(&updatedSenderProof); err != nil {
-		p.cfg.ErrChan <- mkErr("error encoding sender proof: %v", err)
-		return
+		return fmt.Errorf("error encoding sender proof: %w", err)
 	}
 	newSenderProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
-			AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
+			AssetID:   &outboundAssetID,
 			ScriptKey: *senderProofSuffix.Asset.ScriptKey.PubKey,
 		},
 		Blob: updatedSenderProof.Bytes(),
@@ -383,11 +371,10 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	// As a final step, we'll do the same for the receiver's proof as well.
 	var receiverProofSuffix proof.Proof
 	err = receiverProofSuffix.Decode(
-		bytes.NewReader(pkg.AssetSpendDeltas[0].ReceiverAssetProof),
+		bytes.NewReader(spendDeltas[0].ReceiverAssetProof),
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error decoding receiver proof: %v", err)
-		return
+		return fmt.Errorf("error decoding receiver proof: %w", err)
 	}
 	err = receiverProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
 		Block:   confEvent.Block,
@@ -395,9 +382,8 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 		TxIndex: int(confEvent.TxIndex),
 	})
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error updating receiver transition "+
-			"proof: %v", err)
-		return
+		return fmt.Errorf("error updating receiver transition proof: "+
+			"%w", err)
 	}
 
 	log.Infof("Importing receiver proof into local Proof Archive")
@@ -406,16 +392,14 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 	// archive.
 	var updatedReceiverProof bytes.Buffer
 	if err := senderProof.ReplaceLastProof(receiverProofSuffix); err != nil {
-		p.cfg.ErrChan <- mkErr("error replacing receiver proof: %v", err)
-		return
+		return fmt.Errorf("error replacing receiver proof: %w", err)
 	}
 	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
-		p.cfg.ErrChan <- mkErr("error encoding receiver proof: %v", err)
-		return
+		return fmt.Errorf("error encoding receiver proof: %w", err)
 	}
 	receiverProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
-			AssetID:   &pkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID,
+			AssetID:   &outboundAssetID,
 			ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
 		},
 		Blob: updatedReceiverProof.Bytes(),
@@ -423,100 +407,131 @@ func (p *ChainPorter) waitForPkgConfirmation(pkg *OutboundParcelDelta) {
 
 	// Use callback to verify that block header exists on chain.
 	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+
+	// Import sender proof and receiver proof into proof archive.
 	err = p.cfg.AssetProofs.ImportProofs(
 		ctx, headerVerifier, receiverProof, newSenderProof,
 	)
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("error importing proof: %v", err)
-		return
+		return fmt.Errorf("error importing proof: %w", err)
 	}
 
 	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
 		senderProof.NumProofs())
+
+	pkg.SendState = SendStateReceiverProofTransfer
+	return nil
+}
+
+// transferReceiverProof retrieves the sender and receiver proofs from the
+// archive and then transfers the receiver's proof to the receiver. Upon
+// successful transfer, the asset parcel delivery is marked as complete.
+func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
+	ctx, cancel := p.CtxBlocking()
+	defer cancel()
+
+	// Retrieve sender proof from proof archive.
+	assetId := pkg.OutboundPkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID
+	senderProofBlob, err := p.cfg.AssetProofs.FetchProof(
+		ctx, proof.Locator{
+			AssetID:   &assetId,
+			ScriptKey: *pkg.SenderScriptKey.PubKey,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error fetching sender proof: %w", err)
+	}
+
+	// Retrieve receiver proof from proof archive.
+	locator := proof.Locator{
+		AssetID:   &assetId,
+		ScriptKey: pkg.ReqAssetTransfer.Dest.ScriptKey,
+	}
+	receiverProofBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
+	if err != nil {
+		return fmt.Errorf("error fetching receiver proof: %w", err)
+	}
+	receiverProof := &proof.AnnotatedProof{
+		Locator: locator,
+		Blob:    receiverProofBlob,
+	}
 
 	// If we have a proof courier instance active, then we'll launch a new
 	// goroutine to deliver the proof to the receiver.
 	//
 	// TODO(roasbeef): move earlier?
 	if p.cfg.ProofCourier != nil {
-		p.Wg.Add(1)
-		go func() {
-			defer p.Wg.Done()
+		// TODO(roasbeef): should actually also serialize the
+		// addr of the remote party here
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
 
-			// TODO(roasbeef): should actually also serialize the
-			// addr of the remote party here
-			addr := address.Taro{
-				Genesis:   receiverProofSuffix.Asset.Genesis,
-				ScriptKey: receiverProof.ScriptKey,
-				Amount:    receiverProofSuffix.Asset.Amount,
-			}
-			ctx, cancel := p.WithCtxQuitNoTimeout()
-			defer cancel()
-			err := p.cfg.ProofCourier.DeliverProof(
-				ctx, addr, receiverProof,
-			)
-			if err != nil {
-				log.Errorf("unable to deliver proof: %v", err)
-			}
-		}()
+		err := p.cfg.ProofCourier.DeliverProof(
+			ctx, *pkg.ReqAssetTransfer.Dest, receiverProof,
+		)
+
+		// If the proof courier returned a backoff error, then
+		// we'll just return nil here so that we can retry
+		// later.
+		var backoffExecErr *proof.BackoffExecError
+		if errors.As(err, &backoffExecErr) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("error delivering proof: %w", err)
+		}
 	}
 
-	log.Infof("Marking parcel (txid=%v) as confirmed!", txHash)
+	log.Infof("Marking parcel (txid=%v) as confirmed!",
+		pkg.OutboundPkg.AnchorTx.TxHash())
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint:      pkg.NewAnchorPoint,
-		BlockHash:        *confEvent.BlockHash,
-		BlockHeight:      int32(confEvent.BlockHeight),
-		TxIndex:          int32(confEvent.TxIndex),
-		FinalSenderProof: updatedSenderProof.Bytes(),
+		AnchorPoint:      pkg.OutboundPkg.NewAnchorPoint,
+		BlockHash:        *pkg.TransferTxConfEvent.BlockHash,
+		BlockHeight:      int32(pkg.TransferTxConfEvent.BlockHeight),
+		TxIndex:          int32(pkg.TransferTxConfEvent.TxIndex),
+		FinalSenderProof: senderProofBlob,
 	})
 	if err != nil {
-		p.cfg.ErrChan <- mkErr("unable to log tx conf: %w", err)
-		return
+		return fmt.Errorf("unable to log parcel delivery "+
+			"confirmation: %w", err)
 	}
 
-	return
+	pkg.SendState = SendStateComplete
+	return nil
 }
 
-// advanceStateUntil will advance the state machine until the next state is the
-// target state.
-func (p *ChainPorter) advanceStateUntil(currentPkg *sendPackage,
-	targetState SendState) (*sendPackage, error) {
+// advanceState advances the state machine.
+func (p *ChainPorter) advanceState(pkg *sendPackage) error {
+	// Continue state transitions whilst state complete has not yet
+	// been reached.
+	for pkg.SendState < SendStateComplete {
+		log.Infof("ChainPorter executing state: %v",
+			pkg.SendState)
 
-	log.Infof("ChainPorter advancing from state=%v to state=%v",
-		currentPkg.SendState, targetState)
-
-	currentState := currentPkg.SendState
-
-	var terminalState bool
-	for !terminalState {
-		// Before we attempt a state transition, make sure that we
-		// aren't trying to shut down.
+		// Before we attempt a state transition, make sure that
+		// we aren't trying to shut down.
 		select {
 		case <-p.Quit:
-			return nil, fmt.Errorf("porter shutting down")
+			return nil
 
 		default:
 		}
 
-		updatedPkg, err := p.stateStep(*currentPkg)
+		updatedPkg, err := p.stateStep(*pkg)
 		if err != nil {
-			return nil, err
+			p.cfg.ErrChan <- err
+			log.Errorf("Error evaluating state (%v): %v",
+				pkg.SendState, err)
+			return err
 		}
 
-		// We've reached a terminal state once the next state is our
-		// current state (state machine loops back to the current
-		// state).
-		terminalState = updatedPkg.SendState == currentState
-
-		currentState = updatedPkg.SendState
-
-		currentPkg = updatedPkg
+		pkg = updatedPkg
 	}
 
-	return currentPkg, nil
+	return nil
 }
 
 // createDummyOutput creates a new Bitcoin transaction output that is later
@@ -616,11 +631,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// TODO(roasbeef): send logic assumes just one input (no
 		// merges) so we pass in the amount here to ensure we have
 		// enough to send
-		assetID := currentPkg.ReceiverAddr.ID()
+		assetID := currentPkg.ReqAssetTransfer.Dest.ID()
 		constraints := CommitmentConstraints{
-			GroupKey: currentPkg.ReceiverAddr.GroupKey,
+			GroupKey: currentPkg.ReqAssetTransfer.Dest.GroupKey,
 			AssetID:  &assetID,
-			MinAmt:   currentPkg.ReceiverAddr.Amount,
+			MinAmt:   currentPkg.ReqAssetTransfer.Dest.Amount,
 		}
 		eligibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
 			ctx, constraints,
@@ -630,9 +645,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"selection: %w", err)
 		}
 
+		taroAddr := currentPkg.ReqAssetTransfer.Dest
 		log.Infof("Selected %v possible asset inputs for send to %x",
 			len(eligibleCommitments),
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			taroAddr.ScriptKey.SerializeCompressed())
 
 		// We'll take just the first commitment here as we need enough
 		// to complete the send w/o merging inputs.
@@ -676,7 +692,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// we'll gain the asset that we'll use as an input and info
 		// w.r.t if we need to use an unspendable zero-value root.
 		inputAsset, fullValue, err := taroscript.IsValidInput(
-			currentPkg.InputAsset.Commitment, *currentPkg.ReceiverAddr,
+			currentPkg.InputAsset.Commitment,
+			*currentPkg.ReqAssetTransfer.Dest,
 			*currentPkg.InputAsset.Asset.ScriptKey.PubKey,
 			*p.cfg.ChainParams,
 		)
@@ -729,8 +746,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// of the created outputs.
 	case SendStatePreparedSplit:
 		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
-			*currentPkg.ReceiverAddr, currentPkg.InputAssetPrevID,
-			*currentPkg.SenderScriptKey.PubKey, *currentPkg.SendDelta,
+			*currentPkg.ReqAssetTransfer.Dest,
+			currentPkg.InputAssetPrevID,
+			*currentPkg.SenderScriptKey.PubKey,
+			*currentPkg.SendDelta,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create split "+
@@ -746,8 +765,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taro layer.
 	case SendStateSigned:
+		addr := currentPkg.ReqAssetTransfer.Dest
 		log.Infof("Generating Taro witnesses for send to: %x",
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			addr.ScriptKey.SerializeCompressed())
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// taro leaves. The witness data for each input will be
@@ -774,7 +794,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		spendCommitments, err := taroscript.CreateSpendCommitments(
 			currentPkg.InputAsset.Commitment,
 			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
-			*currentPkg.ReceiverAddr,
+			*currentPkg.ReqAssetTransfer.Dest,
 			*currentPkg.SenderScriptKey.PubKey,
 		)
 		if err != nil {
@@ -782,8 +802,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"commitments: %w", err)
 		}
 
+		addr := currentPkg.ReqAssetTransfer.Dest
 		log.Infof("Constructing new Taro commitments for send to: %x",
-			currentPkg.ReceiverAddr.ScriptKey.SerializeCompressed())
+			addr.ScriptKey.SerializeCompressed())
 
 		currentPkg.NewOutputCommitments = spendCommitments
 
@@ -865,7 +886,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// First, we'll update the PSBT packets to insert the _real_
 		// outputs we need to commit to the asset transfer.
 		err := taroscript.CreateSpendOutputs(
-			*currentPkg.ReceiverAddr, currentPkg.SendDelta.Locators,
+			*currentPkg.ReqAssetTransfer.Dest,
+			currentPkg.SendDelta.Locators,
 			*currentPkg.SenderNewInternalKey.PubKey,
 			*currentPkg.SenderScriptKey.PubKey,
 			currentPkg.NewOutputCommitments, currentPkg.SendPkt,
@@ -962,7 +984,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		receiverAssetProof := spendProofs[asset.ToSerialized(
-			&currentPkg.ReceiverAddr.ScriptKey,
+			&currentPkg.ReqAssetTransfer.Dest.ScriptKey,
 		)]
 		var receiverProofBuf bytes.Buffer
 		if err := receiverAssetProof.Encode(&receiverProofBuf); err != nil {
@@ -1040,8 +1062,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// In this terminal state, we'll broadcast the transaction to the
-	// network, then launch a goroutine to notify us on confirmation.
+	// In this state we broadcast the transaction to the network, then
+	// launch a goroutine to notify us on confirmation.
 	case SendStateBroadcast:
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
@@ -1095,16 +1117,31 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
-		// We'll remain in the broadcast state to hit our termination
-		// condition. The next transition will be triggered manually
-		// once the transaction confirms.
-		currentPkg.SendState = SendStateBroadcast
+		// With the transaction broadcast, we'll deliver a
+		// notification via the transaction broadcast response channel.
+		currentPkg.deliverTxBroadcastResp()
 
+		// Set send state to the next state to evaluate.
+		currentPkg.SendState = SendStateWaitTxConf
 		return &currentPkg, nil
 
-	// In this terminal state, we're waiting for the tx to confirm.
-	case SendStateWaitingConf:
-		return &currentPkg, nil
+	// At this point, transaction broadcast is complete. We go on to wait
+	// for the transfer transaction to confirm on-chain.
+	case SendStateWaitTxConf:
+		err := p.waitForTransferTxConf(&currentPkg)
+		return &currentPkg, err
+
+	// At this point, the transfer transaction is confirmed on-chain. We go
+	// on to store the sender and receiver proofs in the proof archive.
+	case SendStateStoreProofs:
+		err := p.storeProofs(&currentPkg)
+		return &currentPkg, err
+
+	// At this point, the transfer transaction is confirmed on-chain. We go
+	// on to store the sender and receiver proofs in the proof archive.
+	case SendStateReceiverProofTransfer:
+		err := p.transferReceiverProof(&currentPkg)
+		return &currentPkg, err
 
 	default:
 		return &currentPkg, fmt.Errorf("unknown state: %v",
@@ -1117,7 +1154,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 //
 // TODO(ffranr): Add support for delivering existing events to new subscribers.
 func (p *ChainPorter) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[Event],
+	receiver *chanutils.EventReceiver[chanutils.Event],
 	deliverExisting bool, deliverFrom bool) error {
 
 	p.subscriberMtx.Lock()
@@ -1125,13 +1162,18 @@ func (p *ChainPorter) RegisterSubscriber(
 
 	p.subscribers[receiver.ID()] = receiver
 
+	// If we have a proof courier, we'll also update its subscribers.
+	if p.cfg.ProofCourier != nil {
+		p.cfg.ProofCourier.SetSubscribers(p.subscribers)
+	}
+
 	return nil
 }
 
 // RemoveSubscriber removes a subscriber from the set of subscribers that will
 // be notified of any new events that are broadcast.
 func (p *ChainPorter) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[Event]) error {
+	subscriber *chanutils.EventReceiver[chanutils.Event]) error {
 
 	p.subscriberMtx.Lock()
 	defer p.subscriberMtx.Unlock()
@@ -1145,11 +1187,16 @@ func (p *ChainPorter) RemoveSubscriber(
 	subscriber.Stop()
 	delete(p.subscribers, subscriber.ID())
 
+	// If we have a proof courier, we'll also update its subscribers.
+	if p.cfg.ProofCourier != nil {
+		p.cfg.ProofCourier.SetSubscribers(p.subscribers)
+	}
+
 	return nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
-func (p *ChainPorter) publishSubscriberEvent(event Event) {
+func (p *ChainPorter) publishSubscriberEvent(event chanutils.Event) {
 	// Lock the subscriber mutex to ensure that we don't modify the
 	// subscriber map while we're iterating over it.
 	p.subscriberMtx.Lock()
@@ -1162,7 +1209,7 @@ func (p *ChainPorter) publishSubscriberEvent(event Event) {
 
 // A compile-time assertion to make sure ChainPorter satisfies the
 // chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[Event, bool] = (*ChainPorter)(nil)
+var _ chanutils.EventPublisher[chanutils.Event, bool] = (*ChainPorter)(nil)
 
 // ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
 // subscribers before a state is executed.

@@ -127,3 +127,16 @@ WHERE asset_id = $1;
 -- name: DeleteSpendProofs :exec
 DELETE FROM transfer_proofs
 WHERE transfer_id = $1;
+
+-- name: InsertReceiverProofTransferAttempt :exec
+INSERT INTO receiver_proof_transfer_attempts (
+    proof_locator_hash, time_unix
+) VALUES (
+    $1, $2
+);
+
+-- name: QueryReceiverProofTransferAttempt :many
+SELECT time_unix
+FROM receiver_proof_transfer_attempts
+WHERE proof_locator_hash = $1
+ORDER BY time_unix DESC;

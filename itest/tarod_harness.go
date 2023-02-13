@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarocfg"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarorpc"
@@ -119,9 +120,19 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 	// Conditionally use the local hashmail service.
 	finalCfg.HashMailCourier = nil
 	if enableHashMail {
-		finalCfg.HashMailCourier = &tarocfg.HashMailCourierCfg{
-			Addr:        ht.apertureHarness.ListenAddr,
-			TlsCertPath: ht.apertureHarness.TlsCertPath,
+		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
+			Addr:               ht.apertureHarness.ListenAddr,
+			TlsCertPath:        ht.apertureHarness.TlsCertPath,
+			ReceiverAckTimeout: 5 * time.Second,
+
+			// Use minimal wait times for asset proof transfer
+			// backoff procedure.
+			BackoffCfg: &proof.BackoffCfg{
+				BackoffResetWait: 20 * time.Second,
+				NumTries:         3,
+				InitialBackoff:   2 * time.Second,
+				MaxBackoff:       2 * time.Second,
+			},
 		}
 	}
 
@@ -133,7 +144,7 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 }
 
 // start spins up the tarod server listening for gRPC connections.
-func (hs *tarodHarness) start() error {
+func (hs *tarodHarness) start(expectErrExit bool) error {
 	cfgLogger := hs.ht.logWriter.GenSubLogger("CONF", func() {})
 
 	var (
@@ -150,7 +161,7 @@ func (hs *tarodHarness) start() error {
 	hs.wg.Add(1)
 	go func() {
 		err := hs.server.RunUntilShutdown(mainErrChan)
-		if err != nil {
+		if err != nil && !expectErrExit {
 			hs.ht.Fatalf("Error running server: %v", err)
 		}
 	}()

@@ -290,6 +290,24 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 	return id, err
 }
 
+const insertReceiverProofTransferAttempt = `-- name: InsertReceiverProofTransferAttempt :exec
+INSERT INTO receiver_proof_transfer_attempts (
+    proof_locator_hash, time_unix
+) VALUES (
+    $1, $2
+)
+`
+
+type InsertReceiverProofTransferAttemptParams struct {
+	ProofLocatorHash []byte
+	TimeUnix         time.Time
+}
+
+func (q *Queries) InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, insertReceiverProofTransferAttempt, arg.ProofLocatorHash, arg.TimeUnix)
+	return err
+}
+
 const insertSpendProofs = `-- name: InsertSpendProofs :one
 INSERT INTO transfer_proofs (
    transfer_id, sender_proof, receiver_proof 
@@ -397,6 +415,36 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryReceiverProofTransferAttempt = `-- name: QueryReceiverProofTransferAttempt :many
+SELECT time_unix
+FROM receiver_proof_transfer_attempts
+WHERE proof_locator_hash = $1
+ORDER BY time_unix DESC
+`
+
+func (q *Queries) QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error) {
+	rows, err := q.db.QueryContext(ctx, queryReceiverProofTransferAttempt, proofLocatorHash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []time.Time
+	for rows.Next() {
+		var time_unix time.Time
+		if err := rows.Scan(&time_unix); err != nil {
+			return nil, err
+		}
+		items = append(items, time_unix)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

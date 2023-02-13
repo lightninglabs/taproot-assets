@@ -19,6 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
@@ -66,6 +67,26 @@ const (
 
 	// DatabaseBackendPostgres is the name of the Postgres database backend.
 	DatabaseBackendPostgres = "postgres"
+
+	// defaultProofTransferBackoffResetWait is the default amount of time
+	// we'll wait before resetting the backoff of a proof transfer.
+	defaultProofTransferBackoffResetWait = 10 * time.Minute
+
+	// defaultProofTransferNumTries is the default number of times we'll
+	// attempt to transfer a proof before ending the backoff procedure.
+	defaultProofTransferNumTries = 4
+
+	// defaultProofTransferInitialBackoff is the default initial backoff
+	// time we'll use for proof transfers.
+	defaultProofTransferInitialBackoff = 30 * time.Second
+
+	// defaultProofTransferMaxBackoff is the default maximum backoff time
+	// we'll use for proof transfers.
+	defaultProofTransferMaxBackoff = 5 * time.Minute
+
+	// defaultProofTransferReceiverAckTimeout is the default timeout we'll
+	// use for waiting for a receiver to acknowledge a proof transfer.
+	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
 var (
@@ -202,8 +223,8 @@ type Config struct {
 	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
 
 	// The following options are used to configure the proof courier.
-	ProofCourierMode string              `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
-	HashMailCourier  *HashMailCourierCfg `group:"proofcourier" namespace:"hashmailproofcourier"`
+	ProofCourierMode string                    `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
+	HashMailCourier  *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
 
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
@@ -230,12 +251,6 @@ type Config struct {
 	restListeners []net.Addr
 
 	net tor.Net
-}
-
-// HashMailCourierCfg is the config for the hashmail proof courier.
-type HashMailCourierCfg struct {
-	Addr        string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
-	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -274,8 +289,15 @@ func DefaultConfig() Config {
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
-		HashMailCourier: &HashMailCourierCfg{
-			Addr: defaultHashMailAddr,
+		HashMailCourier: &proof.HashMailCourierCfg{
+			Addr:               defaultHashMailAddr,
+			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
+			BackoffCfg: &proof.BackoffCfg{
+				BackoffResetWait: defaultProofTransferBackoffResetWait,
+				NumTries:         defaultProofTransferNumTries,
+				InitialBackoff:   defaultProofTransferInitialBackoff,
+				MaxBackoff:       defaultProofTransferMaxBackoff,
+			},
 		},
 	}
 }
