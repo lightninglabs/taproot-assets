@@ -564,17 +564,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	p.publishSubscriberEvent(stateEvent)
 
 	switch currentPkg.SendState {
-	// In this initial state, we'll set up some initial state we need to
-	// carry out the send flow.
-	case SendStateInitializing:
-		currentPkg.SendState = SendStateCommitmentSelect
-
-		return &currentPkg, nil
-
 	// At this point we have the initial package information populated, so
 	// we'll perform coin selection to see if the send request is even
 	// possible at all.
-	case SendStateCommitmentSelect:
+	case SendStateVirtualCommitmentSelect:
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
@@ -589,28 +582,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		currentPkg.VirtualPacket = packet
 		currentPkg.InputCommitment = inputCommitment
 
-		currentPkg.SendState = SendStateValidatedInput
-
-		return &currentPkg, nil
-
-	// Now that we have our set of inputs selected, we'll validate them to
-	// make sure that they're enough to satisfy our send request.
-	case SendStateValidatedInput:
-		currentPkg.SendState = SendStatePreparedSplit
-
-		return &currentPkg, nil
-
-	// At this point, we know a split is required in order to complete the
-	// send, so we'll make a split with our root change output and the rest
-	// of the created outputs.
-	case SendStatePreparedSplit:
-		currentPkg.SendState = SendStateSigned
+		currentPkg.SendState = SendStateVirtualSign
 
 		return &currentPkg, nil
 
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taro layer.
-	case SendStateSigned:
+	case SendStateVirtualSign:
 		vPacket := currentPkg.VirtualPacket
 		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
 		log.Infof("Generating Taro witnesses for send to: %x",
@@ -625,24 +603,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"virtual packet: %w", err)
 		}
 
-		currentPkg.SendState = SendStateCommitmentsUpdated
-
-		return &currentPkg, nil
-
-	// With our new asset (our change output) fully signed, we'll now
-	// generate the top-level Taro commitments for the sender and the
-	// receiver.
-	case SendStateCommitmentsUpdated:
-		// Otherwise, we can go straight to stamping things as we have
-		// them w/ the PSBT.
-		currentPkg.SendState = SendStatePsbtFund
+		currentPkg.SendState = SendStateAnchorSign
 
 		return &currentPkg, nil
 
 	// With all the internal Taro signing taken care of, we can now make
 	// our initial skeleton PSBT packet to send off to the wallet for
-	// funding.
-	case SendStatePsbtFund:
+	// funding and signing.
+	case SendStateAnchorSign:
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
@@ -679,13 +647,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// finalization.
 		currentPkg.AnchorTx = anchorTx
 
-		currentPkg.SendState = SendStatePsbtSign
-
-		return &currentPkg, nil
-
-	// SendStatePsbtSign in this state we'll create the final PSBT packet,
-	// to submit to the wallet to sign its set of inputs.
-	case SendStatePsbtSign:
 		currentPkg.SendState = SendStateLogCommit
 
 		return &currentPkg, nil
