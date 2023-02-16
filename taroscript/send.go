@@ -650,6 +650,26 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
 	}
 
+	for i := range outputs {
+		out := outputs[i]
+		psbtOut := &spendPkt.Outputs[out.AnchorOutputIndex]
+		psbtOut.TaprootInternalKey = schnorr.SerializePubKey(
+			out.AnchorOutputInternalKey,
+		)
+		if out.AnchorOutputBip32Derivation != nil {
+			psbtOut.Bip32Derivation = append(
+				psbtOut.Bip32Derivation,
+				out.AnchorOutputBip32Derivation,
+			)
+		}
+		if out.AnchorOutputTaprootBip32Derivation != nil {
+			psbtOut.TaprootBip32Derivation = append(
+				psbtOut.TaprootBip32Derivation,
+				out.AnchorOutputTaprootBip32Derivation,
+			)
+		}
+	}
+
 	return spendPkt, nil
 }
 
