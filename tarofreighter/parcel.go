@@ -13,7 +13,6 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
-	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -229,28 +228,9 @@ type sendPackage struct {
 	// where the change assets will be anchored at.
 	SenderNewInternalKey keychain.KeyDescriptor
 
-	// SenderScriptKey is the new script key of the sender. The input spent
-	// will use this new script key.
-	SenderScriptKey asset.ScriptKey
-
-	// InputAssetPrevID is the input prev ID spent by the sender.
-	InputAssetPrevID asset.PrevID
-
-	// InputAsset contains the Taro and on chain information for the input
-	// asset being spent.
-	InputAsset *AnchoredCommitment
-
-	// NeedsSplit is true if a change output is required during the
+	// ReceiverAddr is the address of the receiver that kicked off the
 	// transfer.
-	NeedsSplit bool
-
-	// SendDelta contains the information needed to craft a final transfer
-	// transaction.
-	SendDelta *taroscript.SpendDelta
-
-	// NewOutputCommitments is the set of new commitments that will be
-	// anchored by each output on the transfer transaction.
-	NewOutputCommitments taroscript.SpendCommitments
+	ReceiverAddr *address.Taro
 
 	// InputCommitment is the full Taro tree of the asset being spent.
 	InputCommitment *commitment.TaroCommitment
