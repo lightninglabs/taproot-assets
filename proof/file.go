@@ -222,6 +222,23 @@ func (f *File) ProofAt(index uint32) (*Proof, error) {
 	return proof, nil
 }
 
+// RawProofAt returns the raw proof at the given index as a byte slice. If the
+// file is empty, this returns nil.
+func (f *File) RawProofAt(index uint32) ([]byte, error) {
+	if f.IsEmpty() {
+		return nil, ErrNoProofAvailable
+	}
+
+	if index > uint32(len(f.proofs))-1 {
+		return nil, fmt.Errorf("invalid index %d", index)
+	}
+
+	proofCopy := make([]byte, len(f.proofs[index].proofBytes))
+	copy(proofCopy, f.proofs[index].proofBytes)
+
+	return proofCopy, nil
+}
+
 // LastProof returns the last proof in the chain of proofs. If the file is
 // empty, this return nil.
 func (f *File) LastProof() (*Proof, error) {
@@ -230,6 +247,16 @@ func (f *File) LastProof() (*Proof, error) {
 	}
 
 	return f.ProofAt(uint32(len(f.proofs)) - 1)
+}
+
+// RawLastProof returns the raw last proof in the chain of proofs as a byte
+// slice. If the file is empty, this return nil.
+func (f *File) RawLastProof() ([]byte, error) {
+	if f.IsEmpty() {
+		return nil, ErrNoProofAvailable
+	}
+
+	return f.RawProofAt(uint32(len(f.proofs)) - 1)
 }
 
 // AppendProof appends a proof to the file and calculates its chained hash.
