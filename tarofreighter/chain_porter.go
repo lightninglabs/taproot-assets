@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
@@ -655,24 +654,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Now that we have our set of inputs selected, we'll validate them to
 	// make sure that they're enough to satisfy our send request.
 	case SendStateValidatedInput:
-		ctx, cancel := p.WithCtxQuitNoTimeout()
-		defer cancel()
-
-		// Before we can prepare output assets for our send, we need to
-		// generate a new internal key and script key. The script key
-		// is needed for asset change, and the internal key will anchor
-		// the send itself.
-		//
-		// TODO(jhb): ScriptKey derivation instructions should be
-		// specified in the AssetParcel
-		var err error
-		currentPkg.SenderNewInternalKey, err = p.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaroKeyFamily,
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		currentPkg.SendState = SendStatePreparedSplit
 
 		return &currentPkg, nil
@@ -747,13 +728,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		sendPacket.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			currentPkg.SenderNewInternalKey.PubKey,
-		)
-		sendPacket.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
-			&currentPkg.ReqAssetTransfer.Dest.InternalKey,
-		)
 
 		// Submit the template PSBT to the wallet for funding.
 		//
@@ -929,13 +903,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		vIn := currentPkg.VirtualPacket.Inputs[0]
 		inputAsset := vIn.Asset()
 		newAsset := senderOut.Asset
+
+		newInternalKeyDesc, err := senderOut.AnchorKeyToDesc()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get anchor key "+
+				"desc: %w", err)
+		}
+
 		currentPkg.OutboundPkg = &OutboundParcelDelta{
 			OldAnchorPoint: vIn.PrevID.OutPoint,
 			NewAnchorPoint: wire.OutPoint{
 				Hash:  currentPkg.TransferTx.TxHash(),
 				Index: anchorOutputIndex,
 			},
-			NewInternalKey:     currentPkg.SenderNewInternalKey,
+			NewInternalKey:     newInternalKeyDesc,
 			TaroRoot:           taroRoot[:],
 			AnchorTx:           currentPkg.TransferTx,
 			AnchorTxHeightHint: currentHeight,

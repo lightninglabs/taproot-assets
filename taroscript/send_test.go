@@ -313,7 +313,7 @@ func createGenesisProof(t *testing.T, state *spendData) {
 }
 
 func createPacket(addr address.Taro, prevInput asset.PrevID,
-	changeScriptKey btcec.PublicKey, inputSet commitment.InputSet,
+	state spendData, inputSet commitment.InputSet,
 	fullValueInteractive bool) *taropsbt.VPacket {
 
 	inputAsset := inputSet[prevInput]
@@ -321,22 +321,29 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 		PrevID: prevInput,
 	}}
 	outputs := []*taropsbt.VOutput{{
-		Amount:            inputAsset.Amount - addr.Amount,
-		ScriptKey:         asset.NewScriptKey(&changeScriptKey),
-		AnchorOutputIndex: 0,
-		IsSplitRoot:       true,
+		Amount: inputAsset.Amount - addr.Amount,
+		ScriptKey: asset.NewScriptKey(
+			&state.spenderScriptKey,
+		),
+		AnchorOutputIndex:       0,
+		IsSplitRoot:             true,
+		AnchorOutputInternalKey: &state.spenderPubKey,
 	}, {
-		Amount:            addr.Amount,
-		ScriptKey:         asset.NewScriptKey(&addr.ScriptKey),
-		AnchorOutputIndex: receiverExternalIdx,
+		Amount:                  addr.Amount,
+		ScriptKey:               asset.NewScriptKey(&addr.ScriptKey),
+		AnchorOutputIndex:       receiverExternalIdx,
+		AnchorOutputInternalKey: &addr.InternalKey,
 	}}
 
 	if fullValueInteractive {
 		outputs = []*taropsbt.VOutput{{
-			Interactive:       true,
-			Amount:            addr.Amount,
-			ScriptKey:         asset.NewScriptKey(&addr.ScriptKey),
-			AnchorOutputIndex: receiverExternalIdx,
+			Interactive: true,
+			Amount:      addr.Amount,
+			ScriptKey: asset.NewScriptKey(
+				&addr.ScriptKey,
+			),
+			AnchorOutputIndex:       receiverExternalIdx,
+			AnchorOutputInternalKey: &state.receiverPubKey,
 		}}
 	}
 
@@ -708,7 +715,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -727,7 +734,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -746,7 +753,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, true,
+			state, state.asset2InputAssets, true,
 		)
 		return taroscript.PrepareOutputAssets(pkt)
 	},
@@ -758,7 +765,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
-			state.receiverPubKey, state.asset2InputAssets, true,
+			state, state.asset2InputAssets, true,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -778,8 +785,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		pkt := createPacket(
 			state.address1CollectGroup,
 			state.asset1CollectGroupPrevID,
-			state.spenderScriptKey,
-			state.asset1CollectGroupInputAssets, false,
+			state, state.asset1CollectGroupInputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -798,7 +804,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		return taroscript.PrepareOutputAssets(pkt)
 	},
@@ -829,7 +835,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, false,
+			state, state.asset1InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -848,7 +854,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, false,
+			state, state.asset1InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -869,7 +875,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -894,7 +900,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, true,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -919,7 +925,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, true,
+			state, state.asset1InputAssets, true,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -942,7 +948,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -966,7 +972,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -1010,7 +1016,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, false,
+			state, state.asset1InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1042,7 +1048,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, false,
+			state, state.asset1InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1077,7 +1083,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -1104,7 +1110,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, true,
+			state, state.asset1InputAssets, true,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1130,7 +1136,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1157,7 +1163,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1184,7 +1190,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -1230,7 +1236,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, false,
+			state, state.asset1InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1248,9 +1254,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
 		outputCommitments[0] = nil
 
 		return taroscript.UpdateTaprootOutputKeys(
@@ -1266,7 +1269,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, false,
+			state, state.asset1InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1284,13 +1287,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
-		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
-		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
-			&state.address1.InternalKey,
-		)
 		outputCommitments[1] = nil
 
 		return taroscript.UpdateTaprootOutputKeys(
@@ -1305,7 +1301,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, true,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -1323,14 +1319,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
-
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
-		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
-		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
-			&state.address1CollectGroup.InternalKey,
-		)
 
 		err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
@@ -1351,7 +1339,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset1PrevID,
-			state.spenderScriptKey, state.asset1InputAssets, true,
+			state, state.asset1InputAssets, true,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1368,14 +1356,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
-
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
-		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
-		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
-			&state.address1.InternalKey,
-		)
 
 		err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
@@ -1396,7 +1376,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1413,14 +1393,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
-
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
-		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
-		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
-			&state.address1.InternalKey,
-		)
 
 		err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
@@ -1442,7 +1414,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address2, state.asset2PrevID,
-			state.spenderScriptKey, state.asset2InputAssets, false,
+			state, state.asset2InputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
 		require.NoError(t, err)
@@ -1459,14 +1431,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
-
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
-		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
-		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
-			&state.address2.InternalKey,
-		)
 
 		err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
@@ -1488,7 +1452,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		pkt := createPacket(
 			state.address1CollectGroup,
-			state.asset1CollectGroupPrevID, state.spenderScriptKey,
+			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
 		err := taroscript.PrepareOutputAssets(pkt)
@@ -1506,14 +1470,6 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
-
-		btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-			&state.spenderPubKey,
-		)
-		receiverBtcOutput := &btcPkt.Outputs[receiverExternalIdx]
-		receiverBtcOutput.TaprootInternalKey = schnorr.SerializePubKey(
-			&state.address1CollectGroup.InternalKey,
-		)
 
 		err = taroscript.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
@@ -1541,8 +1497,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	}
 
 	pkt := createPacket(
-		spendAddress, state.asset2PrevID, state.spenderScriptKey,
-		inputSet, false,
+		spendAddress, state.asset2PrevID, *state, inputSet, false,
 	)
 
 	// For all other tests it's okay to test external indexes that are
@@ -1566,13 +1521,6 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 
 	btcPkt, err := taroscript.CreateAnchorTx(pkt.Outputs)
 	require.NoError(t, err)
-
-	btcPkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
-		&state.spenderPubKey,
-	)
-	btcPkt.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
-		&spendAddress.InternalKey,
-	)
 
 	err = taroscript.UpdateTaprootOutputKeys(btcPkt, pkt, outputCommitments)
 	require.NoError(t, err)
