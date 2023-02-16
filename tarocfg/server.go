@@ -142,6 +142,16 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
+	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
+		CoinSelector: assetStore,
+		AssetProofs:  proofArchive,
+		KeyRing:      keyRing,
+		Signer:       virtualTxSigner,
+		TxValidator:  &taro.ValidatorV0{},
+		Wallet:       walletAnchor,
+		ChainParams:  &taroChainParams,
+	})
 	server, err := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
@@ -173,19 +183,21 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainBridge:  chainBridge,
 		AddrBook:     addrBook,
 		ProofArchive: proofArchive,
-		ChainPorter: tarofreighter.NewChainPorter(&tarofreighter.ChainPorterConfig{
-			CoinSelector: assetStore,
-			Signer:       taro.NewLndRpcVirtualTxSigner(lndServices),
-			TxValidator:  &taro.ValidatorV0{},
-			ExportLog:    assetStore,
-			ChainBridge:  chainBridge,
-			Wallet:       walletAnchor,
-			KeyRing:      keyRing,
-			ChainParams:  &taroChainParams,
-			AssetProofs:  proofFileStore,
-			ProofCourier: hashMailCourier,
-			ErrChan:      mainErrChan,
-		}),
+		ChainPorter: tarofreighter.NewChainPorter(
+			&tarofreighter.ChainPorterConfig{
+				CoinSelector: assetStore,
+				Signer:       virtualTxSigner,
+				TxValidator:  &taro.ValidatorV0{},
+				ExportLog:    assetStore,
+				ChainBridge:  chainBridge,
+				Wallet:       walletAnchor,
+				KeyRing:      keyRing,
+				AssetWallet:  assetWallet,
+				AssetProofs:  proofFileStore,
+				ProofCourier: hashMailCourier,
+				ErrChan:      mainErrChan,
+			},
+		),
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
