@@ -431,11 +431,21 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	defer cancel()
 
 	// Retrieve sender proof from proof archive.
+	var (
+		senderProofSuffix proof.Proof
+		spendDeltas       = pkg.OutboundPkg.AssetSpendDeltas
+	)
+	err := senderProofSuffix.Decode(
+		bytes.NewReader(spendDeltas[0].SenderAssetProof),
+	)
+	if err != nil {
+		return fmt.Errorf("error decoding proof suffix: %w", err)
+	}
 	assetId := pkg.OutboundPkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID
 	senderProofBlob, err := p.cfg.AssetProofs.FetchProof(
 		ctx, proof.Locator{
 			AssetID:   &assetId,
-			ScriptKey: *pkg.SenderScriptKey.PubKey,
+			ScriptKey: *senderProofSuffix.Asset.ScriptKey.PubKey,
 		},
 	)
 	if err != nil {
