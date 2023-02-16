@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
@@ -51,8 +50,9 @@ type ChainPorterConfig struct {
 	// process.
 	KeyRing KeyRing
 
-	// ChainParams is the chain params of the chain we operate on.
-	ChainParams *address.ChainParams
+	// AssetWallet is the asset-level wallet that we'll use to fund+sign
+	// virtual transactions.
+	AssetWallet Wallet
 
 	// AssetProofs is used to write the proof files on disk for the
 	// receiver during a transfer.
@@ -196,7 +196,7 @@ func (p *ChainPorter) RequestShipment(req *AssetParcel) (*PendingParcel, error) 
 // rebroadcast and then wait for the transfer to confirm.
 //
 // TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
-//   - could move final conf into the state machien itself
+//   - could move final conf into the state machine itself
 func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
 	defer p.Wg.Done()
 
@@ -602,16 +602,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// In this initial state, we'll set up some initial state we need to
 	// carry out the send flow.
 	case SendStateInitializing:
-		// As a sanity check, make sure the chain params are properly
-		// specified.
-		if p.cfg.ChainParams == nil {
-			return nil, fmt.Errorf("network for send unspecified")
-		}
-
-		currentPkg.SendDelta = &taroscript.SpendDelta{
-			InputAssets: make(commitment.InputSet),
-		}
-
 		currentPkg.SendState = SendStateCommitmentSelect
 
 		return &currentPkg, nil
@@ -637,46 +627,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			AssetID:  &assetID,
 			MinAmt:   currentPkg.ReqAssetTransfer.Dest.Amount,
 		}
-		eligibleCommitments, err := p.cfg.CoinSelector.SelectCommitment(
-			ctx, constraints,
+		packet, inputCommitment, err := p.cfg.AssetWallet.SelectCommitments(
+			ctx, constraints, *currentPkg.ReqAssetTransfer.Dest,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to complete coin "+
 				"selection: %w", err)
 		}
 
-		taroAddr := currentPkg.ReqAssetTransfer.Dest
-		log.Infof("Selected %v possible asset inputs for send to %x",
-			len(eligibleCommitments),
-			taroAddr.ScriptKey.SerializeCompressed())
-
-		// We'll take just the first commitment here as we need enough
-		// to complete the send w/o merging inputs.
-		assetInput := eligibleCommitments[0]
-
-		// If the key found for the input UTXO is not from the Taro
-		// keyfamily, something has gone wrong with the DB.
-		if assetInput.InternalKey.Family != asset.TaroKeyFamily {
-			return nil, fmt.Errorf("invalid internal key family "+
-				"for selected input: %v %v",
-				assetInput.InternalKey.Family,
-				assetInput.InternalKey.Index,
-			)
-		}
-
-		// At this point, we have a valid "coin" to spend in the
-		// commitment, so we'll update the relevant information in the
-		// send package.
-		//
-		// TODO(roasbeef): still need to add family key to PrevID.
-		currentPkg.InputAssetPrevID = asset.PrevID{
-			OutPoint: assetInput.AnchorPoint,
-			ID:       assetInput.Asset.ID(),
-			ScriptKey: asset.ToSerialized(
-				assetInput.Asset.ScriptKey.PubKey,
-			),
-		}
-		currentPkg.InputAsset = assetInput
+		currentPkg.VirtualPacket = packet
+		currentPkg.InputCommitment = inputCommitment
 
 		currentPkg.SendState = SendStateValidatedInput
 
@@ -688,21 +648,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		// We'll validate the selected input and commitment. From this
-		// we'll gain the asset that we'll use as an input and info
-		// w.r.t if we need to use an unspendable zero-value root.
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			currentPkg.InputAsset.Commitment,
-			*currentPkg.ReqAssetTransfer.Dest,
-			*currentPkg.InputAsset.Asset.ScriptKey.PubKey,
-			*p.cfg.ChainParams,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		currentPkg.SendDelta.InputAssets[currentPkg.InputAssetPrevID] = inputAsset
-
 		// Before we can prepare output assets for our send, we need to
 		// generate a new internal key and script key. The script key
 		// is needed for asset change, and the internal key will anchor
@@ -710,31 +655,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		//
 		// TODO(jhb): ScriptKey derivation instructions should be
 		// specified in the AssetParcel
+		var err error
 		currentPkg.SenderNewInternalKey, err = p.cfg.KeyRing.DeriveNextKey(
 			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
 			return nil, err
-		}
-
-		// If we are sending the full value of the input asset, or
-		// sending a collectible, we will need to create a split with
-		// unspendable change.
-		if fullValue {
-			currentPkg.SenderScriptKey = asset.NUMSScriptKey
-		} else {
-			senderScriptKey, err := p.cfg.KeyRing.DeriveNextKey(
-				ctx, asset.TaroKeyFamily,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			// We'll assume BIP 86 everywhere, and use the tweaked key from
-			// here on out.
-			currentPkg.SenderScriptKey = asset.NewScriptKeyBIP0086(
-				senderScriptKey,
-			)
 		}
 
 		currentPkg.SendState = SendStatePreparedSplit
@@ -745,19 +671,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// send, so we'll make a split with our root change output and the rest
 	// of the created outputs.
 	case SendStatePreparedSplit:
-		preparedSpend, err := taroscript.PrepareAssetSplitSpend(
-			*currentPkg.ReqAssetTransfer.Dest,
-			currentPkg.InputAssetPrevID,
-			*currentPkg.SenderScriptKey.PubKey,
-			*currentPkg.SendDelta,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create split "+
-				"commit: %w", err)
-		}
-
-		currentPkg.SendDelta = preparedSpend
-
 		currentPkg.SendState = SendStateSigned
 
 		return &currentPkg, nil
@@ -772,16 +685,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Now we'll use the signer to sign all the inputs for the new
 		// taro leaves. The witness data for each input will be
 		// assigned for us.
-		completedSpend, err := taroscript.CompleteAssetSpend(
-			*currentPkg.InputAsset.Asset.ScriptKey.RawKey.PubKey,
-			*currentPkg.SendDelta, p.cfg.Signer, p.cfg.TxValidator,
+		err := taroscript.SignVirtualTransaction(
+			currentPkg.VirtualPacket, 0, p.cfg.Signer,
+			p.cfg.TxValidator,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to generate taro "+
 				"witness data: %w", err)
 		}
-
-		currentPkg.SendDelta = completedSpend
 
 		currentPkg.SendState = SendStateCommitmentsUpdated
 
@@ -791,11 +702,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// generate the top-level Taro commitments for the sender and the
 	// receiver.
 	case SendStateCommitmentsUpdated:
-		spendCommitments, err := taroscript.CreateSpendCommitments(
-			currentPkg.InputAsset.Commitment,
-			currentPkg.InputAssetPrevID, *currentPkg.SendDelta,
-			*currentPkg.ReqAssetTransfer.Dest,
-			*currentPkg.SenderScriptKey.PubKey,
+		outputCommitments, err := taroscript.CreateOutputCommitments(
+			currentPkg.InputCommitment, currentPkg.VirtualPacket,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new output "+
@@ -806,7 +714,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		log.Infof("Constructing new Taro commitments for send to: %x",
 			addr.ScriptKey.SerializeCompressed())
 
-		currentPkg.NewOutputCommitments = spendCommitments
+		currentPkg.OutputCommitments = outputCommitments
 
 		// Otherwise, we can go straight to stamping things as we have
 		// them w/ the PSBT.
@@ -823,12 +731,19 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// Construct our template PSBT to commits to the set of dummy
 		// locators we use to make fee estimation work.
-		sendPacket, err := taroscript.CreateTemplatePsbt(
-			currentPkg.SendDelta.Locators,
+		sendPacket, err := taroscript.CreateAnchorTx(
+			currentPkg.VirtualPacket.Outputs,
 		)
 		if err != nil {
 			return nil, err
 		}
+
+		sendPacket.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(
+			currentPkg.SenderNewInternalKey.PubKey,
+		)
+		sendPacket.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
+			&currentPkg.ReqAssetTransfer.Dest.InternalKey,
+		)
 
 		// Submit the template PSBT to the wallet for funding.
 		//
@@ -857,7 +772,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// and remove the change output entirely.
 		adjustFundedPsbt(
 			&fundedSendPacket,
-			int64(currentPkg.InputAsset.AnchorOutputValue),
+			int64(currentPkg.VirtualPacket.Inputs[0].Anchor.Value),
 		)
 
 		log.Infof("Received funded PSBT packet: %v",
@@ -885,12 +800,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	case SendStatePsbtSign:
 		// First, we'll update the PSBT packets to insert the _real_
 		// outputs we need to commit to the asset transfer.
-		err := taroscript.CreateSpendOutputs(
-			*currentPkg.ReqAssetTransfer.Dest,
-			currentPkg.SendDelta.Locators,
-			*currentPkg.SenderNewInternalKey.PubKey,
-			*currentPkg.SenderScriptKey.PubKey,
-			currentPkg.NewOutputCommitments, currentPkg.SendPkt,
+		err := taroscript.UpdateTaprootOutputKeys(
+			currentPkg.SendPkt, currentPkg.VirtualPacket,
+			currentPkg.OutputCommitments,
 		)
 		if err != nil {
 			return &currentPkg, err
@@ -910,6 +822,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// With all the input and output information in the packet, we
 		// can now ask lnd to sign it, and then extract the final
 		// version ourselves.
+		log.Debugf("Signing PSBT: %s", spew.Sdump(currentPkg.SendPkt))
 		signedPsbt, err := p.cfg.Wallet.SignPsbt(
 			ctx, currentPkg.SendPkt,
 		)
@@ -944,18 +857,15 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// Now we'll grab our new commitment, and also the output index
 		// to populate the log entry below.
-		senderCommitKey := asset.AssetCommitmentKey(
-			currentPkg.InputAssetPrevID.ID,
-			currentPkg.SenderScriptKey.PubKey,
-			currentPkg.InputAsset.Asset.GroupKey == nil,
-		)
-		newSenderCommitment := currentPkg.NewOutputCommitments[senderCommitKey]
-		anchorOutputIndex := currentPkg.SendDelta.Locators[senderCommitKey].OutputIndex
+		input := currentPkg.VirtualPacket.Inputs[0]
+		senderOut := currentPkg.VirtualPacket.Outputs[0]
+		newSenderCommitment := currentPkg.OutputCommitments[0]
+		anchorOutputIndex := senderOut.AnchorOutputIndex
 
 		var tapscriptSibling *chainhash.Hash
-		if currentPkg.InputAsset.TapscriptSibling != nil {
+		if len(input.Anchor.TapscriptSibling) > 0 {
 			h, err := chainhash.NewHash(
-				currentPkg.InputAsset.TapscriptSibling,
+				input.Anchor.TapscriptSibling,
 			)
 			if err != nil {
 				return nil, err
@@ -964,30 +874,22 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			tapscriptSibling = h
 		}
 
-		taroRoot := newSenderCommitment.TapscriptRoot(
-			tapscriptSibling,
-		)
+		taroRoot := newSenderCommitment.TapscriptRoot(tapscriptSibling)
 
-		spendProofs, err := currentPkg.createProofs()
+		senderProof, receiverProof, err := currentPkg.createProofs()
 		if err != nil {
 			return nil, err
 		}
 
 		// Before we write to disk, we'll make the incomplete proofs
 		// for the sender and the receiver.
-		senderAssetProof := spendProofs[asset.ToSerialized(
-			currentPkg.SenderScriptKey.PubKey,
-		)]
 		var senderProofBuf bytes.Buffer
-		if err := senderAssetProof.Encode(&senderProofBuf); err != nil {
+		if err := senderProof.Encode(&senderProofBuf); err != nil {
 			return nil, err
 		}
 
-		receiverAssetProof := spendProofs[asset.ToSerialized(
-			&currentPkg.ReqAssetTransfer.Dest.ScriptKey,
-		)]
 		var receiverProofBuf bytes.Buffer
-		if err := receiverAssetProof.Encode(&receiverProofBuf); err != nil {
+		if err := receiverProof.Encode(&receiverProofBuf); err != nil {
 			return nil, err
 		}
 
@@ -1014,9 +916,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		//
 		// TODO(roasbeef); need to update proof file information,
 		// ideally the db doesn't do this directly
-		newAsset := currentPkg.SendDelta.NewAsset
+		vIn := currentPkg.VirtualPacket.Inputs[0]
+		inputAsset := vIn.Asset()
+		newAsset := senderOut.Asset
 		currentPkg.OutboundPkg = &OutboundParcelDelta{
-			OldAnchorPoint: currentPkg.InputAssetPrevID.OutPoint,
+			OldAnchorPoint: vIn.PrevID.OutPoint,
 			NewAnchorPoint: wire.OutPoint{
 				Hash:  currentPkg.TransferTx.TxHash(),
 				Index: anchorOutputIndex,
@@ -1025,18 +929,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			TaroRoot:           taroRoot[:],
 			AnchorTx:           currentPkg.TransferTx,
 			AnchorTxHeightHint: currentHeight,
-			AssetSpendDeltas: []AssetSpendDelta{
-				{
-					OldScriptKey:        *currentPkg.InputAsset.Asset.ScriptKey.PubKey,
-					NewAmt:              newAsset.Amount,
-					NewScriptKey:        currentPkg.SenderScriptKey,
-					WitnessData:         newAsset.PrevWitnesses,
-					SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
-					SenderAssetProof:    senderProofBuf.Bytes(),
-					ReceiverAssetProof:  receiverProofBuf.Bytes(),
-				},
-			},
-			TapscriptSibling: currentPkg.InputAsset.TapscriptSibling,
+			AssetSpendDeltas: []AssetSpendDelta{{
+				OldScriptKey:        *inputAsset.ScriptKey.PubKey,
+				NewAmt:              newAsset.Amount,
+				NewScriptKey:        senderOut.ScriptKey,
+				WitnessData:         newAsset.PrevWitnesses,
+				SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
+				SenderAssetProof:    senderProofBuf.Bytes(),
+				ReceiverAssetProof:  receiverProofBuf.Bytes(),
+			}},
+			TapscriptSibling: vIn.Anchor.TapscriptSibling,
 			// TODO(bhandras): use clock.Clock instead.
 			TransferTime: time.Now(),
 			ChainFees:    chainFees,
