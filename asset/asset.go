@@ -488,6 +488,16 @@ type ScriptKey struct {
 	*TweakedScriptKey
 }
 
+// IsUnSpendable returns true if this script key is equal to the un-spendable
+// NUMS point.
+func (s ScriptKey) IsUnSpendable() (bool, error) {
+	if s.PubKey == nil {
+		return false, fmt.Errorf("script key has nil public key")
+	}
+
+	return NUMSPubKey.IsEqual(s.PubKey), nil
+}
+
 // NewScriptKey constructs a ScriptKey with only the publicly available
 // information. This resulting key may or may not have a tweak applied to it.
 func NewScriptKey(key *btcec.PublicKey) ScriptKey {
