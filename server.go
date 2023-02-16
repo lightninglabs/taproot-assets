@@ -36,11 +36,11 @@ type Server struct {
 }
 
 // NewServer creates a new server given the passed config.
-func NewServer(cfg *Config) (*Server, error) {
+func NewServer(cfg *Config) *Server {
 	return &Server{
 		cfg:  cfg,
 		quit: make(chan struct{}, 1),
-	}, nil
+	}
 }
 
 // RunUntilShutdown runs the main Taro server loop until a signal is received

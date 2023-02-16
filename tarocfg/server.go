@@ -142,7 +142,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	server, err := taro.NewServer(&taro.Config{
+	server := taro.NewServer(&taro.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
 		AssetMinter: tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
@@ -208,9 +208,6 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			TaroAddrBook: tarodbAddrBook,
 		},
 	})
-	if err != nil {
-		return nil, fmt.Errorf("unable to start server: %v", err)
-	}
 
 	return server, nil
 }
