@@ -1357,7 +1357,7 @@ func (q *Queries) GenesisAssets(ctx context.Context) ([]GenesisAsset, error) {
 }
 
 const genesisPoints = `-- name: GenesisPoints :many
-SELECT genesis_id, prev_out, anchor_tx_id 
+SELECT genesis_id, prev_out, anchor_tx_id
 FROM genesis_points
 `
 
