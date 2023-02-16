@@ -39,7 +39,7 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 			Meta: &proof.MetaReveal{
 				Data: metaBlob,
 			},
-			Amount:         uint64(rand.Int63()),
+			Amount:         uint64(rand.Int31()),
 			EnableEmission: test.RandBool(),
 		}
 	}
