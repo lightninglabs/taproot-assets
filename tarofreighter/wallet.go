@@ -328,7 +328,16 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
 	// leaves. The witness data for each input will be assigned for us.
 	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
-		err := taroscript.SignVirtualTransaction(
+		// Before we sign the transaction, we want to make sure the
+		// inclusion proof is valid and the asset is actually committed
+		// in the anchor transaction.
+		err := verifyInclusionProof(vPkt.Inputs[idx])
+		if err != nil {
+			return nil, fmt.Errorf("unable to verify inclusion "+
+				"proof: %w", err)
+		}
+
+		err = taroscript.SignVirtualTransaction(
 			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
 		)
 		if err != nil {
@@ -340,6 +349,35 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
 	}
 
 	return signedInputs, nil
+}
+
+// verifyInclusionProof verifies that the given virtual input's asset is
+// actually committed in the anchor transaction.
+func verifyInclusionProof(vIn *taropsbt.VInput) error {
+	proofReader := bytes.NewReader(vIn.Proof())
+	assetProof := &proof.Proof{}
+	if err := assetProof.Decode(proofReader); err != nil {
+		return fmt.Errorf("unable to decode asset proof: %w", err)
+	}
+
+	anchorKey, err := proof.ExtractTaprootKeyFromScript(
+		vIn.Anchor.PkScript,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to parse anchor pk script taproot "+
+			"key: %w", err)
+	}
+
+	inclusionProof := assetProof.InclusionProof
+	proofKey, _, err := inclusionProof.DeriveByAssetInclusion(
+		vIn.Asset(),
+	)
+
+	if !proofKey.IsEqual(anchorKey) {
+		return fmt.Errorf("proof key doesn't match anchor key")
+	}
+
+	return nil
 }
 
 // AnchorVirtualTransactions creates a BTC level anchor transaction that

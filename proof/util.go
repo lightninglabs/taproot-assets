@@ -68,9 +68,13 @@ func ExtractTaprootKey(tx *wire.MsgTx,
 		return nil, errors.New("invalid output index")
 	}
 
-	version, keyBytes, err := txscript.ExtractWitnessProgramInfo(
-		tx.TxOut[outputIndex].PkScript,
-	)
+	return ExtractTaprootKeyFromScript(tx.TxOut[outputIndex].PkScript)
+}
+
+// ExtractTaprootKeyFromScript attempts to extract a Taproot tweaked key from
+// the given output script.
+func ExtractTaprootKeyFromScript(pkScript []byte) (*btcec.PublicKey, error) {
+	version, keyBytes, err := txscript.ExtractWitnessProgramInfo(pkScript)
 	if err != nil {
 		return nil, err
 	}
