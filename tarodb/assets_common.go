@@ -121,7 +121,7 @@ func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
 	genAssetID, err := q.FetchGenesisID(ctx, sqlc.FetchGenesisIDParams{
 		AssetID:     assetID[:],
 		AssetTag:    genesis.Tag,
-		MetaData:    genesis.Metadata,
+		MetaHash:    genesis.MetaHash[:],
 		OutputIndex: int32(genesis.OutputIndex),
 		AssetType:   int16(genesis.Type),
 		PrevOut:     genPoint,

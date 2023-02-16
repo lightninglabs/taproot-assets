@@ -456,7 +456,7 @@ SELECT *
 FROM genesis_assets;
 
 -- name: GenesisPoints :many
-SELECT * 
+SELECT *
 FROM genesis_points;
 
 -- name: FetchGenesisID :one
