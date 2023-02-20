@@ -3,20 +3,52 @@ package taroscript
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"golang.org/x/exp/maps"
+	"github.com/lightninglabs/taro/taropsbt"
+	"golang.org/x/exp/slices"
+)
+
+const (
+	// DummyAmtSats is the default amount of sats we'll use in Bitcoin
+	// outputs embedding Taro commitments. This value just needs to be
+	// greater than dust, and we assume that this value is updated to match
+	// the input asset bearing UTXOs before finalizing the transfer TX.
+	DummyAmtSats = btcutil.Amount(1_000)
+
+	// SendConfTarget is the confirmation target we'll use to query for
+	// a fee estimate.
+	SendConfTarget = 6
 )
 
 var (
+	// ErrInvalidCollectibleSplit is returned when a collectible is split
+	// into more than two outputs.
+	ErrInvalidCollectibleSplit = errors.New(
+		"fund: invalid collectible split",
+	)
+
+	// ErrInvalidChangeOutputLocation is returned when the change output is
+	// not at the expected location (index 0).
+	ErrInvalidChangeOutputLocation = errors.New(
+		"fund: invalid change output location, should be index 0",
+	)
+
+	// ErrInvalidSplitAmounts is returned when the split amounts don't add
+	// up to the amount of the asset being spent.
+	ErrInvalidSplitAmounts = errors.New(
+		"fund: invalid split amounts, sum doesn't match input",
+	)
+
 	// ErrMissingInputAsset is an error returned when we attempt to spend
 	// to a Taro address from an input that does not contain
 	// the matching asset.
@@ -59,78 +91,6 @@ var (
 	)
 )
 
-const (
-	// DummyAmtSats is the default amount of sats we'll use in Bitcoin
-	// outputs embedding Taro commitments. This value just needs to be
-	// greater than dust, and we assume that this value is updated to match
-	// the input asset bearing UTXOs before finalizing the transfer TX.
-	DummyAmtSats = btcutil.Amount(1_000)
-
-	// SendConfTarget is the confirmation target we'll use to query for
-	// a fee estimate.
-	SendConfTarget = 6
-)
-
-// SpendDelta stores the information needed to prepare new asset leaves or a
-// split commitment, and validated a spend with the Taro VM. SpendDelta is also
-// used to create the final TaroCommitments for each receiver.
-type SpendDelta struct {
-	// NewAsset is the Asset that will be validated by the Taro VM.
-	// In the case of an asset split, it is the root locator that also
-	// contains the split commitment. Otherwise, it is the asset that will
-	// be sent to the receiver.
-	NewAsset asset.Asset
-
-	// InputAssets maps asset PrevIDs to Assets being spent by the sender.
-	InputAssets commitment.InputSet
-
-	// Locators maps AssetCommitmentKeys for all receivers to splitLocators.
-	// The locators are used to create split commitments, and store indexes
-	// for each receiver's corresponding Bitcoin output.
-	Locators SpendLocators
-
-	// SplitCommitment contains all data needed to validate and commit to an
-	// asset split.
-
-	// NOTE: This is nil unless the InputAsset is being split.
-	SplitCommitment *commitment.SplitCommitment
-}
-
-// SpendCommitments stores the Taro commitment for each receiver
-// (including the sender), which is needed to create
-// the final PSBT for the transfer.
-type SpendCommitments = map[[32]byte]commitment.TaroCommitment
-
-// SpendLocators stores a split locators for each receiver, keyed by their
-// AssetCommitmentKey. These locators are used to create split commitments and
-// the final PSBT for the transfer. AssetCommitmentKeys are unique to each asset
-// and each receiver due to the inclusion of the receiver's ScriptKey.
-type SpendLocators = map[[32]byte]commitment.SplitLocator
-
-// Copy returns a deep copy of a SpendDelta.
-func (s *SpendDelta) Copy() SpendDelta {
-	// Copy the fields that are not maps directly; the other fields must
-	// maintain their nil-ness, and therefore require an extra check.
-	newDelta := SpendDelta{
-		NewAsset:        *s.NewAsset.Copy(),
-		SplitCommitment: s.SplitCommitment,
-	}
-
-	if s.InputAssets != nil {
-		inputAssets := make(commitment.InputSet)
-		maps.Copy(inputAssets, s.InputAssets)
-		newDelta.InputAssets = inputAssets
-	}
-
-	if s.Locators != nil {
-		locators := make(SpendLocators)
-		maps.Copy(locators, s.Locators)
-		newDelta.Locators = locators
-	}
-
-	return newDelta
-}
-
 // createDummyOutput creates a new Bitcoin transaction output that is later
 // used to embed a Taro commitment.
 func createDummyOutput() *wire.TxOut {
@@ -142,120 +102,47 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// CreateDummyLocators creates a set of split locators with continuous output
-// indexes, starting for 0. These mock locators are used for initial split
-// commitment validation, and are the default for the final PSBT.
-func CreateDummyLocators(stateKeys [][32]byte) SpendLocators {
-	locators := make(SpendLocators)
-	for i := uint32(0); i < uint32(len(stateKeys)); i++ {
-		index := i
-		locators[stateKeys[i]] = commitment.SplitLocator{
-			OutputIndex: index,
-		}
-	}
-	return locators
+// FundingDescriptor describes the information that is needed to select and
+// verify input assets in order to send to a specific recipient. It is a subset
+// of the information contained in a Taro address.
+type FundingDescriptor struct {
+	// ID is the asset ID of the asset being transferred.
+	ID asset.ID
+
+	// GroupKey is the optional group key of the asset to transfer.
+	GroupKey *btcec.PublicKey
+
+	// Amount is the amount of the asset to transfer.
+	Amount uint64
 }
 
-// Build a template TX with dummy outputs
-// TODO(jhb): godoc
-func CreateTemplatePsbt(locators SpendLocators) (*psbt.Packet, error) {
-	// Check if our locators are valid, and if we will need to add extra
-	// outputs to fill in the gaps between locators.
-	taroOnlySpend, err := AreValidIndexes(locators)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate the number of outputs we need for our template TX.
-	maxOutputIndex := uint32(len(locators))
-
-	// If there is a gap in our locators, we need to find the
-	// largest output index to properly size our template TX.
-	if !taroOnlySpend {
-		maxOutputIndex = 0
-		for _, locator := range locators {
-			if locator.OutputIndex > maxOutputIndex {
-				maxOutputIndex = locator.OutputIndex
-			}
-		}
-		// Output indexes are 0-indexed, so we need to increment this
-		// to account for the 0th output.
-		maxOutputIndex++
-	}
-
-	txTemplate := wire.NewMsgTx(2)
-	for i := uint32(0); i < maxOutputIndex; i++ {
-		txTemplate.AddTxOut(createDummyOutput())
-	}
-
-	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
-	}
-
-	return spendPkt, nil
+// TaroCommitmentKey is the key that maps to the root commitment for the asset
+// group specified by a recipient descriptor.
+func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
+	return asset.TaroCommitmentKey(r.ID, r.GroupKey)
 }
 
-// AreValidIndexes checks a set of split locators to check for the minimum
-// number of locators, and tests if the locators could be used for a Taro-only
-// spend, i.e. a TX that does not need other outputs added to be valid.
-func AreValidIndexes(locators SpendLocators) (bool, error) {
-	// Sanity check the output indexes provided by the sender. There must be
-	// at least two indexes; one for the receiver, and one for the change
-	// commitment for the sender.
-	if locators == nil {
-		return false, ErrInvalidOutputIndexes
-	}
-
-	idxCount := len(locators)
-	if idxCount < 2 {
-		return false, ErrInvalidOutputIndexes
-	}
-
-	// If the indexes start from 0 and form a continuous range, then the
-	// resulting TX would be valid without any changes (Taro-only spend).
-	taroOnlySpend := true
-	txoLocators := maps.Values(locators)
-	sort.Slice(txoLocators, func(i, j int) bool {
-		return txoLocators[i].OutputIndex < txoLocators[j].OutputIndex
-	})
-	for i := uint32(0); i < uint32(idxCount); i++ {
-		if txoLocators[i].OutputIndex != i {
-			taroOnlySpend = false
-			break
-		}
-	}
-
-	return taroOnlySpend, nil
-}
-
-// IsValidInput verifies that the Taro commitment of the input contains an
-// asset that could be spent to the given Taro address.
-func IsValidInput(input *commitment.TaroCommitment,
-	addr address.Taro, inputScriptKey btcec.PublicKey,
-	net address.ChainParams) (*asset.Asset, bool, error) {
+// IsValidInput verifies that the Taro commitment of the input contains an asset
+// that could be spent to the given recipient.
+func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
+	inputScriptKey btcec.PublicKey) (*asset.Asset, bool, error) {
 
 	fullValue := false
-
-	// The input and address networks must match.
-	if !address.IsForNet(addr.ChainParams.TaroHRP, &net) {
-		return nil, fullValue, address.ErrMismatchedHRP
-	}
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
 	// specified in the address.
 	inputCommitments := input.Commitments()
-	assetCommitment, ok := inputCommitments[addr.TaroCommitmentKey()]
+	assetCommitment, ok := inputCommitments[desc.TaroCommitmentKey()]
 	if !ok {
 		return nil, fullValue, fmt.Errorf("input commitment does "+
-			"not contain asset_id=%x: %w", addr.TaroCommitmentKey(),
+			"not contain asset_id=%x: %w", desc.TaroCommitmentKey(),
 			ErrMissingInputAsset)
 	}
 
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		addr.ID(), &inputScriptKey, addr.GroupKey == nil,
+		desc.ID, &inputScriptKey, desc.GroupKey == nil,
 	)
 	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
 	if err != nil {
@@ -274,11 +161,11 @@ func IsValidInput(input *commitment.TaroCommitment,
 	// If the input amount is exactly the amount specified in the address,
 	// the spend must use an unspendable zero-value root split.
 	if inputAsset.Type == asset.Normal {
-		if inputAsset.Amount < addr.Amount {
+		if inputAsset.Amount < desc.Amount {
 			return nil, fullValue, ErrInsufficientInputAsset
 		}
 
-		if inputAsset.Amount == addr.Amount {
+		if inputAsset.Amount == desc.Amount {
 			fullValue = true
 		}
 	} else {
@@ -290,358 +177,579 @@ func IsValidInput(input *commitment.TaroCommitment,
 	return inputAsset, fullValue, nil
 }
 
-// PrepareAssetSplitSpend computes a split commitment with the given input and
-// spend information. Input MUST be checked as valid beforehand, and locators
-// MUST be checked for validity beforehand if provided.
-//
-// TODO(jhb): This assumes only 2 split outputs / 1 receiver; needs update
-// to support multiple receivers.
-func PrepareAssetSplitSpend(addr address.Taro, prevInput asset.PrevID,
-	scriptKey btcec.PublicKey, delta SpendDelta) (*SpendDelta, error) {
-
-	updatedDelta := delta.Copy()
-
-	// Generate the keys used to look up split locators for each receiver.
-	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID(), &scriptKey, addr.GroupKey == nil,
-	)
-	receiverStateKey := addr.AssetCommitmentKey()
-
-	// If no locators are provided, we create a split with mock locators to
-	// verify that the desired split is possible. We can later regenerate a
-	// split with the final output indexes.
-	if updatedDelta.Locators == nil {
-		updatedDelta.Locators = CreateDummyLocators(
-			[][32]byte{senderStateKey, receiverStateKey},
-		)
-	}
-
-	senderLocator := updatedDelta.Locators[senderStateKey]
-	receiverLocator := updatedDelta.Locators[receiverStateKey]
-
-	inputAsset := updatedDelta.InputAssets[prevInput]
-
-	// Populate the remaining fields in the splitLocators before generating
-	// the splitCommitment.
-	senderLocator.AssetID = addr.ID()
-	senderLocator.ScriptKey = asset.ToSerialized(&scriptKey)
-	senderLocator.Amount = inputAsset.Amount - addr.Amount
-	updatedDelta.Locators[senderStateKey] = senderLocator
-
-	receiverLocator.AssetID = addr.ID()
-	receiverLocator.ScriptKey = asset.ToSerialized(&addr.ScriptKey)
-	receiverLocator.Amount = addr.Amount
-	updatedDelta.Locators[receiverStateKey] = receiverLocator
-
-	// Enforce an unspendable root split if the split sends the full value
-	// of the input asset or if the split sends a collectible.
-	if (senderLocator.Amount == 0 || inputAsset.Type == asset.Collectible) &&
-		senderLocator.ScriptKey != asset.NUMSCompressedKey {
-
-		return nil, commitment.ErrInvalidScriptKey
-	}
-
-	splitCommitment, err := commitment.NewSplitCommitment(
-		inputAsset, prevInput.OutPoint,
-		&senderLocator, &receiverLocator,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	updatedDelta.NewAsset = *splitCommitment.RootAsset
-	updatedDelta.InputAssets = splitCommitment.PrevAssets
-	updatedDelta.SplitCommitment = splitCommitment
-
-	return &updatedDelta, nil
-}
-
-// PrepareAssetCompleteSpend computes a new asset leaf for spends that
-// fully consume the input, i.e. collectibles or an equal-valued send. Input
-// MUST be checked as valid beforehand.
-func PrepareAssetCompleteSpend(addr address.Taro, prevInput asset.PrevID,
-	delta SpendDelta) *SpendDelta {
-
-	updatedDelta := delta.Copy()
-
-	// We'll now create a new copy of the old asset, swapping out the
-	// script key. We blank out the tweaked key information as this is now
-	// an external asset.
+// PrepareOutputAssets prepares the assets of the given outputs depending on
+// the amounts set on the transaction. If a split is necessary (non-interactive
+// or partial amount send) it computes a split commitment with the given inputs
+// and spend information. The inputs MUST be checked as valid beforehand and the
+// change output is expected to be declared as such (and be at index 0).
+func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
+	// We currently only support a single input.
 	//
-	// TODO(roasbeef): make locators here, and make sure they exist like
-	// above
-	newAsset := updatedDelta.InputAssets[prevInput].Copy()
-	newAsset.ScriptKey.PubKey = &addr.ScriptKey
-	newAsset.ScriptKey.TweakedScriptKey = nil
+	// TODO(guggero): Support multiple inputs.
+	if len(vPkt.Inputs) != 1 {
+		return fmt.Errorf("only a single input is currently supported")
+	}
+	input := vPkt.Inputs[0]
+	outputs := vPkt.Outputs
 
-	// Record the PrevID of the input asset in a Witness for the new asset.
-	// This Witness still needs a valid signature for the new asset
-	// to be valid.
-	//
-	// TODO(roasbeef): when we fix #121, then this should also be a
-	// ZeroPrevID
-	newAsset.PrevWitnesses = []asset.Witness{
-		{
-			PrevID:          &prevInput,
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		},
+	// This should be caught way earlier but just to make sure that we never
+	// overflow when converting the input amount to int64 we check this
+	// again.
+	inputAsset := input.Asset()
+	if inputAsset.Amount > math.MaxInt64 {
+		return fmt.Errorf("amount int64 overflow")
 	}
 
-	updatedDelta.NewAsset = *newAsset
+	// Do some general sanity checks on the outputs, these should be
+	// independent of the number of outputs.
+	for idx := range outputs {
+		vOut := outputs[idx]
 
-	return &updatedDelta
-}
-
-// CompleteAssetSpend updates the new Asset by creating a signature over the
-// asset transfer, verifying the transfer with the Taro VM, and attaching that
-// signature to the new Asset.
-func CompleteAssetSpend(internalKey btcec.PublicKey, delta SpendDelta,
-	signer Signer, validator TxValidator) (*SpendDelta, error) {
-
-	updatedDelta := delta.Copy()
-
-	// Create a Taro virtual transaction representing the asset transfer.
-	virtualTx, _, err := VirtualTx(
-		&updatedDelta.NewAsset, updatedDelta.InputAssets,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// For each input asset leaf, we need to produce a witness.
-	// Update the input of the virtual TX, generate a witness,
-	// and attach it to the copy of the new Asset.
-	validatedAsset := updatedDelta.NewAsset.Copy()
-	prevWitnessCount := len(updatedDelta.NewAsset.PrevWitnesses)
-
-	for idx := 0; idx < prevWitnessCount; idx++ {
-		prevAssetID := updatedDelta.NewAsset.PrevWitnesses[idx].PrevID
-		prevAsset := updatedDelta.InputAssets[*prevAssetID]
-		virtualTxCopy := VirtualTxWithInput(
-			virtualTx, prevAsset, uint32(idx), nil,
-		)
-
-		newWitness, err := SignTaprootKeySpend(
-			internalKey, virtualTxCopy, prevAsset, 0,
-			txscript.SigHashDefault, signer,
-		)
+		// This method returns an error if the script key's public key
+		// isn't set, which should be the case right now.
+		isUnSpendable, err := vOut.ScriptKey.IsUnSpendable()
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("output %d has invalid script key: "+
+				"%w", idx, err)
 		}
 
-		validatedAsset.PrevWitnesses[idx].TxWitness = *newWitness
+		switch {
+		// Only the split root can be un-spendable.
+		case !vOut.IsSplitRoot && isUnSpendable:
+			return commitment.ErrInvalidScriptKey
+
+		// Only the split root can have a zero amount.
+		case !vOut.IsSplitRoot && vOut.Amount == 0:
+			return commitment.ErrZeroSplitAmount
+
+		// Interactive outputs can't be un-spendable, since there is no
+		// need for a tombstone output and burns work in a different
+		// way.
+		case vOut.Interactive && isUnSpendable:
+			return commitment.ErrInvalidScriptKey
+
+		// Interactive outputs can't have a zero amount.
+		case vOut.Interactive && vOut.Amount == 0:
+			return commitment.ErrZeroSplitAmount
+		}
 	}
 
-	// Create an instance of the Taro VM and validate the transfer.
-	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
-		err := validator.Execute(
-			validatedAsset, splitAssets, updatedDelta.InputAssets,
-		)
-		if err != nil {
-			return err
+	switch {
+	// We need at least one output.
+	case len(outputs) == 0:
+		return fmt.Errorf("no outputs specified in virtual packet")
+
+	// A single output implies an interactive send. The value should be
+	// equal to the input amount and the script key should be a spendable
+	// one.
+	case len(outputs) == 1:
+		vOut := outputs[0]
+
+		if vOut.IsSplitRoot {
+			return fmt.Errorf("single output cannot be split root")
 		}
+		if !vOut.Interactive {
+			return fmt.Errorf("single output must be interactive")
+		}
+
+		if vOut.Amount != inputAsset.Amount {
+			return ErrInvalidSplitAmounts
+		}
+
+	// A two output transaction must have the change at index 0 if it is a
+	// non-interactive send.
+	case len(outputs) == 2:
+		// A collectible cannot be split into individual pieces. So for
+		// a two output transaction to be a valid collectible send, it
+		// needs to be a non-interactive send where we expect there to
+		// be a tombstone output for the split root.
+		if inputAsset.Type == asset.Collectible {
+			if !vPkt.HasSplitRootOutput() {
+				return ErrInvalidCollectibleSplit
+			}
+			if vPkt.HasInteractiveOutput() {
+				return ErrInvalidCollectibleSplit
+			}
+
+			rootOut, err := vPkt.SplitRootOutput()
+			if err != nil {
+				return ErrInvalidCollectibleSplit
+			}
+			recipientOut, err := vPkt.FirstNonSplitRootOutput()
+			if err != nil {
+				return ErrInvalidCollectibleSplit
+			}
+
+			if rootOut.Amount != 0 {
+				return ErrInvalidCollectibleSplit
+			}
+			if recipientOut.Amount != 1 {
+				return ErrInvalidCollectibleSplit
+			}
+
+			// We already checked this for each output in the loop
+			// above, so we can ignore the error. The only
+			// additional check here is that the split root output
+			// MUST be un-spendable, since there cannot be a change
+			// amount from a collectible.
+			rootUnSpendable, _ := rootOut.ScriptKey.IsUnSpendable()
+			if !rootUnSpendable {
+				return ErrInvalidCollectibleSplit
+			}
+		}
+
+	// For any other number of outputs, we can't really assert that much
+	// more, since it might be mixed interactive and non-interactive
+	// transfer.
+	default:
+	}
+
+	var (
+		residualAmount = inputAsset.Amount
+		splitLocators  = make([]*commitment.SplitLocator, len(outputs))
+		inputAssetID   = inputAsset.ID()
+	)
+	for idx := range outputs {
+		residualAmount -= outputs[idx].Amount
+
+		locator := outputs[idx].SplitLocator(inputAssetID)
+		splitLocators[idx] = &locator
+	}
+
+	// We should now have exactly zero value left over after splitting.
+	if residualAmount != 0 {
+		return ErrInvalidSplitAmounts
+	}
+
+	// If we have an interactive full value send, we don't need a tomb stone
+	// at all.
+	inputIDCopy := input.PrevID
+	if interactiveFullValueSend(input, outputs) {
+		// We'll now create a new copy of the old asset, swapping out
+		// the script key. We blank out the tweaked key information as
+		// this is now an external asset.
+		outputs[0].Asset = inputAsset.Copy()
+		outputs[0].Asset.ScriptKey = outputs[0].ScriptKey
+
+		// Record the PrevID of the input asset in a Witness for the new
+		// asset. This Witness still needs a valid signature for the new
+		// asset to be valid.
+		outputs[0].Asset.PrevWitnesses = []asset.Witness{
+			{
+				PrevID:          &inputIDCopy,
+				TxWitness:       nil,
+				SplitCommitment: nil,
+			},
+		}
+
+		// We are done, since we don't need to create a split
+		// commitment.
 		return nil
 	}
 
-	// If the transfer contains no asset splits, we only need to validate
-	// the new asset with its witness attached.
-	if updatedDelta.SplitCommitment == nil {
-		if err := verifySpend(nil); err != nil {
-			return nil, err
+	splitCommitment, err := commitment.NewSplitCommitment(
+		inputAsset, input.PrevID.OutPoint, splitLocators[0],
+		splitLocators[1:]...,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Assign each of the split assets to their respective outputs.
+	for idx := range outputs {
+		locator := splitLocators[idx]
+		vOut := outputs[idx]
+
+		splitAsset, ok := splitCommitment.SplitAssets[*locator]
+		if !ok {
+			return fmt.Errorf("invalid split, asset for locator "+
+				"%v not found", locator)
 		}
 
-		updatedDelta.NewAsset = *validatedAsset
+		// The change output should be marked as the split root, even if
+		// it's a zero value (tombstone) split output for the sender.
+		if vOut.IsSplitRoot {
+			vOut.Asset = splitCommitment.RootAsset.Copy()
+			vOut.SplitAsset = &splitAsset.Asset
+			vOut.SplitAsset.ScriptKey = vOut.ScriptKey
 
-		return &updatedDelta, nil
+			continue
+		}
+
+		vOut.Asset = &splitAsset.Asset
+		vOut.Asset.ScriptKey = vOut.ScriptKey
+	}
+
+	return nil
+}
+
+// SignVirtualTransaction updates the new asset (the root asset located at the
+// change output in case of a non-interactive or partial amount send or the
+// full asset in case of an interactive full amount send) by creating a
+// signature over the asset transfer, verifying the transfer with the Taro VM,
+// and attaching that signature to the new Asset.
+//
+// TODO(guggero): We also need to take into account any other assets that were
+// in the same commitment as the asset we spend. We need to re-sign those as
+// well and place them in the change output of this transaction.
+// See https://github.com/lightninglabs/taro/issues/241.
+func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
+	signer Signer, validator TxValidator) error {
+
+	// We currently only support a single input.
+	//
+	// TODO(guggero): Support multiple inputs.
+	if len(vPkt.Inputs) != 1 || inputIdx != 0 {
+		return fmt.Errorf("only a single input is currently supported")
+	}
+	input := vPkt.Inputs[0]
+	outputs := vPkt.Outputs
+
+	// If this is a split transfer, it means that the asset to be signed is
+	// the root asset, which is located at the change output.
+	isSplit, err := vPkt.HasSplitCommitment()
+	if err != nil {
+		return err
+	}
+
+	prevAssets := commitment.InputSet{
+		input.PrevID: input.Asset(),
+	}
+	newAsset := outputs[0].Asset
+
+	// Create a Taro virtual transaction representing the asset transfer.
+	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
+	if err != nil {
+		return err
+	}
+
+	// For each input asset leaf, we need to produce a witness. Update the
+	// input of the virtual TX, generate a witness, and attach it to the
+	// copy of the new Asset.
+	virtualTxCopy := VirtualTxWithInput(
+		virtualTx, input.Asset(), uint32(inputIdx), nil,
+	)
+	newWitness, err := SignTaprootKeySpend(
+		*input.Asset().ScriptKey.RawKey.PubKey, virtualTxCopy,
+		input.Asset(), inputIdx, txscript.SigHashDefault, signer,
+	)
+	if err != nil {
+		return err
+	}
+
+	newAsset.PrevWitnesses[inputIdx].TxWitness = *newWitness
+
+	// Create an instance of the Taro VM and validate the transfer.
+	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
+		newAssetCopy := newAsset.Copy()
+		return validator.Execute(newAssetCopy, splitAssets, prevAssets)
+	}
+
+	// If the transfer contains no asset splits, we only need to validate
+	// the new asset with its witness attached, then we can exit early.
+	if !isSplit {
+		return verifySpend(nil)
 	}
 
 	// If the transfer includes an asset split, we have to validate each
-	// split asset to ensure that our new Asset is committing to
-	// a valid SplitCommitment.
-	splitAssets := maps.Values(updatedDelta.SplitCommitment.SplitAssets)
-	err = verifySpend(splitAssets)
-	if err != nil {
-		return nil, err
+	// split asset to ensure that our new Asset is committing to a valid
+	// SplitCommitment.
+	splitAssets := make([]*commitment.SplitAsset, len(outputs))
+	for idx := range outputs {
+		splitAssets[idx] = &commitment.SplitAsset{
+			Asset:       *outputs[idx].Asset,
+			OutputIndex: outputs[idx].AnchorOutputIndex,
+		}
+
+		// The output that houses the root asset in case of a split has
+		// a special field for the split asset, which actually contains
+		// the split commitment proof. We need to use that one for the
+		// validation, as the root asset is already validated as the
+		// newAsset.
+		if outputs[idx].IsSplitRoot {
+			splitAssets[idx].Asset = *outputs[idx].SplitAsset
+		}
+	}
+	if err := verifySpend(splitAssets); err != nil {
+		return err
 	}
 
 	// Update each split asset to store the root asset with the witness
 	// attached, so the receiver can verify inclusion of the root asset.
-	for key := range updatedDelta.SplitCommitment.SplitAssets {
-		updatedDelta.SplitCommitment.SplitAssets[key].Asset.
-			PrevWitnesses[0].SplitCommitment.
-			RootAsset = *validatedAsset.Copy()
+	for idx := range outputs {
+		splitAsset := outputs[idx].Asset
+
+		// The output that houses the root asset in case of a split has
+		// a special field for the split asset. That asset is no longer
+		// needed (and isn't committed to anywhere), but in order for it
+		// to be validated externally, we still want to include it and
+		// therefore also want to update it with the signed root asset.
+		if outputs[idx].IsSplitRoot {
+			splitAsset = outputs[idx].SplitAsset
+		}
+
+		splitCommitment := splitAsset.PrevWitnesses[0].SplitCommitment
+		splitCommitment.RootAsset = *newAsset.Copy()
 	}
 
-	updatedDelta.NewAsset = *validatedAsset
-
-	return &updatedDelta, nil
+	return nil
 }
 
-// CreateSpendCommitments creates the final set of TaroCommitments representing
-// the asset send. The input TaroCommitment must become a valid change
-// commitment by removing the input asset and adding the root split asset
-// if present. The receiver TaroCommitment must include the output asset.
-func CreateSpendCommitments(inputCommitment *commitment.TaroCommitment,
-	prevInput asset.PrevID, spend SpendDelta, addr address.Taro,
-	senderScriptKey btcec.PublicKey) (SpendCommitments, error) {
+// CreateOutputCommitments creates the final set of TaroCommitments representing
+// the asset send. The input TaroCommitment must be set.
+func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
+	vPkt *taropsbt.VPacket) ([]*commitment.TaroCommitment, error) {
 
-	// Store TaroCommitments keyed by the public key of the receiver.
-	commitments := make(SpendCommitments, len(spend.Locators))
+	// We currently only support a single input.
+	//
+	// TODO(guggero): Support multiple inputs.
+	if len(vPkt.Inputs) != 1 {
+		return nil, fmt.Errorf("only a single input is currently " +
+			"supported")
+	}
+	input := vPkt.Inputs[0]
+	outputs := vPkt.Outputs
+	inputAsset := input.Asset().Copy()
 
-	inputAsset := spend.InputAssets[prevInput]
-
-	// Remove the spent Asset from the AssetCommitment of the sender.  Fail
+	// Remove the spent Asset from the AssetCommitment of the sender. Fail
 	// if the input AssetCommitment or Asset were not in the input
 	// TaroCommitment.
-	inputCommitmentCopy, err := inputCommitment.Copy()
+	inputTaroCommitmentCopy, err := inputTaroCommitment.Copy()
 	if err != nil {
 		return nil, err
 	}
-	inputCommitments := inputCommitmentCopy.Commitments()
-	senderCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
+
+	inputCommitments := inputTaroCommitmentCopy.Commitments()
+	inputCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
 
-	inputAssets := senderCommitment.Assets()
-	_, ok = inputAssets[inputAsset.AssetCommitmentKey()]
+	// Just a sanity check that the asset we're spending really was in the
+	// list of input assets.
+	_, ok = inputCommitment.Assets()[inputAsset.AssetCommitmentKey()]
 	if !ok {
 		return nil, ErrMissingInputAsset
 	}
 
-	if err := senderCommitment.Delete(inputAsset); err != nil {
+	// Remove the input asset from the asset commitment tree.
+	if err := inputCommitment.Delete(inputAsset); err != nil {
 		return nil, err
 	}
 
-	receiverStateKey := addr.AssetCommitmentKey()
+	outputCommitments := make([]*commitment.TaroCommitment, len(outputs))
+	for idx := range outputs {
+		vOut := outputs[idx]
 
-	var (
-		senderStateKey     [32]byte
-		receiverCommitment *commitment.AssetCommitment
-	)
+		// The output that houses the split root will carry along the
+		// existing Taro commitment of the sender.
+		if vOut.IsSplitRoot {
+			err := inputCommitment.Upsert(vOut.Asset)
+			if err != nil {
+				return nil, err
+			}
 
-	// If there was no asset split, the validated asset should be used to
-	// build an AssetCommitment for the receiver.
-	if spend.SplitCommitment == nil {
-		senderStateKey = asset.AssetCommitmentKey(
-			addr.ID(), &senderScriptKey, addr.GroupKey == nil,
-		)
-		var err error
-		receiverCommitment, err = commitment.NewAssetCommitment(
-			&spend.NewAsset,
-		)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// If the input asset was split, the validated asset is the
-		// root asset for the split, and should be included in the
-		// AssetCommitment of the sender.
-		senderStateKey = spend.NewAsset.AssetCommitmentKey()
+			// Update the top-level TaroCommitment of the change
+			// output (sender). This'll effectively commit to all
+			// the new spend details.
+			//
+			// TODO(jhb): Add emptiness check for changeCommitment,
+			// to prune the AssetCommitment entirely when possible.
+			err = inputTaroCommitmentCopy.Upsert(inputCommitment)
+			if err != nil {
+				return nil, err
+			}
 
-		err := senderCommitment.Upsert(&spend.NewAsset)
-		if err != nil {
-			return nil, err
+			outputCommitments[idx] = inputTaroCommitmentCopy
+
+			continue
 		}
 
-		// Fetch the receiver asset from the split commitment and build
-		// an AssetCommitment for the receiver.
-		receiverLocator := spend.Locators[receiverStateKey]
-		receiverAsset, ok := spend.SplitCommitment.SplitAssets[receiverLocator]
-		if !ok {
-			return nil, ErrMissingSplitAsset
+		// If the receiver of this output is receiving through an
+		// address (non-interactive), we need to blank out the split
+		// commitment proof, as the receiver doesn't know of this
+		// information yet. The final commitment will be to a leaf
+		// without the split commitment proof, that proof will be
+		// delivered in the proof file as part of the non-interactive
+		// send.
+		committedAsset := vOut.Asset
+		if !outputs[idx].Interactive {
+			committedAsset = committedAsset.Copy()
+			committedAsset.PrevWitnesses[0].SplitCommitment = nil
 		}
 
-		// At this point, we have the receiver's taro commitment.
-		// However we need to blank out the split commitment proof, as
-		// the receiver doesn't know of this information yet. The final
-		// commitment will be to a leaf without the split commitment
-		// proof.
-		receiverAssetCopy := receiverAsset.Copy()
-		receiverAssetCopy.PrevWitnesses[0].SplitCommitment = nil
-
-		receiverCommitment, err = commitment.NewAssetCommitment(
-			receiverAssetCopy,
+		// This is a new output which only commits to a single asset
+		// leaf.
+		sendCommitment, err := commitment.NewAssetCommitment(
+			committedAsset,
 		)
 		if err != nil {
 			return nil, err
 		}
+		outputCommitments[idx], err = commitment.NewTaroCommitment(
+			sendCommitment,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Update the top-level TaroCommitment of the sender. This'll
-	// effectively commit to all the new spend details.
-	//
-	// TODO(jhb): Add emptiness check for senderCommitment, to prune the
-	// AssetCommitment entirely when possible.
-	senderTaroCommitment := *inputCommitmentCopy
-	err = senderTaroCommitment.Upsert(senderCommitment)
-	if err != nil {
-		return nil, err
-	}
-
-	commitments[senderStateKey] = senderTaroCommitment
-
-	// Create a Taro tree for the receiver.
-	receiverTaroCommitment, err := commitment.NewTaroCommitment(
-		receiverCommitment,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	commitments[receiverStateKey] = *receiverTaroCommitment
-
-	return commitments, nil
+	return outputCommitments, nil
 }
 
-// CreateSpendOutputs updates a PSBT with outputs embedding TaroCommitments
+// AreValidAnchorOutputIndexes checks a set of virtual outputs for the minimum
+// number of outputs, and tests if the external indexes could be used for a
+// Taro-only spend, i.e. a TX that does not need other outputs added to be
+// valid.
+func AreValidAnchorOutputIndexes(outputs []*taropsbt.VOutput) (bool, error) {
+	// Sanity check the output indexes provided by the sender. There must be
+	// at least one output.
+	if len(outputs) < 1 {
+		return false, ErrInvalidOutputIndexes
+	}
+
+	// If the indexes start from 0 and form a continuous range, then the
+	// resulting TX would be valid without any changes (Taro-only spend).
+	taroOnlySpend := true
+	sortedCopy := slices.Clone(outputs)
+	sort.Slice(sortedCopy, func(i, j int) bool {
+		return sortedCopy[i].AnchorOutputIndex <
+			sortedCopy[j].AnchorOutputIndex
+	})
+	for i := 0; i < len(sortedCopy); i++ {
+		if sortedCopy[i].AnchorOutputIndex != uint32(i) {
+			taroOnlySpend = false
+			break
+		}
+	}
+
+	return taroOnlySpend, nil
+}
+
+// CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
+func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
+	// Check if our outputs are valid, and if we will need to add extra
+	// outputs to fill in the gaps between outputs.
+	taroOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the number of outputs we need for our template TX.
+	maxOutputIndex := uint32(len(outputs))
+
+	// If there is a gap in our outputs, we need to find the
+	// largest output index to properly size our template TX.
+	if !taroOnlySpend {
+		maxOutputIndex = 0
+		for _, out := range outputs {
+			if out.AnchorOutputIndex > maxOutputIndex {
+				maxOutputIndex = out.AnchorOutputIndex
+			}
+		}
+
+		// Output indexes are 0-indexed, so we need to increment this
+		// to account for the 0th output.
+		maxOutputIndex++
+	}
+
+	txTemplate := wire.NewMsgTx(2)
+	for i := uint32(0); i < maxOutputIndex; i++ {
+		txTemplate.AddTxOut(createDummyOutput())
+	}
+
+	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	for i := range outputs {
+		out := outputs[i]
+		psbtOut := &spendPkt.Outputs[out.AnchorOutputIndex]
+		psbtOut.TaprootInternalKey = schnorr.SerializePubKey(
+			out.AnchorOutputInternalKey,
+		)
+		if out.AnchorOutputBip32Derivation != nil {
+			psbtOut.Bip32Derivation = append(
+				psbtOut.Bip32Derivation,
+				out.AnchorOutputBip32Derivation,
+			)
+		}
+		if out.AnchorOutputTaprootBip32Derivation != nil {
+			psbtOut.TaprootBip32Derivation = append(
+				psbtOut.TaprootBip32Derivation,
+				out.AnchorOutputTaprootBip32Derivation,
+			)
+		}
+	}
+
+	return spendPkt, nil
+}
+
+// UpdateTaprootOutputKeys updates a PSBT with outputs embedding TaroCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
-func CreateSpendOutputs(addr address.Taro, locators SpendLocators,
-	internalKey, scriptKey btcec.PublicKey,
-	commitments SpendCommitments, pkt *psbt.Packet) error {
+func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
+	outputCommitments []*commitment.TaroCommitment) (
+	map[uint32]*commitment.TaroCommitment, error) {
 
-	// Fetch the TaroCommitment for both sender and receiver.
-	senderStateKey := asset.AssetCommitmentKey(
-		addr.ID(), &scriptKey, addr.GroupKey == nil,
-	)
-	receiverStateKey := addr.AssetCommitmentKey()
+	// Add the commitment outputs to the BTC level PSBT now.
+	mergedCommitments := make(map[uint32]*commitment.TaroCommitment)
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+		outputCommitment := outputCommitments[idx]
 
-	senderCommitment, ok := commitments[senderStateKey]
-	if !ok {
-		return ErrMissingTaroCommitment
+		// The commitment must be defined at this point.
+		//
+		// TODO(guggero): Merge multiple Taro level commitments that use
+		// the same external output index.
+		if outputCommitment == nil {
+			return nil, ErrMissingTaroCommitment
+		}
+		mergedCommitments[vOut.AnchorOutputIndex] = outputCommitment
+
+		// The external output index cannot be out of bounds of the
+		// actual TX outputs. This should be checked earlier and is just
+		// a final safeguard here.
+		if vOut.AnchorOutputIndex >= uint32(len(btcPacket.Outputs)) {
+			return nil, ErrInvalidOutputIndexes
+		}
+
+		btcOut := btcPacket.Outputs[vOut.AnchorOutputIndex]
+		internalKey, err := schnorr.ParsePubKey(
+			btcOut.TaprootInternalKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Create the scripts corresponding to the receiver's
+		// TaroCommitment.
+		//
+		// NOTE: We currently default to the Taro commitment having no
+		// sibling in the Tapscript tree. Any sibling would need to be
+		// checked to verify that it is not also a Taro commitment.
+		script, err := PayToAddrScript(
+			*internalKey, nil, *outputCommitment,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
+		btcTxOut.PkScript = script
 	}
-	receiverCommitment, ok := commitments[receiverStateKey]
-	if !ok {
-		return ErrMissingTaroCommitment
-	}
 
-	// Create the scripts corresponding to each receiver's TaroCommitment.
-	//
-	// NOTE: We currently default to the Taro commitment having no sibling
-	// in the Tapscript tree. Any sibling would need to be checked to
-	// verify that it is not also a Taro commitment.
-	receiverScript, err := PayToAddrScript(
-		addr.InternalKey, nil, receiverCommitment,
-	)
-	if err != nil {
-		return err
-	}
-	senderScript, err := PayToAddrScript(
-		internalKey, nil, senderCommitment,
-	)
-	if err != nil {
-		return err
-	}
+	return mergedCommitments, nil
+}
 
-	// Embed the TaroCommitments in their respective transaction outputs.
-	senderIndex := locators[senderStateKey].OutputIndex
-	pkt.UnsignedTx.TxOut[senderIndex].PkScript = senderScript
+// interactiveFullValueSend returns true if there is exactly one output that
+// spends the input fully and interactively.
+func interactiveFullValueSend(input *taropsbt.VInput,
+	outputs []*taropsbt.VOutput) bool {
 
-	receiverIndex := locators[receiverStateKey].OutputIndex
-	pkt.UnsignedTx.TxOut[receiverIndex].PkScript = receiverScript
-
-	return nil
+	return len(outputs) == 1 &&
+		outputs[0].Amount == input.Asset().Amount &&
+		outputs[0].Interactive
 }
