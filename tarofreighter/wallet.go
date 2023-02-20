@@ -65,6 +65,11 @@ type Wallet interface {
 	// and returns the input indexes that were signed.
 	SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32, error)
 
+	// PassiveAssetVPackets returns a list of VPacket's for each stale asset
+	// that needs to be re-signed and re-anchored.
+	PassiveAssetVPackets(spendInputs []*taropsbt.VInput,
+		inputCommitment *commitment.TaroCommitment) []*taropsbt.VPacket
+
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets. This
 	// method returns both the funded anchor TX with all the output
@@ -313,6 +318,80 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
 	return signedInputs, nil
 }
 
+// PassiveAssetVPackets returns a list of VPacket's for each stale asset that
+// needs to be re-signed and re-anchored.
+func (f *AssetWallet) PassiveAssetVPackets(spendInputs []*taropsbt.VInput,
+	inputCommitment *commitment.TaroCommitment) []*taropsbt.VPacket {
+
+	// Gather non-input assets to re-signing and re-anchor.
+	passiveAssets := inputCommitment.CommittedAssets()
+
+	// Remove input assets (the assets being spent) from list of
+	// assets to re-sign.
+	for i, a := range passiveAssets {
+		for _, inputs := range spendInputs {
+			if a.ID() == inputs.Asset().ID() {
+				passiveAssets = append(
+					passiveAssets[:i],
+					passiveAssets[i+1:]...,
+				)
+				break
+			}
+		}
+	}
+
+	// Create a VPacket for each asset.
+	vPackets := make([]*taropsbt.VPacket, 0)
+	for _, a := range passiveAssets {
+		// Specify virtual input.
+		inputAsset := a.Copy()
+		inputPrevId := asset.PrevID{
+			ID: inputAsset.ID(),
+			ScriptKey: asset.ToSerialized(
+				inputAsset.ScriptKey.PubKey,
+			),
+		}
+		vInput := taropsbt.VInput{
+			PrevID: inputPrevId,
+		}
+
+		// Specify virtual output.
+		outputAsset := a.Copy()
+
+		// Clear the split commitment root, as we'll be transferring the
+		// whole asset.
+		outputAsset.SplitCommitmentRoot = nil
+
+		outputAsset.PrevWitnesses[0].PrevID = &inputPrevId
+		vOutput := taropsbt.VOutput{
+			Amount:   outputAsset.Amount,
+			IsChange: true,
+
+			// In this case, the receiver of the output is
+			// also the sender. We therefore set interactive
+			// to true to indicate that the receiver is
+			// aware of the transfer.
+			Interactive: true,
+
+			AnchorOutputIndex: 0,
+			ScriptKey:         outputAsset.ScriptKey,
+			Asset:             outputAsset,
+		}
+
+		// Create VPacket.
+		vPacket := &taropsbt.VPacket{
+			Inputs:      []*taropsbt.VInput{&vInput},
+			Outputs:     []*taropsbt.VOutput{&vOutput},
+			ChainParams: f.cfg.ChainParams,
+		}
+		vPacket.SetInputAsset(0, inputAsset, nil)
+
+		vPackets = append(vPackets, vPacket)
+	}
+
+	return vPackets
+}
+
 // AnchorVirtualTransactions creates a BTC level anchor transaction that
 // anchors all the virtual transactions of the given packets. This method
 // returns both the funded anchor TX with all the output information intact for
@@ -336,6 +415,21 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	vPacket := vPkts[0]
 	inputCommitment := inputCommitments[0]
 
+	// Generate vPackets for the non-input assets found in the input
+	// commitment.
+	passiveAssetsVPkts := f.PassiveAssetVPackets(
+		vPacket.Inputs, inputCommitment,
+	)
+
+	// Sign all the passive assets vPackets.
+	for _, vPkt := range passiveAssetsVPkts {
+		_, err := f.SignVirtualPacket(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sign passive "+
+				"asset virtual packet: %w", err)
+		}
+	}
+
 	outputCommitments, err := taroscript.CreateOutputCommitments(
 		inputCommitment, vPacket,
 	)
@@ -344,8 +438,54 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 			"commitments: %w", err)
 	}
 
-	// Construct our template PSBT to commits to the set of dummy
-	// locators we use to make fee estimation work.
+	// Add the passive assets to the change output commitment.
+	//
+	// As a first step, we need to find the change output (by index).
+	changeOutputIdx := -1
+	for idx := range vPacket.Outputs {
+		if vPacket.Outputs[idx].IsChange {
+			changeOutputIdx = idx
+			break
+		}
+	}
+	if changeOutputIdx == -1 {
+		return nil, fmt.Errorf("no change output found in" +
+			"spending vPacket")
+	}
+
+	changeCommitment := outputCommitments[changeOutputIdx]
+	for idx := range passiveAssetsVPkts {
+		passiveAsset := passiveAssetsVPkts[idx].Outputs[0].Asset
+
+		// Ensure that a commitment for this asset exists.
+		assetCommitment, ok := changeCommitment.Commitment(passiveAsset)
+		if !ok {
+			assetCommitment, err = commitment.NewAssetCommitment(passiveAsset)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create "+
+					"commitment for passive asset: %w", err)
+			}
+		}
+		err = assetCommitment.Upsert(passiveAsset)
+		if err != nil {
+			return nil, fmt.Errorf("unable to upsert passive "+
+				"asset into asset commitment: %w", err)
+		}
+
+		err = changeCommitment.Upsert(assetCommitment)
+		if err != nil {
+			return nil, fmt.Errorf("unable to upsert passive "+
+				"asset commitment into taro commitment: %w",
+				err)
+		}
+	}
+
+	// Construct our template PSBT to commits to the set of dummy locators
+	// we use to make fee estimation work.
+	//
+	// NOTE: This calculation takes into account the spending vPacket but
+	// not any of the passive assets vPackets. The latter only modify the
+	// taro commitment and do not contribute to the anchor tx footprint.
 	sendPacket, err := taroscript.CreateAnchorTx(vPacket.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)

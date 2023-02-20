@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/prometheus/common/log"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,6 +97,100 @@ func testBasicSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	wg.Wait()
+}
+
+// testSendPassiveAsset tests that we can properly send assets which were
+// passive assets during a previous send.
+func testSendPassiveAsset(t *harnessTest) {
+	ctxb := context.Background()
+
+	// Set up a new node that will serve as the receiving node.
+	recvTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
+		t.universeServer, false,
+	)
+	defer func() {
+		require.NoError(t.t, recvTarod.stop(true))
+	}()
+
+	// Mint two different assets.
+	assets := []*tarorpc.MintAssetRequest{
+		{
+			AssetType: tarorpc.AssetType_NORMAL,
+			Name:      "first-itestbuxx",
+			MetaData:  []byte("itest-metadata"),
+			Amount:    1500,
+		},
+		{
+			AssetType: tarorpc.AssetType_NORMAL,
+			Name:      "second-itestbuxx",
+			MetaData:  []byte("itest-metadata"),
+			Amount:    2000,
+		},
+	}
+	rpcAssets := mintAssetsConfirmBatch(t, t.tarod, assets)
+	firstAsset := rpcAssets[0]
+
+	// Next, we'll attempt to transfer some amount of assets[0] to the
+	// receiving node.
+	numUnitsSend := int64(1200)
+
+	// Get a new address (which accepts the first asset) from the
+	// receiving node.
+	genInfo := firstAsset.AssetGenesis
+	recvAddr, err := recvTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			GenesisBootstrapInfo: genInfo.GenesisBootstrapInfo,
+			Amt:                  numUnitsSend,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, recvTarod, firstAsset, recvAddr)
+
+	// Send the assets to the receiving node.
+	sendResp := sendAssetsToAddr(t, t.tarod, recvAddr)
+
+	// Assert that the outbound transfer was confirmed.
+	expectedAmtAfterSend := assets[0].Amount - numUnitsSend
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
+		0, 1,
+	)
+	_ = sendProof(t, t.tarod, recvTarod, recvAddr, genInfo)
+	assertReceiveComplete(t, recvTarod, 1)
+
+	// Inspect the state of the second asset on the sending node.
+	secondAsset := rpcAssets[1]
+	genInfo = secondAsset.AssetGenesis
+
+	resp, err := t.tarod.ListAssets(
+		ctxb, &tarorpc.ListAssetRequest{
+			WithWitness: true,
+		})
+	log.Infof("ListAssets: %v", resp)
+	require.NoError(t.t, err)
+
+	// Send previously passive asset (the "second" asset).
+	recvAddr, err = recvTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			GenesisBootstrapInfo: genInfo.GenesisBootstrapInfo,
+			Amt:                  numUnitsSend,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, recvTarod, secondAsset, recvAddr)
+
+	// Send the assets to the receiving node.
+	sendResp = sendAssetsToAddr(t, t.tarod, recvAddr)
+
+	// Assert that the outbound transfer was confirmed.
+	expectedAmtAfterSend = assets[1].Amount - numUnitsSend
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
+		1, 2,
+	)
+	_ = sendProof(t, t.tarod, recvTarod, recvAddr, genInfo)
+	assertReceiveComplete(t, recvTarod, 2)
 }
 
 // assertRecvSendSateExecEvent asserts that the given send state execution event
