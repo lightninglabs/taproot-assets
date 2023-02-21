@@ -201,6 +201,7 @@ type MssmtNode struct {
 }
 
 type MssmtRoot struct {
+	ID        int32
 	Namespace string
 	RootHash  []byte
 }
@@ -222,4 +223,18 @@ type TransferProof struct {
 	TransferID    int32
 	SenderProof   []byte
 	ReceiverProof []byte
+}
+
+type UniverseLeafe struct {
+	ID             int32
+	AssetGenesisID int32
+	UniverseRootID int32
+	LeafNodeID     []byte
+}
+
+type UniverseRoot struct {
+	ID         int32
+	RootNodeID int32
+	AssetID    []byte
+	GroupKey   []byte
 }

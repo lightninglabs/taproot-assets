@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS mssmt_nodes_l_hash_key_idx ON mssmt_nodes (l_hash_key
 CREATE INDEX IF NOT EXISTS mssmt_nodes_r_hash_key_idx ON mssmt_nodes (r_hash_key);
 
 CREATE TABLE IF NOT EXISTS mssmt_roots (
+    id INTEGER PRIMARY KEY,
+
     -- namespace allows us to store several root hash pointers for distinct
     -- trees.
     namespace VARCHAR NOT NULL PRIMARY KEY,

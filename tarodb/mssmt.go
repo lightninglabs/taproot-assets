@@ -59,7 +59,7 @@ type TreeStore interface {
 
 	// FetchRootNode fetches the root node for the specified namespace.
 	FetchRootNode(ctx context.Context,
-		namespace string) (sqlc.MssmtNode, error)
+		namespace string) (sqlc.FetchRootNodeRow, error)
 
 	// UpsertRootNode allows us to update the root node in place for a
 	// given namespace.

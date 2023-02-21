@@ -53,10 +53,11 @@ type Querier interface {
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
-	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
+	FetchRootNode(ctx context.Context, namespace string) (FetchRootNodeRow, error)
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]AssetSeedling, error)
 	FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error)
+	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
@@ -73,6 +74,8 @@ type Querier interface {
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error)
+	InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeafParams) error
+	InsertUniverseRoot(ctx context.Context, arg InsertUniverseRootParams) (int32, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset

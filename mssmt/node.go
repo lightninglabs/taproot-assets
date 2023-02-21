@@ -72,6 +72,9 @@ func (n *LeafNode) NodeHash() NodeHash {
 		return *n.nodeHash
 	}
 
+	// TODO(roasbeef): length prefix on node digest along w/ other height
+	// info?
+
 	h := sha256.New()
 	h.Write(n.Value)
 	_ = binary.Write(h, binary.BigEndian, n.sum)

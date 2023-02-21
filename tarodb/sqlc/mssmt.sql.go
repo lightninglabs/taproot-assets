@@ -159,17 +159,29 @@ func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSe
 }
 
 const fetchRootNode = `-- name: FetchRootNode :one
-SELECT nodes.hash_key, nodes.l_hash_key, nodes.r_hash_key, nodes.key, nodes.value, nodes.sum, nodes.namespace
+SELECT roots.id, nodes.hash_key, nodes.l_hash_key, nodes.r_hash_key, nodes.key, nodes.value, nodes.sum, nodes.namespace
 FROM mssmt_nodes nodes
 JOIN mssmt_roots roots
     ON roots.root_hash = nodes.hash_key AND
         roots.namespace = $1
 `
 
-func (q *Queries) FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error) {
+type FetchRootNodeRow struct {
+	ID        int32
+	HashKey   []byte
+	LHashKey  []byte
+	RHashKey  []byte
+	Key       []byte
+	Value     []byte
+	Sum       int64
+	Namespace string
+}
+
+func (q *Queries) FetchRootNode(ctx context.Context, namespace string) (FetchRootNodeRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchRootNode, namespace)
-	var i MssmtNode
+	var i FetchRootNodeRow
 	err := row.Scan(
+		&i.ID,
 		&i.HashKey,
 		&i.LHashKey,
 		&i.RHashKey,

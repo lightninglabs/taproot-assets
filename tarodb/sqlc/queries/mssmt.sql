@@ -52,7 +52,7 @@ WITH subtree_cte (
 DELETE FROM mssmt_nodes WHERE hash_key = $1 AND namespace = $2; 
 
 -- name: FetchRootNode :one
-SELECT nodes.*
+SELECT roots.id, nodes.*
 FROM mssmt_nodes nodes
 JOIN mssmt_roots roots
     ON roots.root_hash = nodes.hash_key AND

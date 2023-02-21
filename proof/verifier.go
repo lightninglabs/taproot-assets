@@ -36,6 +36,10 @@ type BaseVerifier struct {
 func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
 
+	// TODO(roasbeef):
+	//  * move header verifier into struct
+	//  * add db verification of genesis outpoint knowledge
+
 	var proofFile File
 	err := proofFile.Decode(blobReader)
 	if err != nil {
