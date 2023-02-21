@@ -850,13 +850,20 @@ func TestAssetExportLog(t *testing.T) {
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
 	blockHeight := int32(100)
 	txIndex := int32(10)
-	finalSenderBlob := bytes.Repeat([]byte{0x03}, 100)
+
+	// Map the asset's new script key pub to the sender's proof.
+	finalSenderProofBlob := bytes.Repeat([]byte{0x03}, 100)
+	assetScriptKeyPub := *spendDelta.AssetSpendDeltas[0].NewScriptKey.PubKey
+	proofs := map[btcec.PublicKey]proof.Blob{
+		assetScriptKeyPub: finalSenderProofBlob,
+	}
+
 	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
-		AnchorPoint:      spendDelta.NewAnchorPoint,
-		TxIndex:          txIndex,
-		BlockHeight:      blockHeight,
-		BlockHash:        fakeBlockHash,
-		FinalSenderProof: finalSenderBlob,
+		AnchorPoint: spendDelta.NewAnchorPoint,
+		TxIndex:     txIndex,
+		BlockHeight: blockHeight,
+		BlockHash:   fakeBlockHash,
+		Proofs:      proofs,
 	})
 	require.NoError(t, err)
 
@@ -893,7 +900,7 @@ func TestAssetExportLog(t *testing.T) {
 		ctx, newScriptKey.PubKey.SerializeCompressed(),
 	)
 	require.NoError(t, err)
-	require.Equal(t, finalSenderBlob, diskSenderBlob.ProofFile)
+	require.Equal(t, finalSenderProofBlob, diskSenderBlob.ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

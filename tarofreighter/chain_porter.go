@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -495,14 +496,19 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
 		pkg.OutboundPkg.AnchorTx.TxHash())
 
+	// Relate asset new script key pub to its associated proof.
+	proofs := map[btcec.PublicKey]proof.Blob{
+		*senderProofSuffix.Asset.ScriptKey.PubKey: senderProofBlob,
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint:      pkg.OutboundPkg.NewAnchorPoint,
-		BlockHash:        *pkg.TransferTxConfEvent.BlockHash,
-		BlockHeight:      int32(pkg.TransferTxConfEvent.BlockHeight),
-		TxIndex:          int32(pkg.TransferTxConfEvent.TxIndex),
-		FinalSenderProof: senderProofBlob,
+		AnchorPoint: pkg.OutboundPkg.NewAnchorPoint,
+		BlockHash:   *pkg.TransferTxConfEvent.BlockHash,
+		BlockHeight: int32(pkg.TransferTxConfEvent.BlockHeight),
+		TxIndex:     int32(pkg.TransferTxConfEvent.TxIndex),
+		Proofs:      proofs,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to log parcel delivery "+

@@ -1730,11 +1730,27 @@ func (a *AssetStore) confirmAssetTransfer(ctx context.Context,
 				"witnesses: %v", err)
 		}
 
+		// Identify proof file associated with the asset's
+		// new script key.
+		newScriptKey, err := btcec.ParsePubKey(
+			assetDelta.NewScriptKeyBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to parse new "+
+				"script key from asset delta: %w", err)
+		}
+		proofFile, ok := conf.Proofs[*newScriptKey]
+		if !ok {
+			return fmt.Errorf("unable to find proof for "+
+				"script key %x",
+				newScriptKey.SerializeCompressed())
+		}
+
 		// Now we can update the asset proof for the sender for
 		// this given delta.
 		err = q.UpsertAssetProof(ctx, ProofUpdate{
 			TweakedScriptKey: assetDelta.NewScriptKeyBytes,
-			ProofFile:        conf.FinalSenderProof,
+			ProofFile:        proofFile,
 		})
 		if err != nil {
 			return err
