@@ -90,7 +90,7 @@ func testBasicSend(t *harnessTest) {
 
 	// Next, we'll attempt to complete two transfers with distinct
 	// addresses from our main node to Bob.
-	currentUnits := simpleAssets[0].Amount
+	currentUnits := simpleAssets[0].Asset.Amount
 
 	for i := 0; i < numSends; i++ {
 		bobAddr, err := secondTarod.NewAddr(

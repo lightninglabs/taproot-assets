@@ -48,10 +48,7 @@ func (l *LndRpcGenSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 	id := initialGen.ID()
 	if currentGen != nil {
 		if initialGen.Type != currentGen.Type {
-			return nil, nil, fmt.Errorf(
-				"cannot sign genesis with group key for " +
-					"different asset type",
-			)
+			return nil, nil, fmt.Errorf("asset group type mismatch")
 		}
 
 		id = currentGen.ID()

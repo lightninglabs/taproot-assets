@@ -1264,7 +1264,7 @@
         }
       }
     },
-    "tarorpcMintAssetRequest": {
+    "tarorpcMintAsset": {
       "type": "object",
       "properties": {
         "asset_type": {
@@ -1289,10 +1289,19 @@
           "type": "string",
           "format": "byte",
           "description": "The specific group key this asset should be minted with."
+        }
+      }
+    },
+    "tarorpcMintAssetRequest": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "$ref": "#/definitions/tarorpcMintAsset",
+          "description": "The asset to be minted."
         },
         "enable_emission": {
           "type": "boolean",
-          "description": "If true, then the asset will be created with a key group, which allows for\nfuture asset issuance."
+          "description": "If true, then the asset will be created with a group key, which allows for\nfuture asset issuance."
         },
         "skip_batch": {
           "type": "boolean",

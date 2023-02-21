@@ -95,9 +95,9 @@ func testReissuance(t *harnessTest) {
 	// the normal asset.
 	reissuedAssets := simpleAssets
 
-	reissuedAssets[0].Amount = normalGroupMintHalf
-	reissuedAssets[0].GroupKey = normalGroupKey
-	reissuedAssets[1].GroupKey = collectGroupKey
+	reissuedAssets[0].Asset.Amount = normalGroupMintHalf
+	reissuedAssets[0].Asset.GroupKey = normalGroupKey
+	reissuedAssets[1].Asset.GroupKey = collectGroupKey
 
 	normalReissueGen := mintAssetsConfirmBatch(
 		t, t.tarod, []*tarorpc.MintAssetRequest{reissuedAssets[0]},
@@ -208,7 +208,7 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// Now, create a minting request to try and reissue into the group
 	// created during minting.
 	reissueRequest := simpleAssets[0]
-	reissueRequest.GroupKey = collectGroupKey
+	reissueRequest.Asset.GroupKey = collectGroupKey
 
 	// A request must not have the emission flag set if a group key is given.
 	reissueRequest.EnableEmission = true
@@ -221,14 +221,14 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 
 	// A given group key must be parseable, so a group key with an invalid
 	// parity byte should be rejected.
-	grouKeyParity := reissueRequest.GroupKey[0]
-	reissueRequest.GroupKey[0] = 0xFF
+	grouKeyParity := reissueRequest.Asset.GroupKey[0]
+	reissueRequest.Asset.GroupKey[0] = 0xFF
 
 	_, err = t.tarod.MintAsset(ctxb, reissueRequest)
 	require.ErrorContains(t.t, err, "invalid group key")
 
 	// Restore the group key parity byte.
-	reissueRequest.GroupKey[0] = grouKeyParity
+	reissueRequest.Asset.GroupKey[0] = grouKeyParity
 
 	// The minting request asset type must match the type of the asset group.
 	_, err = t.tarod.MintAsset(ctxb, reissueRequest)
