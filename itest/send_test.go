@@ -90,7 +90,7 @@ func testBasicSend(t *harnessTest) {
 
 	// Next, we'll attempt to complete two transfers with distinct
 	// addresses from our main node to Bob.
-	currentUnits := simpleAssets[0].Amount
+	currentUnits := simpleAssets[0].Asset.Amount
 
 	for i := 0; i < numSends; i++ {
 		bobAddr, err := secondTarod.NewAddr(
@@ -140,16 +140,20 @@ func testSendPassiveAsset(t *harnessTest) {
 	// Mint two different assets.
 	assets := []*tarorpc.MintAssetRequest{
 		{
-			AssetType: tarorpc.AssetType_NORMAL,
-			Name:      "first-itestbuxx",
-			MetaData:  []byte("itest-metadata"),
-			Amount:    1500,
+			Asset: &tarorpc.MintAsset{
+				AssetType: tarorpc.AssetType_NORMAL,
+				Name:      "first-itestbuxx",
+				MetaData:  []byte("itest-metadata"),
+				Amount:    1500,
+			},
 		},
 		{
-			AssetType: tarorpc.AssetType_NORMAL,
-			Name:      "second-itestbuxx",
-			MetaData:  []byte("itest-metadata"),
-			Amount:    2000,
+			Asset: &tarorpc.MintAsset{
+				AssetType: tarorpc.AssetType_NORMAL,
+				Name:      "second-itestbuxx",
+				MetaData:  []byte("itest-metadata"),
+				Amount:    2000,
+			},
 		},
 	}
 	rpcAssets := mintAssetsConfirmBatch(t, t.tarod, assets)
@@ -175,7 +179,7 @@ func testSendPassiveAsset(t *harnessTest) {
 	sendResp := sendAssetsToAddr(t, t.tarod, recvAddr)
 
 	// Assert that the outbound transfer was confirmed.
-	expectedAmtAfterSend := assets[0].Amount - numUnitsSend
+	expectedAmtAfterSend := assets[0].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
 		0, 1,
@@ -217,7 +221,7 @@ func testSendPassiveAsset(t *harnessTest) {
 	sendResp = sendAssetsToAddr(t, t.tarod, recvAddr)
 
 	// Assert that the outbound transfer was confirmed.
-	expectedAmtAfterSend = assets[1].Amount - numUnitsSend
+	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
 		1, 2,

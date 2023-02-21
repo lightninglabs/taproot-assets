@@ -123,7 +123,7 @@ enum AssetType {
     */
     COLLECTIBLE = 1;
 }
-message MintAssetRequest {
+message MintAsset {
     // The type of the asset to be created.
     AssetType asset_type = 1;
 
@@ -146,9 +146,16 @@ message MintAssetRequest {
     The specific group key this asset should be minted with.
     */
     bytes group_key = 5;
+}
+
+message MintAssetRequest {
+    /*
+    The asset to be minted.
+    */
+    MintAsset asset = 1;
 
     /*
-    If true, then the asset will be created with a key group, which allows for
+    If true, then the asset will be created with a group key, which allows for
     future asset issuance.
     */
     bool enable_emission = 6;

@@ -66,9 +66,8 @@ var mintAssetCommand = cli.Command{
 				"emission",
 		},
 		cli.StringFlag{
-			Name: assetGroupKeyName,
-			Usage: "the specific group key to use to mint the " +
-				"asset.",
+			Name:  assetGroupKeyName,
+			Usage: "the specific group key to use to mint the asset",
 		},
 		cli.BoolFlag{
 			Name:  skipBatchName,
@@ -100,9 +99,12 @@ func mintAsset(ctx *cli.Context) error {
 		return nil
 	}
 
-	var groupKey []byte
-	var err error
-	groupKeyStr := ctx.String(assetGroupKeyName)
+	var (
+		groupKey    []byte
+		err         error
+		groupKeyStr = ctx.String(assetGroupKeyName)
+	)
+
 	if len(groupKeyStr) != 0 {
 		groupKey, err = hex.DecodeString(groupKeyStr)
 		if err != nil {
@@ -111,11 +113,13 @@ func mintAsset(ctx *cli.Context) error {
 	}
 
 	resp, err := client.MintAsset(ctxc, &tarorpc.MintAssetRequest{
-		AssetType:      parseAssetType(ctx),
-		Name:           ctx.String(assetTagName),
-		MetaData:       []byte(ctx.String(assetMetaName)),
-		Amount:         ctx.Uint64(assetSupplyName),
-		GroupKey:       groupKey,
+		Asset: &tarorpc.MintAsset{
+			AssetType: parseAssetType(ctx),
+			Name:      ctx.String(assetTagName),
+			MetaData:  []byte(ctx.String(assetMetaName)),
+			Amount:    ctx.Uint64(assetSupplyName),
+			GroupKey:  groupKey,
+		},
 		EnableEmission: ctx.Bool(assetEmissionName),
 		SkipBatch:      ctx.Bool(skipBatchName),
 	})

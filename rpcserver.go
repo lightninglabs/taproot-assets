@@ -327,23 +327,23 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	req *tarorpc.MintAssetRequest) (*tarorpc.MintAssetResponse, error) {
 
 	// Using a specific group key implies disabling emission.
-	if req.EnableEmission && len(req.GroupKey) != 0 {
+	if req.EnableEmission && len(req.Asset.GroupKey) != 0 {
 		return nil, fmt.Errorf("must disable emission")
 	}
 
 	seedling := &tarogarden.Seedling{
-		AssetType:      asset.Type(req.AssetType),
-		AssetName:      req.Name,
-		Metadata:       req.MetaData,
-		Amount:         uint64(req.Amount),
+		AssetType:      asset.Type(req.Asset.AssetType),
+		AssetName:      req.Asset.Name,
+		Metadata:       req.Asset.MetaData,
+		Amount:         uint64(req.Asset.Amount),
 		EnableEmission: req.EnableEmission,
 		NoBatch:        req.SkipBatch,
 	}
 
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
-	if len(req.GroupKey) != 0 {
-		groupTweakedKey, err := btcec.ParsePubKey(req.GroupKey)
+	if len(req.Asset.GroupKey) != 0 {
+		groupTweakedKey, err := btcec.ParsePubKey(req.Asset.GroupKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid group key: %w", err)
 		}
