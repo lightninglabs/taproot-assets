@@ -1631,22 +1631,24 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		// First, we'll fetch the asset transfer based on its outpoint
-		// bytes so we can apply the delta it describes.
+		// Fetch all asset transfers associated with the given anchor
+		// outpoint bytes. Then, the asset delta associated with each
+		// transfer will be applied.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
 			NewAnchorPoint: anchorPointBytes,
 		})
 		if err != nil {
 			return err
 		}
-		assetTransfer := assetTransfers[0]
 
-		err = a.confirmAssetTransfer(
-			ctx, assetTransfer, anchorPointBytes, q, conf,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to confirm asset transfer: "+
-				"%w", err)
+		for _, assetTransfer := range assetTransfers {
+			err = a.confirmAssetTransfer(
+				ctx, assetTransfer, anchorPointBytes, q, conf,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to confirm asset transfer: "+
+					"%w", err)
+			}
 		}
 
 		// Keep the old proofs as a reference for when we list past
