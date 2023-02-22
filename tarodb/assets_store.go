@@ -673,6 +673,35 @@ func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 	return assetFilter
 }
 
+// specificAssetFilter maps the given asset parameters to the set of filters
+// we use in the SQL queries.
+func specificAssetFilter(id asset.ID, anchorPoint wire.OutPoint,
+	groupKey *asset.GroupKey,
+	scriptKey *asset.ScriptKey) (QueryAssetFilters, error) {
+
+	anchorPointBytes, err := encodeOutpoint(anchorPoint)
+	if err != nil {
+		return QueryAssetFilters{}, fmt.Errorf("unable to encode "+
+			"outpoint: %w", err)
+	}
+
+	filter := QueryAssetFilters{
+		AssetIDFilter: id[:],
+		AnchorPoint:   anchorPointBytes,
+	}
+
+	if groupKey != nil {
+		key := groupKey.GroupPubKey
+		filter.KeyGroupFilter = key.SerializeCompressed()
+	}
+	if scriptKey != nil {
+		key := scriptKey.PubKey
+		filter.TweakedScriptKey = key.SerializeCompressed()
+	}
+
+	return filter, nil
+}
+
 // fetchAssetsWithWitness fetches the set of assets in the backing store based
 // on the set asset filter. A set of witnesses for each of the assets keyed by
 // the primary key of the asset is also returned.
@@ -1239,6 +1268,30 @@ func queryChainAssets(ctx context.Context, q ActiveAssetsStore,
 	return matchingAssets, nil
 }
 
+// FetchCommitment returns a specific commitment identified by the given asset
+// parameters. If no commitment is found, ErrNoCommitment is returned.
+func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
+	anchorPoint wire.OutPoint, groupKey *asset.GroupKey,
+	scriptKey *asset.ScriptKey) (*tarofreighter.AnchoredCommitment, error) {
+
+	filter, err := specificAssetFilter(id, anchorPoint, groupKey, scriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create filter: %w", err)
+	}
+
+	commitments, err := a.queryCommitments(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query commitments: %w", err)
+	}
+
+	if len(commitments) != 1 {
+		return nil, fmt.Errorf("expected 1 commitment, found %d",
+			len(commitments))
+	}
+
+	return commitments[0], nil
+}
+
 // SelectCommitment takes the set of commitment contrarians and returns an
 // AnchoredCommitment that returns all the information needed to use the
 // commitment as an input to an on chain taro transaction.
@@ -1248,18 +1301,27 @@ func (a *AssetStore) SelectCommitment(
 	ctx context.Context, constraints tarofreighter.CommitmentConstraints) (
 	[]*tarofreighter.AnchoredCommitment, error) {
 
+	// First, we'll map the commitment constraints to our database query
+	// filters.
+	assetFilter := constraintsToDbFilter(&AssetQueryFilters{
+		constraints,
+	})
+
+	return a.queryCommitments(ctx, assetFilter)
+}
+
+// queryCommitments queries the database for commitments matching the passed
+// filter.
+func (a *AssetStore) queryCommitments(ctx context.Context,
+	assetFilter QueryAssetFilters) ([]*tarofreighter.AnchoredCommitment,
+	error) {
+
 	var (
 		matchingAssets      []*ChainAsset
 		chainAnchorToAssets = make(map[wire.OutPoint][]*ChainAsset)
 		anchorPoints        = make(map[wire.OutPoint]AnchorPoint)
 		err                 error
 	)
-
-	// First, we'll map the commitment constraints to our database query
-	// filters.
-	assetFilter := constraintsToDbFilter(&AssetQueryFilters{
-		constraints,
-	})
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
@@ -1332,10 +1394,10 @@ func (a *AssetStore) SelectCommitment(
 		// First, we need to group each of the assets according to
 		// their asset.
 		assetsByID := make(map[asset.ID][]*asset.Asset)
-		for _, asset := range anchoredAssets {
-			assetID := asset.ID()
+		for _, a := range anchoredAssets {
+			assetID := a.ID()
 			assetsByID[assetID] = append(
-				assetsByID[assetID], asset.Asset,
+				assetsByID[assetID], a.Asset,
 			)
 		}
 
