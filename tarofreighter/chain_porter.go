@@ -588,7 +588,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Now we'll use the signer to sign all the inputs for the new
 		// taro leaves. The witness data for each input will be
 		// assigned for us.
-		err := p.cfg.AssetWallet.SignVirtualPacket(vPacket)
+		_, err := p.cfg.AssetWallet.SignVirtualPacket(vPacket)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign and commit "+
 				"virtual packet: %w", err)

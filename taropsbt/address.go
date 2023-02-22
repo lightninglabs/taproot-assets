@@ -8,7 +8,7 @@ import (
 // FromAddress creates an empty virtual transaction packet from the given
 // address. Because sending to an address is always non-interactive, a change
 // output is also added to the packet.
-func FromAddress(receiverAddr *address.Taro) *VPacket {
+func FromAddress(receiverAddr *address.Taro, outputIndex uint32) *VPacket {
 	pkt := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: asset.PrevID{
@@ -34,7 +34,7 @@ func FromAddress(receiverAddr *address.Taro) *VPacket {
 	pkt.Outputs[1] = &VOutput{
 		Amount:            receiverAddr.Amount,
 		Interactive:       false,
-		AnchorOutputIndex: 1,
+		AnchorOutputIndex: outputIndex,
 		ScriptKey: asset.NewScriptKey(
 			&receiverAddr.ScriptKey,
 		),
