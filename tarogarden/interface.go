@@ -136,6 +136,11 @@ type MintingStore interface {
 	// batches that haven't yet fully confirmed on chain.
 	FetchNonFinalBatches(ctx context.Context) ([]*MintingBatch, error)
 
+	// FetchMintingBatch is used to fetch a single minting batch specified
+	// by the batch key.
+	FetchMintingBatch(ctx context.Context,
+		batchKey *btcec.PublicKey) (*MintingBatch, error)
+
 	// AddSproutsToBatch adds a new set of sprouts to the batch, along with
 	// a GenesisPacket, that once signed and broadcast with create the
 	// set of assets on chain.

@@ -39,6 +39,9 @@ type (
 	// match a certain value.
 	MintingBatchI = sqlc.FetchMintingBatchesByInverseStateRow
 
+	// MintingBatchF is an alias for a specific minting batch.
+	MintingBatchF = sqlc.FetchMintingBatchRow
+
 	// AssetSeedling is an asset seedling.
 	AssetSeedling = sqlc.AssetSeedling
 
@@ -129,6 +132,11 @@ type PendingAssetStore interface {
 	// that don't have a particular state.
 	FetchMintingBatchesByInverseState(ctx context.Context,
 		batchState int16) ([]MintingBatchI, error)
+
+	// FetchMintingBatch is used to fetch a single minting batch specified
+	// by the batch key.
+	FetchMintingBatch(ctx context.Context,
+		rawKey []byte) (MintingBatchF, error)
 
 	// FetchSeedlingsForBatch is used to fetch all the seedlings by the key
 	// of the batch they're included in.
@@ -628,6 +636,87 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 	}
 
 	return batches, nil
+}
+
+func (a *AssetMintingStore) FetchMintingBatch(ctx context.Context,
+	batchKey *btcec.PublicKey) (*tarogarden.MintingBatch, error) {
+
+	var batch *tarogarden.MintingBatch
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		var err error
+		batchKeyBytes := batchKey.SerializeCompressed()
+		dbBatch, err := q.FetchMintingBatch(ctx, batchKeyBytes)
+		if err != nil {
+			return fmt.Errorf("no batch with key %x", batchKeyBytes)
+		}
+
+		batchKey, err := btcec.ParsePubKey(dbBatch.RawKey)
+		if err != nil {
+			return err
+		}
+		batch = &tarogarden.MintingBatch{
+			BatchState: tarogarden.BatchState(
+				dbBatch.BatchState,
+			),
+			BatchKey: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(
+						dbBatch.KeyFamily,
+					),
+					Index: uint32(dbBatch.KeyIndex),
+				},
+				PubKey: batchKey,
+			},
+			HeightHint:   uint32(dbBatch.HeightHint),
+			CreationTime: dbBatch.CreationTimeUnix.UTC(),
+		}
+
+		if dbBatch.MintingTxPsbt != nil {
+			genesisPkt, err := psbt.NewFromRawBytes(
+				bytes.NewReader(dbBatch.MintingTxPsbt), false,
+			)
+			if err != nil {
+				return err
+			}
+			batch.GenesisPacket = &tarogarden.FundedPsbt{
+				Pkt: genesisPkt,
+				ChangeOutputIndex: extractSqlInt32[int32](
+					dbBatch.ChangeOutputIndex,
+				),
+			}
+		}
+
+		// Depending on what state this batch is in, we'll
+		// either fetch the set of seedlings (asset
+		// descriptions w/ no real assets), or the set of
+		// sprouts (full defined assets, but not yet mined).
+		switch batch.BatchState {
+		case tarogarden.BatchStatePending,
+			tarogarden.BatchStateFrozen:
+			// In this case we can just fetch the set of
+			// descriptions of future assets to be.
+			batch.Seedlings, err = fetchAssetSeedlings(
+				ctx, q, dbBatch.RawKey,
+			)
+
+		default:
+			batch.RootAssetCommitment, err = fetchAssetSprouts(
+				ctx, q, dbBatch.RawKey,
+			)
+		}
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return batch, nil
 }
 
 // UpdateBatchState updates the state of a batch based on the batch key.
