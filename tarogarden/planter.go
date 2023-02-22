@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
@@ -62,6 +63,7 @@ type stateRequest interface {
 	Resolve(any)
 	Error(error)
 	Type() reqType
+	Param() any
 }
 
 type stateReq[T any] struct {
@@ -70,16 +72,55 @@ type stateReq[T any] struct {
 	reqType reqType
 }
 
+func newStateReq[T any](req reqType) *stateReq[T] {
+	return &stateReq[T]{
+		resp:    make(chan T, 1),
+		err:     make(chan error, 1),
+		reqType: req,
+	}
+}
+
+type stateParamReq[T, S any] struct {
+	stateReq[T]
+
+	param S
+}
+
+func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
+	return &stateParamReq[T, S]{
+		stateReq: *newStateReq[T](req),
+		param:    param,
+	}
+}
+
 func (s *stateReq[T]) Resolve(resp any) {
 	s.resp <- resp.(T)
+	close(s.err)
 }
 
 func (s *stateReq[T]) Error(err error) {
 	s.err <- err
+	close(s.resp)
 }
 
 func (s *stateReq[T]) Type() reqType {
 	return s.reqType
+}
+
+func (s *stateReq[T]) Param() any {
+	return nil
+}
+
+func (s *stateParamReq[T, S]) Param() any {
+	return s.param
+}
+
+func typedParam[T any](req stateRequest) (*T, error) {
+	if param, ok := req.Param().(T); ok {
+		return &param, nil
+	}
+
+	return nil, fmt.Errorf("invalid type")
 }
 
 type reqType uint8
@@ -88,6 +129,7 @@ const (
 	reqTypePendingBatch = iota
 	reqTypeNumActiveBatches
 	reqTypeForceBatch
+	reqTypeListBatches
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
@@ -242,7 +284,7 @@ func (c *ChainPlanter) stopCaretakers() {
 
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
-func freezeMintingBatch(ctx context.Context, pLog MintingStore,
+func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	batch *MintingBatch) error {
 
 	batchKey := batch.BatchKey.PubKey
@@ -254,9 +296,26 @@ func freezeMintingBatch(ctx context.Context, pLog MintingStore,
 	// to BatchStateFinalized, meaning that no other changes can happen.
 	//
 	// TODO(roasbeef): assert not in some other state first?
-	return pLog.UpdateBatchState(
+	return batchStore.UpdateBatchState(
 		ctx, batchKey, BatchStateFrozen,
 	)
+}
+
+// ListBatches returns the single batch specified by the batch key, or the set
+// of batches not yet finalized on disk.
+func listBatches(ctx context.Context, batchStore MintingStore,
+	batchKey *btcec.PublicKey) ([]*MintingBatch, error) {
+
+	if batchKey == nil {
+		return batchStore.FetchAllBatches(ctx)
+	}
+
+	batch, err := batchStore.FetchMintingBatch(ctx, batchKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return []*MintingBatch{batch}, nil
 }
 
 // gardener is responsible for collecting new potential taro asset
@@ -386,6 +445,25 @@ func (c *ChainPlanter) gardener() {
 				req.Resolve(c.pendingBatch)
 			case reqTypeNumActiveBatches:
 				req.Resolve(len(c.caretakers))
+			case reqTypeListBatches:
+				batchKey, err := typedParam[*btcec.PublicKey](req)
+				if err != nil {
+					req.Error(fmt.Errorf("Bad batch key: %w",
+						err))
+					break
+				}
+
+				ctx, cancel := c.WithCtxQuit()
+				batches, err := listBatches(
+					ctx, c.cfg.Log, *batchKey,
+				)
+				cancel()
+				if err != nil {
+					req.Error(err)
+					break
+				}
+
+				req.Resolve(batches)
 			case reqTypeForceBatch:
 				// A force tick must be sent in a separate
 				// goroutine to prevent deadlock.
@@ -404,11 +482,7 @@ func (c *ChainPlanter) gardener() {
 // PendingBatch returns the current pending batch. If there's no pending batch,
 // then an error is returned.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
-	req := &stateReq[*MintingBatch]{
-		resp:    make(chan *MintingBatch, 1),
-		err:     make(chan error, 1),
-		reqType: reqTypePendingBatch,
-	}
+	req := newStateReq[*MintingBatch](reqTypePendingBatch)
 
 	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
@@ -420,17 +494,27 @@ func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 // NumActiveBatches returns the total number of active batches that have an
 // outstanding caretaker assigned.
 func (c *ChainPlanter) NumActiveBatches() (int, error) {
-	req := &stateReq[int]{
-		resp:    make(chan int, 1),
-		err:     make(chan error, 1),
-		reqType: reqTypeNumActiveBatches,
-	}
+	req := newStateReq[int](reqTypeNumActiveBatches)
 
 	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return 0, fmt.Errorf("chain planter shutting down")
 	}
 
 	return <-req.resp, nil
+}
+
+// ListBatches returns the single batch specified by the batch key, or the set
+// of batches not yet finalized on disk.
+func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
+	error) {
+
+	req := newStateParamReq[[]*MintingBatch](reqTypeListBatches, batchKey)
+
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
 }
 
 // ForceBatch sends a signal to the planter to finalize the current batch.

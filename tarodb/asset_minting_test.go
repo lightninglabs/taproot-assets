@@ -187,9 +187,12 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// With the batch written, we should be able to read out the batch, and
 	// have it be exactly the same as what we wrote.
 	mintingBatches := noError1(t, assetStore.FetchNonFinalBatches, ctx)
-	require.NoError(t, err)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
 	assertBatchEqual(t, mintingBatch, mintingBatches[0])
+
+	mintingBatchKeyed, err := assetStore.FetchMintingBatch(ctx, batchKey)
+	require.NoError(t, err)
+	assertBatchEqual(t, mintingBatch, mintingBatchKeyed)
 
 	// The batch should also still be in the pending state.
 	assertBatchState(t, mintingBatches[0], tarogarden.BatchStatePending)
@@ -230,10 +233,26 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 0, 0)
 
+	// We should still be able to fetch the finalized batch from disk.
+	mintingBatchKeyed, err = assetStore.FetchMintingBatch(ctx, batchKey)
+	require.NoError(t, err)
+	require.NotNil(t, mintingBatchKeyed)
+	assertBatchState(t, mintingBatchKeyed, tarogarden.BatchStateFinalized)
+
+	// We should not be able to fetch a non-existent batch.
+	badBatchKeyBytes := batchKey.SerializeCompressed()
+	badBatchKeyBytes[0] ^= 0x01
+	badBatchKey, err := btcec.ParsePubKey(badBatchKeyBytes)
+	require.NoError(t, err)
+	emptyBatch, err := assetStore.FetchMintingBatch(ctx, badBatchKey)
+	require.Nil(t, emptyBatch)
+	require.ErrorContains(t, err, "no batch with key")
+
 	// Insert another normal batch into the database. We should get this
 	// batch back if we query for the set of non final batches.
 	mintingBatch = tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
-	require.NoError(t, err, assetStore.CommitMintingBatch(ctx, mintingBatch))
+	err = assetStore.CommitMintingBatch(ctx, mintingBatch)
+	require.NoError(t, err)
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
 }

@@ -39,6 +39,10 @@ type Planter interface {
 
 	// TODO(roasbeef): notification methods also?
 
+	// ListBatches lists the set of batches submitted for minting, or the
+	// details of a specific batch.
+	ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch, error)
+
 	// CancelSeedling attempts to cancel the creation of a new asset
 	// identified by its name. If the seedling has already progressed to a
 	// point where the genesis PSBT has been broadcasted, an error is
@@ -132,9 +136,17 @@ type MintingStore interface {
 	AddSeedlingsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
 		seedlings ...*Seedling) error
 
+	// FetchAllBetches fetches all the batches on disk.
+	FetchAllBatches(ctx context.Context) ([]*MintingBatch, error)
+
 	// FetchNonFinalBatches fetches all non-finalized batches, meaning
 	// batches that haven't yet fully confirmed on chain.
 	FetchNonFinalBatches(ctx context.Context) ([]*MintingBatch, error)
+
+	// FetchMintingBatch is used to fetch a single minting batch specified
+	// by the batch key.
+	FetchMintingBatch(ctx context.Context,
+		batchKey *btcec.PublicKey) (*MintingBatch, error)
 
 	// AddSproutsToBatch adds a new set of sprouts to the batch, along with
 	// a GenesisPacket, that once signed and broadcast with create the
