@@ -64,8 +64,9 @@ type Wallet interface {
 		receiverScriptKey *btcec.PublicKey,
 		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
 
-	// SignVirtualPacket signs the virtual transaction of the given packet.
-	SignVirtualPacket(vPkt *taropsbt.VPacket) error
+	// SignVirtualPacket signs the virtual transaction of the given packet
+	// and returns the input indexes that were signed.
+	SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32, error)
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets. This
@@ -136,7 +137,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	// hold the asset transfer. Because sending to an address is always a
 	// non-interactive process, we can use this function that always creates
 	// a change output.
-	vPkt := taropsbt.FromAddress(&receiverAddr)
+	vPkt := taropsbt.FromAddress(&receiverAddr, 1)
 
 	fundDesc := &taroscript.FundingDescriptor{
 		ID:       receiverAddr.ID(),
@@ -315,21 +316,88 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	return assetInput.Commitment, nil
 }
 
-// SignVirtualPacket signs the virtual transaction of the given packet.
+// SignVirtualPacket signs the virtual transaction of the given packet and
+// returns the input indexes that were signed (referring to the virtual
+// transaction's inputs).
 //
 // NOTE: This is part of the Wallet interface.
-func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) error {
-	// Now we'll use the signer to sign all the inputs for the new
-	// taro leaves. The witness data for each input will be
-	// assigned for us.
+func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
+	error) {
+
+	// Now we'll use the signer to sign all the inputs for the new taro
+	// leaves. The witness data for each input will be assigned for us.
+	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
-		err := taroscript.SignVirtualTransaction(
+		// Before we sign the transaction, we want to make sure the
+		// inclusion proof is valid and the asset is actually committed
+		// in the anchor transaction.
+		err := verifyInclusionProof(vPkt.Inputs[idx])
+		if err != nil {
+			return nil, fmt.Errorf("unable to verify inclusion "+
+				"proof: %w", err)
+		}
+
+		err = taroscript.SignVirtualTransaction(
 			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to generate taro witness "+
-				"data: %w", err)
+			return nil, fmt.Errorf("unable to generate taro "+
+				"witness data: %w", err)
 		}
+
+		signedInputs[idx] = uint32(idx)
+	}
+
+	return signedInputs, nil
+}
+
+// verifyInclusionProof verifies that the given virtual input's asset is
+// actually committed in the anchor transaction.
+func verifyInclusionProof(vIn *taropsbt.VInput) error {
+	proofReader := bytes.NewReader(vIn.Proof())
+	assetProof := &proof.Proof{}
+	if err := assetProof.Decode(proofReader); err != nil {
+		return fmt.Errorf("unable to decode asset proof: %w", err)
+	}
+
+	// Before we look at the inclusion proof, we'll make sure that the input
+	// anchor information matches the proof's anchor transaction.
+	//
+	// TODO(guggero): Also check if the block is in the chain by calling
+	// into ChainBridge.
+	op := vIn.PrevID.OutPoint
+	anchorTxHash := assetProof.AnchorTx.TxHash()
+
+	if op.Hash != anchorTxHash {
+		return fmt.Errorf("proof anchor tx hash doesn't match input " +
+			"anchor outpoint")
+	}
+	if op.Index >= uint32(len(assetProof.AnchorTx.TxOut)) {
+		return fmt.Errorf("input anchor outpoint index out of range")
+	}
+
+	anchorTxOut := assetProof.AnchorTx.TxOut[op.Index]
+	if !bytes.Equal(anchorTxOut.PkScript, vIn.Anchor.PkScript) {
+		return fmt.Errorf("proof anchor tx pk script doesn't match " +
+			"input anchor script")
+	}
+
+	anchorKey, err := proof.ExtractTaprootKeyFromScript(vIn.Anchor.PkScript)
+	if err != nil {
+		return fmt.Errorf("unable to parse anchor pk script taproot "+
+			"key: %w", err)
+	}
+
+	inclusionProof := assetProof.InclusionProof
+	proofKey, _, err := inclusionProof.DeriveByAssetInclusion(
+		vIn.Asset(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to derive inclusion proof: %w", err)
+	}
+
+	if !proofKey.IsEqual(anchorKey) {
+		return fmt.Errorf("proof key doesn't match anchor key")
 	}
 
 	return nil

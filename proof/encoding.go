@@ -6,8 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -269,115 +267,6 @@ func TapscriptProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "*TapscriptProof")
-}
-
-func AssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**commitment.AssetProof); ok {
-		records := []tlv.Record{
-			AssetProofVersionRecord(&(*t).Version),
-			AssetProofAssetIDRecord(&(*t).AssetID),
-			AssetProofRecord(&(*t).Proof),
-		}
-		stream, err := tlv.NewStream(records...)
-		if err != nil {
-			return err
-		}
-		return stream.Encode(w)
-	}
-	return tlv.NewTypeForEncodingErr(val, "*commitment.AssetProof")
-}
-
-func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(**commitment.AssetProof); ok {
-		var streamBytes []byte
-		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
-			return err
-		}
-		var proof commitment.AssetProof
-		records := []tlv.Record{
-			AssetProofVersionRecord(&proof.Version),
-			AssetProofAssetIDRecord(&proof.AssetID),
-			AssetProofRecord(&proof.Proof),
-		}
-		stream, err := tlv.NewStream(records...)
-		if err != nil {
-			return err
-		}
-		if err := stream.Decode(bytes.NewReader(streamBytes)); err != nil {
-			return err
-		}
-		*typ = &proof
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "*commitment.AssetProof")
-}
-
-func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*commitment.TaroProof); ok {
-		records := []tlv.Record{
-			TaroProofVersionRecord(&(*t).Version),
-			TaroProofRecord(&(*t).Proof),
-		}
-		stream, err := tlv.NewStream(records...)
-		if err != nil {
-			return err
-		}
-		return stream.Encode(w)
-	}
-	return tlv.NewTypeForEncodingErr(val, "commitment.TaroProof")
-}
-
-func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*commitment.TaroProof); ok {
-		var streamBytes []byte
-		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
-			return err
-		}
-		var proof commitment.TaroProof
-		records := []tlv.Record{
-			TaroProofVersionRecord(&proof.Version),
-			TaroProofRecord(&proof.Proof),
-		}
-		stream, err := tlv.NewStream(records...)
-		if err != nil {
-			return err
-		}
-		if err := stream.Decode(bytes.NewReader(streamBytes)); err != nil {
-			return err
-		}
-		*typ = proof
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "commitment.TaroProof")
-}
-
-func TreeProofEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*mssmt.Proof); ok {
-		return t.Compress().Encode(w)
-	}
-	return tlv.NewTypeForEncodingErr(val, "mssmt.Proof")
-}
-
-func TreeProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*mssmt.Proof); ok {
-		var proofBytes []byte
-		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
-			return err
-		}
-		var proof mssmt.CompressedProof
-		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
-			return err
-		}
-
-		fullProof, err := proof.Decompress()
-		if err != nil {
-			return err
-		}
-
-		*typ = *fullProof
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "mssmt.Proof")
 }
 
 func TapscriptPreimageEncoder(w io.Writer, val any, buf *[8]byte) error {

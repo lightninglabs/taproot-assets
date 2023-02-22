@@ -162,13 +162,7 @@ type CommitmentProof struct {
 
 // EncodeRecords returns the encoding records for the CommitmentProof.
 func (p CommitmentProof) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 3)
-	if p.AssetProof != nil {
-		records = append(records, CommitmentProofAssetProofRecord(
-			&p.AssetProof,
-		))
-	}
-	records = append(records, CommitmentProofTaroProofRecord(&p.TaroProof))
+	records := p.Proof.EncodeRecords()
 	if p.TapSiblingPreimage != nil {
 		records = append(records, CommitmentProofTapSiblingPreimageRecord(
 			&p.TapSiblingPreimage,
@@ -179,11 +173,11 @@ func (p CommitmentProof) EncodeRecords() []tlv.Record {
 
 // DecodeRecords returns the decoding records for the CommitmentProof.
 func (p *CommitmentProof) DecodeRecords() []tlv.Record {
-	return []tlv.Record{
-		CommitmentProofAssetProofRecord(&p.AssetProof),
-		CommitmentProofTaroProofRecord(&p.TaroProof),
+	records := p.Proof.DecodeRecords()
+	return append(
+		records,
 		CommitmentProofTapSiblingPreimageRecord(&p.TapSiblingPreimage),
-	}
+	)
 }
 
 // Encode attempts to encode the CommitmentProof into the passed io.Writer.

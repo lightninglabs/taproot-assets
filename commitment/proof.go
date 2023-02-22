@@ -2,9 +2,11 @@ package commitment
 
 import (
 	"errors"
+	"io"
 
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -53,6 +55,42 @@ type Proof struct {
 	// TaroProof is the proof used along with the asset commitment to arrive
 	// at the root of the TaroCommitment MS-SMT.
 	TaroProof TaroProof
+}
+
+// EncodeRecords returns the encoding records for the Proof.
+func (p Proof) EncodeRecords() []tlv.Record {
+	records := make([]tlv.Record, 0, 3)
+	if p.AssetProof != nil {
+		records = append(records, ProofAssetProofRecord(&p.AssetProof))
+	}
+	records = append(records, ProofTaroProofRecord(&p.TaroProof))
+	return records
+}
+
+// DecodeRecords returns the decoding records for the CommitmentProof.
+func (p *Proof) DecodeRecords() []tlv.Record {
+	return []tlv.Record{
+		ProofAssetProofRecord(&p.AssetProof),
+		ProofTaroProofRecord(&p.TaroProof),
+	}
+}
+
+// Encode attempts to encode the CommitmentProof into the passed io.Writer.
+func (p Proof) Encode(w io.Writer) error {
+	stream, err := tlv.NewStream(p.EncodeRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(w)
+}
+
+// Decode attempts to decode the CommitmentProof from the passed io.Reader.
+func (p *Proof) Decode(r io.Reader) error {
+	stream, err := tlv.NewStream(p.DecodeRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Decode(r)
 }
 
 // DeriveByAssetInclusion derives the Taro commitment containing the provided

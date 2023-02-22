@@ -6,8 +6,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -27,20 +25,14 @@ const (
 	TaprootProofCommitmentProofType tlv.Type = 2
 	TaprootProofTapscriptProofType  tlv.Type = 3
 
-	CommitmentProofAssetProofType         tlv.Type = 0
-	CommitmentProofTaroProofType          tlv.Type = 1
+	// CommitmentProofTapSiblingPreimageType is the type of the TLV record
+	// for the CommitmentProof's SiblingPreimage field. It continues the
+	// count from where commitment.ProofTaroProofType left off.
 	CommitmentProofTapSiblingPreimageType tlv.Type = 2
 
 	TapscriptProofTapPreimage1 tlv.Type = 0
 	TapscriptProofTapPreimage2 tlv.Type = 1
 	TapscriptProofBIP86        tlv.Type = 2
-
-	AssetProofVersionType tlv.Type = 0
-	AssetProofAssetIDType tlv.Type = 1
-	AssetProofType        tlv.Type = 2
-
-	TaroProofVersionType tlv.Type = 0
-	TaroProofType        tlv.Type = 1
 )
 
 func PrevOutRecord(prevOut *wire.OutPoint) tlv.Record {
@@ -196,38 +188,8 @@ func TaprootProofTapscriptProofRecord(proof **TapscriptProof) tlv.Record {
 	)
 }
 
-func CommitmentProofAssetProofRecord(proof **commitment.AssetProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := AssetProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		CommitmentProofAssetProofType, proof, sizeFunc,
-		AssetProofEncoder, AssetProofDecoder,
-	)
-}
-
-func CommitmentProofTaroProofRecord(proof *commitment.TaroProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := TaroProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		CommitmentProofTaroProofType, proof, sizeFunc, TaroProofEncoder,
-		TaroProofDecoder,
-	)
-}
-
-func CommitmentProofTapSiblingPreimageRecord(preimage **TapscriptPreimage,
-) tlv.Record {
+func CommitmentProofTapSiblingPreimageRecord(
+	preimage **TapscriptPreimage) tlv.Record {
 
 	sizeFunc := func() uint64 {
 		// 1 byte for the type, and then the pre-image itself.
@@ -266,51 +228,5 @@ func TapscriptProofTapPreimage2Record(preimage **TapscriptPreimage) tlv.Record {
 func TapscriptProofBIP86Record(bip86 *bool) tlv.Record {
 	return tlv.MakeStaticRecord(
 		TapscriptProofBIP86, bip86, 1, BoolEncoder, BoolDecoder,
-	)
-}
-
-func AssetProofVersionRecord(version *asset.Version) tlv.Record {
-	return tlv.MakeStaticRecord(
-		AssetProofVersionType, version, 1, asset.VersionEncoder,
-		asset.VersionDecoder,
-	)
-}
-
-func AssetProofAssetIDRecord(assetID *[32]byte) tlv.Record {
-	return tlv.MakePrimitiveRecord(AssetProofAssetIDType, assetID)
-}
-
-func AssetProofRecord(proof *mssmt.Proof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := proof.Compress().Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		AssetProofType, proof, sizeFunc, TreeProofEncoder,
-		TreeProofDecoder,
-	)
-}
-
-func TaroProofVersionRecord(version *asset.Version) tlv.Record {
-	return tlv.MakeStaticRecord(
-		TaroProofVersionType, version, 1, asset.VersionEncoder,
-		asset.VersionDecoder,
-	)
-}
-
-func TaroProofRecord(proof *mssmt.Proof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := proof.Compress().Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TaroProofType, proof, sizeFunc, TreeProofEncoder,
-		TreeProofDecoder,
 	)
 }

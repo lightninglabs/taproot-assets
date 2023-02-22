@@ -15,6 +15,40 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
+// We define a set of Taro specific global, input and output PSBT key types here
+// that correspond to the custom types defined in the VPacket below. We start at
+// 0x70 because that is sufficiently high to not conflict with any of the keys
+// specified in BIP174. Also, 7 is leet speak for "t" as in Taro.
+// It would perhaps make sense to wrap these values in the BIP174 defined
+// proprietary types to make 100% sure that no parser removes them. But the BIP
+// also mentions to not remove unknown keys, so we should be fine like this as
+// well.
+var (
+	PsbtKeyTypeGlobalTaroIsVirtualTx    = []byte{0x70}
+	PsbtKeyTypeGlobalTaroChainParamsHRP = []byte{0x71}
+
+	PsbtKeyTypeInputTaroPrevID                             = []byte{0x70}
+	PsbtKeyTypeInputTaroAnchorValue                        = []byte{0x71}
+	PsbtKeyTypeInputTaroAnchorPkScript                     = []byte{0x72}
+	PsbtKeyTypeInputTaroAnchorSigHashType                  = []byte{0x73}
+	PsbtKeyTypeInputTaroAnchorInternalKey                  = []byte{0x74}
+	PsbtKeyTypeInputTaroAnchorMerkleRoot                   = []byte{0x75}
+	PsbtKeyTypeInputTaroAnchorOutputBip32Derivation        = []byte{0x76}
+	PsbtKeyTypeInputTaroAnchorOutputTaprootBip32Derivation = []byte{0x77}
+	PsbtKeyTypeInputTaroAnchorTapscriptSibling             = []byte{0x78}
+	PsbtKeyTypeInputTaroAsset                              = []byte{0x79}
+	PsbtKeyTypeInputTaroAssetProof                         = []byte{0x7a}
+
+	PsbtKeyTypeOutputTaroIsSplitRoot                        = []byte{0x70}
+	PsbtKeyTypeOutputTaroIsInteractive                      = []byte{0x71}
+	PsbtKeyTypeOutputTaroAnchorOutputIndex                  = []byte{0x72}
+	PsbtKeyTypeOutputTaroAnchorOutputInternalKey            = []byte{0x73}
+	PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation        = []byte{0x74}
+	PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation = []byte{0x75}
+	PsbtKeyTypeOutputTaroAsset                              = []byte{0x76}
+	PsbtKeyTypeOutputTaroSplitAsset                         = []byte{0x77}
+)
+
 // VOutPredicate is a function that can be used to filter virtual outputs.
 type VOutPredicate func(*VOutput) bool
 
@@ -411,6 +445,7 @@ func Bip32DerivationFromKeyDesc(keyDesc keychain.KeyDescriptor,
 		XOnlyPubKey:          bip32Derivation.PubKey[1:],
 		MasterKeyFingerprint: bip32Derivation.MasterKeyFingerprint,
 		Bip32Path:            bip32Derivation.Bip32Path,
+		LeafHashes:           make([][]byte, 0),
 	}
 }
 
@@ -437,4 +472,66 @@ func extractLocatorFromPath(path []uint32) (keychain.KeyLocator, error) {
 	loc.Index = path[4]
 
 	return loc, nil
+}
+
+// serializeTweakedScriptKey serializes a script key as the PSBT derivation
+// information on the PSBT output.
+func serializeTweakedScriptKey(key *asset.TweakedScriptKey,
+	coinType uint32) psbt.POutput {
+
+	pOut := psbt.POutput{}
+	if key == nil {
+		return pOut
+	}
+
+	bip32Derivation, trBip32Derivation := Bip32DerivationFromKeyDesc(
+		key.RawKey, coinType,
+	)
+
+	// If we have a non-empty tweak of the script key, it means we don't
+	// have a BIP-86 key, so we need to add the tweak to the derivation path
+	// as a leaf hash (since the tweak will represent the root hash of the
+	// script tree). Unfortunately outputs don't have the TaprootMerkleRoot
+	// field as inputs have.
+	if len(key.Tweak) > 0 {
+		trBip32Derivation.LeafHashes = [][]byte{key.Tweak}
+	}
+
+	pOut.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
+	pOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trBip32Derivation,
+	}
+	pOut.TaprootInternalKey = trBip32Derivation.XOnlyPubKey
+
+	return pOut
+}
+
+// deserializeTweakedScriptKey deserializes the PSBT derivation information on
+// the PSBT output into the script key.
+func deserializeTweakedScriptKey(pOut psbt.POutput) (*asset.TweakedScriptKey,
+	error) {
+
+	// The fields aren't mandatory.
+	if len(pOut.TaprootInternalKey) == 0 || len(pOut.Bip32Derivation) == 0 {
+		return nil, nil
+	}
+
+	bip32Derivation := pOut.Bip32Derivation[0]
+	rawKeyDesc, err := KeyDescFromBip32Derivation(bip32Derivation)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding script key derivation "+
+			"info: %w", err)
+	}
+
+	var tweak []byte
+	if len(pOut.TaprootBip32Derivation) > 0 &&
+		len(pOut.TaprootBip32Derivation[0].LeafHashes) > 0 {
+
+		tweak = pOut.TaprootBip32Derivation[0].LeafHashes[0]
+	}
+
+	return &asset.TweakedScriptKey{
+		RawKey: rawKeyDesc,
+		Tweak:  tweak,
+	}, nil
 }

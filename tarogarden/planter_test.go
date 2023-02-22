@@ -136,7 +136,7 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Se
 			EnableEmission: test.RandBool(),
 		}
 		if seedlings[i].AssetType == asset.Normal {
-			seedlings[i].Amount = uint64(rand.Int63())
+			seedlings[i].Amount = uint64(rand.Int31())
 		} else {
 			seedlings[i].Amount = 1
 		}
