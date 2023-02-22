@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -183,9 +184,12 @@ type AssetConfirmEvent struct {
 	// point.
 	TxIndex int32
 
-	// FinalSenderProof is the final proof for the sender that includes the
-	// chain information of the final confirmation point.
-	FinalSenderProof []byte
+	// Proofs is a map which relates assets to their proofs. Assets are
+	// identified by the public key component of their script key.
+	//
+	// This map includes the proof delivered during the asset send
+	// procedure.
+	Proofs map[btcec.PublicKey]proof.Blob
 }
 
 // ExportLog is used to track the state of outbound taro parcels (batched

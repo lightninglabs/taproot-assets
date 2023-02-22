@@ -1698,103 +1698,24 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		// First, we'll fetch the asset transfer based on its outpoint
-		// bytes so we can apply the delta it describes.
+		// Fetch all asset transfers associated with the given anchor
+		// outpoint bytes. Then, the asset delta associated with each
+		// transfer will be applied.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
 			NewAnchorPoint: anchorPointBytes,
 		})
 		if err != nil {
 			return err
 		}
-		assetTransfer := assetTransfers[0]
 
-		// Now that we have the new managed UTXO inserted, we'll update
-		// the managed UTXO pointer for _all_ assets that were anchored
-		// by the old managed UTXO.
-		err = q.ReanchorAssets(ctx, AssetAnchorUpdate{
-			OldOutpoint: assetTransfer.OldAnchorPoint,
-			NewOutpointUtxoID: sqlInt32(
-				assetTransfer.NewAnchorUtxoID,
-			),
-		})
-		if err != nil {
-			return err
-		}
-
-		// Now that we've re-anchored all the other assets, we also
-		// need to fetch the set of deltas so we can apply to each
-		// asset.
-		assetDeltas, err := q.FetchAssetDeltas(
-			ctx, assetTransfer.TransferID,
-		)
-		if err != nil {
-			return err
-		}
-		for _, assetDelta := range assetDeltas {
-			// First, we'll apply the spend delta to update the
-			// amount and script key of all assets.
-			assetIDKey, err := q.ApplySpendDelta(ctx, AssetSpendDelta{
-				NewAmount:                int64(assetDelta.NewAmt),
-				OldScriptKey:             assetDelta.OldScriptKey,
-				NewScriptKeyID:           assetDelta.NewScriptKeyID,
-				SplitCommitmentRootHash:  assetDelta.SplitCommitmentRootHash,
-				SplitCommitmentRootValue: assetDelta.SplitCommitmentRootValue,
-			})
-			if err != nil {
-				return fmt.Errorf("unable to update "+
-					"spend delta: %w", err)
-			}
-
-			// With the delta applied, we'll delete the _old_ set
-			// of witnesses, and re-insert new ones.
-			err = q.DeleteAssetWitnesses(ctx, assetIDKey)
-			if err != nil {
-				return fmt.Errorf("unable to delete "+
-					"witnesses: %v", err)
-			}
-
-			// With the old witnesses removed, we'll insert the new
-			// set on disk.
-			var witnessData []asset.Witness
-			err = asset.WitnessDecoder(
-				bytes.NewReader(assetDelta.SerializedWitnesses),
-				&witnessData, &[8]byte{},
-				uint64(len(assetDelta.SerializedWitnesses)),
+		for _, assetTransfer := range assetTransfers {
+			err = a.confirmAssetTransfer(
+				ctx, assetTransfer, anchorPointBytes, q, conf,
 			)
 			if err != nil {
-				return fmt.Errorf("unable to decode "+
-					"witness: %v", err)
+				return fmt.Errorf("unable to confirm asset transfer: "+
+					"%w", err)
 			}
-			err = a.insertAssetWitnesses(
-				ctx, q, assetIDKey, witnessData,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to insert asset "+
-					"witnesses: %v", err)
-			}
-
-			// Now we can update the asset proof for the sender for
-			// this given delta.
-			err = q.UpsertAssetProof(ctx, ProofUpdate{
-				TweakedScriptKey: assetDelta.NewScriptKeyBytes,
-				ProofFile:        conf.FinalSenderProof,
-			})
-			if err != nil {
-				return err
-			}
-		}
-
-		// To confirm a delivery (successful send) all we need to do is
-		// update the chain information for the transaction that
-		// anchors the new anchor point.
-		err = q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
-			Outpoint:    anchorPointBytes,
-			BlockHash:   conf.BlockHash[:],
-			BlockHeight: sqlInt32(conf.BlockHeight),
-			TxIndex:     sqlInt32(conf.TxIndex),
-		})
-		if err != nil {
-			return err
 		}
 
 		// Keep the old proofs as a reference for when we list past
@@ -1806,6 +1727,119 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 
 		return nil
 	})
+}
+
+// confirmAssetTransfer applies the delta described by an asset transfer to
+// the set of assets anchored by the old managed UTXO.
+func (a *AssetStore) confirmAssetTransfer(ctx context.Context,
+	assetTransfer AssetTransfer, anchorPointBytes []byte,
+	q ActiveAssetsStore, conf *tarofreighter.AssetConfirmEvent) error {
+
+	// Now that we have the new managed UTXO inserted, we'll update
+	// the managed UTXO pointer for _all_ assets that were anchored
+	// by the old managed UTXO.
+	err := q.ReanchorAssets(ctx, AssetAnchorUpdate{
+		OldOutpoint: assetTransfer.OldAnchorPoint,
+		NewOutpointUtxoID: sqlInt32(
+			assetTransfer.NewAnchorUtxoID,
+		),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Now that we've re-anchored all the other assets, we also need to
+	// fetch the set of deltas which we will apply to each asset.
+	assetDeltas, err := q.FetchAssetDeltas(
+		ctx, assetTransfer.TransferID,
+	)
+	if err != nil {
+		return err
+	}
+	for _, assetDelta := range assetDeltas {
+		// First, we'll apply the spend delta to update the
+		// amount and script key of all assets.
+		assetIDKey, err := q.ApplySpendDelta(ctx, AssetSpendDelta{
+			NewAmount:                int64(assetDelta.NewAmt),
+			OldScriptKey:             assetDelta.OldScriptKey,
+			NewScriptKeyID:           assetDelta.NewScriptKeyID,
+			SplitCommitmentRootHash:  assetDelta.SplitCommitmentRootHash,
+			SplitCommitmentRootValue: assetDelta.SplitCommitmentRootValue,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to update "+
+				"spend delta: %w", err)
+		}
+
+		// With the delta applied, we'll delete the _old_ set
+		// of witnesses, and re-insert new ones.
+		err = q.DeleteAssetWitnesses(ctx, assetIDKey)
+		if err != nil {
+			return fmt.Errorf("unable to delete "+
+				"witnesses: %v", err)
+		}
+
+		// With the old witnesses removed, we'll insert the new
+		// set on disk.
+		var witnessData []asset.Witness
+		err = asset.WitnessDecoder(
+			bytes.NewReader(assetDelta.SerializedWitnesses),
+			&witnessData, &[8]byte{},
+			uint64(len(assetDelta.SerializedWitnesses)),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decode "+
+				"witness: %v", err)
+		}
+		err = a.insertAssetWitnesses(
+			ctx, q, assetIDKey, witnessData,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert asset "+
+				"witnesses: %v", err)
+		}
+
+		// Identify proof file associated with the asset's
+		// new script key.
+		newScriptKey, err := btcec.ParsePubKey(
+			assetDelta.NewScriptKeyBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to parse new "+
+				"script key from asset delta: %w", err)
+		}
+		proofFile, ok := conf.Proofs[*newScriptKey]
+		if !ok {
+			return fmt.Errorf("unable to find proof for "+
+				"script key %x",
+				newScriptKey.SerializeCompressed())
+		}
+
+		// Now we can update the asset proof for the sender for
+		// this given delta.
+		err = q.UpsertAssetProof(ctx, ProofUpdate{
+			TweakedScriptKey: assetDelta.NewScriptKeyBytes,
+			ProofFile:        proofFile,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	// To confirm a delivery (successful send) all we need to do is
+	// update the chain information for the transaction that
+	// anchors the new anchor point.
+	err = q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
+		Outpoint:    anchorPointBytes,
+		BlockHash:   conf.BlockHash[:],
+		BlockHeight: sqlInt32(conf.BlockHeight),
+		TxIndex:     sqlInt32(conf.TxIndex),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to confirm chain anchor tx: %w", err)
+	}
+
+	return nil
 }
 
 // PendingParcels returns the set of parcels that haven't yet been finalized.
