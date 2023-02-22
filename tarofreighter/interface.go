@@ -14,7 +14,9 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -186,6 +188,33 @@ type AssetConfirmEvent struct {
 	// FinalSenderProof is the final proof for the sender that includes the
 	// chain information of the final confirmation point.
 	FinalSenderProof []byte
+}
+
+// PassiveAssetReAnchor includes the information needed to re-anchor a passive
+// asset during asset send delivery confirmation.
+type PassiveAssetReAnchor struct {
+	// VPacket is a virtual packet which describes the virtual transaction
+	// which is used in re-anchoring the passive asset.
+	VPacket *taropsbt.VPacket
+
+	// GenesisID is the genesis ID of the passive asset.
+	GenesisID asset.ID
+
+	// PrevAnchorPoint is the previous anchor point of the passive asset
+	// before re-anchoring. This field is used to identify the correct asset
+	// to update.
+	PrevAnchorPoint wire.OutPoint
+
+	// ScriptKey is the previous script key of the passive asset before
+	// re-anchoring. This field is used to identify the correct asset to
+	// update.
+	ScriptKey asset.ScriptKey
+
+	// NewProof is the proof set of the re-anchored passive asset.
+	NewProof *proof.Proof
+
+	// NewWitnessData is the new witness set for this asset.
+	NewWitnessData []asset.Witness
 }
 
 // ExportLog is used to track the state of outbound taro parcels (batched

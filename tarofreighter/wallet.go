@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -52,17 +53,20 @@ type AnchorTransaction struct {
 // Wallet is an interface for funding and signing asset transfers.
 type Wallet interface {
 	// FundAddressSend funds a virtual transaction, selecting assets to
-	// spend in order to pay the given address.
+	// spend in order to pay the given address. It also returns supporting
+	// data which assists in processing the virtual transaction: passive
+	// asset re-anchors and the Taro level commitment of the selected
+	// assets.
 	FundAddressSend(ctx context.Context,
-		receiverAddr address.Taro) (*taropsbt.VPacket,
-		*commitment.TaroCommitment, error)
+		receiverAddr address.Taro) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
 	// to the given virtual transaction.
 	FundPacket(ctx context.Context, fundDesc *taroscript.FundingDescriptor,
 		receiverScriptKey *btcec.PublicKey,
-		vPkt *taropsbt.VPacket) (*AnchoredCommitment, error)
+		vPkt *taropsbt.VPacket) (*AnchoredCommitment,
+		*keychain.KeyDescriptor, error)
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
@@ -125,13 +129,30 @@ func NewAssetWallet(cfg *WalletConfig) *AssetWallet {
 	}
 }
 
+// FundedVPacket is the result from an attempt to fund a given taro address send
+// request via a call to FundAddressSend.
+type FundedVPacket struct {
+	// VPacket is the virtual transaction that was created to fund the
+	// transfer.
+	VPacket *taropsbt.VPacket
+
+	// PassiveAssetReAnchors is the data necessary to re-anchor passive
+	// assets as housekeeping for the transfer.
+	PassiveAssetReAnchors []*PassiveAssetReAnchor
+
+	// TaroCommitment is the Taro level commitment associated with the
+	// assets selected for this transfer.
+	TaroCommitment *commitment.TaroCommitment
+}
+
 // FundAddressSend funds a virtual transaction, selecting assets to spend in
-// order to pay the given address.
+// order to pay the given address. It also returns supporting data which assists
+// in processing the virtual transaction: passive asset re-anchors and the
+// Taro level commitment of the selected assets.
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
-	receiverAddr address.Taro) (*taropsbt.VPacket,
-	*commitment.TaroCommitment, error) {
+	receiverAddr address.Taro) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a
@@ -144,14 +165,130 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 		GroupKey: receiverAddr.GroupKey,
 		Amount:   receiverAddr.Amount,
 	}
-	anchoredCommitment, err := f.FundPacket(
+	anchoredCommitment, changeInternalKey, err := f.FundPacket(
 		ctx, fundDesc, &receiverAddr.ScriptKey, vPkt,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return vPkt, anchoredCommitment.Commitment, nil
+	// Gather passive assets found in the commitment.
+	passiveCommitments := anchoredCommitment.Commitment.Commitments()
+
+	// Remove input assets (the assets being spent) from list of
+	// assets to re-sign.
+	//
+	// TODO(ffranr): This is a temporary solution. We should remove
+	//  individual asset leaves at this point rather than the whole
+	//  commitment (of a given asset type).
+	for _, vIn := range vPkt.Inputs {
+		delete(passiveCommitments, vIn.Asset().TaroCommitmentKey())
+	}
+	passiveAssets := f.passiveAssets(
+		passiveCommitments, anchoredCommitment.AnchorPoint,
+		changeInternalKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate passive "+
+			"asset virtual packets: %w", err)
+	}
+
+	return &FundedVPacket{
+		VPacket:               vPkt,
+		PassiveAssetReAnchors: passiveAssets,
+		TaroCommitment:        anchoredCommitment.Commitment,
+	}, nil
+}
+
+// passiveAssets gathers virtual packets and other data necessary for
+// re-anchoring passive assets.
+func (f *AssetWallet) passiveAssets(
+	passiveCommitments commitment.AssetCommitments,
+	anchorPoint wire.OutPoint,
+	internalKey *keychain.KeyDescriptor) []*PassiveAssetReAnchor {
+
+	// Create a VPacket for each asset.
+	var passiveAssetsReAnchor []*PassiveAssetReAnchor
+	for _, passiveCommitment := range passiveCommitments {
+		for _, passiveAsset := range passiveCommitment.Assets() {
+			vPkt := f.passiveAssetVPacket(
+				passiveAsset, anchorPoint, internalKey,
+			)
+			reAnchor := &PassiveAssetReAnchor{
+				VPacket:         vPkt,
+				GenesisID:       passiveAsset.ID(),
+				PrevAnchorPoint: anchorPoint,
+				ScriptKey:       passiveAsset.ScriptKey,
+			}
+			passiveAssetsReAnchor = append(
+				passiveAssetsReAnchor, reAnchor,
+			)
+		}
+	}
+
+	return passiveAssetsReAnchor
+}
+
+// passiveAssetVPacket creates a virtual packet for the given passive asset.
+func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
+	anchorPoint wire.OutPoint,
+	internalKey *keychain.KeyDescriptor) *taropsbt.VPacket {
+
+	// Specify virtual input.
+	inputAsset := passiveAsset.Copy()
+	inputPrevId := asset.PrevID{
+		OutPoint: anchorPoint,
+		ID:       inputAsset.ID(),
+		ScriptKey: asset.ToSerialized(
+			inputAsset.ScriptKey.PubKey,
+		),
+	}
+	vInput := taropsbt.VInput{
+		PrevID: inputPrevId,
+	}
+
+	// Specify virtual output.
+	outputAsset := passiveAsset.Copy()
+
+	// Clear the split commitment root, as we'll be transferring the
+	// whole asset.
+	outputAsset.SplitCommitmentRoot = nil
+
+	// Clear the output asset witness data. We'll be creating a new witness.
+	outputAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &inputPrevId,
+	}}
+
+	vOutput := taropsbt.VOutput{
+		Amount: outputAsset.Amount,
+
+		// In this case, the receiver of the output is also the sender.
+		// We therefore set interactive to true to indicate that the
+		// receiver is aware of the transfer.
+		Interactive: true,
+
+		AnchorOutputIndex: 0,
+		ScriptKey:         outputAsset.ScriptKey,
+		Asset:             outputAsset,
+	}
+
+	// Set output internal key.
+	vOutput.SetAnchorInternalKey(
+		*internalKey, f.cfg.ChainParams.HDCoinType,
+	)
+
+	// Create VPacket.
+	vPacket := &taropsbt.VPacket{
+		Inputs:      []*taropsbt.VInput{&vInput},
+		Outputs:     []*taropsbt.VOutput{&vOutput},
+		ChainParams: f.cfg.ChainParams,
+	}
+
+	// Set the input asset. The input asset proof is not provided as it is
+	// not needed for the re-anchoring process.
+	vPacket.SetInputAsset(0, inputAsset, nil)
+
+	return vPacket
 }
 
 // FundPacket funds a virtual transaction, selecting assets to spend in order to
@@ -160,11 +297,12 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 func (f *AssetWallet) FundPacket(ctx context.Context,
 	fundDesc *taroscript.FundingDescriptor,
 	receiverScriptKey *btcec.PublicKey,
-	vPkt *taropsbt.VPacket) (*AnchoredCommitment, error) {
+	vPkt *taropsbt.VPacket) (*AnchoredCommitment,
+	*keychain.KeyDescriptor, error) {
 
 	// The input and address networks must match.
 	if !address.IsForNet(vPkt.ChainParams.TaroHRP, f.cfg.ChainParams) {
-		return nil, address.ErrMismatchedHRP
+		return nil, nil, address.ErrMismatchedHRP
 	}
 
 	// We need to find a commitment that has enough assets to satisfy this
@@ -182,7 +320,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		ctx, constraints,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to complete coin "+
+		return nil, nil, fmt.Errorf("unable to complete coin "+
 			"selection: %w", err)
 	}
 
@@ -197,7 +335,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// something has gone wrong with the DB.
 	internalKey := assetInput.InternalKey
 	if internalKey.Family != asset.TaroKeyFamily {
-		return nil, fmt.Errorf("invalid internal key family "+
+		return nil, nil, fmt.Errorf("invalid internal key family "+
 			"for selected input: %v %v", internalKey.Family,
 			internalKey.Index)
 	}
@@ -209,7 +347,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	anchorPkScript, anchorMerkleRoot, err := inputAnchorPkScript(assetInput)
 	if err != nil {
-		return nil, fmt.Errorf("cannot calculate input asset pk "+
+		return nil, nil, fmt.Errorf("cannot calculate input asset pk "+
 			"script: %w", err)
 	}
 
@@ -226,18 +364,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	}
 	inputProofBlob, err := f.cfg.AssetProofs.FetchProof(ctx, proofLocator)
 	if err != nil {
-		return nil, fmt.Errorf("cannot fetch proof for input asset: %w",
-			err)
+		return nil, nil, fmt.Errorf("cannot fetch proof for input "+
+			"asset: %w", err)
 	}
 	inputProofFile := &proof.File{}
 	err = inputProofFile.Decode(bytes.NewReader(inputProofBlob))
 	if err != nil {
-		return nil, fmt.Errorf("cannot decode proof for input asset: "+
-			"%w", err)
+		return nil, nil, fmt.Errorf("cannot decode proof for input "+
+			"asset: %w", err)
 	}
 	inputProof, err := inputProofFile.RawLastProof()
 	if err != nil {
-		return nil, fmt.Errorf("cannot get last proof for input "+
+		return nil, nil, fmt.Errorf("cannot get last proof for input "+
 			"asset: %w", err)
 	}
 
@@ -275,7 +413,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		*vPkt.Inputs[0].Asset().ScriptKey.PubKey,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// We expect some change back, so let's create a script key to receive
@@ -285,7 +423,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// We'll assume BIP 86 everywhere, and use the tweaked key from
@@ -302,18 +440,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		ctx, asset.TaroKeyFamily,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
 		changeInternalKey, f.cfg.ChainParams.HDCoinType,
 	)
 
 	if err := taroscript.PrepareOutputAssets(vPkt); err != nil {
-		return nil, fmt.Errorf("unable to create split commit: %w",
+		return nil, nil, fmt.Errorf("unable to create split commit: %w",
 			err)
 	}
 
-	return assetInput, nil
+	return assetInput, &changeInternalKey, nil
 }
 
 // SignVirtualPacket signs the virtual transaction of the given packet and

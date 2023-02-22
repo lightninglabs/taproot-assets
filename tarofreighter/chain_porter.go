@@ -562,7 +562,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		packet, inputCommitment, err := p.cfg.AssetWallet.FundAddressSend(
+		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
 			ctx, *currentPkg.Parcel.dest(),
 		)
 		if err != nil {
@@ -570,8 +570,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
-		currentPkg.VirtualPacket = packet
-		currentPkg.InputCommitment = inputCommitment
+		currentPkg.VirtualPacket = fundSendRes.VPacket
+		currentPkg.PassiveAssets = fundSendRes.PassiveAssetReAnchors
+		currentPkg.InputCommitment = fundSendRes.TaroCommitment
 
 		currentPkg.SendState = SendStateVirtualSign
 

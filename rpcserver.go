@@ -1123,13 +1123,13 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("no recipients specified")
 	}
 
-	vPacket, _, err := r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
+	fundedVPacket, err := r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
 	if err != nil {
 		return nil, fmt.Errorf("error funding address send: %w", err)
 	}
 
 	var b bytes.Buffer
-	if err := vPacket.Serialize(&b); err != nil {
+	if err := fundedVPacket.VPacket.Serialize(&b); err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
 

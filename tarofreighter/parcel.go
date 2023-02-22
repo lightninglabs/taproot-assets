@@ -288,6 +288,9 @@ type sendPackage struct {
 	// virtual asset transition transaction.
 	VirtualPacket *taropsbt.VPacket
 
+	// PassiveAssets is the data used in re-anchoring passive assets.
+	PassiveAssets []*PassiveAssetReAnchor
+
 	// Parcel is the asset transfer request that kicked off this transfer.
 	Parcel Parcel
 
