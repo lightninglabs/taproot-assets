@@ -93,7 +93,7 @@ func testReissuance(t *harnessTest) {
 
 	// Reissue one more collectible and half the original mint amount for
 	// the normal asset.
-	reissuedAssets := simpleAssets
+	reissuedAssets := copyRequests(simpleAssets)
 
 	reissuedAssets[0].Amount = normalGroupMintHalf
 	reissuedAssets[0].GroupKey = normalGroupKey
@@ -207,7 +207,7 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 
 	// Now, create a minting request to try and reissue into the group
 	// created during minting.
-	reissueRequest := simpleAssets[0]
+	reissueRequest := copyRequest(simpleAssets[0])
 	reissueRequest.GroupKey = collectGroupKey
 
 	// A request must not have the emission flag set if a group key is given.
