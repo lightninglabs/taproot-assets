@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/tarorpc"
+	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -195,6 +196,45 @@ func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
 
 	resp, err := sender.SendAsset(ctxt, &tarorpc.SendAssetRequest{
 		TaroAddr: receiverAddr.Encoded,
+	})
+	require.NoError(t.t, err)
+
+	return resp
+}
+
+// fundAddressSendPacket asks the wallet to fund a new virtual packet with the
+// given address as the single receiver.
+func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
+	rpcAddr *tarorpc.Addr) *wrpc.FundVirtualPsbtResponse {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := tarod.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
+		Template: &wrpc.FundVirtualPsbtRequest_Raw{
+			Raw: &wrpc.TxTemplate{
+				Recipients: map[string]uint64{
+					rpcAddr.Encoded: 1,
+				},
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	return resp
+}
+
+// signVirtualPacket asks the wallet to sign the given virtual packet.
+func signVirtualPacket(t *harnessTest, tarod *tarodHarness,
+	fundedPacket []byte) *wrpc.SignVirtualPsbtResponse {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := tarod.SignVirtualPsbt(ctxt, &wrpc.SignVirtualPsbtRequest{
+		FundedPsbt: fundedPacket,
 	})
 	require.NoError(t.t, err)
 

@@ -46,4 +46,12 @@ var testCases = []*testCase{
 		name: "mint with group key errors",
 		test: testMintWithGroupKeyErrors,
 	},
+	{
+		name: "psbt script hash lock send",
+		test: testPsbtScriptHashLockSend,
+	},
+	{
+		name: "psbt script check sig send",
+		test: testPsbtScriptCheckSigSend,
+	},
 }
