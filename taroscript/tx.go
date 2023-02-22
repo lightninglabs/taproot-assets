@@ -392,7 +392,8 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 		spendDesc.TapTweak = vIn.TaprootMerkleRoot
 
 	// One leaf hash and a merkle root means we're signing a specific
-	// script.
+	// script. There can be other scripts in the tree, but we only support
+	// creating a signature for a single one at a time.
 	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
 		len(derivation.LeafHashes) == 1:
 
@@ -418,7 +419,6 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 		}
 
 		spendDesc.SignMethod = input.TaprootScriptSpendSignMethod
-		spendDesc.TapTweak = vIn.TaprootMerkleRoot
 		spendDesc.WitnessScript = leafScript.Script
 
 	// Some invalid combination of fields was specified, it's not clear what
