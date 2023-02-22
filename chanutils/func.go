@@ -18,6 +18,18 @@ func Reduce[T any, V any, S []V](s S, f Reducer[T, V]) T {
 	return accum
 }
 
+// Map takes a slice of something, and a mapping function, and produces a new
+// slice of elements of the output type of the mapping function.
+func Map[I, O any, S []I](s S, f func(I) O) []O {
+	output := make([]O, len(s))
+
+	for i, x := range s {
+		output[i] = f(x)
+	}
+
+	return output
+}
+
 // Copyable is a generic interface for a type that's able to return a deep copy
 // of itself.
 type Copyable[T any] interface {

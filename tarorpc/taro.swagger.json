@@ -1197,6 +1197,17 @@
         }
       }
     },
+    "tarorpcListBatchResponse": {
+      "type": "object",
+      "properties": {
+        "batches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcMintingBatch"
+          }
+        }
+      }
+    },
     "tarorpcListGroupsResponse": {
       "type": "object",
       "properties": {
@@ -1316,6 +1327,27 @@
           "type": "string",
           "format": "byte",
           "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
+        }
+      }
+    },
+    "tarorpcMintingBatch": {
+      "type": "object",
+      "properties": {
+        "batch_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal public key of the batch."
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcMintAsset"
+          },
+          "description": "The assets that are part of the batch."
+        },
+        "state": {
+          "type": "string",
+          "description": "The state of the batch."
         }
       }
     },

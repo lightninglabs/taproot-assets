@@ -11,6 +11,12 @@ service Taro {
     */
     rpc MintAsset (MintAssetRequest) returns (MintAssetResponse);
 
+    /* tarocli: `assets batches`
+    ListBatches lists the set of batches submitted to the daemon, including
+    pending and cancelled batches.
+    */
+    rpc ListBatches (ListBatchRequest) returns (ListBatchResponse);
+
     /* tarocli: `assets list`
     ListAssets lists the set of assets owned by the target daemon.
     */
@@ -123,6 +129,7 @@ enum AssetType {
     */
     COLLECTIBLE = 1;
 }
+
 message MintAsset {
     // The type of the asset to be created.
     AssetType asset_type = 1;
@@ -174,6 +181,26 @@ message MintAssetResponse {
     batched into the same minting transaction.
     */
     bytes batch_key = 1;
+}
+
+message MintingBatch {
+    // The internal public key of the batch.
+    bytes batch_key = 1;
+
+    // The assets that are part of the batch.
+    repeated MintAsset assets = 2;
+
+    // The state of the batch.
+    string state = 3;
+}
+
+message ListBatchRequest {
+    // The optional batch key of the batch to list.
+    bytes batch_key = 1;
+}
+
+message ListBatchResponse {
+    repeated MintingBatch batches = 1;
 }
 
 message ListAssetRequest {

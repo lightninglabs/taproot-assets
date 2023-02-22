@@ -22,6 +22,10 @@ type TaroClient interface {
 	//MintAsset will attempts to mint the set of assets (async by default to
 	//ensure proper batching) specified in the request.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
+	// tarocli: `assets batches`
+	//ListBatches lists the set of batches submitted to the daemon, including
+	//pending and cancelled batches.
+	ListBatches(ctx context.Context, in *ListBatchRequest, opts ...grpc.CallOption) (*ListBatchResponse, error)
 	// tarocli: `assets list`
 	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error)
@@ -98,6 +102,15 @@ func NewTaroClient(cc grpc.ClientConnInterface) TaroClient {
 func (c *taroClient) MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error) {
 	out := new(MintAssetResponse)
 	err := c.cc.Invoke(ctx, "/tarorpc.Taro/MintAsset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) ListBatches(ctx context.Context, in *ListBatchRequest, opts ...grpc.CallOption) (*ListBatchResponse, error) {
+	out := new(ListBatchResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/ListBatches", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +292,10 @@ type TaroServer interface {
 	//MintAsset will attempts to mint the set of assets (async by default to
 	//ensure proper batching) specified in the request.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
+	// tarocli: `assets batches`
+	//ListBatches lists the set of batches submitted to the daemon, including
+	//pending and cancelled batches.
+	ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error)
 	// tarocli: `assets list`
 	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error)
@@ -351,6 +368,9 @@ type UnimplementedTaroServer struct {
 
 func (UnimplementedTaroServer) MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MintAsset not implemented")
+}
+func (UnimplementedTaroServer) ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListBatches not implemented")
 }
 func (UnimplementedTaroServer) ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAssets not implemented")
@@ -427,6 +447,24 @@ func _Taro_MintAsset_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaroServer).MintAsset(ctx, req.(*MintAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_ListBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).ListBatches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/ListBatches",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).ListBatches(ctx, req.(*ListBatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -732,6 +770,10 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MintAsset",
 			Handler:    _Taro_MintAsset_Handler,
+		},
+		{
+			MethodName: "ListBatches",
+			Handler:    _Taro_ListBatches_Handler,
 		},
 		{
 			MethodName: "ListAssets",

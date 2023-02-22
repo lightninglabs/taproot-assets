@@ -354,6 +354,50 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 }
 
+// ListBatches lists the set of batches submitted for minting, including pending
+// and cancelled batches.
+func (r *rpcServer) ListBatches(ctx context.Context,
+	req *tarorpc.ListBatchRequest) (*tarorpc.ListBatchResponse, error) {
+
+	var (
+		rpcBatches []*tarorpc.MintingBatch
+		batchKey   *btcec.PublicKey
+		err        error
+	)
+
+	if len(req.BatchKey) != 0 {
+		batchKey, err = btcec.ParsePubKey(req.BatchKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid batch key: %w", err)
+		}
+	}
+
+	switch batchKey == nil {
+	case true:
+		dbBatches, err := r.cfg.MintingStore.FetchNonFinalBatches(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcBatches = chanutils.Map(dbBatches, marshalMintingBatch)
+
+	case false:
+		dbBatch, err := r.cfg.MintingStore.FetchMintingBatch(
+			ctx, batchKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		batch := marshalMintingBatch(dbBatch)
+		rpcBatches = append(rpcBatches, batch)
+	}
+
+	return &tarorpc.ListBatchResponse{
+		Batches: rpcBatches,
+	}, nil
+}
+
 // ListAssets lists the set of assets owned by the target daemon.
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
@@ -1329,6 +1373,34 @@ func marshallSendAssetEvent(
 
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
+	}
+}
+
+// marshalMintingBatch marshals a minting batch into the RPC counterpart.
+func marshalMintingBatch(batch *tarogarden.MintingBatch) *tarorpc.MintingBatch {
+	rpcAssets := make([]*tarorpc.MintAsset, 0, len(batch.Seedlings))
+	for name := range batch.Seedlings {
+		seedling := batch.Seedlings[name]
+		var groupKeyBytes []byte
+		if seedling.HasGroupKey() {
+			groupKey := seedling.GroupInfo.GroupKey
+			groupPubKey := groupKey.GroupPubKey
+			groupKeyBytes = groupPubKey.SerializeCompressed()
+		}
+
+		rpcAssets = append(rpcAssets, &tarorpc.MintAsset{
+			AssetType: tarorpc.AssetType(seedling.AssetType),
+			Name:      seedling.AssetName,
+			MetaData:  seedling.Metadata,
+			Amount:    int64(seedling.Amount),
+			GroupKey:  groupKeyBytes,
+		})
+	}
+
+	return &tarorpc.MintingBatch{
+		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
+		State:    batch.BatchState.String(),
+		Assets:   rpcAssets,
 	}
 }
 
