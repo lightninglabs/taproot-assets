@@ -328,7 +328,16 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
 	// leaves. The witness data for each input will be assigned for us.
 	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
-		err := taroscript.SignVirtualTransaction(
+		// Before we sign the transaction, we want to make sure the
+		// inclusion proof is valid and the asset is actually committed
+		// in the anchor transaction.
+		err := verifyInclusionProof(vPkt.Inputs[idx])
+		if err != nil {
+			return nil, fmt.Errorf("unable to verify inclusion "+
+				"proof: %w", err)
+		}
+
+		err = taroscript.SignVirtualTransaction(
 			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
 		)
 		if err != nil {
@@ -340,6 +349,58 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
 	}
 
 	return signedInputs, nil
+}
+
+// verifyInclusionProof verifies that the given virtual input's asset is
+// actually committed in the anchor transaction.
+func verifyInclusionProof(vIn *taropsbt.VInput) error {
+	proofReader := bytes.NewReader(vIn.Proof())
+	assetProof := &proof.Proof{}
+	if err := assetProof.Decode(proofReader); err != nil {
+		return fmt.Errorf("unable to decode asset proof: %w", err)
+	}
+
+	// Before we look at the inclusion proof, we'll make sure that the input
+	// anchor information matches the proof's anchor transaction.
+	//
+	// TODO(guggero): Also check if the block is in the chain by calling
+	// into ChainBridge.
+	op := vIn.PrevID.OutPoint
+	anchorTxHash := assetProof.AnchorTx.TxHash()
+
+	if op.Hash != anchorTxHash {
+		return fmt.Errorf("proof anchor tx hash doesn't match input " +
+			"anchor outpoint")
+	}
+	if op.Index >= uint32(len(assetProof.AnchorTx.TxOut)) {
+		return fmt.Errorf("input anchor outpoint index out of range")
+	}
+
+	anchorTxOut := assetProof.AnchorTx.TxOut[op.Index]
+	if !bytes.Equal(anchorTxOut.PkScript, vIn.Anchor.PkScript) {
+		return fmt.Errorf("proof anchor tx pk script doesn't match " +
+			"input anchor script")
+	}
+
+	anchorKey, err := proof.ExtractTaprootKeyFromScript(vIn.Anchor.PkScript)
+	if err != nil {
+		return fmt.Errorf("unable to parse anchor pk script taproot "+
+			"key: %w", err)
+	}
+
+	inclusionProof := assetProof.InclusionProof
+	proofKey, _, err := inclusionProof.DeriveByAssetInclusion(
+		vIn.Asset(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to derive inclusion proof: %w", err)
+	}
+
+	if !proofKey.IsEqual(anchorKey) {
+		return fmt.Errorf("proof key doesn't match anchor key")
+	}
+
+	return nil
 }
 
 // AnchorVirtualTransactions creates a BTC level anchor transaction that
