@@ -27,6 +27,10 @@ var testCases = []*testCase{
 		enableHashMail: true,
 	},
 	{
+		name: "basic send passive asset",
+		test: testSendPassiveAsset,
+	},
+	{
 		name: "round trip send",
 		test: testRoundTripSend,
 	},
