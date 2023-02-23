@@ -740,15 +740,14 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 			),
 		}
 	}
-
 	// Depending on what state this batch is in, we'll
 	// either fetch the set of seedlings (asset
 	// descriptions w/ no real assets), or the set of
 	// sprouts (full defined assets, but not yet mined).
 	switch batch.BatchState {
 	case tarogarden.BatchStatePending,
-		tarogarden.BatchStateFrozen:
-
+		tarogarden.BatchStateFrozen,
+		tarogarden.BatchStateSeedlingCancelled:
 		// In this case we can just fetch the set of
 		// descriptions of future assets to be.
 		batch.Seedlings, err = fetchAssetSeedlings(

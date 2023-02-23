@@ -60,6 +60,14 @@ type BatchCaretakerConfig struct {
 	// their batch has been finalized.
 	SignalCompletion func()
 
+	// CancelChan is used by the BatchPlanter to signal that the caretaker
+	// should stop advancing the batch.
+	CancelReqChan chan struct{}
+
+	// CancelRespChan is used by the BatchCaretaker to report the result of
+	// attempted batch cancellation to the planter.
+	CancelRespChan chan CancelResp
+
 	// ErrChan is the main error channel the caretaker will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -127,6 +135,53 @@ func (b *BatchCaretaker) Stop() error {
 	return stopErr
 }
 
+// Cancel signals for a batch caretaker to stop advancing a batch if possible.
+// A batch can only be cancelled if it has not reached BatchStateBroadcast yet.
+func (b *BatchCaretaker) Cancel() CancelResp {
+	ctx, cancel := b.WithCtxQuit()
+	defer cancel()
+
+	batchKey := b.cfg.Batch.BatchKey.PubKey.SerializeCompressed()
+	batchState := b.cfg.Batch.BatchState
+	// This function can only be called before the caretaker state stepping
+	// function, so the batch state read is the next state that has not yet
+	// been executed. Seedlings are converted to asset sprouts in the Frozen
+	// state, and broadcast in the Broadast state.
+	switch batchState {
+	// In the pending state, the batch seedlings have not sprouted yet.
+	case BatchStatePending, BatchStateFrozen:
+		finalBatchState := BatchStateSeedlingCancelled
+		err := b.cfg.Log.UpdateBatchState(
+			ctx, b.cfg.Batch.BatchKey.PubKey,
+			finalBatchState,
+		)
+		if err != nil {
+			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
+				"cancel failed: %w", batchKey, batchState, err)
+		}
+
+		return CancelResp{&finalBatchState, err}
+
+	case BatchStateCommitted:
+		finalBatchState := BatchStateSproutCancelled
+		err := b.cfg.Log.UpdateBatchState(
+			ctx, b.cfg.Batch.BatchKey.PubKey,
+			finalBatchState,
+		)
+		if err != nil {
+			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
+				"cancel failed: %w", batchKey, batchState, err)
+		}
+
+		return CancelResp{&finalBatchState, err}
+
+	default:
+		err := fmt.Errorf("BatchCaretaker(%x), batch not cancellable",
+			b.cfg.Batch.BatchKey.PubKey.SerializeCompressed())
+		return CancelResp{nil, err}
+	}
+}
+
 // advanceStateUntil attempts to advance the internal state machine until the
 // target state has been reached.
 func (b *BatchCaretaker) advanceStateUntil(currentState,
@@ -138,12 +193,28 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 	var terminalState bool
 	for !terminalState {
 		// Before we attempt a state transition, make sure that we
-		// aren't trying to shut down.
+		// aren't trying to shut down or cancel the batch.
 		select {
 		case <-b.Quit:
 			return 0, fmt.Errorf("BatchCaretaker(%x), shutting "+
 				"down", b.batchKey[:])
 
+		case <-b.cfg.CancelReqChan:
+			cancelResp := b.Cancel()
+			b.cfg.CancelRespChan <- cancelResp
+
+			// TODO(jhb): Use concrete error types for caretaker
+			// shutdown cases
+			// If the batch was cancellable, the finalState of the
+			// cancel response will be non-nil. If the cancellation
+			// failed, that error will be handled by the planter.
+			// At this point, the caretaker should always shut down
+			// gracefully.
+			if cancelResp.finalState != nil {
+				return 0, fmt.Errorf("BatchCaretaker(%x), "+
+					"attempted batch cancellation, "+
+					"shutting down", b.batchKey[:])
+			}
 		default:
 		}
 
@@ -237,6 +308,9 @@ func (b *BatchCaretaker) taroCultivator() {
 			// state, then exit.
 			b.cfg.SignalCompletion()
 			return
+
+		case <-b.cfg.CancelReqChan:
+			b.cfg.CancelRespChan <- b.Cancel()
 
 		case <-b.Quit:
 			return
@@ -649,6 +723,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				log.Debugf("Skipping TX confirmation, context " +
 					"done")
 
+			case <-b.cfg.CancelReqChan:
+				b.cfg.CancelRespChan <- b.Cancel()
+
 			case <-b.Quit:
 				log.Debugf("Skipping TX confirmation, exiting")
 				return
@@ -666,6 +743,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			case <-confCtx.Done():
 				log.Debugf("Skipping TX confirmation, context " +
 					"done")
+
+			case <-b.cfg.CancelReqChan:
+				b.cfg.CancelRespChan <- b.Cancel()
 
 			case <-b.Quit:
 				log.Debugf("Skipping TX confirmation, exiting")

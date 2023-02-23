@@ -49,6 +49,14 @@ type Planter interface {
 	// returned.
 	CancelSeedling() error
 
+	// FinalizeBatch signals that the asset minter should finalize
+	// the current batch, if one exists.
+	FinalizeBatch() (*btcec.PublicKey, error)
+
+	// CancelBatch signals that the asset minter should cancel the
+	// current batch, if one exists.
+	CancelBatch() (*btcec.PublicKey, error)
+
 	// Start signals that the asset minter should being operations.
 	Start() error
 
@@ -87,6 +95,14 @@ const (
 	// state the batch has been confirmed on chain, with all assets
 	// created.
 	BatchStateFinalized BatchState = 5
+
+	// BatchStateCancelled denotes that a batch has been cancelled, and
+	// will not be passed to a caretaker.
+	BatchStateSeedlingCancelled BatchState = 6
+
+	// BatchStateSproutedCancelled denotes that a batch has been cancelled
+	// after being passed to a caretaker and sprouting.
+	BatchStateSproutCancelled BatchState = 7
 )
 
 // String returns a human-readable string for the target batch state.
@@ -109,6 +125,12 @@ func (b BatchState) String() string {
 
 	case BatchStateFinalized:
 		return "BatchStateFinalized"
+
+	case BatchStateSeedlingCancelled:
+		return "BatchStateSeedlingCancelled"
+
+	case BatchStateSproutCancelled:
+		return "BatchStateSproutCancelled"
 
 	default:
 		return fmt.Sprintf("UnknownState(%v)", int(b))

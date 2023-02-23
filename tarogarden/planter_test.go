@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -31,8 +32,11 @@ import (
 
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
-var defaultInterval = time.Hour * 24
-var defaultTimeout = time.Second * 5
+var (
+	defaultInterval = time.Hour * 24
+	defaultTimeout  = time.Second * 5
+	minterInterval  = time.Millisecond * 250
+)
 
 // newMintingStore creates a new instance of the TaroAddressBook book.
 func newMintingStore(t *testing.T) tarogarden.MintingStore {
@@ -42,9 +46,7 @@ func newMintingStore(t *testing.T) tarogarden.MintingStore {
 		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor(
-		db, txCreator,
-	)
+	assetDB := tarodb.NewTransactionExecutor(db, txCreator)
 	return tarodb.NewAssetMintingStore(assetDB)
 }
 
@@ -208,13 +210,45 @@ func (t *mintingTestHarness) assertNoPendingBatch() {
 
 // tickMintingBatch first the ticker that forces the planter to create a new
 // batch.
-func (t *mintingTestHarness) tickMintingBatch() {
+func (t *mintingTestHarness) tickMintingBatch(noBatch bool) *btcec.PublicKey {
 	t.Helper()
 
-	ticked, err := t.planter.ForceBatch()
+	batchKey, err := t.planter.FinalizeBatch()
+	if noBatch {
+		require.ErrorContains(t, err, "no pending batch")
+		require.Nil(t, batchKey)
+		return nil
+	}
 
 	require.NoError(t, err)
-	require.True(t, ticked)
+	require.NotNil(t, batchKey)
+	return batchKey
+}
+
+func (t *mintingTestHarness) cancelMintingBatch(noBatch bool) *btcec.PublicKey {
+	t.Helper()
+
+	batchKey, err := t.planter.CancelBatch()
+	if noBatch {
+		require.ErrorContains(t, err, "no pending batch")
+		require.Nil(t, batchKey)
+		return nil
+	}
+
+	if batchKey == nil {
+		require.NotNil(t, err)
+		return nil
+	}
+
+	if err != nil {
+		require.ErrorContains(t, err, "batch not cancellable")
+		require.NotNil(t, batchKey)
+		return batchKey
+	}
+
+	require.NoError(t, err)
+	require.NotNil(t, batchKey)
+	return batchKey
 }
 
 // assertNumCaretakersActive asserts that the specified number of caretakers
@@ -273,14 +307,37 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
 
 // assertSeedlingsExist asserts that all the seedlings are present in the batch.
 func (t *mintingTestHarness) assertSeedlingsExist(
-	seedlings []*tarogarden.Seedling) {
+	seedlings []*tarogarden.Seedling, batchKey *btcec.PublicKey) {
 
 	t.Helper()
+	var pendingBatch *tarogarden.MintingBatch
 
 	pendingBatches, err := t.store.FetchNonFinalBatches(context.Background())
 	require.NoError(t, err)
+	require.True(t, len(pendingBatches) >= 1)
 
-	pendingBatch := pendingBatches[0]
+	matchingBatch := func(batch *tarogarden.MintingBatch) bool {
+		targetKey := asset.ToSerialized(batchKey)
+		candidateKey := asset.ToSerialized(batch.BatchKey.PubKey)
+
+		return bytes.Equal(targetKey[:], candidateKey[:])
+	}
+
+	if batchKey == nil {
+		isNotCancelledBatch := func(batch *tarogarden.MintingBatch) bool {
+			return !isCancelledBatch(batch)
+		}
+		pendingBatch, err = chanutils.First(
+			pendingBatches, isNotCancelledBatch,
+		)
+		require.NoError(t, err)
+	}
+
+	if batchKey != nil {
+		var err error
+		pendingBatch, err = chanutils.First(pendingBatches, matchingBatch)
+		require.NoError(t, err)
+	}
 
 	// The seedlings should match up properly.
 	require.Len(t, pendingBatch.Seedlings, len(seedlings))
@@ -301,6 +358,24 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 	}
 }
 
+func isCancelledBatch(batch *tarogarden.MintingBatch) bool {
+	return batch.BatchState == tarogarden.BatchStateSeedlingCancelled ||
+		batch.BatchState == tarogarden.BatchStateSproutCancelled
+}
+
+func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
+	batchState tarogarden.BatchState) {
+
+	t.Helper()
+
+	batches, err := t.planter.ListBatches(batchKey)
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+
+	batch := batches[0]
+	require.Equal(t, batchState, batch.BatchState)
+}
+
 // assertSeedlingsMatchSprouts asserts that the seedlings were properly matched
 // into actual assets.
 func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
@@ -316,13 +391,17 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 			context.Background(),
 		)
 		require.NoError(t, err)
-		require.Len(t, pendingBatches, 1)
 
-		if pendingBatches[0].BatchState != tarogarden.BatchStateCommitted {
+		// Filter out any cancelled batches.
+		isCommittedBatch := func(batch *tarogarden.MintingBatch) bool {
+			return batch.BatchState == tarogarden.BatchStateCommitted
+		}
+		batch, err := chanutils.First(pendingBatches, isCommittedBatch)
+		if err != nil {
 			return false
 		}
 
-		pendingBatch = pendingBatches[0]
+		pendingBatch = batch
 		return true
 	}, defaultTimeout)
 	require.NoError(
@@ -369,16 +448,22 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 	)
 	require.NoError(t, err, "psbt sign req not sent")
 
+	// TODO(jhb): fix for multibatch?
 	// Next fetch the minting key of the batch.
 	pendingBatches, err := t.store.FetchNonFinalBatches(
 		context.Background(),
 	)
 	require.NoError(t, err)
-	require.Len(t, pendingBatches, 1)
+
+	isNotCancelledBatch := func(batch *tarogarden.MintingBatch) bool {
+		return !isCancelledBatch(batch)
+	}
+	pendingBatch, err := chanutils.First(pendingBatches, isNotCancelledBatch)
+	require.NoError(t, err)
 
 	// The minting key of the batch should match the public key
 	// that was inserted into the wallet.
-	batchKey, _, err := pendingBatches[0].MintingOutputKey()
+	batchKey, _, err := pendingBatch.MintingOutputKey()
 	require.NoError(t, err)
 
 	importedKey, err := chanutils.RecvOrTimeout(
@@ -430,8 +515,6 @@ func (t *mintingTestHarness) assertNoError() {
 // TODO(roasbeef): use wrapper/interceptor on the storage impl to have better
 // assertions?
 func testBasicAssetCreation(t *mintingTestHarness) {
-	t.Helper()
-
 	// First, create a new chain planter instance using the supplied test
 	// harness.
 	t.refreshChainPlanter()
@@ -445,12 +528,11 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// At this point, there should be a single pending batch with 5
 	// seedlings. The batch stored in the log should also match up exactly.
 	t.assertPendingBatchExists(numSeedlings)
-	t.assertSeedlingsExist(seedlings)
+	t.assertSeedlingsExist(seedlings, nil)
 
-	// Now we'll now we'll force a batch tick which should kick off a new
-	// caretaker that starts to progress the batch all the way to
-	// broadcast.
-	t.tickMintingBatch()
+	// Now we'll force a batch tick which should kick off a new caretaker
+	// that starts to progress the batch all the way to broadcast.
+	t.tickMintingBatch(false)
 
 	// We'll now restart the planter to ensure that it's able to properly
 	// resume all the caretakers. We need to sleep for a small amount to
@@ -546,8 +628,6 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 }
 
 func testMintingTicker(t *mintingTestHarness) {
-	t.Helper()
-
 	// First, create a new chain planter instance using the supplied test
 	// harness.
 	t.refreshChainPlanter()
@@ -561,7 +641,7 @@ func testMintingTicker(t *mintingTestHarness) {
 	// At this point, there should be a single pending batch with 5
 	// seedlings. The batch stored in the log should also match up exactly.
 	t.assertPendingBatchExists(numSeedlings)
-	t.assertSeedlingsExist(seedlings)
+	t.assertSeedlingsExist(seedlings, nil)
 
 	// A single caretaker should have been
 	// launched as well. Next, assert that the caretaker has requested a
@@ -626,6 +706,152 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 }
 
+// testBatchCancelFinalize tests that batches can be cancelled and finalized,
+// and that the expected errors are returned when there is no pending batch
+// or cancellation is not possible.
+func testMintingCancelFinalize(t *mintingTestHarness) {
+	// First, create a new chain planter instance using the supplied test
+	// harness.
+	t.refreshChainPlanter()
+
+	// Next make 5 new random seedlings, and queue each of them up within
+	// the main state machine for batched minting.
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(seedlings...)
+
+	// At this point, there should be a single pending batch with 5
+	// seedlings. The batch stored in the log should also match up exactly.
+	t.assertPendingBatchExists(numSeedlings)
+	t.assertSeedlingsExist(seedlings, nil)
+
+	// If we cancel the current batch, the pending batch should be cleared,
+	// but the seedlings should still exist on disk.
+	firstBatchKey := t.cancelMintingBatch(false)
+	t.assertNoPendingBatch()
+	t.assertBatchState(firstBatchKey, tarogarden.BatchStateSeedlingCancelled)
+	t.assertSeedlingsExist(seedlings, firstBatchKey)
+
+	// Requesting batch finalization or cancellation with no pending batch
+	// should return an error without crashing the planter.
+	t.tickMintingBatch(true)
+	t.cancelMintingBatch(true)
+
+	// Next, make another 5 random seedlings and continue with minting.
+	seedlings = t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(seedlings...)
+
+	t.assertPendingBatchExists(numSeedlings)
+	t.assertSeedlingsExist(seedlings, nil)
+
+	// Now, finalize the pending batch to continue with minting.
+	t.tickMintingBatch(false)
+
+	// A single caretaker should have been launched as well. Next, assert
+	// that the caretaker has requested a genesis tx to be funded.
+	_ = t.assertGenesisTxFunded()
+	t.assertNumCaretakersActive(1)
+
+	// For each seedling created above, we expect a new set of keys to be
+	// created for the asset script key and an additional key if emission
+	// was enabled.
+	for i := 0; i < numSeedlings; i++ {
+		t.assertKeyDerived()
+
+		if seedlings[i].EnableEmission {
+			t.assertKeyDerived()
+		}
+	}
+
+	// We should be able to cancel the batch even after it has a caretaker,
+	// and at this point the minting transaction is still being made.
+	secondBatchKey := t.cancelMintingBatch(false)
+	t.assertNoPendingBatch()
+	t.assertBatchState(secondBatchKey, tarogarden.BatchStateSproutCancelled)
+
+	// We can make another 5 random seedlings and continue with minting.
+	seedlings = t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(seedlings...)
+
+	t.assertPendingBatchExists(numSeedlings)
+	t.assertSeedlingsExist(seedlings, nil)
+
+	// Now, finalize the pending batch to continue with minting.
+	thirdBatchKey := t.tickMintingBatch(false)
+	require.NotNil(t, thirdBatchKey)
+
+	_ = t.assertGenesisTxFunded()
+	t.assertNumCaretakersActive(1)
+
+	for i := 0; i < numSeedlings; i++ {
+		t.assertKeyDerived()
+
+		if seedlings[i].EnableEmission {
+			t.assertKeyDerived()
+		}
+	}
+
+	// Now that the batch has been ticked, and the caretaker started, there
+	// should no longer be a pending batch.
+	t.assertNoPendingBatch()
+
+	// If we fetch the pending batch just created on disk, then it should
+	// match up with the seedlings we specified, and also the genesis
+	// transaction sent above.
+	t.assertSeedlingsMatchSprouts(seedlings)
+
+	// We should now transition to the next state where we'll attempt to
+	// sign this PSBT packet generated above.
+	t.assertGenesisPsbtFinalized()
+
+	// With the PSBT packet finalized for the caretaker, we should now
+	// receive a request to publish a transaction followed by a
+	// confirmation request.
+	tx := t.assertTxPublished()
+
+	// With the transaction published, we should now receive a confirmation
+	// request. To ensure the file proof is constructed properly, we'll
+	// also make a "fake" block that includes our transaction.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{tx},
+	}
+	sendConfNtfn := t.assertConfReqSent(tx, block)
+
+	// Once the minting transaction has been published, trying to cancel the
+	// batch should fail with an error from the caretaker.
+	t.assertBatchState(thirdBatchKey, tarogarden.BatchStateBroadcast)
+	cancelResp := t.cancelMintingBatch(false)
+
+	batchKeyEquality := func(a, b *btcec.PublicKey) bool {
+		aBytes := asset.ToSerialized(a)
+		bBytes := asset.ToSerialized(b)
+		return bytes.Equal(aBytes[:], bBytes[:])
+	}
+
+	// Verify that the batch we attempted to cancel is the batch that was
+	// just broadcast.
+	require.True(t, batchKeyEquality(thirdBatchKey, cancelResp))
+
+	// We'll now send the confirmation notification which should result in
+	// the batch being finalized, and the caretaker being cleaned up.
+	sendConfNtfn()
+
+	// This time no error should be sent anywhere as we should've handled
+	// all notifications.
+	t.assertNoError()
+
+	// At this point there should be no active caretakers.
+	t.assertNumCaretakersActive(0)
+}
+
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
@@ -643,8 +869,13 @@ var testCases = []mintingStoreTestCase{
 	},
 	{
 		name:     "creation_by_minting_ticker",
-		interval: time.Second,
+		interval: minterInterval,
 		testFunc: testMintingTicker,
+	},
+	{
+		name:     "minting_with_cancellation",
+		interval: minterInterval,
+		testFunc: testMintingCancelFinalize,
 	},
 }
 
