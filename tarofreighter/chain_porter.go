@@ -595,6 +595,17 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"virtual packet: %w", err)
 		}
 
+		// Sign all the passive assets virtual packets.
+		for _, passiveAsset := range currentPkg.PassiveAssets {
+			_, err := p.cfg.AssetWallet.SignVirtualPacket(
+				passiveAsset.VPacket, SkipInputProofVerify(),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to sign "+
+					"passive asset virtual packet: %w", err)
+			}
+		}
+
 		currentPkg.SendState = SendStateAnchorSign
 
 		return &currentPkg, nil
