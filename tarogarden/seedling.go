@@ -92,10 +92,6 @@ type Seedling struct {
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
 
-	// NoBatch if true, then this asset will be bundled immediately in a
-	// batch without waiting for the normal ticker.
-	NoBatch bool
-
 	// update is used to send updates w.r.t the state of the batch.
 	updates SeedlingUpdates
 }

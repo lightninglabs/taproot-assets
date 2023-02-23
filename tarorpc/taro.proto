@@ -176,12 +176,6 @@ message MintAssetRequest {
     future asset issuance.
     */
     bool enable_emission = 6;
-
-    /*
-    If true, then a batch will be created immediately. Otherwise the asset
-    creation transaction may be batched with other pending minting requests.
-    */
-    bool skip_batch = 7;
 }
 
 message MintAssetResponse {

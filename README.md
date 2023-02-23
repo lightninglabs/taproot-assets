@@ -74,7 +74,7 @@ tarod --help
 Use `tarocli` to interact with `tarod`
 
 ```shell
-tarocli assets mint --type normal --name fantasycoin --supply 100 --meta "fantastic money" --skip_batch
+tarocli assets mint --type normal --name fantasycoin --supply 100 --meta "fantastic money"
 ```
 
 ```shell

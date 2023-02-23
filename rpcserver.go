@@ -349,7 +349,6 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		Metadata:       req.Asset.MetaData,
 		Amount:         uint64(req.Asset.Amount),
 		EnableEmission: req.EnableEmission,
-		NoBatch:        req.SkipBatch,
 	}
 
 	// If a group key is provided, parse the provided group public key

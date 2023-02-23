@@ -35,7 +35,6 @@ var (
 	assetEmissionName = "enable_emission"
 	assetGroupKeyName = "group_key"
 	batchKeyName      = "batch_key"
-	skipBatchName     = "skip_batch"
 	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
 )
@@ -70,10 +69,6 @@ var mintAssetCommand = cli.Command{
 		cli.StringFlag{
 			Name:  assetGroupKeyName,
 			Usage: "the specific group key to use to mint the asset",
-		},
-		cli.BoolFlag{
-			Name:  skipBatchName,
-			Usage: "if true, then the asset will be minted immediately",
 		},
 	},
 	Action: mintAsset,
@@ -123,7 +118,6 @@ func mintAsset(ctx *cli.Context) error {
 			GroupKey:  groupKey,
 		},
 		EnableEmission: ctx.Bool(assetEmissionName),
-		SkipBatch:      ctx.Bool(skipBatchName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to mint asset: %w", err)

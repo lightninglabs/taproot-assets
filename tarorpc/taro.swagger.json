@@ -1453,10 +1453,6 @@
         "enable_emission": {
           "type": "boolean",
           "description": "If true, then the asset will be created with a group key, which allows for\nfuture asset issuance."
-        },
-        "skip_batch": {
-          "type": "boolean",
-          "description": "If true, then a batch will be created immediately. Otherwise the asset\ncreation transaction may be batched with other pending minting requests."
         }
       }
     },

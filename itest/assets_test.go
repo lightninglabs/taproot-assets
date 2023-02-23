@@ -112,18 +112,16 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 	defer cancel()
 
 	// Mint all the assets in the same batch.
-	for idx, assetRequest := range assetRequests {
-		// Trigger a new batch with the last asset. The name SkipBatch
-		// is a bit misleading in this context. It basically means:
-		// Don't allow adding more assets to the batch, ship it now.
-		if idx == len(assetRequests)-1 {
-			assetRequest.SkipBatch = true
-		}
-
+	for _, assetRequest := range assetRequests {
 		assetResp, err := tarod.MintAsset(ctxt, assetRequest)
 		require.NoError(t.t, err)
 		require.NotEmpty(t.t, assetResp.BatchKey)
 	}
+
+	// Instruct the daemon to finalize the batch.
+	batchResp, err := tarod.FinalizeBatch(ctxt, &tarorpc.FinalizeBatchRequest{})
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, batchResp.BatchKey)
 
 	hashes, err := waitForNTxsInMempool(
 		t.lndHarness.Miner.Client, 1, defaultWaitTimeout,
