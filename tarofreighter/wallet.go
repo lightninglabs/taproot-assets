@@ -70,7 +70,8 @@ type Wallet interface {
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
-	SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32, error)
+	SignVirtualPacket(vPkt *taropsbt.VPacket,
+		optFuncs ...SignVirtualPacketOption) ([]uint32, error)
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets. This
@@ -454,28 +455,64 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	return assetInput, &changeInternalKey, nil
 }
 
+// SignVirtualPacketOptions is a set of functional options that allow callers to
+// further modify the virtual packet signing process.
+type SignVirtualPacketOptions struct {
+	// SkipInputProofVerify skips virtual input proof verification when true.
+	SkipInputProofVerify bool
+}
+
+// defaultSignVirtualPacketOptions returns the set of default options for the
+// virtual packet signing function.
+func defaultSignVirtualPacketOptions() *SignVirtualPacketOptions {
+	return &SignVirtualPacketOptions{}
+}
+
+// SignVirtualPacketOption is a functional option that allows a caller to modify
+// the virtual packet signing process.
+type SignVirtualPacketOption func(*SignVirtualPacketOptions)
+
+// SkipInputProofVerify sets an optional argument flag such that
+// SignVirtualPacket skips virtual input proof verification.
+func SkipInputProofVerify() SignVirtualPacketOption {
+	return func(o *SignVirtualPacketOptions) {
+		o.SkipInputProofVerify = true
+	}
+}
+
 // SignVirtualPacket signs the virtual transaction of the given packet and
 // returns the input indexes that were signed (referring to the virtual
 // transaction's inputs).
 //
 // NOTE: This is part of the Wallet interface.
-func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
-	error) {
+func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket,
+	optFuncs ...SignVirtualPacketOption) ([]uint32, error) {
+
+	opts := defaultSignVirtualPacketOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
 
 	// Now we'll use the signer to sign all the inputs for the new taro
 	// leaves. The witness data for each input will be assigned for us.
 	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
-		// Before we sign the transaction, we want to make sure the
-		// inclusion proof is valid and the asset is actually committed
-		// in the anchor transaction.
-		err := verifyInclusionProof(vPkt.Inputs[idx])
-		if err != nil {
-			return nil, fmt.Errorf("unable to verify inclusion "+
-				"proof: %w", err)
+		// Conditionally skip the inclusion proof verification. We may
+		// not need to verify the input proof if we're only using the
+		// input to generate a new virtual output proof during
+		// re-anchoring.
+		if !opts.SkipInputProofVerify {
+			// Before we sign the transaction, we want to make sure
+			// the inclusion proof is valid and the asset is
+			// actually committed in the anchor transaction.
+			err := verifyInclusionProof(vPkt.Inputs[idx])
+			if err != nil {
+				return nil, fmt.Errorf("unable to verify "+
+					"inclusion proof: %w", err)
+			}
 		}
 
-		err = taroscript.SignVirtualTransaction(
+		err := taroscript.SignVirtualTransaction(
 			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
 		)
 		if err != nil {
