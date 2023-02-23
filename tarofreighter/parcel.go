@@ -482,6 +482,91 @@ func (s *sendPackage) createProofs() (*proof.Proof, *proof.Proof, error) {
 	return senderProof, receiverProof, nil
 }
 
+// createReAnchorProof creates the new proof for the re-anchoring of a passive
+// asset.
+func (s *sendPackage) createReAnchorProof(vPkt *taropsbt.VPacket) (*proof.Proof,
+	error) {
+
+	vIn := vPkt.Inputs[0]
+	vOut := vPkt.Outputs[0]
+
+	outputCommitments := s.AnchorTx.OutputCommitments
+
+	// Create the exclusion proof for the receiver's tree.
+	// TODO(ffranr): Remove static output index once PSBT work is complete.
+	receiverOutputIndex := uint32(1)
+	receiverTaroTree := outputCommitments[receiverOutputIndex]
+	receiverOut := s.VirtualPacket.Outputs[receiverOutputIndex]
+
+	_, receiverTreeExclusionProof, err := receiverTaroTree.Proof(
+		vIn.Asset().TaroCommitmentKey(),
+		vIn.Asset().AssetCommitmentKey(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating exclusion proof for "+
+			"re-anchor: %w", err)
+	}
+
+	receiverTaprootProof := proof.TaprootProof{
+		OutputIndex: receiverOutputIndex,
+		InternalKey: receiverOut.AnchorOutputInternalKey,
+		CommitmentProof: &proof.CommitmentProof{
+			Proof: *receiverTreeExclusionProof,
+		},
+	}
+
+	// Fetch the new Taro tree for the passive asset.
+	passiveAssetTaroTree := outputCommitments[vOut.AnchorOutputIndex]
+
+	// Create the base proof parameters for the re-anchor.
+	baseProofParams := proof.BaseProofParams{
+		Block: &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{
+				s.AnchorTx.FinalTx,
+			},
+		},
+		Tx:              s.AnchorTx.FinalTx,
+		OutputIndex:     int(vOut.AnchorOutputIndex),
+		InternalKey:     vOut.AnchorOutputInternalKey,
+		TaroRoot:        passiveAssetTaroTree,
+		ExclusionProofs: []proof.TaprootProof{receiverTaprootProof},
+	}
+
+	// Add exclusion proof(s) for any P2TR change outputs.
+	if s.AnchorTx.FundedPsbt.ChangeOutputIndex > -1 {
+		isAnchor := func(idx uint32) bool {
+			// We exclude both sender and receiver
+			// commitments because those get their own,
+			// individually created exclusion proofs.
+			return idx == vOut.AnchorOutputIndex ||
+				idx == receiverOutputIndex
+		}
+
+		err := proof.AddExclusionProofs(
+			&baseProofParams, s.AnchorTx.FundedPsbt.Pkt, isAnchor,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error adding exclusion "+
+				"proof for change output: %w", err)
+		}
+	}
+
+	// Generate a proof of this new state transition.
+	transitionParams := proof.TransitionParams{
+		BaseProofParams: baseProofParams,
+		NewAsset:        vOut.Asset,
+	}
+	reAnchorProof, err := proof.CreateTransitionProof(
+		vIn.PrevID.OutPoint, &transitionParams,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating re-anchor proof: %w",
+			err)
+	}
+
+	return reAnchorProof, nil
+}
+
 // deliverTxBroadcastResp delivers a response for the parcel back to the
 // receiver over the response channel.
 func (s *sendPackage) deliverTxBroadcastResp() {

@@ -710,6 +710,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
+		// Gather newly generated data required for re-anchoring passive
+		// assets.
+		for _, passiveAsset := range currentPkg.PassiveAssets {
+			// Generate passive asset re-anchoring proofs.
+			newProof, err := currentPkg.createReAnchorProof(
+				passiveAsset.VPacket,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create "+
+					"re-anchor proof: %w", err)
+			}
+
+			passiveAsset.NewProof = newProof
+
+			vOut := passiveAsset.VPacket.Outputs[0]
+			passiveAsset.NewWitnessData = vOut.Asset.PrevWitnesses
+		}
+
 		// Before we can broadcast, we want to find out the current height to
 		// pass as a height hint.
 		ctx, cancel := p.WithCtxQuit()
