@@ -19,9 +19,15 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TaroClient interface {
 	// tarocli: `assets mint`
-	//MintAsset will attempts to mint the set of assets (async by default to
+	//MintAsset will attempt to mint the set of assets (async by default to
 	//ensure proper batching) specified in the request.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
+	// tarocli: `assets mint finalize`
+	//FinalizeBatch will attempt to finalize the current pending batch.
+	FinalizeBatch(ctx context.Context, in *FinalizeBatchRequest, opts ...grpc.CallOption) (*FinalizeBatchResponse, error)
+	// tarocli: `assets mint cancel`
+	//CancelBatch will attempt to cancel the current pending batch.
+	CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error)
 	// tarocli: `assets batches`
 	//ListBatches lists the set of batches submitted to the daemon, including
 	//pending and cancelled batches.
@@ -102,6 +108,24 @@ func NewTaroClient(cc grpc.ClientConnInterface) TaroClient {
 func (c *taroClient) MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error) {
 	out := new(MintAssetResponse)
 	err := c.cc.Invoke(ctx, "/tarorpc.Taro/MintAsset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) FinalizeBatch(ctx context.Context, in *FinalizeBatchRequest, opts ...grpc.CallOption) (*FinalizeBatchResponse, error) {
+	out := new(FinalizeBatchResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/FinalizeBatch", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taroClient) CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error) {
+	out := new(CancelBatchResponse)
+	err := c.cc.Invoke(ctx, "/tarorpc.Taro/CancelBatch", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -289,9 +313,15 @@ func (x *taroSubscribeSendAssetEventNtfnsClient) Recv() (*SendAssetEvent, error)
 // for forward compatibility
 type TaroServer interface {
 	// tarocli: `assets mint`
-	//MintAsset will attempts to mint the set of assets (async by default to
+	//MintAsset will attempt to mint the set of assets (async by default to
 	//ensure proper batching) specified in the request.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
+	// tarocli: `assets mint finalize`
+	//FinalizeBatch will attempt to finalize the current pending batch.
+	FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error)
+	// tarocli: `assets mint cancel`
+	//CancelBatch will attempt to cancel the current pending batch.
+	CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error)
 	// tarocli: `assets batches`
 	//ListBatches lists the set of batches submitted to the daemon, including
 	//pending and cancelled batches.
@@ -368,6 +398,12 @@ type UnimplementedTaroServer struct {
 
 func (UnimplementedTaroServer) MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MintAsset not implemented")
+}
+func (UnimplementedTaroServer) FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FinalizeBatch not implemented")
+}
+func (UnimplementedTaroServer) CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelBatch not implemented")
 }
 func (UnimplementedTaroServer) ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBatches not implemented")
@@ -447,6 +483,42 @@ func _Taro_MintAsset_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaroServer).MintAsset(ctx, req.(*MintAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_FinalizeBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).FinalizeBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/FinalizeBatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).FinalizeBatch(ctx, req.(*FinalizeBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Taro_CancelBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaroServer).CancelBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tarorpc.Taro/CancelBatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaroServer).CancelBatch(ctx, req.(*CancelBatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -770,6 +842,14 @@ var Taro_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MintAsset",
 			Handler:    _Taro_MintAsset_Handler,
+		},
+		{
+			MethodName: "FinalizeBatch",
+			Handler:    _Taro_FinalizeBatch_Handler,
+		},
+		{
+			MethodName: "CancelBatch",
+			Handler:    _Taro_CancelBatch_Handler,
 		},
 		{
 			MethodName: "ListBatches",

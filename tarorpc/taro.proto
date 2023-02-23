@@ -6,10 +6,20 @@ option go_package = "github.com/lightninglabs/taro/tarorpc";
 
 service Taro {
     /* tarocli: `assets mint`
-    MintAsset will attempts to mint the set of assets (async by default to
+    MintAsset will attempt to mint the set of assets (async by default to
     ensure proper batching) specified in the request.
     */
     rpc MintAsset (MintAssetRequest) returns (MintAssetResponse);
+
+    /* tarocli: `assets mint finalize`
+    FinalizeBatch will attempt to finalize the current pending batch.
+    */
+    rpc FinalizeBatch (FinalizeBatchRequest) returns (FinalizeBatchResponse);
+
+    /* tarocli: `assets mint cancel`
+    CancelBatch will attempt to cancel the current pending batch.
+    */
+    rpc CancelBatch (CancelBatchRequest) returns (CancelBatchResponse);
 
     /* tarocli: `assets batches`
     ListBatches lists the set of batches submitted to the daemon, including
@@ -202,6 +212,24 @@ enum BatchState {
     BATCH_STATE_BROADCAST = 4;
     BATCH_STATE_CONFIRMED = 5;
     BATCH_STATE_FINALIZED = 6;
+    BATCH_STATE_SEEDLING_CANCELLED = 7;
+    BATCH_STATE_SPROUT_CANCELLED = 8;
+}
+
+message FinalizeBatchRequest {
+}
+
+message FinalizeBatchResponse {
+    // The internal public key of the batch.
+    bytes batch_key = 1;
+}
+
+message CancelBatchRequest {
+}
+
+message CancelBatchResponse {
+    // The internal public key of the batch.
+    bytes batch_key = 1;
 }
 
 message ListBatchRequest {

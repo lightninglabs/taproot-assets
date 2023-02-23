@@ -59,7 +59,19 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/tarorpc.Taro/FinalizeBatch": {{
+			Entity: "assets",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/CancelBatch": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/tarorpc.Taro/ListAssets": {{
+			Entity: "assets",
+			Action: "read",
+		}},
+		"/tarorpc.Taro/ListBatches": {{
 			Entity: "assets",
 			Action: "read",
 		}},
@@ -376,6 +388,48 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			BatchKey: update.BatchKey.SerializeCompressed(),
 		}, nil
 	}
+}
+
+// TODO(jhb): FinalizeBatch and CancelBatch calls
+
+// FinalizeBatch attempts to finalize the current pending batch.
+func (r *rpcServer) FinalizeBatch(ctx context.Context,
+	req *tarorpc.FinalizeBatchRequest) (*tarorpc.FinalizeBatchResponse,
+	error) {
+
+	batchKey, err := r.cfg.AssetMinter.FinalizeBatch()
+	if err != nil {
+		return nil, fmt.Errorf("unable to finalize batch: %w", err)
+	}
+
+	// If there was no batch to finalize, return an empty response.
+	if batchKey == nil {
+		return &tarorpc.FinalizeBatchResponse{}, nil
+	}
+
+	return &tarorpc.FinalizeBatchResponse{
+		BatchKey: batchKey.SerializeCompressed(),
+	}, nil
+}
+
+// CancelBatch attempts to cancel the current pending batch.
+func (r *rpcServer) CancelBatch(ctx context.Context,
+	req *tarorpc.CancelBatchRequest) (*tarorpc.CancelBatchResponse,
+	error) {
+
+	batchKey, err := r.cfg.AssetMinter.CancelBatch()
+	if err != nil {
+		return nil, fmt.Errorf("unable to cancel batch: %w", err)
+	}
+
+	// If there was no batch to cancel, return an empty response.
+	if batchKey == nil {
+		return &tarorpc.CancelBatchResponse{}, nil
+	}
+
+	return &tarorpc.CancelBatchResponse{
+		BatchKey: batchKey.SerializeCompressed(),
+	}, nil
 }
 
 // ListBatches lists the set of batches submitted for minting, including pending
@@ -1583,6 +1637,12 @@ func marshalBatchState(batch *tarogarden.MintingBatch) tarorpc.BatchState {
 
 	case tarogarden.BatchStateFinalized:
 		return tarorpc.BatchState_BATCH_STATE_FINALIZED
+
+	case tarogarden.BatchStateSeedlingCancelled:
+		return tarorpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED
+
+	case tarogarden.BatchStateSproutCancelled:
+		return tarorpc.BatchState_BATCH_STATE_SPROUT_CANCELLED
 
 	default:
 		return tarorpc.BatchState_BATCH_STATE_UNKNOWN
