@@ -203,7 +203,7 @@ func (t *treeStoreWrapperTx) Update(ctx context.Context,
 
 // View re-uses an existing transaction to view the SMT tree.
 func (t *treeStoreWrapperTx) View(ctx context.Context,
-	update func(tx mssmt.TreeStoreViewTx) error) error {
+	view func(tx mssmt.TreeStoreViewTx) error) error {
 
 	viewTx := &taroTreeStoreTx{
 		ctx:       ctx,
@@ -211,7 +211,7 @@ func (t *treeStoreWrapperTx) View(ctx context.Context,
 		namespace: t.namespace,
 	}
 
-	return update(viewTx)
+	return view(viewTx)
 }
 
 // upsertAssetGen attempts to insert an asset genesis if it doesn't already
@@ -472,6 +472,8 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 	if dbErr != nil {
 		return nil, dbErr
 	}
+
+	// TODO(roasbeef): need nicer error
 
 	return proofs, nil
 }

@@ -1,11 +1,18 @@
 CREATE TABLE IF NOT EXISTS universe_roots (
     id INTEGER PRIMARY KEY,
 
-    namespace_root VARCHAR NOT NULL REFERENCES mssmt_roots(namespace) UNIQUE,
+    -- For the namespace root, we set the foreign key constraint evaluation to
+    -- be deferred until after the database transaction ends. Otherwise, if the
+    -- root of the SMT is deleted temporarily before inserting a new root, then
+    -- this constraint is violated as there's no longer a root that this
+    -- universe tree can point to.
+    namespace_root VARCHAR NOT NULL REFERENCES mssmt_roots(namespace) DEFERRABLE INITIALLY DEFERRED,
 
     asset_id BLOB,
 
-    group_key BLOB
+    group_key BLOB,
+
+    UNIQUE(namespace_root)
 );
 
 CREATE TABLE IF NOT EXISTS universe_leaves (
@@ -23,5 +30,5 @@ CREATE TABLE IF NOT EXISTS universe_leaves (
     
     leaf_node_namespace VARCHAR NOT NULL,
 
-    UNIQUE(asset_genesis_id, universe_root_id)
+    UNIQUE(minting_point, script_key_bytes)
 );
