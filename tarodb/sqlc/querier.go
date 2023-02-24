@@ -25,6 +25,7 @@ type Querier interface {
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
+	DeletePendingPassiveAsset(ctx context.Context, prevOutpoint []byte) error
 	DeleteSpendProofs(ctx context.Context, transferID int32) error
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error)
@@ -70,6 +71,7 @@ type Querier interface {
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
+	InsertPendingPassiveAsset(ctx context.Context, arg InsertPendingPassiveAssetParams) error
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error)
@@ -91,6 +93,7 @@ type Querier interface {
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
+	QueryPendingPassiveAssets(ctx context.Context, prevOutpoint []byte) ([]QueryPendingPassiveAssetsRow, error)
 	QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error)
 	ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error

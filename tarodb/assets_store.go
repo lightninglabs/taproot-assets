@@ -238,6 +238,22 @@ type ActiveAssetsStore interface {
 	// to receiver proof delivery attempts.
 	QueryReceiverProofTransferAttempt(ctx context.Context,
 		proofLocatorHash []byte) ([]time.Time, error)
+
+	// InsertPendingPassiveAsset inserts a new row which includes the data
+	// necessary to re-anchor a passive asset.
+	InsertPendingPassiveAsset(ctx context.Context,
+		arg sqlc.InsertPendingPassiveAssetParams) error
+
+	// QueryPendingPassiveAssets returns the data required to re-anchor
+	// pending passive assets that are anchored at the given outpoint.
+	QueryPendingPassiveAssets(ctx context.Context,
+		prevOutpoint []byte) ([]sqlc.QueryPendingPassiveAssetsRow,
+		error)
+
+	// DeletePendingPassiveAsset deletes pending passive asset entries given
+	// their on-chain outpoint.
+	DeletePendingPassiveAsset(ctx context.Context,
+		prevOutpoint []byte) error
 }
 
 type InsertRecvProofTxAttemptParams = sqlc.InsertReceiverProofTransferAttemptParams

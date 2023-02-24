@@ -205,6 +205,15 @@ type MssmtRoot struct {
 	RootHash  []byte
 }
 
+type PendingPassiveAsset struct {
+	PendingID       int32
+	AssetID         int32
+	PrevOutpoint    []byte
+	ScriptKey       []byte
+	NewWitnessStack []byte
+	NewProof        []byte
+}
+
 type ReceiverProofTransferAttempt struct {
 	ProofLocatorHash []byte
 	TimeUnix         time.Time

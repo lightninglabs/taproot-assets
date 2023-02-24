@@ -56,6 +56,16 @@ func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	return err
 }
 
+const deletePendingPassiveAsset = `-- name: DeletePendingPassiveAsset :exec
+DELETE FROM pending_passive_asset
+WHERE prev_outpoint = $1
+`
+
+func (q *Queries) DeletePendingPassiveAsset(ctx context.Context, prevOutpoint []byte) error {
+	_, err := q.db.ExecContext(ctx, deletePendingPassiveAsset, prevOutpoint)
+	return err
+}
+
 const deleteSpendProofs = `-- name: DeleteSpendProofs :exec
 DELETE FROM transfer_proofs
 WHERE transfer_id = $1
@@ -290,6 +300,48 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 	return id, err
 }
 
+const insertPendingPassiveAsset = `-- name: InsertPendingPassiveAsset :exec
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+        JOIN genesis_assets
+            ON assets.genesis_id = genesis_assets.gen_asset_id
+        JOIN managed_utxos utxos
+            ON assets.anchor_utxo_id = utxos.utxo_id
+        JOIN script_keys
+            ON assets.script_key_id = script_keys.script_key_id
+    WHERE genesis_assets.asset_id = $5
+        AND utxos.outpoint = $1
+        AND script_keys.tweaked_script_key = $2
+)
+INSERT INTO pending_passive_asset (
+    asset_id, prev_outpoint, script_key, new_witness_stack,
+    new_proof
+) VALUES (
+    (SELECT asset_id FROM target_asset), $1,
+          $2, $3, $4
+)
+`
+
+type InsertPendingPassiveAssetParams struct {
+	PrevOutpoint    []byte
+	ScriptKey       []byte
+	NewWitnessStack []byte
+	NewProof        []byte
+	AssetGenesisID  []byte
+}
+
+func (q *Queries) InsertPendingPassiveAsset(ctx context.Context, arg InsertPendingPassiveAssetParams) error {
+	_, err := q.db.ExecContext(ctx, insertPendingPassiveAsset,
+		arg.PrevOutpoint,
+		arg.ScriptKey,
+		arg.NewWitnessStack,
+		arg.NewProof,
+		arg.AssetGenesisID,
+	)
+	return err
+}
+
 const insertReceiverProofTransferAttempt = `-- name: InsertReceiverProofTransferAttempt :exec
 INSERT INTO receiver_proof_transfer_attempts (
     proof_locator_hash, time_unix
@@ -411,6 +463,54 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 			&i.TransferID,
 			&i.HeightHint,
 			&i.TransferTimeUnix_2,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryPendingPassiveAssets = `-- name: QueryPendingPassiveAssets :many
+SELECT passive.asset_id, passive.script_key, passive.new_witness_stack,
+       passive.new_proof, genesis_info_view.asset_id AS genesis_id
+FROM pending_passive_asset as passive
+    JOIN assets
+        ON passive.asset_id = assets.asset_id
+    JOIN genesis_info_view
+        ON assets.genesis_id = genesis_info_view.gen_asset_id
+WHERE prev_outpoint = $1
+`
+
+type QueryPendingPassiveAssetsRow struct {
+	AssetID         int32
+	ScriptKey       []byte
+	NewWitnessStack []byte
+	NewProof        []byte
+	GenesisID       []byte
+}
+
+func (q *Queries) QueryPendingPassiveAssets(ctx context.Context, prevOutpoint []byte) ([]QueryPendingPassiveAssetsRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryPendingPassiveAssets, prevOutpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryPendingPassiveAssetsRow
+	for rows.Next() {
+		var i QueryPendingPassiveAssetsRow
+		if err := rows.Scan(
+			&i.AssetID,
+			&i.ScriptKey,
+			&i.NewWitnessStack,
+			&i.NewProof,
+			&i.GenesisID,
 		); err != nil {
 			return nil, err
 		}
