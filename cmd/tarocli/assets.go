@@ -35,6 +35,8 @@ var (
 	assetEmissionName = "enable_emission"
 	assetGroupKeyName = "group_key"
 	batchKeyName      = "batch_key"
+	FinalizeBatchName = "finalize_batch"
+	cancelBatchName   = "cancel_batch"
 	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
 )
@@ -72,6 +74,10 @@ var mintAssetCommand = cli.Command{
 		},
 	},
 	Action: mintAsset,
+	Subcommands: []cli.Command{
+		finalizeBatchCommand,
+		cancelBatchCommand,
+	},
 }
 
 func parseAssetType(ctx *cli.Context) tarorpc.AssetType {
@@ -121,6 +127,50 @@ func mintAsset(ctx *cli.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to mint asset: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var finalizeBatchCommand = cli.Command{
+	Name:        "finalize",
+	ShortName:   "f",
+	Usage:       "finalize a batch",
+	Description: "Attempt to finalize a pending batch.",
+	Action:      finalizeBatch,
+}
+
+func finalizeBatch(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.FinalizeBatch(ctxc, &tarorpc.FinalizeBatchRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to finalize batch: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var cancelBatchCommand = cli.Command{
+	Name:        "cancel",
+	ShortName:   "c",
+	Usage:       "cancel a batch",
+	Description: "Attempt to cancel a pending batch.",
+	Action:      cancelBatch,
+}
+
+func cancelBatch(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.CancelBatch(ctxc, &tarorpc.CancelBatchRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to cancel batch: %w", err)
 	}
 
 	printRespJSON(resp)

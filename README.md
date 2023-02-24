@@ -75,6 +75,7 @@ Use `tarocli` to interact with `tarod`
 
 ```shell
 tarocli assets mint --type normal --name fantasycoin --supply 100 --meta "fantastic money"
+tarocli mint finalize
 ```
 
 ```shell
