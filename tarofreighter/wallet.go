@@ -62,7 +62,7 @@ type Wallet interface {
 	// to the given virtual transaction.
 	FundPacket(ctx context.Context, fundDesc *taroscript.FundingDescriptor,
 		receiverScriptKey *btcec.PublicKey,
-		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
+		vPkt *taropsbt.VPacket) (*AnchoredCommitment, error)
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
@@ -144,14 +144,14 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 		GroupKey: receiverAddr.GroupKey,
 		Amount:   receiverAddr.Amount,
 	}
-	inputCommitment, err := f.FundPacket(
+	anchoredCommitment, err := f.FundPacket(
 		ctx, fundDesc, &receiverAddr.ScriptKey, vPkt,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return vPkt, inputCommitment, nil
+	return vPkt, anchoredCommitment.Commitment, nil
 }
 
 // FundPacket funds a virtual transaction, selecting assets to spend in order to
@@ -160,7 +160,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 func (f *AssetWallet) FundPacket(ctx context.Context,
 	fundDesc *taroscript.FundingDescriptor,
 	receiverScriptKey *btcec.PublicKey,
-	vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error) {
+	vPkt *taropsbt.VPacket) (*AnchoredCommitment, error) {
 
 	// The input and address networks must match.
 	if !address.IsForNet(vPkt.ChainParams.TaroHRP, f.cfg.ChainParams) {
@@ -313,7 +313,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			err)
 	}
 
-	return assetInput.Commitment, nil
+	return assetInput, nil
 }
 
 // SignVirtualPacket signs the virtual transaction of the given packet and
