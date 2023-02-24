@@ -270,8 +270,6 @@ func (c *ChainPlanter) Start() error {
 		// new minting requests.
 		c.Wg.Add(1)
 		go c.gardener()
-
-		c.cfg.BatchTicker.Resume()
 	})
 
 	return startErr

@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -307,14 +306,6 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 		return nil
 	})
-
-	var errUnique *ErrSqlUniqueConstraintViolation
-	if errors.As(err, &errUnique) && strings.Contains(
-		errUnique.DbError.Error(), "asset_name",
-	) {
-
-		return tarogarden.ErrDuplicateSeedlingName
-	}
 
 	return err
 }

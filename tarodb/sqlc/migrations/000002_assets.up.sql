@@ -241,7 +241,7 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     -- TODO(roasbeef): data redundant w/ genesis_assets?
     -- move into asset details table?
-    asset_name TEXT UNIQUE NOT NULL,
+    asset_name TEXT NOT NULL,
 
     asset_type SMALLINT NOT NULL,
 

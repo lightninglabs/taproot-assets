@@ -643,9 +643,23 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.assertPendingBatchExists(numSeedlings)
 	t.assertSeedlingsExist(seedlings, nil)
 
-	// A single caretaker should have been
-	// launched as well. Next, assert that the caretaker has requested a
-	// genesis tx to be funded.
+	// If we cancel the current batch, the pending batch should be cleared,
+	// but the seedlings should still exist on disk. Requesting batch
+	// finalization should not change anything in the planter.
+	t.cancelMintingBatch(false)
+	t.assertNoPendingBatch()
+
+	// Next, make another 5 seedlings and continue with minting.
+	// One seedling is a duplicate of a seedling from the cancelled batch,
+	// to ensure that we can store multiple versions of the same seedling.
+	seedlings = t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(seedlings...)
+
+	// Next, finalize the pending batch to continue with minting.
+	t.tickMintingBatch(false)
+
+	// A single caretaker should have been launched as well. Next, assert
+	// that the caretaker has requested a genesis tx to be funded.
 	_ = t.assertGenesisTxFunded()
 	t.assertNumCaretakersActive(1)
 
@@ -719,6 +733,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	const numSeedlings = 5
 	seedlings := t.newRandSeedlings(numSeedlings)
 	t.queueSeedlingsInBatch(seedlings...)
+	firstSeedling := seedlings[0]
 
 	// At this point, there should be a single pending batch with 5
 	// seedlings. The batch stored in the log should also match up exactly.
@@ -739,10 +754,19 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// Next, make another 5 random seedlings and continue with minting.
 	seedlings = t.newRandSeedlings(numSeedlings)
+	seedlings[0] = firstSeedling
 	t.queueSeedlingsInBatch(seedlings...)
 
 	t.assertPendingBatchExists(numSeedlings)
 	t.assertSeedlingsExist(seedlings, nil)
+
+	// If we attempt to queue a seedling with the same name as a pending
+	// seedling, the planter should reject it.
+	updates, err := t.planter.QueueNewSeedling(firstSeedling)
+	require.NoError(t, err)
+	planterErr := <-updates
+	require.NotNil(t, planterErr.Error)
+	require.ErrorContains(t, planterErr.Error, "already in batch")
 
 	// Now, finalize the pending batch to continue with minting.
 	t.tickMintingBatch(false)
