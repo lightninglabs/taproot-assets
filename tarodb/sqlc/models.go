@@ -239,3 +239,20 @@ type TransferProof struct {
 	SenderProof   []byte
 	ReceiverProof []byte
 }
+
+type UniverseLeafe struct {
+	ID                int32
+	AssetGenesisID    int32
+	MintingPoint      []byte
+	ScriptKeyBytes    []byte
+	UniverseRootID    int32
+	LeafNodeKey       []byte
+	LeafNodeNamespace string
+}
+
+type UniverseRoot struct {
+	ID            int32
+	NamespaceRoot string
+	AssetID       []byte
+	GroupKey      []byte
+}

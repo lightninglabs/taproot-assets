@@ -26,6 +26,41 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 	return result.RowsAffected()
 }
 
+const fetchAllNodes = `-- name: FetchAllNodes :many
+SELECT hash_key, l_hash_key, r_hash_key, key, value, sum, namespace FROM mssmt_nodes
+`
+
+func (q *Queries) FetchAllNodes(ctx context.Context) ([]MssmtNode, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAllNodes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MssmtNode
+	for rows.Next() {
+		var i MssmtNode
+		if err := rows.Scan(
+			&i.HashKey,
+			&i.LHashKey,
+			&i.RHashKey,
+			&i.Key,
+			&i.Value,
+			&i.Sum,
+			&i.Namespace,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchChildren = `-- name: FetchChildren :many
 WITH RECURSIVE mssmt_branches_cte (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth
