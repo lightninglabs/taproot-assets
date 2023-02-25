@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -346,8 +346,10 @@ func assertGroups(t *harnessTest, issuableAssets []*tarorpc.MintAssetRequest) {
 	equalityCheck(issuableAssets[1].Asset, groupedAssets[1])
 }
 
-// testMintAssetNameCollisionError tests that an error is produced when
-// attempting to mint an asset whose name collides with an existing minted asset.
+// testMintAssetNameCollisionError tests that no error is produced when
+// attempting to mint an asset whose name collides with an existing minted asset
+// or an asset from a cancelled minting batch. An error should be produced
+// when asset names collide within the same minting batch.
 func testMintAssetNameCollisionError(t *harnessTest) {
 	// Asset name which will be common between minted asset and colliding
 	// asset.
@@ -368,9 +370,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// Ensure minted asset with requested name was successfully minted.
 	mintedAssetName := rpcSimpleAssets[0].AssetGenesis.Name
-	require.Equal(
-		t.t, mintedAssetName, commonAssetName,
-	)
+	require.Equal(t.t, commonAssetName, mintedAssetName)
 
 	// Attempt to mint another asset whose name should collide with the
 	// existing minted asset. No other fields should collide.
@@ -387,11 +387,74 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	_, actualErr := t.tarod.MintAsset(ctxt, &assetCollide)
+	equalityCheck := func(a, b *tarorpc.MintAsset) {
+		require.Equal(t.t, a.AssetType, b.AssetType)
+		require.Equal(t.t, a.Name, b.Name)
+		require.Equal(t.t, a.MetaData, b.MetaData)
+		require.Equal(t.t, a.Amount, b.Amount)
+		require.Equal(t.t, a.GroupKey, b.GroupKey)
+	}
 
-	// Ensure error includes correct error type.
-	// Note that `errors.Is` won't work with the error returned by
-	// `t.tarod.MintAsset`.
-	expectedErr := tarogarden.ErrDuplicateSeedlingName
-	require.ErrorContains(t.t, actualErr, expectedErr.Error())
+	// If we attempt to add both assets to the same batch, the second mint
+	// call should fail.
+	collideBatchKey, err := t.tarod.MintAsset(ctxt, &assetCollide)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, collideBatchKey.BatchKey)
+
+	_, batchNameErr := t.tarod.MintAsset(ctxt, &assetMint)
+	require.ErrorContains(t.t, batchNameErr, "already in batch")
+
+	// If we cancel the batch, we should still be able to fetch it from the
+	// daemon, and be able to refer to it by the batch key.
+	rpcBatches, err := t.tarod.ListBatches(ctxt, &tarorpc.ListBatchRequest{})
+	require.NoError(t.t, err)
+
+	allBatches := rpcBatches.Batches
+	require.Len(t.t, allBatches, 2)
+
+	isCollidingBatch := func(batch *tarorpc.MintingBatch) bool {
+		if len(batch.Assets) == 0 {
+			return false
+		}
+
+		return batch.Assets[0].AssetType == tarorpc.AssetType_COLLECTIBLE
+	}
+	batchCollide, err := chanutils.First(allBatches, isCollidingBatch)
+	require.NoError(t.t, err)
+
+	require.Len(t.t, batchCollide.Assets, 1)
+	equalityCheck(assetCollide.Asset, batchCollide.Assets[0])
+
+	cancelBatchKey, err := t.tarod.CancelBatch(
+		ctxt, &tarorpc.CancelBatchRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, cancelBatchKey.BatchKey, collideBatchKey.BatchKey)
+
+	// The only change in the returned batch after cancellation should be
+	// the batch state.
+	cancelBatch, err := t.tarod.ListBatches(
+		ctxt, &tarorpc.ListBatchRequest{
+			BatchKey: collideBatchKey.BatchKey,
+		})
+	require.NoError(t.t, err)
+
+	require.Len(t.t, cancelBatch.Batches, 1)
+	cancelBatchCollide := cancelBatch.Batches[0]
+	require.Len(t.t, cancelBatchCollide.Assets, 1)
+	equalityCheck(batchCollide.Assets[0], cancelBatchCollide.Assets[0])
+	cancelBatchState := cancelBatchCollide.State
+	require.Equal(
+		t.t, cancelBatchState,
+		tarorpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED,
+	)
+
+	// Minting the asset with the name collision should work, even though
+	// it is also part of a cancelled batch.
+	rpcCollideAsset := mintAssetsConfirmBatch(
+		t, t.tarod, []*tarorpc.MintAssetRequest{&assetCollide},
+	)
+
+	collideAssetName := rpcCollideAsset[0].AssetGenesis.Name
+	require.Equal(t.t, commonAssetName, collideAssetName)
 }

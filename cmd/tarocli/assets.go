@@ -35,8 +35,6 @@ var (
 	assetEmissionName = "enable_emission"
 	assetGroupKeyName = "group_key"
 	batchKeyName      = "batch_key"
-	FinalizeBatchName = "finalize_batch"
-	cancelBatchName   = "cancel_batch"
 	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
 )
