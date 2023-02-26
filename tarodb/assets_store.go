@@ -1648,8 +1648,73 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			}
 		}
 
+		// Log passive assets data to disk.
+		err = a.logPendingPassiveAssets(ctx, q, spend.PassiveAssets)
+		if err != nil {
+			return fmt.Errorf("unable to log passive assets: %w",
+				err)
+		}
+
 		return nil
 	})
+}
+
+// logPendingPassiveAssets logs passive assets re-anchoring data to disk.
+func (a *AssetStore) logPendingPassiveAssets(ctx context.Context,
+	q ActiveAssetsStore,
+	passiveAssets []*tarofreighter.PassiveAssetReAnchor) error {
+
+	for _, passiveAsset := range passiveAssets {
+		// Encode new witness data.
+		var (
+			newWitnessBuf bytes.Buffer
+			buf           [8]byte
+		)
+		err := asset.WitnessEncoder(
+			&newWitnessBuf, &passiveAsset.NewWitnessData, &buf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to encode witness: "+
+				"%w", err)
+		}
+
+		// Encode new proof.
+		var newProofBuf bytes.Buffer
+		err = passiveAsset.NewProof.Encode(&newProofBuf)
+		if err != nil {
+			return fmt.Errorf("unable to encode new passive "+
+				"asset proof: %w", err)
+		}
+
+		// Encode previous anchor outpoint.
+		prevOutpointBytes, err := encodeOutpoint(
+			passiveAsset.PrevAnchorPoint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to encode prev outpoint: "+
+				"%w", err)
+		}
+
+		// Encode script key.
+		scriptKey := passiveAsset.ScriptKey
+		scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
+
+		err = q.InsertPendingPassiveAsset(
+			ctx, sqlc.InsertPendingPassiveAssetParams{
+				NewWitnessStack: newWitnessBuf.Bytes(),
+				NewProof:        newProofBuf.Bytes(),
+				PrevOutpoint:    prevOutpointBytes,
+				ScriptKey:       scriptKeyBytes,
+				AssetGenesisID:  passiveAsset.GenesisID[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to log pending passive "+
+				"asset: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // StoreProofDeliveryAttempt logs a proof delivery attempt to disk.

@@ -168,6 +168,10 @@ type OutboundParcelDelta struct {
 	// ChainFees is the amount in sats paid in on-chain fees for the
 	// anchor transaction.
 	ChainFees int64
+
+	// PassiveAssets is the set of passive assets that are re-anchored
+	// during the parcel confirmation process.
+	PassiveAssets []*PassiveAssetReAnchor
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.

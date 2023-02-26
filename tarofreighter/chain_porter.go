@@ -857,8 +857,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			}},
 			TapscriptSibling: vIn.Anchor.TapscriptSibling,
 			// TODO(bhandras): use clock.Clock instead.
-			TransferTime: time.Now(),
-			ChainFees:    currentPkg.AnchorTx.ChainFees,
+			TransferTime:  time.Now(),
+			ChainFees:     currentPkg.AnchorTx.ChainFees,
+			PassiveAssets: currentPkg.PassiveAssets,
 		}
 
 		// Don't allow shutdown while we're attempting to store proofs.
