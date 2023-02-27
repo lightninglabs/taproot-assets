@@ -567,14 +567,32 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
 		pkg.OutboundPkg.AnchorTx.TxHash())
 
+	// Load passive asset proof files from archive.
+	passiveAssetProofFiles := map[[32]byte]proof.Blob{}
+	for _, passiveAsset := range pkg.OutboundPkg.PassiveAssets {
+		proofLocator := proof.Locator{
+			AssetID:   &passiveAsset.GenesisID,
+			ScriptKey: *passiveAsset.ScriptKey.PubKey,
+		}
+		proofFileBlob, err := p.cfg.AssetProofs.FetchProof(
+			ctx, proofLocator,
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching passive asset "+
+				"proof file: %w", err)
+		}
+		passiveAssetProofFiles[proofLocator.Hash()] = proofFileBlob
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint:      pkg.OutboundPkg.NewAnchorPoint,
-		BlockHash:        *pkg.TransferTxConfEvent.BlockHash,
-		BlockHeight:      int32(pkg.TransferTxConfEvent.BlockHeight),
-		TxIndex:          int32(pkg.TransferTxConfEvent.TxIndex),
-		FinalSenderProof: senderProofBlob,
+		AnchorPoint:            pkg.OutboundPkg.NewAnchorPoint,
+		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
+		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
+		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
+		FinalSenderProof:       senderProofBlob,
+		PassiveAssetProofFiles: passiveAssetProofFiles,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to log parcel delivery "+

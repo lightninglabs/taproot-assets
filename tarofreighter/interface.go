@@ -192,6 +192,10 @@ type AssetConfirmEvent struct {
 	// FinalSenderProof is the final proof for the sender that includes the
 	// chain information of the final confirmation point.
 	FinalSenderProof []byte
+
+	// PassiveAssetProofFiles is the set of passive asset proof files that
+	// are re-anchored during the parcel confirmation process.
+	PassiveAssetProofFiles map[[32]byte]proof.Blob
 }
 
 // PassiveAssetReAnchor includes the information needed to re-anchor a passive
