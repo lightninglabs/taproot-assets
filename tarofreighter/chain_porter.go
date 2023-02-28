@@ -633,6 +633,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		log.Infof("Constructing new Taro commitments for send to: %x",
 			receiverScriptKey.SerializeCompressed())
 
+		// Gather passive assets virtual packets.
+		var passiveVPackets []*taropsbt.VPacket
+		for _, passiveAsset := range currentPkg.PassiveAssets {
+			passiveVPackets = append(
+				passiveVPackets, passiveAsset.VPacket,
+			)
+		}
+
 		wallet := p.cfg.AssetWallet
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
@@ -640,7 +648,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				InputCommitments: []*commitment.TaroCommitment{
 					currentPkg.InputCommitment,
 				},
-				VPkts: []*taropsbt.VPacket{vPacket},
+				VPkts:              []*taropsbt.VPacket{vPacket},
+				PassiveAssetsVPkts: passiveVPackets,
 			},
 		)
 		if err != nil {

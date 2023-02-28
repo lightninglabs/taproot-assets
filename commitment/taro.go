@@ -148,6 +148,14 @@ func (c *TaroCommitment) Upsert(asset *AssetCommitment) error {
 	return nil
 }
 
+// Commitment returns the asset commitment for the given asset. If the asset
+// commitment is not found, the second returned value is false.
+func (c *TaroCommitment) Commitment(a *asset.Asset) (*AssetCommitment, bool) {
+	key := a.TaroCommitmentKey()
+	commitment, ok := c.assetCommitments[key]
+	return commitment, ok
+}
+
 // NewTaroCommitmentWithRoot creates a new Taro commitment backed by the root
 // node. The resulting commitment will not be able to compute merkle proofs as
 // it only knows of the tree's root node, and not the tree itself.
