@@ -635,9 +635,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		wallet := p.cfg.AssetWallet
 		anchorTx, err := wallet.AnchorVirtualTransactions(
-			ctx, feeRate, []*commitment.TaroCommitment{
-				currentPkg.InputCommitment,
-			}, []*taropsbt.VPacket{vPacket},
+			ctx, &AnchorVTxnsParams{
+				FeeRate: feeRate,
+				InputCommitments: []*commitment.TaroCommitment{
+					currentPkg.InputCommitment,
+				},
+				VPkts: []*taropsbt.VPacket{vPacket},
+			},
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to anchor virtual "+

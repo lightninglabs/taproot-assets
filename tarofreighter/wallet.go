@@ -80,9 +80,23 @@ type Wallet interface {
 	// signed and finalized anchor TX along with the total amount of sats
 	// paid in chain fees by the anchor TX
 	AnchorVirtualTransactions(ctx context.Context,
-		feeRate chainfee.SatPerKWeight,
-		inputCommitments []*commitment.TaroCommitment,
-		vPkts []*taropsbt.VPacket) (*AnchorTransaction, error)
+		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+}
+
+// AnchorVTxnsParams holds all the parameters needed to create a BTC level
+// anchor transaction that anchors multiple virtual transactions.
+type AnchorVTxnsParams struct {
+	// FeeRate is the fee rate that should be used to fund the anchor
+	// transaction.
+	FeeRate chainfee.SatPerKWeight
+
+	// InputCommitments is a list of all the Taro level commitments of the
+	// inputs that should be included in the anchor transaction.
+	InputCommitments []*commitment.TaroCommitment
+
+	// VPkts is a list of all the virtual transactions that should be
+	// anchored by the anchor transaction.
+	VPkts []*taropsbt.VPacket
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -586,20 +600,18 @@ func verifyInclusionProof(vIn *taropsbt.VInput) error {
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
-	feeRate chainfee.SatPerKWeight,
-	inputCommitments []*commitment.TaroCommitment,
-	vPkts []*taropsbt.VPacket) (*AnchorTransaction, error) {
+	params *AnchorVTxnsParams) (*AnchorTransaction, error) {
 
 	// We currently only support anchoring a single virtual transaction.
 	//
 	// TODO(guggero): Support merging and anchoring multiple virtual
 	// transactions.
-	if len(vPkts) != 1 || len(inputCommitments) != 1 {
+	if len(params.VPkts) != 1 || len(params.InputCommitments) != 1 {
 		return nil, fmt.Errorf("only a single virtual transaction is " +
 			"supported for now")
 	}
-	vPacket := vPkts[0]
-	inputCommitment := inputCommitments[0]
+	vPacket := params.VPkts[0]
+	inputCommitment := params.InputCommitments[0]
 
 	outputCommitments, err := taroscript.CreateOutputCommitments(
 		inputCommitment, vPacket,
@@ -616,7 +628,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
 
-	anchorPkt, err := f.cfg.Wallet.FundPsbt(ctx, sendPacket, 1, feeRate)
+	anchorPkt, err := f.cfg.Wallet.FundPsbt(
+		ctx, sendPacket, 1, params.FeeRate,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
@@ -656,7 +670,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// add our anchor input as well, since the wallet can sign for
 	// it itself.
 	err = addAnchorPsbtInput(
-		signAnchorPkt, vPacket, feeRate, f.cfg.ChainParams.Params,
+		signAnchorPkt, vPacket, params.FeeRate,
+		f.cfg.ChainParams.Params,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error adding anchor input: %w", err)
@@ -695,7 +710,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	return &AnchorTransaction{
 		FundedPsbt:        &anchorPkt,
 		FinalTx:           finalTx,
-		TargetFeeRate:     feeRate,
+		TargetFeeRate:     params.FeeRate,
 		ChainFees:         chainFees,
 		OutputCommitments: mergedCommitments,
 	}, nil
