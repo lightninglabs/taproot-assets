@@ -2,18 +2,21 @@ package tarofreighter
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
@@ -302,6 +305,29 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	ctx, cancel := p.CtxBlocking()
 	defer cancel()
 
+	confEvent := pkg.TransferTxConfEvent
+
+	// Generate updated passive asset proof files.
+	passiveAssetProofFiles := make(
+		[]*proof.AnnotatedProof, 0, len(pkg.PassiveAssets),
+	)
+	for _, passiveAsset := range pkg.PassiveAssets {
+		newAnnotatedProofFile, err := p.updateAssetProofFile(
+			ctx, passiveAsset.GenesisID,
+			passiveAsset.ScriptKey.PubKey, confEvent,
+			passiveAsset.NewProof,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to generate an updated "+
+				"proof file for passive asset: %w", err)
+		}
+
+		passiveAssetProofFiles = append(
+			passiveAssetProofFiles, newAnnotatedProofFile,
+		)
+	}
+
+	// Generate sender and receiver proof files.
 	var (
 		outboundPkg     = pkg.OutboundPkg
 		spendDeltas     = outboundPkg.AssetSpendDeltas
@@ -310,7 +336,6 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 			AssetID:   &outboundAssetID,
 			ScriptKey: spendDeltas[0].OldScriptKey,
 		}
-		confEvent = pkg.TransferTxConfEvent
 	)
 
 	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
@@ -399,9 +424,12 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	// Use callback to verify that block header exists on chain.
 	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 
-	// Import sender proof and receiver proof into proof archive.
+	// Import all up-to-date proof files into proof archive.
+	allProofs := append(
+		passiveAssetProofFiles, newSenderProof, receiverProof,
+	)
 	err = p.cfg.AssetProofs.ImportProofs(
-		ctx, headerVerifier, receiverProof, newSenderProof,
+		ctx, headerVerifier, allProofs...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing proof: %w", err)
@@ -412,6 +440,59 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 
 	pkg.SendState = SendStateReceiverProofTransfer
 	return nil
+}
+
+// updateAssetProofFile retrieves and updates the proof file for the given asset
+// ID and script key with the new proof.
+func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID,
+	scriptKeyPub *btcec.PublicKey, confEvent *chainntnfs.TxConfirmation,
+	newProof *proof.Proof) (*proof.AnnotatedProof, error) {
+
+	// Retrieve current proof file.
+	locator := proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptKeyPub,
+	}
+	currentProofFileBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching proof: %w", err)
+	}
+	currentProofFile := proof.NewEmptyFile(proof.V0)
+	err = currentProofFile.Decode(bytes.NewReader(currentProofFileBlob))
+	if err != nil {
+		return nil, fmt.Errorf("error decoding proof file: %w", err)
+	}
+
+	// Now that we have the current proof file, we'll update the new proof
+	// with chain tx confirmation data and then append it to the proof file.
+	err = newProof.UpdateTransitionProof(&proof.BaseProofParams{
+		Block:   confEvent.Block,
+		Tx:      confEvent.Tx,
+		TxIndex: int(confEvent.TxIndex),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error updating new proof with "+
+			"chain transaction confirmation data: %w", err)
+	}
+
+	// With the new proof updated, we can append the proof to the
+	// current proof file.
+	if err := currentProofFile.AppendProof(*newProof); err != nil {
+		return nil, fmt.Errorf("error appending proof suffix: %w", err)
+	}
+	var newProofFileBuffer bytes.Buffer
+	if err := currentProofFile.Encode(&newProofFileBuffer); err != nil {
+		return nil, fmt.Errorf("error encoding proof file: %w", err)
+	}
+	newAnnotatedProofFile := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *newProof.Asset.ScriptKey.PubKey,
+		},
+		Blob: newProofFileBuffer.Bytes(),
+	}
+
+	return newAnnotatedProofFile, nil
 }
 
 // transferReceiverProof retrieves the sender and receiver proofs from the
