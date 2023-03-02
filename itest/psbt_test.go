@@ -16,7 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,8 +37,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -181,8 +180,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -311,26 +309,16 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	t.Logf("Got alice assets: %s", assetsJSON)
 }
 
-func deriveKeys(t *testing.T, lnd *lntest.HarnessNode) (keychain.KeyDescriptor,
+func deriveKeys(t *testing.T, lnd *node.HarnessNode) (keychain.KeyDescriptor,
 	keychain.KeyDescriptor) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+	scriptKeyDesc := lnd.RPC.DeriveNextKey(&walletrpc.KeyReq{
+		KeyFamily: int32(asset.TaroKeyFamily),
+	})
 
-	scriptKeyDesc, err := lnd.WalletKitClient.DeriveNextKey(
-		ctxt, &walletrpc.KeyReq{
-			KeyFamily: int32(asset.TaroKeyFamily),
-		},
-	)
-	require.NoError(t, err)
-
-	internalKeyDesc, err := lnd.WalletKitClient.DeriveNextKey(
-		ctxt, &walletrpc.KeyReq{
-			KeyFamily: int32(asset.TaroKeyFamily),
-		},
-	)
-	require.NoError(t, err)
+	internalKeyDesc := lnd.RPC.DeriveNextKey(&walletrpc.KeyReq{
+		KeyFamily: int32(asset.TaroKeyFamily),
+	})
 
 	return test.ParseRPCKeyDescriptor(t, scriptKeyDesc),
 		test.ParseRPCKeyDescriptor(t, internalKeyDesc)

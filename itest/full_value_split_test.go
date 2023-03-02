@@ -24,8 +24,7 @@ func testFullValueSend(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.BackendCfg, t.lndHarness.Bob,
-		t.universeServer,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
