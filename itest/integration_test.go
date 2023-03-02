@@ -30,7 +30,7 @@ func TestTaroDaemon(t *testing.T) {
 	lndHarness := lntest.SetupHarness(t, "./lnd-itest", "bbolt", feeService)
 	defer func() {
 		// There is a timing issue in here somewhere. If we shut down
-		// lnd immediately after stopping the trader server, sometimes
+		// lnd immediately after stopping the tarod server, sometimes
 		// we get a race in the TX notifier chan closes. The wait seems
 		// to fix it for now...
 		time.Sleep(100 * time.Millisecond)
