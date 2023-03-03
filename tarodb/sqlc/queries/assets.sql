@@ -121,9 +121,9 @@ INSERT INTO genesis_assets (
     asset_id, asset_tag, meta_data, output_index, asset_type, genesis_point_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-) ON CONFLICT (asset_tag)
-    -- This is a NOP, asset_tag is the unique field that caused the conflict.
-    DO UPDATE SET asset_tag = EXCLUDED.asset_tag
+) ON CONFLICT (asset_id)
+    -- This is a NOP, asset_id is the unique field that caused the conflict.
+    DO UPDATE SET asset_id = EXCLUDED.asset_id
 RETURNING gen_asset_id;
 
 -- name: InsertNewAsset :one

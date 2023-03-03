@@ -27,6 +27,8 @@ type assetGenOptions struct {
 
 	customGroup bool
 
+	groupAnchorGen *asset.Genesis
+
 	noGroupKey bool
 
 	groupKeyPriv *btcec.PrivateKey
@@ -71,6 +73,12 @@ func withAssetGenKeyGroup(key *btcec.PrivateKey) assetGenOpt {
 	}
 }
 
+func withGroupAnchorGen(g *asset.Genesis) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.groupAnchorGen = g
+	}
+}
+
 func withAssetGenPoint(op wire.OutPoint) assetGenOpt {
 	return func(opt *assetGenOptions) {
 		opt.genesisPoint = op
@@ -108,11 +116,25 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 
 	genSigner := asset.NewRawKeyGenesisSigner(&groupPriv)
 
-	groupKey, sig, err := genSigner.SignGenesis(
-		keychain.KeyDescriptor{
+	var (
+		groupKeyDesc = keychain.KeyDescriptor{
 			PubKey: groupPriv.PubKey(),
-		}, genesis, nil,
+		}
+		assetGroupKey *asset.GroupKey
+		err           error
+		initialGen    = genesis
+		currentGen    *asset.Genesis
 	)
+
+	if opts.groupAnchorGen != nil {
+		initialGen = *opts.groupAnchorGen
+		currentGen = &genesis
+	}
+
+	assetGroupKey, err = asset.DeriveGroupKey(
+		genSigner, groupKeyDesc, initialGen, currentGen,
+	)
+
 	require.NoError(t, err)
 
 	newAsset := &asset.Asset{
@@ -130,13 +152,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		break
 
 	case opts.customGroup || test.RandInt[int]()%2 == 0:
-		newAsset.GroupKey = &asset.GroupKey{
-			RawKey: keychain.KeyDescriptor{
-				PubKey: groupKey,
-			},
-			GroupPubKey: *groupKey,
-			Sig:         *sig,
-		}
+		newAsset.GroupKey = assetGroupKey
 	}
 
 	// Go with an even amount to make the splits always work nicely.
@@ -378,7 +394,10 @@ func TestInternalKeyUpsert(t *testing.T) {
 }
 
 type assetDesc struct {
-	assetGen    asset.Genesis
+	assetGen asset.Genesis
+
+	groupAnchorGen *asset.Genesis
+
 	anchorPoint wire.OutPoint
 
 	keyGroup *btcec.PrivateKey
@@ -477,6 +496,9 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 
 		if desc.amt == 0 {
 			opts = append(opts, withScriptKey(asset.NUMSScriptKey))
+		}
+		if desc.groupAnchorGen != nil {
+			opts = append(opts, withGroupAnchorGen(desc.groupAnchorGen))
 		}
 		asset := randAsset(t, opts...)
 
@@ -1010,6 +1032,12 @@ func TestFetchGroupedAssets(t *testing.T) {
 	// in the same group.
 	const numAssets = 4
 	assetGen := newAssetGenerator(t, numAssets, 2)
+
+	// Record the genesis information and anchor point of the third asset,
+	// which is needed for reissuance into the same group.
+	reissueGen := assetGen.assetGens[2]
+	reissueGen.FirstPrevOut = assetGen.anchorPoints[2]
+
 	// Need to add type variation also
 	assetDescs := []assetDesc{
 		{
@@ -1031,10 +1059,11 @@ func TestFetchGroupedAssets(t *testing.T) {
 			amt:         22,
 		},
 		{
-			assetGen:    assetGen.assetGens[2],
-			anchorPoint: assetGen.anchorPoints[3],
-			keyGroup:    assetGen.groupKeys[1],
-			amt:         2,
+			assetGen:       assetGen.assetGens[3],
+			groupAnchorGen: &reissueGen,
+			anchorPoint:    assetGen.anchorPoints[3],
+			keyGroup:       assetGen.groupKeys[1],
+			amt:            2,
 		},
 	}
 

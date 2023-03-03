@@ -38,9 +38,9 @@ CREATE TABLE IF NOT EXISTS genesis_points (
 CREATE TABLE IF NOT EXISTS genesis_assets (
     gen_asset_id INTEGER PRIMARY KEY,
 
-    asset_id BLOB,
+    asset_id BLOB UNIQUE,
 
-    asset_tag TEXT UNIQUE NOT NULL,
+    asset_tag TEXT NOT NULL,
 
     meta_data BLOB,
 
