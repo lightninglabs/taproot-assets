@@ -51,3 +51,12 @@ WHERE leaves.leaf_node_namespace = @namespace;
 
 -- name: UniverseLeaves :many
 SELECT * FROM universe_leaves;
+
+-- name: UniverseRoots :many
+SELECT asset_id, group_key, mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum
+FROM universe_roots
+JOIN mssmt_roots
+    ON universe_roots.namespace_root = mssmt_roots.namespace
+JOIN mssmt_nodes
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
+       mssmt_nodes.namespace = mssmt_roots.namespace;

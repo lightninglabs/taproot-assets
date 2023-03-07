@@ -107,6 +107,7 @@ type Querier interface {
 	ReAnchorAssets(ctx context.Context, arg ReAnchorAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
+	UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)

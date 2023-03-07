@@ -199,6 +199,51 @@ func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
 	return items, nil
 }
 
+const universeRoots = `-- name: UniverseRoots :many
+SELECT asset_id, group_key, mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum
+FROM universe_roots
+JOIN mssmt_roots
+    ON universe_roots.namespace_root = mssmt_roots.namespace
+JOIN mssmt_nodes
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
+       mssmt_nodes.namespace = mssmt_roots.namespace
+`
+
+type UniverseRootsRow struct {
+	AssetID  []byte
+	GroupKey []byte
+	RootHash []byte
+	RootSum  int64
+}
+
+func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error) {
+	rows, err := q.db.QueryContext(ctx, universeRoots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UniverseRootsRow
+	for rows.Next() {
+		var i UniverseRootsRow
+		if err := rows.Scan(
+			&i.AssetID,
+			&i.GroupKey,
+			&i.RootHash,
+			&i.RootSum,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertUniverseRoot = `-- name: UpsertUniverseRoot :one
 INSERT INTO universe_roots (
     namespace_root, asset_id, group_key
