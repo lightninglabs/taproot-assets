@@ -23,6 +23,14 @@ type Identifier struct {
 	GroupKey *btcec.PublicKey
 }
 
+// GenesisWithGroup is a two tuple that groups the genesis of an asset with the
+// group key it's assocaited with (if that exists).
+type GenesisWithGroup struct {
+	asset.Genesis
+
+	*asset.GroupKey
+}
+
 // MintingLeaf is a leaf node in the SMT that represents a minting output. For
 // each new asset created for a given asset/universe, a new minting leaf is
 // created.
@@ -30,6 +38,9 @@ type MintingLeaf struct {
 	GenesisWithGroup
 
 	// GenesisProof is the proof of the newly created asset.
+	//
+	// TODO(roasbeef): have instead be a reader? easier to mmap in the
+	// future
 	GenesisProof proof.Blob
 
 	// Amt is the amount of units created.
@@ -47,7 +58,6 @@ func (m *MintingLeaf) SmtLeafNode() *mssmt.LeafNode {
 // universe tree.
 type BaseKey struct {
 	// MintingOutpoint is the minting outpoint, or the outpoint that
-
 	MintingOutpoint wire.OutPoint
 
 	// ScriptKey is the script key of the base asset. If this isn't
@@ -120,6 +130,28 @@ type BaseBackend interface {
 	// MintingLeaves returns all the minting leaves inserted into the
 	// universe.
 	MintingLeaves(ctx context.Context) ([]MintingLeaf, error)
+}
+
+// BaseRoot is the ms-smt root for a base universe. This root can be used to
+// compare against other trackers of a base universe to find discrepancies
+// (unknown issuance events, etc).
+type BaseRoot struct {
+	ID Identifier
+
+	mssmt.Node
+}
+
+// BaseForest is an interface used to keep track of the set of base universe
+// roots that we know of. The BaseBackend interface is used to interact with a
+// particular base universe, while this is used to obtain aggregate information
+// about the universes.
+type BaseForest interface {
+	// RootNodes returns the complete set of known root nodes for the set
+	// of assets tracked in the base Universe.
+	RootNodes(ctx context.Context) ([]BaseRoot, error)
+
+	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
+	//  * also eventually want pull/fetch stats, can be pulled out into another instance
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle
