@@ -30,6 +30,7 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -163,6 +164,7 @@ type rpcServer struct {
 	tarorpc.UnimplementedTaroServer
 	wrpc.UnimplementedAssetWalletServer
 	mintrpc.UnimplementedMintServer
+	unirpc.UnimplementedUniverseServer
 
 	interceptor signal.Interceptor
 
@@ -230,6 +232,7 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	tarorpc.RegisterTaroServer(grpcServer, r)
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	mintrpc.RegisterMintServer(grpcServer, r)
+	unirpc.RegisterUniverseServer(grpcServer, r)
 	return nil
 }
 
@@ -255,6 +258,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 	}
 
 	err = mintrpc.RegisterMintHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = unirpc.RegisterUniverseHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {

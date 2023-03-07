@@ -1,0 +1,43 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: universerpc.Universe.AssetRoots
+      get: "/v1/taro/universe/roots"
+
+    - selector: universerpc.Universe.QueryAssetRoots
+      get: "/v1/taro/universe/roots/asset-id/{id.asset_id_str}"
+
+    - selector: universerpc.Universe.QueryAssetRoots
+      get: "/v1/taro/universe/roots/group-key/{id.group_key_str}"
+
+    - selector: universerpc.Universe.AssetLeafKeys
+      get: "/v1/taro/universe/keys/asset-id/'{asset_id_str}"
+
+    - selector: universerpc.Universe.AssetLeafKeys
+      get: "/v1/taro/universe/keys/group-key{group_key_str}"
+
+    - selector: universerpc.Universe.AssetLeaves
+      get: "/v1/taro/universe/leaves/asset-id/{asset_id_str}"
+
+    - selector: universerpc.Universe.AssetLeaves
+      get: "/v1/taro/universe/leaves/group-key/{group_key_str}"
+
+    - selector: universerpc.Universe.QueryIssuanceProof
+      get: "/v1/taro/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
+
+    - selector: universerpc.Universe.QueryIssuanceProof
+      get: "/v1/taro/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
+
+    - selector: universerpc.Universe.InsertIssuanceProof
+      post: "/v1/taro/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
+      body: "*"
+
+    - selector: universerpc.Universe.InsertIssuanceProof
+      post: "/v1/taro/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
+      body: "*"
+
+    - selector: universerpc.Universe.SyncUniverse
+      post: "/v1/taro/universe/sync"
+      body: "*"
