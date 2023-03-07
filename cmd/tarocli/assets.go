@@ -16,6 +16,7 @@ var assetsCommands = []cli.Command{
 		Category:  "Assets",
 		Subcommands: []cli.Command{
 			mintAssetCommand,
+			listBatchesCommand,
 			listAssetsCommand,
 			listUtxosCommand,
 			listGroupsCommand,
@@ -33,6 +34,7 @@ var (
 	assetMetaName     = "meta"
 	assetEmissionName = "enable_emission"
 	assetGroupKeyName = "group_key"
+	batchKeyName      = "batch_key"
 	skipBatchName     = "skip_batch"
 	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
@@ -125,6 +127,47 @@ func mintAsset(ctx *cli.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to mint asset: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var listBatchesCommand = cli.Command{
+	Name:        "batches",
+	Usage:       "list all batches",
+	Description: "List all batches",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  batchKeyName,
+			Usage: "if set, the batch key for a specific batch",
+		},
+	},
+	Action: listBatches,
+}
+
+func listBatches(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		batchKeyStr = ctx.String(batchKeyName)
+		batchKey    []byte
+		err         error
+	)
+	if len(batchKeyStr) != 0 {
+		batchKey, err = hex.DecodeString(batchKeyStr)
+		if err != nil {
+			return fmt.Errorf("invalid batch key")
+		}
+	}
+
+	resp, err := client.ListBatches(ctxc, &tarorpc.ListBatchRequest{
+		BatchKey: batchKey,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to list batches: %w", err)
 	}
 
 	printRespJSON(resp)
