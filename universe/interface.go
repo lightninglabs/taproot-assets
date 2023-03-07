@@ -57,7 +57,8 @@ func (m *MintingLeaf) SmtLeafNode() *mssmt.LeafNode {
 // This ensures that all leaves for a given asset will be uniquely keyed in the
 // universe tree.
 type BaseKey struct {
-	// MintingOutpoint is the minting outpoint, or the outpoint that
+	// MintingOutpoint is the minting outpoint, or the outpoint where the
+	// nelwy created assets reside within.
 	MintingOutpoint wire.OutPoint
 
 	// ScriptKey is the script key of the base asset. If this isn't
@@ -152,6 +153,15 @@ type BaseForest interface {
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
+}
+
+// Registrar is an interface that allows a caller to register issuance of a new
+// asset in a local/remote base universe instance.
+type Registrar interface {
+	// RegisterIssuance inserts a new minting leaf within the target
+	// universe tree (based on the ID), stored at the base key.
+	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
+		leaf *MintingLeaf) (*IssuanceProof, error)
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle

@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd/ticker"
 	"golang.org/x/exp/maps"
 )
@@ -40,6 +41,10 @@ type GardenKit struct {
 
 	// ProofFiles stores the set of flat proof files.
 	ProofFiles proof.Archiver
+
+	// Universe is used to register new asset issuance with a local/remote
+	// base universe instance.
+	Universe universe.Registrar
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
