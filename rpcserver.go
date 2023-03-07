@@ -378,6 +378,38 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 }
 
+// ListBatches lists the set of batches submitted for minting, including pending
+// and cancelled batches.
+func (r *rpcServer) ListBatches(ctx context.Context,
+	req *tarorpc.ListBatchRequest) (*tarorpc.ListBatchResponse, error) {
+
+	var (
+		batchKey *btcec.PublicKey
+		err      error
+	)
+
+	if len(req.BatchKey) != 0 {
+		batchKey, err = btcec.ParsePubKey(req.BatchKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid batch key: %w", err)
+		}
+	}
+
+	batches, err := r.cfg.AssetMinter.ListBatches(batchKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list batches: %w", err)
+	}
+
+	rpcBatches, err := chanutils.MapErr(batches, marshalMintingBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tarorpc.ListBatchResponse{
+		Batches: rpcBatches,
+	}, nil
+}
+
 // ListAssets lists the set of assets owned by the target daemon.
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
@@ -1494,6 +1526,66 @@ func marshallSendAssetEvent(
 
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
+	}
+}
+
+// marshalMintingBatch marshals a minting batch into the RPC counterpart.
+func marshalMintingBatch(batch *tarogarden.MintingBatch) (*tarorpc.MintingBatch,
+	error) {
+
+	rpcAssets := make([]*tarorpc.MintAsset, 0, len(batch.Seedlings))
+	for _, seedling := range batch.Seedlings {
+		var groupKeyBytes []byte
+		if seedling.HasGroupKey() {
+			groupKey := seedling.GroupInfo.GroupKey
+			groupPubKey := groupKey.GroupPubKey
+			groupKeyBytes = groupPubKey.SerializeCompressed()
+		}
+
+		rpcAssets = append(rpcAssets, &tarorpc.MintAsset{
+			AssetType: tarorpc.AssetType(seedling.AssetType),
+			Name:      seedling.AssetName,
+			MetaData:  seedling.Metadata,
+			Amount:    seedling.Amount,
+			GroupKey:  groupKeyBytes,
+		})
+	}
+
+	batchState := marshalBatchState(batch)
+	if batchState == tarorpc.BatchState_BATCH_STATE_UNKNOWN {
+		return nil, fmt.Errorf("unknown batch state")
+	}
+
+	return &tarorpc.MintingBatch{
+		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
+		State:    marshalBatchState(batch),
+		Assets:   rpcAssets,
+	}, nil
+}
+
+// marshalBatchState converts the batch state field into its RPC counterpart.
+func marshalBatchState(batch *tarogarden.MintingBatch) tarorpc.BatchState {
+	switch batch.BatchState {
+	case tarogarden.BatchStatePending:
+		return tarorpc.BatchState_BATCH_STATE_PEDNING
+
+	case tarogarden.BatchStateFrozen:
+		return tarorpc.BatchState_BATCH_STATE_FROZEN
+
+	case tarogarden.BatchStateCommitted:
+		return tarorpc.BatchState_BATCH_STATE_COMMITTED
+
+	case tarogarden.BatchStateBroadcast:
+		return tarorpc.BatchState_BATCH_STATE_BROADCAST
+
+	case tarogarden.BatchStateConfirmed:
+		return tarorpc.BatchState_BATCH_STATE_CONFIRMED
+
+	case tarogarden.BatchStateFinalized:
+		return tarorpc.BatchState_BATCH_STATE_FINALIZED
+
+	default:
+		return tarorpc.BatchState_BATCH_STATE_UNKNOWN
 	}
 }
 

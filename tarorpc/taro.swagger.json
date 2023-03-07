@@ -310,6 +310,39 @@
         ]
       }
     },
+    "/v1/taro/assets/mint/batches/{batch_key}": {
+      "get": {
+        "summary": "tarocli: `assets batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
+        "operationId": "Taro_ListBatches",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcListBatchResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "batch_key",
+            "description": "The optional batch key of the batch to list. When using REST this field\nmust be encoded as base64url.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/assets/transfers": {
       "get": {
         "summary": "tarocli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
@@ -1020,6 +1053,19 @@
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
     },
+    "tarorpcBatchState": {
+      "type": "string",
+      "enum": [
+        "BATCH_STATE_UNKNOWN",
+        "BATCH_STATE_PEDNING",
+        "BATCH_STATE_FROZEN",
+        "BATCH_STATE_COMMITTED",
+        "BATCH_STATE_BROADCAST",
+        "BATCH_STATE_CONFIRMED",
+        "BATCH_STATE_FINALIZED"
+      ],
+      "default": "BATCH_STATE_UNKNOWN"
+    },
     "tarorpcDebugLevelRequest": {
       "type": "object",
       "properties": {
@@ -1197,6 +1243,17 @@
         }
       }
     },
+    "tarorpcListBatchResponse": {
+      "type": "object",
+      "properties": {
+        "batches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcMintingBatch"
+          }
+        }
+      }
+    },
     "tarorpcListGroupsResponse": {
       "type": "object",
       "properties": {
@@ -1316,6 +1373,27 @@
           "type": "string",
           "format": "byte",
           "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
+        }
+      }
+    },
+    "tarorpcMintingBatch": {
+      "type": "object",
+      "properties": {
+        "batch_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal public key of the batch."
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcMintAsset"
+          },
+          "description": "The assets that are part of the batch."
+        },
+        "state": {
+          "$ref": "#/definitions/tarorpcBatchState",
+          "description": "The state of the batch."
         }
       }
     },
