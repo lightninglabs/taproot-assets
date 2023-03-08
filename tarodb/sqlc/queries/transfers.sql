@@ -95,7 +95,7 @@ SELECT sender_proof, receiver_proof
 FROM transfer_proofs
 WHERE transfer_id = $1;
 
--- name: ReanchorAssets :exec
+-- name: ReAnchorAssets :exec
 WITH assets_to_update AS (
     SELECT asset_id
     FROM assets

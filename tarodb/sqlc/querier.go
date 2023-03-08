@@ -95,7 +95,7 @@ type Querier interface {
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	QueryPendingPassiveAssets(ctx context.Context, prevOutpoint []byte) ([]QueryPendingPassiveAssetsRow, error)
 	QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error)
-	ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error
+	ReAnchorAssets(ctx context.Context, arg ReAnchorAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error

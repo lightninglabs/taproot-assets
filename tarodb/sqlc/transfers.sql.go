@@ -555,7 +555,7 @@ func (q *Queries) QueryReceiverProofTransferAttempt(ctx context.Context, proofLo
 	return items, nil
 }
 
-const reanchorAssets = `-- name: ReanchorAssets :exec
+const reAnchorAssets = `-- name: ReAnchorAssets :exec
 WITH assets_to_update AS (
     SELECT asset_id
     FROM assets
@@ -568,12 +568,12 @@ SET anchor_utxo_id = $1
 WHERE asset_id IN (SELECT asset_id FROM assets_to_update)
 `
 
-type ReanchorAssetsParams struct {
+type ReAnchorAssetsParams struct {
 	NewOutpointUtxoID sql.NullInt32
 	OldOutpoint       []byte
 }
 
-func (q *Queries) ReanchorAssets(ctx context.Context, arg ReanchorAssetsParams) error {
-	_, err := q.db.ExecContext(ctx, reanchorAssets, arg.NewOutpointUtxoID, arg.OldOutpoint)
+func (q *Queries) ReAnchorAssets(ctx context.Context, arg ReAnchorAssetsParams) error {
+	_, err := q.db.ExecContext(ctx, reAnchorAssets, arg.NewOutpointUtxoID, arg.OldOutpoint)
 	return err
 }

@@ -74,7 +74,7 @@ type (
 
 	// AssetAnchorUpdate is used to update the managed UTXO pointer when
 	// spending assets on chain.
-	AssetAnchorUpdate = sqlc.ReanchorAssetsParams
+	AssetAnchorUpdate = sqlc.ReAnchorAssetsParams
 
 	// AssetSpendDelta is used to update the script key and amount of an
 	// existing asset.
@@ -175,9 +175,9 @@ type ActiveAssetsStore interface {
 	// FetchManagedUTXOs fetches all managed UTXOs.
 	FetchManagedUTXOs(context.Context) ([]ManagedUTXORow, error)
 
-	// ReanchorAssets takes an old anchor point, then updates all assets
+	// ReAnchorAssets takes an old anchor point, then updates all assets
 	// that point to that old anchor point-to-point to the new one.
-	ReanchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
+	ReAnchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
 
 	// ApplySpendDelta applies a sped delta (new amount and script key)
 	// based on the existing script key of an asset.
@@ -1807,7 +1807,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		// Now that we have the new managed UTXO inserted, we'll update
 		// the managed UTXO pointer for _all_ assets that were anchored
 		// by the old managed UTXO.
-		err = q.ReanchorAssets(ctx, AssetAnchorUpdate{
+		err = q.ReAnchorAssets(ctx, AssetAnchorUpdate{
 			OldOutpoint: assetTransfer.OldAnchorPoint,
 			NewOutpointUtxoID: sqlInt32(
 				assetTransfer.NewAnchorUtxoID,
