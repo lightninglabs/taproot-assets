@@ -43,7 +43,7 @@ func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
 		return db.WithTx(tx)
 	}
 
-	addrTx := tarodb.NewTransactionExecutor[tarodb.AddrBook](db, txCreator)
+	addrTx := tarodb.NewTransactionExecutor(db, txCreator)
 	tarodbBook := tarodb.NewTaroAddressBook(addrTx, chainParams)
 	book := address.NewBook(address.BookConfig{
 		Store:        tarodbBook,
@@ -62,7 +62,7 @@ func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tarodb.AssetStore) {
 		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.ActiveAssetsStore](
+	assetDB := tarodb.NewTransactionExecutor(
 		db, txCreator,
 	)
 	assetStore := tarodb.NewAssetStore(assetDB)
