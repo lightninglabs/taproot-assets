@@ -42,7 +42,7 @@ func newMintingStore(t *testing.T) tarogarden.MintingStore {
 		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor[tarodb.PendingAssetStore](
+	assetDB := tarodb.NewTransactionExecutor(
 		db, txCreator,
 	)
 	return tarodb.NewAssetMintingStore(assetDB)
