@@ -30,7 +30,7 @@ func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
 		return db.WithTx(tx)
 	}
 
-	addrTx := NewTransactionExecutor[AddrBook](db, txCreator)
+	addrTx := NewTransactionExecutor(db, txCreator)
 	return NewTaroAddressBook(addrTx, chainParams), db
 }
 

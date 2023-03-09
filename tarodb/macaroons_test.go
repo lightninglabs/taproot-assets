@@ -18,7 +18,7 @@ func TestRootKeyStore(t *testing.T) {
 	db := NewTestDB(t)
 
 	// Make a new root key store from the database.
-	rksDB := NewTransactionExecutor[KeyStore](db, func(tx *sql.Tx) KeyStore {
+	rksDB := NewTransactionExecutor(db, func(tx *sql.Tx) KeyStore {
 		return db.WithTx(tx)
 	})
 	rks := NewRootKeyStore(rksDB)
