@@ -21,7 +21,7 @@ func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
 		return db.WithTx(tx)
 	}
 
-	treeDB := NewTransactionExecutor[TreeStore](db, txCreator)
+	treeDB := NewTransactionExecutor(db, txCreator)
 
 	return NewTaroTreeStore(treeDB, namespace), db
 }
