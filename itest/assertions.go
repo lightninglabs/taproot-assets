@@ -459,3 +459,31 @@ func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
 	require.Equal(t, a.AssetType, b.Type)
 	require.Equal(t, a.AssetGroup.TweakedGroupKey, groupKey)
 }
+
+// MatchRpcAsset is a function that returns true if the given RPC asset is a
+// match.
+type MatchRpcAsset func(asset *tarorpc.Asset) bool
+
+// assertListAssets checks that the assets returned by ListAssets match the
+// expected assets.
+func assertListAssets(t *harnessTest, ctx context.Context, tarod *tarodHarness,
+	matchAssets []MatchRpcAsset) {
+
+	resp, err := tarod.ListAssets(ctx, &tarorpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+
+	// Ensure that the number of assets returned is correct.
+	require.Equal(t.t, len(resp.Assets), len(matchAssets))
+
+	// Match each asset returned by the daemon against the expected assets.
+	for _, a := range resp.Assets {
+		assetMatched := false
+		for _, match := range matchAssets {
+			if match(a) {
+				assetMatched = true
+				break
+			}
+		}
+		require.True(t.t, assetMatched, "asset not matched: %v", a)
+	}
+}

@@ -183,6 +183,20 @@ func testSendPassiveAsset(t *harnessTest) {
 	_ = sendProof(t, t.tarod, recvTarod, recvAddr, genInfo)
 	assertReceiveComplete(t, recvTarod, 1)
 
+	// Assert that the sending node returns the correct asset list via RPC.
+	assertListAssets(
+		t, ctxb, t.tarod, []MatchRpcAsset{
+			func(asset *tarorpc.Asset) bool {
+				return asset.Amount == 300 &&
+					asset.AssetGenesis.Name == "first-itestbuxx"
+			},
+			func(asset *tarorpc.Asset) bool {
+				return asset.Amount == 2000 &&
+					asset.AssetGenesis.Name == "second-itestbuxx"
+			},
+		},
+	)
+
 	t.Logf("First send complete, now attempting to send passive asset")
 
 	// Inspect the state of the second asset on the sending node.
