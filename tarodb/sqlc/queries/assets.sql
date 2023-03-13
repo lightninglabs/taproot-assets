@@ -513,7 +513,11 @@ WITH target_asset(asset_id) AS (
     FROM assets
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = $1
+    WHERE
+        (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key')
+             OR sqlc.narg('tweaked_script_key') IS NULL)
+        AND (assets.asset_id = sqlc.narg('asset_id')
+                 OR sqlc.narg('asset_id') IS NULL)
     -- TODO(guggero): Fix this by disallowing multiple assets with the same
     -- script key!
     LIMIT 1
@@ -521,7 +525,7 @@ WITH target_asset(asset_id) AS (
 INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
-    (SELECT asset_id FROM target_asset), $2
+    (SELECT asset_id FROM target_asset), @proof_file
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, update the proof file in case it wasn't set before.
     DO UPDATE SET proof_file = EXCLUDED.proof_file;

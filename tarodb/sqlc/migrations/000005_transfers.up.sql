@@ -49,3 +49,19 @@ CREATE TABLE IF NOT EXISTS receiver_proof_transfer_attempts (
     time_unix TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS proof_locator_hash_index on receiver_proof_transfer_attempts (proof_locator_hash);
+
+-- pending_passive_asset is a table that stores the information needed to
+-- re-anchor a passive asset.
+CREATE TABLE IF NOT EXISTS pending_passive_asset (
+    pending_id INTEGER PRIMARY KEY,
+
+    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
+
+    prev_outpoint BLOB NOT NULL,
+
+    script_key BLOB NOT NULL,
+
+    new_witness_stack BLOB,
+
+    new_proof BLOB
+)

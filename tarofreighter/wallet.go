@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -52,32 +53,96 @@ type AnchorTransaction struct {
 // Wallet is an interface for funding and signing asset transfers.
 type Wallet interface {
 	// FundAddressSend funds a virtual transaction, selecting assets to
-	// spend in order to pay the given address.
+	// spend in order to pay the given address. It also returns supporting
+	// data which assists in processing the virtual transaction: passive
+	// asset re-anchors and the Taro level commitment of the selected
+	// assets.
 	FundAddressSend(ctx context.Context,
-		receiverAddr address.Taro) (*taropsbt.VPacket,
-		*commitment.TaroCommitment, error)
+		receiverAddr address.Taro) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
 	// to the given virtual transaction.
 	FundPacket(ctx context.Context, fundDesc *taroscript.FundingDescriptor,
 		receiverScriptKey *btcec.PublicKey,
-		vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error)
+		vPkt *taropsbt.VPacket) (*AnchoredCommitment,
+		*keychain.KeyDescriptor, error)
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
-	SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32, error)
+	SignVirtualPacket(vPkt *taropsbt.VPacket,
+		optFuncs ...SignVirtualPacketOption) ([]uint32, error)
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
-	// anchors all the virtual transactions of the given packets. This
-	// method returns both the funded anchor TX with all the output
+	// anchors all the virtual transactions of the given packets (for both
+	// sending and passive asset re-anchoring).
+	//
+	// This method returns both the funded anchor TX with all the output
 	// information intact for later exclusion proof creation, and the fully
 	// signed and finalized anchor TX along with the total amount of sats
-	// paid in chain fees by the anchor TX
+	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
-		feeRate chainfee.SatPerKWeight,
-		inputCommitments []*commitment.TaroCommitment,
-		vPkts []*taropsbt.VPacket) (*AnchorTransaction, error)
+		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+}
+
+// AnchorVTxnsParams holds all the parameters needed to create a BTC level
+// anchor transaction that anchors multiple virtual transactions.
+type AnchorVTxnsParams struct {
+	// FeeRate is the fee rate that should be used to fund the anchor
+	// transaction.
+	FeeRate chainfee.SatPerKWeight
+
+	// InputCommitments is a list of all the Taro level commitments of the
+	// inputs that should be included in the anchor transaction.
+	InputCommitments []*commitment.TaroCommitment
+
+	// VPkts is a list of all the virtual transactions that should be
+	// anchored by the anchor transaction.
+	VPkts []*taropsbt.VPacket
+
+	// PassiveAssetsVPkts is a list of all the virtual transactions which
+	// re-anchor passive assets.
+	PassiveAssetsVPkts []*taropsbt.VPacket
+}
+
+// AnchorPassiveAssets anchors the passive assets within the given taro
+// commitment.
+func (p *AnchorVTxnsParams) AnchorPassiveAssets(
+	taroCommitment *commitment.TaroCommitment) error {
+
+	for idx := range p.PassiveAssetsVPkts {
+		passiveAsset := p.PassiveAssetsVPkts[idx].Outputs[0].Asset
+		var err error
+
+		// Ensure that a commitment for this asset exists.
+		assetCommitment, ok := taroCommitment.Commitment(passiveAsset)
+		if ok {
+			err = assetCommitment.Upsert(passiveAsset)
+			if err != nil {
+				return fmt.Errorf("unable to upsert passive "+
+					"asset into asset commitment: %w", err)
+			}
+		} else {
+			// If no commitment exists yet, create one and insert
+			// the passive asset into it.
+			assetCommitment, err = commitment.NewAssetCommitment(
+				passiveAsset,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create "+
+					"commitment for passive asset: %w", err)
+			}
+		}
+
+		err = taroCommitment.Upsert(assetCommitment)
+		if err != nil {
+			return fmt.Errorf("unable to upsert passive "+
+				"asset commitment into taro commitment: %w",
+				err)
+		}
+	}
+
+	return nil
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -125,13 +190,30 @@ func NewAssetWallet(cfg *WalletConfig) *AssetWallet {
 	}
 }
 
+// FundedVPacket is the result from an attempt to fund a given taro address send
+// request via a call to FundAddressSend.
+type FundedVPacket struct {
+	// VPacket is the virtual transaction that was created to fund the
+	// transfer.
+	VPacket *taropsbt.VPacket
+
+	// PassiveAssetReAnchors is the data necessary to re-anchor passive
+	// assets as housekeeping for the transfer.
+	PassiveAssetReAnchors []*PassiveAssetReAnchor
+
+	// TaroCommitment is the Taro level commitment associated with the
+	// assets selected for this transfer.
+	TaroCommitment *commitment.TaroCommitment
+}
+
 // FundAddressSend funds a virtual transaction, selecting assets to spend in
-// order to pay the given address.
+// order to pay the given address. It also returns supporting data which assists
+// in processing the virtual transaction: passive asset re-anchors and the
+// Taro level commitment of the selected assets.
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
-	receiverAddr address.Taro) (*taropsbt.VPacket,
-	*commitment.TaroCommitment, error) {
+	receiverAddr address.Taro) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a
@@ -144,14 +226,130 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 		GroupKey: receiverAddr.GroupKey,
 		Amount:   receiverAddr.Amount,
 	}
-	inputCommitment, err := f.FundPacket(
+	anchoredCommitment, changeInternalKey, err := f.FundPacket(
 		ctx, fundDesc, &receiverAddr.ScriptKey, vPkt,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return vPkt, inputCommitment, nil
+	// Gather passive assets found in the commitment.
+	passiveCommitments := anchoredCommitment.Commitment.Commitments()
+
+	// Remove input assets (the assets being spent) from list of
+	// assets to re-sign.
+	//
+	// TODO(ffranr): This is a temporary solution. We should remove
+	//  individual asset leaves at this point rather than the whole
+	//  commitment (of a given asset type).
+	for _, vIn := range vPkt.Inputs {
+		delete(passiveCommitments, vIn.Asset().TaroCommitmentKey())
+	}
+	passiveAssets := f.passiveAssets(
+		passiveCommitments, anchoredCommitment.AnchorPoint,
+		changeInternalKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate passive "+
+			"asset virtual packets: %w", err)
+	}
+
+	return &FundedVPacket{
+		VPacket:               vPkt,
+		PassiveAssetReAnchors: passiveAssets,
+		TaroCommitment:        anchoredCommitment.Commitment,
+	}, nil
+}
+
+// passiveAssets gathers virtual packets and other data necessary for
+// re-anchoring passive assets.
+func (f *AssetWallet) passiveAssets(
+	passiveCommitments commitment.AssetCommitments,
+	anchorPoint wire.OutPoint,
+	internalKey *keychain.KeyDescriptor) []*PassiveAssetReAnchor {
+
+	// Create a VPacket for each asset.
+	var passiveAssetsReAnchor []*PassiveAssetReAnchor
+	for _, passiveCommitment := range passiveCommitments {
+		for _, passiveAsset := range passiveCommitment.Assets() {
+			vPkt := f.passiveAssetVPacket(
+				passiveAsset, anchorPoint, internalKey,
+			)
+			reAnchor := &PassiveAssetReAnchor{
+				VPacket:         vPkt,
+				GenesisID:       passiveAsset.ID(),
+				PrevAnchorPoint: anchorPoint,
+				ScriptKey:       passiveAsset.ScriptKey,
+			}
+			passiveAssetsReAnchor = append(
+				passiveAssetsReAnchor, reAnchor,
+			)
+		}
+	}
+
+	return passiveAssetsReAnchor
+}
+
+// passiveAssetVPacket creates a virtual packet for the given passive asset.
+func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
+	anchorPoint wire.OutPoint,
+	internalKey *keychain.KeyDescriptor) *taropsbt.VPacket {
+
+	// Specify virtual input.
+	inputAsset := passiveAsset.Copy()
+	inputPrevId := asset.PrevID{
+		OutPoint: anchorPoint,
+		ID:       inputAsset.ID(),
+		ScriptKey: asset.ToSerialized(
+			inputAsset.ScriptKey.PubKey,
+		),
+	}
+	vInput := taropsbt.VInput{
+		PrevID: inputPrevId,
+	}
+
+	// Specify virtual output.
+	outputAsset := passiveAsset.Copy()
+
+	// Clear the split commitment root, as we'll be transferring the
+	// whole asset.
+	outputAsset.SplitCommitmentRoot = nil
+
+	// Clear the output asset witness data. We'll be creating a new witness.
+	outputAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &inputPrevId,
+	}}
+
+	vOutput := taropsbt.VOutput{
+		Amount: outputAsset.Amount,
+
+		// In this case, the receiver of the output is also the sender.
+		// We therefore set interactive to true to indicate that the
+		// receiver is aware of the transfer.
+		Interactive: true,
+
+		AnchorOutputIndex: 0,
+		ScriptKey:         outputAsset.ScriptKey,
+		Asset:             outputAsset,
+	}
+
+	// Set output internal key.
+	vOutput.SetAnchorInternalKey(
+		*internalKey, f.cfg.ChainParams.HDCoinType,
+	)
+
+	// Create VPacket.
+	vPacket := &taropsbt.VPacket{
+		Inputs:      []*taropsbt.VInput{&vInput},
+		Outputs:     []*taropsbt.VOutput{&vOutput},
+		ChainParams: f.cfg.ChainParams,
+	}
+
+	// Set the input asset. The input asset proof is not provided as it is
+	// not needed for the re-anchoring process.
+	vPacket.SetInputAsset(0, inputAsset, nil)
+
+	return vPacket
 }
 
 // FundPacket funds a virtual transaction, selecting assets to spend in order to
@@ -160,11 +358,12 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 func (f *AssetWallet) FundPacket(ctx context.Context,
 	fundDesc *taroscript.FundingDescriptor,
 	receiverScriptKey *btcec.PublicKey,
-	vPkt *taropsbt.VPacket) (*commitment.TaroCommitment, error) {
+	vPkt *taropsbt.VPacket) (*AnchoredCommitment,
+	*keychain.KeyDescriptor, error) {
 
 	// The input and address networks must match.
 	if !address.IsForNet(vPkt.ChainParams.TaroHRP, f.cfg.ChainParams) {
-		return nil, address.ErrMismatchedHRP
+		return nil, nil, address.ErrMismatchedHRP
 	}
 
 	// We need to find a commitment that has enough assets to satisfy this
@@ -182,7 +381,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		ctx, constraints,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to complete coin "+
+		return nil, nil, fmt.Errorf("unable to complete coin "+
 			"selection: %w", err)
 	}
 
@@ -197,7 +396,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// something has gone wrong with the DB.
 	internalKey := assetInput.InternalKey
 	if internalKey.Family != asset.TaroKeyFamily {
-		return nil, fmt.Errorf("invalid internal key family "+
+		return nil, nil, fmt.Errorf("invalid internal key family "+
 			"for selected input: %v %v", internalKey.Family,
 			internalKey.Index)
 	}
@@ -209,7 +408,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	anchorPkScript, anchorMerkleRoot, err := inputAnchorPkScript(assetInput)
 	if err != nil {
-		return nil, fmt.Errorf("cannot calculate input asset pk "+
+		return nil, nil, fmt.Errorf("cannot calculate input asset pk "+
 			"script: %w", err)
 	}
 
@@ -226,18 +425,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	}
 	inputProofBlob, err := f.cfg.AssetProofs.FetchProof(ctx, proofLocator)
 	if err != nil {
-		return nil, fmt.Errorf("cannot fetch proof for input asset: %w",
-			err)
+		return nil, nil, fmt.Errorf("cannot fetch proof for input "+
+			"asset: %w", err)
 	}
 	inputProofFile := &proof.File{}
 	err = inputProofFile.Decode(bytes.NewReader(inputProofBlob))
 	if err != nil {
-		return nil, fmt.Errorf("cannot decode proof for input asset: "+
-			"%w", err)
+		return nil, nil, fmt.Errorf("cannot decode proof for input "+
+			"asset: %w", err)
 	}
 	inputProof, err := inputProofFile.RawLastProof()
 	if err != nil {
-		return nil, fmt.Errorf("cannot get last proof for input "+
+		return nil, nil, fmt.Errorf("cannot get last proof for input "+
 			"asset: %w", err)
 	}
 
@@ -275,7 +474,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		*vPkt.Inputs[0].Asset().ScriptKey.PubKey,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// We expect some change back, so let's create a script key to receive
@@ -285,7 +484,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// We'll assume BIP 86 everywhere, and use the tweaked key from
@@ -302,18 +501,43 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		ctx, asset.TaroKeyFamily,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
 		changeInternalKey, f.cfg.ChainParams.HDCoinType,
 	)
 
 	if err := taroscript.PrepareOutputAssets(vPkt); err != nil {
-		return nil, fmt.Errorf("unable to create split commit: %w",
+		return nil, nil, fmt.Errorf("unable to create split commit: %w",
 			err)
 	}
 
-	return assetInput.Commitment, nil
+	return assetInput, &changeInternalKey, nil
+}
+
+// SignVirtualPacketOptions is a set of functional options that allow callers to
+// further modify the virtual packet signing process.
+type SignVirtualPacketOptions struct {
+	// SkipInputProofVerify skips virtual input proof verification when true.
+	SkipInputProofVerify bool
+}
+
+// defaultSignVirtualPacketOptions returns the set of default options for the
+// virtual packet signing function.
+func defaultSignVirtualPacketOptions() *SignVirtualPacketOptions {
+	return &SignVirtualPacketOptions{}
+}
+
+// SignVirtualPacketOption is a functional option that allows a caller to modify
+// the virtual packet signing process.
+type SignVirtualPacketOption func(*SignVirtualPacketOptions)
+
+// SkipInputProofVerify sets an optional argument flag such that
+// SignVirtualPacket skips virtual input proof verification.
+func SkipInputProofVerify() SignVirtualPacketOption {
+	return func(o *SignVirtualPacketOptions) {
+		o.SkipInputProofVerify = true
+	}
 }
 
 // SignVirtualPacket signs the virtual transaction of the given packet and
@@ -321,23 +545,34 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 // transaction's inputs).
 //
 // NOTE: This is part of the Wallet interface.
-func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket) ([]uint32,
-	error) {
+func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket,
+	optFuncs ...SignVirtualPacketOption) ([]uint32, error) {
+
+	opts := defaultSignVirtualPacketOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
 
 	// Now we'll use the signer to sign all the inputs for the new taro
 	// leaves. The witness data for each input will be assigned for us.
 	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
-		// Before we sign the transaction, we want to make sure the
-		// inclusion proof is valid and the asset is actually committed
-		// in the anchor transaction.
-		err := verifyInclusionProof(vPkt.Inputs[idx])
-		if err != nil {
-			return nil, fmt.Errorf("unable to verify inclusion "+
-				"proof: %w", err)
+		// Conditionally skip the inclusion proof verification. We may
+		// not need to verify the input proof if we're only using the
+		// input to generate a new virtual output proof during
+		// re-anchoring.
+		if !opts.SkipInputProofVerify {
+			// Before we sign the transaction, we want to make sure
+			// the inclusion proof is valid and the asset is
+			// actually committed in the anchor transaction.
+			err := verifyInclusionProof(vPkt.Inputs[idx])
+			if err != nil {
+				return nil, fmt.Errorf("unable to verify "+
+					"inclusion proof: %w", err)
+			}
 		}
 
-		err = taroscript.SignVirtualTransaction(
+		err := taroscript.SignVirtualTransaction(
 			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
 		)
 		if err != nil {
@@ -403,28 +638,27 @@ func verifyInclusionProof(vIn *taropsbt.VInput) error {
 	return nil
 }
 
-// AnchorVirtualTransactions creates a BTC level anchor transaction that
-// anchors all the virtual transactions of the given packets. This method
-// returns both the funded anchor TX with all the output information intact for
-// later exclusion proof creation, and the fully signed and finalized anchor TX
-// along with the total amount of sats paid in chain fees by the anchor TX.
+// AnchorVirtualTransactions creates a BTC level anchor transaction that anchors
+// all the virtual transactions of the given packets (for both sending and
+// passive asset re-anchoring).
 //
-// NOTE: This is part of the Wallet interface.
+// This method returns both the funded anchor TX with all the output information
+// intact for later exclusion proof creation, and the fully signed and finalized
+// anchor TX along with the total amount of sats paid in chain fees by the
+// anchor TX.
 func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
-	feeRate chainfee.SatPerKWeight,
-	inputCommitments []*commitment.TaroCommitment,
-	vPkts []*taropsbt.VPacket) (*AnchorTransaction, error) {
+	params *AnchorVTxnsParams) (*AnchorTransaction, error) {
 
 	// We currently only support anchoring a single virtual transaction.
 	//
 	// TODO(guggero): Support merging and anchoring multiple virtual
 	// transactions.
-	if len(vPkts) != 1 || len(inputCommitments) != 1 {
+	if len(params.VPkts) != 1 || len(params.InputCommitments) != 1 {
 		return nil, fmt.Errorf("only a single virtual transaction is " +
 			"supported for now")
 	}
-	vPacket := vPkts[0]
-	inputCommitment := inputCommitments[0]
+	vPacket := params.VPkts[0]
+	inputCommitment := params.InputCommitments[0]
 
 	outputCommitments, err := taroscript.CreateOutputCommitments(
 		inputCommitment, vPacket,
@@ -434,14 +668,46 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 			"commitments: %w", err)
 	}
 
-	// Construct our template PSBT to commits to the set of dummy
-	// locators we use to make fee estimation work.
+	// Anchor the passive assets to the change output commitment.
+	//
+	// As a first step, we need to find the change output (by index).
+	changeOutputIdx := -1
+	for idx := range vPacket.Outputs {
+		if vPacket.Outputs[idx].IsSplitRoot {
+			changeOutputIdx = idx
+			break
+		}
+	}
+	if changeOutputIdx == -1 {
+		// TODO(ffranr): Modify call to taroscript.CreateOutputCommitments
+		// such that a change commitment is created even for full value
+		// spend if passive asset is present.
+		return nil, fmt.Errorf("no change output found in spending " +
+			"vPacket")
+	}
+
+	changeCommitment := outputCommitments[changeOutputIdx]
+	err = params.AnchorPassiveAssets(changeCommitment)
+	if err != nil {
+		return nil, fmt.Errorf("unable to anchor passive assets: %w",
+			err)
+	}
+
+	// Construct our template PSBT to commits to the set of dummy locators
+	// we use to make fee estimation work.
+	//
+	// TODO(ffranr): Where a full spend is concerned, do passive asset
+	// re-anchoring outputs need to be included in the fee estimation?
+	// The re-anchoring process might add a new output if a change output is
+	// missing.
 	sendPacket, err := taroscript.CreateAnchorTx(vPacket.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
 
-	anchorPkt, err := f.cfg.Wallet.FundPsbt(ctx, sendPacket, 1, feeRate)
+	anchorPkt, err := f.cfg.Wallet.FundPsbt(
+		ctx, sendPacket, 1, params.FeeRate,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
@@ -481,7 +747,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// add our anchor input as well, since the wallet can sign for
 	// it itself.
 	err = addAnchorPsbtInput(
-		signAnchorPkt, vPacket, feeRate, f.cfg.ChainParams.Params,
+		signAnchorPkt, vPacket, params.FeeRate,
+		f.cfg.ChainParams.Params,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error adding anchor input: %w", err)
@@ -520,7 +787,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	return &AnchorTransaction{
 		FundedPsbt:        &anchorPkt,
 		FinalTx:           finalTx,
-		TargetFeeRate:     feeRate,
+		TargetFeeRate:     params.FeeRate,
 		ChainFees:         chainFees,
 		OutputCommitments: mergedCommitments,
 	}, nil

@@ -1771,7 +1771,11 @@ WITH target_asset(asset_id) AS (
     FROM assets
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = $1
+    WHERE
+        (script_keys.tweaked_script_key = $2
+             OR $2 IS NULL)
+        AND (assets.asset_id = $3
+                 OR $3 IS NULL)
     -- TODO(guggero): Fix this by disallowing multiple assets with the same
     -- script key!
     LIMIT 1
@@ -1779,19 +1783,20 @@ WITH target_asset(asset_id) AS (
 INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
-    (SELECT asset_id FROM target_asset), $2
+    (SELECT asset_id FROM target_asset), $1
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, update the proof file in case it wasn't set before.
     DO UPDATE SET proof_file = EXCLUDED.proof_file
 `
 
 type UpsertAssetProofParams struct {
-	TweakedScriptKey []byte
 	ProofFile        []byte
+	TweakedScriptKey []byte
+	AssetID          sql.NullInt32
 }
 
 func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.TweakedScriptKey, arg.ProofFile)
+	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.ProofFile, arg.TweakedScriptKey, arg.AssetID)
 	return err
 }
 

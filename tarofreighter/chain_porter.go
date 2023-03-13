@@ -2,18 +2,21 @@ package tarofreighter
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
@@ -302,6 +305,29 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	ctx, cancel := p.CtxBlocking()
 	defer cancel()
 
+	confEvent := pkg.TransferTxConfEvent
+
+	// Generate updated passive asset proof files.
+	passiveAssetProofFiles := make(
+		[]*proof.AnnotatedProof, 0, len(pkg.PassiveAssets),
+	)
+	for _, passiveAsset := range pkg.PassiveAssets {
+		newAnnotatedProofFile, err := p.updateAssetProofFile(
+			ctx, passiveAsset.GenesisID,
+			passiveAsset.ScriptKey.PubKey, confEvent,
+			passiveAsset.NewProof,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to generate an updated "+
+				"proof file for passive asset: %w", err)
+		}
+
+		passiveAssetProofFiles = append(
+			passiveAssetProofFiles, newAnnotatedProofFile,
+		)
+	}
+
+	// Generate sender and receiver proof files.
 	var (
 		outboundPkg     = pkg.OutboundPkg
 		spendDeltas     = outboundPkg.AssetSpendDeltas
@@ -310,7 +336,6 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 			AssetID:   &outboundAssetID,
 			ScriptKey: spendDeltas[0].OldScriptKey,
 		}
-		confEvent = pkg.TransferTxConfEvent
 	)
 
 	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
@@ -399,9 +424,12 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	// Use callback to verify that block header exists on chain.
 	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 
-	// Import sender proof and receiver proof into proof archive.
+	// Import all up-to-date proof files into proof archive.
+	allProofs := append(
+		passiveAssetProofFiles, newSenderProof, receiverProof,
+	)
 	err = p.cfg.AssetProofs.ImportProofs(
-		ctx, headerVerifier, receiverProof, newSenderProof,
+		ctx, headerVerifier, allProofs...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing proof: %w", err)
@@ -412,6 +440,59 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 
 	pkg.SendState = SendStateReceiverProofTransfer
 	return nil
+}
+
+// updateAssetProofFile retrieves and updates the proof file for the given asset
+// ID and script key with the new proof.
+func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID,
+	scriptKeyPub *btcec.PublicKey, confEvent *chainntnfs.TxConfirmation,
+	newProof *proof.Proof) (*proof.AnnotatedProof, error) {
+
+	// Retrieve current proof file.
+	locator := proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptKeyPub,
+	}
+	currentProofFileBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching proof: %w", err)
+	}
+	currentProofFile := proof.NewEmptyFile(proof.V0)
+	err = currentProofFile.Decode(bytes.NewReader(currentProofFileBlob))
+	if err != nil {
+		return nil, fmt.Errorf("error decoding proof file: %w", err)
+	}
+
+	// Now that we have the current proof file, we'll update the new proof
+	// with chain tx confirmation data and then append it to the proof file.
+	err = newProof.UpdateTransitionProof(&proof.BaseProofParams{
+		Block:   confEvent.Block,
+		Tx:      confEvent.Tx,
+		TxIndex: int(confEvent.TxIndex),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error updating new proof with "+
+			"chain transaction confirmation data: %w", err)
+	}
+
+	// With the new proof updated, we can append the proof to the
+	// current proof file.
+	if err := currentProofFile.AppendProof(*newProof); err != nil {
+		return nil, fmt.Errorf("error appending proof suffix: %w", err)
+	}
+	var newProofFileBuffer bytes.Buffer
+	if err := currentProofFile.Encode(&newProofFileBuffer); err != nil {
+		return nil, fmt.Errorf("error encoding proof file: %w", err)
+	}
+	newAnnotatedProofFile := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *newProof.Asset.ScriptKey.PubKey,
+		},
+		Blob: newProofFileBuffer.Bytes(),
+	}
+
+	return newAnnotatedProofFile, nil
 }
 
 // transferReceiverProof retrieves the sender and receiver proofs from the
@@ -486,14 +567,32 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
 		pkg.OutboundPkg.AnchorTx.TxHash())
 
+	// Load passive asset proof files from archive.
+	passiveAssetProofFiles := map[[32]byte]proof.Blob{}
+	for _, passiveAsset := range pkg.OutboundPkg.PassiveAssets {
+		proofLocator := proof.Locator{
+			AssetID:   &passiveAsset.GenesisID,
+			ScriptKey: *passiveAsset.ScriptKey.PubKey,
+		}
+		proofFileBlob, err := p.cfg.AssetProofs.FetchProof(
+			ctx, proofLocator,
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching passive asset "+
+				"proof file: %w", err)
+		}
+		passiveAssetProofFiles[proofLocator.Hash()] = proofFileBlob
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint:      pkg.OutboundPkg.NewAnchorPoint,
-		BlockHash:        *pkg.TransferTxConfEvent.BlockHash,
-		BlockHeight:      int32(pkg.TransferTxConfEvent.BlockHeight),
-		TxIndex:          int32(pkg.TransferTxConfEvent.TxIndex),
-		FinalSenderProof: senderProofBlob,
+		AnchorPoint:            pkg.OutboundPkg.NewAnchorPoint,
+		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
+		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
+		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
+		FinalSenderProof:       senderProofBlob,
+		PassiveAssetProofFiles: passiveAssetProofFiles,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to log parcel delivery "+
@@ -562,7 +661,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		packet, inputCommitment, err := p.cfg.AssetWallet.FundAddressSend(
+		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
 			ctx, *currentPkg.Parcel.dest(),
 		)
 		if err != nil {
@@ -570,8 +669,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
-		currentPkg.VirtualPacket = packet
-		currentPkg.InputCommitment = inputCommitment
+		currentPkg.VirtualPacket = fundSendRes.VPacket
+		currentPkg.PassiveAssets = fundSendRes.PassiveAssetReAnchors
+		currentPkg.InputCommitment = fundSendRes.TaroCommitment
 
 		currentPkg.SendState = SendStateVirtualSign
 
@@ -592,6 +692,17 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign and commit "+
 				"virtual packet: %w", err)
+		}
+
+		// Sign all the passive assets virtual packets.
+		for _, passiveAsset := range currentPkg.PassiveAssets {
+			_, err := p.cfg.AssetWallet.SignVirtualPacket(
+				passiveAsset.VPacket, SkipInputProofVerify(),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to sign "+
+					"passive asset virtual packet: %w", err)
+			}
 		}
 
 		currentPkg.SendState = SendStateAnchorSign
@@ -621,11 +732,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		log.Infof("Constructing new Taro commitments for send to: %x",
 			receiverScriptKey.SerializeCompressed())
 
+		// Gather passive assets virtual packets.
+		var passiveVPackets []*taropsbt.VPacket
+		for _, passiveAsset := range currentPkg.PassiveAssets {
+			passiveVPackets = append(
+				passiveVPackets, passiveAsset.VPacket,
+			)
+		}
+
 		wallet := p.cfg.AssetWallet
 		anchorTx, err := wallet.AnchorVirtualTransactions(
-			ctx, feeRate, []*commitment.TaroCommitment{
-				currentPkg.InputCommitment,
-			}, []*taropsbt.VPacket{vPacket},
+			ctx, &AnchorVTxnsParams{
+				FeeRate: feeRate,
+				InputCommitments: []*commitment.TaroCommitment{
+					currentPkg.InputCommitment,
+				},
+				VPkts:              []*taropsbt.VPacket{vPacket},
+				PassiveAssetsVPkts: passiveVPackets,
+			},
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to anchor virtual "+
@@ -685,6 +809,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
+		// Gather newly generated data required for re-anchoring passive
+		// assets.
+		for _, passiveAsset := range currentPkg.PassiveAssets {
+			// Generate passive asset re-anchoring proofs.
+			newProof, err := currentPkg.createReAnchorProof(
+				passiveAsset.VPacket,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create "+
+					"re-anchor proof: %w", err)
+			}
+
+			passiveAsset.NewProof = newProof
+
+			vOut := passiveAsset.VPacket.Outputs[0]
+			passiveAsset.NewWitnessData = vOut.Asset.PrevWitnesses
+		}
+
 		// Before we can broadcast, we want to find out the current height to
 		// pass as a height hint.
 		ctx, cancel := p.WithCtxQuit()
@@ -733,8 +875,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			}},
 			TapscriptSibling: vIn.Anchor.TapscriptSibling,
 			// TODO(bhandras): use clock.Clock instead.
-			TransferTime: time.Now(),
-			ChainFees:    currentPkg.AnchorTx.ChainFees,
+			TransferTime:  time.Now(),
+			ChainFees:     currentPkg.AnchorTx.ChainFees,
+			PassiveAssets: currentPkg.PassiveAssets,
 		}
 
 		// Don't allow shutdown while we're attempting to store proofs.

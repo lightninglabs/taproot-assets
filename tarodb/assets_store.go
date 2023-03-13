@@ -74,7 +74,7 @@ type (
 
 	// AssetAnchorUpdate is used to update the managed UTXO pointer when
 	// spending assets on chain.
-	AssetAnchorUpdate = sqlc.ReanchorAssetsParams
+	AssetAnchorUpdate = sqlc.ReAnchorAssetsParams
 
 	// AssetSpendDelta is used to update the script key and amount of an
 	// existing asset.
@@ -175,9 +175,9 @@ type ActiveAssetsStore interface {
 	// FetchManagedUTXOs fetches all managed UTXOs.
 	FetchManagedUTXOs(context.Context) ([]ManagedUTXORow, error)
 
-	// ReanchorAssets takes an old anchor point, then updates all assets
+	// ReAnchorAssets takes an old anchor point, then updates all assets
 	// that point to that old anchor point-to-point to the new one.
-	ReanchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
+	ReAnchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
 
 	// ApplySpendDelta applies a sped delta (new amount and script key)
 	// based on the existing script key of an asset.
@@ -238,6 +238,22 @@ type ActiveAssetsStore interface {
 	// to receiver proof delivery attempts.
 	QueryReceiverProofTransferAttempt(ctx context.Context,
 		proofLocatorHash []byte) ([]time.Time, error)
+
+	// InsertPendingPassiveAsset inserts a new row which includes the data
+	// necessary to re-anchor a passive asset.
+	InsertPendingPassiveAsset(ctx context.Context,
+		arg sqlc.InsertPendingPassiveAssetParams) error
+
+	// QueryPendingPassiveAssets returns the data required to re-anchor
+	// pending passive assets that are anchored at the given outpoint.
+	QueryPendingPassiveAssets(ctx context.Context,
+		prevOutpoint []byte) ([]sqlc.QueryPendingPassiveAssetsRow,
+		error)
+
+	// DeletePendingPassiveAsset deletes pending passive asset entries given
+	// their on-chain outpoint.
+	DeletePendingPassiveAsset(ctx context.Context,
+		prevOutpoint []byte) error
 }
 
 type InsertRecvProofTxAttemptParams = sqlc.InsertReceiverProofTransferAttemptParams
@@ -1077,6 +1093,8 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 
 // insertAssetWitnesses attempts to insert the set of asset witnesses in to the
 // database, referencing the passed asset primary key.
+//
+// TODO(ffranr): Change insert function into an upsert.
 func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 	db ActiveAssetsStore, assetID int32, inputs []asset.Witness) error {
 
@@ -1632,8 +1650,73 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			}
 		}
 
+		// Log passive assets data to disk.
+		err = a.logPendingPassiveAssets(ctx, q, spend.PassiveAssets)
+		if err != nil {
+			return fmt.Errorf("unable to log passive assets: %w",
+				err)
+		}
+
 		return nil
 	})
+}
+
+// logPendingPassiveAssets logs passive assets re-anchoring data to disk.
+func (a *AssetStore) logPendingPassiveAssets(ctx context.Context,
+	q ActiveAssetsStore,
+	passiveAssets []*tarofreighter.PassiveAssetReAnchor) error {
+
+	for _, passiveAsset := range passiveAssets {
+		// Encode new witness data.
+		var (
+			newWitnessBuf bytes.Buffer
+			buf           [8]byte
+		)
+		err := asset.WitnessEncoder(
+			&newWitnessBuf, &passiveAsset.NewWitnessData, &buf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to encode witness: "+
+				"%w", err)
+		}
+
+		// Encode new proof.
+		var newProofBuf bytes.Buffer
+		err = passiveAsset.NewProof.Encode(&newProofBuf)
+		if err != nil {
+			return fmt.Errorf("unable to encode new passive "+
+				"asset proof: %w", err)
+		}
+
+		// Encode previous anchor outpoint.
+		prevOutpointBytes, err := encodeOutpoint(
+			passiveAsset.PrevAnchorPoint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to encode prev outpoint: "+
+				"%w", err)
+		}
+
+		// Encode script key.
+		scriptKey := passiveAsset.ScriptKey
+		scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
+
+		err = q.InsertPendingPassiveAsset(
+			ctx, sqlc.InsertPendingPassiveAssetParams{
+				NewWitnessStack: newWitnessBuf.Bytes(),
+				NewProof:        newProofBuf.Bytes(),
+				PrevOutpoint:    prevOutpointBytes,
+				ScriptKey:       scriptKeyBytes,
+				AssetGenesisID:  passiveAsset.GenesisID[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to log pending passive "+
+				"asset: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // StoreProofDeliveryAttempt logs a proof delivery attempt to disk.
@@ -1708,10 +1791,23 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		}
 		assetTransfer := assetTransfers[0]
 
+		// The asset transfer gives us access to the spending asset's
+		// anchor outpoint. This outpoint is then used to fetch the
+		// data necessary to re-anchor the associated passive (non-send)
+		// assets.
+		err = a.reAnchorPassiveAssets(
+			ctx, q, assetTransfer.OldAnchorPoint,
+			conf.PassiveAssetProofFiles,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to re-anchor passive "+
+				"assets: %w", err)
+		}
+
 		// Now that we have the new managed UTXO inserted, we'll update
 		// the managed UTXO pointer for _all_ assets that were anchored
 		// by the old managed UTXO.
-		err = q.ReanchorAssets(ctx, AssetAnchorUpdate{
+		err = q.ReAnchorAssets(ctx, AssetAnchorUpdate{
 			OldOutpoint: assetTransfer.OldAnchorPoint,
 			NewOutpointUtxoID: sqlInt32(
 				assetTransfer.NewAnchorUtxoID,
@@ -1806,6 +1902,88 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 
 		return nil
 	})
+}
+
+// reAnchorPassiveAssets re-anchors all passive assets that were anchored by
+// the given outpoint.
+func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
+	q ActiveAssetsStore, prevAnchorOutpointBytes []byte,
+	proofFiles map[[32]byte]proof.Blob) error {
+
+	passiveAssets, err := q.QueryPendingPassiveAssets(
+		ctx, prevAnchorOutpointBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query passive assets: %w", err)
+	}
+
+	for _, passiveAsset := range passiveAssets {
+		// Parse genesis ID.
+		var assetID asset.ID
+		copy(assetID[:], passiveAsset.GenesisID)
+
+		// Parse the script key.
+		scriptKey, err := btcec.ParsePubKey(passiveAsset.ScriptKey)
+		if err != nil {
+			return fmt.Errorf("failed to parse script key: %w", err)
+		}
+
+		// Fetch the proof file for this asset.
+		locator := proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *scriptKey,
+		}
+		proofFile := proofFiles[locator.Hash()]
+		if proofFile == nil {
+			return fmt.Errorf("failed to find proof file for " +
+				"passive asset")
+		}
+
+		// Delete the old set of witnesses, and re-insert new ones.
+		err = q.DeleteAssetWitnesses(ctx, passiveAsset.AssetID)
+		if err != nil {
+			return fmt.Errorf("unable to delete witnesses: %w", err)
+		}
+
+		// With the old witnesses removed, we'll insert the new
+		// set on disk.
+		var witnessData []asset.Witness
+		err = asset.WitnessDecoder(
+			bytes.NewReader(passiveAsset.NewWitnessStack),
+			&witnessData, &[8]byte{},
+			uint64(len(passiveAsset.NewWitnessStack)),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decode witness: %w", err)
+		}
+		err = a.insertAssetWitnesses(
+			ctx, q, passiveAsset.AssetID, witnessData,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert asset "+
+				"witnesses: %w", err)
+		}
+
+		// Update the asset proof.
+		err = q.UpsertAssetProof(ctx, ProofUpdate{
+			AssetID:   sqlInt32(passiveAsset.AssetID),
+			ProofFile: proofFile,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to update passive asset "+
+				"proof file: %w", err)
+		}
+	}
+
+	// Finally, we'll delete pending passive asset entries which we have
+	// finished processing.
+	err = q.DeletePendingPassiveAsset(ctx, prevAnchorOutpointBytes)
+	if err != nil {
+		return fmt.Errorf("unable to delete pending passive "+
+			"asset: %w", err)
+	}
+
+	return nil
 }
 
 // PendingParcels returns the set of parcels that haven't yet been finalized.

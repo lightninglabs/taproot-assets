@@ -95,7 +95,7 @@ SELECT sender_proof, receiver_proof
 FROM transfer_proofs
 WHERE transfer_id = $1;
 
--- name: ReanchorAssets :exec
+-- name: ReAnchorAssets :exec
 WITH assets_to_update AS (
     SELECT asset_id
     FROM assets
@@ -140,3 +140,39 @@ SELECT time_unix
 FROM receiver_proof_transfer_attempts
 WHERE proof_locator_hash = $1
 ORDER BY time_unix DESC;
+
+-- name: InsertPendingPassiveAsset :exec
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+        JOIN genesis_assets
+            ON assets.genesis_id = genesis_assets.gen_asset_id
+        JOIN managed_utxos utxos
+            ON assets.anchor_utxo_id = utxos.utxo_id
+        JOIN script_keys
+            ON assets.script_key_id = script_keys.script_key_id
+    WHERE genesis_assets.asset_id = @asset_genesis_id
+        AND utxos.outpoint = @prev_outpoint
+        AND script_keys.tweaked_script_key = @script_key
+)
+INSERT INTO pending_passive_asset (
+    asset_id, prev_outpoint, script_key, new_witness_stack,
+    new_proof
+) VALUES (
+    (SELECT asset_id FROM target_asset), @prev_outpoint,
+          @script_key, @new_witness_stack, @new_proof
+);
+
+-- name: QueryPendingPassiveAssets :many
+SELECT passive.asset_id, passive.script_key, passive.new_witness_stack,
+       passive.new_proof, genesis_info_view.asset_id AS genesis_id
+FROM pending_passive_asset as passive
+    JOIN assets
+        ON passive.asset_id = assets.asset_id
+    JOIN genesis_info_view
+        ON assets.genesis_id = genesis_info_view.gen_asset_id
+WHERE prev_outpoint = @prev_outpoint;
+
+-- name: DeletePendingPassiveAsset :exec
+DELETE FROM pending_passive_asset
+WHERE prev_outpoint = @prev_outpoint;
