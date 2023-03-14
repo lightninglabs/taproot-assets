@@ -43,6 +43,10 @@ type (
 var (
 	// ErrNoUniverseRoot is returned when no universe root is found.
 	ErrNoUniverseRoot = fmt.Errorf("no universe root found")
+
+	// ErrNoUniverseProofFound is returned when a user attempts to look up
+	// a key in the universe that actually points to the empty leaf.
+	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
 // BaseUniverseStore is the main interface for the Taro universe store. This is
@@ -425,6 +429,10 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 			return err
 		}
 
+		if len(universeLeaves) == 0 {
+			return ErrNoUniverseProofFound
+		}
+
 		// Now that we have all the leaves we need to query, we'll look
 		// each up them up in the universe tree, obtaining a merkle
 		// proof for each of them along the way.
@@ -483,8 +491,6 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 	if dbErr != nil {
 		return nil, dbErr
 	}
-
-	// TODO(roasbeef): need nicer error
 
 	return proofs, nil
 }
