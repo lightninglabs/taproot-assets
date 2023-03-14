@@ -3,6 +3,7 @@ package universe
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -21,6 +22,16 @@ type Identifier struct {
 
 	// GroupKey is the group key for the universe.
 	GroupKey *btcec.PublicKey
+}
+
+// String returns a string representation of the ID.
+func (i *Identifier) String() string {
+	if i.GroupKey != nil {
+		h := sha256.Sum256(schnorr.SerializePubKey(i.GroupKey))
+		return hex.EncodeToString(h[:])
+	}
+
+	return hex.EncodeToString(i.AssetID[:])
 }
 
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
