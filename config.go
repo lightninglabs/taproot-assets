@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
@@ -52,6 +53,8 @@ type DatabaseConfig struct {
 	AssetStore *tarodb.AssetStore
 
 	TaroAddrBook *tarodb.TaroAddressBook
+
+	UniverseForest *tarodb.BaseUniverseForest
 }
 
 // Config is the main config of the Taro server.
@@ -76,6 +79,8 @@ type Config struct {
 	AssetWallet tarofreighter.Wallet
 
 	ChainPorter tarofreighter.Porter
+
+	BaseUniverse *universe.MintingArchive
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
