@@ -331,7 +331,7 @@ func assertGroups(t *harnessTest, issuableAssets []*tarorpc.MintAssetRequest) {
 		require.Equal(t.t, a.AssetType, b.Type)
 		require.Equal(t.t, a.Name, b.Tag)
 		require.Equal(t.t, a.MetaData, b.MetaData)
-		require.Equal(t.t, a.Amount, int64(b.Amount))
+		require.Equal(t.t, a.Amount, b.Amount)
 	}
 
 	equalityCheck(issuableAssets[0], groupedAssets[0])

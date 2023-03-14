@@ -28,7 +28,7 @@ var (
 type assetCheck func(a *tarorpc.Asset) error
 
 // assetAmountCheck returns a check function that tests an asset's amount.
-func assetAmountCheck(amt int64) assetCheck {
+func assetAmountCheck(amt uint64) assetCheck {
 	return func(a *tarorpc.Asset) error {
 		if a.Amount != amt {
 			return fmt.Errorf("unexpected asset amount, got %d "+
@@ -261,7 +261,7 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 // with the node.
 func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 	sendResp *tarorpc.SendAssetResponse, assetID []byte,
-	expectedAmount int64, currentTransferIdx, numTransfers int) {
+	expectedAmount uint64, currentTransferIdx, numTransfers int) {
 
 	ctxb := context.Background()
 
@@ -377,7 +377,7 @@ func assertAddr(t *testing.T, expected *tarorpc.Asset, actual *tarorpc.Addr) {
 // assertBalanceByID asserts that the balance of a single asset,
 // specified by ID, on the given daemon is correct.
 func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
-	amt int64) {
+	amt uint64) {
 
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
@@ -398,7 +398,7 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 // assertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
 func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
-	amt int64) {
+	amt uint64) {
 
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
@@ -419,7 +419,7 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
 
 // assertTransfers asserts that the value of each transfer initiated on the
 // given daemon is correct.
-func assertTransfers(t *testing.T, tarod *tarodHarness, amts []int64) {
+func assertTransfers(t *testing.T, tarod *tarodHarness, amts []uint64) {
 	ctxb := context.Background()
 	transferResp, err := tarod.ListTransfers(
 		ctxb, &tarorpc.ListTransfersRequest{},
@@ -451,7 +451,7 @@ func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
 	groupKey []byte) {
 
 	require.Equal(t, a.AssetGenesis.AssetId, b.Id)
-	require.Equal(t, a.Amount, int64(b.Amount))
+	require.Equal(t, a.Amount, b.Amount)
 	require.Equal(t, a.LockTime, b.LockTime)
 	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
 	require.Equal(t, a.AssetGenesis.Name, b.Tag)

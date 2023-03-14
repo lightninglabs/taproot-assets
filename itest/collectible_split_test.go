@@ -100,11 +100,11 @@ func testCollectibleSend(t *harnessTest) {
 	// Check the final state of both nodes. The main node should list 2
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
-	assertTransfers(t.t, t.tarod, []int64{0, 0})
-	assertBalanceByID(t.t, t.tarod, genInfo.AssetId, int64(0))
+	assertTransfers(t.t, t.tarod, []uint64{0, 0})
+	assertBalanceByID(t.t, t.tarod, genInfo.AssetId, 0)
 
-	assertTransfers(t.t, secondTarod, []int64{0})
-	assertBalanceByID(t.t, secondTarod, genInfo.AssetId, int64(fullAmount))
+	assertTransfers(t.t, secondTarod, []uint64{0})
+	assertBalanceByID(t.t, secondTarod, genInfo.AssetId, fullAmount)
 
 	// The second daemon should list one group with two assets.
 	listGroupsResp, err := secondTarod.ListGroups(

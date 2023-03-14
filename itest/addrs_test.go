@@ -147,7 +147,7 @@ func testAddresses(t *harnessTest) {
 		require.Equal(t.t,
 			rpcAssets[0].AssetGenesis.AssetId, delta.AssetId,
 		)
-		require.Equal(t.t, int64(1), delta.NewAmt)
+		require.EqualValues(t.t, 1, delta.NewAmt)
 
 		return nil
 	}, defaultTimeout/2)
