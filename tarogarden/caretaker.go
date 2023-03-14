@@ -1,6 +1,7 @@
 package tarogarden
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -846,7 +847,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 						AssetID:   &assetID,
 						ScriptKey: *scriptPubKey,
 					},
-					Blob: mintingProofs[scriptKey],
+					Blob: mintingProof,
 				},
 			)
 			if err != nil {
@@ -854,18 +855,27 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					"proofs: %w", err)
 			}
 
-			// Before we mark the batch as confirmed below, we'll also register
-			// the issuance of the new asset with our local base universe.
+			// Before we mark the batch as confirmed below, we'll
+			// also register the issuance of the new asset with our
+			// local base universe.
 			//
-			// TODO(roasbeef): can combine with minting proof creation above?
+			// TODO(roasbeef): can combine with minting proof
+			// creation above?
 			if b.cfg.Universe != nil {
 				// The universe ID serves to identifier the
 				// universe root we want to add this asset to.
 				// This is either the assetID or the group key.
 				uniID := universe.Identifier{
-					AssetID:  assetID,
-					GroupKey: &newAsset.GroupKey.GroupPubKey,
+					AssetID: assetID,
 				}
+
+				groupKey := newAsset.GroupKey
+				if groupKey != nil {
+					uniID.GroupKey = &groupKey.GroupPubKey
+				}
+
+				log.Debugf("Registering asset with "+
+					"universe, key=%v", spew.Sdump(uniID))
 
 				// The base key is the set of bytes that keys
 				// into the universe, this'll be the outpoint.
@@ -879,14 +889,48 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					ScriptKey: &newAsset.ScriptKey,
 				}
 
+				// The universe tree store the only the asset
+				// state transition and not also the proof file
+				// checksum (as the root is effectively a
+				// checksum), so we'll re-encode just the state
+				// transition.
+				//
+				// TODO(roasbeef): this path ends up doing
+				// waaay too many proof encode round trips
+				var proofFile proof.File
+				err := proofFile.Decode(
+					bytes.NewReader(mintingProof),
+				)
+				if err != nil {
+					return 0, fmt.Errorf("unable to decode "+
+						"proof: %w", err)
+				}
+
+				var proofBuf bytes.Buffer
+				issuanceProof, err := proofFile.LastProof()
+				if err != nil {
+					return 0, err
+				}
+				err = issuanceProof.Encode(&proofBuf)
+				if err != nil {
+					return 0, err
+				}
+
 				// With both of those assembled, we can now
 				// register issuance which takes the amount and
 				// proof of the minting event.
-				mintingLeaf := &universe.MintingLeaf{
-					GenesisProof: mintingProof,
-					Amt:          newAsset.Amount,
+				uniGen := universe.GenesisWithGroup{
+					Genesis: newAsset.Genesis,
 				}
-				_, err := b.cfg.Universe.RegisterIssuance(
+				if groupKey != nil {
+					uniGen.GroupKey = groupKey
+				}
+				mintingLeaf := &universe.MintingLeaf{
+					GenesisWithGroup: uniGen,
+					GenesisProof:     proofBuf.Bytes(),
+					Amt:              newAsset.Amount,
+				}
+				_, err = b.cfg.Universe.RegisterIssuance(
 					ctx, uniID, baseKey, mintingLeaf,
 				)
 				if err != nil {
