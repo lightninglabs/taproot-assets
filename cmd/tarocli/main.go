@@ -323,6 +323,7 @@ func main() {
 	app.Commands = append(app.Commands, assetsCommands...)
 	app.Commands = append(app.Commands, addrCommands...)
 	app.Commands = append(app.Commands, proofCommands...)
+	app.Commands = append(app.Commands, universeCommands...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
