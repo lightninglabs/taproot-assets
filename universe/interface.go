@@ -178,6 +178,89 @@ type Registrar interface {
 		leaf *MintingLeaf) (*IssuanceProof, error)
 }
 
+// ServerAddr wraps the reachable network address of a remote universe
+// server.
+type ServerAddr struct {
+	// Addr is the address the universe is hosted at.
+	Addr net.Addr
+}
+
+// SyncType is an enum that describes the type of sync that should be performed
+// between a local and remote universe.
+type SyncType uint8
+
+const (
+	// SyncIssuance is a sync that will only sync new asset issuance events.
+	SyncIssuance SyncType = iota
+
+	// SyncFull is a sync that will sync all the assets in the universe.
+	SyncFull
+)
+
+// String returns a human readable string representation of the sync type.
+func (s SyncType) String() string {
+	switch s {
+	case SyncIssuance:
+		return "issuance"
+	case SyncFull:
+		return "full"
+	default:
+		return fmt.Sprint("unknown(%v)", int(s))
+	}
+}
+
+// AssetSyncDiff is the result of a success Universe sync. The diff contains the
+// Universe root, and the set of assets that were added to the Universe.
+type AssetSyncDiff struct {
+	// OldUniverseRoot is the root of the universe before the sync.
+	OldUniverseRoot BaseRoot
+
+	// NewUniverseRoot is the new root of the Universe after the sync.
+	NewUniverseRoot BaseRoot
+
+	// NewAssetLeaves is the set of new leaf proofs that were added to the
+	// Universe.
+	NewLeafProofs []*MintingLeaf
+
+	// TODO(roasbeef): ability to return if things failed?
+	//  * can used a sealed interface to return the error
+}
+
+// Syncer is used to synchronize the state of two Universe instances: a local
+// instance and a remote instance. As a Universe is a tree based structure,
+// tree based bisection can be used to find the point of divergence with
+// syncing happening once that's found.
+type Syncer interface {
+	// SyncUniverse attempts to synchronize the local universe with the
+	// remote universe, governed by the sync type and the set of universe
+	// IDs to sync.
+	SyncUniverse(ctx context.Context, host ServerAddr,
+		syncType SyncType,
+		idsToSync ...Identifier) ([]AssetSyncDiff, error)
+}
+
+// DiffEngine is a Universe diff engine that can be used to compare the state
+// of two universes and find the set of assets that are different between them.
+type DiffEngine interface {
+	BaseForest
+
+	// RootNode returns the root node for a given base universe.
+	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
+
+	// MintingKeys returns all the keys inserted in the universe.
+	MintingKeys(ctx context.Context, id Identifier) ([]BaseKey, error)
+
+	// FethcIssuanceProof attempts to fetch an issuance proof for the
+	// target base leaf based on the universe identifier
+	// (assetID/groupKey).
+	//
+	// TODO(roasbeef): actually add this somewhere else?  * rn kinda
+	// asymmetric, as just need this to complete final portion
+	// of diff
+	FetchIssuanceProof(ctx context.Context, id Identifier,
+		key BaseKey) ([]*IssuanceProof, error)
+}
+
 // Commitment is an on chain universe commitment. This includes the merkle
 // proof for a transaction which anchors the target universe root.
 type Commitment struct {
