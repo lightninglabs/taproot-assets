@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 )
 
@@ -98,12 +97,20 @@ func withBaseUni[T any](fetcher uniFetcher, id Identifier,
 // RootNode returns the root node of the base universe corresponding to the
 // passed ID.
 func (a *MintingArchive) RootNode(ctx context.Context,
-	id Identifier) (mssmt.Node, error) {
+	id Identifier) (BaseRoot, error) {
 
 	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) (mssmt.Node, error) {
-		return baseUni.RootNode(ctx)
+	return withBaseUni(a, id, func(baseUni BaseBackend) (BaseRoot, error) {
+		smtNode, err := baseUni.RootNode(ctx)
+		if err != nil {
+			return BaseRoot{}, err
+		}
+
+		return BaseRoot{
+			ID:   id,
+			Node: smtNode,
+		}, nil
 	})
 }
 
@@ -153,6 +160,8 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		return nil, fmt.Errorf("unable to verify proof: %v", err)
 	}
 
+	// TODO(roasbeef): don't add if not an issuance event?
+
 	// Now that we know the proof is valid, we'll insert it into the base
 	// universe backend, and return the new issuance proof.
 	issuanceProof, err := baseUni.RegisterIssuance(
@@ -171,7 +180,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	key BaseKey) ([]*IssuanceProof, error) {
 
-	log.Debugf("Retreiving Universe proof for: id=%v, base_key=%v",
+	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
 		id.String(), key)
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
@@ -184,7 +193,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 func (a *MintingArchive) MintingKeys(ctx context.Context,
 	id Identifier) ([]BaseKey, error) {
 
-	log.Debugf("Retreiving all keys for Universe: id=%v", id.String())
+	log.Debugf("Retrieving all keys for Universe: id=%v", id.String())
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) ([]BaseKey, error) {
 		return baseUni.MintingKeys(ctx)
@@ -196,7 +205,7 @@ func (a *MintingArchive) MintingKeys(ctx context.Context,
 func (a *MintingArchive) MintingLeaves(ctx context.Context,
 	id Identifier) ([]MintingLeaf, error) {
 
-	log.Debugf("Retreiving all leaves for Universe: id=%v", id.String())
+	log.Debugf("Retrieving all leaves for Universe: id=%v", id.String())
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) ([]MintingLeaf, error) {
 		return baseUni.MintingLeaves(ctx)
