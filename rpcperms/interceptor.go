@@ -43,15 +43,6 @@ var (
 	// RPC server is not yet ready to accept calls.
 	ErrRPCStarting = fmt.Errorf("the RPC server is in the process of " +
 		"starting up, but not yet ready to accept calls")
-
-	// macaroonWhitelist defines methods that we don't require macaroons to
-	// access. We also allow these methods to be called even if not all
-	// mandatory middlewares are registered yet. If the wallet is locked
-	// then a middleware cannot register itself, creating an impossible
-	// situation. Also, a middleware might want to check the state of tarod
-	// by calling the State service before it registers itself. So we also
-	// need to exclude those calls from the mandatory middleware check.
-	macaroonWhitelist = map[string]struct{}{}
 )
 
 // InterceptorChain is a struct that can be added to the running GRPC server,
@@ -111,20 +102,31 @@ type InterceptorChain struct {
 	// rpcsLog is the logger used to log calls to the RPCs intercepted.
 	rpcsLog btclog.Logger
 
+	// macaroonWhitelist defines methods that we don't require macaroons to
+	// access. We also allow these methods to be called even if not all
+	// mandatory middlewares are registered yet. If the wallet is locked
+	// then a middleware cannot register itself, creating an impossible
+	// situation. Also, a middleware might want to check the state of tarod
+	// by calling the State service before it registers itself. So we also
+	// need to exclude those calls from the mandatory middleware check.
+	macaroonWhitelist map[string]struct{}
+
 	quit chan struct{}
 	sync.RWMutex
 }
 
 // NewInterceptorChain creates a new InterceptorChain.
 func NewInterceptorChain(log btclog.Logger, noMacaroons bool,
-	mandatoryMiddleware []string) *InterceptorChain {
+	mandatoryMiddleware []string,
+	macaroonWhitelist map[string]struct{}) *InterceptorChain {
 
 	return &InterceptorChain{
-		state:         waitingToStart,
-		noMacaroons:   noMacaroons,
-		permissionMap: make(map[string][]bakery.Op),
-		rpcsLog:       log,
-		quit:          make(chan struct{}),
+		state:             waitingToStart,
+		noMacaroons:       noMacaroons,
+		permissionMap:     make(map[string][]bakery.Op),
+		rpcsLog:           log,
+		quit:              make(chan struct{}),
+		macaroonWhitelist: macaroonWhitelist,
 	}
 }
 
@@ -308,7 +310,7 @@ func (r *InterceptorChain) checkMacaroon(ctx context.Context,
 
 	// Check whether the method is whitelisted, if so we'll allow it
 	// regardless of macaroons.
-	_, ok := macaroonWhitelist[fullMethod]
+	_, ok := r.macaroonWhitelist[fullMethod]
 	if ok {
 		return nil
 	}

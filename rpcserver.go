@@ -185,6 +185,19 @@ var (
 			Action: "write",
 		}},
 	}
+
+	// macaroonWhitelist defines methods that we don't require macaroons to
+	// access. For now, these are the Universe related read/write methods.
+	// We permit InsertIssuanceProof as a valid proof requires an on-chain
+	// transaction, so we gain a layer of DoS defense.
+	macaroonWhitelist = map[string]struct{}{
+		"/universerpc.Universe/AssetRoots":          {},
+		"/universerpc.Universe/QueryAssetRoots":     {},
+		"/universerpc.Universe/AssetLeafKeys":       {},
+		"/universerpc.Universe/AssetLeaves":         {},
+		"/universerpc.Universe/QueryIssuanceProof":  {},
+		"/universerpc.Universe/InsertIssuanceProof": {},
+	}
 )
 
 // rpcServer is the main RPC server for the Taro daemon that handles

@@ -105,6 +105,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// will be used to log the API calls invoked on the GRPC server.
 	interceptorChain := rpcperms.NewInterceptorChain(
 		rpcsLog, s.cfg.RPCConfig.NoMacaroons, nil,
+		macaroonWhitelist,
 	)
 	if err := interceptorChain.Start(); err != nil {
 		return mkErr("error starting interceptor chain: %v", err)
