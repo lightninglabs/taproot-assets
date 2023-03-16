@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,6 +49,8 @@ const (
 	// poolMacaroonLocation is the value we use for the taro macaroons'
 	// "Location" field when baking them.
 	taroMacaroonLocation = "taro"
+
+	defaultRPCPort = 10029
 )
 
 var (
@@ -2045,17 +2048,39 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 	}, nil
 }
 
+func marshalUniID(id universe.Identifier) *unirpc.ID {
+	var uniID unirpc.ID
+
+	if id.GroupKey != nil {
+		uniID.Id = &unirpc.ID_GroupKey{
+			GroupKey: schnorr.SerializePubKey(id.GroupKey),
+		}
+	} else {
+		uniID.Id = &unirpc.ID_AssetId{
+			AssetId: id.AssetID[:],
+		}
+	}
+
+	return &uniID
+}
+
 // marshallUniverseRoot marshals the universe root into the RPC counterpart.
-func marshalUniverseRoot(node mssmt.Node) (*unirpc.UniverseRoot, error) {
-	branchNode, ok := node.(*mssmt.BranchNode)
+func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
+	// There was no old base root, so we'll just return a blank root.
+	if node.Node == nil {
+		return &unirpc.UniverseRoot{}, nil
+	}
+
+	branchNode, ok := node.Node.(*mssmt.BranchNode)
 	if !ok {
 		return nil, fmt.Errorf("unable to obtain branch node: "+
-			"have %T", node)
+			"have %T", node.Node)
 	}
 
 	nodeHash := branchNode.NodeHash()
 
 	return &unirpc.UniverseRoot{
+		Id: marshalUniID(node.ID),
 		MssmtRoot: &unirpc.MerkleSumNode{
 			RootHash: nodeHash[:],
 			RootSum:  int64(branchNode.NodeSum()),
@@ -2084,22 +2109,10 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 		idStr := assetRoot.ID.String()
 
 		resp.UniverseRoots[idStr], err = marshalUniverseRoot(
-			assetRoot.Node,
+			assetRoot,
 		)
 		if err != nil {
 			return nil, err
-		}
-
-		if assetRoot.ID.GroupKey == nil {
-			resp.UniverseRoots[idStr].Id = &unirpc.UniverseRoot_AssetId{
-				AssetId: assetRoot.ID.AssetID[:],
-			}
-		} else {
-			resp.UniverseRoots[idStr].Id = &unirpc.UniverseRoot_GroupKey{
-				GroupKey: schnorr.SerializePubKey(
-					assetRoot.ID.GroupKey,
-				),
-			}
 		}
 	}
 
@@ -2189,9 +2202,22 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 	}, nil
 }
 
+func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
+	return &unirpc.AssetKey{
+		Outpoint: &unirpc.AssetKey_OpStr{
+			OpStr: leafKey.MintingOutpoint.String(),
+		},
+		ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+			ScriptKeyBytes: schnorr.SerializePubKey(
+				leafKey.ScriptKey.PubKey,
+			),
+		},
+	}
+}
+
 // AssetLeafKeys queries for the set of Universe keys associated with a given
 // asset_id or group_key. Each key takes the form: (outpoint, script_key),
-// where outpoint is an outpoint in the Bitcoin blockcahin that anchors a valid
+// where outpoint is an outpoint in the Bitcoin blockchain that anchors a valid
 // Taro asset commitment, and script_key is the script_key of the asset within
 // the Taro asset commitment for the given asset_id or group_key.
 func (r *rpcServer) AssetLeafKeys(ctx context.Context,
@@ -2215,16 +2241,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	}
 
 	for i, leafKey := range leafKeys {
-		resp.AssetKeys[i] = &unirpc.AssetKey{
-			Outpoint: &unirpc.AssetKey_OpStr{
-				OpStr: leafKey.MintingOutpoint.String(),
-			},
-			ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
-				ScriptKeyBytes: schnorr.SerializePubKey(
-					leafKey.ScriptKey.PubKey,
-				),
-			},
-		}
+		resp.AssetKeys[i] = marshalLeafKey(leafKey)
 	}
 
 	return resp, nil
@@ -2394,7 +2411,9 @@ func marshalUniverseProof(proof *mssmt.Proof) ([]byte, error) {
 func marshalIssuanceProof(req *unirpc.UniverseKey,
 	proof *universe.IssuanceProof) (*unirpc.IssuanceProofResponse, error) {
 
-	uniRoot, err := marshalUniverseRoot(proof.UniverseRoot)
+	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
+		Node: proof.UniverseRoot,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2503,6 +2522,118 @@ func (r *rpcServer) InsertIssuanceProof(ctx context.Context,
 	return marshalIssuanceProof(req.Key, newUniverseState)
 }
 
+// unmarshalUniverseSyncType maps an RPC universe sync type into a concrete
+// type.
+func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode,
+) (universe.SyncType, error) {
+	switch req {
+
+	case unirpc.UniverseSyncMode_SYNC_FULL:
+		return universe.SyncFull, nil
+
+	case unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY:
+		return universe.SyncIssuance, nil
+
+	default:
+		return 0, fmt.Errorf("unknown sync type: %v", req)
+	}
+}
+
+// unmarshalUniverseHost maps an RPC universe host (of the form 'host' or
+// 'host:port') into a net.Addr.
+func unmarshalUniverseHost(uniAddr string) (universe.ServerAddr, error) {
+	var (
+		host      string
+		port      int
+		uniServer universe.ServerAddr
+	)
+
+	if len(uniAddr) == 0 {
+		return uniServer, fmt.Errorf("universe host cannot be empty")
+	}
+
+	// Split the address into its host and port components.
+	h, p, err := net.SplitHostPort(uniAddr)
+	if err != nil {
+		// If a port wasn't specified, we'll assume the address only
+		// contains the host so we'll use the default port.
+		host = uniAddr
+		port = defaultRPCPort
+	} else {
+		// Otherwise, we'll note both the host and ports.
+		host = h
+		portNum, err := strconv.Atoi(p)
+		if err != nil {
+			return uniServer, err
+		}
+		port = portNum
+	}
+
+	// TODO(roasbeef): add tor support
+
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	uniServer.Addr, err = net.ResolveTCPAddr("tcp", hostPort)
+	if err != nil {
+		return uniServer, err
+	}
+
+	return uniServer, nil
+}
+
+// unmarshalSyncTargets maps an RPC sync target into a concrete type.
+func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
+	uniIDs := make([]universe.Identifier, 0, len(targets))
+	for _, target := range targets {
+		uniID, err := unmarshalUniID(target.Id)
+		if err != nil {
+			return nil, err
+		}
+		uniIDs = append(uniIDs, uniID)
+	}
+
+	return uniIDs, nil
+}
+
+// marshalUniverseDiff marshals a universe diff into the RPC form.
+func marshalUniverseDiff(uniDiff []universe.AssetSyncDiff,
+) (*unirpc.SyncResponse, error) {
+
+	resp := &unirpc.SyncResponse{
+		SyncedUniverses: make([]*unirpc.SyncedUniverse, 0, len(uniDiff)),
+	}
+
+	for _, diff := range uniDiff {
+		oldUniRoot, err := marshalUniverseRoot(diff.OldUniverseRoot)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal old "+
+				"uni root: %w", err)
+		}
+		newUniRoot, err := marshalUniverseRoot(diff.NewUniverseRoot)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal new unit "+
+				"root: %w", err)
+		}
+
+		leaves := make([]*unirpc.AssetLeaf, len(diff.NewLeafProofs))
+		for i, leaf := range diff.NewLeafProofs {
+			leaves[i], err = marshalAssetLeaf(leaf)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		resp.SyncedUniverses = append(
+			resp.SyncedUniverses, &unirpc.SyncedUniverse{
+				OldAssetRoot:   oldUniRoot,
+				NewAssetRoot:   newUniRoot,
+				NewAssetLeaves: leaves,
+			},
+		)
+	}
+
+	return resp, nil
+}
+
 // SyncUniverse takes host information for a remote Universe server, then
 // attempts to synchronize either only the set of specified asset_ids, or all
 // assets if none are specified. The sync process will attempt to query for the
@@ -2511,5 +2642,30 @@ func (r *rpcServer) InsertIssuanceProof(ctx context.Context,
 func (r *rpcServer) SyncUniverse(ctx context.Context,
 	req *unirpc.SyncRequest) (*unirpc.SyncResponse, error) {
 
-	return nil, nil
+	// TODO(roasbeef): have another layer, only allow single outstanding
+	// sync request per host?
+
+	syncMode, err := unmarshalUniverseSyncType(req.SyncMode)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sync type: %w", err)
+	}
+	uniAddr, err := unmarshalUniverseHost(req.UniverseHost)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse universe host: %w", err)
+	}
+	syncTargets, err := unmarshalSyncTargets(req.SyncTargets)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sync targets: %w", err)
+	}
+
+	// TODO(roasbeef): add layer of indirection in front of?
+	//  * just interface interaction
+	universeDiff, err := r.cfg.UniverseSyncer.SyncUniverse(
+		ctx, uniAddr, syncMode, syncTargets...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to sync universe: %w", err)
+	}
+
+	return marshalUniverseDiff(universeDiff)
 }
