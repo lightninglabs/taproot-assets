@@ -171,6 +171,12 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	baseUni := universe.NewMintingArchive(uniCfg)
 
+	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
+		LocalDiffEngine:     baseUni,
+		NewRemoteDiffEngine: taro.NewRpcUniverseDiff,
+		LocalRegistrar:      baseUni,
+	})
+
 	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
 	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
 		CoinSelector: assetStore,
@@ -230,6 +236,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			},
 		),
 		BaseUniverse:      baseUni,
+		UniverseSyncer:    universeSyncer,
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{

@@ -82,6 +82,8 @@ type Config struct {
 
 	BaseUniverse *universe.MintingArchive
 
+	UniverseSyncer universe.Syncer
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
