@@ -461,7 +461,7 @@ func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
 			OutputIndex:  a.Genesis.OutputIndex,
 		},
 		AssetType:        tarorpc.AssetType(a.Type),
-		Amount:           int64(a.Amount),
+		Amount:           a.Amount,
 		LockTime:         int32(a.LockTime),
 		RelativeLockTime: int32(a.RelativeLockTime),
 		ScriptVersion:    int32(a.ScriptVersion),
@@ -553,7 +553,7 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
 			},
 			AssetType: tarorpc.AssetType(balance.Type),
-			Balance:   int64(balance.Balance),
+			Balance:   balance.Balance,
 		}
 	}
 
@@ -585,7 +585,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 		groupKeyString := hex.EncodeToString(groupKey)
 		resp.AssetGroupBalances[groupKeyString] = &tarorpc.AssetGroupBalance{
 			GroupKey: groupKey,
-			Balance:  int64(balance.Balance),
+			Balance:  balance.Balance,
 		}
 	}
 
@@ -753,7 +753,7 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 				AssetId:      assetID[:],
 				OldScriptKey: delta.OldScriptKey.SerializeCompressed(),
 				NewScriptKey: delta.NewScriptKey.PubKey.SerializeCompressed(),
-				NewAmt:       int64(delta.NewAmt),
+				NewAmt:       delta.NewAmt,
 			}
 		}
 
@@ -1236,7 +1236,7 @@ func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		AssetType:        tarorpc.AssetType(addr.Type),
-		Amount:           int64(addr.Amount),
+		Amount:           addr.Amount,
 		ScriptKey:        addr.ScriptKey.SerializeCompressed(),
 		InternalKey:      addr.InternalKey.SerializeCompressed(),
 		TaprootOutputKey: schnorr.SerializePubKey(taprootOutputKey),
@@ -1373,7 +1373,7 @@ func marshalPendingParcel(
 			AnchorPoint: input.PrevID.OutPoint.String(),
 			AssetId:     input.PrevID.ID[:],
 			ScriptKey:   input.PrevID.ScriptKey[:],
-			Amount:      int64(input.Amount),
+			Amount:      uint64(input.Amount),
 		}
 	}
 	for i, output := range parcel.AssetOutputs {
@@ -1383,7 +1383,7 @@ func marshalPendingParcel(
 			AnchorPoint: output.PrevID.OutPoint.String(),
 			AssetId:     output.PrevID.ID[:],
 			ScriptKey:   output.PrevID.ScriptKey[:],
-			Amount:      int64(output.Amount),
+			Amount:      uint64(output.Amount),
 			// TODO(roasbeef): add blob and split proof
 		}
 	}

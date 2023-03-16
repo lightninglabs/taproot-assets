@@ -157,7 +157,7 @@ func testSendPassiveAsset(t *harnessTest) {
 
 	// Next, we'll attempt to transfer some amount of assets[0] to the
 	// receiving node.
-	numUnitsSend := int64(1200)
+	numUnitsSend := uint64(1200)
 
 	// Get a new address (which accepts the first asset) from the
 	// receiving node.

@@ -646,7 +646,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The total amount of the asset stored in this Taro UTXO."
         },
         "group_key": {
@@ -794,7 +794,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The total amount of the asset stored in this Taro UTXO."
         },
         "lock_time": {
@@ -846,7 +846,7 @@
         },
         "balance": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The balance of the asset owned by the target daemon."
         }
       }
@@ -881,7 +881,7 @@
         },
         "balance": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The total balance of the assets in the group."
         }
       }
@@ -940,7 +940,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         },
         "new_proof_blob": {
           "type": "string",
@@ -972,7 +972,7 @@
         },
         "new_amt": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The new amount for the asset."
         }
       }
@@ -1282,7 +1282,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The total amount of units of the new asset that should be created. If the\nAssetType is Collectible, then this field cannot be set."
         },
         "group_key": {
@@ -1323,7 +1323,7 @@
         },
         "amt": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         },
         "script_key": {
           "$ref": "#/definitions/tarorpcScriptKey",
@@ -1351,7 +1351,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         }
       }
     },

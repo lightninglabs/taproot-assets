@@ -288,7 +288,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         },
         "new_proof_blob": {
           "type": "string",
@@ -316,7 +316,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         }
       }
     },

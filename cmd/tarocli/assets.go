@@ -114,7 +114,7 @@ func mintAsset(ctx *cli.Context) error {
 		AssetType:      parseAssetType(ctx),
 		Name:           ctx.String(assetTagName),
 		MetaData:       []byte(ctx.String(assetMetaName)),
-		Amount:         ctx.Int64(assetSupplyName),
+		Amount:         ctx.Uint64(assetSupplyName),
 		GroupKey:       groupKey,
 		EnableEmission: ctx.Bool(assetEmissionName),
 		SkipBatch:      ctx.Bool(skipBatchName),

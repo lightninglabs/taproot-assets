@@ -66,12 +66,12 @@ func testReissuance(t *harnessTest) {
 
 	// Check the state of both nodes. The first node should show one
 	// zero-value transfer representing the send of the collectible.
-	assertTransfers(t.t, t.tarod, []int64{0})
-	assertBalanceByID(t.t, t.tarod, collectGenInfo.AssetId, int64(0))
+	assertTransfers(t.t, t.tarod, []uint64{0})
+	assertBalanceByID(t.t, t.tarod, collectGenInfo.AssetId, 0)
 
 	// The second node should show a balance of 1 for exactly one group.
-	assertBalanceByID(t.t, secondTarod, collectGenInfo.AssetId, int64(1))
-	assertBalanceByGroup(t.t, secondTarod, collectGroupKey, int64(1))
+	assertBalanceByID(t.t, secondTarod, collectGenInfo.AssetId, 1)
+	assertBalanceByGroup(t.t, secondTarod, collectGroupKey, 1)
 
 	// Send half of the normal asset to the second node before reissuance.
 	normalGroupAddr, err := secondTarod.NewAddr(

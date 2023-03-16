@@ -140,7 +140,7 @@ message MintAssetRequest {
     The total amount of units of the new asset that should be created. If the
     AssetType is Collectible, then this field cannot be set.
     */
-    int64 amount = 4;
+    uint64 amount = 4;
 
     /*
     The specific group key this asset should be minted with.
@@ -246,7 +246,7 @@ message Asset {
     AssetType asset_type = 3;
 
     // The total amount of the asset stored in this Taro UTXO.
-    int64 amount = 4;
+    uint64 amount = 4;
 
     // An optional locktime, as with Bitcoin transactions.
     int32 lock_time = 5;
@@ -373,7 +373,7 @@ message AssetBalance {
     AssetType asset_type = 2;
 
     // The balance of the asset owned by the target daemon.
-    int64 balance = 3;
+    uint64 balance = 3;
 }
 
 message AssetGroupBalance {
@@ -381,7 +381,7 @@ message AssetGroupBalance {
     bytes group_key = 1;
 
     // The total balance of the assets in the group.
-    int64 balance = 2;
+    uint64 balance = 2;
 }
 
 message ListBalancesResponse {
@@ -434,7 +434,7 @@ message AssetSpendDelta {
     bytes new_script_key = 3;
 
     // The new amount for the asset.
-    int64 new_amt = 4;
+    uint64 new_amt = 4;
 }
 
 message StopRequest {
@@ -464,7 +464,7 @@ message Addr {
     AssetType asset_type = 3;
 
     // The total amount of the asset stored in this Taro UTXO.
-    int64 amount = 4;
+    uint64 amount = 4;
 
     // The group key of the asset (if it exists)
     bytes group_key = 5;
@@ -515,7 +515,7 @@ message NewAddrRequest {
 
     bytes group_key = 2;
 
-    int64 amt = 3;
+    uint64 amt = 3;
 
     /*
     The optional script key that the receiving asset should be locked to. If no
@@ -684,14 +684,14 @@ message PrevInputAsset {
     string anchor_point = 1;
     bytes asset_id = 2;
     bytes script_key = 3;
-    int64 amount = 4;
+    uint64 amount = 4;
 }
 
 message AssetOutput {
     string anchor_point = 1;
     bytes asset_id = 2;
     bytes script_key = 3;
-    int64 amount = 4;
+    uint64 amount = 4;
 
     bytes new_proof_blob = 5;
 

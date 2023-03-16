@@ -80,7 +80,7 @@ func newAddr(ctx *cli.Context) error {
 	addr, err := client.NewAddr(ctxc, &tarorpc.NewAddrRequest{
 		GenesisBootstrapInfo: genInfo,
 		GroupKey:             groupKey,
-		Amt:                  ctx.Int64(amtName),
+		Amt:                  ctx.Uint64(amtName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)
