@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -11,6 +13,11 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
+)
+
+var (
+	// ErrNoUniverseRoot is returned when no universe root is found.
+	ErrNoUniverseRoot = fmt.Errorf("no universe root found")
 )
 
 // Identifier is the identifier for a root/base universe.

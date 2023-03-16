@@ -41,9 +41,6 @@ type (
 )
 
 var (
-	// ErrNoUniverseRoot is returned when no universe root is found.
-	ErrNoUniverseRoot = fmt.Errorf("no universe root found")
-
 	// ErrNoUniverseProofFound is returned when a user attempts to look up
 	// a key in the universe that actually points to the empty leaf.
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
@@ -163,7 +160,7 @@ func (b *BaseUniverseTree) RootNode(ctx context.Context) (mssmt.Node, error) {
 	})
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
-		return nil, ErrNoUniverseRoot
+		return nil, universe.ErrNoUniverseRoot
 	case dbErr != nil:
 		return nil, dbErr
 	}
