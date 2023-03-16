@@ -1139,21 +1139,18 @@
     "universerpcSyncTarget": {
       "type": "object",
       "properties": {
-        "asset_id": {
-          "type": "string",
-          "format": "byte",
-          "description": "The asset ID of the asset set to sync."
-        },
-        "group_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The group key of the asset set to sync."
+        "id": {
+          "$ref": "#/definitions/universerpcID"
         }
       }
     },
     "universerpcSyncedUniverse": {
       "type": "object",
       "properties": {
+        "old_asset_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The old Universe root for the synced asset."
+        },
         "new_asset_root": {
           "$ref": "#/definitions/universerpcUniverseRoot",
           "description": "The new Universe root for the synced asset."
@@ -1183,15 +1180,8 @@
     "universerpcUniverseRoot": {
       "type": "object",
       "properties": {
-        "asset_id": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset ID."
-        },
-        "group_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset group key."
+        "id": {
+          "$ref": "#/definitions/universerpcID"
         },
         "mssmt_root": {
           "$ref": "#/definitions/universerpcMerkleSumNode",

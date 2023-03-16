@@ -106,13 +106,7 @@ message ID {
 }
 
 message UniverseRoot {
-    oneof id {
-        // The 32-byte asset ID.
-        bytes asset_id = 1;
-
-        // The 32-byte asset group key.
-        bytes group_key = 2;
-    }
+    ID id = 1;
 
     // The merkle sum sparse merkle tree root associated with the above
     // universe ID.
@@ -226,14 +220,9 @@ enum UniverseSyncMode {
 }
 
 message SyncTarget {
-    oneof target {
-        // The asset ID of the asset set to sync.
-        bytes asset_id = 3;
-
-        // The group key of the asset set to sync.
-        bytes group_key = 4;
-    }
+    ID id = 1;
 }
+
 message SyncRequest {
     // TODO(roasbeef): accept connection type? so can pass along self-signed
     // cert, also brontide based RPC handshake
@@ -248,11 +237,14 @@ message SyncRequest {
 }
 
 message SyncedUniverse {
+    // The old Universe root for the synced asset.
+    UniverseRoot old_asset_root = 1;
+
     // The new Universe root for the synced asset.
-    UniverseRoot new_asset_root = 1;
+    UniverseRoot new_asset_root = 2;
 
     // The set of new asset leaves that were synced.
-    repeated AssetLeaf new_asset_leaves = 2;
+    repeated AssetLeaf new_asset_leaves = 3;
 }
 
 message SyncResponse {
