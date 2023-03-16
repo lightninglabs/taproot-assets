@@ -101,8 +101,8 @@ func (b BaseKey) UniverseKey() [32]byte {
 }
 
 // IssuanceProof is a complete issuance proof for a given asset specified by
-// the minintng key. This proof can be used to verify that a valid asset exists
-// (based on the proof in the leaf), and that the asset is commited to within
+// the minting key. This proof can be used to verify that a valid asset exists
+// (based on the proof in the leaf), and that the asset is committed to within
 // the universe root.
 type IssuanceProof struct {
 	// MintingKey is the minting key for the asset.
@@ -118,6 +118,19 @@ type IssuanceProof struct {
 
 	// Leaf is the leaf node for the asset within the universe tree.
 	Leaf *MintingLeaf
+}
+
+// VerifyRoot verifies that the inclusion proof for the root node matches the
+// specified root. This is useful for sanity checking an issuance proof against
+// the purported root, and the included leaf.
+func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) bool {
+	reconstructedRoot := i.InclusionProof.Root(
+		i.MintingKey.UniverseKey(),
+		i.Leaf.SmtLeafNode(),
+	)
+
+	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
+		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 
 // BaseBackend is the backend storage interface for a base universe. The
