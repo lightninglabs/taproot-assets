@@ -160,7 +160,31 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		return nil, fmt.Errorf("unable to verify proof: %v", err)
 	}
 
-	// TODO(roasbeef): don't add if not an issuance event?
+	newAsset := assetSnapshot.Asset
+
+	// The final asset we extract from the proof should also match up with
+	// both the universe ID and also the base key.
+	switch {
+	// If the group key is present, then that match.
+	case id.GroupKey != nil &&
+		!newAsset.GroupKey.GroupPubKey.IsEqual(id.GroupKey):
+		return nil, fmt.Errorf("group key mismatch")
+
+	// If the group key is nil, then the asset ID should match.
+	case id.GroupKey == nil && id.AssetID != newAsset.ID():
+		return nil, fmt.Errorf("asset id mismatch")
+
+	// The outpoint of the final resting place of the asset should match
+	// the leaf key
+	//
+	// TODO(roasbeef): this restrict to issuance
+	case assetSnapshot.OutPoint != key.MintingOutpoint:
+		return nil, fmt.Errorf("outpoint mismatch")
+
+	// The script key should also match exactly.
+	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
+		return nil, fmt.Errorf("script key mismatch")
+	}
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// universe backend, and return the new issuance proof.
@@ -181,7 +205,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	key BaseKey) ([]*IssuanceProof, error) {
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
-		id.String(), key)
+		id.String(), spew.Sdump(key))
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
 		return baseUni.FetchIssuanceProof(ctx, key)
