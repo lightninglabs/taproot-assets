@@ -38,6 +38,7 @@ var universeCommands = []cli.Command{
 			universeLeavesCommand,
 			universeKeysCommand,
 			universeProofCommand,
+			universeSyncCommand,
 		},
 	},
 }
@@ -144,11 +145,11 @@ var universeKeysCommand = cli.Command{
 	ShortName: "k",
 	Usage:     "return the known set of keys in a Universe",
 	Description: `
-    Query for the set of known keys for a given asset universe. Keys take the
-    form: (outpoint, script_key), where outpoint is the outpoint that anchors
-    and asset, and script_key is the key for that asset within an asset_id
-    tree.
-    `,
+	Query for the set of known keys for a given asset universe. Keys take the
+	form: (outpoint, script_key), where outpoint is the outpoint that anchors
+	and asset, and script_key is the key for that asset within an asset_id
+	tree.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  assetIDName,
@@ -186,10 +187,10 @@ var universeLeavesCommand = cli.Command{
 	ShortName: "l",
 	Usage:     "return the known set of leaves in a Universe",
 	Description: `
-    Query for the set of known leaves for a given asset universe. A leaf in a
-    universe is an entry that denotes either a new issuance event (asset
-    minting) or an asset transfer. A leaf includes the asset under action, a
-    state transition proof for that asset.`,
+	Query for the set of known leaves for a given asset universe. A leaf in a
+	universe is an entry that denotes either a new issuance event (asset
+	minting) or an asset transfer. A leaf includes the asset under action, a
+	state transition proof for that asset.`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  assetIDName,
@@ -348,10 +349,10 @@ var universeProofInsertInsert = cli.Command{
 	Name:  "insert",
 	Usage: "insert a new universe proof",
 	Description: `
-    Attempt to insert a new proof into the target universe. The proof can be
-    accepted either via a file argument (proof_file), via stdin, or via a hex
-    encoded string.
-    `,
+	Attempt to insert a new proof into the target universe. The proof can be
+	accepted either via a file argument (proof_file), via stdin, or via a hex
+	encoded string.
+	`,
 	Flags: append(universeProofArgs, cli.StringFlag{
 		Name: proofPathName,
 	}),
@@ -426,12 +427,67 @@ func universeProofInsert(ctx *cli.Context) error {
 	return nil
 }
 
-// tarocli universe roots
-// tarocli universe roots --asset_id=X --group_key=x
+var (
+	universeHostName = "universe_host"
+)
 
-// tarocli universe keys --asset_id=X --group_key=x
-// tarocli universe leaves --asset_id=X --group_key=x
+var universeSyncCommand = cli.Command{
+	Name:        "sync",
+	ShortName:   "s",
+	Description: "Attempt to sync Universe state with a remote Universe",
+	Usage:       "synchronize universe state with a remote instance",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: universeHostName,
+			Usage: "the host:port or just host of the remote " +
+				"universe",
+		},
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "the asset ID of the sync with the universe",
+		},
+		cli.StringFlag{
+			Name:  groupKeyName,
+			Usage: "the group key of sync with the universe",
+		},
+	},
+	Action: universeSync,
+}
 
-// tarocli universe proofs --asset_id=X --group_key=x
+func universeSync(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
 
-// tarocli universe proof insert
+	switch {
+	case ctx.String(universeHostName) == "":
+
+		_ = cli.ShowCommandHelp(ctx, "sync")
+		return nil
+	}
+
+	universeID, err := parseUniverseID(ctx, false)
+	if err != nil {
+		return err
+	}
+
+	var targets []*universerpc.SyncTarget
+	if universeID != nil {
+		targets = append(targets, &universerpc.SyncTarget{
+			Id: universeID,
+		})
+	}
+
+	// TODO(roasbeef): add support for full sync
+
+	syncResp, err := client.SyncUniverse(ctxc, &universerpc.SyncRequest{
+		UniverseHost: ctx.String(universeHostName),
+		SyncTargets:  targets,
+	})
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(syncResp)
+	return nil
+}
