@@ -191,7 +191,7 @@ func testSendPassiveAsset(t *harnessTest) {
 		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
 		0, 1,
 	)
-	_ = sendProof(t, t.tarod, recvTarod, recvAddr, genInfo)
+	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, recvTarod, 1)
 
 	// Assert that the sending node returns the correct asset list via RPC.
@@ -233,7 +233,7 @@ func testSendPassiveAsset(t *harnessTest) {
 		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
 		1, 2,
 	)
-	_ = sendProof(t, t.tarod, recvTarod, recvAddr, genInfo)
+	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, recvTarod, 2)
 }
 
