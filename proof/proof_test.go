@@ -3,9 +3,13 @@ package proof
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +27,17 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	// proofFileHexFileName is the name of the file that contains the hex
+	// proof file data. The proof file is a random test file from an
+	// integration test run.
+	proofFileHexFileName = filepath.Join(testDataFileName, "proof-file.hex")
+
+	// proofHexFileName is the name of the file that contains the hex proof
+	// data. The proof is a random test proof from an integration test run.
+	proofHexFileName = filepath.Join(testDataFileName, "proof.hex")
 )
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
@@ -474,6 +489,60 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	)
 	actualErrInner := errors.Unwrap(actualErr)
 	require.Equal(t, actualErrInner, errHeaderVerifier)
+}
+
+// TestProofFileVerification ensures that the proof file encoding and decoding
+// works as expected.
+func TestProofFileVerification(t *testing.T) {
+	proofHex, err := os.ReadFile(proofFileHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	f := &File{}
+	err = f.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	_, err = f.Verify(context.Background(), MockHeaderVerifier)
+	require.NoError(t, err)
+}
+
+// TestProofVerification ensures that the proof encoding and decoding works as
+// expected.
+func TestProofVerification(t *testing.T) {
+	proofHex, err := os.ReadFile(proofHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	p := &Proof{}
+	err = p.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	assetID := p.Asset.ID()
+	t.Logf("Proof asset ID: %x", assetID[:])
+
+	inclusionTxOut := p.AnchorTx.TxOut[p.InclusionProof.OutputIndex]
+	t.Logf("Proof inclusion tx out: %x", inclusionTxOut.PkScript)
+	proofKey, proofTree, err := p.InclusionProof.DeriveByAssetInclusion(
+		&p.Asset,
+	)
+	require.NoError(t, err)
+	rootHash := proofTree.TapscriptRoot(nil)
+	t.Logf("Proof internal key: %x",
+		p.InclusionProof.InternalKey.SerializeCompressed())
+	t.Logf("Proof root hash: %x", rootHash[:])
+	t.Logf("Proof key: %x", proofKey.SerializeCompressed())
+
+	var buf bytes.Buffer
+	require.NoError(t, p.Asset.Encode(&buf))
+	t.Logf("Proof asset encoded: %x", buf.Bytes())
 }
 
 func BenchmarkProofEncoding(b *testing.B) {

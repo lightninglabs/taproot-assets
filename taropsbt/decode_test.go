@@ -2,6 +2,7 @@ package taropsbt
 
 import (
 	"bytes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -101,10 +102,29 @@ func TestMinimalContent(t *testing.T) {
 func TestDecodeBase64(t *testing.T) {
 	t.Parallel()
 
+	// The test data file just contains a random packet from a previous
+	// integration test run.
 	fileContent, err := os.ReadFile(filepath.Join("testdata", "psbt.b64"))
 	require.NoError(t, err)
 
 	packet, err := NewFromRawBytes(bytes.NewBuffer(fileContent), true)
+	require.NoError(t, err)
+
+	require.Len(t, packet.Outputs, 2)
+}
+
+// TestDecodeHex tests the decoding of a virtual packet from a hex string.
+func TestDecodeHex(t *testing.T) {
+	t.Parallel()
+
+	// The test data file just contains a random packet from a previous
+	// integration test run.
+	fileContent, err := os.ReadFile(filepath.Join("testdata", "psbt.hex"))
+	require.NoError(t, err)
+	rawBytes, err := hex.DecodeString(string(fileContent))
+	require.NoError(t, err)
+
+	packet, err := NewFromRawBytes(bytes.NewBuffer(rawBytes), false)
 	require.NoError(t, err)
 
 	require.Len(t, packet.Outputs, 2)
