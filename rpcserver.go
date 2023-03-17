@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarodb"
@@ -376,6 +377,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
+	if !req.EnableEmission && seedling.GroupInfo != nil {
+		err := r.checkBalanceOverflow(
+			ctx, nil, &seedling.GroupInfo.GroupPubKey,
+			req.Asset.Amount,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	updates, err := r.cfg.AssetMinter.QueueNewSeedling(seedling)
 	if err != nil {
 		return nil, fmt.Errorf("unable to mint new asset: %w", err)
@@ -469,6 +480,68 @@ func (r *rpcServer) ListBatches(_ context.Context,
 	return &mintrpc.ListBatchResponse{
 		Batches: rpcBatches,
 	}, nil
+}
+
+// checkBalanceOverflow ensures that the new asset amount will not overflow
+// the max allowed asset (or asset group) balance.
+func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
+	assetID *asset.ID, groupPubKey *btcec.PublicKey,
+	newAmount uint64) error {
+
+	if assetID != nil && groupPubKey != nil {
+		return fmt.Errorf("asset ID and group public key cannot both " +
+			"be set")
+	}
+
+	if assetID == nil && groupPubKey == nil {
+		return fmt.Errorf("asset ID and group public key cannot both " +
+			"be nil")
+	}
+
+	var balance uint64
+
+	switch {
+	case assetID != nil:
+		// Retrieve the current asset balance.
+		balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
+			ctx, assetID,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to query asset balance: %w",
+				err)
+		}
+
+		// There should only be one balance entry per asset.
+		for _, balanceEntry := range balances {
+			balance = balanceEntry.Balance
+			break
+		}
+
+	case groupPubKey != nil:
+		// Retrieve the current balance of the group.
+		balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
+			ctx, groupPubKey,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to query group balance: %w",
+				err)
+		}
+
+		// There should only be one balance entry per group.
+		for _, balanceEntry := range balances {
+			balance = balanceEntry.Balance
+			break
+		}
+	}
+
+	// Check for overflow.
+	err := mssmt.CheckSumOverflowUint64(balance, newAmount)
+	if err != nil {
+		return fmt.Errorf("new asset amount would overflow "+
+			"asset balance: %w", err)
+	}
+
+	return nil
 }
 
 // ListAssets lists the set of assets owned by the target daemon.
@@ -942,6 +1015,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	assetID := genesis.ID()
 	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v, "+
 		"type=%v", assetID[:], in.Amt, asset.Type(genesis.Type))
+
+	err = r.checkBalanceOverflow(ctx, &assetID, nil, in.Amt)
+	if err != nil {
+		return nil, err
+	}
 
 	var addr *address.AddrWithKeyInfo
 	switch {
