@@ -302,4 +302,8 @@ type KeyRing interface {
 	// key.
 	DeriveKey(context.Context,
 		keychain.KeyLocator) (keychain.KeyDescriptor, error)
+
+	// IsLocalKey returns true if the key is under the control of the wallet
+	// and can be derived by it.
+	IsLocalKey(context.Context, keychain.KeyDescriptor) bool
 }

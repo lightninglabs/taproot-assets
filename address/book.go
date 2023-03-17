@@ -89,6 +89,10 @@ type KeyRing interface {
 	// DeriveNextTaroKey attempts to derive the *next* key within the Taro
 	// key family.
 	DeriveNextTaroKey(context.Context) (keychain.KeyDescriptor, error)
+
+	// IsLocalKey returns true if the key is under the control of the wallet
+	// and can be derived by it.
+	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
 }
 
 // BookConfig is the main config for the address.Book.
