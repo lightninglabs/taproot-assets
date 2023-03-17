@@ -1,9 +1,12 @@
 package tarofreighter
 
 import (
+	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -308,6 +311,110 @@ type sendPackage struct {
 	// TransferTxConfEvent contains transfer transaction on-chain
 	// confirmation data.
 	TransferTxConfEvent *chainntnfs.TxConfirmation
+}
+
+// prepareForStorage prepares the send package for storing to the database.
+func (s *sendPackage) prepareForStorage(currentHeight uint32) error {
+	// Now we'll grab our new commitment, and also the output index
+	// to populate the log entry below.
+	input := s.VirtualPacket.Inputs[0]
+	senderOut := s.VirtualPacket.Outputs[0]
+	anchorOutputIndex := senderOut.AnchorOutputIndex
+	outputCommitments := s.AnchorTx.OutputCommitments
+	newSenderCommitment := outputCommitments[anchorOutputIndex]
+
+	var tapscriptSibling *chainhash.Hash
+	if len(input.Anchor.TapscriptSibling) > 0 {
+		h, err := chainhash.NewHash(
+			input.Anchor.TapscriptSibling,
+		)
+		if err != nil {
+			return err
+		}
+
+		tapscriptSibling = h
+	}
+
+	taroRoot := newSenderCommitment.TapscriptRoot(tapscriptSibling)
+
+	senderProof, receiverProof, err := s.createProofs()
+	if err != nil {
+		return err
+	}
+
+	// Before we write to disk, we'll make the incomplete proofs
+	// for the sender and the receiver.
+	var senderProofBuf bytes.Buffer
+	if err := senderProof.Encode(&senderProofBuf); err != nil {
+		return err
+	}
+
+	var receiverProofBuf bytes.Buffer
+	if err := receiverProof.Encode(&receiverProofBuf); err != nil {
+		return err
+	}
+
+	// Gather newly generated data required for re-anchoring passive
+	// assets.
+	for _, passiveAsset := range s.PassiveAssets {
+		// Generate passive asset re-anchoring proofs.
+		newProof, err := s.createReAnchorProof(
+			passiveAsset.VPacket,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create re-anchor proof: "+
+				"%w", err)
+		}
+
+		passiveAsset.NewProof = newProof
+
+		vOut := passiveAsset.VPacket.Outputs[0]
+		passiveAsset.NewWitnessData = vOut.Asset.PrevWitnesses
+	}
+
+	// Before we broadcast, we'll write to disk that we have a
+	// pending outbound parcel. If we crash before this point,
+	// we'll start all over. Otherwise, we'll come back to this
+	// state to re-do the process.
+	//
+	// TODO(roasbeef); need to update proof file information,
+	// ideally the db doesn't do this directly
+	vIn := s.VirtualPacket.Inputs[0]
+	inputAsset := vIn.Asset()
+	newAsset := senderOut.Asset
+
+	newInternalKeyDesc, err := senderOut.AnchorKeyToDesc()
+	if err != nil {
+		return fmt.Errorf("unable to get anchor key desc: %w", err)
+	}
+
+	s.OutboundPkg = &OutboundParcelDelta{
+		OldAnchorPoint: vIn.PrevID.OutPoint,
+		NewAnchorPoint: wire.OutPoint{
+			Hash:  s.AnchorTx.FinalTx.TxHash(),
+			Index: anchorOutputIndex,
+		},
+		NewInternalKey:     newInternalKeyDesc,
+		TaroRoot:           taroRoot[:],
+		AnchorTx:           s.AnchorTx.FinalTx,
+		AnchorTxHeightHint: currentHeight,
+		AssetSpendDeltas: []AssetSpendDelta{{
+			OldScriptKey:        *inputAsset.ScriptKey.PubKey,
+			NewAmt:              newAsset.Amount,
+			NewScriptKey:        senderOut.ScriptKey,
+			WitnessData:         newAsset.PrevWitnesses,
+			SplitCommitmentRoot: newAsset.SplitCommitmentRoot,
+			SenderAssetProof:    senderProofBuf.Bytes(),
+			ReceiverAssetProof:  receiverProofBuf.Bytes(),
+		}},
+		TapscriptSibling: vIn.Anchor.TapscriptSibling,
+		// TODO(bhandras): use clock.Clock instead.
+		TransferTime:  time.Now(),
+		ChainFees:     s.AnchorTx.ChainFees,
+		PassiveAssets: s.PassiveAssets,
+	}
+
+	return nil
 }
 
 // createProofs creates the new set of proofs for the sender and the receiver.
