@@ -3,6 +3,7 @@ package taropsbt
 import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // FromAddress creates an empty virtual transaction packet from the given
@@ -42,4 +43,33 @@ func FromAddress(receiverAddr *address.Taro, outputIndex uint32) *VPacket {
 	}
 
 	return pkt
+}
+
+// ForInteractiveSend creates a virtual transaction packet for sending an output
+// to a receiver in an interactive manner. Only one, interactive output is
+// created. If the amount is not the full input amount, a change output needs
+// to be created manually.
+func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
+	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor,
+	chainParams *address.ChainParams) *VPacket {
+
+	vPkt := &VPacket{
+		Inputs: []*VInput{{
+			PrevID: asset.PrevID{
+				ID: id,
+			},
+		}},
+		Outputs: []*VOutput{{
+			Amount:            amount,
+			Interactive:       true,
+			AnchorOutputIndex: outputIndex,
+			ScriptKey:         scriptAddr,
+		}},
+		ChainParams: chainParams,
+	}
+	vPkt.Outputs[0].SetAnchorInternalKey(
+		anchorInternalKey, chainParams.HDCoinType,
+	)
+
+	return vPkt
 }

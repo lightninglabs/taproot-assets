@@ -337,12 +337,12 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 		}
 	)
 
-	senderFullProofBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
+	inputProofFileBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
 		return fmt.Errorf("error fetching proof: %w", err)
 	}
 	senderProof := proof.NewEmptyFile(proof.V0)
-	err = senderProof.Decode(bytes.NewReader(senderFullProofBytes))
+	err = senderProof.Decode(bytes.NewReader(inputProofFileBytes))
 	if err != nil {
 		return fmt.Errorf("error decoding proof: %w", err)
 	}
@@ -375,12 +375,26 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	if err := senderProof.Encode(&updatedSenderProof); err != nil {
 		return fmt.Errorf("error encoding sender proof: %w", err)
 	}
+
+	// If the sender didn't get a change output, we don't have an asset that
+	// carries the NUMS script key, so we add that here explicitly to the
+	// locator.
+	senderLocator := proof.Locator{
+		AssetID: &outboundAssetID,
+	}
+	senderAsset := senderProofSuffix.Asset
+
+	// TODO: This is temporary until we refactor the DB to full input/output
+	// mapping.
+	if senderAsset.HasSplitCommitmentWitness() && senderAsset.Amount == 0 {
+		senderLocator.ScriptKey = *asset.NUMSPubKey
+	} else {
+		senderLocator.ScriptKey = *senderAsset.ScriptKey.PubKey
+	}
+
 	newSenderProof := &proof.AnnotatedProof{
-		Locator: proof.Locator{
-			AssetID:   &outboundAssetID,
-			ScriptKey: *senderProofSuffix.Asset.ScriptKey.PubKey,
-		},
-		Blob: updatedSenderProof.Bytes(),
+		Locator: senderLocator,
+		Blob:    updatedSenderProof.Bytes(),
 	}
 
 	// As a final step, we'll do the same for the receiver's proof as well.
@@ -412,12 +426,13 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
 		return fmt.Errorf("error encoding receiver proof: %w", err)
 	}
+	receiverLocator := proof.Locator{
+		AssetID:   &outboundAssetID,
+		ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
+	}
 	receiverProof := &proof.AnnotatedProof{
-		Locator: proof.Locator{
-			AssetID:   &outboundAssetID,
-			ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
-		},
-		Blob: updatedReceiverProof.Bytes(),
+		Locator: receiverLocator,
+		Blob:    updatedReceiverProof.Bytes(),
 	}
 
 	// Use callback to verify that block header exists on chain.
@@ -505,6 +520,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	var (
 		senderProofSuffix proof.Proof
 		spendDeltas       = pkg.OutboundPkg.AssetSpendDeltas
+		senderProofBlob   []byte
 	)
 	err := senderProofSuffix.Decode(
 		bytes.NewReader(spendDeltas[0].SenderAssetProof),
@@ -513,12 +529,20 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		return fmt.Errorf("error decoding proof suffix: %w", err)
 	}
 	assetId := pkg.OutboundPkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID
-	senderProofBlob, err := p.cfg.AssetProofs.FetchProof(
-		ctx, proof.Locator{
-			AssetID:   &assetId,
-			ScriptKey: *senderProofSuffix.Asset.ScriptKey.PubKey,
-		},
-	)
+	senderAsset := senderProofSuffix.Asset
+	senderLocator := proof.Locator{
+		AssetID: &assetId,
+	}
+
+	// TODO: This is temporary until we refactor the DB to full input/output
+	// mapping.
+	if senderAsset.HasSplitCommitmentWitness() && senderAsset.Amount == 0 {
+		senderLocator.ScriptKey = *asset.NUMSPubKey
+	} else {
+		senderLocator.ScriptKey = *senderAsset.ScriptKey.PubKey
+	}
+
+	senderProofBlob, err = p.cfg.AssetProofs.FetchProof(ctx, senderLocator)
 	if err != nil {
 		return fmt.Errorf("error fetching sender proof: %w", err)
 	}
@@ -727,7 +751,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		vPacket := currentPkg.VirtualPacket
-		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
+		firstRecipient, err := vPacket.FirstNonSplitRootOutput()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get first "+
+				"interactive output: %w", err)
+		}
+		receiverScriptKey := firstRecipient.ScriptKey.PubKey
 		log.Infof("Constructing new Taro commitments for send to: %x",
 			receiverScriptKey.SerializeCompressed())
 
@@ -780,11 +809,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		// We need to prepare the parcel for storage.
-		err = currentPkg.prepareForStorage(currentHeight)
+		parcel, err := currentPkg.prepareForStorage(currentHeight)
 		if err != nil {
 			return nil, fmt.Errorf("unable to prepare parcel for "+
 				"storage: %w", err)
 		}
+		currentPkg.OutboundPkg = parcel
 
 		// Don't allow shutdown while we're attempting to store proofs.
 		ctx, cancel = p.CtxBlocking()
@@ -792,9 +822,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Infof("Committing pending parcel to disk")
 
-		err = p.cfg.ExportLog.LogPendingParcel(
-			ctx, currentPkg.OutboundPkg,
-		)
+		err = p.cfg.ExportLog.LogPendingParcel(ctx, parcel)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %v", err)
@@ -863,7 +891,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
-		currentPkg.deliverTxBroadcastResp()
+		err = currentPkg.deliverTxBroadcastResp()
+		if err != nil {
+			return nil, err
+		}
 
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf
