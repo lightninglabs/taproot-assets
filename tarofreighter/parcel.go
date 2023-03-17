@@ -534,7 +534,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 	splitRootIndex := splitRootOut.AnchorOutputIndex
 	splitRootTree := outputCommitments[splitRootIndex]
 
-	splitOut := vPkt.Outputs[1]
+	splitOut := vPkt.Outputs[outIndex]
 	splitIndex := splitOut.AnchorOutputIndex
 	splitTaroTree := outputCommitments[splitIndex]
 

@@ -23,7 +23,10 @@ func FromAddress(receiverAddr *address.Taro, outputIndex uint32) *VPacket {
 	// If we are sending the full value of the input asset, or sending a
 	// collectible, we will need to create a split with un-spendable change.
 	// Since we don't have any inputs selected yet, we'll use the NUMS
-	// script key to avoid deriving a new key for each funding attempt.
+	// script key to avoid deriving a new key for each funding attempt. If
+	// we need a change output, this un-spendable script key will be
+	// identified as such and replaced with a real one during the funding
+	// process.
 	pkt.Outputs[0] = &VOutput{
 		Amount:            0,
 		IsSplitRoot:       true,
@@ -47,8 +50,8 @@ func FromAddress(receiverAddr *address.Taro, outputIndex uint32) *VPacket {
 
 // ForInteractiveSend creates a virtual transaction packet for sending an output
 // to a receiver in an interactive manner. Only one, interactive output is
-// created. If the amount is not the full input amount, a change output needs
-// to be created manually.
+// created. If the amount is not the full input amount, a change output will be
+// added by the funding API.
 func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor,
 	chainParams *address.ChainParams) *VPacket {

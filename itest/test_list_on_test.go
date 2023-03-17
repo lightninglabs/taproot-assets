@@ -66,4 +66,8 @@ var testCases = []*testCase{
 		name: "psbt interactive full value send",
 		test: testPsbtInteractiveFullValueSend,
 	},
+	{
+		name: "psbt interactive split send",
+		test: testPsbtInteractiveSplitSend,
+	},
 }

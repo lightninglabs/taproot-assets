@@ -16,10 +16,6 @@ import (
 type TransitionParams struct {
 	// BaseProofParams houses the basic chain level parameters needed to
 	// construct a proof.
-	//
-	// TODO(roasbeef): assumes only 2 outputs in the TX (minting output and
-	// change), need more information to make exclusion proofs for the
-	// others.
 	BaseProofParams
 
 	// NewAsset is the new asset created by the asset transition.
