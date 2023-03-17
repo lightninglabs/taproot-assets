@@ -72,14 +72,6 @@ type (
 	// ManagedUTXORow wraps a managed UTXO listing row.
 	ManagedUTXORow = sqlc.FetchManagedUTXOsRow
 
-	// AssetAnchorUpdate is used to update the managed UTXO pointer when
-	// spending assets on chain.
-	AssetAnchorUpdate = sqlc.ReAnchorAssetsParams
-
-	// AssetSpendDelta is used to update the script key and amount of an
-	// existing asset.
-	AssetSpendDelta = sqlc.ApplySpendDeltaParams
-
 	// ApplyPendingOutput is used to update the script key and amount of an
 	// existing asset.
 	ApplyPendingOutput = sqlc.ApplyPendingOutputParams
@@ -87,27 +79,19 @@ type (
 	// AnchorTxConf identifies an unconfirmed anchor tx to confirm.
 	AnchorTxConf = sqlc.ConfirmChainAnchorTxParams
 
-	// AssetDelta tracks the changes to an asset within the confines of a
-	// transfer.
-	AssetDelta = sqlc.FetchAssetDeltasRow
-
-	// AssetDeltaWithProof tracks the changes to an asset within the
-	// confines of a transfer, also containing the proofs for the change.
-	AssetDeltaWithProof = sqlc.FetchAssetDeltasWithProofsRow
-
-	// NewAssetDelta wraps the params needed to insert a new asset delta.
-	NewAssetDelta = sqlc.InsertAssetDeltaParams
-
 	// NewAssetTransfer wraps the params needed to insert a new asset
 	// transfer.
 	NewAssetTransfer = sqlc.InsertAssetTransferParams
 
-	// AssetTransfer packages information related to an asset transfer.
-	AssetTransfer = sqlc.QueryAssetTransfersRow
+	// AssetTransfer tracks an asset transfer.
+	AssetTransfer = sqlc.AssetTransfer
 
 	// TransferQuery allows callers to filter out the set of transfers
 	// based on set information.
 	TransferQuery = sqlc.QueryAssetTransfersParams
+
+	// AssetTransferRow wraps a single transfer row.
+	AssetTransferRow = sqlc.QueryAssetTransfersRow
 
 	// TransferInput tracks the inputs to an asset transfer.
 	TransferInput = sqlc.AssetTransferInput
@@ -129,9 +113,15 @@ type (
 	// output.
 	NewTransferOutput = sqlc.InsertAssetTransferOutputParams
 
-	// NewSpendProof is used to insert new spend proofs for the
-	// sender+receiver.
-	NewSpendProof = sqlc.InsertSpendProofsParams
+	// NewPassiveAsset wraps the params needed to insert a new passive
+	// asset.
+	NewPassiveAsset = sqlc.InsertPassiveAssetParams
+
+	// PassiveAsset tracks a passive asset.
+	PassiveAsset = sqlc.QueryPassiveAssetsRow
+
+	// ReAnchorParams wraps the params needed to re-anchor a passive asset.
+	ReAnchorParams = sqlc.ReAnchorPassiveAssetsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
@@ -202,14 +192,6 @@ type ActiveAssetsStore interface {
 	// FetchManagedUTXOs fetches all managed UTXOs.
 	FetchManagedUTXOs(context.Context) ([]ManagedUTXORow, error)
 
-	// ReAnchorAssets takes an old anchor point, then updates all assets
-	// that point to that old anchor point-to-point to the new one.
-	ReAnchorAssets(ctx context.Context, arg AssetAnchorUpdate) error
-
-	// ApplySpendDelta applies a sped delta (new amount and script key)
-	// based on the existing script key of an asset.
-	ApplySpendDelta(ctx context.Context, arg AssetSpendDelta) (int32, error)
-
 	// ApplyPendingOutput applies a transfer output (new amount and script
 	// key) based on the existing script key of an asset.
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput) (int32,
@@ -222,19 +204,6 @@ type ActiveAssetsStore interface {
 	// ConfirmChainAnchorTx marks a new anchor transaction that was
 	// previously unconfirmed as confirmed.
 	ConfirmChainAnchorTx(ctx context.Context, arg AnchorTxConf) error
-
-	// FetchAssetDeltas fetches the asset deltas associated with a given
-	// transfer id.
-	FetchAssetDeltas(ctx context.Context,
-		transferID int32) ([]AssetDelta, error)
-
-	// FetchAssetDeltasWithProofs fetches the asset deltas including the
-	// proofs associated with a given transfer id.
-	FetchAssetDeltasWithProofs(ctx context.Context,
-		transferID int32) ([]AssetDeltaWithProof, error)
-
-	// InsertAssetDelta inserts a new asset delta into the DB.
-	InsertAssetDelta(ctx context.Context, arg NewAssetDelta) error
 
 	// InsertAssetTransfer inserts a new asset transfer into the DB.
 	InsertAssetTransfer(ctx context.Context,
@@ -260,24 +229,12 @@ type ActiveAssetsStore interface {
 
 	// QueryAssetTransfers queries for a set of asset transfers in the db.
 	QueryAssetTransfers(ctx context.Context,
-		tranferQuery TransferQuery) ([]AssetTransfer, error)
+		query sqlc.QueryAssetTransfersParams) ([]AssetTransferRow,
+		error)
 
 	// DeleteAssetWitnesses deletes the witnesses on disk associated with a
 	// given asset ID.
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
-
-	// InsertSpendProofs is used to insert the new spend proofs after a
-	// transfer into DB.
-	InsertSpendProofs(ctx context.Context, arg NewSpendProof) (int32, error)
-
-	// DeleteSpendProofs is used to delete the set of proofs on disk after
-	// we apply a transfer.
-	DeleteSpendProofs(ctx context.Context, transferID int32) error
-
-	// FetchSpendProofs looks up the spend proofs for the given transfer
-	// ID.
-	FetchSpendProofs(ctx context.Context,
-		transferID int32) (sqlc.FetchSpendProofsRow, error)
 
 	// InsertReceiverProofTransferAttempt inserts a new receiver proof
 	// transfer attempt record.
@@ -289,21 +246,18 @@ type ActiveAssetsStore interface {
 	QueryReceiverProofTransferAttempt(ctx context.Context,
 		proofLocatorHash []byte) ([]time.Time, error)
 
-	// InsertPendingPassiveAsset inserts a new row which includes the data
+	// InsertPassiveAsset inserts a new row which includes the data
 	// necessary to re-anchor a passive asset.
-	InsertPendingPassiveAsset(ctx context.Context,
-		arg sqlc.InsertPendingPassiveAssetParams) error
+	InsertPassiveAsset(ctx context.Context, arg NewPassiveAsset) error
 
-	// QueryPendingPassiveAssets returns the data required to re-anchor
+	// QueryPassiveAssets returns the data required to re-anchor
 	// pending passive assets that are anchored at the given outpoint.
-	QueryPendingPassiveAssets(ctx context.Context,
-		prevOutpoint []byte) ([]sqlc.QueryPendingPassiveAssetsRow,
-		error)
+	QueryPassiveAssets(ctx context.Context,
+		transferID int32) ([]PassiveAsset, error)
 
-	// DeletePendingPassiveAsset deletes pending passive asset entries given
-	// their on-chain outpoint.
-	DeletePendingPassiveAsset(ctx context.Context,
-		prevOutpoint []byte) error
+	// ReAnchorPassiveAssets re-anchors the passive assets identified by
+	// the passed params.
+	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorParams) error
 
 	// FetchAssetMetaByHash fetches the asset meta for a given meta hash.
 	//
@@ -1577,12 +1531,10 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 }
 
 // LogPendingParcel marks an outbound parcel as pending on disk. This commits
-// the set of changes to disk (the asset deltas) but doesn't mark the batched
-// spend as being finalized.
-//
-// TODO(jhb): Update for new table
+// the set of changes to disk (the pending inputs and outputs) but doesn't mark
+// the batched spend as being finalized.
 func (a *AssetStore) LogPendingParcel(ctx context.Context,
-	spend *tarofreighter.OutboundParcelDelta) error {
+	spend *tarofreighter.OutboundParcel) error {
 
 	// Before we enter the DB transaction below, we'll use this space to
 	// encode a few values outside the transaction closure.
@@ -1591,38 +1543,11 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 	if err := spend.AnchorTx.Serialize(&txBuf); err != nil {
 		return err
 	}
-
 	anchorTxBytes := txBuf.Bytes()
-
-	newAnchorPointBytes, err := encodeOutpoint(spend.NewAnchorPoint)
-	if err != nil {
-		return err
-	}
-	oldAnchorPointBytes, err := encodeOutpoint(spend.OldAnchorPoint)
-	if err != nil {
-		return err
-	}
-
-	internalKeyBytes := spend.NewInternalKey.PubKey.SerializeCompressed()
-
-	anchorIndex := spend.NewAnchorPoint.Index
-	anchorValue := spend.AnchorTx.TxOut[anchorIndex].Value
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		// First, we'll insert the new internal on disk, so we can
-		// reference it later when we go to apply the new transfer.
-		internalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
-			RawKey:    internalKeyBytes,
-			KeyFamily: int32(spend.NewInternalKey.Family),
-			KeyIndex:  int32(spend.NewInternalKey.Index),
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert internal "+
-				"key: %w", err)
-		}
-
-		// Next, we'll insert the new transaction that anchors the new
+		// First, we'll insert the new transaction that anchors the new
 		// anchor point (commits to the set of new outputs).
 		txnID, err := q.UpsertChainTx(ctx, ChainTxParams{
 			Txid:      newAnchorTXID[:],
@@ -1634,119 +1559,40 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 				"tx: %w", err)
 		}
 
-		// Now that the chain transaction been inserted, we can now
-		// insert a _new_ managed UTXO which houses the information
-		// related to the new anchor point of the transaction.
-		newUtxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:           internalKeyBytes,
-			Outpoint:         newAnchorPointBytes,
-			AmtSats:          anchorValue,
-			TaroRoot:         spend.TaroRoot,
-			TapscriptSibling: spend.TapscriptSibling,
-			TxnID:            txnID,
-		})
-		if err != nil {
-			return fmt.Errorf("unable to insert new managed "+
-				"utxo: %w", err)
-		}
-
-		// With the internal key inserted, we can now insert the asset
-		// transfer body itself.
+		// The transfer itself is just a shell which the inputs and
+		// outputs will reference. We'll insert this next, so we can
+		// use its ID.
 		transferID, err := q.InsertAssetTransfer(ctx, NewAssetTransfer{
-			OldAnchorPoint:   oldAnchorPointBytes,
-			NewInternalKey:   internalKeyID,
-			NewAnchorUtxo:    newUtxoID,
 			HeightHint:       int32(spend.AnchorTxHeightHint),
+			AnchorTxid:       newAnchorTXID[:],
 			TransferTimeUnix: spend.TransferTime,
 		})
 		if err != nil {
-			return fmt.Errorf("unable to insert asset "+
-				"transfer: %w", err)
+			return fmt.Errorf("unable to insert asset transfer: "+
+				"%w", err)
 		}
 
-		// Now that the transfer itself has been inserted, we can
-		// insert the deltas associated w/ each transfer.
-		for _, assetDelta := range spend.AssetSpendDeltas {
-			// With the main transfer inserted, we'll also insert
-			// the proof for the sender and receiver.
-			proofID, err := q.InsertSpendProofs(ctx, NewSpendProof{
-				TransferID:    transferID,
-				SenderProof:   assetDelta.SenderAssetProof,
-				ReceiverProof: assetDelta.ReceiverAssetProof,
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert spend "+
-					"proof: %w", err)
-			}
-
-			var (
-				witnessBuf bytes.Buffer
-				buf        [8]byte
+		// Next, we'll insert the inputs to this transfer.
+		for idx := range spend.Inputs {
+			err := insertAssetTransferInput(
+				ctx, q, transferID, spend.Inputs[idx],
 			)
-			err = asset.WitnessEncoder(
-				&witnessBuf, &assetDelta.WitnessData, &buf,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to encode witness: "+
-					"%w", err)
-			}
-
-			// Before we can insert the asset delta, we need to
-			// insert the new script key on disk.
-			rawScriptKey := assetDelta.NewScriptKey.RawKey
-			rawScriptKeyID, err := q.UpsertInternalKey(
-				ctx, InternalKey{
-					RawKey:    rawScriptKey.PubKey.SerializeCompressed(),
-					KeyFamily: int32(rawScriptKey.Family),
-					KeyIndex:  int32(rawScriptKey.Index),
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("unable to insert internal "+
-					"key: %w", err)
-			}
-			scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
-				InternalKeyID:    rawScriptKeyID,
-				TweakedScriptKey: assetDelta.NewScriptKey.PubKey.SerializeCompressed(),
-				Tweak:            assetDelta.NewScriptKey.Tweak,
-			})
-			if err != nil {
-				return fmt.Errorf("unable to insert script "+
-					"key: %w", err)
-			}
-
-			delta := NewAssetDelta{
-				OldScriptKey:        assetDelta.OldScriptKey.SerializeCompressed(),
-				NewAmt:              int64(assetDelta.NewAmt),
-				NewScriptKey:        scriptKeyID,
-				SerializedWitnesses: witnessBuf.Bytes(),
-				TransferID:          transferID,
-				ProofID:             proofID,
-			}
-
-			// There might not have been a split.
-			if assetDelta.SplitCommitmentRoot != nil {
-				newCommitRoot := assetDelta.SplitCommitmentRoot
-				splitRootHash := newCommitRoot.NodeHash()
-				delta.SplitCommitmentRootHash = splitRootHash[:]
-				delta.SplitCommitmentRootValue = sql.NullInt64{
-					Int64: int64(newCommitRoot.NodeSum()),
-					Valid: true,
-				}
-			}
-
-			err = q.InsertAssetDelta(ctx, delta)
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
-					"delta: %w", err)
+					"transfer input: %w", err)
 			}
 		}
 
-		// Log passive assets data to disk.
-		err = a.logPendingPassiveAssets(ctx, q, spend.PassiveAssets)
-		if err != nil {
-			return fmt.Errorf("unable to log passive assets: %w",
-				err)
+		// And then finally the outputs.
+		for idx := range spend.Outputs {
+			err = insertAssetTransferOutput(
+				ctx, q, transferID, txnID, spend.Outputs[idx],
+				spend.PassiveAssets,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert asset "+
+					"transfer output: %w", err)
+			}
 		}
 
 		return nil
@@ -1815,9 +1661,11 @@ func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
 	return inputs, nil
 }
 
-// insertAssetTransferOutput inserts a new asset transfer output into the DB.
+// insertAssetTransferOutput inserts a new asset transfer output into the DB
+// and returns its ID.
 func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
-	transferID, txnID int32, output tarofreighter.TransferOutput) error {
+	transferID, txnID int32, output tarofreighter.TransferOutput,
+	passiveAssets []*tarofreighter.PassiveAssetReAnchor) error {
 
 	anchor := output.Anchor
 	anchorPointBytes, err := encodeOutpoint(anchor.OutPoint)
@@ -1851,6 +1699,19 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to insert new managed utxo: %w", err)
+	}
+
+	// Is this the output that will be used to re-anchor the passive asset?
+	if output.Anchor.NumPassiveAssets > 0 {
+		// And now that we know the ID of that new anchor TX, we can
+		// store the passive assets, referencing that new UTXO.
+		err = logPendingPassiveAssets(
+			ctx, q, transferID, newUtxoID, passiveAssets,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to log passive assets: %w",
+				err)
+		}
 	}
 
 	var (
@@ -1899,6 +1760,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		Amount:              int64(output.Amount),
 		SerializedWitnesses: witnessBuf.Bytes(),
 		ProofSuffix:         output.ProofSuffix,
+		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -1998,6 +1860,9 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				},
 				MerkleRoot:       dbOut.AnchorTaroRoot,
 				TapscriptSibling: dbOut.AnchorTapscriptSibling,
+				NumPassiveAssets: uint32(
+					dbOut.NumPassiveAssets,
+				),
 			},
 			Amount: uint64(dbOut.Amount),
 			ScriptKey: asset.ScriptKey{
@@ -2033,8 +1898,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 }
 
 // logPendingPassiveAssets logs passive assets re-anchoring data to disk.
-func (a *AssetStore) logPendingPassiveAssets(ctx context.Context,
-	q ActiveAssetsStore,
+func logPendingPassiveAssets(ctx context.Context,
+	q ActiveAssetsStore, transferID, newUtxoID int32,
 	passiveAssets []*tarofreighter.PassiveAssetReAnchor) error {
 
 	for _, passiveAsset := range passiveAssets {
@@ -2072,8 +1937,10 @@ func (a *AssetStore) logPendingPassiveAssets(ctx context.Context,
 		scriptKey := passiveAsset.ScriptKey
 		scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
 
-		err = q.InsertPendingPassiveAsset(
-			ctx, sqlc.InsertPendingPassiveAssetParams{
+		err = q.InsertPassiveAsset(
+			ctx, sqlc.InsertPassiveAssetParams{
+				TransferID:      transferID,
+				NewAnchorUtxo:   newUtxoID,
 				NewWitnessStack: newWitnessBuf.Bytes(),
 				NewProof:        newProofBuf.Bytes(),
 				PrevOutpoint:    prevOutpointBytes,
@@ -2153,97 +2020,128 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			AnchorTxHash: conf.AnchorTXID[:],
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to query asset transfers: %w",
+				err)
 		}
 		assetTransfer := assetTransfers[0]
 
-		// The asset transfer gives us access to the spending asset's
-		// anchor outpoint. This outpoint is then used to fetch the
-		// data necessary to re-anchor the associated passive (non-send)
-		// assets.
-		err = a.reAnchorPassiveAssets(
-			ctx, q, assetTransfer.OldAnchorPoint,
-			conf.PassiveAssetProofFiles,
-		)
+		// Next, we'll mark all input assets as spent. But we need to
+		// fetch the inputs first to do that.
+		inputs, err := q.FetchTransferInputs(ctx, assetTransfer.ID)
 		if err != nil {
-			return fmt.Errorf("failed to re-anchor passive "+
-				"assets: %w", err)
+			return fmt.Errorf("unable to fetch transfer inputs: %w",
+				err)
 		}
 
-		// Now that we have the new managed UTXO inserted, we'll update
-		// the managed UTXO pointer for _all_ assets that were anchored
-		// by the old managed UTXO.
-		err = q.ReAnchorAssets(ctx, AssetAnchorUpdate{
-			OldOutpoint: assetTransfer.OldAnchorPoint,
-			NewOutpointUtxoID: sqlInt32(
-				assetTransfer.NewAnchorUtxoID,
-			),
-		})
-		if err != nil {
-			return err
-		}
-
-		// Now that we've re-anchored all the other assets, we also
-		// need to fetch the set of deltas so we can apply to each
-		// asset.
-		assetDeltas, err := q.FetchAssetDeltas(
-			ctx, assetTransfer.TransferID,
-		)
-		if err != nil {
-			return err
-		}
-		for _, assetDelta := range assetDeltas {
-			// First, we'll apply the spend delta to update the
-			// amount and script key of all assets.
-			assetIDKey, err := q.ApplySpendDelta(ctx, AssetSpendDelta{
-				NewAmount:                int64(assetDelta.NewAmt),
-				OldScriptKey:             assetDelta.OldScriptKey,
-				NewScriptKeyID:           assetDelta.NewScriptKeyID,
-				SplitCommitmentRootHash:  assetDelta.SplitCommitmentRootHash,
-				SplitCommitmentRootValue: assetDelta.SplitCommitmentRootValue,
-			})
+		// We'll keep around the IDs of the assets that we set to being
+		// spent. We'll need one of them as our template to create the
+		// new assets.
+		spentAssetIDs := make([]int32, len(inputs))
+		for idx := range inputs {
+			spentAssetIDs[idx], err = q.SetAssetSpent(
+				ctx, SetAssetSpentParams{
+					ScriptKey:  inputs[idx].ScriptKey,
+					GenAssetID: inputs[idx].AssetID,
+				},
+			)
 			if err != nil {
-				return fmt.Errorf("unable to update "+
-					"spend delta: %w", err)
+				return fmt.Errorf("unable to set asset spent: "+
+					"%w", err)
+			}
+		}
+
+		// Now is the time to fetch our outputs and create new assets
+		// for them.
+		outputs, err := q.FetchTransferOutputs(ctx, assetTransfer.ID)
+		if err != nil {
+			return fmt.Errorf("unable to fetch transfer outputs: "+
+				"%w", err)
+		}
+		for idx := range outputs {
+			out := outputs[idx]
+
+			// If this is an outbound transfer (meaning that our
+			// node doesn't control the script key), we don't create
+			// an asset entry in the DB. The transfer will be the
+			// only reference to the asset leaving the node.
+			if !out.ScriptKeyLocal {
+				continue
 			}
 
-			// With the delta applied, we'll delete the _old_ set
-			// of witnesses, and re-insert new ones.
-			err = q.DeleteAssetWitnesses(ctx, assetIDKey)
+			// Since we define that a transfer can only move assets
+			// within the same asset ID, we can take any of the
+			// inputs as a template for the new asset, since the
+			// genesis and group key will be the same. We'll
+			// overwrite all other fields.
+			//
+			// TODO(guggero): This will need an update once we want
+			// to support full lock_time and relative_lock_time
+			// support.
+			templateID := spentAssetIDs[0]
+			params := ApplyPendingOutput{
+				ScriptKeyID: out.ScriptKeyID,
+				AnchorUtxoID: sqlInt32(
+					out.AnchorUtxoID,
+				),
+				Amount:                   out.Amount,
+				SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
+				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
+				SpentAssetID:             templateID,
+			}
+			newAssetID, err := q.ApplyPendingOutput(ctx, params)
 			if err != nil {
-				return fmt.Errorf("unable to delete "+
-					"witnesses: %v", err)
+				return fmt.Errorf("unable to apply pending "+
+					"output: %w", err)
 			}
 
 			// With the old witnesses removed, we'll insert the new
 			// set on disk.
 			var witnessData []asset.Witness
 			err = asset.WitnessDecoder(
-				bytes.NewReader(assetDelta.SerializedWitnesses),
+				bytes.NewReader(out.SerializedWitnesses),
 				&witnessData, &[8]byte{},
-				uint64(len(assetDelta.SerializedWitnesses)),
+				uint64(len(out.SerializedWitnesses)),
 			)
 			if err != nil {
 				return fmt.Errorf("unable to decode "+
-					"witness: %v", err)
+					"witness: %w", err)
 			}
 			err = a.insertAssetWitnesses(
-				ctx, q, assetIDKey, witnessData,
+				ctx, q, newAssetID, witnessData,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
-					"witnesses: %v", err)
+					"witnesses: %w", err)
+			}
+
+			var scriptKey asset.SerializedKey
+			copy(scriptKey[:], out.ScriptKeyBytes)
+			receiverProof, ok := conf.FinalProofs[scriptKey]
+			if !ok {
+				return fmt.Errorf("no proof found for output "+
+					"with script key %x",
+					out.ScriptKeyBytes)
 			}
 
 			// Now we can update the asset proof for the sender for
 			// this given delta.
 			err = q.UpsertAssetProof(ctx, ProofUpdate{
-				TweakedScriptKey: assetDelta.NewScriptKeyBytes,
-				ProofFile:        conf.FinalSenderProof,
+				TweakedScriptKey: out.ScriptKeyBytes,
+				ProofFile:        receiverProof.Blob,
 			})
 			if err != nil {
 				return err
 			}
+		}
+
+		// Before we confirm the anchor TX, let's re-anchor the passive
+		// to that new UTXO.
+		err = a.reAnchorPassiveAssets(
+			ctx, q, assetTransfer.ID, conf.PassiveAssetProofFiles,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to re-anchor passive "+
+				"assets: %w", err)
 		}
 
 		// To confirm a delivery (successful send) all we need to do is
@@ -2271,18 +2169,17 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 }
 
 // reAnchorPassiveAssets re-anchors all passive assets that were anchored by
-// the given outpoint.
+// the given transfer output.
 func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
-	q ActiveAssetsStore, prevAnchorOutpointBytes []byte,
+	q ActiveAssetsStore, transferID int32,
 	proofFiles map[[32]byte]proof.Blob) error {
 
-	passiveAssets, err := q.QueryPendingPassiveAssets(
-		ctx, prevAnchorOutpointBytes,
-	)
+	passiveAssets, err := q.QueryPassiveAssets(ctx, transferID)
 	if err != nil {
 		return fmt.Errorf("failed to query passive assets: %w", err)
 	}
 
+	log.Debugf("Re-anchoring %d passive assets", len(passiveAssets))
 	for _, passiveAsset := range passiveAssets {
 		// Parse genesis ID.
 		var assetID asset.ID
@@ -2339,14 +2236,16 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 			return fmt.Errorf("unable to update passive asset "+
 				"proof file: %w", err)
 		}
-	}
 
-	// Finally, we'll delete pending passive asset entries which we have
-	// finished processing.
-	err = q.DeletePendingPassiveAsset(ctx, prevAnchorOutpointBytes)
-	if err != nil {
-		return fmt.Errorf("unable to delete pending passive "+
-			"asset: %w", err)
+		// And finally, update the anchor UTXO of the asset in question.
+		err = q.ReAnchorPassiveAssets(ctx, ReAnchorParams{
+			NewAnchorUtxoID: sqlInt32(passiveAsset.NewAnchorUtxo),
+			AssetID:         passiveAsset.AssetID,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to re-anchor passive "+
+				"asset: %w", err)
+		}
 	}
 
 	return nil
@@ -2356,154 +2255,76 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 // This can be used to query the set of unconfirmed
 // transactions for re-broadcast.
 func (a *AssetStore) PendingParcels(
-	ctx context.Context) ([]*tarofreighter.OutboundParcelDelta, error) {
+	ctx context.Context) ([]*tarofreighter.OutboundParcel, error) {
 
 	return a.QueryParcels(ctx, true)
 }
 
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
-	pending bool) ([]*tarofreighter.OutboundParcelDelta, error) {
+	pending bool) ([]*tarofreighter.OutboundParcel, error) {
 
-	var deltas []*tarofreighter.OutboundParcelDelta
+	var transfers []*tarofreighter.OutboundParcel
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		// If we want every unconfirmed transfer, then we only pass in
 		// the UnconfOnly field.
-		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+		dbTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
 			UnconfOnly: pending,
 		})
 		if err != nil {
 			return err
 		}
 
-		for _, xfer := range assetTransfers {
-			var oldAnchorPoint, newAnchorPoint wire.OutPoint
-			err := readOutPoint(
-				bytes.NewReader(xfer.OldAnchorPoint), 0, 0,
-				&oldAnchorPoint,
-			)
+		for idx := range dbTransfers {
+			dbT := dbTransfers[idx]
+
+			inputs, err := fetchAssetTransferInputs(ctx, q, dbT.ID)
 			if err != nil {
-				return err
-			}
-			err = readOutPoint(
-				bytes.NewReader(xfer.NewAnchorPoint), 0, 0,
-				&newAnchorPoint,
-			)
-			if err != nil {
-				return err
+				return fmt.Errorf("unable to fetch transfer "+
+					"inputs: %w", err)
 			}
 
-			internalKey, err := btcec.ParsePubKey(
-				xfer.InternalKeyBytes,
+			outputs, err := fetchAssetTransferOutputs(
+				ctx, q, dbT.ID,
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to fetch transfer "+
+					"outputs: %w", err)
+			}
+
+			// We know that the anchor transaction is the same for
+			// each output, we can just fetch the first.
+			if len(outputs) == 0 {
+				return fmt.Errorf("no outputs for transfer")
+			}
+
+			anchorTXID := outputs[0].Anchor.OutPoint.Hash[:]
+			dbAnchorTx, err := q.FetchChainTx(ctx, anchorTXID)
+			if err != nil {
+				return fmt.Errorf("unable to fetch chain tx: "+
+					"%w", err)
 			}
 
 			anchorTx := wire.NewMsgTx(2)
-			err = anchorTx.Deserialize(bytes.NewBuffer(
-				xfer.AnchorTxBytes,
+			err = anchorTx.Deserialize(bytes.NewReader(
+				dbAnchorTx.RawTx,
 			))
 			if err != nil {
-				return fmt.Errorf("unable to decode tx: %w",
-					err)
+				return fmt.Errorf("unable to deserialize "+
+					"anchor tx: %w", err)
 			}
 
-			assetDeltas, err := q.FetchAssetDeltasWithProofs(
-				ctx, xfer.TransferID,
-			)
-			if err != nil {
-				return err
-			}
-			spendDeltas := make(
-				[]tarofreighter.AssetSpendDelta,
-				len(assetDeltas),
-			)
-			for i, delta := range assetDeltas {
-				oldScriptKey, err := btcec.ParsePubKey(
-					delta.OldScriptKey,
-				)
-				if err != nil {
-					return err
-				}
-				newScriptKey, err := btcec.ParsePubKey(
-					delta.NewScriptKeyBytes,
-				)
-				if err != nil {
-					return err
-				}
-				rawScriptKey, err := btcec.ParsePubKey(
-					delta.NewRawScriptKeyBytes,
-				)
-				if err != nil {
-					return err
-				}
-
-				var splitRootHash mssmt.NodeHash
-				copy(splitRootHash[:], delta.SplitCommitmentRootHash)
-
-				var witnessData []asset.Witness
-				err = asset.WitnessDecoder(
-					bytes.NewReader(delta.SerializedWitnesses),
-					&witnessData, &[8]byte{},
-					uint64(len(delta.SerializedWitnesses)),
-				)
-				if err != nil {
-					return fmt.Errorf("unable to decode "+
-						"witness: %v", err)
-				}
-
-				tweakedScriptKey := &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						PubKey: rawScriptKey,
-						KeyLocator: keychain.KeyLocator{
-							Family: keychain.KeyFamily(
-								delta.NewScriptKeyFamily,
-							),
-							Index: uint32(
-								delta.NewScriptKeyIndex,
-							),
-						},
-					},
-					Tweak: delta.ScriptKeyTweak,
-				}
-				spendDeltas[i] = tarofreighter.AssetSpendDelta{
-					OldScriptKey: *oldScriptKey,
-					NewAmt:       uint64(delta.NewAmt),
-					NewScriptKey: asset.ScriptKey{
-						PubKey:           newScriptKey,
-						TweakedScriptKey: tweakedScriptKey,
-					},
-					SplitCommitmentRoot: mssmt.NewComputedNode(
-						splitRootHash,
-						uint64(delta.SplitCommitmentRootValue.Int64),
-					),
-					WitnessData:        witnessData,
-					SenderAssetProof:   delta.SenderProof,
-					ReceiverAssetProof: delta.ReceiverProof,
-				}
-			}
-
-			deltas = append(deltas, &tarofreighter.OutboundParcelDelta{
-				OldAnchorPoint: oldAnchorPoint,
-				NewAnchorPoint: newAnchorPoint,
-				NewInternalKey: keychain.KeyDescriptor{
-					PubKey: internalKey,
-					KeyLocator: keychain.KeyLocator{
-						Family: keychain.KeyFamily(xfer.InternalKeyFam),
-						Index:  uint32(xfer.InternalKeyIndex),
-					},
-				},
-				TaroRoot:           xfer.TaroRoot,
-				TapscriptSibling:   xfer.TapscriptSibling,
+			transfer := &tarofreighter.OutboundParcel{
 				AnchorTx:           anchorTx,
-				AssetSpendDeltas:   spendDeltas,
-				AnchorTxHeightHint: uint32(xfer.HeightHint),
-				TransferTime:       xfer.TransferTimeUnix,
-				ChainFees:          xfer.ChainFees,
-			})
+				AnchorTxHeightHint: uint32(dbT.HeightHint),
+				TransferTime:       dbT.TransferTimeUnix.UTC(),
+				ChainFees:          dbAnchorTx.ChainFees,
+				Inputs:             inputs,
+				Outputs:            outputs,
+			}
+			transfers = append(transfers, transfer)
 		}
 
 		return nil
@@ -2512,7 +2333,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 		return nil, dbErr
 	}
 
-	return deltas, nil
+	return transfers, nil
 }
 
 // ErrAssetMetaNotFound is returned when an asset meta is not found in the

@@ -923,45 +923,15 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 	}
 
 	resp := &tarorpc.ListTransfersResponse{
-		Transfers: make([]*tarorpc.AssetTransfer, 0, len(parcels)),
+		Transfers: make([]*tarorpc.AssetTransfer, len(parcels)),
 	}
 
-	for _, parcel := range parcels {
-		deltas := make(
-			[]*tarorpc.AssetSpendDelta,
-			len(parcel.AssetSpendDeltas),
-		)
-
-		for i, delta := range parcel.AssetSpendDeltas {
-			senderProof := &proof.Proof{}
-			err := senderProof.Decode(
-				bytes.NewReader(delta.SenderAssetProof),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to decode "+
-					"sender proof: %w", err)
-			}
-
-			assetID := senderProof.Asset.ID()
-			deltas[i] = &tarorpc.AssetSpendDelta{
-				AssetId:      assetID[:],
-				OldScriptKey: delta.OldScriptKey.SerializeCompressed(),
-				NewScriptKey: delta.NewScriptKey.PubKey.SerializeCompressed(),
-				NewAmt:       delta.NewAmt,
-			}
+	for idx := range parcels {
+		resp.Transfers[idx], err = marshalOutboundParcel(parcels[idx])
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal parcel: %w",
+				err)
 		}
-
-		anchorTxHash := parcel.AnchorTx.TxHash()
-		resp.Transfers = append(
-			resp.Transfers, &tarorpc.AssetTransfer{
-				TransferTimestamp: parcel.TransferTime.Unix(),
-				OldAnchorPoint:    parcel.OldAnchorPoint.String(),
-				NewAnchorPoint:    parcel.NewAnchorPoint.String(),
-				TaroRoot:          parcel.TaroRoot,
-				AnchorTxHash:      anchorTxHash[:],
-				AssetSpendDeltas:  deltas,
-			},
-		)
 	}
 
 	return resp, nil
@@ -1440,7 +1410,15 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
 	}
 
-	return marshalPendingParcel(resp)
+	parcel, err := marshalOutboundParcel(resp)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
+			err)
+	}
+
+	return &tarorpc.SendAssetResponse{
+		Transfer: parcel,
+	}, nil
 }
 
 // NextInternalKey derives the next internal key for the given key family and
@@ -1627,58 +1605,76 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		return nil, err
 	}
 
-	return marshalPendingParcel(resp)
-}
-
-// marshalPendingParcel turns a pending parcel into its RPC counterpart.
-func marshalPendingParcel(
-	parcel *tarofreighter.PendingParcel) (*tarorpc.SendAssetResponse,
-	error) {
-
-	transferTXID := parcel.TransferTx.TxHash()
-
-	var txBuf bytes.Buffer
-	if err := parcel.TransferTx.Serialize(&txBuf); err != nil {
-		return nil, err
-	}
-	transferTxBytes := txBuf.Bytes()
-
-	prevInputs := make([]*tarorpc.PrevInputAsset, len(parcel.AssetInputs))
-	newOutputs := make([]*tarorpc.AssetOutput, len(parcel.AssetOutputs))
-
-	for i, input := range parcel.AssetInputs {
-		input := input
-
-		prevInputs[i] = &tarorpc.PrevInputAsset{
-			AnchorPoint: input.PrevID.OutPoint.String(),
-			AssetId:     input.PrevID.ID[:],
-			ScriptKey:   input.PrevID.ScriptKey[:],
-			Amount:      uint64(input.Amount),
-		}
-	}
-	for i, output := range parcel.AssetOutputs {
-		output := output
-
-		newOutputs[i] = &tarorpc.AssetOutput{
-			AnchorPoint: output.PrevID.OutPoint.String(),
-			AssetId:     output.PrevID.ID[:],
-			ScriptKey:   output.PrevID.ScriptKey[:],
-			Amount:      uint64(output.Amount),
-			// TODO(roasbeef): add blob and split proof
-		}
+	parcel, err := marshalOutboundParcel(resp)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
+			err)
 	}
 
 	return &tarorpc.SendAssetResponse{
-		TransferTxid:      transferTXID.String(),
-		AnchorOutputIndex: int32(parcel.NewAnchorPoint.Index),
-		TransferTxBytes:   transferTxBytes,
-		TaroTransfer: &tarorpc.TaroTransfer{
-			OldTaroRoot: parcel.OldTaroRoot,
-			NewTaroRoot: parcel.NewTaroRoot,
-			PrevInputs:  prevInputs,
-			NewOutputs:  newOutputs,
-		},
-		TotalFeeSats: int64(parcel.TotalFees),
+		Transfer: parcel,
+	}, nil
+}
+
+// marshalOutboundParcel turns a pending parcel into its RPC counterpart.
+func marshalOutboundParcel(
+	parcel *tarofreighter.OutboundParcel) (*tarorpc.AssetTransfer,
+	error) {
+
+	rpcInputs := make([]*tarorpc.TransferInput, len(parcel.Inputs))
+	for idx := range parcel.Inputs {
+		in := parcel.Inputs[idx]
+		rpcInputs[idx] = &tarorpc.TransferInput{
+			AnchorPoint: in.OutPoint.String(),
+			AssetId:     in.ID[:],
+			ScriptKey:   in.ScriptKey[:],
+			Amount:      in.Amount,
+		}
+	}
+
+	rpcOutputs := make(
+		[]*tarorpc.TransferOutput, len(parcel.Outputs),
+	)
+	for idx := range parcel.Outputs {
+		out := parcel.Outputs[idx]
+
+		internalPubKey := out.Anchor.InternalKey.PubKey
+		internalKeyBytes := internalPubKey.SerializeCompressed()
+		rpcAnchor := &tarorpc.TransferOutputAnchor{
+			Outpoint:         out.Anchor.OutPoint.String(),
+			Value:            int64(out.Anchor.Value),
+			InternalKey:      internalKeyBytes,
+			MerkleRoot:       out.Anchor.MerkleRoot[:],
+			TapscriptSibling: out.Anchor.TapscriptSibling[:],
+			NumPassiveAssets: out.Anchor.NumPassiveAssets,
+		}
+		scriptPubKey := out.ScriptKey.PubKey
+
+		var splitCommitRoot []byte
+		if out.SplitCommitmentRoot != nil {
+			hash := out.SplitCommitmentRoot.NodeHash()
+			if hash != mssmt.ZeroNodeHash {
+				splitCommitRoot = hash[:]
+			}
+		}
+		rpcOutputs[idx] = &tarorpc.TransferOutput{
+			Anchor:              rpcAnchor,
+			ScriptKey:           scriptPubKey.SerializeCompressed(),
+			ScriptKeyIsLocal:    out.ScriptKeyLocal,
+			Amount:              out.Amount,
+			NewProofBlob:        out.ProofSuffix,
+			SplitCommitRootHash: splitCommitRoot,
+		}
+	}
+
+	anchorTxHash := parcel.AnchorTx.TxHash()
+	return &tarorpc.AssetTransfer{
+		TransferTimestamp:  parcel.TransferTime.Unix(),
+		AnchorTxHash:       anchorTxHash[:],
+		AnchorTxHeightHint: parcel.AnchorTxHeightHint,
+		AnchorTxChainFees:  parcel.ChainFees,
+		Inputs:             rpcInputs,
+		Outputs:            rpcOutputs,
 	}, nil
 }
 

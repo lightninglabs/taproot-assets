@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
@@ -170,7 +169,7 @@ func (p *ChainPorter) Stop() error {
 
 // RequestShipment is the main external entry point to the porter. This request
 // a new transfer take place.
-func (p *ChainPorter) RequestShipment(req Parcel) (*PendingParcel, error) {
+func (p *ChainPorter) RequestShipment(req Parcel) (*OutboundParcel, error) {
 	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
@@ -193,11 +192,11 @@ func (p *ChainPorter) RequestShipment(req Parcel) (*PendingParcel, error) {
 //
 // TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
 //   - could move final conf into the state machine itself
-func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcelDelta) {
+func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcel) {
 	defer p.Wg.Done()
 
-	log.Infof("Attempting to resume delivery to anchor_point=%v",
-		pkg.NewAnchorPoint)
+	log.Infof("Attempting to resume delivery for anchor_txid=%v",
+		pkg.AnchorTx.TxHash().String())
 
 	// To resume the state machine, we'll make a skeleton of a sendPackage,
 	// basically just what we need to drive the state machine to further
@@ -232,7 +231,7 @@ func (p *ChainPorter) taroPorter() {
 			// possible.
 			err := p.advanceState(sendPkg)
 			if err != nil {
-				log.Warnf("unable to advance state machine: %w",
+				log.Warnf("unable to advance state machine: %v",
 					err)
 				req.kit().errChan <- err
 				continue
@@ -295,7 +294,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 
 // storeProofs writes the updated sender and receiver proof files to the proof
 // archive.
-func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
+func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	// Now we'll enter the final phase of the send process, where we'll
 	// write the receiver's proof file to disk.
 	//
@@ -303,13 +302,17 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 	ctx, cancel := p.CtxBlocking()
 	defer cancel()
 
-	confEvent := pkg.TransferTxConfEvent
+	parcel := sendPkg.OutboundPkg
+	confEvent := sendPkg.TransferTxConfEvent
+
+	// Use callback to verify that block header exists on chain.
+	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 
 	// Generate updated passive asset proof files.
 	passiveAssetProofFiles := make(
-		[]*proof.AnnotatedProof, 0, len(pkg.PassiveAssets),
+		[]*proof.AnnotatedProof, 0, len(sendPkg.PassiveAssets),
 	)
-	for _, passiveAsset := range pkg.PassiveAssets {
+	for _, passiveAsset := range sendPkg.PassiveAssets {
 		newAnnotatedProofFile, err := p.updateAssetProofFile(
 			ctx, passiveAsset.GenesisID,
 			passiveAsset.ScriptKey.PubKey, confEvent,
@@ -325,134 +328,145 @@ func (p *ChainPorter) storeProofs(pkg *sendPackage) error {
 		)
 	}
 
-	// Generate sender and receiver proof files.
-	var (
-		outboundPkg     = pkg.OutboundPkg
-		spendDeltas     = outboundPkg.AssetSpendDeltas
-		outboundAssetID = spendDeltas[0].WitnessData[0].PrevID.ID
-		locator         = proof.Locator{
-			AssetID:   &outboundAssetID,
-			ScriptKey: spendDeltas[0].OldScriptKey,
+	log.Infof("Importing %d passive asset proofs into local Proof "+
+		"Archive", len(passiveAssetProofFiles))
+	err := p.cfg.AssetProofs.ImportProofs(
+		ctx, headerVerifier, passiveAssetProofFiles...,
+	)
+	if err != nil {
+		return fmt.Errorf("error importing passive proof: %w", err)
+	}
+
+	// If there are no active inputs/outputs (only passive assets), don't
+	// create any proofs. This would be the case for externally anchored
+	// assets, such as in a Pool account, where the anchor UTXO is spent or
+	// re-created but the actual asset remains unchanged.
+	if len(parcel.Inputs) == 0 {
+		log.Debugf("Not updating proofs as there are no active " +
+			"transfers")
+
+		sendPkg.SendState = SendStateReceiverProofTransfer
+		return nil
+	}
+
+	sendPkg.FinalProofs = make(
+		map[asset.SerializedKey]*proof.AnnotatedProof,
+		len(parcel.Outputs),
+	)
+	firstInput := parcel.Inputs[0]
+	for idx := range parcel.Outputs {
+		out := parcel.Outputs[idx]
+
+		// First, we'll decode the outputs' proof suffix.
+		var proofSuffix proof.Proof
+		err := proofSuffix.Decode(bytes.NewReader(out.ProofSuffix))
+		if err != nil {
+			return fmt.Errorf("error decoding proof suffix %d: %w",
+				idx, err)
 		}
-	)
 
-	inputProofFileBytes, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
-	if err != nil {
-		return fmt.Errorf("error fetching proof: %w", err)
-	}
-	senderProof := proof.NewEmptyFile(proof.V0)
-	err = senderProof.Decode(bytes.NewReader(inputProofFileBytes))
-	if err != nil {
-		return fmt.Errorf("error decoding proof: %w", err)
-	}
+		// The suffix doesn't contain any information about the
+		// confirmed block yet, so we'll add that now.
+		err = proofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
+			Block:   confEvent.Block,
+			Tx:      confEvent.Tx,
+			TxIndex: int(confEvent.TxIndex),
+		})
+		if err != nil {
+			return fmt.Errorf("error updating transition proof "+
+				"%d: %w", idx, err)
+		}
 
-	// Now that we have the sender's proof file, we'll decode the new
-	// suffix we want to add so we can append it to the sender's file.
-	var senderProofSuffix proof.Proof
-	err = senderProofSuffix.Decode(
-		bytes.NewReader(spendDeltas[0].SenderAssetProof),
-	)
-	if err != nil {
-		return fmt.Errorf("error decoding proof suffix: %w", err)
-	}
-	err = senderProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
-		Block:   confEvent.Block,
-		Tx:      confEvent.Tx,
-		TxIndex: int(confEvent.TxIndex),
-	})
-	if err != nil {
-		return fmt.Errorf("error updating sender transition proof: "+
-			"%w", err)
-	}
+		// The suffix is complete, so we need to fetch the input proof
+		// in order to append the suffix to it.
+		inputProofFile, err := p.fetchInputProof(ctx, firstInput)
+		if err != nil {
+			return fmt.Errorf("error fetching input proof: %w", err)
+		}
 
-	// With the proof suffix updated, we can append the proof, then encode
-	// it to get the final sender proof.
-	var updatedSenderProof bytes.Buffer
-	if err := senderProof.AppendProof(senderProofSuffix); err != nil {
-		return fmt.Errorf("error appending sender proof: %w", err)
-	}
-	if err := senderProof.Encode(&updatedSenderProof); err != nil {
-		return fmt.Errorf("error encoding sender proof: %w", err)
-	}
+		// Are there more inputs? Then this is a merge, and we need to
+		// add those additional files to the suffix as well.
+		for idx := 1; idx < len(parcel.Inputs); idx++ {
+			additionalInputProofFile, err := p.fetchInputProof(
+				ctx, parcel.Inputs[idx],
+			)
+			if err != nil {
+				return fmt.Errorf("error fetching input "+
+					"proof %d: %w", idx, err)
+			}
 
-	// If the sender didn't get a change output, we don't have an asset that
-	// carries the NUMS script key, so we add that here explicitly to the
-	// locator.
-	senderLocator := proof.Locator{
-		AssetID: &outboundAssetID,
-	}
-	senderAsset := senderProofSuffix.Asset
+			proofSuffix.AdditionalInputs = append(
+				proofSuffix.AdditionalInputs,
+				*additionalInputProofFile,
+			)
+		}
 
-	// TODO: This is temporary until we refactor the DB to full input/output
-	// mapping.
-	if senderAsset.HasSplitCommitmentWitness() && senderAsset.Amount == 0 {
-		senderLocator.ScriptKey = *asset.NUMSPubKey
-	} else {
-		senderLocator.ScriptKey = *senderAsset.ScriptKey.PubKey
-	}
+		// With the proof suffix updated, we can append the proof, then
+		// encode it to get the final proof file.
+		var outputProofBuf bytes.Buffer
+		if err := inputProofFile.AppendProof(proofSuffix); err != nil {
+			return fmt.Errorf("error appending proof: %w", err)
+		}
+		if err := inputProofFile.Encode(&outputProofBuf); err != nil {
+			return fmt.Errorf("error encoding proof: %w", err)
+		}
 
-	newSenderProof := &proof.AnnotatedProof{
-		Locator: senderLocator,
-		Blob:    updatedSenderProof.Bytes(),
-	}
+		// Now we just need to identify the new proof correctly before
+		// adding it to the proof archive.
+		outputProofLocator := proof.Locator{
+			AssetID:   &firstInput.ID,
+			ScriptKey: *out.ScriptKey.PubKey,
+		}
+		outputProof := &proof.AnnotatedProof{
+			Locator: outputProofLocator,
+			Blob:    outputProofBuf.Bytes(),
+		}
+		serializedScriptKey := asset.ToSerialized(out.ScriptKey.PubKey)
+		sendPkg.FinalProofs[serializedScriptKey] = outputProof
 
-	// As a final step, we'll do the same for the receiver's proof as well.
-	var receiverProofSuffix proof.Proof
-	err = receiverProofSuffix.Decode(
-		bytes.NewReader(spendDeltas[0].ReceiverAssetProof),
-	)
-	if err != nil {
-		return fmt.Errorf("error decoding receiver proof: %w", err)
-	}
-	err = receiverProofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
-		Block:   confEvent.Block,
-		Tx:      confEvent.Tx,
-		TxIndex: int(confEvent.TxIndex),
-	})
-	if err != nil {
-		return fmt.Errorf("error updating receiver transition proof: "+
-			"%w", err)
+		// Import proof into proof archive.
+		log.Infof("Importing proof for output %d into local Proof "+
+			"Archive", idx)
+		err = p.cfg.AssetProofs.ImportProofs(
+			ctx, headerVerifier, outputProof,
+		)
+		if err != nil {
+			return fmt.Errorf("error importing proof: %w", err)
+		}
+
+		log.Debugf("Updated proofs for output %d (new_len=%d)",
+			idx, inputProofFile.NumProofs())
 	}
 
-	log.Infof("Importing receiver proof into local Proof Archive")
-
-	// Now we'll write out the final receiver proof to the on disk proof
-	// archive.
-	var updatedReceiverProof bytes.Buffer
-	if err := senderProof.ReplaceLastProof(receiverProofSuffix); err != nil {
-		return fmt.Errorf("error replacing receiver proof: %w", err)
-	}
-	if err := senderProof.Encode(&updatedReceiverProof); err != nil {
-		return fmt.Errorf("error encoding receiver proof: %w", err)
-	}
-	receiverLocator := proof.Locator{
-		AssetID:   &outboundAssetID,
-		ScriptKey: *receiverProofSuffix.Asset.ScriptKey.PubKey,
-	}
-	receiverProof := &proof.AnnotatedProof{
-		Locator: receiverLocator,
-		Blob:    updatedReceiverProof.Bytes(),
-	}
-
-	// Use callback to verify that block header exists on chain.
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
-
-	// Import all up-to-date proof files into proof archive.
-	allProofs := append(
-		passiveAssetProofFiles, newSenderProof, receiverProof,
-	)
-	err = p.cfg.AssetProofs.ImportProofs(
-		ctx, headerVerifier, allProofs...,
-	)
-	if err != nil {
-		return fmt.Errorf("error importing proof: %w", err)
-	}
-
-	log.Debugf("Updated proofs for sender and receiver (new_len=%d)",
-		senderProof.NumProofs())
-
-	pkg.SendState = SendStateReceiverProofTransfer
+	sendPkg.SendState = SendStateReceiverProofTransfer
 	return nil
+}
+
+// fetchInputProof fetches a proof for the given input from the proof archive.
+func (p *ChainPorter) fetchInputProof(ctx context.Context,
+	input TransferInput) (*proof.File, error) {
+
+	scriptKey, err := btcec.ParsePubKey(input.ScriptKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("error parsing script key: %w", err)
+	}
+	inputProofLocator := proof.Locator{
+		AssetID:   &input.ID,
+		ScriptKey: *scriptKey,
+	}
+	inputProofBytes, err := p.cfg.AssetProofs.FetchProof(
+		ctx, inputProofLocator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching input proof: %w", err)
+	}
+	inputProofFile := proof.NewEmptyFile(proof.V0)
+	err = inputProofFile.Decode(bytes.NewReader(inputProofBytes))
+	if err != nil {
+		return nil, fmt.Errorf("error decoding input proof: %w", err)
+	}
+
+	return inputProofFile, nil
 }
 
 // updateAssetProofFile retrieves and updates the proof file for the given asset
@@ -515,61 +529,33 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	ctx, cancel := p.CtxBlocking()
 	defer cancel()
 
-	// Retrieve sender proof from proof archive.
-	var (
-		senderProofSuffix proof.Proof
-		spendDeltas       = pkg.OutboundPkg.AssetSpendDeltas
-		senderProofBlob   []byte
-	)
-	err := senderProofSuffix.Decode(
-		bytes.NewReader(spendDeltas[0].SenderAssetProof),
-	)
-	if err != nil {
-		return fmt.Errorf("error decoding proof suffix: %w", err)
-	}
-	assetId := pkg.OutboundPkg.AssetSpendDeltas[0].WitnessData[0].PrevID.ID
-	senderAsset := senderProofSuffix.Asset
-	senderLocator := proof.Locator{
-		AssetID: &assetId,
-	}
+	deliver := func(ctx context.Context, out TransferOutput) error {
+		// If this is an output that is going to our own node/wallet,
+		// we don't need to transfer the proof.
+		if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
+			return nil
+		}
 
-	// TODO: This is temporary until we refactor the DB to full input/output
-	// mapping.
-	if senderAsset.HasSplitCommitmentWitness() && senderAsset.Amount == 0 {
-		senderLocator.ScriptKey = *asset.NUMSPubKey
-	} else {
-		senderLocator.ScriptKey = *senderAsset.ScriptKey.PubKey
-	}
-
-	senderProofBlob, err = p.cfg.AssetProofs.FetchProof(ctx, senderLocator)
-	if err != nil {
-		return fmt.Errorf("error fetching sender proof: %w", err)
-	}
-
-	// Retrieve receiver proof from proof archive.
-	locator := proof.Locator{
-		AssetID:   &assetId,
-		ScriptKey: pkg.Parcel.dest().ScriptKey,
-	}
-	receiverProofBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
-	if err != nil {
-		return fmt.Errorf("error fetching receiver proof: %w", err)
-	}
-	receiverProof := &proof.AnnotatedProof{
-		Locator: locator,
-		Blob:    receiverProofBlob,
-	}
-
-	// If we have a proof courier instance active, then we'll launch a new
-	// goroutine to deliver the proof to the receiver.
-	if p.cfg.ProofCourier != nil {
-		ctx, cancel := p.WithCtxQuitNoTimeout()
-		defer cancel()
+		// We just look for the full proof in the list of final proofs
+		// by matching the content of the proof suffix.
+		var receiverProof *proof.AnnotatedProof
+		for idx := range pkg.FinalProofs {
+			finalFile := pkg.FinalProofs[idx]
+			if finalFile.ScriptKey.IsEqual(out.ScriptKey.PubKey) {
+				receiverProof = finalFile
+				break
+			}
+		}
+		if receiverProof == nil {
+			return fmt.Errorf("no proof found for output with "+
+				"script key %x",
+				out.ScriptKey.PubKey.SerializeCompressed())
+		}
 
 		recipient := proof.Recipient{
-			ScriptKey: &pkg.Parcel.dest().ScriptKey,
-			AssetID:   pkg.Parcel.dest().ID(),
-			Amount:    pkg.Parcel.dest().Amount,
+			ScriptKey: out.ScriptKey.PubKey,
+			AssetID:   *receiverProof.AssetID,
+			Amount:    out.Amount,
 		}
 		err := p.cfg.ProofCourier.DeliverProof(
 			ctx, recipient, receiverProof,
@@ -584,6 +570,20 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		}
 		if err != nil {
 			return fmt.Errorf("error delivering proof: %w", err)
+		}
+
+		return nil
+	}
+
+	// If we have a proof courier instance active, then we'll launch several
+	// goroutines to deliver the proof(s) to the receiver(s).
+	if p.cfg.ProofCourier != nil {
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		err := chanutils.ErrGroup(ctx, pkg.OutboundPkg.Outputs, deliver)
+		if err != nil {
+			return fmt.Errorf("error delivering proof(s): %w", err)
 		}
 	}
 
@@ -609,12 +609,12 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
-	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorTXID:             pkg.OutboundPkg.NewAnchorPoint.Hash,
+	err := p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
+		AnchorTXID:             pkg.OutboundPkg.AnchorTx.TxHash(),
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
-		FinalSenderProof:       senderProofBlob,
+		FinalProofs:            pkg.FinalProofs,
 		PassiveAssetProofFiles: passiveAssetProofFiles,
 	})
 	if err != nil {
@@ -623,6 +623,58 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	}
 
 	pkg.SendState = SendStateComplete
+	return nil
+}
+
+// importLocalAddresses imports the addresses for outputs that go to ourselves,
+// from the given outbound parcel.
+func (p *ChainPorter) importLocalAddresses(ctx context.Context,
+	parcel *OutboundParcel) error {
+
+	// We'll need to extract the output public key from the tx out that does
+	// the send. We'll use this shortly below as a step before broadcast.
+	for idx := range parcel.Outputs {
+		out := &parcel.Outputs[idx]
+
+		// Skip non-local outputs, those are going to a receiver outside
+		// of this daemon.
+		if !out.ScriptKeyLocal {
+			continue
+		}
+
+		anchorOutputIndex := out.Anchor.OutPoint.Index
+		anchorOutput := parcel.AnchorTx.TxOut[anchorOutputIndex]
+		_, witProgram, err := txscript.ExtractWitnessProgramInfo(
+			anchorOutput.PkScript,
+		)
+		if err != nil {
+			return err
+		}
+		anchorOutputKey, err := schnorr.ParsePubKey(witProgram)
+		if err != nil {
+			return err
+		}
+
+		// Before we broadcast the transaction to the network, we'll
+		// import the new anchor output into the wallet so it watches
+		// it for spends and also takes account of the BTC we used in
+		// the transfer.
+		_, err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
+		switch {
+		case err == nil:
+			break
+
+		// On restart, we'll get an error that the output has already
+		// been added to the wallet, so we'll catch this now and move
+		// along if so.
+		case strings.Contains(err.Error(), "already exists"):
+			break
+
+		case err != nil:
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -816,6 +868,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 		currentPkg.OutboundPkg = parcel
 
+		// We now need to find out if this is a transfer to ourselves
+		// (e.g. a change output) or an outbound transfer. A key being
+		// local means the lnd node connected to this daemon knows how
+		// to derive the key.
+		for idx := range parcel.Outputs {
+			out := &parcel.Outputs[idx]
+			key := out.ScriptKey
+			if key.TweakedScriptKey != nil &&
+				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey) {
+
+				out.ScriptKeyLocal = true
+			}
+		}
+
 		// Don't allow shutdown while we're attempting to store proofs.
 		ctx, cancel = p.CtxBlocking()
 		defer cancel()
@@ -840,45 +906,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		// We'll need to extract the output public key from the tx out
-		// that does the send. We'll use this shortly below as a step
-		// before broadcast.
-		//
-		// TODO(roasbeef): cache before?
-		anchorIndex := currentPkg.OutboundPkg.NewAnchorPoint.Index
-		anchorOutput := currentPkg.OutboundPkg.AnchorTx.TxOut[anchorIndex]
-		_, witProgram, err := txscript.ExtractWitnessProgramInfo(
-			anchorOutput.PkScript,
-		)
+		err := p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
 		if err != nil {
-			return nil, err
-		}
-		anchorOutputKey, err := schnorr.ParsePubKey(witProgram)
-		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to import local "+
+				"addresses: %w", err)
 		}
 
-		// Before we broadcast the transaction to the network, we'll
-		// import the new anchor output into the wallet so it watches
-		// it for spends and also takes account of the BTC we used in
-		// the transfer.
-		_, err = p.cfg.Wallet.ImportTaprootOutput(ctx, anchorOutputKey)
-		switch {
-		case err == nil:
-			break
-
-		// On restart, we'll get an error that the output has already
-		// been added to the wallet, so we'll catch this now and move
-		// along if so.
-		case strings.Contains(err.Error(), "already exists"):
-			break
-
-		case err != nil:
-			return nil, err
-		}
-
-		log.Infof("Broadcasting new transfer tx, taro_anchor_output=%v",
-			spew.Sdump(anchorOutput))
+		log.Infof("Broadcasting new transfer tx, txid=%v",
+			currentPkg.OutboundPkg.AnchorTx.TxHash())
 
 		// With the public key imported, we can now broadcast to the
 		// network.
@@ -891,10 +926,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
-		err = currentPkg.deliverTxBroadcastResp()
-		if err != nil {
-			return nil, err
-		}
+		currentPkg.deliverTxBroadcastResp()
 
 		// Set send state to the next state to evaluate.
 		currentPkg.SendState = SendStateWaitTxConf

@@ -51,18 +51,6 @@ type Asset struct {
 	Spent                    bool
 }
 
-type AssetDelta struct {
-	ID                       int32
-	OldScriptKey             []byte
-	NewAmt                   int64
-	NewScriptKey             int32
-	SerializedWitnesses      []byte
-	SplitCommitmentRootHash  []byte
-	SplitCommitmentRootValue sql.NullInt64
-	TransferID               int32
-	ProofID                  int32
-}
-
 type AssetGroup struct {
 	GroupID         int32
 	TweakedGroupKey []byte
@@ -106,10 +94,8 @@ type AssetSeedling struct {
 
 type AssetTransfer struct {
 	ID               int32
-	OldAnchorPoint   []byte
-	NewInternalKey   int32
-	NewAnchorUtxo    int32
 	HeightHint       int32
+	AnchorTxnID      int32
 	TransferTimeUnix time.Time
 }
 
@@ -236,10 +222,11 @@ type MssmtRoot struct {
 	RootHash  []byte
 }
 
-type PendingPassiveAsset struct {
-	PendingID       int32
+type PassiveAsset struct {
+	PassiveID       int32
+	TransferID      int32
 	AssetID         int32
-	PrevOutpoint    []byte
+	NewAnchorUtxo   int32
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
@@ -255,13 +242,6 @@ type ScriptKey struct {
 	InternalKeyID    int32
 	TweakedScriptKey []byte
 	Tweak            []byte
-}
-
-type TransferProof struct {
-	ProofID       int32
-	TransferID    int32
-	SenderProof   []byte
-	ReceiverProof []byte
 }
 
 type UniverseLeafe struct {

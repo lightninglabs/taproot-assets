@@ -90,39 +90,6 @@ type CommitmentSelector interface {
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
 }
 
-// AssetSpendDelta describes the mutation of an asset as part of an outbound
-// parcel (batched send). As we always require script keys to be unique, we
-// simply need to know the old script key, and the new amount.
-type AssetSpendDelta struct {
-	// OldScriptKey is the old script key that uniquely identified the
-	// spent asset on disk.
-	OldScriptKey btcec.PublicKey
-
-	// NewAmt is the new amount for the asset.
-	NewAmt uint64
-
-	// NewScriptKey is the new script key. We assume BIP 86 usage when
-	// updating the script keys on disk.
-	NewScriptKey asset.ScriptKey
-
-	// WitnessData is the new witness data for this asset.
-	WitnessData []asset.Witness
-
-	// SplitCommitmentRoot is the root split commitment for this asset.
-	// This will only be set if a split was required to complete the send.
-	SplitCommitmentRoot mssmt.Node
-
-	// SenderAssetProof is the fully serialized proof of the sender which
-	// includes all the proof information other than the final chain
-	// information.
-	SenderAssetProof []byte
-
-	// ReceiverAssetProof is the fully serialized proof for the receiver,
-	// which commits to the receiver's asset with the split commitment
-	// included.
-	ReceiverAssetProof []byte
-}
-
 // TransferInput represents the database level input to an asset transfer.
 type TransferInput struct {
 	// PrevID contains the anchor point, ID and script key of the asset that
@@ -188,32 +155,12 @@ type TransferOutput struct {
 	ProofSuffix []byte
 }
 
-// OutboundParcelDelta represents the database level delta of an outbound taro
-// parcel (outbound spend). A spend will destroy a series of assets at the old
-// anchor point, and re-create them at the new anchor point. Along the way some
-// assets may have been split or sent to others. This is reflected in the set
-// of AssetSpendDeltas.
-type OutboundParcelDelta struct {
-	// OldAnchorPoint is the old/current location of the Taro commitment
-	// that was spent as an input.
-	OldAnchorPoint wire.OutPoint
-
-	// NewAnchorPoint is the new location of the Taro commitment referenced
-	// by the OldAnchorPoint.
-	NewAnchorPoint wire.OutPoint
-
-	// NewInternalKey is the new internal key that commits to the set of
-	// assets anchored at the new outpoint.
-	NewInternalKey keychain.KeyDescriptor
-
-	// TaroRoot is the new Taro root that commits to the set of modified
-	// and unmodified assets.
-	TaroRoot []byte
-
-	// TapscriptSibling is the tapscript sibling for the asset commitment
-	// above.
-	TapscriptSibling []byte
-
+// OutboundParcel represents the database level delta of an outbound taro
+// parcel (outbound spend). A spend will destroy a series of assets listed as
+// inputs, and re-create them as new outputs. Along the way some assets may have
+// been split or sent to others. This is reflected in the set of
+// TransferOutputs.
+type OutboundParcel struct {
 	// AnchorTx is the new transaction that commits to the set of Taro
 	// assets found at the above NewAnchorPoint.
 	AnchorTx *wire.MsgTx
@@ -222,10 +169,6 @@ type OutboundParcelDelta struct {
 	// broadcast, used as a starting block height when registering for
 	// confirmations.
 	AnchorTxHeightHint uint32
-
-	// AssetSpendDeltas describes the set of mutated assets that now live
-	// at the new anchor tx point.
-	AssetSpendDeltas []AssetSpendDelta
 
 	// TransferTime holds the timestamp of the outbound spend.
 	TransferTime time.Time
@@ -237,6 +180,14 @@ type OutboundParcelDelta struct {
 	// PassiveAssets is the set of passive assets that are re-anchored
 	// during the parcel confirmation process.
 	PassiveAssets []*PassiveAssetReAnchor
+
+	// Inputs represents the list of previous assets that were spent with
+	// this transfer.
+	Inputs []TransferInput
+
+	// Outputs represents the list of new assets that were created with this
+	// transfer.
+	Outputs []TransferOutput
 }
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
@@ -255,9 +206,9 @@ type AssetConfirmEvent struct {
 	// point.
 	TxIndex int32
 
-	// FinalSenderProof is the final proof for the sender that includes the
-	// chain information of the final confirmation point.
-	FinalSenderProof []byte
+	// FinalProofs is the set of final full proof chain files that are going
+	// to be stored on disk, one for each output in the outbound parcel.
+	FinalProofs map[asset.SerializedKey]*proof.AnnotatedProof
 
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.
@@ -299,12 +250,12 @@ type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
 	// commits the set of changes to disk (the asset deltas) but doesn't
 	// mark the batched spend as being finalized.
-	LogPendingParcel(context.Context, *OutboundParcelDelta) error
+	LogPendingParcel(context.Context, *OutboundParcel) error
 
 	// PendingParcels returns the set of parcels that haven't yet been
 	// finalized. This can be used to query the set of unconfirmed
 	// transactions for re-broadcast.
-	PendingParcels(context.Context) ([]*OutboundParcelDelta, error)
+	PendingParcels(context.Context) ([]*OutboundParcel, error)
 
 	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
 	// updates the on-chain reference information on disk to point to this
@@ -336,7 +287,7 @@ type Porter interface {
 	// RequestShipment attempts to request that a new send be funneled
 	// through the chain porter. If successful, an initial response will be
 	// returned with the pending transfer information.
-	RequestShipment(req Parcel) (*PendingParcel, error)
+	RequestShipment(req Parcel) (*OutboundParcel, error)
 
 	// Start signals that the asset minter should being operations.
 	Start() error

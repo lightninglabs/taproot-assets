@@ -372,31 +372,39 @@
         }
       }
     },
-    "tarorpcAssetOutput": {
+    "tarorpcAssetTransfer": {
       "type": "object",
       "properties": {
-        "anchor_point": {
-          "type": "string"
-        },
-        "asset_id": {
+        "transfer_timestamp": {
           "type": "string",
-          "format": "byte"
+          "format": "int64"
         },
-        "script_key": {
+        "anchor_tx_hash": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The new transaction that commits to the set of Taro assets found at the\nabove new anchor point."
         },
-        "amount": {
-          "type": "string",
-          "format": "uint64"
+        "anchor_tx_height_hint": {
+          "type": "integer",
+          "format": "int64"
         },
-        "new_proof_blob": {
+        "anchor_tx_chain_fees": {
           "type": "string",
-          "format": "byte"
+          "format": "int64"
         },
-        "split_commit_proof": {
-          "type": "string",
-          "format": "byte"
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcTransferInput"
+          },
+          "description": "Describes the set of spent assets."
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/tarorpcTransferOutput"
+          },
+          "description": "Describes the set of newly created asset outputs."
         }
       }
     },
@@ -429,26 +437,6 @@
         }
       }
     },
-    "tarorpcPrevInputAsset": {
-      "type": "object",
-      "properties": {
-        "anchor_point": {
-          "type": "string"
-        },
-        "asset_id": {
-          "type": "string",
-          "format": "byte"
-        },
-        "script_key": {
-          "type": "string",
-          "format": "byte"
-        },
-        "amount": {
-          "type": "string",
-          "format": "uint64"
-        }
-      }
-    },
     "tarorpcScriptKey": {
       "type": "object",
       "properties": {
@@ -471,48 +459,88 @@
     "tarorpcSendAssetResponse": {
       "type": "object",
       "properties": {
-        "transfer_txid": {
-          "type": "string"
-        },
-        "anchor_output_index": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "transfer_tx_bytes": {
-          "type": "string",
-          "format": "byte"
-        },
-        "taro_transfer": {
-          "$ref": "#/definitions/tarorpcTaroTransfer"
-        },
-        "total_fee_sats": {
-          "type": "string",
-          "format": "int64"
+        "transfer": {
+          "$ref": "#/definitions/tarorpcAssetTransfer"
         }
       }
     },
-    "tarorpcTaroTransfer": {
+    "tarorpcTransferInput": {
       "type": "object",
       "properties": {
-        "old_taro_root": {
+        "anchor_point": {
+          "type": "string",
+          "description": "The old/current location of the Taro commitment that was spent as an\ninput."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the asset that was spent."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset that was spent."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the asset that was spent."
+        }
+      }
+    },
+    "tarorpcTransferOutput": {
+      "type": "object",
+      "properties": {
+        "anchor": {
+          "$ref": "#/definitions/tarorpcTransferOutputAnchor"
+        },
+        "script_key": {
           "type": "string",
           "format": "byte"
         },
-        "new_taro_root": {
+        "script_key_is_local": {
+          "type": "boolean"
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "new_proof_blob": {
           "type": "string",
           "format": "byte"
         },
-        "prev_inputs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/tarorpcPrevInputAsset"
-          }
+        "split_commit_root_hash": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "tarorpcTransferOutputAnchor": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "type": "string",
+          "description": "The new location of the Taro commitment that was created on chain."
         },
-        "new_outputs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/tarorpcAssetOutput"
-          }
+        "value": {
+          "type": "string",
+          "format": "int64"
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "merkle_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte"
+        },
+        "num_passive_assets": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     }

@@ -360,13 +360,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// to complete the send w/o merging inputs.
 	assetInput := eligibleCommitments[0]
 
-	// If the key found for the input UTXO is not from the Taro key family,
-	// something has gone wrong with the DB.
+	// If the key found for the input UTXO cannot be identified as belonging
+	// to the lnd wallet, we won't be able to sign for it. This would happen
+	// if a user manually imported an asset that was issued/received for/on
+	// another node. We should probably not create asset entries for such
+	// imported assets in the first place, as we won't be able to spend it
+	// anyway. But for now we just put this check in place.
 	internalKey := assetInput.InternalKey
-	if internalKey.Family != asset.TaroKeyFamily {
-		return nil, fmt.Errorf("invalid internal key family "+
-			"for selected input: %v %v", internalKey.Family,
-			internalKey.Index)
+	if !f.cfg.KeyRing.IsLocalKey(ctx, internalKey) {
+		return nil, fmt.Errorf("invalid internal key family for "+
+			"selected input, not known to lnd: key=%x, fam=%v, "+
+			"idx=%v", internalKey.PubKey.SerializeCompressed(),
+			internalKey.Family, internalKey.Index)
 	}
 
 	inBip32Derivation, inTrBip32Derivation :=
@@ -748,6 +753,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error adding anchor input: %w", err)
 	}
+	anchorPkt.Pkt = signAnchorPkt
 
 	// With all the input and output information in the packet, we
 	// can now ask lnd to sign it, and then extract the final

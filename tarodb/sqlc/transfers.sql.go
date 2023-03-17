@@ -58,41 +58,6 @@ func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput
 	return asset_id, err
 }
 
-const applySpendDelta = `-- name: ApplySpendDelta :one
-WITH old_script_key_id AS (
-    SELECT script_key_id
-    FROM script_keys
-    WHERE tweaked_script_key = $5
-)
-UPDATE assets
-SET amount = $1, script_key_id = $2, 
-    split_commitment_root_hash = $3,
-    split_commitment_root_value = $4
-WHERE script_key_id in (SELECT script_key_id FROM old_script_key_id)
-RETURNING asset_id
-`
-
-type ApplySpendDeltaParams struct {
-	NewAmount                int64
-	NewScriptKeyID           int32
-	SplitCommitmentRootHash  []byte
-	SplitCommitmentRootValue sql.NullInt64
-	OldScriptKey             []byte
-}
-
-func (q *Queries) ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, applySpendDelta,
-		arg.NewAmount,
-		arg.NewScriptKeyID,
-		arg.SplitCommitmentRootHash,
-		arg.SplitCommitmentRootValue,
-		arg.OldScriptKey,
-	)
-	var asset_id int32
-	err := row.Scan(&asset_id)
-	return asset_id, err
-}
-
 const deleteAssetWitnesses = `-- name: DeleteAssetWitnesses :exec
 DELETE FROM asset_witnesses
 WHERE asset_id = $1
@@ -101,187 +66,6 @@ WHERE asset_id = $1
 func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int32) error {
 	_, err := q.db.ExecContext(ctx, deleteAssetWitnesses, assetID)
 	return err
-}
-
-const deletePendingPassiveAsset = `-- name: DeletePendingPassiveAsset :exec
-DELETE FROM pending_passive_asset
-WHERE prev_outpoint = $1
-`
-
-func (q *Queries) DeletePendingPassiveAsset(ctx context.Context, prevOutpoint []byte) error {
-	_, err := q.db.ExecContext(ctx, deletePendingPassiveAsset, prevOutpoint)
-	return err
-}
-
-const deleteSpendProofs = `-- name: DeleteSpendProofs :exec
-DELETE FROM transfer_proofs
-WHERE transfer_id = $1
-`
-
-func (q *Queries) DeleteSpendProofs(ctx context.Context, transferID int32) error {
-	_, err := q.db.ExecContext(ctx, deleteSpendProofs, transferID)
-	return err
-}
-
-const fetchAssetDeltas = `-- name: FetchAssetDeltas :many
-SELECT  
-    deltas.old_script_key, deltas.new_amt, 
-    script_keys.tweaked_script_key AS new_script_key_bytes,
-    script_keys.tweak AS script_key_tweak,
-    deltas.new_script_key AS new_script_key_id, 
-    internal_keys.raw_key AS new_raw_script_key_bytes,
-    internal_keys.key_family AS new_script_key_family, 
-    internal_keys.key_index AS new_script_key_index,
-    deltas.serialized_witnesses, split_commitment_root_hash, 
-    split_commitment_root_value
-FROM asset_deltas deltas
-JOIN script_keys
-    ON deltas.new_script_key = script_keys.script_key_id
-JOIN internal_keys 
-    ON script_keys.internal_key_id = internal_keys.key_id
-WHERE transfer_id = $1
-`
-
-type FetchAssetDeltasRow struct {
-	OldScriptKey             []byte
-	NewAmt                   int64
-	NewScriptKeyBytes        []byte
-	ScriptKeyTweak           []byte
-	NewScriptKeyID           int32
-	NewRawScriptKeyBytes     []byte
-	NewScriptKeyFamily       int32
-	NewScriptKeyIndex        int32
-	SerializedWitnesses      []byte
-	SplitCommitmentRootHash  []byte
-	SplitCommitmentRootValue sql.NullInt64
-}
-
-func (q *Queries) FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetDeltas, transferID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []FetchAssetDeltasRow
-	for rows.Next() {
-		var i FetchAssetDeltasRow
-		if err := rows.Scan(
-			&i.OldScriptKey,
-			&i.NewAmt,
-			&i.NewScriptKeyBytes,
-			&i.ScriptKeyTweak,
-			&i.NewScriptKeyID,
-			&i.NewRawScriptKeyBytes,
-			&i.NewScriptKeyFamily,
-			&i.NewScriptKeyIndex,
-			&i.SerializedWitnesses,
-			&i.SplitCommitmentRootHash,
-			&i.SplitCommitmentRootValue,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const fetchAssetDeltasWithProofs = `-- name: FetchAssetDeltasWithProofs :many
-SELECT  
-    deltas.old_script_key, deltas.new_amt, 
-    script_keys.tweaked_script_key AS new_script_key_bytes,
-    script_keys.tweak AS script_key_tweak,
-    deltas.new_script_key AS new_script_key_id, 
-    internal_keys.raw_key AS new_raw_script_key_bytes,
-    internal_keys.key_family AS new_script_key_family, 
-    internal_keys.key_index AS new_script_key_index,
-    deltas.serialized_witnesses, deltas.split_commitment_root_hash, 
-    deltas.split_commitment_root_value, transfer_proofs.sender_proof,
-    transfer_proofs.receiver_proof
-FROM asset_deltas deltas
-JOIN script_keys
-    ON deltas.new_script_key = script_keys.script_key_id
-JOIN internal_keys 
-    ON script_keys.internal_key_id = internal_keys.key_id
-JOIN transfer_proofs
-    ON deltas.proof_id = transfer_proofs.proof_id
-WHERE deltas.transfer_id = $1
-`
-
-type FetchAssetDeltasWithProofsRow struct {
-	OldScriptKey             []byte
-	NewAmt                   int64
-	NewScriptKeyBytes        []byte
-	ScriptKeyTweak           []byte
-	NewScriptKeyID           int32
-	NewRawScriptKeyBytes     []byte
-	NewScriptKeyFamily       int32
-	NewScriptKeyIndex        int32
-	SerializedWitnesses      []byte
-	SplitCommitmentRootHash  []byte
-	SplitCommitmentRootValue sql.NullInt64
-	SenderProof              []byte
-	ReceiverProof            []byte
-}
-
-func (q *Queries) FetchAssetDeltasWithProofs(ctx context.Context, transferID int32) ([]FetchAssetDeltasWithProofsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetDeltasWithProofs, transferID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []FetchAssetDeltasWithProofsRow
-	for rows.Next() {
-		var i FetchAssetDeltasWithProofsRow
-		if err := rows.Scan(
-			&i.OldScriptKey,
-			&i.NewAmt,
-			&i.NewScriptKeyBytes,
-			&i.ScriptKeyTweak,
-			&i.NewScriptKeyID,
-			&i.NewRawScriptKeyBytes,
-			&i.NewScriptKeyFamily,
-			&i.NewScriptKeyIndex,
-			&i.SerializedWitnesses,
-			&i.SplitCommitmentRootHash,
-			&i.SplitCommitmentRootValue,
-			&i.SenderProof,
-			&i.ReceiverProof,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const fetchSpendProofs = `-- name: FetchSpendProofs :one
-SELECT sender_proof, receiver_proof
-FROM transfer_proofs
-WHERE transfer_id = $1
-`
-
-type FetchSpendProofsRow struct {
-	SenderProof   []byte
-	ReceiverProof []byte
-}
-
-func (q *Queries) FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchSpendProofs, transferID)
-	var i FetchSpendProofsRow
-	err := row.Scan(&i.SenderProof, &i.ReceiverProof)
-	return i, err
 }
 
 const fetchTransferInputs = `-- name: FetchTransferInputs :many
@@ -428,64 +212,27 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int32) ([
 	return items, nil
 }
 
-const insertAssetDelta = `-- name: InsertAssetDelta :exec
-INSERT INTO asset_deltas (
-    old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
-    proof_id, split_commitment_root_hash, split_commitment_root_value
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
-)
-`
-
-type InsertAssetDeltaParams struct {
-	OldScriptKey             []byte
-	NewAmt                   int64
-	NewScriptKey             int32
-	SerializedWitnesses      []byte
-	TransferID               int32
-	ProofID                  int32
-	SplitCommitmentRootHash  []byte
-	SplitCommitmentRootValue sql.NullInt64
-}
-
-func (q *Queries) InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetDelta,
-		arg.OldScriptKey,
-		arg.NewAmt,
-		arg.NewScriptKey,
-		arg.SerializedWitnesses,
-		arg.TransferID,
-		arg.ProofID,
-		arg.SplitCommitmentRootHash,
-		arg.SplitCommitmentRootValue,
-	)
-	return err
-}
-
 const insertAssetTransfer = `-- name: InsertAssetTransfer :one
+WITH target_txn(txn_id) AS (
+    SELECT txn_id
+    FROM chain_txns
+    WHERE txid = $3
+)
 INSERT INTO asset_transfers (
-    old_anchor_point, new_internal_key, new_anchor_utxo, height_hint, transfer_time_unix
+    height_hint, anchor_txn_id, transfer_time_unix
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, (SELECT txn_id FROM target_txn), $2
 ) RETURNING id
 `
 
 type InsertAssetTransferParams struct {
-	OldAnchorPoint   []byte
-	NewInternalKey   int32
-	NewAnchorUtxo    int32
 	HeightHint       int32
 	TransferTimeUnix time.Time
+	AnchorTxid       []byte
 }
 
 func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetTransfer,
-		arg.OldAnchorPoint,
-		arg.NewInternalKey,
-		arg.NewAnchorUtxo,
-		arg.HeightHint,
-		arg.TransferTimeUnix,
-	)
+	row := q.db.QueryRowContext(ctx, insertAssetTransfer, arg.HeightHint, arg.TransferTimeUnix, arg.AnchorTxid)
 	var id int32
 	err := row.Scan(&id)
 	return id, err
@@ -557,7 +304,7 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 	return err
 }
 
-const insertPendingPassiveAsset = `-- name: InsertPendingPassiveAsset :exec
+const insertPassiveAsset = `-- name: InsertPassiveAsset :exec
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
     FROM assets
@@ -567,34 +314,38 @@ WITH target_asset(asset_id) AS (
             ON assets.anchor_utxo_id = utxos.utxo_id
         JOIN script_keys
             ON assets.script_key_id = script_keys.script_key_id
-    WHERE genesis_assets.asset_id = $5
-        AND utxos.outpoint = $1
-        AND script_keys.tweaked_script_key = $2
+    WHERE genesis_assets.asset_id = $6
+        AND utxos.outpoint = $7
+        AND script_keys.tweaked_script_key = $3
 )
-INSERT INTO pending_passive_asset (
-    asset_id, prev_outpoint, script_key, new_witness_stack,
+INSERT INTO passive_assets (
+    asset_id, transfer_id, new_anchor_utxo, script_key, new_witness_stack,
     new_proof
 ) VALUES (
-    (SELECT asset_id FROM target_asset), $1,
-          $2, $3, $4
+    (SELECT asset_id FROM target_asset), $1, $2,
+    $3, $4, $5
 )
 `
 
-type InsertPendingPassiveAssetParams struct {
-	PrevOutpoint    []byte
+type InsertPassiveAssetParams struct {
+	TransferID      int32
+	NewAnchorUtxo   int32
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
 	AssetGenesisID  []byte
+	PrevOutpoint    []byte
 }
 
-func (q *Queries) InsertPendingPassiveAsset(ctx context.Context, arg InsertPendingPassiveAssetParams) error {
-	_, err := q.db.ExecContext(ctx, insertPendingPassiveAsset,
-		arg.PrevOutpoint,
+func (q *Queries) InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error {
+	_, err := q.db.ExecContext(ctx, insertPassiveAsset,
+		arg.TransferID,
+		arg.NewAnchorUtxo,
 		arg.ScriptKey,
 		arg.NewWitnessStack,
 		arg.NewProof,
 		arg.AssetGenesisID,
+		arg.PrevOutpoint,
 	)
 	return err
 }
@@ -617,57 +368,18 @@ func (q *Queries) InsertReceiverProofTransferAttempt(ctx context.Context, arg In
 	return err
 }
 
-const insertSpendProofs = `-- name: InsertSpendProofs :one
-INSERT INTO transfer_proofs (
-   transfer_id, sender_proof, receiver_proof 
-) VALUES (
-    $1, $2, $3
-) RETURNING proof_id
-`
-
-type InsertSpendProofsParams struct {
-	TransferID    int32
-	SenderProof   []byte
-	ReceiverProof []byte
-}
-
-func (q *Queries) InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertSpendProofs, arg.TransferID, arg.SenderProof, arg.ReceiverProof)
-	var proof_id int32
-	err := row.Scan(&proof_id)
-	return proof_id, err
-}
-
 const queryAssetTransfers = `-- name: QueryAssetTransfers :many
-SELECT 
-    asset_transfers.old_anchor_point, utxos.outpoint AS new_anchor_point,
-    utxos.taro_root, utxos.tapscript_sibling,
-    utxos.utxo_id AS new_anchor_utxo_id, txns.raw_tx AS anchor_tx_bytes,
-    txns.txid AS anchor_txid, txns.txn_id AS anchor_tx_primary_key,
-    txns.chain_fees, transfer_time_unix, keys.raw_key AS internal_key_bytes,
-    keys.key_family AS internal_key_fam, keys.key_index AS internal_key_index,
-    id AS transfer_id, height_hint, transfer_time_unix
-FROM asset_transfers
-JOIN internal_keys keys
-    ON asset_transfers.new_internal_key = keys.key_id
-JOIN managed_utxos utxos
-    ON asset_transfers.new_anchor_utxo = utxos.utxo_id
+SELECT
+    id, height_hint, txns.txid, transfer_time_unix
+FROM asset_transfers transfers
 JOIN chain_txns txns
-    ON utxos.utxo_id = txns.txn_id
-WHERE (
-    -- We'll use this clause to filter out for only transfers that are
-    -- unconfirmed. But only if the unconf_only field is set.
-    -- TODO(roasbeef): just do the confirmed bit,
-    ($1 = false OR $1 IS NULL OR
-      (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = $1)
+    ON transfers.anchor_txn_id = txns.txn_id
+WHERE ($1 = false OR $1 IS NULL OR
+    (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = $1)
 
-    AND
-    
-    -- Here we have another optional query clause to select a given transfer
-    -- based on the anchor_tx_hash, but only if it's specified.
-    (txns.txid = $2 OR
-       $2 IS NULL)
-)
+AND (txns.txid = $2 OR
+    $2 IS NULL)
+ORDER BY transfer_time_unix
 `
 
 type QueryAssetTransfersParams struct {
@@ -676,24 +388,16 @@ type QueryAssetTransfersParams struct {
 }
 
 type QueryAssetTransfersRow struct {
-	OldAnchorPoint     []byte
-	NewAnchorPoint     []byte
-	TaroRoot           []byte
-	TapscriptSibling   []byte
-	NewAnchorUtxoID    int32
-	AnchorTxBytes      []byte
-	AnchorTxid         []byte
-	AnchorTxPrimaryKey int32
-	ChainFees          int64
-	TransferTimeUnix   time.Time
-	InternalKeyBytes   []byte
-	InternalKeyFam     int32
-	InternalKeyIndex   int32
-	TransferID         int32
-	HeightHint         int32
-	TransferTimeUnix_2 time.Time
+	ID               int32
+	HeightHint       int32
+	Txid             []byte
+	TransferTimeUnix time.Time
 }
 
+// We'll use this clause to filter out for only transfers that are
+// unconfirmed. But only if the unconf_only field is set.
+// Here we have another optional query clause to select a given transfer
+// based on the anchor_tx_hash, but only if it's specified.
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssetTransfers, arg.UnconfOnly, arg.AnchorTxHash)
 	if err != nil {
@@ -704,22 +408,10 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 	for rows.Next() {
 		var i QueryAssetTransfersRow
 		if err := rows.Scan(
-			&i.OldAnchorPoint,
-			&i.NewAnchorPoint,
-			&i.TaroRoot,
-			&i.TapscriptSibling,
-			&i.NewAnchorUtxoID,
-			&i.AnchorTxBytes,
-			&i.AnchorTxid,
-			&i.AnchorTxPrimaryKey,
-			&i.ChainFees,
-			&i.TransferTimeUnix,
-			&i.InternalKeyBytes,
-			&i.InternalKeyFam,
-			&i.InternalKeyIndex,
-			&i.TransferID,
+			&i.ID,
 			&i.HeightHint,
-			&i.TransferTimeUnix_2,
+			&i.Txid,
+			&i.TransferTimeUnix,
 		); err != nil {
 			return nil, err
 		}
@@ -734,36 +426,39 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 	return items, nil
 }
 
-const queryPendingPassiveAssets = `-- name: QueryPendingPassiveAssets :many
-SELECT passive.asset_id, passive.script_key, passive.new_witness_stack,
-       passive.new_proof, genesis_info_view.asset_id AS genesis_id
-FROM pending_passive_asset as passive
+const queryPassiveAssets = `-- name: QueryPassiveAssets :many
+SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
+       passive.new_witness_stack, passive.new_proof,
+       genesis_assets.asset_id AS genesis_id
+FROM passive_assets as passive
     JOIN assets
         ON passive.asset_id = assets.asset_id
-    JOIN genesis_info_view
-        ON assets.genesis_id = genesis_info_view.gen_asset_id
-WHERE prev_outpoint = $1
+    JOIN genesis_assets
+        ON assets.genesis_id = genesis_assets.gen_asset_id
+WHERE passive.transfer_id = $1
 `
 
-type QueryPendingPassiveAssetsRow struct {
+type QueryPassiveAssetsRow struct {
 	AssetID         int32
+	NewAnchorUtxo   int32
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
 	GenesisID       []byte
 }
 
-func (q *Queries) QueryPendingPassiveAssets(ctx context.Context, prevOutpoint []byte) ([]QueryPendingPassiveAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryPendingPassiveAssets, prevOutpoint)
+func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int32) ([]QueryPassiveAssetsRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryPassiveAssets, transferID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []QueryPendingPassiveAssetsRow
+	var items []QueryPassiveAssetsRow
 	for rows.Next() {
-		var i QueryPendingPassiveAssetsRow
+		var i QueryPassiveAssetsRow
 		if err := rows.Scan(
 			&i.AssetID,
+			&i.NewAnchorUtxo,
 			&i.ScriptKey,
 			&i.NewWitnessStack,
 			&i.NewProof,
@@ -812,25 +507,18 @@ func (q *Queries) QueryReceiverProofTransferAttempt(ctx context.Context, proofLo
 	return items, nil
 }
 
-const reAnchorAssets = `-- name: ReAnchorAssets :exec
-WITH assets_to_update AS (
-    SELECT asset_id
-    FROM assets
-    JOIN managed_utxos utxos
-        ON assets.anchor_utxo_id = utxos.utxo_id
-    WHERE utxos.outpoint = $2
-)
+const reAnchorPassiveAssets = `-- name: ReAnchorPassiveAssets :exec
 UPDATE assets
 SET anchor_utxo_id = $1
-WHERE asset_id IN (SELECT asset_id FROM assets_to_update)
+WHERE asset_id = $2
 `
 
-type ReAnchorAssetsParams struct {
-	NewOutpointUtxoID sql.NullInt32
-	OldOutpoint       []byte
+type ReAnchorPassiveAssetsParams struct {
+	NewAnchorUtxoID sql.NullInt32
+	AssetID         int32
 }
 
-func (q *Queries) ReAnchorAssets(ctx context.Context, arg ReAnchorAssetsParams) error {
-	_, err := q.db.ExecContext(ctx, reAnchorAssets, arg.NewOutpointUtxoID, arg.OldOutpoint)
+func (q *Queries) ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error {
+	_, err := q.db.ExecContext(ctx, reAnchorPassiveAssets, arg.NewAnchorUtxoID, arg.AssetID)
 	return err
 }
