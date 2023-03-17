@@ -148,12 +148,13 @@ func testAddresses(t *harnessTest) {
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Transfers, len(rpcAssets))
-		require.Len(t.t, resp.Transfers[0].AssetSpendDeltas, 1)
-		delta := resp.Transfers[0].AssetSpendDeltas[0]
-		require.Equal(t.t,
-			rpcAssets[0].AssetGenesis.AssetId, delta.AssetId,
+		require.Len(t.t, resp.Transfers[0].Outputs, 2)
+		firstOut := resp.Transfers[0].Outputs[0]
+		require.EqualValues(t.t, 1, firstOut.Amount)
+		firstIn := resp.Transfers[0].Inputs[0]
+		require.Equal(
+			t.t, rpcAssets[0].AssetGenesis.AssetId, firstIn.AssetId,
 		)
-		require.EqualValues(t.t, 1, delta.NewAmt)
 
 		return nil
 	}, defaultTimeout/2)

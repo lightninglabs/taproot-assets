@@ -44,7 +44,7 @@ var testCases = []*testCase{
 	},
 	{
 		name: "reissuance",
-		test: testReissuance,
+		test: testReIssuance,
 	},
 	{
 		name: "re-issuance asset amount overflow",

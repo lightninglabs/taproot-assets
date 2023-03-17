@@ -275,10 +275,10 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 // with the node.
 func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 	sendResp *tarorpc.SendAssetResponse, assetID []byte,
-	expectedAmount uint64, currentTransferIdx, numTransfers int) {
+	expectedAmounts []uint64, currentTransferIdx, numTransfers int) {
 
 	confirmAndAssetOutboundTransferWithOutputs(
-		t, sender, sendResp, assetID, expectedAmount,
+		t, sender, sendResp, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, 2,
 	)
 }
@@ -288,26 +288,26 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 // then asserting the confirmed state with the node.
 func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	sender *tarodHarness, sendResp *tarorpc.SendAssetResponse,
-	assetID []byte, expectedAmount uint64, currentTransferIdx, numTransfers,
-	numOutputs int) {
+	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
+	numTransfers, numOutputs int) {
 
 	ctxb := context.Background()
 
 	// Check that we now have two new outputs, and that they differ
 	// in outpoints and scripts.
-	outputs := sendResp.TaroTransfer.NewOutputs
+	outputs := sendResp.Transfer.Outputs
 	require.Len(t.t, outputs, numOutputs)
 
 	outpoints := make(map[string]struct{})
 	scripts := make(map[string]struct{})
 	for _, o := range outputs {
-		_, ok := outpoints[o.AnchorPoint]
+		_, ok := outpoints[o.Anchor.Outpoint]
 		require.False(t.t, ok)
 
 		_, ok = scripts[string(o.ScriptKey)]
 		require.False(t.t, ok)
 
-		outpoints[o.AnchorPoint] = struct{}{}
+		outpoints[o.Anchor.Outpoint] = struct{}{}
 		scripts[string(o.ScriptKey)] = struct{}{}
 	}
 
@@ -319,7 +319,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	_ = mineBlocks(t, t.lndHarness, 1, 1)
 
 	// Confirm that we can externally view the transfer.
-	err = wait.Predicate(func() bool {
+	require.Eventually(t.t, func() bool {
 		resp, err := sender.ListTransfers(
 			ctxb, &tarorpc.ListTransfersRequest{},
 		)
@@ -329,20 +329,18 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 		// Assert the new outpoint, script and amount is in the
 		// list.
 		transfer := resp.Transfers[currentTransferIdx]
-		require.Contains(t.t, outpoints, transfer.NewAnchorPoint)
-
-		delta := transfer.AssetSpendDeltas[0]
-		require.Contains(t.t, scripts, string(delta.NewScriptKey))
-		require.Equal(t.t, expectedAmount, delta.NewAmt)
-
-		// Check asset ID is unchanged.
-		sameAssetID := func(xfer *tarorpc.AssetTransfer) bool {
-			return bytes.Equal(
-				xfer.AssetSpendDeltas[0].AssetId, assetID,
-			)
+		require.Len(t.t, transfer.Outputs, numOutputs)
+		require.Len(t.t, expectedAmounts, numOutputs)
+		for idx := range transfer.Outputs {
+			out := transfer.Outputs[idx]
+			require.Contains(t.t, outpoints, out.Anchor.Outpoint)
+			require.Contains(t.t, scripts, string(out.ScriptKey))
+			require.Equal(t.t, expectedAmounts[idx], out.Amount)
 		}
-		return sameAssetID(transfer)
-	}, defaultTimeout)
+
+		firstIn := transfer.Inputs[0]
+		return bytes.Equal(firstIn.AssetId, assetID)
+	}, defaultTimeout, wait.PollInterval)
 	require.NoError(t.t, err)
 
 	transferResp, err := sender.ListTransfers(
@@ -428,8 +426,13 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 	require.NoError(t, err)
 
 	balance, ok := balancesResp.AssetBalances[hex.EncodeToString(id)]
+	if amt == 0 {
+		require.False(t, ok)
+		return
+	}
+
 	require.True(t, ok)
-	require.Equal(t, balance.Balance, amt)
+	require.EqualValues(t, amt, balance.Balance)
 }
 
 // assertBalanceByGroup asserts that the balance of a single asset group
@@ -466,9 +469,43 @@ func assertTransfers(t *testing.T, tarod *tarodHarness, amts []uint64) {
 
 	// TODO(jhb): Extend to support multi-asset transfers
 	for i, transfer := range transferResp.Transfers {
-		require.Len(t, transfer.AssetSpendDeltas, 1)
-		require.Equal(t, amts[i], transfer.AssetSpendDeltas[0].NewAmt)
+		require.Len(t, transfer.Outputs, 2)
+		require.Equal(t, amts[i], transfer.Outputs[0].Amount)
 	}
+}
+
+// assertSplitTombstoneTransfer asserts that there is a transfer for the given
+// asset ID that is a split that left over a tombstone output.
+func assertSplitTombstoneTransfer(t *testing.T, tarod *tarodHarness,
+	id []byte) {
+
+	ctxb := context.Background()
+	transferResp, err := tarod.ListTransfers(
+		ctxb, &tarorpc.ListTransfersRequest{},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, transferResp.Transfers)
+
+	tombstoneFound := false
+	for _, transfer := range transferResp.Transfers {
+		if !bytes.Equal(transfer.Inputs[0].AssetId, id) {
+			continue
+		}
+
+		for _, out := range transfer.Outputs {
+			if out.Amount != 0 {
+				continue
+			}
+
+			// A zero amount output is a tombstone output.
+			tombstoneFound = true
+			require.Equal(t, asset.NUMSBytes, out.ScriptKey)
+			require.False(t, out.ScriptKeyIsLocal)
+			require.NotEmpty(t, out.SplitCommitRootHash)
+		}
+	}
+
+	require.True(t, tombstoneFound, "no tombstone output found")
 }
 
 // assertNumGroups asserts that the number of groups the daemon is aware of

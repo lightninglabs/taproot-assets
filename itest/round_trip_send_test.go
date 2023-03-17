@@ -52,7 +52,8 @@ func testRoundTripSend(t *harnessTest) {
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId, bobAmt, 0, 1,
+		t, t.tarod, sendResp, genInfo.AssetId,
+		[]uint64{bobAmt, bobAmt}, 0, 1,
 	)
 	_ = sendProof(t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo)
 
@@ -70,7 +71,8 @@ func testRoundTripSend(t *harnessTest) {
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	confirmAndAssertOutboundTransfer(
-		t, secondTarod, sendResp, genInfo.AssetId, aliceAmt, 0, 1,
+		t, secondTarod, sendResp, genInfo.AssetId,
+		[]uint64{aliceAmt, aliceAmt}, 0, 1,
 	)
 	_ = sendProof(t, secondTarod, t.tarod, aliceAddr.ScriptKey, genInfo)
 

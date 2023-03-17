@@ -111,8 +111,8 @@ func testBasicSend(t *harnessTest) {
 		sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
 
 		confirmAndAssertOutboundTransfer(
-			t, t.tarod, sendResp, genInfo.AssetId, currentUnits,
-			i, i+1,
+			t, t.tarod, sendResp, genInfo.AssetId,
+			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
 		_ = sendProof(
 			t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo,
@@ -188,8 +188,8 @@ func testSendPassiveAsset(t *harnessTest) {
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := assets[0].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
-		0, 1,
+		t, t.tarod, sendResp, genInfo.AssetId,
+		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
 	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, recvTarod, 1)
@@ -230,8 +230,8 @@ func testSendPassiveAsset(t *harnessTest) {
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId, expectedAmtAfterSend,
-		1, 2,
+		t, t.tarod, sendResp, genInfo.AssetId,
+		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
 	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, recvTarod, 2)
@@ -332,8 +332,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
 	eventNtfns tarorpc.Taro_SubscribeSendAssetEventNtfnsClient,
 	targetEventSelector func(*tarorpc.SendAssetEvent) bool,
-	expectedCount int,
-) {
+	expectedCount int) {
 
 	countFound := 0
 	for {
@@ -366,5 +365,5 @@ func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
 		}
 	}
 
-	require.Equal(t.t, countFound, expectedCount)
+	require.Equal(t.t, expectedCount, countFound)
 }

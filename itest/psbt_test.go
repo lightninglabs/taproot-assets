@@ -96,7 +96,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	changeUnits := rpcAssets[0].Amount - numUnits
 	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId, changeUnits, 0, 1,
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, bob, 1)
@@ -150,7 +151,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId, numUnits/2, 0, 1,
+		t, bob, sendResp, genInfo.AssetId,
+		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, alice, 1)
@@ -240,7 +242,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	changeUnits := rpcAssets[0].Amount - numUnits
 	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId, changeUnits, 0, 1,
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, bob, 1)
@@ -296,7 +299,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId, numUnits/2, 0, 1,
+		t, bob, sendResp, genInfo.AssetId,
+		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, alice, 1)
@@ -374,7 +378,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	confirmAndAssetOutboundTransferWithOutputs(
-		t, alice, sendResp, genInfo.AssetId, fullAmt, 0, 1, 2,
+		t, alice, sendResp, genInfo.AssetId, []uint64{fullAmt}, 0, 1, 1,
 	)
 	_ = sendProof(
 		t, alice, bob, bobScriptKey.PubKey.SerializeCompressed(),

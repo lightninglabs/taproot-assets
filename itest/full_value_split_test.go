@@ -61,7 +61,8 @@ func testFullValueSend(t *harnessTest) {
 			sendResp := sendAssetsToAddr(t, t.tarod, receiverAddr)
 			confirmAndAssertOutboundTransfer(
 				t, t.tarod, sendResp, genInfo.AssetId,
-				0, senderTransferIdx, senderTransferIdx+1,
+				[]uint64{0, fullAmount}, senderTransferIdx,
+				senderTransferIdx+1,
 			)
 			_ = sendProof(
 				t, t.tarod, secondTarod, receiverAddr.ScriptKey,
@@ -85,7 +86,8 @@ func testFullValueSend(t *harnessTest) {
 			)
 			confirmAndAssertOutboundTransfer(
 				t, secondTarod, sendResp, genInfo.AssetId,
-				0, receiverTransferIdx, receiverTransferIdx+1,
+				[]uint64{0, fullAmount}, receiverTransferIdx,
+				receiverTransferIdx+1,
 			)
 			_ = sendProof(
 				t, secondTarod, t.tarod, receiverAddr.ScriptKey,
