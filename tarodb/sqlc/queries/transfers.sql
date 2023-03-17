@@ -5,6 +5,22 @@ INSERT INTO asset_transfers (
     $1, $2, $3, $4, $5
 ) RETURNING id;
 
+-- name: InsertAssetTransferInput :exec
+INSERT INTO asset_transfer_inputs (
+    transfer_id, anchor_point, asset_id, script_key, amount
+) VALUES (
+    $1, $2, $3, $4, $5
+);
+
+-- name: InsertAssetTransferOutput :exec
+INSERT INTO asset_transfer_outputs (
+    transfer_id, anchor_utxo, script_key, script_key_local,
+    amount, serialized_witnesses, split_commitment_root_hash,
+    split_commitment_root_value, proof_suffix, num_passive_assets
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+);
+
 -- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
     old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
@@ -50,6 +66,63 @@ WHERE (
     (txns.txid = sqlc.narg('anchor_tx_hash') OR
        sqlc.narg('anchor_tx_hash') IS NULL)
 );
+
+-- name: FetchTransferInputs :many
+SELECT input_id, anchor_point, asset_id, script_key, amount
+FROM asset_transfer_inputs inputs
+WHERE transfer_id = $1;
+
+-- name: FetchTransferOutputs :many
+SELECT
+    output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
+    split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
+    utxos.utxo_id AS anchor_utxo_id,
+    utxos.outpoint AS anchor_outpoint,
+    utxos.amt_sats AS anchor_value,
+    utxos.taro_root AS anchor_taro_root,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
+    utxo_internal_keys.key_family AS internal_key_family,
+    utxo_internal_keys.key_index AS internal_key_index,
+    script_keys.tweaked_script_key AS script_key_bytes,
+    script_keys.tweak AS script_key_tweak,
+    script_key AS script_key_id,
+    script_internal_keys.raw_key AS script_key_raw_key_bytes,
+    script_internal_keys.key_family AS script_key_family,
+    script_internal_keys.key_index AS script_key_index
+FROM asset_transfer_outputs outputs
+JOIN managed_utxos utxos
+  ON outputs.anchor_utxo = utxos.utxo_id
+JOIN script_keys
+  ON outputs.script_key = script_keys.script_key_id
+JOIN internal_keys script_internal_keys
+  ON script_keys.internal_key_id = script_internal_keys.key_id
+JOIN internal_keys utxo_internal_keys
+  ON utxos.internal_key_id = utxo_internal_keys.key_id
+WHERE transfer_id = $1;
+
+-- name: ApplyPendingOutput :one
+WITH spent_asset AS (
+    SELECT genesis_id, version, asset_group_sig_id, script_version, lock_time,
+           relative_lock_time
+    FROM assets
+    WHERE assets.asset_id = @spent_asset_id
+)
+INSERT INTO assets (
+    genesis_id, version, asset_group_sig_id, script_version, lock_time,
+    relative_lock_time, script_key_id, anchor_utxo_id, amount,
+    split_commitment_root_hash, split_commitment_root_value
+) VALUES (
+    (SELECT genesis_id FROM spent_asset),
+    (SELECT version FROM spent_asset),
+    (SELECT asset_group_sig_id FROM spent_asset),
+    (SELECT script_version FROM spent_asset),
+    (SELECT lock_time FROM spent_asset),
+    (SELECT relative_lock_time FROM spent_asset),
+    @script_key_id, @anchor_utxo_id, @amount, @split_commitment_root_hash,
+    @split_commitment_root_value
+)
+RETURNING asset_id;
 
 -- name: FetchAssetDeltas :many
 SELECT  

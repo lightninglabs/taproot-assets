@@ -306,7 +306,7 @@ func TestImportAssetProof(t *testing.T) {
 	err = testProof.AnchorTx.Serialize(&anchorTxBuf)
 	require.NoError(t, err)
 	anchorTXID := testProof.AnchorTx.TxHash()
-	_, err = db.UpsertChainTx(ctx, ChainTx{
+	_, err = db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
 		BlockHeight: sqlInt32(testProof.AnchorBlockHeight),

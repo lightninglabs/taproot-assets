@@ -123,6 +123,71 @@ type AssetSpendDelta struct {
 	ReceiverAssetProof []byte
 }
 
+// TransferInput represents the database level input to an asset transfer.
+type TransferInput struct {
+	// PrevID contains the anchor point, ID and script key of the asset that
+	// is being spent.
+	asset.PrevID
+
+	// Amount is the input amount that was spent.
+	Amount uint64
+}
+
+// Anchor represents the database level representation of an anchor output.
+type Anchor struct {
+	// OutPoint is the chain location of the anchor output.
+	OutPoint wire.OutPoint
+
+	// Value is output value of the anchor output.
+	Value btcutil.Amount
+
+	// InternalKey is the new internal key that commits to the set of assets
+	// anchored at the new outpoint.
+	InternalKey keychain.KeyDescriptor
+
+	// MerkleRoot is the root of the tap script merkle tree that also
+	// contains the Taro commitment of the anchor output.
+	MerkleRoot []byte
+
+	// TapscriptSibling is the tapscript sibling of the Taro commitment.
+	TapscriptSibling []byte
+
+	// NumPassiveAssets is the number of passive assets in the commitment
+	// for this anchor output.
+	NumPassiveAssets uint32
+}
+
+// TransferOutput represents the database level output to an asset transfer.
+type TransferOutput struct {
+	// Anchor is the new location of the Taro commitment referenced by this
+	// transfer output.
+	Anchor Anchor
+
+	// ScriptKey is the new script key.
+	ScriptKey asset.ScriptKey
+
+	// ScriptKeyLocal indicates whether the script key is known to the lnd
+	// node connected to this daemon. If this is false, then we won't create
+	// a new asset entry in our database as we consider this to be an
+	// outbound transfer.
+	ScriptKeyLocal bool
+
+	// Amount is the new amount for the asset.
+	Amount uint64
+
+	// WitnessData is the new witness data for this asset.
+	WitnessData []asset.Witness
+
+	// SplitCommitmentRoot is the root split commitment for this asset.
+	// This will only be set if a split was required to complete the send.
+	SplitCommitmentRoot mssmt.Node
+
+	// ProofSuffix is the fully serialized proof suffix of the output which
+	// includes all the proof information other than the final chain
+	// information.
+	ProofSuffix []byte
+}
+
 // OutboundParcelDelta represents the database level delta of an outbound taro
 // parcel (outbound spend). A spend will destroy a series of assets at the old
 // anchor point, and re-create them at the new anchor point. Along the way some

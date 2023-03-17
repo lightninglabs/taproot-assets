@@ -16,6 +16,7 @@ type Querier interface {
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
+	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int32, error)
 	ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) (int32, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
@@ -63,6 +64,8 @@ type Querier interface {
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error)
+	FetchTransferInputs(ctx context.Context, transferID int32) ([]FetchTransferInputsRow, error)
+	FetchTransferOutputs(ctx context.Context, transferID int32) ([]FetchTransferOutputsRow, error)
 	FetchUniverseKeys(ctx context.Context, namespace string) ([]FetchUniverseKeysRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
@@ -73,6 +76,8 @@ type Querier interface {
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error)
+	InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error
+	InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error

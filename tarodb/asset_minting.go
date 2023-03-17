@@ -80,8 +80,11 @@ type (
 	// final information w.r.t where it's confirmed on chain.
 	GenesisPointAnchor = sqlc.AnchorGenesisPointParams
 
-	// ChainTx is used to insert a new chain tx on disk.
-	ChainTx = sqlc.UpsertChainTxParams
+	// ChainTxParams is used to insert a new chain tx on disk.
+	ChainTxParams = sqlc.UpsertChainTxParams
+
+	// ChainTx is used to fetch a chain tx from disk.
+	ChainTx = sqlc.ChainTxn
 
 	// ChainTxConf is used to mark a chain tx as being confirmed.
 	ChainTxConf = sqlc.ConfirmChainTxParams
@@ -181,7 +184,7 @@ type PendingAssetStore interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
 
 	// ConfirmChainTx confirms an existing chain tx.
 	ConfirmChainTx(ctx context.Context, arg ChainTxConf) error
@@ -981,7 +984,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Before we can insert a managed UTXO, we'll need to insert a
 		// chain transaction, as that chain transaction will be
 		// referenced by the managed UTXO.
-		chainTXID, err := q.UpsertChainTx(ctx, ChainTx{
+		chainTXID, err := q.UpsertChainTx(ctx, ChainTxParams{
 			Txid:      genTXID[:],
 			RawTx:     txBuf.Bytes(),
 			ChainFees: genesisPkt.ChainFees,

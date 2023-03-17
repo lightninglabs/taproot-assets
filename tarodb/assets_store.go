@@ -80,6 +80,10 @@ type (
 	// existing asset.
 	AssetSpendDelta = sqlc.ApplySpendDeltaParams
 
+	// ApplyPendingOutput is used to update the script key and amount of an
+	// existing asset.
+	ApplyPendingOutput = sqlc.ApplyPendingOutputParams
+
 	// AnchorTxConf identifies an unconfirmed anchor tx to confirm.
 	AnchorTxConf = sqlc.ConfirmChainAnchorTxParams
 
@@ -104,6 +108,26 @@ type (
 	// TransferQuery allows callers to filter out the set of transfers
 	// based on set information.
 	TransferQuery = sqlc.QueryAssetTransfersParams
+
+	// TransferInput tracks the inputs to an asset transfer.
+	TransferInput = sqlc.AssetTransferInput
+
+	// TransferInputRow wraps a single transfer input row.
+	TransferInputRow = sqlc.FetchTransferInputsRow
+
+	// NewTransferInput wraps the params needed to insert a new transfer
+	// input.
+	NewTransferInput = sqlc.InsertAssetTransferInputParams
+
+	// TransferOutput tracks the outputs to an asset transfer.
+	TransferOutput = sqlc.AssetTransferOutput
+
+	// TransferOutputRow wraps a single transfer output row.
+	TransferOutputRow = sqlc.FetchTransferOutputsRow
+
+	// NewTransferOutput wraps the params needed to insert a new transfer
+	// output.
+	NewTransferOutput = sqlc.InsertAssetTransferOutputParams
 
 	// NewSpendProof is used to insert new spend proofs for the
 	// sender+receiver.
@@ -147,7 +171,10 @@ type ActiveAssetsStore interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
+
+	// FetchChainTx fetches a chain tx from the DB.
+	FetchChainTx(ctx context.Context, txid []byte) (ChainTx, error)
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
@@ -183,6 +210,11 @@ type ActiveAssetsStore interface {
 	// based on the existing script key of an asset.
 	ApplySpendDelta(ctx context.Context, arg AssetSpendDelta) (int32, error)
 
+	// ApplyPendingOutput applies a transfer output (new amount and script
+	// key) based on the existing script key of an asset.
+	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput) (int32,
+		error)
+
 	// DeleteManagedUTXO deletes the managed utxo identified by the passed
 	// serialized outpoint.
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
@@ -207,6 +239,24 @@ type ActiveAssetsStore interface {
 	// InsertAssetTransfer inserts a new asset transfer into the DB.
 	InsertAssetTransfer(ctx context.Context,
 		arg NewAssetTransfer) (int32, error)
+
+	// InsertAssetTransferInput inserts a new asset transfer input into the
+	// DB.
+	InsertAssetTransferInput(ctx context.Context,
+		arg NewTransferInput) error
+
+	// InsertAssetTransferOutput inserts a new asset transfer output into
+	// the DB.
+	InsertAssetTransferOutput(ctx context.Context,
+		arg NewTransferOutput) error
+
+	// FetchTransferInputs fetches the inputs to a given asset transfer.
+	FetchTransferInputs(ctx context.Context,
+		transferID int32) ([]TransferInputRow, error)
+
+	// FetchTransferOutputs fetches the outputs to a given asset transfer.
+	FetchTransferOutputs(ctx context.Context,
+		transferID int32) ([]TransferOutputRow, error)
 
 	// QueryAssetTransfers queries for a set of asset transfers in the db.
 	QueryAssetTransfers(ctx context.Context,
@@ -1192,7 +1242,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return err
 	}
 	anchorTXID := proof.AnchorTx.TxHash()
-	chainTXID, err := db.UpsertChainTx(ctx, ChainTx{
+	chainTXID, err := db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
 		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
@@ -1574,7 +1624,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 		// Next, we'll insert the new transaction that anchors the new
 		// anchor point (commits to the set of new outputs).
-		txnID, err := q.UpsertChainTx(ctx, ChainTx{
+		txnID, err := q.UpsertChainTx(ctx, ChainTxParams{
 			Txid:      newAnchorTXID[:],
 			RawTx:     anchorTxBytes,
 			ChainFees: spend.ChainFees,
@@ -1701,6 +1751,285 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 		return nil
 	})
+}
+
+// insertAssetTransferInput inserts a new asset transfer input into the DB.
+func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
+	transferID int32, input tarofreighter.TransferInput) error {
+
+	anchorPointBytes, err := encodeOutpoint(input.OutPoint)
+	if err != nil {
+		return err
+	}
+
+	err = q.InsertAssetTransferInput(ctx, NewTransferInput{
+		TransferID:  transferID,
+		AnchorPoint: anchorPointBytes,
+		AssetID:     input.ID[:],
+		ScriptKey:   input.ScriptKey[:],
+		Amount:      int64(input.Amount),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert transfer input: %w", err)
+	}
+
+	return nil
+}
+
+// fetchAssetTransferInputs fetches all the inputs for a given transfer ID.
+func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
+	transferID int32) ([]tarofreighter.TransferInput, error) {
+
+	dbInputs, err := q.FetchTransferInputs(ctx, transferID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch transfer inputs: %w",
+			err)
+	}
+
+	inputs := make([]tarofreighter.TransferInput, len(dbInputs))
+	for idx := range dbInputs {
+		dbInput := dbInputs[idx]
+
+		inputs[idx] = tarofreighter.TransferInput{
+			Amount: uint64(dbInput.Amount),
+		}
+		copy(inputs[idx].ID[:], dbInput.AssetID)
+
+		err := readOutPoint(
+			bytes.NewReader(dbInput.AnchorPoint), 0, 0,
+			&inputs[idx].OutPoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode input anchor "+
+				"point: %w", err)
+		}
+
+		parsedScriptKey, err := btcec.ParsePubKey(dbInput.ScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
+		}
+		inputs[idx].ScriptKey = asset.ToSerialized(parsedScriptKey)
+	}
+
+	return inputs, nil
+}
+
+// insertAssetTransferOutput inserts a new asset transfer output into the DB.
+func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
+	transferID, txnID int32, output tarofreighter.TransferOutput) error {
+
+	anchor := output.Anchor
+	anchorPointBytes, err := encodeOutpoint(anchor.OutPoint)
+	if err != nil {
+		return err
+	}
+
+	internalKeyBytes := anchor.InternalKey.PubKey.SerializeCompressed()
+
+	// First, we'll insert the new internal on disk, so we can reference it
+	// later when we go to apply the new transfer.
+	_, err = q.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    internalKeyBytes,
+		KeyFamily: int32(anchor.InternalKey.Family),
+		KeyIndex:  int32(anchor.InternalKey.Index),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to upsert internal key: %w", err)
+	}
+
+	// Now that the chain transaction has been inserted, we can now insert
+	// a _new_ managed UTXO which houses the information related to the new
+	// anchor point of the transaction.
+	newUtxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
+		RawKey:           internalKeyBytes,
+		Outpoint:         anchorPointBytes,
+		AmtSats:          int64(anchor.Value),
+		TaroRoot:         anchor.MerkleRoot,
+		TapscriptSibling: anchor.TapscriptSibling,
+		TxnID:            txnID,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert new managed utxo: %w", err)
+	}
+
+	var (
+		witnessBuf bytes.Buffer
+		scratch    [8]byte
+	)
+	err = asset.WitnessEncoder(&witnessBuf, &output.WitnessData, &scratch)
+	if err != nil {
+		return fmt.Errorf("unable to encode witness: %w", err)
+	}
+
+	// Before we can insert the actual output, we need to insert the new
+	// script key on disk. If we don't have the tweaked script key, it means
+	// we didn't derive it and need to store an unknown internal key.
+	scriptInternalKey := keychain.KeyDescriptor{
+		PubKey: output.ScriptKey.PubKey,
+	}
+	var tweak []byte
+	if output.ScriptKey.TweakedScriptKey != nil {
+		scriptInternalKey = output.ScriptKey.RawKey
+		tweak = output.ScriptKey.Tweak
+	}
+	scriptInternalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    scriptInternalKey.PubKey.SerializeCompressed(),
+		KeyFamily: int32(scriptInternalKey.Family),
+		KeyIndex:  int32(scriptInternalKey.Index),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to script insert internal key: %w",
+			err)
+	}
+	scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
+		InternalKeyID:    scriptInternalKeyID,
+		TweakedScriptKey: output.ScriptKey.PubKey.SerializeCompressed(),
+		Tweak:            tweak,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert script key: %w", err)
+	}
+
+	dbOutput := NewTransferOutput{
+		TransferID:          transferID,
+		AnchorUtxo:          newUtxoID,
+		ScriptKey:           scriptKeyID,
+		ScriptKeyLocal:      output.ScriptKeyLocal,
+		Amount:              int64(output.Amount),
+		SerializedWitnesses: witnessBuf.Bytes(),
+		ProofSuffix:         output.ProofSuffix,
+	}
+
+	// There might not have been a split, so we can't rely on the split root
+	// to be present.
+	if output.SplitCommitmentRoot != nil {
+		splitRootHash := output.SplitCommitmentRoot.NodeHash()
+		dbOutput.SplitCommitmentRootHash = splitRootHash[:]
+		dbOutput.SplitCommitmentRootValue = sql.NullInt64{
+			Int64: int64(output.SplitCommitmentRoot.NodeSum()),
+			Valid: true,
+		}
+	}
+
+	err = q.InsertAssetTransferOutput(ctx, dbOutput)
+	if err != nil {
+		return fmt.Errorf("unable to insert transfer output: %w", err)
+	}
+
+	return nil
+}
+
+// fetchAssetTransferOutputs fetches all the outputs for a given transfer ID.
+func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
+	transferID int32) ([]tarofreighter.TransferOutput, error) {
+
+	dbOutputs, err := q.FetchTransferOutputs(ctx, transferID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch transfer outputs: %w",
+			err)
+	}
+
+	var scratch [8]byte
+	outputs := make([]tarofreighter.TransferOutput, len(dbOutputs))
+	for idx := range dbOutputs {
+		dbOut := dbOutputs[idx]
+
+		internalKey, err := btcec.ParsePubKey(
+			dbOut.InternalKeyRawKeyBytes,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode internal "+
+				"key: %w", err)
+		}
+
+		scriptKey, err := btcec.ParsePubKey(dbOut.ScriptKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
+		}
+
+		rawScriptKey, err := btcec.ParsePubKey(
+			dbOut.ScriptKeyRawKeyBytes,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode raw script "+
+				"key: %w", err)
+		}
+
+		scriptKeyLocator := keychain.KeyLocator{
+			Family: keychain.KeyFamily(
+				dbOut.ScriptKeyFamily,
+			),
+			Index: uint32(
+				dbOut.ScriptKeyIndex,
+			),
+		}
+
+		var splitRootHash mssmt.NodeHash
+		copy(splitRootHash[:], dbOut.SplitCommitmentRootHash)
+
+		var witnessData []asset.Witness
+		err = asset.WitnessDecoder(
+			bytes.NewReader(dbOut.SerializedWitnesses),
+			&witnessData, &scratch,
+			uint64(len(dbOut.SerializedWitnesses)),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode witness: %w",
+				err)
+		}
+
+		outputs[idx] = tarofreighter.TransferOutput{
+			Anchor: tarofreighter.Anchor{
+				Value: btcutil.Amount(
+					dbOut.AnchorValue,
+				),
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: internalKey,
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							dbOut.InternalKeyFamily,
+						),
+						Index: uint32(
+							dbOut.InternalKeyIndex,
+						),
+					},
+				},
+				MerkleRoot:       dbOut.AnchorTaroRoot,
+				TapscriptSibling: dbOut.AnchorTapscriptSibling,
+			},
+			Amount: uint64(dbOut.Amount),
+			ScriptKey: asset.ScriptKey{
+				PubKey: scriptKey,
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					RawKey: keychain.KeyDescriptor{
+						PubKey:     rawScriptKey,
+						KeyLocator: scriptKeyLocator,
+					},
+					Tweak: dbOut.ScriptKeyTweak,
+				},
+			},
+			ScriptKeyLocal: dbOut.ScriptKeyLocal,
+			WitnessData:    witnessData,
+			SplitCommitmentRoot: mssmt.NewComputedNode(
+				splitRootHash,
+				uint64(dbOut.SplitCommitmentRootValue.Int64),
+			),
+			ProofSuffix: dbOut.ProofSuffix,
+		}
+
+		err = readOutPoint(
+			bytes.NewReader(dbOut.AnchorOutpoint), 0, 0,
+			&outputs[idx].Anchor.OutPoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode output "+
+				"anchor point: %w", err)
+		}
+	}
+
+	return outputs, nil
 }
 
 // logPendingPassiveAssets logs passive assets re-anchoring data to disk.

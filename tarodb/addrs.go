@@ -103,7 +103,7 @@ type AddrBook interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
 
 	// UpsertAddrEvent inserts a new or updates an existing address event
 	// and returns the primary key.
@@ -610,7 +610,7 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 	dbErr := t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		// The first step is to make sure we already track the on-chain
 		// transaction in our DB.
-		txUpsert := ChainTx{
+		txUpsert := ChainTxParams{
 			Txid:  txHash[:],
 			RawTx: txBuf.Bytes(),
 		}

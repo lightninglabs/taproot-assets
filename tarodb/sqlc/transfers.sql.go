@@ -11,6 +11,53 @@ import (
 	"time"
 )
 
+const applyPendingOutput = `-- name: ApplyPendingOutput :one
+WITH spent_asset AS (
+    SELECT genesis_id, version, asset_group_sig_id, script_version, lock_time,
+           relative_lock_time
+    FROM assets
+    WHERE assets.asset_id = $6
+)
+INSERT INTO assets (
+    genesis_id, version, asset_group_sig_id, script_version, lock_time,
+    relative_lock_time, script_key_id, anchor_utxo_id, amount,
+    split_commitment_root_hash, split_commitment_root_value
+) VALUES (
+    (SELECT genesis_id FROM spent_asset),
+    (SELECT version FROM spent_asset),
+    (SELECT asset_group_sig_id FROM spent_asset),
+    (SELECT script_version FROM spent_asset),
+    (SELECT lock_time FROM spent_asset),
+    (SELECT relative_lock_time FROM spent_asset),
+    $1, $2, $3, $4,
+    $5
+)
+RETURNING asset_id
+`
+
+type ApplyPendingOutputParams struct {
+	ScriptKeyID              int32
+	AnchorUtxoID             sql.NullInt32
+	Amount                   int64
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	SpentAssetID             int32
+}
+
+func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, applyPendingOutput,
+		arg.ScriptKeyID,
+		arg.AnchorUtxoID,
+		arg.Amount,
+		arg.SplitCommitmentRootHash,
+		arg.SplitCommitmentRootValue,
+		arg.SpentAssetID,
+	)
+	var asset_id int32
+	err := row.Scan(&asset_id)
+	return asset_id, err
+}
+
 const applySpendDelta = `-- name: ApplySpendDelta :one
 WITH old_script_key_id AS (
     SELECT script_key_id
@@ -237,6 +284,150 @@ func (q *Queries) FetchSpendProofs(ctx context.Context, transferID int32) (Fetch
 	return i, err
 }
 
+const fetchTransferInputs = `-- name: FetchTransferInputs :many
+SELECT input_id, anchor_point, asset_id, script_key, amount
+FROM asset_transfer_inputs inputs
+WHERE transfer_id = $1
+`
+
+type FetchTransferInputsRow struct {
+	InputID     int32
+	AnchorPoint []byte
+	AssetID     []byte
+	ScriptKey   []byte
+	Amount      int64
+}
+
+func (q *Queries) FetchTransferInputs(ctx context.Context, transferID int32) ([]FetchTransferInputsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchTransferInputs, transferID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchTransferInputsRow
+	for rows.Next() {
+		var i FetchTransferInputsRow
+		if err := rows.Scan(
+			&i.InputID,
+			&i.AnchorPoint,
+			&i.AssetID,
+			&i.ScriptKey,
+			&i.Amount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchTransferOutputs = `-- name: FetchTransferOutputs :many
+SELECT
+    output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
+    split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
+    utxos.utxo_id AS anchor_utxo_id,
+    utxos.outpoint AS anchor_outpoint,
+    utxos.amt_sats AS anchor_value,
+    utxos.taro_root AS anchor_taro_root,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
+    utxo_internal_keys.key_family AS internal_key_family,
+    utxo_internal_keys.key_index AS internal_key_index,
+    script_keys.tweaked_script_key AS script_key_bytes,
+    script_keys.tweak AS script_key_tweak,
+    script_key AS script_key_id,
+    script_internal_keys.raw_key AS script_key_raw_key_bytes,
+    script_internal_keys.key_family AS script_key_family,
+    script_internal_keys.key_index AS script_key_index
+FROM asset_transfer_outputs outputs
+JOIN managed_utxos utxos
+  ON outputs.anchor_utxo = utxos.utxo_id
+JOIN script_keys
+  ON outputs.script_key = script_keys.script_key_id
+JOIN internal_keys script_internal_keys
+  ON script_keys.internal_key_id = script_internal_keys.key_id
+JOIN internal_keys utxo_internal_keys
+  ON utxos.internal_key_id = utxo_internal_keys.key_id
+WHERE transfer_id = $1
+`
+
+type FetchTransferOutputsRow struct {
+	OutputID                 int32
+	ProofSuffix              []byte
+	Amount                   int64
+	SerializedWitnesses      []byte
+	ScriptKeyLocal           bool
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	NumPassiveAssets         int32
+	AnchorUtxoID             int32
+	AnchorOutpoint           []byte
+	AnchorValue              int64
+	AnchorTaroRoot           []byte
+	AnchorTapscriptSibling   []byte
+	InternalKeyRawKeyBytes   []byte
+	InternalKeyFamily        int32
+	InternalKeyIndex         int32
+	ScriptKeyBytes           []byte
+	ScriptKeyTweak           []byte
+	ScriptKeyID              int32
+	ScriptKeyRawKeyBytes     []byte
+	ScriptKeyFamily          int32
+	ScriptKeyIndex           int32
+}
+
+func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int32) ([]FetchTransferOutputsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchTransferOutputs, transferID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchTransferOutputsRow
+	for rows.Next() {
+		var i FetchTransferOutputsRow
+		if err := rows.Scan(
+			&i.OutputID,
+			&i.ProofSuffix,
+			&i.Amount,
+			&i.SerializedWitnesses,
+			&i.ScriptKeyLocal,
+			&i.SplitCommitmentRootHash,
+			&i.SplitCommitmentRootValue,
+			&i.NumPassiveAssets,
+			&i.AnchorUtxoID,
+			&i.AnchorOutpoint,
+			&i.AnchorValue,
+			&i.AnchorTaroRoot,
+			&i.AnchorTapscriptSibling,
+			&i.InternalKeyRawKeyBytes,
+			&i.InternalKeyFamily,
+			&i.InternalKeyIndex,
+			&i.ScriptKeyBytes,
+			&i.ScriptKeyTweak,
+			&i.ScriptKeyID,
+			&i.ScriptKeyRawKeyBytes,
+			&i.ScriptKeyFamily,
+			&i.ScriptKeyIndex,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertAssetDelta = `-- name: InsertAssetDelta :exec
 INSERT INTO asset_deltas (
     old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
@@ -298,6 +489,72 @@ func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransf
 	var id int32
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertAssetTransferInput = `-- name: InsertAssetTransferInput :exec
+INSERT INTO asset_transfer_inputs (
+    transfer_id, anchor_point, asset_id, script_key, amount
+) VALUES (
+    $1, $2, $3, $4, $5
+)
+`
+
+type InsertAssetTransferInputParams struct {
+	TransferID  int32
+	AnchorPoint []byte
+	AssetID     []byte
+	ScriptKey   []byte
+	Amount      int64
+}
+
+func (q *Queries) InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error {
+	_, err := q.db.ExecContext(ctx, insertAssetTransferInput,
+		arg.TransferID,
+		arg.AnchorPoint,
+		arg.AssetID,
+		arg.ScriptKey,
+		arg.Amount,
+	)
+	return err
+}
+
+const insertAssetTransferOutput = `-- name: InsertAssetTransferOutput :exec
+INSERT INTO asset_transfer_outputs (
+    transfer_id, anchor_utxo, script_key, script_key_local,
+    amount, serialized_witnesses, split_commitment_root_hash,
+    split_commitment_root_value, proof_suffix, num_passive_assets
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+)
+`
+
+type InsertAssetTransferOutputParams struct {
+	TransferID               int32
+	AnchorUtxo               int32
+	ScriptKey                int32
+	ScriptKeyLocal           bool
+	Amount                   int64
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	ProofSuffix              []byte
+	NumPassiveAssets         int32
+}
+
+func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error {
+	_, err := q.db.ExecContext(ctx, insertAssetTransferOutput,
+		arg.TransferID,
+		arg.AnchorUtxo,
+		arg.ScriptKey,
+		arg.ScriptKeyLocal,
+		arg.Amount,
+		arg.SerializedWitnesses,
+		arg.SplitCommitmentRootHash,
+		arg.SplitCommitmentRootValue,
+		arg.ProofSuffix,
+		arg.NumPassiveAssets,
+	)
+	return err
 }
 
 const insertPendingPassiveAsset = `-- name: InsertPendingPassiveAsset :exec

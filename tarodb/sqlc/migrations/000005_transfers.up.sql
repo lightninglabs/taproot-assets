@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
 
     transfer_time_unix TIMESTAMP NOT NULL
 );
-CREATE INDEX IF NOT EXISTS transfer_lookup on asset_transfers (transfer_time_unix);
+CREATE INDEX IF NOT EXISTS transfer_lookup
+    ON asset_transfers (transfer_time_unix);
 
 CREATE TABLE IF NOT EXISTS transfer_proofs (
     proof_id INTEGER PRIMARY KEY,
@@ -43,12 +44,55 @@ CREATE TABLE IF NOT EXISTS asset_deltas (
     proof_id INTEGER NOT NULL REFERENCES transfer_proofs(proof_id) 
 );
 
+CREATE TABLE IF NOT EXISTS asset_transfer_inputs (
+    input_id INTEGER PRIMARY KEY,
+    
+    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+    
+    anchor_point BLOB NOT NULL,
+    
+    asset_id BLOB NOT NULL,
+    
+    script_key BLOB NOT NULL,
+    
+    amount BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS transfer_inputs_lookup
+    ON asset_transfer_inputs (transfer_id);
+
+CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
+    output_id INTEGER PRIMARY KEY,
+    
+    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+    
+    anchor_utxo INTEGER NOT NULL REFERENCES managed_utxos(utxo_id),
+    
+    script_key INTEGER NOT NULL REFERENCES script_keys(script_key_id),
+    
+    script_key_local bool NOT NULL,
+    
+    amount BIGINT NOT NULL,
+    
+    serialized_witnesses BLOB NOT NULL,
+    
+    split_commitment_root_hash BLOB,
+    
+    split_commitment_root_value BIGINT,
+    
+    proof_suffix BLOB NOT NULL,
+    
+    num_passive_assets INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS transfer_outputs_lookup
+    ON asset_transfer_outputs (transfer_id);
+
 CREATE TABLE IF NOT EXISTS receiver_proof_transfer_attempts (
     proof_locator_hash BLOB NOT NULL,
 
     time_unix TIMESTAMP NOT NULL
 );
-CREATE INDEX IF NOT EXISTS proof_locator_hash_index on receiver_proof_transfer_attempts (proof_locator_hash);
+CREATE INDEX IF NOT EXISTS proof_locator_hash_index
+    ON receiver_proof_transfer_attempts (proof_locator_hash);
 
 -- pending_passive_asset is a table that stores the information needed to
 -- re-anchor a passive asset.
@@ -64,4 +108,4 @@ CREATE TABLE IF NOT EXISTS pending_passive_asset (
     new_witness_stack BLOB,
 
     new_proof BLOB
-)
+);

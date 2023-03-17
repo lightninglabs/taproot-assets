@@ -113,6 +113,29 @@ type AssetTransfer struct {
 	TransferTimeUnix time.Time
 }
 
+type AssetTransferInput struct {
+	InputID     int32
+	TransferID  int32
+	AnchorPoint []byte
+	AssetID     []byte
+	ScriptKey   []byte
+	Amount      int64
+}
+
+type AssetTransferOutput struct {
+	OutputID                 int32
+	TransferID               int32
+	AnchorUtxo               int32
+	ScriptKey                int32
+	ScriptKeyLocal           bool
+	Amount                   int64
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	ProofSuffix              []byte
+	NumPassiveAssets         int32
+}
+
 type AssetWitness struct {
 	WitnessID            int32
 	AssetID              int32
