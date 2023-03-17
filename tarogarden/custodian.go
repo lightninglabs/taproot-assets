@@ -40,7 +40,7 @@ type CustodianConfig struct {
 
 	// ProofCourier is used to optionally deliver the final proof to the
 	// user using an asynchronous transport mechanism.
-	ProofCourier proof.Courier[address.Taro]
+	ProofCourier proof.Courier[proof.Recipient]
 
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
@@ -336,8 +336,13 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			defer cancel()
 
 			assetID := addr.ID()
+			recipient := proof.Recipient{
+				ScriptKey: &addr.ScriptKey,
+				AssetID:   assetID,
+				Amount:    addr.Amount,
+			}
 			proof, err := c.cfg.ProofCourier.ReceiveProof(
-				ctx, *addr, proof.Locator{
+				ctx, recipient, proof.Locator{
 					AssetID:   &assetID,
 					ScriptKey: addr.ScriptKey,
 				},

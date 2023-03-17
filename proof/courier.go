@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
-	"github.com/lightninglabs/taro/address"
+	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -262,20 +263,39 @@ type streamID [64]byte
 
 // deriveSenderStreamID derives the stream ID for the sender in the asset
 // transfer.
-func deriveSenderStreamID(addr address.Taro) streamID {
-	sid := sha512.Sum512(addr.ScriptKey.SerializeCompressed())
+func deriveSenderStreamID(recipient Recipient) streamID {
+	sid := sha512.Sum512(recipient.ScriptKey.SerializeCompressed())
 
 	return sid
 }
 
 // deriveReceiverStreamID derives the stream ID for the receiver in the asset
 // transfer.
-func deriveReceiverStreamID(addr address.Taro) streamID {
-	scriptKey := addr.ScriptKey.SerializeCompressed()
-	sid := sha512.Sum512(scriptKey)
+func deriveReceiverStreamID(recipient Recipient) streamID {
+	sid := deriveSenderStreamID(recipient)
 	sid[63] ^= 0x01
 
 	return sid
+}
+
+// Recipient describes the recipient of a proof. The script key is enough to
+// identify a transferred asset in the context of the proof courier. This is
+// because a proof only needs to be delivered via courier if the recipient used
+// an address to receive (non-interactive). And each address requires the user
+// to derive a fresh and unique script key. The other fields are used for
+// logging purposes only.
+type Recipient struct {
+	// ScriptKey is the main identifier of the recipient. It is used to
+	// derive the stream IDs for the mailbox.
+	ScriptKey *btcec.PublicKey
+
+	// AssetID is the ID of the asset that is being transferred. This is
+	// used for logging purposes only.
+	AssetID asset.ID
+
+	// Amount is the amount of the asset that is being transferred. This is
+	// used for logging purposes only.
+	Amount uint64
 }
 
 // HashMailCourierCfg is the config for the hashmail proof courier.
@@ -353,15 +373,15 @@ func NewHashMailCourier(cfg *HashMailCourierCfg, mailbox ProofMailbox,
 // information in the Addr type.
 //
 // TODO(roasbeef): other delivery context as type param?
-func (h *HashMailCourier) DeliverProof(ctx context.Context, addr address.Taro,
+func (h *HashMailCourier) DeliverProof(ctx context.Context, recipient Recipient,
 	proof *AnnotatedProof) error {
 
 	log.Infof("Attempting to deliver receiver proof for send of "+
-		"asset_id=%x, amt=%v", addr.ID(), addr.Amount)
+		"asset_id=%x, amt=%v", recipient.AssetID, recipient.Amount)
 
 	// Compute the stream IDs for the sender and receiver.
-	senderStreamID := deriveSenderStreamID(addr)
-	receiverStreamID := deriveReceiverStreamID(addr)
+	senderStreamID := deriveSenderStreamID(recipient)
+	receiverStreamID := deriveReceiverStreamID(recipient)
 
 	// Query delivery log to ensure a sensible rate of delivery attempts.
 	timestamps, err := h.deliveryLog.QueryProofDeliveryLog(
@@ -649,10 +669,10 @@ func NewReceiverProofBackoffWaitEvent(
 
 // ReceiveProof attempts to obtain a proof as identified by the passed locator
 // from the source encapsulated within the specified address.
-func (h *HashMailCourier) ReceiveProof(ctx context.Context, addr address.Taro,
+func (h *HashMailCourier) ReceiveProof(ctx context.Context, recipient Recipient,
 	loc Locator) (*AnnotatedProof, error) {
 
-	senderStreamID := deriveSenderStreamID(addr)
+	senderStreamID := deriveSenderStreamID(recipient)
 	if err := h.mailbox.Init(ctx, senderStreamID); err != nil {
 		return nil, err
 	}
@@ -668,7 +688,7 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context, addr address.Taro,
 
 	// Now that we've read the proof, we'll create our mailbox (which might
 	// already exist) to send an ACK back to the sender.
-	receiverStreamID := deriveReceiverStreamID(addr)
+	receiverStreamID := deriveReceiverStreamID(recipient)
 	log.Infof("Sending ACK to sender via sid=%x", receiverStreamID)
 	if err := h.mailbox.Init(ctx, receiverStreamID); err != nil {
 		return nil, err
@@ -678,13 +698,9 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context, addr address.Taro,
 	}
 
 	// Finally, we'll return the proof state back to the caller.
-	assetID := addr.ID()
 	return &AnnotatedProof{
-		Locator: Locator{
-			AssetID:   &assetID,
-			ScriptKey: addr.ScriptKey,
-		},
-		Blob: Blob(proof),
+		Locator: loc,
+		Blob:    proof,
 	}, nil
 }
 
@@ -702,7 +718,7 @@ func (h *HashMailCourier) SetSubscribers(
 
 // A compile-time assertion to ensure the HashMailCourier meets the
 // proof.Courier interface.
-var _ Courier[address.Taro] = (*HashMailCourier)(nil)
+var _ Courier[Recipient] = (*HashMailCourier)(nil)
 
 // DeliveryLog is an interface that allows the courier to log the (attempted)
 // delivery of a proof.

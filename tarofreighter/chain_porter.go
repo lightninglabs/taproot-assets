@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
@@ -64,7 +63,7 @@ type ChainPorterConfig struct {
 
 	// ProofCourier is used to optionally deliver the final proof to the
 	// user using an asynchronous transport mechanism.
-	ProofCourier proof.Courier[address.Taro]
+	ProofCourier proof.Courier[proof.Recipient]
 
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
@@ -563,16 +562,17 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// If we have a proof courier instance active, then we'll launch a new
 	// goroutine to deliver the proof to the receiver.
-	//
-	// TODO(roasbeef): move earlier?
 	if p.cfg.ProofCourier != nil {
-		// TODO(roasbeef): should actually also serialize the
-		// addr of the remote party here
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
+		recipient := proof.Recipient{
+			ScriptKey: &pkg.Parcel.dest().ScriptKey,
+			AssetID:   pkg.Parcel.dest().ID(),
+			Amount:    pkg.Parcel.dest().Amount,
+		}
 		err := p.cfg.ProofCourier.DeliverProof(
-			ctx, *pkg.Parcel.dest(), receiverProof,
+			ctx, recipient, receiverProof,
 		)
 
 		// If the proof courier returned a backoff error, then
