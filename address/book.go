@@ -82,6 +82,11 @@ type Storage interface {
 	// wallet.
 	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 		managedFrom time.Time) error
+
+	// InsertScriptKey inserts an address related script key into the
+	// database, so it can be recognized as belonging to the wallet when a
+	// transfer comes in later on.
+	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey) error
 }
 
 // KeyRing is used to create script and internal keys for Taro addresses.
@@ -182,6 +187,12 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, genesis asset.Genesis,
 			" %w", err)
 	}
 
+	// We also want to import the script key, so we can identify it as
+	// belonging to the wallet later on.
+	if err := b.cfg.Store.InsertScriptKey(ctx, scriptKey); err != nil {
+		return nil, fmt.Errorf("unable to insert script key: %w", err)
+	}
+
 	addr := AddrWithKeyInfo{
 		Taro:             baseAddr,
 		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
@@ -202,6 +213,14 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, genesis asset.Genesis,
 	b.subscriberMtx.Unlock()
 
 	return &addr, nil
+}
+
+// IsLocalKey returns true if the key is under the control of the wallet and can
+// be derived by it.
+func (b *Book) IsLocalKey(ctx context.Context,
+	key keychain.KeyDescriptor) bool {
+
+	return b.cfg.KeyRing.IsLocalKey(ctx, key)
 }
 
 // ListAddrs lists a set of addresses based on the expressed query params.

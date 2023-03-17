@@ -578,7 +578,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 
 	rpcAssets := make([]*tarorpc.Asset, len(assets))
 	for i, a := range assets {
-		rpcAssets[i], err = marshalChainAsset(a, withWitness)
+		rpcAssets[i], err = r.marshalChainAsset(ctx, a, withWitness)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal asset: %w",
 				err)
@@ -588,10 +588,10 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 	return rpcAssets, nil
 }
 
-func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
-	error) {
+func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
+	withWitness bool) (*tarorpc.Asset, error) {
 
-	rpcAsset, err := marshalAsset(a.Asset, a.IsSpent, withWitness)
+	rpcAsset, err := r.marshalAsset(ctx, a.Asset, a.IsSpent, withWitness)
 	if err != nil {
 		return nil, err
 	}
@@ -624,8 +624,16 @@ func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
 	return rpcAsset, nil
 }
 
-func marshalAsset(a *asset.Asset, isSpent, withWitness bool) (*tarorpc.Asset, error) {
+func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
+	isSpent, withWitness bool) (*tarorpc.Asset, error) {
+
 	assetID := a.Genesis.ID()
+	scriptKeyIsLocal := false
+	if a.ScriptKey.TweakedScriptKey != nil {
+		scriptKeyIsLocal = r.cfg.AddrBook.IsLocalKey(
+			ctx, a.ScriptKey.RawKey,
+		)
+	}
 
 	rpcAsset := &tarorpc.Asset{
 		Version: int32(a.Version),
@@ -642,6 +650,7 @@ func marshalAsset(a *asset.Asset, isSpent, withWitness bool) (*tarorpc.Asset, er
 		RelativeLockTime: int32(a.RelativeLockTime),
 		ScriptVersion:    int32(a.ScriptVersion),
 		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
+		ScriptKeyIsLocal: scriptKeyIsLocal,
 		IsSpent:          isSpent,
 	}
 
@@ -666,8 +675,8 @@ func marshalAsset(a *asset.Asset, isSpent, withWitness bool) (*tarorpc.Asset, er
 
 			var rpcSplitCommitment *tarorpc.SplitCommitment
 			if witness.SplitCommitment != nil {
-				rootAsset, err := marshalAsset(
-					&witness.SplitCommitment.RootAsset,
+				rootAsset, err := r.marshalAsset(
+					ctx, &witness.SplitCommitment.RootAsset,
 					false, true,
 				)
 				if err != nil {

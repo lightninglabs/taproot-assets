@@ -74,6 +74,20 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 	}
 }
 
+// assetScriptKeyIsLocalCheck returns a check function that tests an asset's
+// script key for being a local key.
+func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
+	return func(a *tarorpc.Asset) error {
+		if a.ScriptKeyIsLocal != isLocal {
+			return fmt.Errorf("unexpected script key, wanted "+
+				"local=%v but is local=%v", isLocal,
+				a.ScriptKeyIsLocal)
+		}
+
+		return nil
+	}
+}
+
 // assertAssetState makes sure that an asset with the given (possibly
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.

@@ -833,6 +833,10 @@
           "format": "byte",
           "description": "The script key of the asset, which can be spent under Taproot semantics."
         },
+        "script_key_is_local": {
+          "type": "boolean",
+          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taro daemon."
+        },
         "asset_group": {
           "$ref": "#/definitions/tarorpcAssetGroup",
           "description": "The information related to the key group of an asset (if it exists)."

@@ -241,16 +241,20 @@ message Asset {
     // The script key of the asset, which can be spent under Taproot semantics.
     bytes script_key = 9;
 
+    // Indicates whether the script key is known to the wallet of the lnd node
+    // connected to the Taro daemon.
+    bool script_key_is_local = 10;
+
     // The information related to the key group of an asset (if it exists).
-    AssetGroup asset_group = 10;
+    AssetGroup asset_group = 11;
 
     // Describes where in the chain the asset is currently anchored.
-    AnchorInfo chain_anchor = 11;
+    AnchorInfo chain_anchor = 12;
 
-    repeated PrevWitness prev_witnesses = 12;
+    repeated PrevWitness prev_witnesses = 13;
 
     // Indicates whether the asset has been spent.
-    bool is_spent = 13;
+    bool is_spent = 14;
 }
 
 message PrevWitness {

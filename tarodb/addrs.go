@@ -530,6 +530,30 @@ func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
 	})
 }
 
+// InsertScriptKey inserts an address related script key into the database, so
+// it can be recognized as belonging to the wallet when a transfer comes in
+// later on.
+func (t *TaroAddressBook) InsertScriptKey(ctx context.Context,
+	scriptKey asset.ScriptKey) error {
+
+	var writeTxOpts AddrBookTxOptions
+	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
+		internalKeyID, err := insertInternalKey(
+			ctx, q, scriptKey.RawKey,
+		)
+		if err != nil {
+			return fmt.Errorf("error inserting internal key: %w",
+				err)
+		}
+		_, err = q.UpsertScriptKey(ctx, NewScriptKey{
+			InternalKeyID:    internalKeyID,
+			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
+			Tweak:            scriptKey.Tweak,
+		})
+		return err
+	})
+}
+
 // GetOrCreateEvent creates a new address event for the given status, address
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
