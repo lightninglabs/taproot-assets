@@ -501,6 +501,12 @@ func (s ScriptKey) IsUnSpendable() (bool, error) {
 // NewScriptKey constructs a ScriptKey with only the publicly available
 // information. This resulting key may or may not have a tweak applied to it.
 func NewScriptKey(key *btcec.PublicKey) ScriptKey {
+	// Since we'll never query lnd for a tweaked key, it doesn't matter if
+	// we lose the parity information here. And this will only ever be
+	// serialized on chain in a 32-bit representation as well.
+	key, _ = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(key),
+	)
 	return ScriptKey{
 		PubKey: key,
 	}
