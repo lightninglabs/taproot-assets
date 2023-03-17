@@ -30,6 +30,15 @@ func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
 	}
 }
 
+// sqlBool turns a boolean into the NullBool that sql/sqlc uses when a boolean
+// field can be permitted to be NULL.
+func sqlBool(b bool) sql.NullBool {
+	return sql.NullBool{
+		Bool:  b,
+		Valid: true,
+	}
+}
+
 // extractSqlInt32 turns a NullInt32 into a numerical type. This can be useful
 // when reading directly from the database, as this function handles extracting
 // the inner value from the "option"-like struct.

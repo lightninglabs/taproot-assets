@@ -48,6 +48,7 @@ type Asset struct {
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 	AnchorUtxoID             sql.NullInt32
+	Spent                    bool
 }
 
 type AssetDelta struct {

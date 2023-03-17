@@ -69,6 +69,9 @@ type (
 	// database.
 	RawManagedUTXO = sqlc.UpsertManagedUTXOParams
 
+	// SetAssetSpentParams is used to mark an asset as spent.
+	SetAssetSpentParams = sqlc.SetAssetSpentParams
+
 	// AssetAnchor is used to bind assets on disk with the transaction that
 	// will create them on-chain.
 	AssetAnchor = sqlc.AnchorPendingAssetsParams

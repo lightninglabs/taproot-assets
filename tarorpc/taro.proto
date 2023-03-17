@@ -151,6 +151,7 @@ message AssetMeta {
 
 message ListAssetRequest {
     bool with_witness = 1;
+    bool include_spent = 2;
 }
 
 message AnchorInfo {
@@ -247,6 +248,9 @@ message Asset {
     AnchorInfo chain_anchor = 11;
 
     repeated PrevWitness prev_witnesses = 12;
+
+    // Indicates whether the asset has been spent.
+    bool is_spent = 13;
 }
 
 message PrevWitness {

@@ -157,9 +157,9 @@ RETURNING gen_asset_id;
 -- name: InsertNewAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_sig_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id
+    amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 ) RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
@@ -202,11 +202,15 @@ WITH genesis_info AS (
 )
 SELECT 
     version, script_keys.tweak, script_keys.tweaked_script_key, 
-    internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index, key_group_info.genesis_sig, 
-    key_group_info.tweaked_group_key, key_group_info.raw_key AS group_key_raw,
-    key_group_info.key_family AS group_key_family, key_group_info.key_index AS group_key_index,
-    script_version, amount, lock_time, relative_lock_time, 
+    internal_keys.raw_key AS script_key_raw,
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index,
+    key_group_info.genesis_sig, 
+    key_group_info.tweaked_group_key,
+    key_group_info.raw_key AS group_key_raw,
+    key_group_info.key_family AS group_key_family,
+    key_group_info.key_index AS group_key_index,
+    script_version, amount, lock_time, relative_lock_time, spent,
     genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_hash, 
     genesis_info.meta_type, genesis_info.meta_blob, 
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
@@ -225,6 +229,25 @@ JOIN script_keys
 JOIN internal_keys
     ON script_keys.internal_key_id = internal_keys.key_id;
 
+-- name: SetAssetSpent :one
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets
+      ON assets.genesis_id = genesis_assets.gen_asset_id
+    WHERE script_keys.tweaked_script_key = @script_key
+     AND genesis_assets.asset_id = @gen_asset_id
+    -- TODO(guggero): Fix this by disallowing multiple assets with the same
+    -- script key!
+    LIMIT 1
+)
+UPDATE assets
+SET spent = TRUE
+WHERE asset_id = (SELECT asset_id FROM target_asset)
+RETURNING assets.asset_id;
+
 -- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, version, SUM(amount) balance,
@@ -242,6 +265,7 @@ JOIN genesis_info_view
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
+WHERE spent = FALSE
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          version, genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -255,11 +279,13 @@ JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id AND
       (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
         sqlc.narg('key_group_filter') IS NULL)
+WHERE spent = FALSE
 GROUP BY key_group_info_view.tweaked_group_key;
 
 -- name: FetchGroupedAssets :many
 SELECT
-    assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 
+    assets.asset_id AS asset_primary_key,
+    amount, lock_time, relative_lock_time, spent, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
     genesis_info_view.meta_Hash, 
@@ -269,7 +295,8 @@ FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
 JOIN key_group_info_view
-    ON assets.genesis_id = key_group_info_view.gen_asset_id;
+    ON assets.genesis_id = key_group_info_view.gen_asset_id
+WHERE spent = false;
 
 -- name: FetchGroupByGroupKey :one
 SELECT 
@@ -298,7 +325,7 @@ WHERE (
 
 -- name: QueryAssets :many
 SELECT
-    assets.asset_id AS asset_primary_key, assets.genesis_id, version,
+    assets.asset_id AS asset_primary_key, assets.genesis_id, version, spent,
     script_keys.tweak AS script_key_tweak, 
     script_keys.tweaked_script_key, 
     internal_keys.raw_key AS script_key_raw,
@@ -353,6 +380,7 @@ JOIN chain_txns txns
 -- specified.
 WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
+    assets.spent = COALESCE(sqlc.narg('spent'), assets.spent) AND
     (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
       sqlc.narg('key_group_filter') IS NULL)
 );

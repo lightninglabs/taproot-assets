@@ -315,6 +315,9 @@ func NewAssetStore(db BatchedAssetStore) *AssetStore {
 type ChainAsset struct {
 	*asset.Asset
 
+	// IsSpent indicates whether the above asset was previously spent.
+	IsSpent bool
+
 	// AnchorTx is the transaction that anchors this chain asset.
 	AnchorTx *wire.MsgTx
 
@@ -666,6 +669,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 
 		chainAssets[i] = &ChainAsset{
 			Asset:             assetSprout,
+			IsSpent:           sprout.Spent,
 			AnchorTx:          anchorTx,
 			AnchorTxid:        anchorTx.TxHash(),
 			AnchorBlockHash:   anchorBlockHash,
@@ -919,7 +923,7 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 }
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
-func (a *AssetStore) FetchAllAssets(ctx context.Context,
+func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent bool,
 	query *AssetQueryFilters) ([]*ChainAsset, error) {
 
 	var (
@@ -931,6 +935,13 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context,
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
 	assetFilter := constraintsToDbFilter(query)
+
+	// By default, the spent boolean is null, which means we'll fetch all
+	// assets. Only if we should exclude spent assets, we'll set the spent
+	// boolean to false.
+	if !includeSpent {
+		assetFilter.Spent = sqlBool(false)
+	}
 
 	// With the query constructed, we can now fetch the assets along w/
 	// their witness information.
@@ -1318,6 +1329,9 @@ func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 		return nil, fmt.Errorf("unable to create filter: %w", err)
 	}
 
+	// We only want to select unspent commitments.
+	filter.Spent = sqlBool(false)
+
 	commitments, err := a.queryCommitments(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query commitments: %w", err)
@@ -1349,6 +1363,9 @@ func (a *AssetStore) SelectCommitment(
 	assetFilter := constraintsToDbFilter(&AssetQueryFilters{
 		constraints,
 	})
+
+	// We only want to select unspent commitments.
+	assetFilter.Spent = sqlBool(false)
 
 	return a.queryCommitments(ctx, assetFilter)
 }

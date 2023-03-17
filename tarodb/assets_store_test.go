@@ -325,7 +325,9 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(context.Background(), nil)
+	assets, err := assetStore.FetchAllAssets(
+		context.Background(), false, nil,
+	)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -917,7 +919,7 @@ func TestAssetExportLog(t *testing.T) {
 
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
-	chainAssets, err := assetsStore.FetchAllAssets(ctx, nil)
+	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
 	require.NoError(t, err)
 	require.Equal(t, numAssets, len(chainAssets))
 
@@ -1095,7 +1097,7 @@ func TestFetchGroupedAssets(t *testing.T) {
 	)
 
 	// Fetch all assets to check the accuracy of other asset fields.
-	allAssets, err := assetsStore.FetchAllAssets(ctx, nil)
+	allAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
 	require.NoError(t, err)
 
 	// Sort assets to match the order of the asset descriptors.

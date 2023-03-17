@@ -556,7 +556,9 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx, req.WithWitness)
+	rpcAssets, err := r.fetchRpcAssets(
+		ctx, req.WithWitness, req.IncludeSpent,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -567,9 +569,9 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 }
 
 func (r *rpcServer) fetchRpcAssets(ctx context.Context,
-	withWitness bool) ([]*tarorpc.Asset, error) {
+	withWitness, includeSpent bool) ([]*tarorpc.Asset, error) {
 
-	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, nil)
+	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, includeSpent, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
 	}
@@ -589,7 +591,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
 	error) {
 
-	rpcAsset, err := marshalAsset(a.Asset, withWitness)
+	rpcAsset, err := marshalAsset(a.Asset, a.IsSpent, withWitness)
 	if err != nil {
 		return nil, err
 	}
@@ -622,7 +624,7 @@ func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
 	return rpcAsset, nil
 }
 
-func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
+func marshalAsset(a *asset.Asset, isSpent, withWitness bool) (*tarorpc.Asset, error) {
 	assetID := a.Genesis.ID()
 
 	rpcAsset := &tarorpc.Asset{
@@ -640,6 +642,7 @@ func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
 		RelativeLockTime: int32(a.RelativeLockTime),
 		ScriptVersion:    int32(a.ScriptVersion),
 		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
+		IsSpent:          isSpent,
 	}
 
 	if a.GroupKey != nil {
@@ -665,7 +668,7 @@ func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
 			if witness.SplitCommitment != nil {
 				rootAsset, err := marshalAsset(
 					&witness.SplitCommitment.RootAsset,
-					true,
+					false, true,
 				)
 				if err != nil {
 					return nil, err
@@ -771,7 +774,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	_ *tarorpc.ListUtxosRequest) (*tarorpc.ListUtxosResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx, false)
+	rpcAssets, err := r.fetchRpcAssets(ctx, false, false)
 	if err != nil {
 		return nil, err
 	}

@@ -38,6 +38,8 @@ var (
 	assetMetaFilePathName = "meta_file_path"
 	assetMetaTypeName     = "meta_type"
 	assetEmissionName     = "enable_emission"
+	assetShowWitnessName  = "show_witness"
+	assetShowSpentName    = "show_spent"
 	assetGroupKeyName     = "group_key"
 	batchKeyName          = "batch_key"
 	groupByGroupName      = "by_group"
@@ -264,7 +266,17 @@ var listAssetsCommand = cli.Command{
 	ShortName:   "l",
 	Usage:       "list all assets",
 	Description: "list all pending and mined assets",
-	Action:      listAssets,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  assetShowWitnessName,
+			Usage: "include the asset's witness data",
+		},
+		cli.BoolFlag{
+			Name:  assetShowSpentName,
+			Usage: "include fully spent assets in the list",
+		},
+	},
+	Action: listAssets,
 }
 
 func listAssets(ctx *cli.Context) error {
@@ -274,7 +286,10 @@ func listAssets(ctx *cli.Context) error {
 
 	// TODO(roasbeef): need to reverse txid
 
-	resp, err := client.ListAssets(ctxc, &tarorpc.ListAssetRequest{})
+	resp, err := client.ListAssets(ctxc, &tarorpc.ListAssetRequest{
+		WithWitness:  ctx.Bool(assetShowWitnessName),
+		IncludeSpent: ctx.Bool(assetShowSpentName),
+	})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
 	}

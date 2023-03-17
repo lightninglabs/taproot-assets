@@ -194,6 +194,12 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "include_spent",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -840,6 +846,10 @@
           "items": {
             "$ref": "#/definitions/tarorpcPrevWitness"
           }
+        },
+        "is_spent": {
+          "type": "boolean",
+          "description": "Indicates whether the asset has been spent."
         }
       }
     },
