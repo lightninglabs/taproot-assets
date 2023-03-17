@@ -407,15 +407,15 @@ WHERE (
     AND
     
     -- Here we have another optional query clause to select a given transfer
-    -- based on the new_anchor_point, but only if it's specified.
-    (utxos.outpoint = $2 OR
+    -- based on the anchor_tx_hash, but only if it's specified.
+    (txns.txid = $2 OR
        $2 IS NULL)
 )
 `
 
 type QueryAssetTransfersParams struct {
-	UnconfOnly     interface{}
-	NewAnchorPoint []byte
+	UnconfOnly   interface{}
+	AnchorTxHash []byte
 }
 
 type QueryAssetTransfersRow struct {
@@ -438,7 +438,7 @@ type QueryAssetTransfersRow struct {
 }
 
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetTransfers, arg.UnconfOnly, arg.NewAnchorPoint)
+	rows, err := q.db.QueryContext(ctx, queryAssetTransfers, arg.UnconfOnly, arg.AnchorTxHash)
 	if err != nil {
 		return nil, err
 	}

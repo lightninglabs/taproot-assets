@@ -359,20 +359,13 @@ func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBat
 }
 
 const confirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
-WITH target_txn(txn_id) AS (
-    SELECT chain_txns.txn_id
-    FROM chain_txns
-    JOIN managed_utxos utxos
-        ON utxos.txn_id = chain_txns.txn_id
-    WHERE utxos.outpoint = $1
-)
 UPDATE chain_txns
 SET block_height = $2, block_hash = $3, tx_index = $4
-WHERE txn_id in (SELECT txn_id FROM target_txn)
+WHERE txid = $1
 `
 
 type ConfirmChainAnchorTxParams struct {
-	Outpoint    []byte
+	Txid        []byte
 	BlockHeight sql.NullInt32
 	BlockHash   []byte
 	TxIndex     sql.NullInt32
@@ -380,7 +373,7 @@ type ConfirmChainAnchorTxParams struct {
 
 func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error {
 	_, err := q.db.ExecContext(ctx, confirmChainAnchorTx,
-		arg.Outpoint,
+		arg.Txid,
 		arg.BlockHeight,
 		arg.BlockHash,
 		arg.TxIndex,

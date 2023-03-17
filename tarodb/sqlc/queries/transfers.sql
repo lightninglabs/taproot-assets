@@ -46,9 +46,9 @@ WHERE (
     AND
     
     -- Here we have another optional query clause to select a given transfer
-    -- based on the new_anchor_point, but only if it's specified.
-    (utxos.outpoint = sqlc.narg('new_anchor_point') OR
-       sqlc.narg('new_anchor_point') IS NULL)
+    -- based on the anchor_tx_hash, but only if it's specified.
+    (txns.txid = sqlc.narg('anchor_tx_hash') OR
+       sqlc.narg('anchor_tx_hash') IS NULL)
 );
 
 -- name: FetchAssetDeltas :many

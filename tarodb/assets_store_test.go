@@ -862,10 +862,8 @@ func TestAssetExportLog(t *testing.T) {
 	require.Equal(t, 1, len(assetTransfers))
 
 	// We should also be able to find it based on its outpoint.
-	anchorPointBytes, err := encodeOutpoint(spendDelta.NewAnchorPoint)
-	require.NoError(t, err)
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		NewAnchorPoint: anchorPointBytes,
+		AnchorTxHash: spendDelta.NewAnchorPoint.Hash[:],
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
@@ -908,13 +906,15 @@ func TestAssetExportLog(t *testing.T) {
 	blockHeight := int32(100)
 	txIndex := int32(10)
 	finalSenderBlob := bytes.Repeat([]byte{0x03}, 100)
-	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
-		AnchorPoint:      spendDelta.NewAnchorPoint,
-		TxIndex:          txIndex,
-		BlockHeight:      blockHeight,
-		BlockHash:        fakeBlockHash,
-		FinalSenderProof: finalSenderBlob,
-	})
+	err = assetsStore.ConfirmParcelDelivery(
+		ctx, &tarofreighter.AssetConfirmEvent{
+			AnchorTXID:       spendDelta.NewAnchorPoint.Hash,
+			TxIndex:          txIndex,
+			BlockHeight:      blockHeight,
+			BlockHash:        fakeBlockHash,
+			FinalSenderProof: finalSenderBlob,
+		},
+	)
 	require.NoError(t, err)
 
 	// We'll now fetch all the assets to verify that they were updated

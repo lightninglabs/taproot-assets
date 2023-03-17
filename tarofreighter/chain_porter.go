@@ -610,7 +610,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorPoint:            pkg.OutboundPkg.NewAnchorPoint,
+		AnchorTXID:             pkg.OutboundPkg.NewAnchorPoint.Hash,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),

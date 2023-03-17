@@ -1816,17 +1816,12 @@ func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
 func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 	conf *tarofreighter.AssetConfirmEvent) error {
 
-	anchorPointBytes, err := encodeOutpoint(conf.AnchorPoint)
-	if err != nil {
-		return err
-	}
-
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		// First, we'll fetch the asset transfer based on its outpoint
-		// bytes so we can apply the delta it describes.
+		// bytes, so we can apply the delta it describes.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
-			NewAnchorPoint: anchorPointBytes,
+			AnchorTxHash: conf.AnchorTXID[:],
 		})
 		if err != nil {
 			return err
@@ -1926,7 +1921,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		// update the chain information for the transaction that
 		// anchors the new anchor point.
 		err = q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
-			Outpoint:    anchorPointBytes,
+			Txid:        conf.AnchorTXID[:],
 			BlockHash:   conf.BlockHash[:],
 			BlockHeight: sqlInt32(conf.BlockHeight),
 			TxIndex:     sqlInt32(conf.TxIndex),

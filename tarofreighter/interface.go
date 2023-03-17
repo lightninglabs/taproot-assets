@@ -176,8 +176,9 @@ type OutboundParcelDelta struct {
 
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
 type AssetConfirmEvent struct {
-	// AnchorPoint is the anchor point that was previously unconfirmed.
-	AnchorPoint wire.OutPoint
+	// AnchorTXID is the anchor transaction's hash that was previously
+	// unconfirmed.
+	AnchorTXID chainhash.Hash
 
 	// BlockHash is the block hash that confirmed the above anchor point.
 	BlockHash chainhash.Hash
