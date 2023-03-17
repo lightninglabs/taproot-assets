@@ -68,7 +68,8 @@ func testCollectibleSend(t *harnessTest) {
 				0, senderTransferIdx, senderTransferIdx+1,
 			)
 			_ = sendProof(
-				t, t.tarod, secondTarod, receiverAddr, genInfo,
+				t, t.tarod, secondTarod, receiverAddr.ScriptKey,
+				genInfo,
 			)
 			senderTransferIdx++
 		} else {
@@ -92,7 +93,8 @@ func testCollectibleSend(t *harnessTest) {
 				0, receiverTransferIdx, receiverTransferIdx+1,
 			)
 			_ = sendProof(
-				t, secondTarod, t.tarod, receiverAddr, genInfo,
+				t, secondTarod, t.tarod, receiverAddr.ScriptKey,
+				genInfo,
 			)
 			receiverTransferIdx++
 		}
