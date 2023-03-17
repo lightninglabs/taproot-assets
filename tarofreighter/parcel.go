@@ -106,9 +106,6 @@ type Parcel interface {
 
 	// kit returns the parcel kit used for delivery.
 	kit() *parcelKit
-
-	// dest returns the destination address for the parcel.
-	dest() *address.Taro
 }
 
 // parcelKit is a struct that contains the channels that are used to deliver
@@ -216,13 +213,6 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 // kit returns the parcel kit used for delivery.
 func (p *PreSignedParcel) kit() *parcelKit {
 	return p.parcelKit
-}
-
-// dest returns the destination address for the parcel.
-func (p *PreSignedParcel) dest() *address.Taro {
-	// TODO(guggero): Remove this method once we don't use it anymore (see
-	// following commits).
-	return &address.Taro{}
 }
 
 // sendPackage houses the information we need to complete a package transfer.

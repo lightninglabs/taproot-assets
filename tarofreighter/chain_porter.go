@@ -736,8 +736,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
+		// We know that the porter is only initialized with this state
+		// for a send to an address parcel. If not, something was called
+		// incorrectly.
+		addrParcel, ok := currentPkg.Parcel.(*AddressParcel)
+		if !ok {
+			return nil, fmt.Errorf("unable to cast parcel to " +
+				"address parcel")
+		}
 		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
-			ctx, *currentPkg.Parcel.dest(),
+			ctx, *addrParcel.destAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund address send: "+
