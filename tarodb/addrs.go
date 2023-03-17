@@ -530,6 +530,27 @@ func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
 	})
 }
 
+// InsertInternalKey inserts an internal key into the database to make sure it
+// is identified as a local key later on when importing proofs. The key can be
+// an internal key for an asset script key or the internal key of an anchor
+// output.
+func (t *TaroAddressBook) InsertInternalKey(ctx context.Context,
+	keyDesc keychain.KeyDescriptor) error {
+
+	var writeTxOpts AddrBookTxOptions
+	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
+		_, err := insertInternalKey(
+			ctx, q, keyDesc,
+		)
+		if err != nil {
+			return fmt.Errorf("error inserting internal key: %w",
+				err)
+		}
+
+		return nil
+	})
+}
+
 // InsertScriptKey inserts an address related script key into the database, so
 // it can be recognized as belonging to the wallet when a transfer comes in
 // later on.

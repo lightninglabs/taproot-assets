@@ -83,6 +83,13 @@ type Storage interface {
 	SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 		managedFrom time.Time) error
 
+	// InsertInternalKey inserts an internal key into the database to make
+	// sure it is identified as a local key later on when importing proofs.
+	// The key can be an internal key for an asset script key or the
+	// internal key of an anchor output.
+	InsertInternalKey(ctx context.Context,
+		keyDesc keychain.KeyDescriptor) error
+
 	// InsertScriptKey inserts an address related script key into the
 	// database, so it can be recognized as belonging to the wallet when a
 	// transfer comes in later on.
@@ -94,6 +101,12 @@ type KeyRing interface {
 	// DeriveNextTaroKey attempts to derive the *next* key within the Taro
 	// key family.
 	DeriveNextTaroKey(context.Context) (keychain.KeyDescriptor, error)
+
+	// DeriveNextKey attempts to derive the *next* key within the key
+	// family (account in BIP43) specified. This method should return the
+	// next external child within this branch.
+	DeriveNextKey(context.Context,
+		keychain.KeyFamily) (keychain.KeyDescriptor, error)
 
 	// IsLocalKey returns true if the key is under the control of the wallet
 	// and can be derived by it.
@@ -187,8 +200,12 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, genesis asset.Genesis,
 			" %w", err)
 	}
 
-	// We also want to import the script key, so we can identify it as
+	// We also want to import the two keys, so we can identify them as
 	// belonging to the wallet later on.
+	err = b.cfg.Store.InsertInternalKey(ctx, internalKeyDesc)
+	if err != nil {
+		return nil, fmt.Errorf("unable to insert internal key: %w", err)
+	}
 	if err := b.cfg.Store.InsertScriptKey(ctx, scriptKey); err != nil {
 		return nil, fmt.Errorf("unable to insert script key: %w", err)
 	}
@@ -221,6 +238,45 @@ func (b *Book) IsLocalKey(ctx context.Context,
 	key keychain.KeyDescriptor) bool {
 
 	return b.cfg.KeyRing.IsLocalKey(ctx, key)
+}
+
+// NextInternalKey derives then inserts an internal key into the database to
+// make sure it is identified as a local key later on when importing proofs. The
+// key can be an internal key for an asset script key or the internal key of an
+// anchor output.
+func (b *Book) NextInternalKey(ctx context.Context,
+	family keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+
+	internalKey, err := b.cfg.KeyRing.DeriveNextKey(ctx, family)
+	if err != nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("error deriving "+
+			"next key: %w", err)
+	}
+
+	if err := b.cfg.Store.InsertInternalKey(ctx, internalKey); err != nil {
+		return keychain.KeyDescriptor{}, err
+	}
+
+	return internalKey, nil
+}
+
+// NextScriptKey derives then inserts a script key into the database to make
+// sure it is identified as a local key later on when importing proofs.
+func (b *Book) NextScriptKey(ctx context.Context,
+	family keychain.KeyFamily) (asset.ScriptKey, error) {
+
+	keyDesc, err := b.cfg.KeyRing.DeriveNextKey(ctx, family)
+	if err != nil {
+		return asset.ScriptKey{}, fmt.Errorf("error deriving next "+
+			"key: %w", err)
+	}
+
+	scriptKey := asset.NewScriptKeyBIP0086(keyDesc)
+	if err := b.cfg.Store.InsertScriptKey(ctx, scriptKey); err != nil {
+		return asset.ScriptKey{}, err
+	}
+
+	return scriptKey, nil
 }
 
 // ListAddrs lists a set of addresses based on the expressed query params.

@@ -127,6 +127,14 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/NextInternalKey": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/assetwalletrpc.AssetWallet/NextScriptKey": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/mintrpc.Mint/MintAsset": {{
 			Entity: "mint",
 			Action: "write",
@@ -1067,7 +1075,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// Both the script and internal keys were specified.
 	default:
-		scriptKey, err := unmarshalScriptKey(in.ScriptKey)
+		scriptKey, err := UnmarshalScriptKey(in.ScriptKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
@@ -1078,7 +1086,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			scriptKey.RawKey.PubKey.SerializeCompressed(),
 			scriptKey.Tweak[:])
 
-		internalKey, err := unmarshalKeyDescriptor(in.InternalKey)
+		internalKey, err := UnmarshalKeyDescriptor(in.InternalKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode internal "+
 				"key: %w", err)
@@ -1433,6 +1441,61 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 	}
 
 	return marshalPendingParcel(resp)
+}
+
+// NextInternalKey derives the next internal key for the given key family and
+// stores it as an internal key in the database to make sure it is identified
+// as a local key later on when importing proofs. While an internal key can
+// also be used as the internal key of a script key, it is recommended to use
+// the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+// is also recognized as a local key.
+func (r *rpcServer) NextInternalKey(ctx context.Context,
+	req *wrpc.NextInternalKeyRequest) (*wrpc.NextInternalKeyResponse,
+	error) {
+
+	// Due to how we detect local keys, we need to make sure that the key
+	// family is not zero.
+	if req.KeyFamily == 0 {
+		return nil, fmt.Errorf("key family must be set to a non-zero " +
+			"value")
+	}
+
+	keyDesc, err := r.cfg.AddrBook.NextInternalKey(ctx, keychain.KeyFamily(
+		req.KeyFamily,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("error inserting internal key: %w", err)
+	}
+
+	return &wrpc.NextInternalKeyResponse{
+		InternalKey: marshalKeyDescriptor(keyDesc),
+	}, nil
+}
+
+// NextScriptKey derives the next script key (and its corresponding internal
+// key) and stores them both in the database to make sure they are identified
+// as local keys later on when importing proofs.
+func (r *rpcServer) NextScriptKey(ctx context.Context,
+	req *wrpc.NextScriptKeyRequest) (*wrpc.NextScriptKeyResponse,
+	error) {
+
+	// Due to how we detect local keys, we need to make sure that the key
+	// family is not zero.
+	if req.KeyFamily == 0 {
+		return nil, fmt.Errorf("key family must be set to a non-zero " +
+			"value")
+	}
+
+	scriptKey, err := r.cfg.AddrBook.NextScriptKey(ctx, keychain.KeyFamily(
+		req.KeyFamily,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("error inserting internal key: %w", err)
+	}
+
+	return &wrpc.NextScriptKeyResponse{
+		ScriptKey: marshalScriptKey(scriptKey),
+	}, nil
 }
 
 // marshalAddr turns an address into its RPC counterpart.
@@ -1791,8 +1854,8 @@ func marshalBatchState(batch *tarogarden.MintingBatch) (mintrpc.BatchState,
 	}
 }
 
-// unmarshalScriptKey parses the RPC script key into the native counterpart.
-func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
+// UnmarshalScriptKey parses the RPC script key into the native counterpart.
+func UnmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 	var (
 		scriptKey asset.ScriptKey
 		err       error
@@ -1807,7 +1870,7 @@ func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 	// The key descriptor is optional for script keys that are completely
 	// independent of the backing wallet.
 	if rpcKey.KeyDesc != nil {
-		keyDesc, err := unmarshalKeyDescriptor(rpcKey.KeyDesc)
+		keyDesc, err := UnmarshalKeyDescriptor(rpcKey.KeyDesc)
 		if err != nil {
 			return nil, err
 		}
@@ -1823,9 +1886,37 @@ func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 	return &scriptKey, nil
 }
 
-// unmarshalKeyDescriptor parses the RPC key descriptor into the native
+// marshalScriptKey marshals the native script key into the RPC counterpart.
+func marshalScriptKey(scriptKey asset.ScriptKey) *tarorpc.ScriptKey {
+	rpcScriptKey := &tarorpc.ScriptKey{
+		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
+	}
+
+	if scriptKey.TweakedScriptKey != nil {
+		rpcScriptKey.KeyDesc = marshalKeyDescriptor(
+			scriptKey.TweakedScriptKey.RawKey,
+		)
+		rpcScriptKey.TapTweak = scriptKey.TweakedScriptKey.Tweak
+	}
+
+	return rpcScriptKey
+}
+
+// marshalKeyDescriptor marshals the native key descriptor into the RPC
 // counterpart.
-func unmarshalKeyDescriptor(
+func marshalKeyDescriptor(desc keychain.KeyDescriptor) *tarorpc.KeyDescriptor {
+	return &tarorpc.KeyDescriptor{
+		RawKeyBytes: desc.PubKey.SerializeCompressed(),
+		KeyLoc: &tarorpc.KeyLocator{
+			KeyFamily: int32(desc.KeyLocator.Family),
+			KeyIndex:  int32(desc.KeyLocator.Index),
+		},
+	}
+}
+
+// UnmarshalKeyDescriptor parses the RPC key descriptor into the native
+// counterpart.
+func UnmarshalKeyDescriptor(
 	rpcDesc *tarorpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
 
 	var (

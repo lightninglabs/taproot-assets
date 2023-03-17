@@ -34,6 +34,19 @@ type AssetWalletClient interface {
 	//TODO(guggero): Actually implement accepting and merging multiple
 	//transactions.
 	AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*tarorpc.SendAssetResponse, error)
+	//
+	//NextInternalKey derives the next internal key for the given key family and
+	//stores it as an internal key in the database to make sure it is identified
+	//as a local key later on when importing proofs. While an internal key can
+	//also be used as the internal key of a script key, it is recommended to use
+	//the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+	//is also recognized as a local key.
+	NextInternalKey(ctx context.Context, in *NextInternalKeyRequest, opts ...grpc.CallOption) (*NextInternalKeyResponse, error)
+	//
+	//NextScriptKey derives the next script key (and its corresponding internal
+	//key) and stores them both in the database to make sure they are identified
+	//as local keys later on when importing proofs.
+	NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error)
 }
 
 type assetWalletClient struct {
@@ -71,6 +84,24 @@ func (c *assetWalletClient) AnchorVirtualPsbts(ctx context.Context, in *AnchorVi
 	return out, nil
 }
 
+func (c *assetWalletClient) NextInternalKey(ctx context.Context, in *NextInternalKeyRequest, opts ...grpc.CallOption) (*NextInternalKeyResponse, error) {
+	out := new(NextInternalKeyResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/NextInternalKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *assetWalletClient) NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error) {
+	out := new(NextScriptKeyResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/NextScriptKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AssetWalletServer is the server API for AssetWallet service.
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
@@ -90,6 +121,19 @@ type AssetWalletServer interface {
 	//TODO(guggero): Actually implement accepting and merging multiple
 	//transactions.
 	AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse, error)
+	//
+	//NextInternalKey derives the next internal key for the given key family and
+	//stores it as an internal key in the database to make sure it is identified
+	//as a local key later on when importing proofs. While an internal key can
+	//also be used as the internal key of a script key, it is recommended to use
+	//the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+	//is also recognized as a local key.
+	NextInternalKey(context.Context, *NextInternalKeyRequest) (*NextInternalKeyResponse, error)
+	//
+	//NextScriptKey derives the next script key (and its corresponding internal
+	//key) and stores them both in the database to make sure they are identified
+	//as local keys later on when importing proofs.
+	NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }
 
@@ -105,6 +149,12 @@ func (UnimplementedAssetWalletServer) SignVirtualPsbt(context.Context, *SignVirt
 }
 func (UnimplementedAssetWalletServer) AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AnchorVirtualPsbts not implemented")
+}
+func (UnimplementedAssetWalletServer) NextInternalKey(context.Context, *NextInternalKeyRequest) (*NextInternalKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NextInternalKey not implemented")
+}
+func (UnimplementedAssetWalletServer) NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NextScriptKey not implemented")
 }
 func (UnimplementedAssetWalletServer) mustEmbedUnimplementedAssetWalletServer() {}
 
@@ -173,6 +223,42 @@ func _AssetWallet_AnchorVirtualPsbts_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AssetWallet_NextInternalKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NextInternalKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).NextInternalKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/NextInternalKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).NextInternalKey(ctx, req.(*NextInternalKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AssetWallet_NextScriptKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NextScriptKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).NextScriptKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/NextScriptKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).NextScriptKey(ctx, req.(*NextScriptKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AssetWallet_ServiceDesc is the grpc.ServiceDesc for AssetWallet service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -191,6 +277,14 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AnchorVirtualPsbts",
 			Handler:    _AssetWallet_AnchorVirtualPsbts_Handler,
+		},
+		{
+			MethodName: "NextInternalKey",
+			Handler:    _AssetWallet_NextInternalKey_Handler,
+		},
+		{
+			MethodName: "NextScriptKey",
+			Handler:    _AssetWallet_NextScriptKey_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

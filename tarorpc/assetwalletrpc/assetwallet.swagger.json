@@ -16,6 +16,72 @@
     "application/json"
   ],
   "paths": {
+    "/v1/taro/wallet/internal-key/next": {
+      "post": {
+        "summary": "NextInternalKey derives the next internal key for the given key family and\nstores it as an internal key in the database to make sure it is identified\nas a local key later on when importing proofs. While an internal key can\nalso be used as the internal key of a script key, it is recommended to use\nthe NextScriptKey RPC instead, to make sure the tweaked Taproot output key\nis also recognized as a local key.",
+        "operationId": "AssetWallet_NextInternalKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcNextInternalKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcNextInternalKeyRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taro/wallet/script-key/next": {
+      "post": {
+        "summary": "NextScriptKey derives the next script key (and its corresponding internal\nkey) and stores them both in the database to make sure they are identified\nas local keys later on when importing proofs.",
+        "operationId": "AssetWallet_NextScriptKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcNextScriptKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcNextScriptKeyRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taro/wallet/virtual-psbt/anchor": {
       "post": {
         "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction.",
@@ -160,6 +226,40 @@
         }
       }
     },
+    "assetwalletrpcNextInternalKeyRequest": {
+      "type": "object",
+      "properties": {
+        "key_family": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "assetwalletrpcNextInternalKeyResponse": {
+      "type": "object",
+      "properties": {
+        "internal_key": {
+          "$ref": "#/definitions/tarorpcKeyDescriptor"
+        }
+      }
+    },
+    "assetwalletrpcNextScriptKeyRequest": {
+      "type": "object",
+      "properties": {
+        "key_family": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "assetwalletrpcNextScriptKeyResponse": {
+      "type": "object",
+      "properties": {
+        "script_key": {
+          "$ref": "#/definitions/tarorpcScriptKey"
+        }
+      }
+    },
     "assetwalletrpcOutPoint": {
       "type": "object",
       "properties": {
@@ -300,6 +400,35 @@
         }
       }
     },
+    "tarorpcKeyDescriptor": {
+      "type": "object",
+      "properties": {
+        "raw_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the key being identified."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/tarorpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        }
+      }
+    },
+    "tarorpcKeyLocator": {
+      "type": "object",
+      "properties": {
+        "key_family": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The family of key being identified."
+        },
+        "key_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The precise index of the key being identified."
+        }
+      }
+    },
     "tarorpcPrevInputAsset": {
       "type": "object",
       "properties": {
@@ -317,6 +446,25 @@
         "amount": {
           "type": "string",
           "format": "uint64"
+        }
+      }
+    },
+    "tarorpcScriptKey": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
+        },
+        "key_desc": {
+          "$ref": "#/definitions/tarorpcKeyDescriptor",
+          "description": "The key descriptor describing the internal key of the above Taproot key."
+        },
+        "tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional Taproot tweak to apply to the above internal key. If this is\nempty then a BIP-86 style tweak is applied to the internal key."
         }
       }
     },

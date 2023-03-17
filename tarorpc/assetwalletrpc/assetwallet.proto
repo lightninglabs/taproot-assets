@@ -30,6 +30,24 @@ service AssetWallet {
     */
     rpc AnchorVirtualPsbts (AnchorVirtualPsbtsRequest)
         returns (tarorpc.SendAssetResponse);
+
+    /*
+    NextInternalKey derives the next internal key for the given key family and
+    stores it as an internal key in the database to make sure it is identified
+    as a local key later on when importing proofs. While an internal key can
+    also be used as the internal key of a script key, it is recommended to use
+    the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+    is also recognized as a local key.
+    */
+    rpc NextInternalKey (NextInternalKeyRequest)
+        returns (NextInternalKeyResponse);
+
+    /*
+    NextScriptKey derives the next script key (and its corresponding internal
+    key) and stores them both in the database to make sure they are identified
+    as local keys later on when importing proofs.
+    */
+    rpc NextScriptKey (NextScriptKeyRequest) returns (NextScriptKeyResponse);
 }
 
 message FundVirtualPsbtRequest {
@@ -137,4 +155,20 @@ message AnchorVirtualPsbtsRequest {
     the BTC level anchor transaction.
     */
     repeated bytes virtual_psbts = 1;
+}
+
+message NextInternalKeyRequest {
+    uint32 key_family = 1;
+}
+
+message NextInternalKeyResponse {
+    tarorpc.KeyDescriptor internal_key = 1;
+}
+
+message NextScriptKeyRequest {
+    uint32 key_family = 1;
+}
+
+message NextScriptKeyResponse {
+    tarorpc.ScriptKey script_key = 1;
 }
