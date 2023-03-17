@@ -3,7 +3,9 @@ package itest
 import (
 	"context"
 	"encoding/hex"
+	"math"
 
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/stretchr/testify/require"
@@ -187,6 +189,46 @@ func testReissuance(t *harnessTest) {
 	// should still be only two groups.
 	assertBalanceByGroup(t.t, t.tarod, collectGroupKey, 1)
 	assertNumGroups(t.t, t.tarod, groupCount)
+}
+
+// testReIssuanceAmountOverflow tests that an error is returned when attempting
+// to issue a further quantity of an asset beyond the integer overflow limit.
+func testReIssuanceAmountOverflow(t *harnessTest) {
+	// Mint an asset with the maximum possible amount supported by the RPC
+	// endpoint.
+	t.Log("Minting asset with maximum possible amount")
+
+	assetIssueReqs := copyRequests(issuableAssets)
+	assetIssueReq := assetIssueReqs[0]
+
+	assetIssueReq.EnableEmission = true
+	assetIssueReq.Asset.Amount = math.MaxUint64
+
+	assets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{assetIssueReq},
+	)
+	require.Equal(t.t, 1, len(assets))
+
+	groupKey := assets[0].AssetGroup.TweakedGroupKey
+
+	// Re-issue a further quantity of the asset at the maximum possible
+	// amount supported by the RPC endpoint.
+	t.Log("Re-issuing asset with maximum possible amount")
+
+	assetIssueReqs = copyRequests(simpleAssets)
+	assetIssueReq = assetIssueReqs[0]
+
+	// Reissue an amount which is minimally sufficient to lead to an
+	// overflow error.
+	assetIssueReq.Asset.Amount = 1
+	assetIssueReq.EnableEmission = false
+	assetIssueReq.Asset.GroupKey = groupKey
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+	_, err := t.tarod.MintAsset(ctxt, assetIssueReq)
+	require.ErrorContains(t.t, err, mssmt.ErrIntegerOverflow.Error())
 }
 
 // testMintWithGroupKeyErrors tests that the minter rejects minting requests

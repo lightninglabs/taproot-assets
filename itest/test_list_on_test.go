@@ -47,6 +47,10 @@ var testCases = []*testCase{
 		test: testReissuance,
 	},
 	{
+		name: "re-issuance asset amount overflow",
+		test: testReIssuanceAmountOverflow,
+	},
+	{
 		name: "mint with group key errors",
 		test: testMintWithGroupKeyErrors,
 	},
