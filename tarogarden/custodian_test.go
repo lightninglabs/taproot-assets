@@ -163,7 +163,7 @@ func newHarness(t *testing.T,
 	}
 }
 
-func randAddr(t *testing.T) *address.AddrWithKeyInfo {
+func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
 	amount := uint64(1)
 	assetType := asset.Collectible
 
@@ -173,7 +173,7 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	}
 
 	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
+	require.NoError(h.t, err)
 	pubKey := privKey.PubKey()
 
 	var groupKey *btcec.PublicKey
@@ -186,15 +186,15 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 	})
 	pubKeyCopy2 := *pubKey
 
-	genesis := asset.RandGenesis(t, assetType)
+	genesis := asset.RandGenesis(h.t, assetType)
 	taro, err := address.New(
 		genesis, groupKey, *scriptKey.PubKey, pubKeyCopy2, amount,
 		&address.RegressionNetTaro,
 	)
-	require.NoError(t, err)
+	require.NoError(h.t, err)
 
 	taprootOutputKey, err := taro.TaprootOutputKey(nil)
-	require.NoError(t, err)
+	require.NoError(h.t, err)
 
 	addr := &address.AddrWithKeyInfo{
 		Taro:           taro,
@@ -206,6 +206,9 @@ func randAddr(t *testing.T) *address.AddrWithKeyInfo {
 		TaprootOutputKey: *taprootOutputKey,
 		CreationTime:     time.Now(),
 	}
+
+	err = h.tarodbBook.InsertAssetGen(context.Background(), &genesis)
+	require.NoError(h.t, err)
 
 	return addr
 }
@@ -278,10 +281,8 @@ func TestCustodianNewAddr(t *testing.T) {
 		<-h.keyRing.ReqKeys
 	}()
 	ctx := context.Background()
-	addr := randAddr(t)
-	dbAddr, err := h.addrBook.NewAddress(
-		ctx, addr.Genesis, addr.GroupKey, addr.Amount,
-	)
+	addr := randAddr(h)
+	dbAddr, err := h.addrBook.NewAddress(ctx, addr.AssetID, addr.Amount)
 	require.NoError(t, err)
 
 	h.assertAddrsRegistered(dbAddr)
@@ -307,7 +308,7 @@ func TestTransactionHandling(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i] = randAddr(t)
+		addrs[i] = randAddr(h)
 		err := h.tarodbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
@@ -343,6 +344,19 @@ func TestTransactionHandling(t *testing.T) {
 	})
 }
 
+func mustMakeAddr(t *testing.T,
+	gen asset.Genesis, groupKey *btcec.PublicKey,
+	scriptKey btcec.PublicKey) *address.Taro {
+
+	var p btcec.PublicKey
+	addr, err := address.New(
+		gen, groupKey, scriptKey, p, 1, &address.TestNet3Taro,
+	)
+	require.NoError(t, err)
+
+	return addr
+}
+
 // TestAddrMatchesAsset tests that the AddrMatchesAsset function works
 // correctly.
 func TestAddrMatchesAsset(t *testing.T) {
@@ -352,6 +366,8 @@ func TestAddrMatchesAsset(t *testing.T) {
 	randGen1 := asset.RandGenesis(t, asset.Normal)
 	randGen2 := asset.RandGenesis(t, asset.Normal)
 
+	var blankKey btcec.PublicKey
+
 	testCases := []struct {
 		name   string
 		addr   *address.AddrWithKeyInfo
@@ -360,9 +376,10 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}{{
 		name: "both group keys nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{},
+			Taro: mustMakeAddr(t, randGen1, nil, blankKey),
 		},
 		a: &asset.Asset{
+			Genesis: randGen1,
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
 			},
@@ -371,11 +388,10 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "no group key nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{
-				GroupKey: randKey1,
-			},
+			Taro: mustMakeAddr(t, randGen1, randKey1, blankKey),
 		},
 		a: &asset.Asset{
+			Genesis: randGen1,
 			GroupKey: &asset.GroupKey{
 				GroupPubKey: *randKey1,
 			},
@@ -417,10 +433,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "id mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{
-				GroupKey: randKey1,
-				Genesis:  randGen1,
-			},
+			Taro: mustMakeAddr(t, randGen1, randKey1, *randKey1),
 		},
 		a: &asset.Asset{
 			Genesis: randGen2,
@@ -435,11 +448,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "script key mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{
-				GroupKey:  randKey1,
-				Genesis:   randGen1,
-				ScriptKey: *randKey1,
-			},
+			Taro: mustMakeAddr(t, randGen1, randKey1, *randKey1),
 		},
 		a: &asset.Asset{
 			Genesis: randGen1,
@@ -454,11 +463,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "all match",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{
-				GroupKey:  randKey1,
-				Genesis:   randGen1,
-				ScriptKey: *randKey2,
-			},
+			Taro: mustMakeAddr(t, randGen1, randKey1, *randKey2),
 		},
 		a: &asset.Asset{
 			Genesis: randGen1,

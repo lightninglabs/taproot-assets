@@ -15,6 +15,13 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
+var (
+	// ErrAssetGroupUnkown is returned when the asset genesis is not known.
+	// This means an address can't be created until a Universe boostrap or
+	// manual issuance proof insertion.
+	ErrAssetGroupUnknown = fmt.Errorf("asset group is unknown")
+)
+
 // AddrWithKeyInfo wraps a normal Taro struct with key descriptor
 // information.
 type AddrWithKeyInfo struct {
@@ -72,6 +79,10 @@ type Storage interface {
 	// QueryAddrs attemps to query for a set of addresses.
 	QueryAddrs(ctx context.Context,
 		params QueryParams) ([]AddrWithKeyInfo, error)
+
+	// QueryAssetGroup attempts to locate the asset group information
+	// (genesis + group key) associated with a given asset.
+	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
 
 	// AddrByTaprootOutput returns a single address based on its Taproot
 	// output key or a sql.ErrNoRows error if no such address exists.
@@ -157,8 +168,15 @@ func NewBook(cfg BookConfig) *Book {
 }
 
 // NewAddress creates a new Taro address based on the input parameters.
-func (b *Book) NewAddress(ctx context.Context, genesis asset.Genesis,
-	groupKey *btcec.PublicKey, amount uint64) (*AddrWithKeyInfo, error) {
+func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
+	amount uint64) (*AddrWithKeyInfo, error) {
+
+	// Before we proceed and make new keys, make sure that we actually know
+	// of this asset ID already.
+	if _, err := b.cfg.Store.QueryAssetGroup(ctx, assetID); err != nil {
+		return nil, fmt.Errorf("unable to make address for unknown "+
+			"asset %x: %w", assetID[:], err)
+	}
 
 	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
@@ -176,19 +194,32 @@ func (b *Book) NewAddress(ctx context.Context, genesis asset.Genesis,
 	}
 
 	return b.NewAddressWithKeys(
-		ctx, genesis, groupKey, amount, scriptKey, internalKeyDesc,
+		ctx, assetID, amount, scriptKey, internalKeyDesc,
 	)
 }
 
 // NewAddressWithKeys creates a new Taro address based on the input parameters
 // that include pre-derived script and internal keys.
-func (b *Book) NewAddressWithKeys(ctx context.Context, genesis asset.Genesis,
-	groupKey *btcec.PublicKey, amount uint64, scriptKey asset.ScriptKey,
+func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
+	amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor) (*AddrWithKeyInfo, error) {
 
+	// Before we proceed, we'll make sure that the asset group is known to
+	// the local store. Otherwise, we can't make an address as we haven't
+	// bootstrapped it.
+	assetGroup, err := b.cfg.Store.QueryAssetGroup(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	var groupKey *btcec.PublicKey
+	if assetGroup.GroupKey != nil {
+		groupKey = &assetGroup.GroupPubKey
+	}
+
 	baseAddr, err := New(
-		genesis, groupKey, *scriptKey.PubKey, *internalKeyDesc.PubKey,
-		amount, &b.cfg.Chain,
+		*assetGroup.Genesis, groupKey, *scriptKey.PubKey,
+		*internalKeyDesc.PubKey, amount, &b.cfg.Chain,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)

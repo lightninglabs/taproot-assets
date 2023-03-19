@@ -67,10 +67,12 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey bool,
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
+	gen := asset.RandGenesis(t, assetType)
+
 	newAddr := Taro{
 		ChainParams: net,
 		Version:     asset.Version(TaroScriptVersion),
-		Genesis:     asset.RandGenesis(t, assetType),
+		AssetID:     gen.ID(),
 		GroupKey:    groupKey,
 		ScriptKey:   pubKeyCopy1,
 		InternalKey: pubKeyCopy2,
@@ -86,12 +88,11 @@ func assertAddressEqual(t *testing.T, a, b *Taro) {
 	t.Helper()
 
 	require.Equal(t, a.Version, b.Version)
-	require.Equal(t, a.ID, b.ID)
+	require.Equal(t, a.AssetID, b.AssetID)
 	require.Equal(t, a.GroupKey, b.GroupKey)
 	require.Equal(t, a.ScriptKey, b.ScriptKey)
 	require.Equal(t, a.InternalKey, b.InternalKey)
 	require.Equal(t, a.Amount, b.Amount)
-	require.Equal(t, a.Type, b.Type)
 }
 
 // TestNewAddress tests edge cases around creating a new address.

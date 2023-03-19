@@ -1811,7 +1811,7 @@ func TestAddressValidInput(t *testing.T) {
 
 func addrToFundDesc(addr address.Taro) *taroscript.FundingDescriptor {
 	return &taroscript.FundingDescriptor{
-		ID:       addr.ID(),
+		ID:       addr.AssetID,
 		GroupKey: addr.GroupKey,
 		Amount:   addr.Amount,
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
@@ -77,9 +78,8 @@ type Taro struct {
 	// Version is the Taro version of the asset.
 	Version asset.Version
 
-	// Genesis is the receiving asset's genesis metadata which directly
-	// maps to its unique ID within the Taro protocol.
-	asset.Genesis
+	// AssetID is the asset ID of the asset.
+	AssetID asset.ID
 
 	// GroupKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
@@ -95,6 +95,10 @@ type Taro struct {
 
 	// Amount is the number of asset units being requested by the receiver.
 	Amount uint64
+
+	// assetGen is the receiving asset's genesis metadata which directly
+	// maps to its unique ID within the Taro protocol.
+	assetGen asset.Genesis
 }
 
 // New creates an address for receiving a Taro asset.
@@ -127,11 +131,12 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	payload := Taro{
 		ChainParams: net,
 		Version:     asset.V0,
-		Genesis:     genesis,
+		AssetID:     genesis.ID(),
 		GroupKey:    groupKey,
 		ScriptKey:   scriptKey,
 		InternalKey: internalKey,
 		Amount:      amt,
+		assetGen:    genesis,
 	}
 	return &payload, nil
 }
@@ -153,16 +158,28 @@ func (a *Taro) Net() (*ChainParams, error) {
 	return Net(a.ChainParams.TaroHRP)
 }
 
+// AssetType returns the type of asset that this address was generated for.
+func (a *Taro) AssetType() asset.Type {
+	return a.assetGen.Type
+}
+
+// AttachGenesis attaches the asset's genesis metadata to the address.
+func (a *Taro) AttachGenesis(gen asset.Genesis) {
+	a.assetGen = gen
+}
+
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a Taro address.
 func (a *Taro) TaroCommitmentKey() [32]byte {
-	return asset.TaroCommitmentKey(a.ID(), a.GroupKey)
+	return asset.TaroCommitmentKey(a.AssetID, a.GroupKey)
 }
 
 // AssetCommitmentKey is the key that maps to the asset leaf for the asset
 // specified by a Taro address.
 func (a *Taro) AssetCommitmentKey() [32]byte {
-	return asset.AssetCommitmentKey(a.ID(), &a.ScriptKey, a.GroupKey == nil)
+	return asset.AssetCommitmentKey(
+		a.AssetID, &a.ScriptKey, a.GroupKey == nil,
+	)
 }
 
 // TaroCommitment constructs the Taro commitment that is expected to appear on
@@ -170,6 +187,13 @@ func (a *Taro) AssetCommitmentKey() [32]byte {
 func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 	key := a.AssetCommitmentKey()
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// If this genesis wasn't actually set, then we'll fail here as we need
+	// it in order to make the asset template.
+	var zeroOp wire.OutPoint
+	if a.assetGen.FirstPrevOut == zeroOp {
+		return nil, fmt.Errorf("unknown asset genesis")
+	}
 
 	// We first need to create an asset from the address in order to encode
 	// it in the TLV leaf.
@@ -180,7 +204,7 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 		}
 	}
 	newAsset, err := asset.New(
-		a.Genesis, a.Amount, 0, 0, asset.NewScriptKey(&a.ScriptKey),
+		a.assetGen, a.Amount, 0, 0, asset.NewScriptKey(&a.ScriptKey),
 		groupKey,
 	)
 	if err != nil {
@@ -208,7 +232,7 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 
 	taroCommitment, err := commitment.NewTaroCommitment(&commitment.AssetCommitment{
 		Version:  a.Version,
-		AssetID:  a.ID(),
+		AssetID:  a.AssetID,
 		TreeRoot: updatedRoot,
 	})
 
@@ -237,7 +261,7 @@ func (a *Taro) TaprootOutputKey(sibling *chainhash.Hash) (*btcec.PublicKey,
 func (a *Taro) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 6)
 	records = append(records, newAddressVersionRecord(&a.Version))
-	records = append(records, newAddressGenesisRecord(&a.Genesis))
+	records = append(records, newAddressAssetID(&a.AssetID))
 
 	if a.GroupKey != nil {
 		records = append(records, newAddressGroupKeyRecord(&a.GroupKey))
@@ -255,7 +279,7 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 func (a *Taro) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		newAddressVersionRecord(&a.Version),
-		newAddressGenesisRecord(&a.Genesis),
+		newAddressAssetID(&a.AssetID),
 		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
 		newAddressInternalKeyRecord(&a.InternalKey),

@@ -145,7 +145,7 @@ func NewAddressParcel(destAddr *address.Taro) *AddressParcel {
 
 // pkg returns the send package that should be delivered.
 func (p *AddressParcel) pkg() *sendPackage {
-	log.Infof("Received to send request to: %x:%x", p.destAddr.ID(),
+	log.Infof("Received to send request to: %x:%x", p.destAddr.AssetID,
 		p.destAddr.ScriptKey.SerializeCompressed())
 
 	// Initialize a package with the destination address.

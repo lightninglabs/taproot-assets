@@ -13,7 +13,7 @@ func FromAddress(receiverAddr *address.Taro, outputIndex uint32) *VPacket {
 	pkt := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: asset.PrevID{
-				ID: receiverAddr.ID(),
+				ID: receiverAddr.AssetID,
 			},
 		}},
 		Outputs:     make([]*VOutput, 2),

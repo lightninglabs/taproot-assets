@@ -82,7 +82,7 @@ func TestNewFromPsbt(t *testing.T) {
 func TestMinimalContent(t *testing.T) {
 	t.Parallel()
 
-	addr := address.RandAddr(t, testParams)
+	addr, _ := address.RandAddr(t, testParams)
 
 	pkg := FromAddress(addr.Taro, 1)
 	pkg.Outputs = append(pkg.Outputs, &VOutput{

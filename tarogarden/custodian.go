@@ -335,7 +335,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			ctx, cancel := c.WithCtxQuitNoTimeout()
 			defer cancel()
 
-			assetID := addr.ID()
+			assetID := addr.AssetID
 			recipient := proof.Recipient{
 				ScriptKey: &addr.ScriptKey,
 				AssetID:   assetID,
@@ -406,8 +406,8 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 	// Make sure we have an event registered for the transaction, since it
 	// is now clear that it is an incoming asset that is being received with
 	// a Taro address.
-	log.Infof("Found inbound asset transfer for Taro address %s in %s",
-		addrStr, op.String())
+	log.Infof("Found inbound asset transfer (asset_id=%x) for Taro "+
+		"address %s in %s", addr.AssetID[:], addrStr, op.String())
 	status := address.StatusTransactionDetected
 	if walletTx.Confirmations > 0 {
 		status = address.StatusTransactionConfirmed
@@ -475,9 +475,8 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 
 	// TODO(roasbeef): use the courier here?
 
-	id := event.Addr.ID()
 	blob, err := c.cfg.ProofArchive.FetchProof(ctxt, proof.Locator{
-		AssetID:   &id,
+		AssetID:   chanutils.Ptr(event.Addr.AssetID),
 		GroupKey:  event.Addr.GroupKey,
 		ScriptKey: event.Addr.ScriptKey,
 	})
@@ -610,6 +609,6 @@ func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
 	groupKeyEqual := groupKeyBothNil ||
 		addr.GroupKey.IsEqual(&a.GroupKey.GroupPubKey)
 
-	return addr.ID() == a.ID() && groupKeyEqual &&
+	return addr.AssetID == a.ID() && groupKeyEqual &&
 		addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
 }
