@@ -144,14 +144,24 @@ func TestAddressInsertion(t *testing.T) {
 
 	// First, make a new addr book instance we'll use in the test below.
 	addrBook, _ := newAddrBook(t)
+	ctx := context.Background()
+
+	var writeTxOpts AddrBookTxOptions
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i] = *address.RandAddr(t, chainParams)
+		addr, assetGen := address.RandAddr(t, chainParams)
+
+		addrs[i] = *addr
+
+		err := addrBook.db.ExecTx(
+			ctx, &writeTxOpts,
+			insertFullAssetGen(ctx, assetGen),
+		)
+		require.NoError(t, err)
 	}
-	ctx := context.Background()
 	require.NoError(t, addrBook.InsertAddrs(ctx, addrs...))
 
 	// Now we should be able to fetch the complete set of addresses with
@@ -218,13 +228,24 @@ func TestAddressQuery(t *testing.T) {
 	// First, make a new addr book instance we'll use in the test below.
 	addrBook, _ := newAddrBook(t)
 
+	var writeTxOpts AddrBookTxOptions
+
+	ctx := context.Background()
+
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i] = *address.RandAddr(t, chainParams)
+		addr, assetGen := address.RandAddr(t, chainParams)
+
+		err := addrBook.db.ExecTx(
+			ctx, &writeTxOpts,
+			insertFullAssetGen(ctx, assetGen),
+		)
+		require.NoError(t, err)
+
+		addrs[i] = *addr
 	}
-	ctx := context.Background()
 	require.NoError(t, addrBook.InsertAddrs(ctx, addrs...))
 
 	tests := []struct {
@@ -327,8 +348,15 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	addr := address.RandAddr(t, chainParams)
-	err := addrBook.InsertAddrs(ctx, *addr)
+	addr, assetGen := address.RandAddr(t, chainParams)
+
+	var writeTxOpts AddrBookTxOptions
+	err := addrBook.db.ExecTx(
+		ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen),
+	)
+	require.NoError(t, err)
+
+	err = addrBook.InsertAddrs(ctx, *addr)
 	require.NoError(t, err)
 
 	txn := randWalletTx()
@@ -356,8 +384,15 @@ func TestAddrEventCreation(t *testing.T) {
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := address.RandAddr(t, chainParams)
-		err := addrBook.InsertAddrs(ctx, *addr)
+		addr, assetGen := address.RandAddr(t, chainParams)
+
+		var writeTxOpts AddrBookTxOptions
+		err := addrBook.db.ExecTx(
+			ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen),
+		)
+		require.NoError(t, err)
+
+		err = addrBook.InsertAddrs(ctx, *addr)
 		require.NoError(t, err)
 
 		txns[i] = randWalletTx()
@@ -433,11 +468,19 @@ func TestAddressEventQuery(t *testing.T) {
 
 	ctx := context.Background()
 
+	var writeTxOpts AddrBookTxOptions
+
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr := address.RandAddr(t, chainParams)
+		addr, assetGen := address.RandAddr(t, chainParams)
+
+		err := addrBook.db.ExecTx(
+			ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen),
+		)
+		require.NoError(t, err)
+
 		require.NoError(t, addrBook.InsertAddrs(ctx, *addr))
 
 		txn := randWalletTx()

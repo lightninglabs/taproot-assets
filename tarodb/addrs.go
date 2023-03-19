@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -68,9 +69,9 @@ type AddrBook interface {
 	// assets.
 	UpsertAssetStore
 
-	// FetchGenesisStore houses the methods related to fetching genesis
-	// assets.
-	FetchGenesisStore
+	// GroupStore houses the methods related to fetching genesis assets and
+	// asset groups related to them.
+	GroupStore
 
 	// FetchAddrs returns all the addresses based on the constraints of the
 	// passed AddrQuery.
@@ -122,6 +123,11 @@ type AddrBook interface {
 	// by its script key.
 	FetchAssetProof(ctx context.Context, scriptKey []byte) (AssetProofI,
 		error)
+
+	// FetchGenesisByAssetID attempts to fetch asset genesis information
+	// for a given asset ID.
+	FetchGenesisByAssetID(ctx context.Context,
+		assetID []byte) (sqlc.GenesisInfoView, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -193,33 +199,17 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 		// internal keys, then use those returned primary key IDs to
 		// returned to insert the address itself.
 		for _, addr := range addrs {
-			// Make sure we have the genesis point and genesis asset
-			// stored already.
-			genesisPointID, err := upsertGenesisPoint(
-				ctx, db, addr.FirstPrevOut,
+			// The asset genesis should already be known at this
+			// point, so we'll just fetch it so we can obtain the
+			// genAssetID.
+			assetGen, err := db.FetchGenesisByAssetID(
+				ctx, addr.AssetID[:],
 			)
 			if err != nil {
-				return fmt.Errorf("unable to insert genesis "+
-					"point: %w", err)
+				return err
 			}
 
-			// In case we haven't yet stored the asset meta, we'll
-			// grab that from the genesis in the addr.
-			_, err = maybeUpsertAssetMeta(
-				ctx, db, &addr.Genesis, nil,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to insert asset "+
-					"meta: %w", err)
-			}
-
-			genAssetID, err := upsertGenesis(
-				ctx, db, genesisPointID, addr.Genesis,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to insert genesis: "+
-					"%w", err)
-			}
+			genAssetID := assetGen.GenAssetID
 
 			rawScriptKeyID, err := insertInternalKey(
 				ctx, db, addr.ScriptKeyTweak.RawKey,
@@ -260,7 +250,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 					&addr.TaprootOutputKey,
 				),
 				Amount:       int64(addr.Amount),
-				AssetType:    int16(addr.Type),
+				AssetType:    int16(assetGen.AssetType),
 				CreationTime: addr.CreationTime.UTC(),
 			})
 			if err != nil {
@@ -377,16 +367,18 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					"output key: %w", err)
 			}
 
+			taroAddr, err := address.New(
+				assetGenesis, groupKey, *scriptKey,
+				*internalKey,
+				uint64(addr.Amount), t.params,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to make addr: %w", err)
+			}
+			taroAddr.Version = asset.Version(addr.Version)
+
 			addrs = append(addrs, address.AddrWithKeyInfo{
-				Taro: &address.Taro{
-					Version:     asset.Version(addr.Version),
-					Genesis:     assetGenesis,
-					GroupKey:    groupKey,
-					ScriptKey:   *scriptKey,
-					InternalKey: *internalKey,
-					Amount:      uint64(addr.Amount),
-					ChainParams: t.params,
-				},
+				Taro: taroAddr,
 				ScriptKeyTweak: asset.TweakedScriptKey{
 					RawKey: rawScriptKeyDesc,
 					Tweak:  addr.ScriptKeyTweak,
@@ -491,16 +483,17 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		PubKey: internalKey,
 	}
 
+	taroAddr, err := address.New(
+		genesis, groupKey, *scriptKey, *internalKey,
+		uint64(dbAddr.Amount), params,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make addr: %w", err)
+	}
+	taroAddr.Version = asset.Version(dbAddr.Version)
+
 	return &address.AddrWithKeyInfo{
-		Taro: &address.Taro{
-			Version:     asset.Version(dbAddr.Version),
-			Genesis:     genesis,
-			GroupKey:    groupKey,
-			ScriptKey:   *scriptKey,
-			InternalKey: *internalKey,
-			Amount:      uint64(dbAddr.Amount),
-			ChainParams: params,
-		},
+		Taro: taroAddr,
 		ScriptKeyTweak: asset.TweakedScriptKey{
 			RawKey: scriptKeyDesc,
 			Tweak:  dbAddr.ScriptKeyTweak,
@@ -809,6 +802,112 @@ func (t *TaroAddressBook) CompleteEvent(ctx context.Context,
 			AssetID:             sqlInt32(proofData.AssetID),
 		})
 		return err
+	})
+}
+
+// QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
+// asset group cannot be found, then ErrAssetGroupUnknown is returned.
+func (a *TaroAddressBook) QueryAssetGroup(ctx context.Context,
+	assetID asset.ID) (*asset.AssetGroup, error) {
+
+	var assetGroup asset.AssetGroup
+
+	readOpts := NewAddrBookReadTx()
+	err := a.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		assetGen, err := db.FetchGenesisByAssetID(ctx, assetID[:])
+		if err != nil {
+			return err
+		}
+
+		var genesisPrevOut wire.OutPoint
+		err = readOutPoint(
+			bytes.NewReader(assetGen.PrevOut), 0, 0, &genesisPrevOut,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to read outpoint: %w", err)
+		}
+
+		assetGroup.Genesis = &asset.Genesis{
+			FirstPrevOut: genesisPrevOut,
+			Tag:          assetGen.AssetTag,
+			MetaHash: chanutils.ToArray[[32]byte](
+				assetGen.MetaHash,
+			),
+			OutputIndex: uint32(assetGen.OutputIndex),
+			Type:        asset.Type(assetGen.AssetType),
+		}
+
+		// If there's no group associated with this asset, then we'll
+		// return early as not all assets have a group.
+		groupInfo, err := db.FetchGroupByGenesis(
+			ctx, assetGen.GenAssetID,
+		)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil
+		case err != nil:
+			return err
+		}
+
+		assetGroup.GroupKey, err = parseGroupKeyInfo(
+			groupInfo.TweakedGroupKey, groupInfo.RawKey,
+			groupInfo.KeyFamily, groupInfo.KeyIndex,
+		)
+
+		return err
+	})
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, address.ErrAssetGroupUnknown
+
+	case err != nil:
+		return nil, err
+	}
+
+	return &assetGroup, nil
+}
+
+// insertFullAssetGen inserts a new asset genesis into the database. A place
+// holder for the asset meta inserted as well.
+func insertFullAssetGen(ctx context.Context,
+	gen *asset.Genesis) func(AddrBook) error {
+
+	return func(db AddrBook) error {
+		_, err := maybeUpsertAssetMeta(
+			ctx, db, gen, nil,
+		)
+		if err != nil {
+			return err
+		}
+
+		genesisPointID, err := upsertGenesisPoint(
+			ctx, db, gen.FirstPrevOut,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert genesis "+
+				"point: %w", err)
+		}
+
+		_, err = upsertGenesis(
+			ctx, db, genesisPointID, *gen,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert genesis: %w", err)
+		}
+
+		return nil
+	}
+}
+
+// InsertAssetGen inserts a new asset genesis into the database. This is
+// exported primarily for external tests so a genesis can be in place before
+// addr insertion.
+func (t *TaroAddressBook) InsertAssetGen(ctx context.Context,
+	gen *asset.Genesis) error {
+
+	var writeTxOpts AddrBookTxOptions
+	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
+		return insertFullAssetGen(ctx, gen)(db)
 	})
 }
 

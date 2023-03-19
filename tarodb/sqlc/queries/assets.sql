@@ -667,6 +667,11 @@ SELECT script_key_id
 FROM script_keys
 WHERE tweaked_script_key = $1;
 
+-- name: FetchGenesisByAssetID :one
+SELECT * 
+FROM genesis_info_view
+WHERE asset_id = $1;
+
 -- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
     meta_data_hash, meta_data_blob, meta_data_type

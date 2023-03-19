@@ -19,3 +19,12 @@ type ByteArray interface {
 func ByteSlice[T ByteArray](v T) []byte {
 	return v[:]
 }
+
+// ToArray takes a byte slice, and returns an array. This is useful when a
+// fixed sized array is needed and the byte slice is known to be of the correct
+// size.
+func ToArray[T ByteArray](v []byte) T {
+	var arr T
+	copy(arr[:], v)
+	return arr
+}
