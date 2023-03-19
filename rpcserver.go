@@ -662,12 +662,6 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 		return nil, err
 	}
 
-	var bootstrapInfoBuf bytes.Buffer
-	if err := a.Genesis.Encode(&bootstrapInfoBuf); err != nil {
-		return nil, fmt.Errorf("unable to encode genesis: %w", err)
-	}
-	rpcAsset.AssetGenesis.GenesisBootstrapInfo = bootstrapInfoBuf.Bytes()
-
 	var anchorTxBytes []byte
 	if a.AnchorTx != nil {
 		var anchorTxBuf bytes.Buffer
@@ -793,29 +787,17 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 	}
 
 	for _, balance := range balances {
-		assetIDStr := hex.EncodeToString(balance.ID[:])
+		balance := balance
 
-		gen := asset.Genesis{
-			FirstPrevOut: balance.GenesisPoint,
-			Tag:          balance.Tag,
-			MetaHash:     balance.MetaHash,
-			OutputIndex:  balance.OutputIndex,
-			Type:         balance.Type,
-		}
-		var bootstrapInfoBuf bytes.Buffer
-		if err := gen.Encode(&bootstrapInfoBuf); err != nil {
-			return nil, fmt.Errorf("unable to encode genesis: %w",
-				err)
-		}
+		assetIDStr := hex.EncodeToString(balance.ID[:])
 
 		resp.AssetBalances[assetIDStr] = &tarorpc.AssetBalance{
 			AssetGenesis: &tarorpc.GenesisInfo{
-				Version:              int32(balance.Version),
-				GenesisPoint:         balance.GenesisPoint.String(),
-				Name:                 balance.Tag,
-				MetaHash:             balance.MetaHash[:],
-				AssetId:              balance.ID[:],
-				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
+				Version:      int32(balance.Version),
+				GenesisPoint: balance.GenesisPoint.String(),
+				Name:         balance.Tag,
+				MetaHash:     balance.MetaHash[:],
+				AssetId:      balance.ID[:],
 			},
 			AssetType: tarorpc.AssetType(balance.Type),
 			Balance:   balance.Balance,
@@ -842,6 +824,8 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 	}
 
 	for _, balance := range balances {
+		balance := balance
+
 		var groupKey []byte
 		if balance.GroupKey != nil {
 			groupKey = balance.GroupKey.SerializeCompressed()
@@ -1041,7 +1025,8 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	addrs := make([]*tarorpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
 		dbAddr.ChainParams = &taroParams
-		addrs[i], err = marshalAddr(dbAddr.Taro)
+
+		addrs[i], err = marshalAddr(dbAddr.Taro, r.cfg.TaroAddrBook)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal addr: %w",
 				err)
@@ -1059,31 +1044,17 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 func (r *rpcServer) NewAddr(ctx context.Context,
 	in *tarorpc.NewAddrRequest) (*tarorpc.Addr, error) {
 
-	var (
-		groupKey *btcec.PublicKey
-		err      error
-	)
+	var err error
 
-	// The group key is optional, so we'll only decode it if it's
-	// specified.
-	if len(in.GroupKey) != 0 {
-		groupKey, err = btcec.ParsePubKey(in.GroupKey)
-		if err != nil {
-			return nil, fmt.Errorf("unable to decode "+
-				"group key: %w", err)
-		}
+	if len(in.AssetId) != 32 {
+		return nil, fmt.Errorf("invalid asset id length")
 	}
 
-	genReader := bytes.NewReader(in.GenesisBootstrapInfo)
-	genesis, err := asset.DecodeGenesis(genReader)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode genesis bootstrap "+
-			"info: %w", err)
-	}
+	var assetID asset.ID
+	copy(assetID[:], in.AssetId)
 
-	assetID := genesis.ID()
-	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v, "+
-		"type=%v", assetID[:], in.Amt, asset.Type(genesis.Type))
+	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v",
+		assetID[:], in.Amt)
 
 	err = r.checkBalanceOverflow(ctx, &assetID, nil, in.Amt)
 	if err != nil {
@@ -1097,7 +1068,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, genesis, groupKey, uint64(in.Amt),
+			ctx, assetID, uint64(in.Amt),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1136,7 +1107,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, genesis, groupKey, uint64(in.Amt), *scriptKey,
+			ctx, assetID, uint64(in.Amt), *scriptKey,
 			internalKey,
 		)
 		if err != nil {
@@ -1147,7 +1118,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
 	// off the response.
-	rpcAddr, err := marshalAddr(addr.Taro)
+	rpcAddr, err := marshalAddr(addr.Taro, r.cfg.TaroAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -1171,7 +1142,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
 
-	rpcAddr, err := marshalAddr(addr)
+	rpcAddr, err := marshalAddr(addr, r.cfg.TaroAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -1284,6 +1255,23 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
 
+		// Now that we've decoded the address, we'll check to make sure
+		// that we can fetch the genesis for this address. Otherwise,
+		// that means we don't know anything about what it should look
+		// like on chain (the genesis is required to derive the taproot
+		// output key).
+		assetGroup, err := r.cfg.TaroAddrBook.QueryAssetGroup(
+			ctx, addr.AssetID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unknown asset=%x: %w",
+				addr.AssetID[:], err)
+		}
+
+		rpcsLog.Infof("group: %v", spew.Sdump(assetGroup))
+
+		addr.AttachGenesis(*assetGroup.Genesis)
+
 		taprootOutputKey, err := addr.TaprootOutputKey(nil)
 		if err != nil {
 			return nil, fmt.Errorf("error deriving Taproot key: %w",
@@ -1315,7 +1303,9 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	}
 
 	for idx, event := range events {
-		resp.Events[idx], err = marshalAddrEvent(event)
+		resp.Events[idx], err = marshalAddrEvent(
+			event, r.cfg.TaroAddrBook,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling event: %w",
 				err)
@@ -1548,27 +1538,42 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 }
 
 // marshalAddr turns an address into its RPC counterpart.
-func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
+func marshalAddr(addr *address.Taro,
+	db address.Storage) (*tarorpc.Addr, error) {
+
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
 		return nil, fmt.Errorf("unable to encode addr: %w", err)
 	}
 
-	taprootOutputKey, err := addr.TaprootOutputKey(nil)
-	if err != nil {
-		return nil, fmt.Errorf("error deriving Taproot output key: %w",
-			err)
+	// We can only derive the taproot output if we already know the genesis
+	// for this asset, as that's required to make the template asset that
+	// will be committed to in the tapscript tree.
+	var taprootOutputKey []byte
+	assetGroup, err := db.QueryAssetGroup(
+		context.Background(), addr.AssetID,
+	)
+	if err == nil {
+		addr.AttachGenesis(*assetGroup.Genesis)
+
+		outputKey, err := addr.TaprootOutputKey(nil)
+		if err != nil {
+			return nil, fmt.Errorf("error deriving Taproot "+
+				"output key: %w", err)
+		}
+
+		taprootOutputKey = schnorr.SerializePubKey(outputKey)
 	}
 
-	id := addr.ID()
+	id := addr.AssetID
 	rpcAddr := &tarorpc.Addr{
 		Encoded:          addrStr,
 		AssetId:          id[:],
-		AssetType:        tarorpc.AssetType(addr.Type),
 		Amount:           addr.Amount,
 		ScriptKey:        addr.ScriptKey.SerializeCompressed(),
 		InternalKey:      addr.InternalKey.SerializeCompressed(),
-		TaprootOutputKey: schnorr.SerializePubKey(taprootOutputKey),
+		TaprootOutputKey: taprootOutputKey,
+		AssetType:        tarorpc.AssetType(addr.AssetType()),
 	}
 
 	if addr.GroupKey != nil {
@@ -1579,8 +1584,10 @@ func marshalAddr(addr *address.Taro) (*tarorpc.Addr, error) {
 }
 
 // marshalAddrEvent turns an address event into its RPC counterpart.
-func marshalAddrEvent(event *address.Event) (*tarorpc.AddrEvent, error) {
-	rpcAddr, err := marshalAddr(event.Addr.Taro)
+func marshalAddrEvent(event *address.Event,
+	db address.Storage) (*tarorpc.AddrEvent, error) {
+
+	rpcAddr, err := marshalAddr(event.Addr.Taro, db)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling addr: %w", err)
 	}
