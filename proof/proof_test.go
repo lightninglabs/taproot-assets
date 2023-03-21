@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -18,6 +20,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -420,4 +423,13 @@ func BenchmarkProofEncoding(b *testing.B) {
 
 		require.Len(b, f2.proofs, numProofs)
 	}
+}
+
+func init() {
+	rand.Seed(time.Now().Unix())
+
+	logWriter := build.NewRotatingLogWriter()
+	logger := logWriter.GenSubLogger(Subsystem, func() {})
+	logWriter.RegisterSubLogger(Subsystem, logger)
+	UseLogger(logger)
 }
