@@ -228,6 +228,11 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 			return err
 		}
 
+		// Ensure that we won't underflow the remaining amount. None of
+		// the split amounts should be greater than the input amount.
+		if remainingAmount < locator.Amount {
+			return ErrInvalidSplitAmount
+		}
 		remainingAmount -= locator.Amount
 
 		return nil
