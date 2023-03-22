@@ -753,7 +753,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		currentPkg.VirtualPacket = fundSendRes.VPacket
-		currentPkg.PassiveAssets = fundSendRes.PassiveAssetReAnchors
 		currentPkg.InputCommitment = fundSendRes.TaroCommitment
 
 		currentPkg.SendState = SendStateVirtualSign
@@ -775,17 +774,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign and commit "+
 				"virtual packet: %w", err)
-		}
-
-		// Sign all the passive assets virtual packets.
-		for _, passiveAsset := range currentPkg.PassiveAssets {
-			_, err := p.cfg.AssetWallet.SignVirtualPacket(
-				passiveAsset.VPacket, SkipInputProofVerify(),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to sign "+
-					"passive asset virtual packet: %w", err)
-			}
 		}
 
 		currentPkg.SendState = SendStateAnchorSign
@@ -820,7 +808,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		log.Infof("Constructing new Taro commitments for send to: %x",
 			receiverScriptKey.SerializeCompressed())
 
-		// Gather passive assets virtual packets.
+		// Gather passive assets virtual packets and sign them.
+		wallet := p.cfg.AssetWallet
+		currentPkg.PassiveAssets, err = wallet.SignPassiveAssets(
+			currentPkg.InputCommitment, vPacket,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sign passive "+
+				"assets: %w", err)
+		}
+
 		var passiveVPackets []*taropsbt.VPacket
 		for _, passiveAsset := range currentPkg.PassiveAssets {
 			passiveVPackets = append(
@@ -828,7 +825,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			)
 		}
 
-		wallet := p.cfg.AssetWallet
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
 				FeeRate: feeRate,
