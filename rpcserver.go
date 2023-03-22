@@ -1604,47 +1604,50 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*tarorpc.MintingBatch,
 		})
 	}
 
-	batchState := marshalBatchState(batch)
-	if batchState == tarorpc.BatchState_BATCH_STATE_UNKNOWN {
-		return nil, fmt.Errorf("unknown batch state")
+	rpcBatchState, err := marshalBatchState(batch)
+	if err != nil {
+		return nil, err
 	}
 
 	return &tarorpc.MintingBatch{
 		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
-		State:    marshalBatchState(batch),
+		State:    rpcBatchState,
 		Assets:   rpcAssets,
 	}, nil
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
-func marshalBatchState(batch *tarogarden.MintingBatch) tarorpc.BatchState {
+func marshalBatchState(batch *tarogarden.MintingBatch) (tarorpc.BatchState,
+	error) {
+
 	switch batch.BatchState {
 	case tarogarden.BatchStatePending:
-		return tarorpc.BatchState_BATCH_STATE_PEDNING
+		return tarorpc.BatchState_BATCH_STATE_PEDNING, nil
 
 	case tarogarden.BatchStateFrozen:
-		return tarorpc.BatchState_BATCH_STATE_FROZEN
+		return tarorpc.BatchState_BATCH_STATE_FROZEN, nil
 
 	case tarogarden.BatchStateCommitted:
-		return tarorpc.BatchState_BATCH_STATE_COMMITTED
+		return tarorpc.BatchState_BATCH_STATE_COMMITTED, nil
 
 	case tarogarden.BatchStateBroadcast:
-		return tarorpc.BatchState_BATCH_STATE_BROADCAST
+		return tarorpc.BatchState_BATCH_STATE_BROADCAST, nil
 
 	case tarogarden.BatchStateConfirmed:
-		return tarorpc.BatchState_BATCH_STATE_CONFIRMED
+		return tarorpc.BatchState_BATCH_STATE_CONFIRMED, nil
 
 	case tarogarden.BatchStateFinalized:
-		return tarorpc.BatchState_BATCH_STATE_FINALIZED
+		return tarorpc.BatchState_BATCH_STATE_FINALIZED, nil
 
 	case tarogarden.BatchStateSeedlingCancelled:
-		return tarorpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED
+		return tarorpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED, nil
 
 	case tarogarden.BatchStateSproutCancelled:
-		return tarorpc.BatchState_BATCH_STATE_SPROUT_CANCELLED
+		return tarorpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
-		return tarorpc.BatchState_BATCH_STATE_UNKNOWN
+		return 0, fmt.Errorf("unknown batch state: %d",
+			batch.BatchState)
 	}
 }
 
