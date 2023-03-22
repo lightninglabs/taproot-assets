@@ -463,32 +463,19 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		return nil, err
 	}
 
-	// If there is no split, then we have an interactive full value transfer
-	// and the "sender" doesn't get a proof anymore.
-	if !isSplit {
-		receiverOut := vPkt.Outputs[outIndex]
-		receiverIndex := receiverOut.AnchorOutputIndex
-		receiverTaroTree := outputCommitments[receiverIndex]
-		receiverAsset := receiverOut.Asset
-
-		receiverParams := newParams(
-			anchorTx, receiverAsset, int(receiverIndex),
-			receiverOut.AnchorOutputInternalKey, receiverTaroTree,
-		)
-
-		return receiverParams, nil
-	}
-
 	// Is this the split root? Then we need exclusion proofs from all the
-	// split outputs.
-	if vPkt.Outputs[outIndex].IsSplitRoot {
-		splitRootOut := vPkt.Outputs[outIndex]
-		splitRootIndex := splitRootOut.AnchorOutputIndex
-		splitRootTaroTree := outputCommitments[splitRootIndex]
+	// split outputs. We can also use this path for interactive full value
+	// send case, where we also just commit to an asset that has a TX
+	// witness. We just need an inclusion proof and the exclusion proofs for
+	// any other outputs.
+	if vPkt.Outputs[outIndex].IsSplitRoot || !isSplit {
+		rootOut := vPkt.Outputs[outIndex]
+		rootIndex := rootOut.AnchorOutputIndex
+		rootTaroTree := outputCommitments[rootIndex]
 
-		rootSplitParams := newParams(
-			anchorTx, splitRootOut.Asset, int(splitRootIndex),
-			splitRootOut.AnchorOutputInternalKey, splitRootTaroTree,
+		rootParams := newParams(
+			anchorTx, rootOut.Asset, int(rootIndex),
+			rootOut.AnchorOutputInternalKey, rootTaroTree,
 		)
 
 		for idx := range vPkt.Outputs {
@@ -501,8 +488,8 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 			splitTaroTree := outputCommitments[splitIndex]
 
 			_, splitExclusionProof, err := splitTaroTree.Proof(
-				splitRootOut.Asset.TaroCommitmentKey(),
-				splitRootOut.Asset.AssetCommitmentKey(),
+				rootOut.Asset.TaroCommitmentKey(),
+				rootOut.Asset.AssetCommitmentKey(),
 			)
 			if err != nil {
 				return nil, err
@@ -515,12 +502,12 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 					Proof: *splitExclusionProof,
 				},
 			}
-			rootSplitParams.ExclusionProofs = append(
-				rootSplitParams.ExclusionProofs, exclusionProof,
+			rootParams.ExclusionProofs = append(
+				rootParams.ExclusionProofs, exclusionProof,
 			)
 		}
 
-		return rootSplitParams, nil
+		return rootParams, nil
 	}
 
 	// If this isn't the split root, then we need an exclusion proof from
