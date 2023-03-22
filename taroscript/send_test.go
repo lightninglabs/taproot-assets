@@ -376,7 +376,7 @@ func checkPreparedOutputsNonInteractive(t *testing.T, packet *taropsbt.VPacket,
 	require.Equal(t, *change.Asset.ScriptKey.PubKey, scriptKey)
 	require.Equal(t, change.Asset.Amount, input.Asset().Amount-addr.Amount)
 	if input.Asset().Amount == addr.Amount {
-		require.True(t, change.Asset.IsUnspendable())
+		require.True(t, change.Asset.IsUnSpendable())
 	}
 
 	require.Equal(t, receiver.Asset.Amount, addr.Amount)
@@ -432,7 +432,7 @@ func checkSignedAsset(t *testing.T, raw, signed *asset.Asset, split,
 		// signed asset to be the change asset, which should have a
 		// non-spendable script key.
 		if fullValue {
-			require.True(t, signed.IsUnspendable())
+			require.True(t, signed.IsUnSpendable())
 		}
 	}
 
@@ -550,7 +550,7 @@ func checkOutputCommitments(t *testing.T, vPkt *taropsbt.VPacket,
 	// If our spend creates an un-spendable root, no asset should exist
 	// at the location of the input asset. The same goes for an interactive
 	// full value send, which is only a single output.
-	if newAsset.IsUnspendable() && isSplit {
+	if newAsset.IsUnSpendable() && isSplit {
 		inputMatchingAsset = true
 	}
 

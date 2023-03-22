@@ -143,15 +143,15 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	}
 
 	// If the split requires a zero-value root asset, the root asset must
-	// be unspendable. Non-inflation of the split is enforced elsewhere, at
+	// be un-spendable. Non-inflation of the split is enforced elsewhere, at
 	// the end of vm.Execute().
-	if vm.newAsset.Amount == 0 && !vm.newAsset.IsUnspendable() {
+	if vm.newAsset.Amount == 0 && !vm.newAsset.IsUnSpendable() {
 		return newErrKind(ErrInvalidRootAsset)
 	}
 
 	// If we are validating the root asset of the split, the root split must
-	// also be unspendable.
-	if splitAsset.Amount == 0 && !splitAsset.IsUnspendable() {
+	// also be un-spendable.
+	if splitAsset.Amount == 0 && !splitAsset.IsUnSpendable() {
 		return newErrKind(ErrInvalidRootAsset)
 	}
 

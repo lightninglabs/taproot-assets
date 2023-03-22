@@ -573,7 +573,7 @@ func TestSplitCommitment(t *testing.T) {
 			err: ErrInvalidSplitLocator,
 		},
 		{
-			name: "unspendable root locator with non-zero amount",
+			name: "un-spendable root locator with non-zero amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
 					t, genesisNormal, groupKeyNormal,

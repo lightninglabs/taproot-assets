@@ -523,12 +523,12 @@ func TestVM(t *testing.T) {
 			err:  nil,
 		},
 		{
-			name: "invalid unspendable root asset",
+			name: "invalid un-spendable root asset",
 			f:    splitFullValueStateTransition(true, false),
 			err:  newErrKind(ErrInvalidRootAsset),
 		},
 		{
-			name: "invalid unspendable root locator",
+			name: "invalid un-spendable root locator",
 			f:    splitFullValueStateTransition(false, true),
 			err:  newErrKind(ErrInvalidRootAsset),
 		},

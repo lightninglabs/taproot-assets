@@ -178,7 +178,7 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 	// For Normal assets, we also check that the input asset amount is
 	// at least as large as the amount specified in the address.
 	// If the input amount is exactly the amount specified in the address,
-	// the spend must use an unspendable zero-value root split.
+	// the spend must use an un-spendable zero-value root split.
 	if inputAsset.Type == asset.Normal {
 		if inputAsset.Amount < desc.Amount {
 			return nil, fullValue, ErrInsufficientInputAsset
@@ -188,8 +188,8 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 			fullValue = true
 		}
 	} else {
-		// Collectible assets always require the spending split to use an
-		// unspendable zero-value root split.
+		// Collectible assets always require the spending split to use
+		// an un-spendable zero-value root split.
 		fullValue = true
 	}
 
