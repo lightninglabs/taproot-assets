@@ -243,12 +243,15 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 
 		// Interactive outputs can't be un-spendable, since there is no
 		// need for a tombstone output and burns work in a different
-		// way.
-		case vOut.Interactive && isUnSpendable:
+		// way, unless they are carrying the passive assets (in which
+		// case they're also marked as a split root).
+		case vOut.Interactive && isUnSpendable && !vOut.IsSplitRoot:
 			return commitment.ErrInvalidScriptKey
 
-		// Interactive outputs can't have a zero amount.
-		case vOut.Interactive && vOut.Amount == 0:
+		// Interactive outputs can't have a zero amount, unless they
+		// are carrying the passive assets (in which case they're also
+		// marked as a split root).
+		case vOut.Interactive && vOut.Amount == 0 && !vOut.IsSplitRoot:
 			return commitment.ErrZeroSplitAmount
 		}
 	}
@@ -336,17 +339,20 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 	// If we have an interactive full value send, we don't need a tomb stone
 	// at all.
 	inputIDCopy := input.PrevID
-	if interactiveFullValueSend(input, outputs) {
+	recipientIndex, isFullValueInteractiveSend := interactiveFullValueSend(
+		input, outputs,
+	)
+	if isFullValueInteractiveSend {
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		outputs[0].Asset = inputAsset.Copy()
-		outputs[0].Asset.ScriptKey = outputs[0].ScriptKey
+		outputs[recipientIndex].Asset = inputAsset.Copy()
+		outputs[recipientIndex].Asset.ScriptKey = outputs[0].ScriptKey
 
 		// Record the PrevID of the input asset in a Witness for the new
 		// asset. This Witness still needs a valid signature for the new
 		// asset to be valid.
-		outputs[0].Asset.PrevWitnesses = []asset.Witness{
+		outputs[recipientIndex].Asset.PrevWitnesses = []asset.Witness{
 			{
 				PrevID:          &inputIDCopy,
 				TxWitness:       nil,
@@ -541,7 +547,9 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 // CreateOutputCommitments creates the final set of TaroCommitments representing
 // the asset send. The input TaroCommitment must be set.
 func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
-	vPkt *taropsbt.VPacket) ([]*commitment.TaroCommitment, error) {
+	vPkt *taropsbt.VPacket,
+	passiveAssets []*taropsbt.VPacket) ([]*commitment.TaroCommitment,
+	error) {
 
 	// We currently only support a single input.
 	//
@@ -587,9 +595,40 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 		// The output that houses the split root will carry along the
 		// existing Taro commitment of the sender.
 		if vOut.IsSplitRoot {
-			err := inputCommitment.Upsert(vOut.Asset)
+			// In the interactive case we might have a full value
+			// send without an actual split root output but just the
+			// anchor output for the passive assets. We can skip
+			// that as we'll create the commitment for the passive
+			// assets later.
+			switch {
+			// The asset is present, just commit it to the input
+			// asset commitment.
+			case vOut.Asset != nil:
+				err := inputCommitment.Upsert(vOut.Asset)
+				if err != nil {
+					return nil, err
+				}
+
+			// There is no asset, but we have an interactive output
+			// that has IsSplitRoot set to true, so it means we need
+			// to anchor the passive assets to this output, which
+			// we'll do below.
+			case vOut.Asset == nil && vOut.Interactive:
+				// Continue below.
+
+			default:
+				return nil, fmt.Errorf("non-interactive "+
+					"output %d is missing asset", idx)
+			}
+
+			// Anchor passive assets to this output, since it's the
+			// split root (=change output).
+			err = AnchorPassiveAssets(
+				passiveAssets, inputTaroCommitmentCopy,
+			)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("unable to anchor "+
+					"passive assets: %w", err)
 			}
 
 			// Update the top-level TaroCommitment of the change
@@ -827,12 +866,31 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 	return mergedCommitments, nil
 }
 
-// interactiveFullValueSend returns true if there is exactly one output that
-// spends the input fully and interactively.
+// interactiveFullValueSend returns true (and the index of the recipient output)
+// if there is exactly one output that spends the input fully and interactively
+// (when discarding any potential passive asset anchor outputs).
 func interactiveFullValueSend(input *taropsbt.VInput,
-	outputs []*taropsbt.VOutput) bool {
+	outputs []*taropsbt.VOutput) (int, bool) {
 
-	return len(outputs) == 1 &&
-		outputs[0].Amount == input.Asset().Amount &&
-		outputs[0].Interactive
+	var (
+		numRecipientOutputs = 0
+		recipientIndex      = -1
+	)
+	for idx := range outputs {
+		out := outputs[idx]
+
+		// We identify a "recipient" output as one that is not a split
+		// root, as that has to go back to the sender (either to create
+		// a zero value tomb stone or to anchor passive assets).
+		if !out.IsSplitRoot {
+			numRecipientOutputs++
+			recipientIndex = idx
+		}
+	}
+
+	fullValueInteractiveSend := numRecipientOutputs == 1 &&
+		outputs[recipientIndex].Amount == input.Asset().Amount &&
+		outputs[recipientIndex].Interactive
+
+	return recipientIndex, fullValueInteractiveSend
 }

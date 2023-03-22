@@ -357,6 +357,13 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	for idx := range parcel.Outputs {
 		out := parcel.Outputs[idx]
 
+		// For outputs without assets (=anchor for passive assets), we
+		// don't need to store explicit proofs, they were created and
+		// imported above.
+		if out.PassiveAssetsOnly {
+			continue
+		}
+
 		// First, we'll decode the outputs' proof suffix.
 		var proofSuffix proof.Proof
 		err := proofSuffix.Decode(bytes.NewReader(out.ProofSuffix))

@@ -124,6 +124,13 @@ func (p *VPacket) HasSplitCommitment() (bool, error) {
 	for idx := range p.Outputs {
 		vOut := p.Outputs[idx]
 
+		// We skip the split root output as it doesn't carry a split
+		// commitment. And since it might only carry passive assets, the
+		// nil check below would trigger, which is not what we want.
+		if vOut.IsSplitRoot {
+			continue
+		}
+
 		// If any of the recipient asset is nil, this virtual
 		// transaction hasn't been prepared correctly, and we cannot
 		// determine if there is a split commitment.
@@ -451,7 +458,8 @@ func Bip32DerivationFromKeyDesc(keyDesc keychain.KeyDescriptor,
 
 // extractLocatorFromPath extracts the key family and index from the given BIP32
 // derivation path. The derivation path is expected to be of the form:
-// 	m/1017'/coin_type'/key_family'/0/index.
+//
+//	m/1017'/coin_type'/key_family'/0/index.
 func extractLocatorFromPath(path []uint32) (keychain.KeyLocator, error) {
 	loc := keychain.KeyLocator{}
 	if len(path) != 5 {

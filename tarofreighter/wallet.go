@@ -703,50 +703,15 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	inputCommitment := params.InputCommitments[0]
 
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		inputCommitment, vPacket,
+		inputCommitment, vPacket, params.PassiveAssetsVPkts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
 	}
 
-	// Anchor the passive assets to the change output commitment.
-	//
-	// As a first step, we need to find the change output (by index).
-	changeOutputIdx := -1
-	for idx := range vPacket.Outputs {
-		if vPacket.Outputs[idx].IsSplitRoot {
-			changeOutputIdx = idx
-			break
-		}
-	}
-	if len(params.PassiveAssetsVPkts) > 0 {
-		if changeOutputIdx == -1 {
-			// TODO(ffranr): Modify call to
-			// taroscript.CreateOutputCommitments such that a change
-			// commitment is created even for full value spend if
-			// passive asset is present.
-			return nil, fmt.Errorf("no change output found in " +
-				"spending vPacket")
-		}
-
-		changeCommitment := outputCommitments[changeOutputIdx]
-		err = taroscript.AnchorPassiveAssets(
-			params.PassiveAssetsVPkts, changeCommitment,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to anchor passive "+
-				"assets: %w", err)
-		}
-	}
-
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
-	//
-	// TODO(ffranr): Where a full spend is concerned, do passive asset
-	// re-anchoring outputs need to be included in the fee estimation?
-	// The re-anchoring process might add a new output if a change output is
-	// missing.
 	sendPacket, err := taroscript.CreateAnchorTx(vPacket.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)

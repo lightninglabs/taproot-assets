@@ -318,9 +318,23 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 // and forth, using the full amount, between nodes with the use of PSBTs.
 func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
-	// going to send backand forth.
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -360,7 +374,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		)
 
 		vPkt := taropsbt.ForInteractiveSend(
-			id, uint64(fullAmt), receiverScriptKey, 0,
+			id, fullAmt, receiverScriptKey, 0,
 			receiverAnchorIntKeyDesc, chainParams,
 		)
 
@@ -383,6 +397,10 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		require.NoError(t.t, err)
 
 		numOutputs := 1
+		if i == 0 {
+			// Account for the passive asset in the first transfer.
+			numOutputs = 2
+		}
 		confirmAndAssetOutboundTransferWithOutputs(
 			t, sender, sendResp, genInfo.AssetId, []uint64{fullAmt},
 			i/2, (i/2)+1, numOutputs,
@@ -398,7 +416,17 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 			},
 		)
 		require.NoError(t.t, err)
-		require.Len(t.t, senderAssets.Assets, 0)
+
+		// Depending on what direction we currently have, the number of
+		// expected assets is different, since the initial sender always
+		// has the passive asset left.
+		numSenderAssets := 1
+		numReceiverAssets := 1
+		if sender == secondTarod {
+			numSenderAssets = 0
+			numReceiverAssets = 2
+		}
+		require.Len(t.t, senderAssets.Assets, numSenderAssets)
 
 		receiverAssets, err := receiver.ListAssets(
 			ctxb, &tarorpc.ListAssetRequest{
@@ -406,9 +434,10 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 			},
 		)
 		require.NoError(t.t, err)
-		require.Len(t.t, receiverAssets.Assets, 1)
-		require.EqualValues(
-			t.t, fullAmt, receiverAssets.Assets[0].Amount,
+		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
+		assertAssetState(
+			t, receiver, genInfo.Name, genInfo.MetaHash,
+			assetAmountCheck(fullAmt),
 		)
 	}
 }

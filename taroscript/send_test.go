@@ -1039,7 +1039,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		_, err = taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		return err
 	},
@@ -1074,7 +1074,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		_, err = taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		return err
 	},
@@ -1099,7 +1099,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1125,7 +1125,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1151,7 +1151,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1178,7 +1178,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1206,7 +1206,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1251,7 +1251,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1285,7 +1285,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1319,7 +1319,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1356,7 +1356,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1393,7 +1393,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1431,7 +1431,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1470,7 +1470,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt,
+			inputCommitment, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1521,7 +1521,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 
 	inputCommitment := &state.asset2TaroTree
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		inputCommitment, pkt,
+		inputCommitment, pkt, nil,
 	)
 	require.NoError(t, err)
 

@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -342,21 +343,50 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		outCommitment := outputCommitments[vOut.AnchorOutputIndex]
 		taroRoot := outCommitment.TapscriptRoot(tapscriptSibling)
 
-		proofSuffix, err := s.createProofSuffix(idx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create proof %d: %w",
-				idx, err)
-		}
-		var proofSuffixBuf bytes.Buffer
-		if err := proofSuffix.Encode(&proofSuffixBuf); err != nil {
-			return nil, fmt.Errorf("unable to encode proof %d: %w",
-				idx, err)
-		}
+		var (
+			numPassiveAssets    uint32
+			passiveAnchorOnly   bool
+			proofSuffixBuf      bytes.Buffer
+			witness             []asset.Witness
+			splitCommitmentRoot mssmt.Node
+		)
 
-		// The split root is where we commit the passive assets to.
-		var numPassiveAssets uint32
+		// If there are passive assets, they are always committed to the
+		// output that is marked as the split root.
 		if vOut.IsSplitRoot {
 			numPassiveAssets = uint32(len(s.PassiveAssets))
+		}
+
+		// Either we have an asset that we commit to or we have an
+		// output just for the passive assets, which we mark as an
+		// interactive split root.
+		switch {
+		// This is a "valid" output for just carrying passive assets
+		// (marked as interactive split root and not committing to an
+		// active asset transfer).
+		case vOut.Interactive && vOut.IsSplitRoot && vOut.Asset == nil:
+			passiveAnchorOnly = true
+
+		// In any other case we expect an active asset transfer to be
+		// committed to.
+		case vOut.Asset != nil:
+			proofSuffix, err := s.createProofSuffix(idx)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create "+
+					"proof %d: %w", idx, err)
+			}
+			err = proofSuffix.Encode(&proofSuffixBuf)
+			if err != nil {
+				return nil, fmt.Errorf("unable to encode "+
+					"proof %d: %w", idx, err)
+			}
+			witness = vOut.Asset.PrevWitnesses
+			splitCommitmentRoot = vOut.Asset.SplitCommitmentRoot
+
+		default:
+			return nil, fmt.Errorf("invalid output %d, asset "+
+				"missing and not marked for passive assets",
+				idx)
 		}
 
 		txOut := s.AnchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
@@ -374,9 +404,10 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 			},
 			ScriptKey:           vOut.ScriptKey,
 			Amount:              vOut.Amount,
-			WitnessData:         vOut.Asset.PrevWitnesses,
-			SplitCommitmentRoot: vOut.Asset.SplitCommitmentRoot,
+			WitnessData:         witness,
+			SplitCommitmentRoot: splitCommitmentRoot,
 			ProofSuffix:         proofSuffixBuf.Bytes(),
+			PassiveAssetsOnly:   passiveAnchorOnly,
 		}
 	}
 

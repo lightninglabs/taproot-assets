@@ -2065,8 +2065,10 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// If this is an outbound transfer (meaning that our
 			// node doesn't control the script key), we don't create
 			// an asset entry in the DB. The transfer will be the
-			// only reference to the asset leaving the node.
-			if !out.ScriptKeyLocal {
+			// only reference to the asset leaving the node. The
+			// same goes for outputs that are only used to anchor
+			// passive assets, which are handled separately.
+			if !out.ScriptKeyLocal || out.PassiveAssetsOnly {
 				continue
 			}
 
