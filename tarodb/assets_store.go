@@ -1761,6 +1761,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		SerializedWitnesses: witnessBuf.Bytes(),
 		ProofSuffix:         output.ProofSuffix,
 		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
+		PassiveAssetsOnly:   output.PassiveAssetsOnly,
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -1881,7 +1882,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				splitRootHash,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
 			),
-			ProofSuffix: dbOut.ProofSuffix,
+			ProofSuffix:       dbOut.ProofSuffix,
+			PassiveAssetsOnly: dbOut.PassiveAssetsOnly,
 		}
 
 		err = readOutPoint(

@@ -153,6 +153,13 @@ type TransferOutput struct {
 	// includes all the proof information other than the final chain
 	// information.
 	ProofSuffix []byte
+
+	// PassiveAssetsOnly indicates whether this transfer output only exists
+	// to represent an anchor for the passive assets. If this is true, then
+	// no asset is created for this output and certain values such as the
+	// witness data, split commitment root and proof suffix is expected to
+	// be empty.
+	PassiveAssetsOnly bool
 }
 
 // OutboundParcel represents the database level delta of an outbound taro
