@@ -390,8 +390,8 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		assetInput.Commitment, vPkt,
 	)
 
-	// We expect some change back, so let's create a script key to receive
-	// the change on.
+	// We expect some change back, or have passive assets to commit to, so
+	// let's make sure we create a transfer output.
 	var changeOut *taropsbt.VOutput
 	if !fullValue || len(passiveCommitments) > 0 {
 		// Do we need to add a change output?
@@ -416,13 +416,16 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		// need to make sure it is going to an address that we control.
 		// This should only be the case where we create the default
 		// change output with the NUMS key to avoid deriving too many
-		// keys prematurely.
+		// keys prematurely. We don't need to derive a new key if we
+		// only have passive assets to commit to, since they all have
+		// their own script key and the output is more of a placeholder
+		// to attach the passive assets to.
 		unSpendable, err := changeOut.ScriptKey.IsUnSpendable()
 		if err != nil {
 			return nil, fmt.Errorf("cannot determine if script "+
 				"key is spendable: %w", err)
 		}
-		if unSpendable {
+		if unSpendable && !fullValue {
 			changeScriptKey, err := f.cfg.KeyRing.DeriveNextKey(
 				ctx, asset.TaroKeyFamily,
 			)

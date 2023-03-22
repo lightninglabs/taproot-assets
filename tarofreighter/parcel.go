@@ -584,66 +584,86 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 
 // createReAnchorProof creates the new proof for the re-anchoring of a passive
 // asset.
-func (s *sendPackage) createReAnchorProof(vPkt *taropsbt.VPacket) (*proof.Proof,
-	error) {
+func (s *sendPackage) createReAnchorProof(
+	passivePkt *taropsbt.VPacket) (*proof.Proof, error) {
 
-	vIn := vPkt.Inputs[0]
-	vOut := vPkt.Outputs[0]
+	// Passive asset transfers only have a single input and a single output.
+	passiveIn := passivePkt.Inputs[0]
+	passiveOut := passivePkt.Outputs[0]
+
+	// Passive assets are always anchored at the "split root", which
+	// normally contains asset change. But it can also be that the split
+	// root output was just created for the passive assets, if there is no
+	// active transfer or no change.
+	changeOut, err := s.VirtualPacket.SplitRootOutput()
+	if err != nil {
+		return nil, fmt.Errorf("anchor output for passive assets not "+
+			"found: %w", err)
+	}
 
 	outputCommitments := s.AnchorTx.OutputCommitments
+	passiveOutputIndex := passiveOut.AnchorOutputIndex
+	passiveTaroTree := outputCommitments[passiveOutputIndex]
 
-	// Create the exclusion proof for the receiver's tree.
-	// TODO(ffranr): Remove static output index once PSBT work is complete.
-	receiverOutputIndex := uint32(1)
-	receiverTaroTree := outputCommitments[receiverOutputIndex]
-	receiverOut := s.VirtualPacket.Outputs[receiverOutputIndex]
-
-	_, receiverTreeExclusionProof, err := receiverTaroTree.Proof(
-		vIn.Asset().TaroCommitmentKey(),
-		vIn.Asset().AssetCommitmentKey(),
+	// The base parameters include the inclusion proof of the passive asset
+	// in the split root output.
+	passiveParams := newParams(
+		s.AnchorTx, passiveOut.Asset, int(passiveOutputIndex),
+		changeOut.AnchorOutputInternalKey,
+		passiveTaroTree,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("error creating exclusion proof for "+
-			"re-anchor: %w", err)
-	}
 
-	receiverTaprootProof := proof.TaprootProof{
-		OutputIndex: receiverOutputIndex,
-		InternalKey: receiverOut.AnchorOutputInternalKey,
-		CommitmentProof: &proof.CommitmentProof{
-			Proof: *receiverTreeExclusionProof,
-		},
-	}
+	// Since a transfer might contain other anchor outputs, we need to
+	// provide an exclusion proof of the passive asset for each of the other
+	// BTC level outputs.
+	for idx := range s.VirtualPacket.Outputs {
+		otherOut := s.VirtualPacket.Outputs[idx]
+		otherIndex := otherOut.AnchorOutputIndex
 
-	// Fetch the new Taro tree for the passive asset.
-	passiveAssetTaroTree := outputCommitments[vOut.AnchorOutputIndex]
+		// The same anchor output index means this output is committed
+		// to the same top level tree, and we don't need an exclusion
+		// proof.
+		if otherIndex == passiveOutputIndex {
+			continue
+		}
 
-	// Create the base proof parameters for the re-anchor.
-	baseProofParams := proof.BaseProofParams{
-		Block: &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{
-				s.AnchorTx.FinalTx,
+		otherTaroTree := outputCommitments[otherIndex]
+		_, otherExclusionProof, err := otherTaroTree.Proof(
+			passiveOut.Asset.TaroCommitmentKey(),
+			passiveOut.Asset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		passiveParams.ExclusionProofs = append(
+			passiveParams.ExclusionProofs, proof.TaprootProof{
+				OutputIndex: otherIndex,
+				InternalKey: otherOut.AnchorOutputInternalKey,
+				CommitmentProof: &proof.CommitmentProof{
+					Proof: *otherExclusionProof,
+				},
 			},
-		},
-		Tx:              s.AnchorTx.FinalTx,
-		OutputIndex:     int(vOut.AnchorOutputIndex),
-		InternalKey:     vOut.AnchorOutputInternalKey,
-		TaroRoot:        passiveAssetTaroTree,
-		ExclusionProofs: []proof.TaprootProof{receiverTaprootProof},
+		)
 	}
 
-	// Add exclusion proof(s) for any P2TR change outputs.
-	if s.AnchorTx.FundedPsbt.ChangeOutputIndex > -1 {
+	// Add exclusion proof(s) for any P2TR (=BIP-0086, not carrying any
+	// assets) change outputs.
+	if len(s.AnchorTx.FundedPsbt.Pkt.UnsignedTx.TxOut) > 1 {
 		isAnchor := func(idx uint32) bool {
-			// We exclude both sender and receiver
-			// commitments because those get their own,
-			// individually created exclusion proofs.
-			return idx == vOut.AnchorOutputIndex ||
-				idx == receiverOutputIndex
+			for outIdx := range s.VirtualPacket.Outputs {
+				vOut := s.VirtualPacket.Outputs[outIdx]
+				if vOut.AnchorOutputIndex == idx {
+					return true
+				}
+			}
+
+			return false
 		}
 
 		err := proof.AddExclusionProofs(
-			&baseProofParams, s.AnchorTx.FundedPsbt.Pkt, isAnchor,
+			&passiveParams.BaseProofParams,
+			s.AnchorTx.FundedPsbt.Pkt, isAnchor,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error adding exclusion "+
@@ -652,12 +672,8 @@ func (s *sendPackage) createReAnchorProof(vPkt *taropsbt.VPacket) (*proof.Proof,
 	}
 
 	// Generate a proof of this new state transition.
-	transitionParams := proof.TransitionParams{
-		BaseProofParams: baseProofParams,
-		NewAsset:        vOut.Asset,
-	}
 	reAnchorProof, err := proof.CreateTransitionProof(
-		vIn.PrevID.OutPoint, &transitionParams,
+		passiveIn.PrevID.OutPoint, passiveParams,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating re-anchor proof: %w",
