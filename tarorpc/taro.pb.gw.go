@@ -65,6 +65,126 @@ func local_request_Taro_MintAsset_0(ctx context.Context, marshaler runtime.Marsh
 
 }
 
+func request_Taro_FinalizeBatch_0(ctx context.Context, marshaler runtime.Marshaler, client TaroClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq FinalizeBatchRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := client.FinalizeBatch(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Taro_FinalizeBatch_0(ctx context.Context, marshaler runtime.Marshaler, server TaroServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq FinalizeBatchRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := server.FinalizeBatch(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_Taro_CancelBatch_0(ctx context.Context, marshaler runtime.Marshaler, client TaroClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq CancelBatchRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := client.CancelBatch(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Taro_CancelBatch_0(ctx context.Context, marshaler runtime.Marshaler, server TaroServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq CancelBatchRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := server.CancelBatch(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_Taro_ListBatches_0(ctx context.Context, marshaler runtime.Marshaler, client TaroClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListBatchRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["batch_key"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key")
+	}
+
+	protoReq.BatchKey, err = runtime.Bytes(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key", err)
+	}
+
+	msg, err := client.ListBatches(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Taro_ListBatches_0(ctx context.Context, marshaler runtime.Marshaler, server TaroServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListBatchRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["batch_key"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key")
+	}
+
+	protoReq.BatchKey, err = runtime.Bytes(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key", err)
+	}
+
+	msg, err := server.ListBatches(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
 var (
 	filter_Taro_ListAssets_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 )
@@ -587,6 +707,75 @@ func RegisterTaroHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 
 	})
 
+	mux.Handle("POST", pattern_Taro_FinalizeBatch_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/tarorpc.Taro/FinalizeBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/finalize"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Taro_FinalizeBatch_0(rctx, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_FinalizeBatch_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_Taro_CancelBatch_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/tarorpc.Taro/CancelBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/cancel"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Taro_CancelBatch_0(rctx, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_CancelBatch_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_Taro_ListBatches_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/tarorpc.Taro/ListBatches", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/batches/{batch_key}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Taro_ListBatches_0(rctx, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_ListBatches_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("GET", pattern_Taro_ListAssets_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1000,6 +1189,66 @@ func RegisterTaroHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 
 	})
 
+	mux.Handle("POST", pattern_Taro_FinalizeBatch_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/tarorpc.Taro/FinalizeBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/finalize"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Taro_FinalizeBatch_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_FinalizeBatch_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_Taro_CancelBatch_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/tarorpc.Taro/CancelBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/cancel"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Taro_CancelBatch_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_CancelBatch_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_Taro_ListBatches_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/tarorpc.Taro/ListBatches", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/batches/{batch_key}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Taro_ListBatches_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Taro_ListBatches_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("GET", pattern_Taro_ListAssets_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1326,6 +1575,12 @@ func RegisterTaroHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 var (
 	pattern_Taro_MintAsset_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taro", "assets"}, ""))
 
+	pattern_Taro_FinalizeBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "assets", "mint", "finalize"}, ""))
+
+	pattern_Taro_CancelBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "assets", "mint", "cancel"}, ""))
+
+	pattern_Taro_ListBatches_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "assets", "mint", "batches", "batch_key"}, ""))
+
 	pattern_Taro_ListAssets_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taro", "assets"}, ""))
 
 	pattern_Taro_ListUtxos_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taro", "assets", "utxos"}, ""))
@@ -1361,6 +1616,12 @@ var (
 
 var (
 	forward_Taro_MintAsset_0 = runtime.ForwardResponseMessage
+
+	forward_Taro_FinalizeBatch_0 = runtime.ForwardResponseMessage
+
+	forward_Taro_CancelBatch_0 = runtime.ForwardResponseMessage
+
+	forward_Taro_ListBatches_0 = runtime.ForwardResponseMessage
 
 	forward_Taro_ListAssets_0 = runtime.ForwardResponseMessage
 

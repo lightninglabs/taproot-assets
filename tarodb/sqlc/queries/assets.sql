@@ -20,10 +20,28 @@ JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
 WHERE batches.batch_state != $1;
 
+-- name: FetchMintingBatch :one
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch. This internal key is used as the
+    -- actual Taproot internal key to ultimately mint the batch. This pattern
+    -- is used in several other queries.
+    SELECT batch_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys keys
+        ON batches.batch_id = keys.key_id
+    WHERE keys.raw_key = $1
+)
+SELECT *
+FROM asset_minting_batches batches
+JOIN internal_keys keys
+    ON batches.batch_id = keys.key_id
+WHERE batch_id in (SELECT batch_id FROM target_batch);
+
 -- name: UpdateMintingBatchState :exec
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
-    -- internal key associated with the batch. This internal key is as the
+    -- internal key associated with the batch. This internal key is used as the
     -- actual Taproot internal key to ultimately mint the batch. This pattern
     -- is used in several other queries.
     SELECT batch_id

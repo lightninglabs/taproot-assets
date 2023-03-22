@@ -3,9 +3,9 @@ package tarodb
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
@@ -38,6 +39,13 @@ type (
 	// key info. This is used to query for batches where the state doesn't
 	// match a certain value.
 	MintingBatchI = sqlc.FetchMintingBatchesByInverseStateRow
+
+	// MintingBatchF is an alias for a specific minting batch.
+	MintingBatchF = sqlc.FetchMintingBatchRow
+
+	// MintingBatchA is an alias for a minting batch returned when querying
+	// for all minting batches.
+	MintingBatchA = sqlc.AllMintingBatchesRow
 
 	// AssetSeedling is an asset seedling.
 	AssetSeedling = sqlc.AssetSeedling
@@ -125,10 +133,18 @@ type PendingAssetStore interface {
 	InsertAssetSeedlingIntoBatch(ctx context.Context,
 		arg AssetSeedlingItem) error
 
+	// AllMintingBatches is used to fetch all minting batches.
+	AllMintingBatches(ctx context.Context) ([]MintingBatchA, error)
+
 	// FetchMintingBatchesByInverseState is used to fetch minting batches
 	// that don't have a particular state.
 	FetchMintingBatchesByInverseState(ctx context.Context,
 		batchState int16) ([]MintingBatchI, error)
+
+	// FetchMintingBatch is used to fetch a single minting batch specified
+	// by the batch key.
+	FetchMintingBatch(ctx context.Context,
+		rawKey []byte) (MintingBatchF, error)
 
 	// FetchSeedlingsForBatch is used to fetch all the seedlings by the key
 	// of the batch they're included in.
@@ -290,14 +306,6 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 		return nil
 	})
-
-	var errUnique *ErrSqlUniqueConstraintViolation
-	if errors.As(err, &errUnique) && strings.Contains(
-		errUnique.DbError.Error(), "asset_name",
-	) {
-
-		return tarogarden.ErrDuplicateSeedlingName
-	}
 
 	return err
 }
@@ -550,75 +558,19 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 		)
 		if err != nil {
 			return fmt.Errorf("unable to fetch minting "+
-				"batches: %v", err)
+				"batches: %w", err)
 		}
 
-		// For each batch returned, we'll assemble an intermediate
-		// batch struct, then fill in all the seedlings with another
-		// sub-query.
-		batches = make([]*tarogarden.MintingBatch, len(dbBatches))
-		for i, batch := range dbBatches {
-			batchKey, err := btcec.ParsePubKey(batch.RawKey)
-			if err != nil {
-				return err
-			}
-			batches[i] = &tarogarden.MintingBatch{
-				BatchState: tarogarden.BatchState(
-					batch.BatchState,
-				),
-				BatchKey: keychain.KeyDescriptor{
-					KeyLocator: keychain.KeyLocator{
-						Family: keychain.KeyFamily(
-							batch.KeyFamily,
-						),
-						Index: uint32(batch.KeyIndex),
-					},
-					PubKey: batchKey,
-				},
-				HeightHint:   uint32(batch.HeightHint),
-				CreationTime: batch.CreationTimeUnix.UTC(),
-			}
+		parseBatch := func(batch MintingBatchI) (*tarogarden.MintingBatch,
+			error) {
 
-			if batch.MintingTxPsbt != nil {
-				genesisPkt, err := psbt.NewFromRawBytes(
-					bytes.NewReader(batch.MintingTxPsbt), false,
-				)
-				if err != nil {
-					return err
-				}
-				batches[i].GenesisPacket = &tarogarden.FundedPsbt{
-					Pkt: genesisPkt,
-					ChangeOutputIndex: extractSqlInt32[int32](
-						batch.ChangeOutputIndex,
-					),
-				}
-			}
+			convBatch := convertMintingBatchI(batch)
+			return marshalMintingBatch(ctx, q, convBatch)
+		}
 
-			// Depending on what state this batch is in, we'll
-			// either fetch the set of seedlings (asset
-			// descriptions w/ no real assets), or the set of
-			// sprouts (full defined assets, but not yet mined).
-			switch batches[i].BatchState {
-			case tarogarden.BatchStatePending,
-				tarogarden.BatchStateFrozen:
-				// In this case we can just fetch the set of
-				// descriptions of future assets to be.
-				batches[i].Seedlings, err = fetchAssetSeedlings(
-					ctx, q, batch.RawKey,
-				)
-				if err != nil {
-					return err
-				}
-
-				continue
-			}
-
-			batches[i].RootAssetCommitment, err = fetchAssetSprouts(
-				ctx, q, batch.RawKey,
-			)
-			if err != nil {
-				return err
-			}
+		batches, err = chanutils.MapErr(dbBatches, parseBatch)
+		if err != nil {
+			return fmt.Errorf("batch parsing failed: %w", err)
 		}
 
 		return nil
@@ -628,6 +580,183 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 	}
 
 	return batches, nil
+}
+
+// FetchAllBatches fetches all batches on disk.
+func (a *AssetMintingStore) FetchAllBatches(
+	ctx context.Context) ([]*tarogarden.MintingBatch, error) {
+
+	var batches []*tarogarden.MintingBatch
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		dbBatches, err := q.AllMintingBatches(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch minting "+
+				"batches: %w", err)
+		}
+
+		parseBatch := func(batch MintingBatchA) (*tarogarden.MintingBatch,
+			error) {
+
+			convBatch := convertMintingBatchA(batch)
+			return marshalMintingBatch(ctx, q, convBatch)
+		}
+
+		batches, err = chanutils.MapErr(dbBatches, parseBatch)
+		if err != nil {
+			return fmt.Errorf("batch parsing failed: %w", err)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return batches, nil
+}
+
+// FetchMintingBatch fetches the single batch with the given batch key.
+func (a *AssetMintingStore) FetchMintingBatch(ctx context.Context,
+	batchKey *btcec.PublicKey) (*tarogarden.MintingBatch, error) {
+
+	if batchKey == nil {
+		return nil, fmt.Errorf("no batch key")
+	}
+
+	var batch *tarogarden.MintingBatch
+	batchKeyBytes := batchKey.SerializeCompressed()
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		dbBatch, err := q.FetchMintingBatch(ctx, batchKeyBytes)
+		if err != nil {
+			return err
+		}
+
+		batch, err = marshalMintingBatch(ctx, q, dbBatch)
+		if err != nil {
+			return fmt.Errorf("batch parsing failed: %w", err)
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, fmt.Errorf("no batch with key %x", batchKeyBytes)
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return batch, nil
+}
+
+// convertMintingBatchI converts a batch fetched with FetchNonFinalBatches to
+// another type so it can be parsed.
+func convertMintingBatchI(batch MintingBatchI) MintingBatchF {
+	return MintingBatchF{
+		BatchID:           batch.BatchID,
+		BatchState:        batch.BatchState,
+		MintingTxPsbt:     batch.MintingTxPsbt,
+		ChangeOutputIndex: batch.ChangeOutputIndex,
+		GenesisID:         batch.GenesisID,
+		HeightHint:        batch.HeightHint,
+		CreationTimeUnix:  batch.CreationTimeUnix,
+		KeyID:             batch.KeyID,
+		RawKey:            batch.RawKey,
+		KeyFamily:         batch.KeyFamily,
+		KeyIndex:          batch.KeyIndex,
+	}
+}
+
+// convertMintingBatchA converts a batch fetched with AllMintingBatches to
+// another type so it can be parsed.
+func convertMintingBatchA(batch MintingBatchA) MintingBatchF {
+	return MintingBatchF{
+		BatchID:           batch.BatchID,
+		BatchState:        batch.BatchState,
+		MintingTxPsbt:     batch.MintingTxPsbt,
+		ChangeOutputIndex: batch.ChangeOutputIndex,
+		GenesisID:         batch.GenesisID,
+		HeightHint:        batch.HeightHint,
+		CreationTimeUnix:  batch.CreationTimeUnix,
+		KeyID:             batch.KeyID,
+		RawKey:            batch.RawKey,
+		KeyFamily:         batch.KeyFamily,
+		KeyIndex:          batch.KeyIndex,
+	}
+}
+
+// marshalMintingBatch marshals a minting batch into its native type,
+// and fetches the corresponding seedlings or root taro commitment.
+func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
+	dbBatch MintingBatchF) (*tarogarden.MintingBatch, error) {
+
+	batchKey, err := btcec.ParsePubKey(dbBatch.RawKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// For each batch, we'll assemble an intermediate batch struct, then
+	// fill in all the seedlings with another sub-query.
+	batch := &tarogarden.MintingBatch{
+		BatchState: tarogarden.BatchState(
+			dbBatch.BatchState,
+		),
+		BatchKey: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(
+					dbBatch.KeyFamily,
+				),
+				Index: uint32(dbBatch.KeyIndex),
+			},
+			PubKey: batchKey,
+		},
+		HeightHint:   uint32(dbBatch.HeightHint),
+		CreationTime: dbBatch.CreationTimeUnix.UTC(),
+	}
+
+	if dbBatch.MintingTxPsbt != nil {
+		genesisPkt, err := psbt.NewFromRawBytes(
+			bytes.NewReader(dbBatch.MintingTxPsbt), false,
+		)
+		if err != nil {
+			return nil, err
+		}
+		batch.GenesisPacket = &tarogarden.FundedPsbt{
+			Pkt: genesisPkt,
+			ChangeOutputIndex: extractSqlInt32[int32](
+				dbBatch.ChangeOutputIndex,
+			),
+		}
+	}
+
+	// Depending on what state this batch is in, we'll
+	// either fetch the set of seedlings (asset
+	// descriptions w/ no real assets), or the set of
+	// sprouts (full defined assets, but not yet mined).
+	switch batch.BatchState {
+	case tarogarden.BatchStatePending,
+		tarogarden.BatchStateFrozen,
+		tarogarden.BatchStateSeedlingCancelled:
+
+		// In this case we can just fetch the set of
+		// descriptions of future assets to be.
+		batch.Seedlings, err = fetchAssetSeedlings(
+			ctx, q, dbBatch.RawKey,
+		)
+
+	default:
+		batch.RootAssetCommitment, err = fetchAssetSprouts(
+			ctx, q, dbBatch.RawKey,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return batch, nil
 }
 
 // UpdateBatchState updates the state of a batch based on the batch key.

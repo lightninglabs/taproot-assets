@@ -2,7 +2,6 @@ package tarogarden
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -20,12 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
-// ErrDuplicateSeedlingName is an error type for use with asset seedling name
-// unique constraint violations.
-var ErrDuplicateSeedlingName = errors.New(
-	"new asset seedling shares the same name as an existing asset",
-)
-
 // Planter is responsible for batching a set of seedlings into a minting batch
 // that will eventually be confirmed on chain.
 type Planter interface {
@@ -39,11 +32,23 @@ type Planter interface {
 
 	// TODO(roasbeef): notification methods also?
 
+	// ListBatches lists the set of batches submitted for minting, or the
+	// details of a specific batch.
+	ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch, error)
+
 	// CancelSeedling attempts to cancel the creation of a new asset
 	// identified by its name. If the seedling has already progressed to a
 	// point where the genesis PSBT has been broadcasted, an error is
 	// returned.
 	CancelSeedling() error
+
+	// FinalizeBatch signals that the asset minter should finalize
+	// the current batch, if one exists.
+	FinalizeBatch() (*btcec.PublicKey, error)
+
+	// CancelBatch signals that the asset minter should cancel the
+	// current batch, if one exists.
+	CancelBatch() (*btcec.PublicKey, error)
 
 	// Start signals that the asset minter should being operations.
 	Start() error
@@ -83,6 +88,14 @@ const (
 	// state the batch has been confirmed on chain, with all assets
 	// created.
 	BatchStateFinalized BatchState = 5
+
+	// BatchStateCancelled denotes that a batch has been cancelled, and
+	// will not be passed to a caretaker.
+	BatchStateSeedlingCancelled BatchState = 6
+
+	// BatchStateSproutedCancelled denotes that a batch has been cancelled
+	// after being passed to a caretaker and sprouting.
+	BatchStateSproutCancelled BatchState = 7
 )
 
 // String returns a human-readable string for the target batch state.
@@ -105,6 +118,12 @@ func (b BatchState) String() string {
 
 	case BatchStateFinalized:
 		return "BatchStateFinalized"
+
+	case BatchStateSeedlingCancelled:
+		return "BatchStateSeedlingCancelled"
+
+	case BatchStateSproutCancelled:
+		return "BatchStateSproutCancelled"
 
 	default:
 		return fmt.Sprintf("UnknownState(%v)", int(b))
@@ -132,9 +151,17 @@ type MintingStore interface {
 	AddSeedlingsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
 		seedlings ...*Seedling) error
 
+	// FetchAllBetches fetches all the batches on disk.
+	FetchAllBatches(ctx context.Context) ([]*MintingBatch, error)
+
 	// FetchNonFinalBatches fetches all non-finalized batches, meaning
 	// batches that haven't yet fully confirmed on chain.
 	FetchNonFinalBatches(ctx context.Context) ([]*MintingBatch, error)
+
+	// FetchMintingBatch is used to fetch a single minting batch specified
+	// by the batch key.
+	FetchMintingBatch(ctx context.Context,
+		batchKey *btcec.PublicKey) (*MintingBatch, error)
 
 	// AddSproutsToBatch adds a new set of sprouts to the batch, along with
 	// a GenesisPacket, that once signed and broadcast with create the

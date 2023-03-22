@@ -48,6 +48,81 @@ func RegisterTaroJSONCallbacks(registry map[string]func(ctx context.Context,
 		callback(string(respBytes), nil)
 	}
 
+	registry["tarorpc.Taro.FinalizeBatch"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &FinalizeBatchRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaroClient(conn)
+		resp, err := client.FinalizeBatch(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["tarorpc.Taro.CancelBatch"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &CancelBatchRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaroClient(conn)
+		resp, err := client.CancelBatch(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["tarorpc.Taro.ListBatches"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &ListBatchRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaroClient(conn)
+		resp, err := client.ListBatches(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
 	registry["tarorpc.Taro.ListAssets"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 

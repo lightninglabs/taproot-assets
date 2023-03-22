@@ -16,6 +16,7 @@ var assetsCommands = []cli.Command{
 		Category:  "Assets",
 		Subcommands: []cli.Command{
 			mintAssetCommand,
+			listBatchesCommand,
 			listAssetsCommand,
 			listUtxosCommand,
 			listGroupsCommand,
@@ -33,7 +34,7 @@ var (
 	assetMetaName     = "meta"
 	assetEmissionName = "enable_emission"
 	assetGroupKeyName = "group_key"
-	skipBatchName     = "skip_batch"
+	batchKeyName      = "batch_key"
 	groupByGroupName  = "by_group"
 	assetIDName       = "asset_id"
 )
@@ -66,16 +67,15 @@ var mintAssetCommand = cli.Command{
 				"emission",
 		},
 		cli.StringFlag{
-			Name: assetGroupKeyName,
-			Usage: "the specific group key to use to mint the " +
-				"asset.",
-		},
-		cli.BoolFlag{
-			Name:  skipBatchName,
-			Usage: "if true, then the asset will be minted immediately",
+			Name:  assetGroupKeyName,
+			Usage: "the specific group key to use to mint the asset",
 		},
 	},
 	Action: mintAsset,
+	Subcommands: []cli.Command{
+		finalizeBatchCommand,
+		cancelBatchCommand,
+	},
 }
 
 func parseAssetType(ctx *cli.Context) tarorpc.AssetType {
@@ -100,9 +100,12 @@ func mintAsset(ctx *cli.Context) error {
 		return nil
 	}
 
-	var groupKey []byte
-	var err error
-	groupKeyStr := ctx.String(assetGroupKeyName)
+	var (
+		groupKey    []byte
+		err         error
+		groupKeyStr = ctx.String(assetGroupKeyName)
+	)
+
 	if len(groupKeyStr) != 0 {
 		groupKey, err = hex.DecodeString(groupKeyStr)
 		if err != nil {
@@ -111,16 +114,102 @@ func mintAsset(ctx *cli.Context) error {
 	}
 
 	resp, err := client.MintAsset(ctxc, &tarorpc.MintAssetRequest{
-		AssetType:      parseAssetType(ctx),
-		Name:           ctx.String(assetTagName),
-		MetaData:       []byte(ctx.String(assetMetaName)),
-		Amount:         ctx.Uint64(assetSupplyName),
-		GroupKey:       groupKey,
+		Asset: &tarorpc.MintAsset{
+			AssetType: parseAssetType(ctx),
+			Name:      ctx.String(assetTagName),
+			MetaData:  []byte(ctx.String(assetMetaName)),
+			Amount:    ctx.Uint64(assetSupplyName),
+			GroupKey:  groupKey,
+		},
 		EnableEmission: ctx.Bool(assetEmissionName),
-		SkipBatch:      ctx.Bool(skipBatchName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to mint asset: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var finalizeBatchCommand = cli.Command{
+	Name:        "finalize",
+	ShortName:   "f",
+	Usage:       "finalize a batch",
+	Description: "Attempt to finalize a pending batch.",
+	Action:      finalizeBatch,
+}
+
+func finalizeBatch(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.FinalizeBatch(ctxc, &tarorpc.FinalizeBatchRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to finalize batch: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var cancelBatchCommand = cli.Command{
+	Name:        "cancel",
+	ShortName:   "c",
+	Usage:       "cancel a batch",
+	Description: "Attempt to cancel a pending batch.",
+	Action:      cancelBatch,
+}
+
+func cancelBatch(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.CancelBatch(ctxc, &tarorpc.CancelBatchRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to cancel batch: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var listBatchesCommand = cli.Command{
+	Name:        "batches",
+	Usage:       "list all batches",
+	Description: "List all batches",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  batchKeyName,
+			Usage: "if set, the batch key for a specific batch",
+		},
+	},
+	Action: listBatches,
+}
+
+func listBatches(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		batchKeyStr = ctx.String(batchKeyName)
+		batchKey    []byte
+		err         error
+	)
+	if len(batchKeyStr) != 0 {
+		batchKey, err = hex.DecodeString(batchKeyStr)
+		if err != nil {
+			return fmt.Errorf("invalid batch key")
+		}
+	}
+
+	resp, err := client.ListBatches(ctxc, &tarorpc.ListBatchRequest{
+		BatchKey: batchKey,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to list batches: %w", err)
 	}
 
 	printRespJSON(resp)

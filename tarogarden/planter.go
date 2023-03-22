@@ -6,10 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightningnetwork/lnd/ticker"
+	"golang.org/x/exp/maps"
 )
 
 // GardenKit holds the set of shared fundamental interfaces all sub-systems of
@@ -58,10 +60,18 @@ type PlanterConfig struct {
 // BatchKey is a type alias for a serialized public key.
 type BatchKey = asset.SerializedKey
 
+// CancelResp is the response from a caretaker attempting to cancel a batch.
+type CancelResp struct {
+	finalState *BatchState
+	err        error
+}
+
 type stateRequest interface {
 	Resolve(any)
 	Error(error)
+	Return(any, error)
 	Type() reqType
+	Param() any
 }
 
 type stateReq[T any] struct {
@@ -70,11 +80,39 @@ type stateReq[T any] struct {
 	reqType reqType
 }
 
+func newStateReq[T any](req reqType) *stateReq[T] {
+	return &stateReq[T]{
+		resp:    make(chan T, 1),
+		err:     make(chan error, 1),
+		reqType: req,
+	}
+}
+
+type stateParamReq[T, S any] struct {
+	stateReq[T]
+
+	param S
+}
+
+func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
+	return &stateParamReq[T, S]{
+		stateReq: *newStateReq[T](req),
+		param:    param,
+	}
+}
+
 func (s *stateReq[T]) Resolve(resp any) {
 	s.resp <- resp.(T)
+	close(s.err)
 }
 
 func (s *stateReq[T]) Error(err error) {
+	s.err <- err
+	close(s.resp)
+}
+
+func (s *stateReq[T]) Return(resp any, err error) {
+	s.resp <- resp.(T)
 	s.err <- err
 }
 
@@ -82,12 +120,30 @@ func (s *stateReq[T]) Type() reqType {
 	return s.reqType
 }
 
+func (s *stateReq[T]) Param() any {
+	return nil
+}
+
+func (s *stateParamReq[T, S]) Param() any {
+	return s.param
+}
+
+func typedParam[T any](req stateRequest) (*T, error) {
+	if param, ok := req.Param().(T); ok {
+		return &param, nil
+	}
+
+	return nil, fmt.Errorf("invalid type")
+}
+
 type reqType uint8
 
 const (
 	reqTypePendingBatch = iota
 	reqTypeNumActiveBatches
-	reqTypeForceBatch
+	reqTypeListBatches
+	reqTypeFinalizeBatch
+	reqTypeCancelBatch
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
@@ -152,7 +208,9 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
-		ErrChan: c.cfg.ErrChan,
+		CancelReqChan:  make(chan struct{}, 1),
+		CancelRespChan: make(chan CancelResp, 1),
+		ErrChan:        c.cfg.ErrChan,
 	})
 	c.caretakers[batchKey] = caretaker
 
@@ -189,8 +247,14 @@ func (c *ChainPlanter) Start() error {
 
 		// Now for each of these non-final batches, we'll make a new
 		// caretaker which'll handle progressing each batch to
-		// completion.
+		// completion. We'll skip batches that were cancelled.
 		for _, batch := range nonFinalBatches {
+			if batch.BatchState == BatchStateSeedlingCancelled ||
+				batch.BatchState == BatchStateSproutCancelled {
+
+				continue
+			}
+
 			log.Infof("Launching ChainCaretaker(%x)",
 				batch.BatchKey.PubKey.SerializeCompressed())
 
@@ -206,8 +270,6 @@ func (c *ChainPlanter) Start() error {
 		// new minting requests.
 		c.Wg.Add(1)
 		go c.gardener()
-
-		c.cfg.BatchTicker.Resume()
 	})
 
 	return startErr
@@ -242,7 +304,7 @@ func (c *ChainPlanter) stopCaretakers() {
 
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
-func freezeMintingBatch(ctx context.Context, pLog MintingStore,
+func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	batch *MintingBatch) error {
 
 	batchKey := batch.BatchKey.PubKey
@@ -254,9 +316,113 @@ func freezeMintingBatch(ctx context.Context, pLog MintingStore,
 	// to BatchStateFinalized, meaning that no other changes can happen.
 	//
 	// TODO(roasbeef): assert not in some other state first?
-	return pLog.UpdateBatchState(
+	return batchStore.UpdateBatchState(
 		ctx, batchKey, BatchStateFrozen,
 	)
+}
+
+// ListBatches returns the single batch specified by the batch key, or the set
+// of batches not yet finalized on disk.
+func listBatches(ctx context.Context, batchStore MintingStore,
+	batchKey *btcec.PublicKey) ([]*MintingBatch, error) {
+
+	if batchKey == nil {
+		return batchStore.FetchAllBatches(ctx)
+	}
+
+	batch, err := batchStore.FetchMintingBatch(ctx, batchKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return []*MintingBatch{batch}, nil
+}
+
+// canCancelBatch returns a batch key if the planter is in a state where a batch
+// can be cancelled. This does not account for the state of a caretaker that
+// may be managing a batch.
+func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
+	caretakerCount := len(c.caretakers)
+
+	switch caretakerCount {
+	case 0:
+		// If there are no caretakers, the only batch we could cancel
+		// would be the current pending batch.
+		if c.pendingBatch == nil {
+			return nil, fmt.Errorf("no pending batch")
+		}
+
+		return c.pendingBatch.BatchKey.PubKey, nil
+	case 1:
+		// TODO(jhb): Update once we support multiple batches.
+		// If there is exactly one caretaker, our pending batch should
+		// be empty. Otherwise, the batch to cancel is ambiguous.
+		if c.pendingBatch != nil {
+			return nil, fmt.Errorf("multiple batches not supported")
+		}
+
+		batchKeys := maps.Keys(c.caretakers)
+		batchKey, err := btcec.ParsePubKey(batchKeys[0][:])
+		if err != nil {
+			return nil, fmt.Errorf("bad caretaker key: %w", err)
+		}
+
+		return batchKey, nil
+	default:
+	}
+
+	// TODO(jhb): Update once we support multiple batches.
+	return nil, fmt.Errorf("multiple caretakers not supported")
+}
+
+// cancelMintingBatch attempts to cancel a target minting batch. This can fail
+// if the batch is managed by a caretaker and has already been broadcast.
+func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
+	batchKey *btcec.PublicKey) error {
+
+	// The target batch may have already been assigned a caretaker. If so,
+	// we need to signal to the caretaker to cancel the batch.
+	batchKeySerialized := asset.ToSerialized(batchKey)
+	caretaker, ok := c.caretakers[batchKeySerialized]
+	if ok {
+		log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
+			batchKeySerialized, len(caretaker.cfg.Batch.Seedlings))
+
+		caretaker.cfg.CancelReqChan <- struct{}{}
+
+		// Wait for the caretaker to reply to the cancellation request.
+		// If the request succeeded, the caretaker will update the
+		// batch state on disk.
+		select {
+		case cancelResp := <-caretaker.cfg.CancelRespChan:
+			// If the caretaker returned a batch state, then batch
+			// cancellation was possible and attempted. This means
+			// that the caretaker is shut down and the planter
+			// must delete it.
+			if cancelResp.finalState != nil {
+				delete(c.caretakers, batchKeySerialized)
+			}
+
+			return cancelResp.err
+
+		case <-c.Quit:
+			return nil
+		}
+	}
+
+	log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
+		batchKeySerialized, len(c.pendingBatch.Seedlings))
+
+	// If the target batch was not assigned a caretaker, we only need to
+	// update the batch state on disk to cancel it.
+	err := c.cfg.Log.UpdateBatchState(
+		ctx, batchKey, BatchStateSeedlingCancelled,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to cancel minting batch: %w", err)
+	}
+
+	return nil
 }
 
 // gardener is responsible for collecting new potential taro asset
@@ -319,7 +485,7 @@ func (c *ChainPlanter) gardener() {
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
 			ctx, cancel := c.WithCtxQuit()
-			batchNow, err := c.prepTaroSeedling(ctx, req)
+			err := c.prepTaroSeedling(ctx, req)
 			cancel()
 			if err != nil {
 				// Something went wrong, so then an error
@@ -341,19 +507,6 @@ func (c *ChainPlanter) gardener() {
 			req.updates <- SeedlingUpdate{
 				BatchKey: c.pendingBatch.BatchKey.PubKey,
 				NewState: MintingStateSeed,
-			}
-
-			// If at this point the last request we processed
-			// necessitates a new batch, then we'll force a ticker
-			// instance, which'll prompt the finalization of the
-			// current batch.
-			if batchNow {
-				log.Infof("Forcing new batch for %v", req)
-				// A force tick must be sent in a separate
-				// goroutine to prevent deadlock.
-				go func() {
-					c.cfg.BatchTicker.Force <- time.Time{}
-				}()
 			}
 
 		// A caretaker has finished processing their batch to full Taro
@@ -386,13 +539,58 @@ func (c *ChainPlanter) gardener() {
 				req.Resolve(c.pendingBatch)
 			case reqTypeNumActiveBatches:
 				req.Resolve(len(c.caretakers))
-			case reqTypeForceBatch:
+			case reqTypeListBatches:
+				batchKey, err := typedParam[*btcec.PublicKey](req)
+				if err != nil {
+					req.Error(fmt.Errorf("Bad batch key: %w",
+						err))
+					break
+				}
+
+				ctx, cancel := c.WithCtxQuit()
+				batches, err := listBatches(
+					ctx, c.cfg.Log, *batchKey,
+				)
+				cancel()
+				if err != nil {
+					req.Error(err)
+					break
+				}
+
+				req.Resolve(batches)
+			case reqTypeFinalizeBatch:
+				if c.pendingBatch == nil {
+					req.Error(fmt.Errorf("no pending batch"))
+					break
+				}
+
+				batchKey := c.pendingBatch.BatchKey.PubKey
+				log.Infof("Finalizing batch %x",
+					batchKey.SerializeCompressed())
+
 				// A force tick must be sent in a separate
 				// goroutine to prevent deadlock.
 				go func() {
 					c.cfg.BatchTicker.Force <- time.Time{}
 				}()
-				req.Resolve(true)
+				req.Resolve(batchKey)
+			case reqTypeCancelBatch:
+				batchKey, err := c.canCancelBatch()
+				if err != nil {
+					req.Error(err)
+					break
+				}
+
+				// Attempt to cancel the current batch, and then
+				// clear the pending batch in the planter.
+				ctx, cancel := c.WithCtxQuit()
+				err = c.cancelMintingBatch(ctx, batchKey)
+				cancel()
+				c.pendingBatch = nil
+
+				// Always return the key of the batch we tried
+				// to cancel.
+				req.Return(batchKey, err)
 			}
 
 		case <-c.Quit:
@@ -404,11 +602,7 @@ func (c *ChainPlanter) gardener() {
 // PendingBatch returns the current pending batch. If there's no pending batch,
 // then an error is returned.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
-	req := &stateReq[*MintingBatch]{
-		resp:    make(chan *MintingBatch, 1),
-		err:     make(chan error, 1),
-		reqType: reqTypePendingBatch,
-	}
+	req := newStateReq[*MintingBatch](reqTypePendingBatch)
 
 	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
@@ -420,11 +614,7 @@ func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 // NumActiveBatches returns the total number of active batches that have an
 // outstanding caretaker assigned.
 func (c *ChainPlanter) NumActiveBatches() (int, error) {
-	req := &stateReq[int]{
-		resp:    make(chan int, 1),
-		err:     make(chan error, 1),
-		reqType: reqTypeNumActiveBatches,
-	}
+	req := newStateReq[int](reqTypeNumActiveBatches)
 
 	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return 0, fmt.Errorf("chain planter shutting down")
@@ -433,30 +623,51 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 	return <-req.resp, nil
 }
 
-// ForceBatch sends a signal to the planter to finalize the current batch.
-func (c *ChainPlanter) ForceBatch() (bool, error) {
-	req := &stateReq[bool]{
-		resp:    make(chan bool, 1),
-		err:     make(chan error, 1),
-		reqType: reqTypeForceBatch,
-	}
+// ListBatches returns the single batch specified by the batch key, or the set
+// of batches not yet finalized on disk.
+func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
+	error) {
+
+	req := newStateParamReq[[]*MintingBatch](reqTypeListBatches, batchKey)
 
 	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
-		return false, fmt.Errorf("chain planter shutting down")
+		return nil, fmt.Errorf("chain planter shutting down")
 	}
 
-	return <-req.resp, nil
+	return <-req.resp, <-req.err
+}
+
+// FinalizeBatch sends a signal to the planter to finalize the current batch.
+func (c *ChainPlanter) FinalizeBatch() (*btcec.PublicKey, error) {
+	req := newStateReq[*btcec.PublicKey](reqTypeFinalizeBatch)
+
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
+}
+
+// CancelBatch sends a signal to the planter to cancel the current batch.
+func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
+	req := newStateReq[*btcec.PublicKey](reqTypeCancelBatch)
+
+	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
 }
 
 // prepTaroSeedling performs some basic validation for the TaroSeedling, then
 // either adds it to an existing pending batch or creates a new batch for it. A
 // bool indicating if a new batch should immediately be created is returned.
 func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
-	req *Seedling) (bool, error) {
+	req *Seedling) error {
 
 	// First, we'll perform some basic validation for the seedling.
 	if err := req.validateFields(); err != nil {
-		return false, err
+		return err
 	}
 
 	// If emission is enabled and a group key is specified, we need to
@@ -468,13 +679,13 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		if err != nil {
 			groupKeyBytes := req.GroupInfo.GroupPubKey.
 				SerializeCompressed()
-			return false, fmt.Errorf("group key %x not found: %w",
+			return fmt.Errorf("group key %x not found: %w",
 				groupKeyBytes, err,
 			)
 		}
 
 		if err := req.validateGroupKey(*groupInfo); err != nil {
-			return false, err
+			return err
 		}
 
 		req.GroupInfo = groupInfo
@@ -495,15 +706,15 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 			ctx, asset.TaroKeyFamily,
 		)
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
 		if err != nil {
-			return false, fmt.Errorf("unable to get current "+
-				"height: %v", err)
+			return fmt.Errorf("unable to get current height: %v",
+				err)
 		}
 
 		// Create a new batch and commit it to disk so we can pick up
@@ -521,7 +732,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		c.pendingBatch = newBatch
@@ -538,7 +749,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		// TODO(roasbeef): unique constraint below? will trigger on the
 		// name?
 		if err := c.pendingBatch.addSeedling(req); err != nil {
-			return false, err
+			return err
 		}
 
 		// Now that we know the seedling is ok, we'll write it to disk.
@@ -548,14 +759,14 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
-			return false, err
+			return err
 		}
 	}
 
 	// Now that we have the batch committed to disk, we'll return back to
 	// the caller if we should finalize the batch immediately or not based
 	// on its preference.
-	return req.NoBatch, nil
+	return nil
 }
 
 // QueueNewSeedling attempts to queue a new seedling request (the intent for

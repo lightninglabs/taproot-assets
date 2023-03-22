@@ -53,6 +53,7 @@ type Querier interface {
 	FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
+	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)

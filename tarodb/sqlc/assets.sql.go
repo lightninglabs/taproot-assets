@@ -1059,6 +1059,58 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
+const fetchMintingBatch = `-- name: FetchMintingBatch :one
+WITH target_batch AS (
+    -- This CTE is used to fetch the ID of a batch, based on the serialized
+    -- internal key associated with the batch. This internal key is used as the
+    -- actual Taproot internal key to ultimately mint the batch. This pattern
+    -- is used in several other queries.
+    SELECT batch_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys keys
+        ON batches.batch_id = keys.key_id
+    WHERE keys.raw_key = $1
+)
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
+FROM asset_minting_batches batches
+JOIN internal_keys keys
+    ON batches.batch_id = keys.key_id
+WHERE batch_id in (SELECT batch_id FROM target_batch)
+`
+
+type FetchMintingBatchRow struct {
+	BatchID           int32
+	BatchState        int16
+	MintingTxPsbt     []byte
+	ChangeOutputIndex sql.NullInt32
+	GenesisID         sql.NullInt32
+	HeightHint        int32
+	CreationTimeUnix  time.Time
+	KeyID             int32
+	RawKey            []byte
+	KeyFamily         int32
+	KeyIndex          int32
+}
+
+func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchMintingBatch, rawKey)
+	var i FetchMintingBatchRow
+	err := row.Scan(
+		&i.BatchID,
+		&i.BatchState,
+		&i.MintingTxPsbt,
+		&i.ChangeOutputIndex,
+		&i.GenesisID,
+		&i.HeightHint,
+		&i.CreationTimeUnix,
+		&i.KeyID,
+		&i.RawKey,
+		&i.KeyFamily,
+		&i.KeyIndex,
+	)
+	return i, err
+}
+
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
 SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
@@ -1693,7 +1745,7 @@ func (q *Queries) UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenes
 const updateMintingBatchState = `-- name: UpdateMintingBatchState :exec
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
-    -- internal key associated with the batch. This internal key is as the
+    -- internal key associated with the batch. This internal key is used as the
     -- actual Taproot internal key to ultimately mint the batch. This pattern
     -- is used in several other queries.
     SELECT batch_id

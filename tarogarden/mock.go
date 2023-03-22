@@ -93,7 +93,7 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	// simulate the wallet funding the transaction.
 	packet.UnsignedTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
-			Index: 5,
+			Index: rand.Uint32(),
 		},
 	})
 	packet.Inputs = append(packet.Inputs, psbt.PInput{

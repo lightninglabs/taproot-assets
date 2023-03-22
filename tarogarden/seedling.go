@@ -38,12 +38,12 @@ const (
 	// batch and now has a corresponding asset associated with it.
 	MintingStateSeedling
 
-	// MintingStateSeedling denotes that a seedling has been paired with a
+	// MintingStateSprout denotes that a seedling has been paired with a
 	// genesis transaction and broadcast for confirmation.
 	MintingStateSprout
 
 	// MintingStateAdult denotes that a seedling has been confirmed on
-	// chain and reached full adult hood.
+	// chain and reached full adulthood.
 	MintingStateAdult
 )
 
@@ -91,10 +91,6 @@ type Seedling struct {
 	// EnableEmission if true, then an asset group key will be specified
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
-
-	// NoBatch if true, then this asset will be bundled immediately in a
-	// batch without waiting for the normal ticker.
-	NoBatch bool
 
 	// update is used to send updates w.r.t the state of the batch.
 	updates SeedlingUpdates
@@ -148,19 +144,10 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup) error {
 
 // HasGroupKey checks if a seedling specifies a particular group key.
 func (c Seedling) HasGroupKey() bool {
-	// We have to nest these checks to avoid dereferencing a nil pointer and
-	// panicking. If the GroupKey is set, the tweaked public key has already
-	// been parsed.
-	if c.GroupInfo != nil {
-		if c.GroupInfo.GroupKey != nil {
-			return true
-		}
-	}
-
-	return false
+	return c.GroupInfo != nil && c.GroupInfo.GroupKey != nil
 }
 
-// String returns a human readable representation for the AssetSeedling.
+// String returns a human-readable representation for the AssetSeedling.
 func (c Seedling) String() string {
 	return fmt.Sprintf("AssetSeedling(name=%v, type=%v, amt=%v) received",
 		c.AssetName, c.AssetType, c.Amount)

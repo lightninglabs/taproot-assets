@@ -18,6 +18,35 @@ func Reduce[T any, V any, S []V](s S, f Reducer[T, V]) T {
 	return accum
 }
 
+// Map applies the given mapping function to each element of the given slice
+// and generates a new slice.
+func Map[I, O any, S []I](s S, f func(I) O) []O {
+	output := make([]O, len(s))
+
+	for i, x := range s {
+		output[i] = f(x)
+	}
+
+	return output
+}
+
+// MapErr applies the given fallible mapping function to each element of the
+// given slice and generates a new slice. This is identical to Map, but
+// returns early if any single mapping fails.
+func MapErr[I, O any, S []I](s S, f func(I) (O, error)) ([]O, error) {
+	output := make([]O, len(s))
+	var err error
+
+	for i, x := range s {
+		output[i], err = f(x)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return output, nil
+}
+
 // Copyable is a generic interface for a type that's able to return a deep copy
 // of itself.
 type Copyable[T any] interface {
