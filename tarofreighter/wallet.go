@@ -102,46 +102,6 @@ type AnchorVTxnsParams struct {
 	PassiveAssetsVPkts []*taropsbt.VPacket
 }
 
-// AnchorPassiveAssets anchors the passive assets within the given taro
-// commitment.
-func (p *AnchorVTxnsParams) AnchorPassiveAssets(
-	taroCommitment *commitment.TaroCommitment) error {
-
-	for idx := range p.PassiveAssetsVPkts {
-		passiveAsset := p.PassiveAssetsVPkts[idx].Outputs[0].Asset
-		var err error
-
-		// Ensure that a commitment for this asset exists.
-		assetCommitment, ok := taroCommitment.Commitment(passiveAsset)
-		if ok {
-			err = assetCommitment.Upsert(passiveAsset)
-			if err != nil {
-				return fmt.Errorf("unable to upsert passive "+
-					"asset into asset commitment: %w", err)
-			}
-		} else {
-			// If no commitment exists yet, create one and insert
-			// the passive asset into it.
-			assetCommitment, err = commitment.NewAssetCommitment(
-				passiveAsset,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to create "+
-					"commitment for passive asset: %w", err)
-			}
-		}
-
-		err = taroCommitment.Upsert(assetCommitment)
-		if err != nil {
-			return fmt.Errorf("unable to upsert passive "+
-				"asset commitment into taro commitment: %w",
-				err)
-		}
-	}
-
-	return nil
-}
-
 // WalletConfig holds the configuration for a new Wallet.
 type WalletConfig struct {
 	// CoinSelector is the interface used to select input coins (assets)
@@ -747,7 +707,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		}
 
 		changeCommitment := outputCommitments[changeOutputIdx]
-		err = params.AnchorPassiveAssets(changeCommitment)
+		err = taroscript.AnchorPassiveAssets(
+			params.PassiveAssetsVPkts, changeCommitment,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to anchor passive "+
 				"assets: %w", err)

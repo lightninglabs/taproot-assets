@@ -639,6 +639,46 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 	return outputCommitments, nil
 }
 
+// AnchorPassiveAssets anchors the passive assets within the given taro
+// commitment.
+func AnchorPassiveAssets(passiveAssets []*taropsbt.VPacket,
+	taroCommitment *commitment.TaroCommitment) error {
+
+	for idx := range passiveAssets {
+		passiveAsset := passiveAssets[idx].Outputs[0].Asset
+		var err error
+
+		// Ensure that a commitment for this asset exists.
+		assetCommitment, ok := taroCommitment.Commitment(passiveAsset)
+		if ok {
+			err = assetCommitment.Upsert(passiveAsset)
+			if err != nil {
+				return fmt.Errorf("unable to upsert passive "+
+					"asset into asset commitment: %w", err)
+			}
+		} else {
+			// If no commitment exists yet, create one and insert
+			// the passive asset into it.
+			assetCommitment, err = commitment.NewAssetCommitment(
+				passiveAsset,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create "+
+					"commitment for passive asset: %w", err)
+			}
+		}
+
+		err = taroCommitment.Upsert(assetCommitment)
+		if err != nil {
+			return fmt.Errorf("unable to upsert passive "+
+				"asset commitment into taro commitment: %w",
+				err)
+		}
+	}
+
+	return nil
+}
+
 // AreValidAnchorOutputIndexes checks a set of virtual outputs for the minimum
 // number of outputs, and tests if the external indexes could be used for a
 // Taro-only spend, i.e. a TX that does not need other outputs added to be
