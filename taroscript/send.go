@@ -621,6 +621,16 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 					"output %d is missing asset", idx)
 			}
 
+			// Update the top-level TaroCommitment of the change
+			// output (sender). This'll effectively commit to all
+			// the new spend details. If there is nothing contained
+			// in the input commitment, it is removed from the Taro
+			// tree automatically.
+			err = inputTaroCommitmentCopy.Upsert(inputCommitment)
+			if err != nil {
+				return nil, err
+			}
+
 			// Anchor passive assets to this output, since it's the
 			// split root (=change output).
 			err = AnchorPassiveAssets(
@@ -629,17 +639,6 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 			if err != nil {
 				return nil, fmt.Errorf("unable to anchor "+
 					"passive assets: %w", err)
-			}
-
-			// Update the top-level TaroCommitment of the change
-			// output (sender). This'll effectively commit to all
-			// the new spend details.
-			//
-			// TODO(jhb): Add emptiness check for changeCommitment,
-			// to prune the AssetCommitment entirely when possible.
-			err = inputTaroCommitmentCopy.Upsert(inputCommitment)
-			if err != nil {
-				return nil, err
 			}
 
 			outputCommitments[idx] = inputTaroCommitmentCopy

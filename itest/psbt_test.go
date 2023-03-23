@@ -438,6 +438,30 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 			assetAmountCheck(fullAmt),
 		)
 	}
+
+	// Finally, make sure we can still send out the passive asset.
+	passiveGen := rpcAssets[1].AssetGenesis
+	bobAddr, err := secondTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			GenesisBootstrapInfo: passiveGen.GenesisBootstrapInfo,
+			Amt:                  rpcAssets[1].Amount,
+		},
+	)
+	require.NoError(t.t, err)
+
+	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
+	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, passiveGen.AssetId,
+		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
+	)
+	_ = sendProof(
+		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
+	)
+
+	// There's only one receive event (since only non-interactive sends
+	// appear in that RPC output).
+	assertReceiveComplete(t, secondTarod, 1)
 }
 
 // testPsbtInteractiveSplitSend tests that we can properly send assets back

@@ -1078,7 +1078,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		return err
 	},
-	err: taroscript.ErrMissingInputAsset,
+	err: taroscript.ErrMissingAssetCommitment,
 }, {
 	name: "non-interactive collectible with group key",
 	f: func(t *testing.T) error {

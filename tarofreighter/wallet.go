@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -386,9 +387,12 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// For now, we just need to know _if_ there are any passive assets, so
 	// we can create a change output if needed. We'll actually sign the
 	// passive packets later.
-	passiveCommitments := removeActiveCommitments(
+	passiveCommitments, err := removeActiveCommitments(
 		assetInput.Commitment, vPkt,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// We expect some change back, or have passive assets to commit to, so
 	// let's make sure we create a transfer output.
@@ -605,7 +609,7 @@ func verifyInclusionProof(vIn *taropsbt.VInput) error {
 // removeActiveCommitments removes all active commitments from the given input
 // commitment and only returns a tree of passive commitments.
 func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
-	vPkt *taropsbt.VPacket) commitment.AssetCommitments {
+	vPkt *taropsbt.VPacket) (commitment.AssetCommitments, error) {
 
 	// Gather passive assets found in the commitment. This creates a copy of
 	// the commitment map, so we can remove things freely.
@@ -613,15 +617,48 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 
 	// Remove input assets (the assets being spent) from list of assets to
 	// re-sign.
-	//
-	// TODO(ffranr): This is a temporary solution. We should remove
-	//  individual asset leaves at this point rather than the whole
-	//  commitment (of a given asset type).
 	for _, vIn := range vPkt.Inputs {
-		delete(passiveCommitments, vIn.Asset().TaroCommitmentKey())
+		key := vIn.Asset().TaroCommitmentKey()
+		assetCommitment, ok := passiveCommitments[key]
+		if !ok {
+			continue
+		}
+
+		// We need to make a copy in order to not modify the original
+		// commitment, as the above call to get all commitments just
+		// creates a new slice, but we still have a pointer to the
+		// original asset commitment.
+		var err error
+		assetCommitment, err = assetCommitment.Copy()
+		if err != nil {
+			return nil, fmt.Errorf("unable to copy asset "+
+				"commitment: %w", err)
+		}
+
+		// Now we can remove the asset from the commitment.
+		err = assetCommitment.Delete(vIn.Asset())
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete asset "+
+				"commitment: %w", err)
+		}
+
+		// Since we're not returning the root Taro commitment but a map
+		// of all asset commitments, we need to prune the asset
+		// commitment manually if it is empty now.
+		rootHash := assetCommitment.TreeRoot.NodeHash()
+		if rootHash == mssmt.EmptyTreeRootHash {
+			delete(passiveCommitments, key)
+
+			continue
+		}
+
+		// There are other leaves of this asset in our asset tree, let's
+		// now update our passive commitment map so these will be
+		// carried along.
+		passiveCommitments[key] = assetCommitment
 	}
 
-	return passiveCommitments
+	return passiveCommitments, nil
 }
 
 // SignPassiveAssets creates and signs the passive asset packets for the given
@@ -630,7 +667,12 @@ func (f *AssetWallet) SignPassiveAssets(
 	inputCommitment *commitment.TaroCommitment,
 	vPkt *taropsbt.VPacket) ([]*PassiveAssetReAnchor, error) {
 
-	passiveCommitments := removeActiveCommitments(inputCommitment, vPkt)
+	passiveCommitments, err := removeActiveCommitments(
+		inputCommitment, vPkt,
+	)
+	if err != nil {
+		return nil, err
+	}
 	if len(passiveCommitments) == 0 {
 		return nil, nil
 	}
