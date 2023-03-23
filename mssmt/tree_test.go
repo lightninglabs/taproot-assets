@@ -6,6 +6,7 @@ package mssmt_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"path/filepath"
 	"testing"
@@ -114,6 +115,64 @@ func TestInsertion(t *testing.T) {
 		t.Run(storeName, func(t *testing.T) {
 			runTest(t, "full SMT", makeFullTree, makeStore)
 			runTest(t, "smol SMT", makeSmolTree, makeStore)
+		})
+	}
+}
+
+// TestInsertionOverflow tests to ensure that we catch overflows when inserting
+// leaves into the tree.
+func TestInsertionOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Construct a minimal leaf which should not cause an overflow when
+	// inserted.
+	value := make([]byte, 10)
+	minLeaf := treeLeaf{
+		key:  randKey(),
+		leaf: mssmt.NewLeafNode(value, 1),
+	}
+
+	// Construct a leaf which should cause an overflow when inserted.
+	leafSum := uint64(math.MaxUint64)
+	overflowLeaf := treeLeaf{
+		key:  randKey(),
+		leaf: mssmt.NewLeafNode(value, leafSum),
+	}
+
+	runTest := func(t *testing.T, name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
+		makeStore makeTestTreeStoreFunc) {
+
+		t.Run(name, func(t *testing.T) {
+			store, err := makeStore()
+			require.NoError(t, err)
+
+			tree := makeTree(store)
+
+			ctx := context.TODO()
+
+			// Insert minimal sum leaf, which shouldn't cause an
+			// overflow.
+			_, err = tree.Insert(ctx, minLeaf.key, minLeaf.leaf)
+			require.NoError(t, err)
+
+			// Insert overflow leaf, which should return an error.
+			_, err = tree.Insert(
+				ctx, overflowLeaf.key, overflowLeaf.leaf,
+			)
+			require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
+		})
+	}
+
+	for storeName, makeStore := range genTestStores(t) {
+		t.Run(storeName, func(t *testing.T) {
+			runTest(
+				t, "full tree minimal overflow", makeFullTree,
+				makeStore,
+			)
+			runTest(
+				t, "compact tree minimal overflow",
+				makeSmolTree, makeStore,
+			)
 		})
 	}
 }
