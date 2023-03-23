@@ -134,7 +134,7 @@ var (
 	)
 
 	// minimalCompatibleVersion is the minimum version and build tags
-	// required in lnd to run pool.
+	// required in lnd to run taro.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor: 0,
 		AppMinor: 15,
