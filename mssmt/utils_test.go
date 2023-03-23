@@ -25,7 +25,7 @@ func randLeaf() *mssmt.LeafNode {
 	valueLen := rand.Intn(math.MaxUint8) + 1
 	value := make([]byte, valueLen)
 	_, _ = rand.Read(value[:])
-	sum := rand.Uint64()
+	sum := mssmt.RandLeafAmount()
 	return mssmt.NewLeafNode(value, sum)
 }
 
