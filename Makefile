@@ -126,6 +126,14 @@ unit:
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
+unit-debug:
+	@$(call print, "Running unit tests in debug mode (showing test output).")
+	$(UNIT_DEBUG)
+
+unit-trace:
+	@$(call print, "Running unit tests in trace mode (enabling package loggers on level trace).")
+	$(UNIT_TRACE)
+
 unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
 	$(GOACC_BIN) $(GOLIST_COVER)

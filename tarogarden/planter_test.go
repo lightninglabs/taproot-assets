@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taro/tarodb"
 	_ "github.com/lightninglabs/taro/tarodb" // Register relevant drivers.
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -924,4 +925,9 @@ func TestBatchedAssetIssuance(t *testing.T) {
 
 func init() {
 	rand.Seed(time.Now().Unix())
+
+	logWriter := build.NewRotatingLogWriter()
+	logger := logWriter.GenSubLogger(tarogarden.Subsystem, func() {})
+	logWriter.RegisterSubLogger(tarogarden.Subsystem, logger)
+	tarogarden.UseLogger(logger)
 }

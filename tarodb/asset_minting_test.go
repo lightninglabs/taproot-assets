@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -871,4 +872,9 @@ func TestGroupStore(t *testing.T) {
 
 func init() {
 	rand.Seed(time.Now().Unix())
+
+	logWriter := build.NewRotatingLogWriter()
+	logger := logWriter.GenSubLogger(Subsystem, func() {})
+	logWriter.RegisterSubLogger(Subsystem, logger)
+	UseLogger(logger)
 }
