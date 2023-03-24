@@ -1,6 +1,9 @@
 package mssmt
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // CompactedTree represents a compacted Merkle-Sum Sparse Merkle Tree (MS-SMT).
 // The tree has the same properties as a normal MS-SMT tree and is able to
@@ -276,6 +279,17 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 		currentRoot, err := tx.RootNode()
 		if err != nil {
 			return err
+		}
+
+		// First we'll check if the sum of the root and new leaf will
+		// overflow. If so, we'll return an error.
+		sumRoot := currentRoot.NodeSum()
+		sumLeaf := leaf.NodeSum()
+		err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+		if err != nil {
+			return fmt.Errorf("compact tree leaf insert sum "+
+				"overflow, root: %d, leaf: %d; %w", sumRoot,
+				sumLeaf, err)
 		}
 
 		root, err := t.insert(
