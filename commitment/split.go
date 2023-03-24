@@ -19,11 +19,9 @@ var (
 		"found locator with duplicate output index",
 	)
 
-	// ErrInvalidSplitAmount is an error returned when a set of splits does
-	// not fully consume the asset inputs.
-	ErrInvalidSplitAmount = errors.New(
-		"splits do not fully consume asset input amount",
-	)
+	// ErrInvalidSplitAmount is an error returned when a split amount is
+	// invalid (e.g. splits do not fully consume input amount).
+	ErrInvalidSplitAmount = errors.New("invalid split amounts")
 
 	// ErrInvalidSplitLocator is returned if a new split is attempted to be
 	// created w/o a valid external split locator.
@@ -230,6 +228,11 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 			return err
 		}
 
+		// Ensure that we won't underflow the remaining amount. None of
+		// the split amounts should be greater than the input amount.
+		if remainingAmount < locator.Amount {
+			return ErrInvalidSplitAmount
+		}
 		remainingAmount -= locator.Amount
 
 		return nil

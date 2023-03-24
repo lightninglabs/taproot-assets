@@ -670,6 +670,44 @@ func TestSplitCommitment(t *testing.T) {
 			},
 			err: nil,
 		},
+		{
+			name: "split commitment remainder underflow",
+			// This test case attempts to underflow the remainder
+			// which is calculated to ensure that the sum of the
+			// external split amounts is equal to the input amount.
+			// The underflow attempt should fail and an error
+			// should be returned.
+			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
+				input := randAsset(
+					t, genesisNormal, groupKeyNormal,
+				)
+				input.Amount = 3
+
+				rootScriptKey := asset.ToSerialized(
+					input.ScriptKey.PubKey,
+				)
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   rootScriptKey,
+					Amount:      1,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      uint64(18446744073709551515),
+				}, {
+					OutputIndex: 2,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      uint64(103),
+				}}
+
+				return input, root, external
+			},
+			err: ErrInvalidSplitAmount,
+		},
 	}
 
 	for _, testCase := range testCases {
