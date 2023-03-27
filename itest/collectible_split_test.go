@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -15,7 +16,7 @@ import (
 func testCollectibleSend(t *harnessTest) {
 	// First, we'll make a collectible with emission enabled.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*tarorpc.MintAssetRequest{issuableAssets[1]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{issuableAssets[1]},
 	)
 
 	groupKey := rpcAssets[0].AssetGroup.TweakedGroupKey

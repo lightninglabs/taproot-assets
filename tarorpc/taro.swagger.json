@@ -199,37 +199,6 @@
         "tags": [
           "Taro"
         ]
-      },
-      "post": {
-        "summary": "tarocli: `assets mint`\nMintAsset will attempt to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
-        "operationId": "Taro_MintAsset",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/tarorpcMintAssetResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/tarorpcMintAssetRequest"
-            }
-          }
-        ],
-        "tags": [
-          "Taro"
-        ]
       }
     },
     "/v1/taro/assets/balance": {
@@ -305,105 +274,6 @@
             }
           }
         },
-        "tags": [
-          "Taro"
-        ]
-      }
-    },
-    "/v1/taro/assets/mint/batches/{batch_key}": {
-      "get": {
-        "summary": "tarocli: `assets batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
-        "operationId": "Taro_ListBatches",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/tarorpcListBatchResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "batch_key",
-            "description": "The optional batch key of the batch to list. When using REST this field\nmust be encoded as base64url.",
-            "in": "path",
-            "required": true,
-            "type": "string",
-            "format": "byte"
-          }
-        ],
-        "tags": [
-          "Taro"
-        ]
-      }
-    },
-    "/v1/taro/assets/mint/cancel": {
-      "post": {
-        "summary": "tarocli: `assets mint cancel`\nCancelBatch will attempt to cancel the current pending batch.",
-        "operationId": "Taro_CancelBatch",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/tarorpcCancelBatchResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/tarorpcCancelBatchRequest"
-            }
-          }
-        ],
-        "tags": [
-          "Taro"
-        ]
-      }
-    },
-    "/v1/taro/assets/mint/finalize": {
-      "post": {
-        "summary": "tarocli: `assets mint finalize`\nFinalizeBatch will attempt to finalize the current pending batch.",
-        "operationId": "Taro_FinalizeBatch",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/tarorpcFinalizeBatchResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/tarorpcFinalizeBatchRequest"
-            }
-          }
-        ],
         "tags": [
           "Taro"
         ]
@@ -1119,34 +989,6 @@
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
     },
-    "tarorpcBatchState": {
-      "type": "string",
-      "enum": [
-        "BATCH_STATE_UNKNOWN",
-        "BATCH_STATE_PEDNING",
-        "BATCH_STATE_FROZEN",
-        "BATCH_STATE_COMMITTED",
-        "BATCH_STATE_BROADCAST",
-        "BATCH_STATE_CONFIRMED",
-        "BATCH_STATE_FINALIZED",
-        "BATCH_STATE_SEEDLING_CANCELLED",
-        "BATCH_STATE_SPROUT_CANCELLED"
-      ],
-      "default": "BATCH_STATE_UNKNOWN"
-    },
-    "tarorpcCancelBatchRequest": {
-      "type": "object"
-    },
-    "tarorpcCancelBatchResponse": {
-      "type": "object",
-      "properties": {
-        "batch_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The internal public key of the batch."
-        }
-      }
-    },
     "tarorpcDebugLevelRequest": {
       "type": "object",
       "properties": {
@@ -1199,19 +1041,6 @@
         "script_key": {
           "type": "string",
           "format": "byte"
-        }
-      }
-    },
-    "tarorpcFinalizeBatchRequest": {
-      "type": "object"
-    },
-    "tarorpcFinalizeBatchResponse": {
-      "type": "object",
-      "properties": {
-        "batch_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The internal public key of the batch."
         }
       }
     },
@@ -1337,17 +1166,6 @@
         }
       }
     },
-    "tarorpcListBatchResponse": {
-      "type": "object",
-      "properties": {
-        "batches": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/tarorpcMintingBatch"
-          }
-        }
-      }
-    },
     "tarorpcListGroupsResponse": {
       "type": "object",
       "properties": {
@@ -1412,78 +1230,6 @@
             "$ref": "#/definitions/tarorpcAsset"
           },
           "description": "The assets held at this UTXO."
-        }
-      }
-    },
-    "tarorpcMintAsset": {
-      "type": "object",
-      "properties": {
-        "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType",
-          "description": "The type of the asset to be created."
-        },
-        "name": {
-          "type": "string",
-          "description": "The name, or \"tag\" of the asset. This will affect the final asset ID."
-        },
-        "meta_data": {
-          "type": "string",
-          "format": "byte",
-          "description": "An opaque blob that resents metadata related to the asset. This will affect\nthe final asset ID."
-        },
-        "amount": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The total amount of units of the new asset that should be created. If the\nAssetType is Collectible, then this field cannot be set."
-        },
-        "group_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The specific group key this asset should be minted with."
-        }
-      }
-    },
-    "tarorpcMintAssetRequest": {
-      "type": "object",
-      "properties": {
-        "asset": {
-          "$ref": "#/definitions/tarorpcMintAsset",
-          "description": "The asset to be minted."
-        },
-        "enable_emission": {
-          "type": "boolean",
-          "description": "If true, then the asset will be created with a group key, which allows for\nfuture asset issuance."
-        }
-      }
-    },
-    "tarorpcMintAssetResponse": {
-      "type": "object",
-      "properties": {
-        "batch_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
-        }
-      }
-    },
-    "tarorpcMintingBatch": {
-      "type": "object",
-      "properties": {
-        "batch_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The internal public key of the batch."
-        },
-        "assets": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/tarorpcMintAsset"
-          },
-          "description": "The assets that are part of the batch."
-        },
-        "state": {
-          "$ref": "#/definitions/tarorpcBatchState",
-          "description": "The state of the batch."
         }
       }
     },

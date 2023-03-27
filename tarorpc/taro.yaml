@@ -3,21 +3,6 @@ config_version: 3
 
 http:
   rules:
-    - selector: tarorpc.Taro.MintAsset
-      post: "/v1/taro/assets"
-      body: "*"
-
-    - selector: tarorpc.Taro.FinalizeBatch
-      post: "/v1/taro/assets/mint/finalize"
-      body: "*"
-
-    - selector: tarorpc.Taro.CancelBatch
-      post: "/v1/taro/assets/mint/cancel"
-      body: "*"
-
-    - selector: tarorpc.Taro.ListBatches
-      get: "/v1/taro/assets/mint/batches/{batch_key}"
-
     - selector: tarorpc.Taro.ListAssets
       get: "/v1/taro/assets"
 
