@@ -15,17 +15,22 @@ import (
 
 func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 	t.Helper()
-	var amount *uint64
-	if assetType != asset.Collectible {
-		amount = new(uint64)
-		*amount = rand.Uint64()
+
+	// Generate asset amount.
+	var amount uint64
+	switch assetType {
+	case asset.Normal:
+		amount = mssmt.RandLeafAmount()
+	case asset.Collectible:
+		amount = 1
 	}
+
 	return &AssetDetails{
 		Type: assetType,
 		ScriptKey: keychain.KeyDescriptor{
 			PubKey: test.RandPrivKey(t).PubKey(),
 		},
-		Amount:           amount,
+		Amount:           &amount,
 		LockTime:         rand.Uint64(),
 		RelativeLockTime: rand.Uint64(),
 	}

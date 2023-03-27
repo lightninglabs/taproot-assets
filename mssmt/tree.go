@@ -2,6 +2,9 @@ package mssmt
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"math/bits"
 )
 
 const (
@@ -16,6 +19,11 @@ var (
 	// EmptyTree stores a copy of all nodes up to the root in a MS-SMT in
 	// which all the leaves are empty.
 	EmptyTree []Node
+
+	// ErrIntegerOverflow is an error returned when the result of an
+	// arithmetic operation on two integer values exceeds the maximum value
+	// that can be stored in the data type.
+	ErrIntegerOverflow = errors.New("integer overflow")
 )
 
 func init() {
@@ -214,6 +222,22 @@ func (t *FullTree) Insert(ctx context.Context, key [hashSize]byte,
 	leaf *LeafNode) (Tree, error) {
 
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := t.Root(ctx)
+		if err != nil {
+			return err
+		}
+
+		// First we'll check if the sum of the root and new leaf will
+		// overflow. If so, we'll return an error.
+		sumRoot := currentRoot.NodeSum()
+		sumLeaf := leaf.NodeSum()
+		err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+		if err != nil {
+			return fmt.Errorf("full tree leaf insert sum "+
+				"overflow, root: %d, leaf: %d; %w", sumRoot,
+				sumLeaf, err)
+		}
+
 		root, err := t.insert(tx, &key, leaf)
 		if err != nil {
 			return err
@@ -294,4 +318,14 @@ func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
 	root Node) bool {
 
 	return IsEqualNode(proof.Root(key, leaf), root)
+}
+
+// CheckSumOverflowUint64 checks if the sum of two uint64 values will overflow.
+func CheckSumOverflowUint64(a, b uint64) error {
+	_, carry := bits.Add64(a, b, 0)
+	overflow := carry != 0
+	if overflow {
+		return ErrIntegerOverflow
+	}
+	return nil
 }
