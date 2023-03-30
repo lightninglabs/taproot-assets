@@ -378,6 +378,8 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	log.Infof("Selected %v asset inputs for send of %d to %x",
 		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
 
+	assetType := selectedCommitments[0].Asset.Type
+
 	// We'll take just the first commitment here as we need enough
 	// to complete the send w/o merging inputs.
 	//
@@ -482,12 +484,17 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	}}
 	vPkt.SetInputAsset(0, assetInput.Asset, inputProof)
 
-	// We'll validate the selected input and commitment. From this we'll
-	// gain the asset that we'll use as an input and info w.r.t if we need
-	// to use an un-spendable zero-value root.
-	_, fullValue, err := taroscript.IsValidInput(
-		assetInput.Commitment, fundDesc,
-		*vPkt.Inputs[0].Asset().ScriptKey.PubKey,
+	// Gather Taro commitments from the selected anchored assets.
+	var selectedTaroCommitments []*commitment.TaroCommitment
+	for _, selectedCommitment := range selectedCommitments {
+		selectedTaroCommitments = append(
+			selectedTaroCommitments, selectedCommitment.Commitment,
+		)
+	}
+
+	senderScriptKey := vPkt.Inputs[0].Asset().ScriptKey.PubKey
+	fullValue, err := taroscript.ValidateInputs(
+		selectedTaroCommitments, senderScriptKey, assetType, fundDesc,
 	)
 	if err != nil {
 		return nil, err
