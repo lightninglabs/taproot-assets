@@ -1331,7 +1331,7 @@ WITH target_batch(batch_id) AS (
 SELECT seedling_id, asset_name, asset_type, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
-    group_genesis_id
+    group_genesis_id, group_anchor_id
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
@@ -1349,6 +1349,7 @@ type FetchSeedlingsForBatchRow struct {
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
@@ -1371,6 +1372,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.EmissionEnabled,
 			&i.BatchID,
 			&i.GroupGenesisID,
+			&i.GroupAnchorID,
 		); err != nil {
 			return nil, err
 		}
@@ -1452,9 +1454,10 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6, $7
+   $1, $2, $3, $4, $5, $6,
+   $7, $8
 )
 `
 
@@ -1466,6 +1469,7 @@ type InsertAssetSeedlingParams struct {
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -1477,6 +1481,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.EmissionEnabled,
 		arg.BatchID,
 		arg.GroupGenesisID,
+		arg.GroupAnchorID,
 	)
 	return err
 }
@@ -1494,10 +1499,11 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
     $2, $3, $4, $5, $6,
-    (SELECT key_id FROM target_key_id), $7
+    (SELECT key_id FROM target_key_id),
+    $7, $8
 )
 `
 
@@ -1509,6 +1515,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	AssetMetaID     int32
 	EmissionEnabled bool
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -1520,6 +1527,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.AssetMetaID,
 		arg.EmissionEnabled,
 		arg.GroupGenesisID,
+		arg.GroupAnchorID,
 	)
 	return err
 }

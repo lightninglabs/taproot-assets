@@ -91,6 +91,7 @@ type AssetSeedling struct {
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 type AssetTransfer struct {
