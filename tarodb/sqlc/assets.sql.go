@@ -1320,6 +1320,59 @@ func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScrip
 	return script_key_id, err
 }
 
+const fetchSeedlingByID = `-- name: FetchSeedlingByID :one
+SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id
+FROM asset_seedlings
+WHERE seedling_id = $1
+`
+
+func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int32) (AssetSeedling, error) {
+	row := q.db.QueryRowContext(ctx, fetchSeedlingByID, seedlingID)
+	var i AssetSeedling
+	err := row.Scan(
+		&i.SeedlingID,
+		&i.AssetName,
+		&i.AssetType,
+		&i.AssetSupply,
+		&i.AssetMetaID,
+		&i.EmissionEnabled,
+		&i.BatchID,
+		&i.GroupGenesisID,
+		&i.GroupAnchorID,
+	)
+	return i, err
+}
+
+const fetchSeedlingID = `-- name: FetchSeedlingID :one
+WITH target_key_id AS (
+    -- We use this CTE to fetch the key_id of the internal key that's
+    -- associated with a given batch. This can only return one value in
+    -- practice since raw_key is a unique field. We then use this value below
+    -- to select only from seedlings in the specified batch.
+    SELECT key_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = $2
+)
+SELECT seedling_id
+FROM asset_seedlings
+WHERE (
+    asset_seedlings.batch_id in (SELECT key_id FROM target_key_id) AND
+    asset_seedlings.asset_name = $1
+)
+`
+
+type FetchSeedlingIDParams struct {
+	SeedlingName string
+	BatchKey     []byte
+}
+
+func (q *Queries) FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, fetchSeedlingID, arg.SeedlingName, arg.BatchKey)
+	var seedling_id int32
+	err := row.Scan(&seedling_id)
+	return seedling_id, err
+}
+
 const fetchSeedlingsForBatch = `-- name: FetchSeedlingsForBatch :many
 WITH target_batch(batch_id) AS (
     SELECT batch_id

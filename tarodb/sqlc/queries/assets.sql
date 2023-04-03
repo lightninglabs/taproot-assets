@@ -63,6 +63,28 @@ INSERT INTO asset_seedlings (
    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
 );
 
+-- name: FetchSeedlingID :one
+WITH target_key_id AS (
+    -- We use this CTE to fetch the key_id of the internal key that's
+    -- associated with a given batch. This can only return one value in
+    -- practice since raw_key is a unique field. We then use this value below
+    -- to select only from seedlings in the specified batch.
+    SELECT key_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = @batch_key
+)
+SELECT seedling_id
+FROM asset_seedlings
+WHERE (
+    asset_seedlings.batch_id in (SELECT key_id FROM target_key_id) AND
+    asset_seedlings.asset_name = @seedling_name
+);
+
+-- name: FetchSeedlingByID :one
+SELECT *
+FROM asset_seedlings
+WHERE seedling_id = @seedling_id;
+
 -- name: AllInternalKeys :many
 SELECT * 
 FROM internal_keys;

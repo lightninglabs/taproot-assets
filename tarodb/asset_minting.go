@@ -50,6 +50,9 @@ type (
 	// AssetSeedling is an asset seedling.
 	AssetSeedling = sqlc.AssetSeedling
 
+	// AssetSeedlingTuple is used to look up the ID of a seedling.
+	AssetSeedlingTuple = sqlc.FetchSeedlingIDParams
+
 	// MintingBatchTuple is used to update a batch state based on the raw
 	// key.
 	MintingBatchTuple = sqlc.UpdateMintingBatchStateParams
@@ -160,6 +163,15 @@ type PendingAssetStore interface {
 	// of the batch they're included in.
 	FetchSeedlingsForBatch(ctx context.Context,
 		rawKey []byte) ([]sqlc.FetchSeedlingsForBatchRow, error)
+
+	// FetchSeedlingID is used to look up the ID of a specific seedling
+	// in a batch.
+	FetchSeedlingID(ctx context.Context, arg AssetSeedlingTuple) (int32,
+		error)
+
+	// FetchSeedlingByID is used to look up a specific seedling.
+	FetchSeedlingByID(ctx context.Context,
+		seedlingID int32) (AssetSeedling, error)
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
@@ -388,6 +400,19 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 
 		return nil
 	})
+}
+
+// fetchSeedlingID attempts to fetch the ID for a seedling from a specific
+// batch. This is performed within the context of a greater DB transaction.
+func fetchSeedlingID(ctx context.Context, q PendingAssetStore,
+	batchKey []byte, seedlingName string) (int32, error) {
+
+	seedlingParams := AssetSeedlingTuple{
+		SeedlingName: seedlingName,
+		BatchKey:     batchKey,
+	}
+
+	return q.FetchSeedlingID(ctx, seedlingParams)
 }
 
 // fetchAssetSeedlings attempts to fetch a set of asset seedlings for a given
