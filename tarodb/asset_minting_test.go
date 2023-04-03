@@ -135,10 +135,10 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 	}
 }
 
-// addRandGroupToBatch selects a random seedling, generates an asset with
-// emission enabled, and stores that asset so the seedling can be minted into
-// an existing group. The seedling is updated with the group key and mapped
-// to the key needed to sign for the reissuance.
+// addRandGroupToBatch selects a random seedling, generates an asset genesis to
+// match that seedling, and stores that genesis so that the seedling can be
+// minted into an existing group. The seedling is updated with the group key
+// and mapped to the key needed to sign for the reissuance.
 func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 	ctx context.Context, seedlings map[string]*tarogarden.Seedling) (uint64,
 	map[string]*btcec.PrivateKey, *asset.AssetGroup) {
@@ -148,17 +148,19 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 	randAssetName := maps.Keys(seedlings)[randIndex]
 	randAssetType := seedlings[randAssetName].AssetType
 
-	// Generate a random genesis and group to match this seedling.
+	// Generate a random genesis and group to use as a group anchor
+	// for this seedling.
 	privDesc, groupPriv := randKeyDesc(t)
 	randGenesis := asset.RandGenesis(t, randAssetType)
 	genesisAmt, groupPriv, group := storeGroupGenesis(
 		t, ctx, randGenesis, nil, store, privDesc, groupPriv,
 	)
 
-	// Modify the seedling to specify reissuance. Unset the group signature
-	// since seedlings will not have one when fetched.
+	// Modify the seedling to specify membership in an existing group.
+	// Unset the group signature since seedlings will not have one
+	// when fetched.
 	targetSeedling := seedlings[randAssetName]
-	targetSeedling.EnableEmission = true
+	targetSeedling.EnableEmission = false
 	targetSeedling.GroupInfo = group
 	targetSeedling.GroupInfo.GroupKey.Sig = schnorr.Signature{}
 
@@ -167,6 +169,45 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 	seedlingGroups := map[string]*btcec.PrivateKey{randAssetName: groupPriv}
 
 	return genesisAmt, seedlingGroups, group
+}
+
+// addMultiAssetGroupToBatch selects a random seedling pair, where neither
+// seedling is being issued into an existing group, and creates a multi-asset
+// group. Specifically, one seedling will have emission enabled, and the other
+// seedling will reference the first seedling as its group anchor.
+func addMultiAssetGroupToBatch(t *testing.T,
+	seedlings map[string]*tarogarden.Seedling) (string, string) {
+
+	seedlingNames := maps.Keys(seedlings)
+	seedlingCount := len(seedlingNames)
+	var anchorSeedling, groupedSeedling *tarogarden.Seedling
+
+	// We want to find two spots in the random seedling list, where neither
+	// seedling was modified to be minted into an existing group.
+	for {
+		randIndex := rand.Int31n(int32(seedlingCount))
+		anchorSeedling = seedlings[seedlingNames[randIndex]]
+		if anchorSeedling.GroupInfo != nil {
+			continue
+		}
+
+		secondInd := (randIndex + 1) % int32(seedlingCount)
+		groupedSeedling = seedlings[seedlingNames[secondInd]]
+		if groupedSeedling.GroupInfo != nil {
+			continue
+		}
+
+		break
+	}
+
+	// The anchor asset must have emission enabled, and the second asset
+	// must specify the first as its group anchor.
+	anchorSeedling.EnableEmission = true
+	groupedSeedling.AssetType = anchorSeedling.AssetType
+	groupedSeedling.EnableEmission = false
+	groupedSeedling.GroupAnchor = &anchorSeedling.AssetName
+
+	return anchorSeedling.AssetName, groupedSeedling.AssetName
 }
 
 // TestCommitMintingBatchSeedlings tests that we're able to properly write and
@@ -283,8 +324,14 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	seedlings map[string]*tarogarden.Seedling,
 	groupKeys map[string]*btcec.PrivateKey) *commitment.TaroCommitment {
 
+	orderedSeedlings := tarogarden.SortSeedlings(maps.Values(seedlings))
 	assetRoots := make([]*commitment.AssetCommitment, 0, len(seedlings))
-	for _, seedling := range seedlings {
+	newGroupPrivs := make(map[string]*btcec.PrivateKey)
+	newGroupInfo := make(map[string]*asset.AssetGroup)
+
+	for _, seedlingName := range orderedSeedlings {
+		seedling := seedlings[seedlingName]
+
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
@@ -299,27 +346,44 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		scriptKey, _ := randKeyDesc(t)
 
 		var (
-			groupKey *asset.GroupKey
-			err      error
+			groupPriv *btcec.PrivateKey
+			groupKey  *asset.GroupKey
+			groupInfo *asset.AssetGroup
+			ok        bool
+			err       error
 		)
 
-		if seedling.EnableEmission {
-			switch seedling.HasGroupKey() {
-			case true:
-				groupPriv, ok := groupKeys[seedling.AssetName]
-				require.True(t, ok)
+		if seedling.HasGroupKey() {
+			groupPriv, ok = groupKeys[seedling.AssetName]
+			require.True(t, ok)
+			groupInfo = seedling.GroupInfo
+		}
 
-				groupKey, err = asset.DeriveGroupKey(
-					asset.NewRawKeyGenesisSigner(groupPriv),
-					seedling.GroupInfo.GroupKey.RawKey,
-					*seedling.GroupInfo.Genesis, &assetGen,
-				)
-			case false:
-				groupKeyRaw, groupPriv := randKeyDesc(t)
-				groupKey, err = asset.DeriveGroupKey(
-					asset.NewRawKeyGenesisSigner(groupPriv),
-					groupKeyRaw, assetGen, nil,
-				)
+		if seedling.GroupAnchor != nil {
+			groupPriv, ok = newGroupPrivs[*seedling.GroupAnchor]
+			require.True(t, ok)
+			groupInfo, ok = newGroupInfo[*seedling.GroupAnchor]
+			require.True(t, ok)
+		}
+
+		if groupInfo != nil {
+			groupKey, err = asset.DeriveGroupKey(
+				asset.NewRawKeyGenesisSigner(groupPriv),
+				groupInfo.GroupKey.RawKey,
+				*groupInfo.Genesis, &assetGen,
+			)
+		}
+
+		if seedling.EnableEmission {
+			groupKeyRaw, newGroupPriv := randKeyDesc(t)
+			groupKey, err = asset.DeriveGroupKey(
+				asset.NewRawKeyGenesisSigner(newGroupPriv),
+				groupKeyRaw, assetGen, nil,
+			)
+			newGroupPrivs[seedling.AssetName] = newGroupPriv
+			newGroupInfo[seedling.AssetName] = &asset.AssetGroup{
+				Genesis:  &assetGen,
+				GroupKey: groupKey,
 			}
 		}
 
@@ -521,6 +585,8 @@ func addRandAssets(t *testing.T, ctx context.Context,
 // that if we mark the batch as confirmed on chain, then the confirmed
 // transaction is updated accordingly.
 func TestCommitBatchChainActions(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	const numSeedlings = 5
 	assetStore, confAssets, db := newAssetStore(t)
@@ -894,6 +960,95 @@ func TestGroupStore(t *testing.T) {
 	}
 
 	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchInvalidGroupKey)
+}
+
+// TestGroupAnchors tests that we can create a minting batch with a multi-asset
+// group, and that we can write and read the group anchor reference correctly.
+func TestGroupAnchors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const numSeedlings = 10
+	assetStore, _, _ := newAssetStore(t)
+
+	// First, we'll write a new minting batch to disk, including an
+	// internal key and a set of seedlings. One random seedling will
+	// be a reissuance into a specific group. Two other seedlings will form
+	// a multi-asset group.
+	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	_, seedlingGroups, _ := addRandGroupToBatch(
+		t, assetStore, ctx, mintingBatch.Seedlings,
+	)
+	addMultiAssetGroupToBatch(t, mintingBatch.Seedlings)
+	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
+	require.NoError(t, err, "unable to write batch: %v", err)
+
+	batchKey := mintingBatch.BatchKey.PubKey
+
+	// With the batch written, we should be able to read out the batch, and
+	// have it be exactly the same as what we wrote.
+	mintingBatchKeyed, err := assetStore.FetchMintingBatch(ctx, batchKey)
+	require.NoError(t, err)
+	assertBatchEqual(t, mintingBatch, mintingBatchKeyed)
+
+	// Now we'll add an additional set of seedlings with
+	// another multi-asset group.
+	seedlings := tarogarden.RandSeedlings(t, numSeedlings)
+	secondAnchor, secondGrouped := addMultiAssetGroupToBatch(
+		t, seedlings,
+	)
+
+	// We add seedlings one at a time, in order, as the planter does.
+	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
+	orderedSeedlings := tarogarden.SortSeedlings(maps.Values(seedlings))
+	for _, seedlingName := range orderedSeedlings {
+		seedling := seedlings[seedlingName]
+		require.NoError(t,
+			assetStore.AddSeedlingsToBatch(
+				ctx, batchKey, seedling,
+			), "unable to write seedlings: %v", err,
+		)
+	}
+
+	// If we read the batch from disk again, then we should have 20 total
+	// seedlings, and the batch still matches what we wrote to disk.
+	mintingBatches := noError1(t, assetStore.FetchNonFinalBatches, ctx)
+	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings*2)
+	assertBatchEqual(t, mintingBatches[0], mintingBatch)
+
+	// Adding a seedling with an invalid group anchor should fail.
+	badGrouped := seedlings[secondGrouped]
+	badAnchorName := secondAnchor + secondGrouped
+	badGrouped.GroupAnchor = &badAnchorName
+	require.ErrorContains(t,
+		assetStore.AddSeedlingsToBatch(
+			ctx, batchKey, badGrouped,
+		), "no rows in result set",
+	)
+	seedlings[secondGrouped].GroupAnchor = &secondAnchor
+
+	// Now we'll map these seedlings to an asset commitment and insert them
+	// into the DB as sprouts.
+	genesisPacket := randGenesisPacket(t)
+	assetRoot := seedlingsToAssetRoot(
+		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
+		mintingBatch.Seedlings, seedlingGroups,
+	)
+	require.NoError(t, assetStore.AddSproutsToBatch(
+		ctx, batchKey, genesisPacket, assetRoot,
+	))
+
+	// Now we'll query for that same batch, and assert that the set of
+	// assets we just inserted into the database matches up.
+	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
+
+	// We should have no seedlings in this batch, since we added sprouts
+	// above. We also expect that the batch is in the BatchStateCommitted
+	// state.
+	assertSeedlingBatchLen(t, mintingBatches, 1, 0)
+	assertBatchState(t, mintingBatches[0], tarogarden.BatchStateCommitted)
+	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
+	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
 }
 
 func init() {

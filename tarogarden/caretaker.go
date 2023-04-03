@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -379,7 +380,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 	newAssets := make([]*asset.Asset, 0, len(b.cfg.Batch.Seedlings))
 
-	for _, seedling := range b.cfg.Batch.Seedlings {
+	// Seedlings that anchor a group may be referenced by other seedlings,
+	// and therefore need to be mapped to sprouts first so that we derive
+	// the initial tweaked group key early.
+	orederedSeedlings := SortSeedlings(maps.Values(b.cfg.Batch.Seedlings))
+	newGroups := make(map[string]*asset.AssetGroup, len(orederedSeedlings))
+
+	for _, seedlingName := range orederedSeedlings {
+		seedling := b.cfg.Batch.Seedlings[seedlingName]
+
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
@@ -402,20 +411,34 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				"key: %w", err)
 		}
 
-		var groupKey *asset.GroupKey
+		var (
+			groupInfo      *asset.AssetGroup
+			sproutGroupKey *asset.GroupKey
+		)
 
 		// If the seedling has a group key specified,
 		// that group key was validated earlier. We need to
 		// sign the new genesis with that group key.
 		if seedling.HasGroupKey() {
-			groupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner,
-				seedling.GroupInfo.GroupKey.RawKey,
-				*seedling.GroupInfo.Genesis, &assetGen,
+			groupInfo = seedling.GroupInfo
+		}
+
+		// If the seedling has a group anchor specified, that anchor
+		// was validated earlier and the corresponding group has already
+		// been created. We need to look up the group key and sign
+		// the asset genesis with that key.
+		if seedling.GroupAnchor != nil {
+			groupInfo = newGroups[*seedling.GroupAnchor]
+		}
+
+		if groupInfo != nil {
+			sproutGroupKey, err = asset.DeriveGroupKey(
+				b.cfg.GenSigner, groupInfo.GroupKey.RawKey,
+				*groupInfo.Genesis, &assetGen,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to"+
-					"tweak group key: %v", err)
+					"tweak group key: %w", err)
 			}
 		}
 
@@ -429,15 +452,20 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to"+
-					"derive group key: %v", err)
+					"derive group key: %w", err)
 			}
-			groupKey, err = asset.DeriveGroupKey(
+			sproutGroupKey, err = asset.DeriveGroupKey(
 				b.cfg.GenSigner, rawGroupKey,
 				assetGen, nil,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to"+
-					"tweak group key: %v", err)
+					"tweak group key: %w", err)
+			}
+
+			newGroups[seedlingName] = &asset.AssetGroup{
+				Genesis:  &assetGen,
+				GroupKey: sproutGroupKey,
 			}
 		}
 
@@ -453,10 +481,10 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 		newAsset, err := asset.New(
 			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBip86(scriptKey), groupKey,
+			asset.NewScriptKeyBip86(scriptKey), sproutGroupKey,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create new asset: %v",
+			return nil, fmt.Errorf("unable to create new asset: %w",
 				err)
 		}
 
@@ -954,6 +982,25 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	default:
 		return 0, fmt.Errorf("unknown state: %v", currentState)
 	}
+}
+
+// SortSeedlings sorts the seedling names such that all seedlings that will be
+// a group anchor are first.
+func SortSeedlings(seedlings []*Seedling) []string {
+	var normalSeedlings []string
+	allSeedlings := make([]string, 0, len(seedlings))
+
+	for _, seedling := range seedlings {
+		if seedling.EnableEmission {
+			allSeedlings = append(allSeedlings, seedling.AssetName)
+			continue
+		}
+
+		normalSeedlings = append(normalSeedlings, seedling.AssetName)
+	}
+
+	allSeedlings = append(allSeedlings, normalSeedlings...)
+	return allSeedlings
 }
 
 // GetTxFee returns the value of the on-chain fees paid by a finalized PSBT.

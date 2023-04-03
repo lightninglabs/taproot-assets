@@ -84,6 +84,23 @@ func (m *MintingBatch) addSeedling(s *Seedling) error {
 	return nil
 }
 
+// validateGroupAnchor checks if the group anchor for a seedling is valid.
+// A valid anchor must already be part of the batch and have emission enabled.
+func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
+	anchor, ok := m.Seedlings[*s.GroupAnchor]
+
+	if !ok {
+		return fmt.Errorf("group anchor %v not present in batch",
+			s.GroupAnchor)
+	}
+	if !anchor.EnableEmission {
+		return fmt.Errorf("group anchor %v has emission disabled",
+			*s.GroupAnchor)
+	}
+
+	return nil
+}
+
 // MintingOutputKey derives the output key that once mined, will commit to the
 // Taro asset root, thereby creating the set of included assets.
 func (m *MintingBatch) MintingOutputKey() (*btcec.PublicKey, []byte, error) {
