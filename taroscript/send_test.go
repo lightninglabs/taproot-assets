@@ -1898,7 +1898,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		require.False(t, fullValue)
 		return &state.asset1, inputAsset, err
 	},
-	err: taroscript.ErrInsufficientInputAsset,
+	err: taroscript.ErrInsufficientInputAssets,
 }, {
 	name: "collectible with missing input asset",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {

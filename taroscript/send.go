@@ -57,11 +57,11 @@ var (
 		"send: Input does not contain requested asset",
 	)
 
-	// ErrInsufficientInputAsset is an error returned when we attempt
-	// to spend to a Taro address from an input that contains
-	// insufficient asset funds.
-	ErrInsufficientInputAsset = errors.New(
-		"send: Input asset value is insufficient",
+	// ErrInsufficientInputAssets is an error returned when we attempt
+	// to spend to a Taro address from a set of inputs which contain an
+	// insufficient amount of total funds.
+	ErrInsufficientInputAssets = errors.New(
+		"send: Input assets total funds is insufficient",
 	)
 
 	// ErrInvalidOutputIndexes is an error returned when we attempt to spend
@@ -186,7 +186,7 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 	// the spend must use an un-spendable zero-value root split.
 	if inputAsset.Type == asset.Normal {
 		if inputAsset.Amount < desc.Amount {
-			return nil, fullValue, ErrInsufficientInputAsset
+			return nil, fullValue, ErrInsufficientInputAssets
 		}
 
 		if inputAsset.Amount == desc.Amount {
