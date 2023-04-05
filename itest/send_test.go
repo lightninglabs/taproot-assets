@@ -374,3 +374,102 @@ func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
 
 	require.Equal(t.t, expectedCount, countFound)
 }
+
+// testMultiInputSendNonInteractiveSingleID tests that we can properly
+// non-interactively send a single asset from multiple inputs.
+//
+// This test works as follows:
+// 1. The primary node mints a single asset.
+// 2. A secondary node is set up.
+// 3. Perform two different send events from the minting node to the secondary
+// node.
+// 4. Performs a single multi input send from the secondary node back to the
+// minting node. (The two inputs used in this send were set up via the
+// minting node's send events.)
+func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
+	ctxb := context.Background()
+
+	// Mint a single asset.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+	rpcAsset := rpcAssets[0]
+
+	// Set up a node that will serve as the final multi input send origin
+	// node. Sync the new node with the primary node.
+	bobTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bobTarod.stop(true))
+	}()
+
+	// First of two send events from minting node to secondary node.
+	genInfo := rpcAsset.AssetGenesis
+	addr, err := bobTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     1000,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, bobTarod, rpcAsset, addr)
+
+	// Send the assets to the secondary node.
+	sendResp := sendAssetsToAddr(t, t.tarod, addr)
+
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, genInfo.AssetId, []uint64{4000, 1000},
+		0, 1,
+	)
+
+	_ = sendProof(t, t.tarod, bobTarod, addr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, bobTarod, 1)
+
+	// Second of two send events from minting node to the secondary node.
+	addr, err = bobTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     4000,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, bobTarod, rpcAsset, addr)
+
+	// Send the assets to the secondary node.
+	sendResp = sendAssetsToAddr(t, t.tarod, addr)
+
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, genInfo.AssetId, []uint64{0, 4000}, 1, 2,
+	)
+
+	_ = sendProof(t, t.tarod, bobTarod, addr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, bobTarod, 2)
+
+	t.Logf("Two separate send events complete, now attempting to send " +
+		"back the full amount in a single multi input send event")
+
+	// Send back full amount from secondary node to the minting node.
+	addr, err = t.tarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     5000,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, t.tarod, rpcAsset, addr)
+
+	// Send the assets to the minting node.
+	sendResp = sendAssetsToAddr(t, bobTarod, addr)
+
+	confirmAndAssertOutboundTransfer(
+		t, bobTarod, sendResp, genInfo.AssetId, []uint64{0, 5000}, 0, 1,
+	)
+
+	_ = sendProof(t, bobTarod, t.tarod, addr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, t.tarod, 1)
+}
