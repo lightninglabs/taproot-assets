@@ -213,7 +213,6 @@ func (h *harnessTest) syncUniverseState(target, syncer *tarodHarness,
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
 	require.NoError(h.t, err)
-
 	numAssets := len(syncDiff.SyncedUniverses)
 
 	require.Equal(h.t, numExpectedAssets, numAssets)
