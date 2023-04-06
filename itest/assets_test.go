@@ -361,7 +361,7 @@ func assertGroups(t *harnessTest, issuableAssets []*mintrpc.MintAssetRequest) {
 		require.Equal(t.t, a.Name, b.Tag)
 
 		require.Equal(t.t, metaHash[:], b.MetaHash)
-		require.Equal(t.t, a.Amount, int64(b.Amount))
+		require.Equal(t.t, a.Amount, b.Amount)
 	}
 
 	equalityCheck(issuableAssets[0].Asset, groupedAssets[0])
@@ -416,7 +416,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	equalityCheck := func(a, b *mintrpc.MintAsset) {
 		require.Equal(t.t, a.AssetType, b.AssetType)
 		require.Equal(t.t, a.Name, b.Name)
-		require.Equal(t.t, a.AssetMeta, b.AssetMeta)
+		require.Equal(t.t, a.AssetMeta.Data, b.AssetMeta.Data)
 		require.Equal(t.t, a.Amount, b.Amount)
 		require.Equal(t.t, a.GroupKey, b.GroupKey)
 	}

@@ -40,7 +40,6 @@ var (
 	assetEmissionName     = "enable_emission"
 	assetGroupKeyName     = "group_key"
 	batchKeyName          = "batch_key"
-	skipBatchName         = "skip_batch"
 	groupByGroupName      = "by_group"
 	assetIDName           = "asset_id"
 )
