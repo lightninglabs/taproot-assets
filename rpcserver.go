@@ -356,9 +356,9 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	seedling := &tarogarden.Seedling{
-		AssetType:      asset.Type(req.AssetType),
-		AssetName:      req.Name,
-		Amount:         uint64(req.Amount),
+		AssetType:      asset.Type(req.Asset.AssetType),
+		AssetName:      req.Asset.Name,
+		Amount:         uint64(req.Asset.Amount),
 		EnableEmission: req.EnableEmission,
 	}
 
@@ -387,10 +387,10 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	if req.AssetMeta != nil {
+	if req.Asset.AssetMeta != nil {
 		seedling.Meta = &proof.MetaReveal{
-			Type: proof.MetaType(req.AssetMeta.Type),
-			Data: req.AssetMeta.Data,
+			Type: proof.MetaType(req.Asset.AssetMeta.Type),
+			Data: req.Asset.AssetMeta.Data,
 		}
 	}
 
@@ -1688,12 +1688,20 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
+		metaHash := seedling.Meta.MetaHash()
+
 		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType: tarorpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
-			MetaData:  seedling.Metadata,
-			Amount:    seedling.Amount,
-			GroupKey:  groupKeyBytes,
+			AssetMeta: &tarorpc.AssetMeta{
+				MetaHash: metaHash[:],
+				Data:     seedling.Meta.Data,
+				Type: tarorpc.AssetMetaType(
+					seedling.Meta.Type,
+				),
+			},
+			Amount:   seedling.Amount,
+			GroupKey: groupKeyBytes,
 		})
 	}
 

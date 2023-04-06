@@ -31,15 +31,18 @@ var assetsCommands = []cli.Command{
 }
 
 var (
-	assetTypeName      = "type"
-	assetTagName       = "name"
-	assetSupplyName    = "supply"
-	assetMetaBytesName = "meta_bytes"
-	assetEmissionName  = "enable_emission"
-	assetGroupKeyName  = "group_key"
-	skipBatchName      = "skip_batch"
-	groupByGroupName   = "by_group"
-	assetIDName        = "asset_id"
+	assetTypeName         = "type"
+	assetTagName          = "name"
+	assetSupplyName       = "supply"
+	assetMetaBytesName    = "meta_bytes"
+	assetMetaFilePathName = "meta_file_path"
+	assetMetaTypeName     = "meta_type"
+	assetEmissionName     = "enable_emission"
+	assetGroupKeyName     = "group_key"
+	batchKeyName          = "batch_key"
+	skipBatchName         = "skip_batch"
+	groupByGroupName      = "by_group"
+	assetIDName           = "asset_id"
 )
 
 var mintAssetCommand = cli.Command{
@@ -155,11 +158,13 @@ func mintAsset(ctx *cli.Context) error {
 	}
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
-		AssetType:      parseAssetType(ctx),
-		Name:           ctx.String(assetTagName),
-		AssetMeta:      assetMeta,
-		Amount:         ctx.Uint64(assetSupplyName),
-		GroupKey:       groupKey,
+		Asset: &mintrpc.MintAsset{
+			AssetType: parseAssetType(ctx),
+			Name:      ctx.String(assetTagName),
+			AssetMeta: assetMeta,
+			Amount:    ctx.Uint64(assetSupplyName),
+			GroupKey:  groupKey,
+		},
 		EnableEmission: ctx.Bool(assetEmissionName),
 	})
 	if err != nil {
