@@ -680,7 +680,7 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
 
 // CreateOutputCommitments creates the final set of TaroCommitments representing
 // the asset send. The input TaroCommitment must be set.
-func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
+func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
 	vPkt *taropsbt.VPacket,
 	passiveAssets []*taropsbt.VPacket) ([]*commitment.TaroCommitment,
 	error) {
@@ -695,6 +695,9 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 	input := vPkt.Inputs[0]
 	outputs := vPkt.Outputs
 	inputAsset := input.Asset().Copy()
+
+	// TODO(ffranr): Remove this once we support multiple inputs.
+	inputTaroCommitment := inputTaroCommitments[0]
 
 	// We require all outputs that reference the same anchor output to be
 	// identical, otherwise some assumptions in the code below don't hold.

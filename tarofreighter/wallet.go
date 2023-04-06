@@ -968,16 +968,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 	vPacket := params.VPkts[0]
 
-	// Select input commitment which corresponds to the single virtual
-	// input.
-	var inputCommitment *commitment.TaroCommitment
-	for idx := range params.InputCommitments {
-		inputCommitment = params.InputCommitments[idx]
-		break
-	}
-
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		inputCommitment, vPacket, params.PassiveAssetsVPkts,
+		params.InputCommitments, vPacket, params.PassiveAssetsVPkts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
