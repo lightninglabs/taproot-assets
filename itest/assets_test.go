@@ -144,11 +144,11 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 	// yet have a block hash associated with them.
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
-			Data: assetRequest.AssetMeta.Data,
+			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		assertAssetState(
 			t, tarod, assetRequest.Asset.Name,
-			assetRequest.Asset.MetaData,
+			metaHash[:],
 			assetAmountCheck(assetRequest.Asset.Amount),
 			assetTypeCheck(assetRequest.Asset.AssetType),
 			assetAnchorCheck(*hashes[0], zeroHash),
@@ -168,7 +168,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 	)
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
-			Data: assetRequest.AssetMeta.Data,
+			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		mintedAsset := assertAssetState(
 			t, tarod, assetRequest.Asset.Name, metaHash[:],
@@ -416,7 +416,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	equalityCheck := func(a, b *mintrpc.MintAsset) {
 		require.Equal(t.t, a.AssetType, b.AssetType)
 		require.Equal(t.t, a.Name, b.Name)
-		require.Equal(t.t, a.MetaData, b.MetaData)
+		require.Equal(t.t, a.AssetMeta, b.AssetMeta)
 		require.Equal(t.t, a.Amount, b.Amount)
 		require.Equal(t.t, a.GroupKey, b.GroupKey)
 	}

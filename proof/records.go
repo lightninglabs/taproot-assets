@@ -18,7 +18,7 @@ const (
 	InclusionProofType   tlv.Type = 5
 	ExclusionProofsType  tlv.Type = 6
 	SplitRootProofType   tlv.Type = 7
-	MetaRevealType                = 8
+	MetaRevealType       tlv.Type = 8
 	AdditionalInputsType tlv.Type = 9
 
 	TaprootProofOutputIndexType     tlv.Type = 0
