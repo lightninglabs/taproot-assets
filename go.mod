@@ -19,9 +19,9 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20201024163028-a0d42d470451
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/lib/pq v1.10.3
-	github.com/lightninglabs/aperture v0.1.19-beta.0.20230208115859-0605da4eba42
+	github.com/lightninglabs/aperture v0.1.20-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v0.16.0-9
+	github.com/lightninglabs/lndclient v0.16.0-10
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lnd v0.16.0-beta.rc1
 	github.com/lightningnetwork/lnd/cert v1.2.1
@@ -33,7 +33,7 @@ require (
 	github.com/urfave/cli v1.22.9
 	golang.org/x/exp v0.0.0-20221111094246-ab4555d3164f
 	golang.org/x/sync v0.0.0-20220923202941-7f9b1623fab7
-	golang.org/x/term v0.3.0
+	golang.org/x/term v0.5.0
 	google.golang.org/grpc v1.45.0
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/macaroon-bakery.v2 v2.0.1
@@ -113,7 +113,7 @@ require (
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.15.0 // indirect
-	github.com/lightninglabs/neutrino/cache v1.1.0 // indirect
+	github.com/lightninglabs/neutrino/cache v1.1.1 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1 // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.0 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2 // indirect
@@ -178,9 +178,9 @@ require (
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/crypto v0.1.0 // indirect
 	golang.org/x/mod v0.6.0 // indirect
-	golang.org/x/net v0.4.0 // indirect
-	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/text v0.5.0 // indirect
+	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/time v0.0.0-20220224211638-0e9765cccd65 // indirect
 	golang.org/x/tools v0.2.0 // indirect
 	google.golang.org/genproto v0.0.0-20220314164441-57ef72a4c106 // indirect

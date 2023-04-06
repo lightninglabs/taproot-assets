@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -58,6 +59,9 @@ type UpsertAssetStore interface {
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context,
 		arg sqlc.InsertNewAssetParams) (int32, error)
+
+	// UpsertAssetMeta inserts a new asset meta into the DB.
+	UpsertAssetMeta(ctx context.Context, arg NewAssetMeta) (int32, error)
 }
 
 // upsertGenesis imports a new genesis point into the database or returns the
@@ -91,7 +95,7 @@ func upsertGenesis(ctx context.Context, q UpsertAssetStore,
 	genAssetID, err := q.UpsertGenesisAsset(ctx, GenesisAsset{
 		AssetID:        assetID[:],
 		AssetTag:       genesis.Tag,
-		MetaData:       genesis.Metadata,
+		MetaDataHash:   genesis.MetaHash[:],
 		OutputIndex:    int32(genesis.OutputIndex),
 		AssetType:      int16(genesis.Type),
 		GenesisPointID: genesisPointID,
@@ -117,7 +121,7 @@ func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
 	genAssetID, err := q.FetchGenesisID(ctx, sqlc.FetchGenesisIDParams{
 		AssetID:     assetID[:],
 		AssetTag:    genesis.Tag,
-		MetaData:    genesis.Metadata,
+		MetaHash:    genesis.MetaHash[:],
 		OutputIndex: int32(genesis.OutputIndex),
 		AssetType:   int16(genesis.Type),
 		PrevOut:     genPoint,
@@ -342,17 +346,17 @@ type FetchGenesisStore interface {
 func fetchGenesis(ctx context.Context, q FetchGenesisStore,
 	assetID int32) (asset.Genesis, error) {
 
-	// Now we fetch the genesis information that so far we
-	// only have the ID for in the address record.
+	// Now we fetch the genesis information that so far we only have the ID
+	// for in the address record.
 	gen, err := q.FetchGenesisByID(ctx, assetID)
 	if err != nil {
 		return asset.Genesis{}, fmt.Errorf("unable to fetch genesis: "+
 			"%w", err)
 	}
 
-	// Next, we'll populate the asset genesis information which
-	// includes the genesis prev out, and the other information
-	// needed to derive an asset ID.
+	// Next, we'll populate the asset genesis information which includes
+	// the genesis prev out, and the other information needed to derive an
+	// asset ID.
 	var genesisPrevOut wire.OutPoint
 	err = readOutPoint(bytes.NewReader(gen.PrevOut), 0, 0, &genesisPrevOut)
 	if err != nil {
@@ -360,10 +364,13 @@ func fetchGenesis(ctx context.Context, q FetchGenesisStore,
 			"%w", err)
 	}
 
+	var metaHash [32]byte
+	copy(metaHash[:], gen.MetaDataHash)
+
 	return asset.Genesis{
 		FirstPrevOut: genesisPrevOut,
 		Tag:          gen.AssetTag,
-		Metadata:     gen.MetaData,
+		MetaHash:     metaHash,
 		OutputIndex:  uint32(gen.OutputIndex),
 		Type:         asset.Type(gen.AssetType),
 	}, nil
@@ -477,4 +484,50 @@ func parseGroupKeyInfo(tweakedKey, rawKey []byte,
 		RawKey:      groupRawKey,
 		GroupPubKey: *tweakedGroupKey,
 	}, nil
+}
+
+// maybeUpsertAssetMeta inserts a meta on disk and returns the primary key of
+// that meta if metaReveal is non nil.
+func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
+	assetGen *asset.Genesis, metaReveal *proof.MetaReveal) (int32, error) {
+
+	var (
+		metaHash [32]byte
+		metaBlob []byte
+		metaType sql.NullInt16
+
+		err error
+	)
+
+	switch {
+	// If there's a meta reveal with this asset genesis, then we'll also be
+	// inserting a blob and meta type.
+	case metaReveal != nil:
+		metaHash = metaReveal.MetaHash()
+		metaBlob = metaReveal.Data
+		metaType = sql.NullInt16{
+			Int16: int16(metaReveal.Type),
+			Valid: true,
+		}
+
+	// Otherwise, we'll just be inserting only the meta hash. At a later
+	// time, the reveal/blob can also be inserted.
+	case assetGen != nil:
+		metaHash = assetGen.MetaHash
+
+	// In the default case, there's no actual meta reveal, so we'll just
+	// use the meta hash of all zeroes.
+	default:
+	}
+
+	assetMetaID, err := db.UpsertAssetMeta(ctx, NewAssetMeta{
+		MetaDataHash: metaHash[:],
+		MetaDataBlob: metaBlob,
+		MetaDataType: metaType,
+	})
+	if err != nil {
+		return assetMetaID, err
+	}
+
+	return assetMetaID, nil
 }

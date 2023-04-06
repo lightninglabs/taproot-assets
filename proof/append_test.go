@@ -91,7 +91,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Start with a minted genesis asset.
 	genesisProof, senderPrivKey := genRandomGenesisWithProof(
-		t, assetType, &amt, nil,
+		t, assetType, &amt, nil, true, nil, nil,
 	)
 	genesisBlob, err := encodeAsProofFile(&genesisProof)
 	require.NoError(t, err)

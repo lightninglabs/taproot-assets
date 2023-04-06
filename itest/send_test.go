@@ -144,16 +144,20 @@ func testSendPassiveAsset(t *harnessTest) {
 			Asset: &mintrpc.MintAsset{
 				AssetType: tarorpc.AssetType_NORMAL,
 				Name:      "first-itestbuxx",
-				MetaData:  []byte("itest-metadata"),
-				Amount:    1500,
+				AssetMeta: &tarorpc.AssetMeta{
+					Data: []byte("itest-metadata"),
+				},
+				Amount: 1500,
 			},
 		},
 		{
 			Asset: &mintrpc.MintAsset{
 				AssetType: tarorpc.AssetType_NORMAL,
 				Name:      "second-itestbuxx",
-				MetaData:  []byte("itest-metadata"),
-				Amount:    2000,
+				AssetMeta: &tarorpc.AssetMeta{
+					Data: []byte("itest-metadata"),
+				},
+				Amount: 2000,
 			},
 		},
 	}

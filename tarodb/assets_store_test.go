@@ -206,6 +206,8 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 }
 
 func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
+	t.Helper()
+
 	if equal := a.DeepEqual(b); !equal {
 		// Print a nice diff if the native equality check fails.
 		require.Equal(t, b, a)
@@ -1108,7 +1110,7 @@ func TestFetchGroupedAssets(t *testing.T) {
 		require.Equal(t, a.LockTime, b.LockTime)
 		require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
 		require.Equal(t, a.Tag, b.Tag)
-		require.Equal(t, a.Metadata, b.Metadata)
+		require.Equal(t, a.MetaHash, b.MetaHash)
 		require.Equal(t, a.Type, b.Type)
 	}
 

@@ -18,7 +18,8 @@ const (
 	InclusionProofType   tlv.Type = 5
 	ExclusionProofsType  tlv.Type = 6
 	SplitRootProofType   tlv.Type = 7
-	AdditionalInputsType tlv.Type = 8
+	MetaRevealType       tlv.Type = 8
+	AdditionalInputsType tlv.Type = 9
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 1
@@ -33,6 +34,9 @@ const (
 	TapscriptProofTapPreimage1 tlv.Type = 0
 	TapscriptProofTapPreimage2 tlv.Type = 1
 	TapscriptProofBIP86        tlv.Type = 2
+
+	MetaRevealEncodingType tlv.Type = 0
+	MetaRevealDataType     tlv.Type = 1
 )
 
 func PrevOutRecord(prevOut *wire.OutPoint) tlv.Record {
@@ -229,4 +233,30 @@ func TapscriptProofBIP86Record(bip86 *bool) tlv.Record {
 	return tlv.MakeStaticRecord(
 		TapscriptProofBIP86, bip86, 1, BoolEncoder, BoolDecoder,
 	)
+}
+
+func MetaRevealRecord(reveal **MetaReveal) tlv.Record {
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		err := MetaRevealEncoder(&buf, reveal, &[8]byte{})
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		MetaRevealType, reveal, sizeFunc, MetaRevealEncoder,
+		MetaRevealDecoder,
+	)
+}
+
+func MetaRevealTypeRecord(metaType *MetaType) tlv.Record {
+	return tlv.MakeStaticRecord(
+		MetaRevealEncodingType, metaType, 1, MetaTypeEncoder,
+		MetaTypeDecoder,
+	)
+}
+
+func MetaRevealDataRecord(data *[]byte) tlv.Record {
+	return tlv.MakePrimitiveRecord(MetaRevealDataType, data)
 }

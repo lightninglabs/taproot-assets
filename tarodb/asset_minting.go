@@ -103,6 +103,10 @@ type (
 	// NewScriptKey wraps the params needed to insert a new script key on
 	// disk.
 	NewScriptKey = sqlc.UpsertScriptKeyParams
+
+	// NewAssetMeta wraps the params needed to insert a new asset meta on
+	// disk.
+	NewAssetMeta = sqlc.UpsertAssetMetaParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlc.Querier interface that
@@ -149,7 +153,7 @@ type PendingAssetStore interface {
 	// FetchSeedlingsForBatch is used to fetch all the seedlings by the key
 	// of the batch they're included in.
 	FetchSeedlingsForBatch(ctx context.Context,
-		rawKey []byte) ([]AssetSeedling, error)
+		rawKey []byte) ([]sqlc.FetchSeedlingsForBatchRow, error)
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
@@ -190,6 +194,10 @@ type PendingAssetStore interface {
 	// TODO(roasbeef): move somewhere else??
 	UpsertAssetProof(ctx context.Context,
 		arg sqlc.UpsertAssetProofParams) error
+
+	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 }
 
 // AssetStoreTxOptions defines the set of db txn options the PendingAssetStore
@@ -275,12 +283,21 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// internal key inserted above, we can create the set of new
 		// seedlings.
 		for _, seedling := range newBatch.Seedlings {
+			// If the seedling has a metadata field, we'll need to
+			// insert that first so we can obtain meta primary key.
+			assetMetaID, err := maybeUpsertAssetMeta(
+				ctx, q, nil, seedling.Meta,
+			)
+			if err != nil {
+				return err
+			}
+
 			dbSeedling := AssetSeedlingShell{
 				BatchID:         batchID,
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
-				AssetMeta:       seedling.Metadata,
+				AssetMetaID:     assetMetaID,
 				EmissionEnabled: seedling.EnableEmission,
 			}
 
@@ -324,12 +341,21 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 		// TODO(roasbeef): can make sure to use the batch insert here
 		// when postgres
 		for _, seedling := range seedlings {
+			// If the seedling has a metadata field, we'll need to
+			// insert that first so we can obtain meta primary key.
+			assetMetaID, err := maybeUpsertAssetMeta(
+				ctx, q, nil, seedling.Meta,
+			)
+			if err != nil {
+				return err
+			}
+
 			dbSeedling := AssetSeedlingItem{
 				RawKey:          rawKey,
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
-				AssetMeta:       seedling.Metadata,
+				AssetMetaID:     assetMetaID,
 				EmissionEnabled: seedling.EnableEmission,
 			}
 
@@ -347,7 +373,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
 			}
 
-			err := q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
+			err = q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
 				return fmt.Errorf("unable to insert "+
 					"seedling into db: %v", err)
@@ -379,7 +405,6 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				dbSeedling.AssetType,
 			),
 			AssetName: dbSeedling.AssetName,
-			Metadata:  dbSeedling.AssetMeta,
 			Amount: uint64(
 				dbSeedling.AssetSupply,
 			),
@@ -398,6 +423,15 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			}
 
 			seedling.GroupInfo = seedlingGroup
+		}
+
+		if len(dbSeedling.MetaDataBlob) != 0 {
+			seedling.Meta = &proof.MetaReveal{
+				Data: dbSeedling.MetaDataBlob,
+				Type: proof.MetaType(
+					dbSeedling.MetaDataType.Int16,
+				),
+			}
 		}
 
 		seedlings[seedling.AssetName] = seedling
@@ -493,9 +527,12 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetGenesis := asset.Genesis{
 			FirstPrevOut: genesisPrevOut,
 			Tag:          sprout.AssetTag,
-			Metadata:     sprout.MetaData,
 			OutputIndex:  uint32(sprout.GenesisOutputIndex),
 			Type:         asset.Type(sprout.AssetType),
+		}
+
+		if len(sprout.MetaHash) != 0 {
+			copy(assetGenesis.MetaHash[:], sprout.MetaHash)
 		}
 
 		// With the base information extracted, we'll use that to
@@ -541,6 +578,37 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 	}
 
 	return taroCommitment, nil
+}
+
+// fetchAssetMetas attempts to fetch the asset meta reveal for each of the
+// passed assets.
+func fetchAssetMetas(ctx context.Context, db PendingAssetStore,
+	assets []*asset.Asset) (map[asset.SerializedKey]*proof.MetaReveal,
+	error) {
+
+	assetMetas := make(map[asset.SerializedKey]*proof.MetaReveal)
+	for _, assetT := range assets {
+		assetID := assetT.ID()
+
+		assetMeta, err := db.FetchAssetMetaForAsset(ctx, assetID[:])
+		switch {
+		// If the asset doesn't have a meta data reveal, then we can
+		// skip it.
+		case errors.Is(err, sql.ErrNoRows):
+			continue
+
+		case err != nil:
+			return nil, err
+		}
+
+		scriptKey := asset.ToSerialized(assetT.ScriptKey.PubKey)
+		assetMetas[scriptKey] = &proof.MetaReveal{
+			Data: assetMeta.MetaDataBlob,
+			Type: proof.MetaType(assetMeta.MetaDataType.Int16),
+		}
+	}
+
+	return assetMetas, nil
 }
 
 // FetchNonFinalBatches fetches all the batches that aren't fully finalized on
@@ -750,6 +818,18 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 	default:
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
 			ctx, q, dbBatch.RawKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Finally, for each asset contained in the root
+		// commitment above, we'll fetch the meta reveal for
+		// the asset, if it has one.
+		assetRoot := batch.RootAssetCommitment
+		assetsInBatch := assetRoot.CommittedAssets()
+		batch.AssetMetas, err = fetchAssetMetas(
+			ctx, q, assetsInBatch,
 		)
 	}
 	if err != nil {

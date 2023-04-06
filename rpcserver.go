@@ -3,6 +3,7 @@ package taro
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -357,7 +358,6 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	seedling := &tarogarden.Seedling{
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
-		Metadata:       req.Asset.MetaData,
 		Amount:         uint64(req.Asset.Amount),
 		EnableEmission: req.EnableEmission,
 	}
@@ -384,6 +384,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if req.Asset.AssetMeta != nil {
+		seedling.Meta = &proof.MetaReveal{
+			Type: proof.MetaType(req.Asset.AssetMeta.Type),
+			Data: req.Asset.AssetMeta.Data,
 		}
 	}
 
@@ -622,7 +629,7 @@ func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
 		AssetGenesis: &tarorpc.GenesisInfo{
 			GenesisPoint: a.Genesis.FirstPrevOut.String(),
 			Name:         a.Genesis.Tag,
-			Meta:         a.Genesis.Metadata,
+			MetaHash:     a.Genesis.MetaHash[:],
 			AssetId:      assetID[:],
 			OutputIndex:  a.Genesis.OutputIndex,
 		},
@@ -699,7 +706,7 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 		gen := asset.Genesis{
 			FirstPrevOut: balance.GenesisPoint,
 			Tag:          balance.Tag,
-			Metadata:     balance.Meta,
+			MetaHash:     balance.MetaHash,
 			OutputIndex:  balance.OutputIndex,
 			Type:         balance.Type,
 		}
@@ -714,7 +721,7 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 				Version:              int32(balance.Version),
 				GenesisPoint:         balance.GenesisPoint.String(),
 				Name:                 balance.Tag,
-				Meta:                 balance.Meta,
+				MetaHash:             balance.MetaHash[:],
 				AssetId:              balance.ID[:],
 				GenesisBootstrapInfo: bootstrapInfoBuf.Bytes(),
 			},
@@ -821,7 +828,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 			LockTime:         int32(a.LockTime),
 			RelativeLockTime: int32(a.RelativeLockTime),
 			Tag:              a.Tag,
-			MetaData:         a.Metadata[:],
+			MetaHash:         a.MetaHash[:],
 			Type:             tarorpc.AssetType(a.Type),
 		}
 
@@ -1681,12 +1688,20 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
+		metaHash := seedling.Meta.MetaHash()
+
 		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType: tarorpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
-			MetaData:  seedling.Metadata,
-			Amount:    seedling.Amount,
-			GroupKey:  groupKeyBytes,
+			AssetMeta: &tarorpc.AssetMeta{
+				MetaHash: metaHash[:],
+				Data:     seedling.Meta.Data,
+				Type: tarorpc.AssetMetaType(
+					seedling.Meta.Type,
+				),
+			},
+			Amount:   seedling.Amount,
+			GroupKey: groupKeyBytes,
 		})
 	}
 
@@ -1796,4 +1811,55 @@ func unmarshalKeyDescriptor(
 	}
 
 	return desc, nil
+}
+
+// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+// either by the asset ID for that asset, or a meta hash.
+func (r *rpcServer) FetchAssetMeta(ctx context.Context,
+	in *tarorpc.FetchAssetMetaRequest) (*tarorpc.AssetMeta, error) {
+
+	var (
+		assetMeta *proof.MetaReveal
+		err       error
+	)
+	switch {
+	case in.GetAssetId() != nil:
+		if len(in.GetAssetId()) != sha256.Size {
+			return nil, fmt.Errorf("asset ID must be 32 bytes")
+		}
+
+		var assetID asset.ID
+		copy(assetID[:], in.GetAssetId())
+
+		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaForAsset(
+			ctx, assetID,
+		)
+
+	case in.GetMetaHash() != nil:
+		if len(in.GetMetaHash()) != sha256.Size {
+			return nil, fmt.Errorf("meta hash must be 32 bytes")
+		}
+
+		var metaHash [asset.MetaHashLen]byte
+		copy(metaHash[:], in.GetMetaHash())
+
+		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaByHash(
+			ctx, metaHash,
+		)
+
+	default:
+		return nil, fmt.Errorf("either asset ID or meta hash must " +
+			"be set")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch asset "+
+			"meta: %w", err)
+	}
+
+	metaHash := assetMeta.MetaHash()
+	return &tarorpc.AssetMeta{
+		Data:     assetMeta.Data,
+		Type:     tarorpc.AssetMetaType(assetMeta.Type),
+		MetaHash: metaHash[:],
+	}, nil
 }

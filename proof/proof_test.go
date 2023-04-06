@@ -51,18 +51,23 @@ func assertEqualTaprootProof(t *testing.T, expected, actual *TaprootProof) {
 
 func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	t.Helper()
+
 	require.Equal(t, expected.PrevOut, actual.PrevOut)
 	require.Equal(t, expected.BlockHeader, actual.BlockHeader)
 	require.Equal(t, expected.AnchorTx, actual.AnchorTx)
 	require.Equal(t, expected.TxMerkleProof, actual.TxMerkleProof)
 	require.Equal(t, expected.Asset, actual.Asset)
+
 	assertEqualTaprootProof(t, &expected.InclusionProof, &actual.InclusionProof)
+
 	for i := range expected.ExclusionProofs {
 		assertEqualTaprootProof(
 			t, &expected.ExclusionProofs[i], &actual.ExclusionProofs[i],
 		)
 	}
+
 	require.Equal(t, expected.ExclusionProofs, actual.ExclusionProofs)
+
 	if expected.SplitRootProof != nil {
 		assertEqualTaprootProof(
 			t, expected.SplitRootProof, actual.SplitRootProof,
@@ -70,6 +75,9 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	} else {
 		require.Nil(t, actual.SplitRootProof)
 	}
+
+	require.Equal(t, expected.MetaReveal, actual.MetaReveal)
+
 	for i := range expected.AdditionalInputs {
 		require.Equal(
 			t, expected.AdditionalInputs[i].Version,
@@ -194,6 +202,10 @@ func TestProofEncoding(t *testing.T) {
 				TapSiblingPreimage: nil,
 			},
 		},
+		MetaReveal: &MetaReveal{
+			Data: []byte("quoth the raven nevermore"),
+			Type: MetaOpaque,
+		},
 		AdditionalInputs: []File{},
 	}
 	file, err := NewFile(V0, proof, proof)
@@ -209,13 +221,27 @@ func TestProofEncoding(t *testing.T) {
 }
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
-	amt *uint64, tapscriptPreimage *TapscriptPreimage) (Proof,
-	*btcec.PrivateKey) {
+	amt *uint64, tapscriptPreimage *TapscriptPreimage,
+	noMetaHash bool, metaReveal *MetaReveal,
+	genesisMutator genMutator) (Proof, *btcec.PrivateKey) {
 
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
+
+	// If we have a specified meta reveal, then we'll replace the meta hash
+	// with the hash of the reveal instead.
 	assetGenesis := asset.RandGenesis(t, assetType)
+	if metaReveal != nil {
+		assetGenesis.MetaHash = metaReveal.MetaHash()
+	} else if noMetaHash {
+		assetGenesis.MetaHash = [32]byte{}
+	}
+
+	if genesisMutator != nil {
+		genesisMutator(&assetGenesis)
+	}
+
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
 	taroCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
@@ -282,10 +308,13 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 			},
 			TapscriptProof: nil,
 		},
+		MetaReveal:       metaReveal,
 		ExclusionProofs:  nil,
 		AdditionalInputs: nil,
 	}, genesisPrivKey
 }
+
+type genMutator func(*asset.Genesis)
 
 func TestGenesisProofVerification(t *testing.T) {
 	t.Parallel()
@@ -305,44 +334,102 @@ func TestGenesisProofVerification(t *testing.T) {
 		assetType         asset.Type
 		amount            *uint64
 		tapscriptPreimage *TapscriptPreimage
-	}{{
-		name:      "collectible genesis",
-		assetType: asset.Collectible,
-	}, {
-		name:              "collectible with leaf preimage",
-		assetType:         asset.Collectible,
-		tapscriptPreimage: NewPreimageFromLeaf(leaf1),
-	}, {
-		name:              "collectible with branch preimage",
-		assetType:         asset.Collectible,
-		tapscriptPreimage: NewPreimageFromBranch(branch),
-	}, {
-		name:      "normal genesis",
-		assetType: asset.Normal,
-		amount:    &amount,
-	}, {
-		name:              "normal with leaf preimage",
-		assetType:         asset.Normal,
-		amount:            &amount,
-		tapscriptPreimage: NewPreimageFromLeaf(leaf1),
-	}, {
-		name:              "normal with branch preimage",
-		assetType:         asset.Normal,
-		amount:            &amount,
-		tapscriptPreimage: NewPreimageFromBranch(branch),
-	}}
+		metaReveal        *MetaReveal
+		noMetaHash        bool
+		genesisMutator    genMutator
+		expectedErr       error
+	}{
+		{
+			name:       "collectible genesis",
+			assetType:  asset.Collectible,
+			noMetaHash: true,
+		},
+		{
+			name:              "collectible with leaf preimage",
+			assetType:         asset.Collectible,
+			tapscriptPreimage: NewPreimageFromLeaf(leaf1),
+			noMetaHash:        true,
+		},
+		{
+			name:              "collectible with branch preimage",
+			assetType:         asset.Collectible,
+			tapscriptPreimage: NewPreimageFromBranch(branch),
+			noMetaHash:        true,
+		},
+		{
+			name:       "normal genesis",
+			assetType:  asset.Normal,
+			amount:     &amount,
+			noMetaHash: true,
+		},
+		{
+			name:              "normal with leaf preimage",
+			assetType:         asset.Normal,
+			amount:            &amount,
+			tapscriptPreimage: NewPreimageFromLeaf(leaf1),
+			noMetaHash:        true,
+		},
+		{
+			name:              "normal with branch preimage",
+			assetType:         asset.Normal,
+			amount:            &amount,
+			tapscriptPreimage: NewPreimageFromBranch(branch),
+			noMetaHash:        true,
+		},
+		{
+			name:      "normal asset with a meta reveal",
+			assetType: asset.Normal,
+			amount:    &amount,
+			metaReveal: &MetaReveal{
+				Data: []byte("meant in croking nevermore"),
+			},
+		},
+		{
+			name:      "collectible with a meta reveal",
+			assetType: asset.Collectible,
+			metaReveal: &MetaReveal{
+				Data: []byte("shall be lifted nevermore"),
+			},
+		},
+		{
+			name:      "collectible invalid meta reveal",
+			assetType: asset.Collectible,
+			metaReveal: &MetaReveal{
+				Data: []byte("shall be lifted nevermore"),
+			},
+			genesisMutator: func(genesis *asset.Genesis) {
+				// Modify the genesis to make the meta reveal
+				// invalid.
+				genesis.MetaHash[0] ^= 1
+			},
+			expectedErr: ErrMetaRevealMismatch,
+		},
+		{
+			name:        "normal asset has meta hash no meta reveal",
+			assetType:   asset.Normal,
+			amount:      &amount,
+			expectedErr: ErrMetaRevealRequired,
+		},
+		{
+			name: "collectible asset has meta hash no " +
+				"meta reveal",
+			assetType:   asset.Collectible,
+			expectedErr: ErrMetaRevealRequired,
+		},
+	}
 
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(tt *testing.T) {
 			genesisProof, _ := genRandomGenesisWithProof(
 				tt, tc.assetType, tc.amount,
-				tc.tapscriptPreimage,
+				tc.tapscriptPreimage, tc.noMetaHash,
+				tc.metaReveal, tc.genesisMutator,
 			)
 			_, err := genesisProof.Verify(
 				context.Background(), nil, MockHeaderVerifier,
 			)
-			require.NoError(tt, err)
+			require.ErrorIs(t, err, tc.expectedErr)
 		})
 	}
 }
@@ -352,7 +439,9 @@ func TestGenesisProofVerification(t *testing.T) {
 func TestProofBlockHeaderVerification(t *testing.T) {
 	t.Parallel()
 
-	proof, _ := genRandomGenesisWithProof(t, asset.Collectible, nil, nil)
+	proof, _ := genRandomGenesisWithProof(
+		t, asset.Collectible, nil, nil, true, nil, nil,
+	)
 
 	// Create a base reference for the block header. We will later modify
 	// the proof block header.
@@ -392,7 +481,7 @@ func BenchmarkProofEncoding(b *testing.B) {
 
 	// Start with a minted genesis asset.
 	genesisProof, _ := genRandomGenesisWithProof(
-		b, asset.Normal, &amt, nil,
+		b, asset.Normal, &amt, nil, false, nil, nil,
 	)
 
 	// We create a file with 10k proofs (the same one) and test encoding/

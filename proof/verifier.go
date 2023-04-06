@@ -238,6 +238,20 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	return splitAsset, engine.Execute()
 }
 
+// verifyMetaReveal verifies that the "meta hash" of the contained meta reveal
+// matches that of the genesis asset included in this proof.
+func (p *Proof) verifyMetaReveal() error {
+	// TODO(roasbeef): enforce practical limit on size of meta reveal
+
+	metaRevealHash := p.MetaReveal.MetaHash()
+	if metaRevealHash != p.Asset.Genesis.MetaHash {
+		return fmt.Errorf("%w: %x vs %x", ErrMetaRevealMismatch,
+			metaRevealHash[:], p.Asset.Genesis.MetaHash[:])
+	}
+
+	return nil
+}
+
 // HeaderVerifier is a callback function which returns an error if the given
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader) error
@@ -299,9 +313,35 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
+	// 5. If this is a genesis asset, and it also has a meta reveal, then
+	// we'll validate that now.
+	hasMetaReveal := p.MetaReveal != nil
+	hasMetaHash := p.Asset.MetaHash != [asset.MetaHashLen]byte{}
+	isGenesisAsset := p.Asset.HasGenesisWitness()
+	switch {
+	// If this asset doesn't have a genesis witness, and it includes a
+	// meta reveal, then we deem this to be invalid.
+	case !isGenesisAsset && hasMetaReveal:
+		return nil, ErrNonGenesisAssetWithMetaReveal
+
+	// If this a genesis asset, and it doesn't have a meta reveal (but it
+	// has a non-zero meta hash), then this is invalid.
+	case isGenesisAsset && hasMetaHash && !hasMetaReveal:
+		return nil, ErrMetaRevealRequired
+
+	// Otherwise, if it has a genesis witness, along with a meta reveal,
+	// then we'll validate that now.
+	case isGenesisAsset && hasMetaHash && hasMetaReveal:
+		if err := p.verifyMetaReveal(); err != nil {
+			return nil, err
+		}
+	}
+
 	// 5. A set of asset inputs with valid witnesses are included that
 	// satisfy the resulting state transition.
-	splitAsset, err := p.verifyAssetStateTransition(ctx, prev, headerVerifier)
+	splitAsset, err := p.verifyAssetStateTransition(
+		ctx, prev, headerVerifier,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +360,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		InternalKey:     p.InclusionProof.InternalKey,
 		ScriptRoot:      taroCommitment,
 		SplitAsset:      splitAsset != nil,
+		MetaReveal:      p.MetaReveal,
 	}, nil
 }
 

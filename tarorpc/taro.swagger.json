@@ -279,6 +279,47 @@
         ]
       }
     },
+    "/v1/taro/assets/meta": {
+      "get": {
+        "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
+        "operationId": "Taro_FetchAssetMeta",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tarorpcAssetMeta"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id",
+            "description": "The asset ID of the asset to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "meta_hash",
+            "description": "The 32-byte meta hash of the asset meta.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Taro"
+        ]
+      }
+    },
     "/v1/taro/assets/transfers": {
       "get": {
         "summary": "tarocli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
@@ -882,16 +923,43 @@
           "type": "string",
           "description": "The name of the asset."
         },
-        "meta_data": {
+        "meta_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The opaque metadata of the asset."
+          "description": "The metadata hash of the asset."
         },
         "type": {
           "$ref": "#/definitions/tarorpcAssetType",
           "description": "The type of the asset."
         }
       }
+    },
+    "tarorpcAssetMeta": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF."
+        },
+        "type": {
+          "$ref": "#/definitions/tarorpcAssetMetaType",
+          "description": "The type of the asset meta data."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the meta. This is the hash of the TLV serialization of the meta\nitself."
+        }
+      }
+    },
+    "tarorpcAssetMetaType": {
+      "type": "string",
+      "enum": [
+        "MTEA_TYPE_OPAQUE"
+      ],
+      "default": "MTEA_TYPE_OPAQUE",
+      "description": " - MTEA_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
     },
     "tarorpcAssetOutput": {
       "type": "object",
@@ -1055,10 +1123,10 @@
           "type": "string",
           "description": "The name of the asset."
         },
-        "meta": {
+        "meta_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The opaque meta data of the asset."
+          "description": "The hash of the meta data for this genesis asset."
         },
         "asset_id": {
           "type": "string",

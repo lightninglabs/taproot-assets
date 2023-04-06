@@ -25,6 +25,21 @@ var (
 	// ErrMissingSplitRootProof is an error returned upon noticing an
 	// inclusion proof for a split root asset is missing.
 	ErrMissingSplitRootProof = errors.New("missing split root proof")
+
+	// ErrNonGenesisAssetWithMetaReveal is an error returned if an asset
+	// proof has a meta reveal but isn't itself a genesis asset.
+	ErrNonGenesisAssetWithMetaReveal = errors.New("non genesis asset has " +
+		"meta reveal")
+
+	// ErrMetaRevealMismatch is an error returned if the hash of the meta
+	// reveal doesn't match the actual asset meta hash.
+	ErrMetaRevealMismatch = errors.New("meta reveal doesn't match meta " +
+		"hash")
+
+	// ErrMetaRevealRequired is an error returned if an asset proof for a
+	// genesis asset has a non-zero metahash, but doesn't have a meta
+	// reveal.
+	ErrMetaRevealRequired = errors.New("meta reveal required")
 )
 
 // Proof encodes all of the data necessary to prove a valid state transition for
@@ -63,6 +78,16 @@ type Proof struct {
 	// asset of the split.
 	SplitRootProof *TaprootProof
 
+	// MetaReveal is the set of bytes that were revealed to prove the
+	// derivation of the meta data hash contained in the genesis asset.
+	//
+	// TODO(roasbeef): use even/odd framing here?
+	//
+	// NOTE: This field is optional, and can only be specified if the asset
+	// above is a genesis asset. If specified, then verifiers _should_ also
+	// verify the hashes match up.
+	MetaReveal *MetaReveal
+
 	// AdditionalInputs is a nested full proof for any additional inputs
 	// found within the resulting asset.
 	AdditionalInputs []File
@@ -87,6 +112,9 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 			&p.SplitRootProof,
 		))
 	}
+	if p.MetaReveal != nil {
+		records = append(records, MetaRevealRecord(&p.MetaReveal))
+	}
 	if len(p.AdditionalInputs) > 0 {
 		records = append(records, AdditionalInputsRecord(
 			&p.AdditionalInputs,
@@ -106,6 +134,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		InclusionProofRecord(&p.InclusionProof),
 		ExclusionProofsRecord(&p.ExclusionProofs),
 		SplitRootProofRecord(&p.SplitRootProof),
+		MetaRevealRecord(&p.MetaReveal),
 		AdditionalInputsRecord(&p.AdditionalInputs),
 	}
 }

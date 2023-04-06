@@ -97,7 +97,7 @@ type AssetSeedling struct {
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
-	AssetMeta       []byte
+	AssetMetaID     int32
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
@@ -122,6 +122,13 @@ type AssetWitness struct {
 	SplitCommitmentProof []byte
 }
 
+type AssetsMetum struct {
+	MetaID       int32
+	MetaDataHash []byte
+	MetaDataBlob []byte
+	MetaDataType sql.NullInt16
+}
+
 type ChainTxn struct {
 	TxnID       int32
 	Txid        []byte
@@ -136,7 +143,7 @@ type GenesisAsset struct {
 	GenAssetID     int32
 	AssetID        []byte
 	AssetTag       string
-	MetaData       []byte
+	MetaDataID     sql.NullInt32
 	OutputIndex    int32
 	AssetType      int16
 	GenesisPointID int32
@@ -146,7 +153,7 @@ type GenesisInfoView struct {
 	GenAssetID  int32
 	AssetID     []byte
 	AssetTag    string
-	MetaData    []byte
+	MetaHash    []byte
 	OutputIndex int32
 	AssetType   int16
 	PrevOut     []byte

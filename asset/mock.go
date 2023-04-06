@@ -14,14 +14,14 @@ import (
 func RandGenesis(t testing.TB, assetType Type) Genesis {
 	t.Helper()
 
-	metadata := make([]byte, test.RandInt[int]()%32+1)
-	_, err := rand.Read(metadata)
+	var metaHash [32]byte
+	_, err := rand.Read(metaHash[:])
 	require.NoError(t, err)
 
 	return Genesis{
 		FirstPrevOut: test.RandOp(t),
-		Tag:          hex.EncodeToString(metadata),
-		Metadata:     metadata,
+		Tag:          hex.EncodeToString(metaHash[:]),
+		MetaHash:     metaHash,
 		OutputIndex:  uint32(test.RandInt[int32]()),
 		Type:         assetType,
 	}

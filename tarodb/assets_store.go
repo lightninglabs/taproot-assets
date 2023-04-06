@@ -254,6 +254,16 @@ type ActiveAssetsStore interface {
 	// their on-chain outpoint.
 	DeletePendingPassiveAsset(ctx context.Context,
 		prevOutpoint []byte) error
+
+	// FetchAssetMetaByHash fetches the asset meta for a given meta hash.
+	//
+	// TODO(roasbeef): split into MetaStore?
+	FetchAssetMetaByHash(ctx context.Context,
+		metaDataHash []byte) (sqlc.FetchAssetMetaByHashRow, error)
+
+	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 }
 
 type InsertRecvProofTxAttemptParams = sqlc.InsertReceiverProofTransferAttemptParams
@@ -265,7 +275,7 @@ type AssetBalance struct {
 	Version      int32
 	Balance      uint64
 	Tag          string
-	Meta         []byte
+	MetaHash     [asset.MetaHashLen]byte
 	Type         asset.Type
 	GenesisPoint wire.OutPoint
 	OutputIndex  uint32
@@ -363,8 +373,8 @@ type AssetHumanReadable struct {
 	// Tag is the human-readable identifier for the asset.
 	Tag string
 
-	// Metadata encodes metadata related to the asset.
-	Metadata []byte
+	// MetaHash is the hash of the meta data for this asset.
+	MetaHash [asset.MetaHashLen]byte
 
 	// Type uniquely identifies the type of Taro asset.
 	Type asset.Type
@@ -542,9 +552,12 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		assetGenesis := asset.Genesis{
 			FirstPrevOut: genesisPrevOut,
 			Tag:          sprout.AssetTag,
-			Metadata:     sprout.MetaData,
 			OutputIndex:  uint32(sprout.GenesisOutputIndex),
 			Type:         asset.Type(sprout.AssetType),
+		}
+
+		if len(sprout.MetaHash) != 0 {
+			copy(assetGenesis.MetaHash[:], sprout.MetaHash)
 		}
 
 		// With the base information extracted, we'll use that to
@@ -794,10 +807,7 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 			}
 
 			copy(assetIDBalance.ID[:], assetBalance.AssetID)
-			assetIDBalance.Meta = make(
-				[]byte, len(assetBalance.MetaData),
-			)
-			copy(assetIDBalance.Meta, assetBalance.MetaData)
+			copy(assetIDBalance.MetaHash[:], assetBalance.MetaHash)
 
 			balances[assetID] = assetIDBalance
 		}
@@ -899,10 +909,10 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 			LockTime:         lockTime,
 			RelativeLockTime: relativeLockTime,
 			Tag:              a.AssetTag,
-			Metadata:         a.MetaData,
 			Type:             assetType,
 			GroupKey:         groupKey,
 		}
+		copy(groupedAssets[i].MetaHash[:], a.MetaHash)
 	}
 
 	return groupedAssets, nil
@@ -1217,6 +1227,16 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	}
 
 	newAsset := proof.Asset
+
+	// If this proof also has a meta reveal (should only exist for genesis
+	// assets, so we skip that validation here), then we'll insert this now
+	// so the upsert below functions properly.
+	_, err = maybeUpsertAssetMeta(
+		ctx, db, &newAsset.Genesis, proof.MetaReveal,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert asset meta: %w", err)
+	}
 
 	// Insert/update the asset information in the database now.
 	_, assetIDs, err := upsertAssetsWithGenesis(
@@ -2147,6 +2167,70 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 	}
 
 	return deltas, nil
+}
+
+// ErrAssetMetaNotFound is returned when an asset meta is not found in the
+// database.
+var ErrAssetMetaNotFound = fmt.Errorf("asset meta not found")
+
+// FetchAssetMetaForAsset attempts to fetch an asset meta based on an asset ID.
+func (a *AssetStore) FetchAssetMetaForAsset(ctx context.Context,
+	assetID asset.ID) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbMeta, err := q.FetchAssetMetaForAsset(ctx, assetID[:])
+		if err != nil {
+			return err
+		}
+
+		assetMeta = &proof.MetaReveal{
+			Data: dbMeta.MetaDataBlob,
+			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
+}
+
+// FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
+func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
+	metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbMeta, err := q.FetchAssetMetaByHash(ctx, metaHash[:])
+		if err != nil {
+			return err
+		}
+
+		assetMeta = &proof.MetaReveal{
+			Data: dbMeta.MetaDataBlob,
+			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
 }
 
 // A compile-time constraint to ensure that AssetStore meets the proof.Archiver
