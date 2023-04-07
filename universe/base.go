@@ -146,7 +146,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	//
 	// TODO(roasbeef): add option to skip proof verification?
 	var proofVerifier proof.BaseVerifier
-	_, err := proofVerifier.Verify(
+	assetSnapshot, err := proofVerifier.Verify(
 		ctx, bytes.NewReader(leaf.GenesisProof), a.cfg.HeaderVerifier,
 	)
 	if err != nil {
@@ -155,7 +155,9 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// universe backend, and return the new issuance proof.
-	issuanceProof, err := baseUni.RegisterIssuance(ctx, key, leaf)
+	issuanceProof, err := baseUni.RegisterIssuance(
+		ctx, key, leaf, assetSnapshot.MetaReveal,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register new "+
 			"issuance: %v", err)
@@ -172,7 +174,6 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	return withBaseUni(id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
 		return baseUni.FetchIssuanceProof(ctx, key)
 	})
-
 }
 
 // MintingKeys returns the set of minting keys known for the specified base

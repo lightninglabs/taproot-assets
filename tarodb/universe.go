@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/universe"
 )
@@ -255,8 +256,8 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // RegisterIssuance inserts a new minting leaf within the universe tree, stored
 // at the base key.
 func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
-	key universe.BaseKey,
-	leaf *universe.MintingLeaf) (*universe.IssuanceProof, error) {
+	key universe.BaseKey, leaf *universe.MintingLeaf,
+	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
@@ -305,6 +306,16 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 			AssetID:       chanutils.ByteSlice(leaf.ID()),
 			GroupKey:      groupKeyBytes,
 		})
+		if err != nil {
+			return err
+		}
+
+		// Before we insert the asset genesis, we'll insert the meta
+		// first. The reveal may or may not be populated, which'll also
+		// insert the opauqe meta blob on disk.
+		_, err = maybeUpsertAssetMeta(
+			ctx, db, &leaf.Genesis, metaReveal,
+		)
 		if err != nil {
 			return err
 		}

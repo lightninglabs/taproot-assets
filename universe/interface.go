@@ -112,9 +112,12 @@ type BaseBackend interface {
 	RootNode(context.Context) (mssmt.Node, error)
 
 	// RegisterIssuance inserts a new minting leaf within the universe
-	// tree, stored at the base key.
+	// tree, stored at the base key. The metaReveal type is purely
+	// optional, and should be specified if the genesis proof committed to
+	// a non-zero meta hash.
 	RegisterIssuance(ctx context.Context,
-		key BaseKey, leaf *MintingLeaf) (*IssuanceProof, error)
+		key BaseKey, leaf *MintingLeaf,
+		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
 	// FetchIssuanceProof returns an issuance proof for the target key. If
 	// the key doesn't have a script key specified, then all the proofs for
