@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS internal_keys (
 CREATE TABLE IF NOT EXISTS asset_groups (
     group_id INTEGER PRIMARY KEY,
 
-    tweaked_group_key BLOB UNIQUE NOT NULL, 
+    tweaked_group_key BLOB UNIQUE NOT NULL CHECK(length(tweaked_group_key) = 33), 
 
     -- TODO(roasbeef): also need to mix in output index here? to derive the
     -- genesis key?
