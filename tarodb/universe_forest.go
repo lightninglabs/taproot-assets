@@ -12,7 +12,7 @@ import (
 )
 
 type (
-	BaseUniverseRoot = sqlc.FetchUniverseRootRow
+	BaseUniverseRoot = sqlc.UniverseRootsRow
 )
 
 // BaseUniverseForestStore is used to interact with a set of base universe
@@ -58,6 +58,13 @@ type BaseUniverseForest struct {
 	// TODO(roasbeef): actually the start of multiverse?
 	// * mapping: assetID -> baseUniverseRoot => outpoint || scriptKey => transfer
 	// * drop base in front?
+}
+
+// NewBaseUniverseForest creates a new base universe forest.
+func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
+	return &BaseUniverseForest{
+		db: db,
+	}
 }
 
 // RootNodes returns the complete set of known root nodes for the set of assets

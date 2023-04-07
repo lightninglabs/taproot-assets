@@ -12,20 +12,21 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/stretchr/testify/require"
 )
 
-func randUniverseID(t *testing.T) universe.Identifier {
+func randUniverseID(t *testing.T, forceGroup bool) universe.Identifier {
 	t.Helper()
 
 	var id universe.Identifier
 	_, err := rand.Read(id.AssetID[:])
 	require.NoError(t, err)
 
-	// 50/50 chance to also add a group key.
-	if rand.Intn(2) == 0 {
+	// 50/50 chance to also add a group key, or if we're forcing it.
+	if forceGroup || rand.Intn(2) == 0 {
 		groupKey, err := btcec.NewPrivateKey()
 		require.NoError(t, err)
 
@@ -40,7 +41,7 @@ func newTestUniverse(t *testing.T,
 
 	db := NewTestDB(t)
 
-	dbTxer := NewTransactionExecutor[BaseUniverseStore](db,
+	dbTxer := NewTransactionExecutor(db,
 		func(tx *sql.Tx) BaseUniverseStore {
 			return db.WithTx(tx)
 		},
@@ -49,13 +50,26 @@ func newTestUniverse(t *testing.T,
 	return NewBaseUniverseTree(dbTxer, id), db
 }
 
-// TestUniverseEmptyTree...
+func newTestUniverseWithDb(t *testing.T, db *BaseDB,
+	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
+
+	dbTxer := NewTransactionExecutor(db,
+		func(tx *sql.Tx) BaseUniverseStore {
+			return db.WithTx(tx)
+		},
+	)
+
+	return NewBaseUniverseTree(dbTxer, id), db
+}
+
+// TestUniverseEmptyTree tests that an empty Universe tree returns the expected
+// error.
 func TestUniverseEmptyTree(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
-	id := randUniverseID(t)
+	id := randUniverseID(t, false)
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	_, err := baseUniverse.RootNode(ctx)
@@ -109,7 +123,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	ctx := context.Background()
 
-	id := randUniverseID(t)
+	id := randUniverseID(t, false)
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	const numLeaves = 4
@@ -139,7 +153,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		leaf := testLeaf.MintingLeaf
 
 		issuanceProof, err := baseUniverse.RegisterIssuance(
-			ctx, targetKey, &leaf,
+			ctx, targetKey, &leaf, nil,
 		)
 		require.NoError(t, err)
 
@@ -216,8 +230,184 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	}))
 }
 
-// TODO(roasbeef): query tests for the set of leaves: all leaves, just by script key, etc
+// TestUniverseMetaBlob tests that leaves inserted with a meta reveal can be
+// properly retrieved.
+func TestUniverseMetaBlob(t *testing.T) {
+	t.Parallel()
 
-// TODO(roasbeef): isolation tests
-//  * several diff leaves of diff asset IDs
-//  * able to get them all ,etc
+	ctx := context.Background()
+
+	id := randUniverseID(t, false)
+	baseUniverse, _ := newTestUniverse(t, id)
+
+	// We'll start by generating a random asset genesis.
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	// Next, we'll modify the genesis to include a meta hash that matches a
+	// real meta blob.
+	var metaBlob [50]byte
+	_, err := rand.Read(metaBlob[:])
+	require.NoError(t, err)
+
+	meta := &proof.MetaReveal{
+		Data: metaBlob[:],
+	}
+
+	assetGen.MetaHash = meta.MetaHash()
+
+	// With the meta constructed, we can insert a test leaf into the DB
+	// now.
+	targetKey := randBaseKey(t)
+	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+
+	_, err = baseUniverse.RegisterIssuance(
+		ctx, targetKey, &leaf, meta,
+	)
+	require.NoError(t, err)
+
+	// We should be able to fetch the leaf based on the base key we used
+	// above.
+	dbProof, err := baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	require.NoError(t, err)
+
+	uniProof := dbProof[0]
+
+	// The proof should have the same genesis that we inserted above.
+	require.Equal(t, assetGen.ID(), uniProof.Leaf.Genesis.ID())
+}
+
+func insertRandLeaf(t *testing.T, ctx context.Context,
+	tree *BaseUniverseTree) (*universe.IssuanceProof, error) {
+
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	targetKey := randBaseKey(t)
+	leaf := randMintingLeaf(t, assetGen, tree.id.GroupKey)
+
+	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
+}
+
+// TestUniverseTreeIsolation tests that each Universe tree is properly isolated
+// from the other.
+func TestUniverseTreeIsolation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+
+	// For this test, we'll create two different Universes: one based on a
+	// group key, and the other with a plain asset ID.
+	idGroup := randUniverseID(t, true)
+	groupUniverse, _ := newTestUniverseWithDb(t, db.BaseDB, idGroup)
+
+	idNormal := randUniverseID(t, true)
+	normalUniverse, _ := newTestUniverseWithDb(t, db.BaseDB, idNormal)
+
+	// For each of the Universes, we'll now insert a random leaf that
+	// should be inserted with the target ID.
+	groupLeaf, err := insertRandLeaf(t, ctx, groupUniverse)
+	require.NoError(t, err)
+
+	normalLeaf, err := insertRandLeaf(t, ctx, normalUniverse)
+	require.NoError(t, err)
+
+	// We should be able to get the roots for both fo the trees.
+	groupRoot, err := groupUniverse.RootNode(ctx)
+	require.NoError(t, err)
+
+	normalRoot, err := normalUniverse.RootNode(ctx)
+	require.NoError(t, err)
+
+	// The sum of each root should match the value of the sole leaf we've
+	// inserted.
+	require.Equal(t, groupLeaf.Leaf.Amt, groupRoot.NodeSum())
+	require.Equal(t, normalLeaf.Leaf.Amt, normalRoot.NodeSum())
+
+	// If we make a new Universe forest, then we should be able to fetch
+	// both the roots above.
+	forestDB := NewTransactionExecutor(db,
+		func(tx *sql.Tx) BaseUniverseForestStore {
+			return db.WithTx(tx)
+		},
+	)
+	universeForest := NewBaseUniverseForest(forestDB)
+
+	rootNodes, err := universeForest.RootNodes(ctx)
+	require.NoError(t, err)
+
+	// We should be able to find both of the roots we've inserted above.
+	require.True(t, chanutils.All(rootNodes, func(rootNode universe.BaseRoot) bool {
+		for _, rootNode := range rootNodes {
+			if mssmt.IsEqualNode(rootNode.Node, groupRoot) {
+				return true
+			}
+			if mssmt.IsEqualNode(rootNode.Node, normalRoot) {
+				return true
+			}
+		}
+		return false
+	}))
+}
+
+// TestUniverseLeafQuery tests that we're able to properly query for the set of
+// leaves in a Universe based on either the outpoint or the script key.
+func TestUniverseLeafQuery(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	id := randUniverseID(t, false)
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	baseUniverse, _ := newTestUniverse(t, id)
+
+	const numLeafs = 3
+
+	// We'll create three new leaves, all of them will share the exact same
+	// minting outpoint, but will have distinct script keys.
+	rootMintingPoint := randBaseKey(t).MintingOutpoint
+
+	leafToScriptKey := make(map[asset.SerializedKey]universe.MintingLeaf)
+	for i := 0; i < numLeafs; i++ {
+		targetKey := randBaseKey(t)
+		targetKey.MintingOutpoint = rootMintingPoint
+
+		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+
+		scriptKey := asset.ToSerialized(targetKey.ScriptKey.PubKey)
+
+		leafToScriptKey[scriptKey] = leaf
+
+		_, err := baseUniverse.RegisterIssuance(
+			ctx, targetKey, &leaf, nil,
+		)
+		require.NoError(t, err)
+	}
+
+	// If we query for only the minting point, then all three leaves should
+	// be returned.
+	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseKey{
+		MintingOutpoint: rootMintingPoint,
+	})
+	require.NoError(t, err)
+	require.Len(t, proofs, numLeafs)
+
+	// We should be able to retreive all the leafs based on their script
+	// keys.
+	for scriptKeyBytes, leaf := range leafToScriptKey {
+		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
+		require.NoError(t, err)
+
+		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseKey{
+			MintingOutpoint: rootMintingPoint,
+			ScriptKey: &asset.ScriptKey{
+				PubKey: scriptKey,
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, p, 1)
+
+		require.Equal(t, leaf, *p[0].Leaf)
+	}
+}
