@@ -30,6 +30,7 @@ type Querier interface {
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
+	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
 	FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error)
 	FetchAssetDeltasWithProofs(ctx context.Context, transferID int32) ([]FetchAssetDeltasWithProofsRow, error)
 	FetchAssetMeta(ctx context.Context, metaID int32) (FetchAssetMetaRow, error)
@@ -62,6 +63,8 @@ type Querier interface {
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error)
+	FetchUniverseKeys(ctx context.Context, namespace string) ([]FetchUniverseKeysRow, error)
+	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
@@ -79,6 +82,7 @@ type Querier interface {
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error)
+	InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeafParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset
@@ -99,8 +103,11 @@ type Querier interface {
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	QueryPendingPassiveAssets(ctx context.Context, prevOutpoint []byte) ([]QueryPendingPassiveAssetsRow, error)
 	QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error)
+	QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error)
 	ReAnchorAssets(ctx context.Context, arg ReAnchorAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
+	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
+	UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)
@@ -115,6 +122,7 @@ type Querier interface {
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int32, error)
+	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int32, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -836,6 +837,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			assetID := newAsset.ID()
 			scriptPubKey := newAsset.ScriptKey.PubKey
 			scriptKey := asset.ToSerialized(scriptPubKey)
+
+			mintingProof := mintingProofs[scriptKey]
+
 			err := b.cfg.ProofFiles.ImportProofs(
 				ctx, headerVerifier, &proof.AnnotatedProof{
 					Locator: proof.Locator{
@@ -848,6 +852,47 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			if err != nil {
 				return 0, fmt.Errorf("unable to insert "+
 					"proofs: %w", err)
+			}
+
+			// Before we mark the batch as confirmed below, we'll also register
+			// the issuance of the new asset with our local base universe.
+			//
+			// TODO(roasbeef): can combine with minting proof creation above?
+			if b.cfg.Universe != nil {
+				// The universe ID serves to identifier the
+				// universe root we want to add this asset to.
+				// This is either the assetID or the group key.
+				uniID := universe.Identifier{
+					AssetID:  assetID,
+					GroupKey: &newAsset.GroupKey.GroupPubKey,
+				}
+
+				// The base key is the set of bytes that keys
+				// into the universe, this'll be the outpoint.
+				// where it was created at and the script key
+				// for that asset.
+				baseKey := universe.BaseKey{
+					MintingOutpoint: wire.OutPoint{
+						Hash:  confInfo.Tx.TxHash(),
+						Index: b.anchorOutputIndex,
+					},
+					ScriptKey: &newAsset.ScriptKey,
+				}
+
+				// With both of those assembled, we can now
+				// register issuance which takes the amount and
+				// proof of the minting event.
+				mintingLeaf := &universe.MintingLeaf{
+					GenesisProof: mintingProof,
+					Amt:          newAsset.Amount,
+				}
+				_, err := b.cfg.Universe.RegisterIssuance(
+					ctx, uniID, baseKey, mintingLeaf,
+				)
+				if err != nil {
+					return 0, fmt.Errorf("unable to "+
+						"register issuance: %v", err)
+				}
 			}
 		}
 
