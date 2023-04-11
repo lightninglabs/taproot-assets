@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -110,11 +111,91 @@ type AnchorVTxnsParams struct {
 	PassiveAssetsVPkts []*taropsbt.VPacket
 }
 
+// NewCoinSelect creates a new CoinSelect.
+func NewCoinSelect(coinLister CoinLister) *CoinSelect {
+	return &CoinSelect{
+		coinLister: coinLister,
+	}
+}
+
+// CoinSelect selects asset coins to spend in order to fund a send
+// transaction.
+type CoinSelect struct {
+	coinLister CoinLister
+}
+
+// ListEligibleCoins lists eligible commitments given a set of constraints.
+func (s *CoinSelect) ListEligibleCoins(ctx context.Context,
+	constraints CommitmentConstraints) ([]*AnchoredCommitment, error) {
+
+	return s.coinLister.ListEligibleCoins(ctx, constraints)
+}
+
+// SelectForAmount selects a subset of the given eligible commitments which
+// cumulatively sum to at least the minimum required amount. The selection
+// strategy determines how the commitments are selected.
+func (s *CoinSelect) SelectForAmount(minTotalAmount uint64,
+	eligibleCommitments []*AnchoredCommitment,
+	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
+	error) {
+
+	// Select the first subset of eligible commitments which cumulatively
+	// sum to at least the minimum required amount.
+	var selectedCommitments []*AnchoredCommitment
+	amountSum := uint64(0)
+
+	switch strategy {
+	case PreferMaxAmount:
+		// Sort eligible commitments from the largest amount to
+		// smallest.
+		sort.Slice(
+			eligibleCommitments, func(i, j int) bool {
+				isLess := eligibleCommitments[i].Asset.Amount <
+					eligibleCommitments[j].Asset.Amount
+
+				// Negate the result to sort in descending
+				// order.
+				return !isLess
+			},
+		)
+
+		// Select the first subset of eligible commitments which
+		// cumulatively sum to at least the minimum required amount.
+		for _, anchoredCommitment := range eligibleCommitments {
+			selectedCommitments = append(
+				selectedCommitments, anchoredCommitment,
+			)
+
+			// Keep track of the total amount of assets we've seen
+			// so far.
+			amountSum += uint64(anchoredCommitment.Asset.Amount)
+			if amountSum >= minTotalAmount {
+				// At this point a target min amount was
+				// specified and has been reached.
+				break
+			}
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown multi coin selection "+
+			"strategy: %v", strategy)
+	}
+
+	// Having examined all the eligible commitments, return an error if the
+	// minimal funding amount was not reached.
+	if amountSum < minTotalAmount {
+		return nil, ErrMatchingAssetsNotFound
+	}
+	return selectedCommitments, nil
+}
+
+var _ CoinSelector = (*CoinSelect)(nil)
+
 // WalletConfig holds the configuration for a new Wallet.
 type WalletConfig struct {
 	// CoinSelector is the interface used to select input coins (assets)
 	// for the transfer.
-	CoinSelector CoinLister
+	CoinSelector CoinSelector
 
 	// AssetProofs is used to write the proof files on disk for the
 	// receiver during a transfer.
@@ -272,13 +353,10 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
 	// can use that to do Taro asset coin selection.
-	//
-	// TODO(roasbeef): send logic assumes just one input (no merges) so we
-	// pass in the amount here to ensure we have enough to send
 	constraints := CommitmentConstraints{
 		GroupKey: fundDesc.GroupKey,
 		AssetID:  &fundDesc.ID,
-		MinAmt:   fundDesc.Amount,
+		MinAmt:   1,
 	}
 	eligibleCommitments, err := f.cfg.CoinSelector.ListEligibleCoins(
 		ctx, constraints,
@@ -288,12 +366,29 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			err)
 	}
 
-	log.Infof("Selected %v possible asset inputs for send of %d to %x",
+	log.Infof("Identified %v eligible asset inputs for send of %d to %x",
 		len(eligibleCommitments), fundDesc.Amount, fundDesc.ID[:])
+
+	selectedCommitments, err := f.cfg.CoinSelector.SelectForAmount(
+		fundDesc.Amount, eligibleCommitments, PreferMaxAmount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("Selected %v asset inputs for send of %d to %x",
+		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
 
 	// We'll take just the first commitment here as we need enough
 	// to complete the send w/o merging inputs.
-	assetInput := eligibleCommitments[0]
+	//
+	// TODO(ffranr): Remove selected commitment truncation.
+	selectedCommitments = selectedCommitments[:1]
+	assetInput := selectedCommitments[0]
+
+	totalInputAmt := uint64(0)
+	for _, anchorAsset := range selectedCommitments {
+		totalInputAmt += anchorAsset.Asset.Amount
+	}
 
 	// If the key found for the input UTXO cannot be identified as belonging
 	// to the lnd wallet, we won't be able to sign for it. This would happen
@@ -390,7 +485,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// We'll validate the selected input and commitment. From this we'll
 	// gain the asset that we'll use as an input and info w.r.t if we need
 	// to use an un-spendable zero-value root.
-	inputAsset, fullValue, err := taroscript.IsValidInput(
+	_, fullValue, err := taroscript.IsValidInput(
 		assetInput.Commitment, fundDesc,
 		*vPkt.Inputs[0].Asset().ScriptKey.PubKey,
 	)
@@ -461,7 +556,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		// For existing change outputs, we'll just update the amount
 		// since we might not have known what coin would've been
 		// selected and how large the change would turn out to be.
-		changeOut.Amount = inputAsset.Amount - fundDesc.Amount
+		changeOut.Amount = totalInputAmt - fundDesc.Amount
 	}
 
 	// Before we can prepare output assets for our send, we need to generate

@@ -91,6 +91,31 @@ type CoinLister interface {
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
 }
 
+// MultiCommitmentSelectStrategy is an enum that describes the strategy that
+// should be used when preferentially selecting multiple commitments.
+type MultiCommitmentSelectStrategy uint8
+
+const (
+	// PreferMaxAmount is a strategy which considers commitments in order of
+	// descending amounts and selects the first subset which cumulatively
+	// sums to at least the minimum target amount.
+	PreferMaxAmount MultiCommitmentSelectStrategy = iota
+)
+
+// CoinSelector is an interface that describes the functionality used in
+// selecting coins during the asset send process.
+type CoinSelector interface {
+	CoinLister
+
+	// SelectForAmount takes a set of commitments and a strategy, and
+	// returns a subset of the commitments that satisfy the strategy and the
+	// minimum total amount.
+	SelectForAmount(minTotalAmount uint64,
+		eligibleCommitments []*AnchoredCommitment,
+		strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
+		error)
+}
+
 // TransferInput represents the database level input to an asset transfer.
 type TransferInput struct {
 	// PrevID contains the anchor point, ID and script key of the asset that
