@@ -849,9 +849,12 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
 	batchKey *btcec.PublicKey, newState tarogarden.BatchState) error {
 
-	return a.db.UpdateMintingBatchState(ctx, BatchStateUpdate{
-		RawKey:     batchKey.SerializeCompressed(),
-		BatchState: int16(newState),
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
+			RawKey:     batchKey.SerializeCompressed(),
+			BatchState: int16(newState),
+		})
 	})
 }
 

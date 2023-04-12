@@ -114,13 +114,11 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 	// Insert the group genesis asset, which will also insert the group key
 	// and genesis info needed for reissuance.
 	upsertAsset := func(q PendingAssetStore) error {
-		_, err = maybeUpsertAssetMeta(
-			ctx, store.db, &assetGen, nil,
-		)
+		_, err = maybeUpsertAssetMeta(ctx, q, &assetGen, nil)
 		require.NoError(t, err)
 
 		_, _, err := upsertAssetsWithGenesis(
-			ctx, store.db, assetGen.FirstPrevOut,
+			ctx, q, assetGen.FirstPrevOut,
 			[]*asset.Asset{initialAsset}, nil,
 		)
 		require.NoError(t, err)

@@ -86,24 +86,23 @@ func NewRootKeyStore(db BatchedKeyStore) *RootKeyStore {
 //
 // NOTE: This implements the bakery.RootKeyStore interface.
 func (r *RootKeyStore) Get(ctx context.Context, id []byte) ([]byte, error) {
-	var macBytes []byte
+	var rootKey []byte
 
-	readTx := NewKeyStoreReadOpts()
-	dbErr := r.db.ExecTx(ctx, readTx, func(q KeyStore) error {
-		mac, err := r.db.GetRootKey(ctx, id)
+	readOpts := NewKeyStoreReadOpts()
+	dbErr := r.db.ExecTx(ctx, readOpts, func(q KeyStore) error {
+		mac, err := q.GetRootKey(ctx, id)
 		if err != nil {
 			return err
 		}
 
-		macBytes = mac.RootKey
-
+		rootKey = mac.RootKey
 		return nil
 	})
 	if dbErr != nil {
 		return nil, dbErr
 	}
 
-	return macBytes, nil
+	return rootKey, nil
 }
 
 // RootKey returns the root key to be used for making a new macaroon, and an id
@@ -129,7 +128,7 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 	dbErr := r.db.ExecTx(ctx, &writeTxOpts, func(q KeyStore) error {
 		// Check to see if there's a root key already stored for this
 		// ID.
-		mac, err := r.db.GetRootKey(ctx, id)
+		mac, err := q.GetRootKey(ctx, id)
 		switch err {
 		case nil:
 			rootKey = mac.RootKey
@@ -148,7 +147,7 @@ func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		}
 
 		// Insert this new root key into the database.
-		return r.db.InsertRootKey(ctx, sqlc.InsertRootKeyParams{
+		return q.InsertRootKey(ctx, sqlc.InsertRootKeyParams{
 			ID:      id,
 			RootKey: rootKey,
 		})
