@@ -1,14 +1,124 @@
 package itest
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightninglabs/taro/chanutils"
 	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
+
+func testUniverseSync(t *harnessTest) {
+	// First, we'll create out usual set of simple and also issuable
+	// assets.
+	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
+	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
+
+	// With those assets created, we'll now create a new node that we'll
+	// use to exercise the Universe sync.
+	bob := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, nil,
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(true))
+	}()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Before we start, we'll fetch the complete set of Universe roots from
+	// our primary node.
+	universeRoots, err := t.tarod.AssetRoots(
+		ctxt, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Now we have an initial benchmark, so we'll kick off the universe
+	// sync with Bob syncing off the primary harness node that created the
+	// assets.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+	syncDiff, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+		UniverseHost: t.tarod.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+	})
+	require.NoError(t.t, err)
+
+	// Bob's universe diff should contain an entry for each of the assets
+	// we created above.
+	totalAssets := len(rpcSimpleAssets) + len(rpcIssuableAssets)
+	require.Len(t.t, syncDiff.SyncedUniverses, totalAssets)
+
+	// Each item in the diff should match the set of universe roots we got
+	// from the source node above.
+	for _, uniDiff := range syncDiff.SyncedUniverses {
+		// The old root should be blank, as we're syncing this asset
+		// for the first time.
+		require.True(t.t, uniDiff.OldAssetRoot.MssmtRoot == nil)
+
+		// A single new leaf should be present.
+		require.Len(t.t, uniDiff.NewAssetLeaves, 1)
+
+		// The new root should match the root we got from the primary
+		// node above.
+		newRoot := uniDiff.NewAssetRoot
+		require.NotNil(t.t, newRoot)
+
+		uniKey := func() string {
+			switch {
+			case newRoot.Id.GetAssetId() != nil:
+				return hex.EncodeToString(
+					newRoot.Id.GetAssetId(),
+				)
+
+			case newRoot.Id.GetGroupKey() != nil:
+				groupKey, err := schnorr.ParsePubKey(
+					newRoot.Id.GetGroupKey(),
+				)
+				require.NoError(t.t, err)
+
+				h := sha256.Sum256(
+					schnorr.SerializePubKey(groupKey),
+				)
+
+				return hex.EncodeToString(h[:])
+			default:
+				t.Fatalf("unknown universe asset id type")
+				return ""
+			}
+		}()
+
+		srcRoot, ok := universeRoots.UniverseRoots[uniKey]
+		require.True(t.t, ok)
+		assertUniverseRootEqual(t.t, srcRoot, newRoot)
+	}
+
+	// Now we'll fetch the Universe roots from Bob. These should match the
+	// same roots that we got from the main universe node earlier.
+	universeRootsBob, err := bob.AssetRoots(
+		ctxt, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+	assertUniverseRootsEqual(t.t, universeRoots, universeRootsBob)
+
+	// Finally, we'll ensure that the universe keys and leaves matches for
+	// both parties.
+	uniRoots := maps.Values(universeRoots.UniverseRoots)
+	uniIDs := chanutils.Map(uniRoots,
+		func(root *unirpc.UniverseRoot) *unirpc.ID {
+			return root.Id
+		},
+	)
+	assertUniverseKeysEqual(t.t, uniIDs, t.tarod, bob)
+	assertUniverseLeavesEqual(t.t, uniIDs, t.tarod, bob)
+}
 
 func testUniverseREST(t *harnessTest) {
 	// Mint a few assets that we then want to inspect in the universe.

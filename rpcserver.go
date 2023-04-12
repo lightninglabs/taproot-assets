@@ -730,8 +730,12 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	if a.GroupKey != nil {
+		var rawKey []byte
+		if a.GroupKey.RawKey.PubKey != nil {
+			rawKey = a.GroupKey.RawKey.PubKey.SerializeCompressed()
+		}
 		rpcAsset.AssetGroup = &tarorpc.AssetGroup{
-			RawGroupKey:     a.GroupKey.RawKey.PubKey.SerializeCompressed(),
+			RawGroupKey:     rawKey,
 			TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
 			AssetIdSig:      a.GroupKey.Sig.Serialize(),
 		}

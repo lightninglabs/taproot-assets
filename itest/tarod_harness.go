@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -47,6 +48,7 @@ type tarodHarness struct {
 	tarorpc.TaroClient
 	assetwalletrpc.AssetWalletClient
 	mintrpc.MintClient
+	universerpc.UniverseClient
 }
 
 // tarodConfig holds all configuration items that are required to start a tarod
@@ -147,6 +149,11 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 	}, nil
 }
 
+// rpcHost returns the RPC host for the tarod server.
+func (hs *tarodHarness) rpcHost() string {
+	return hs.clientCfg.RpcConf.RawRPCListeners[0]
+}
+
 // start spins up the tarod server listening for gRPC connections.
 func (hs *tarodHarness) start(expectErrExit bool) error {
 	cfgLogger := hs.ht.logWriter.GenSubLogger("CONF", func() {})
@@ -185,6 +192,7 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 	hs.TaroClient = tarorpc.NewTaroClient(rpcConn)
 	hs.AssetWalletClient = assetwalletrpc.NewAssetWalletClient(rpcConn)
 	hs.MintClient = mintrpc.NewMintClient(rpcConn)
+	hs.UniverseClient = universerpc.NewUniverseClient(rpcConn)
 
 	return nil
 }

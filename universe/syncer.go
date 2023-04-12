@@ -149,7 +149,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		keysToFetch := chanutils.SetDiff(remoteUnikeys, localUnikeys)
 
 		log.Infof("UniverseRoot(%v): diff_size=%v, diff=%v",
-			len(keysToFetch), spew.Sdump(keysToFetch))
+			uniID.String(), len(keysToFetch), spew.Sdump(keysToFetch))
 
 		// Now that we know where the divergence is, we can fetch the
 		// issuance proofs from the remote party.
@@ -182,7 +182,8 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 				ctx, uniID, key, leafProof.Leaf,
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to register "+
+					"issuance proof: %w", err)
 			}
 
 			newLeaves <- leafProof.Leaf

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/proof"
 )
@@ -164,25 +165,34 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// The final asset we extract from the proof should also match up with
 	// both the universe ID and also the base key.
 	switch {
-	// If the group key is present, then that match.
-	case id.GroupKey != nil &&
-		!newAsset.GroupKey.GroupPubKey.IsEqual(id.GroupKey):
-		return nil, fmt.Errorf("group key mismatch")
+	// If the group key is present, then that should match the group key of
+	// the universe.
+	case id.GroupKey != nil && !bytes.Equal(
+		schnorr.SerializePubKey(id.GroupKey),
+		schnorr.SerializePubKey(&newAsset.GroupKey.GroupPubKey),
+	):
+		return nil, fmt.Errorf("group key mismatch: expected %x, "+
+			"got %x", id.GroupKey.SerializeCompressed(),
+			newAsset.GroupKey.GroupPubKey.SerializeCompressed())
 
 	// If the group key is nil, then the asset ID should match.
 	case id.GroupKey == nil && id.AssetID != newAsset.ID():
-		return nil, fmt.Errorf("asset id mismatch")
+		return nil, fmt.Errorf("asset id mismatch: expected %v, got %v",
+			id.AssetID, newAsset.ID())
 
 	// The outpoint of the final resting place of the asset should match
 	// the leaf key
 	//
 	// TODO(roasbeef): this restrict to issuance
 	case assetSnapshot.OutPoint != key.MintingOutpoint:
-		return nil, fmt.Errorf("outpoint mismatch")
+		return nil, fmt.Errorf("outpoint mismatch: expected %v, got %v",
+			key.MintingOutpoint, assetSnapshot.OutPoint)
 
 	// The script key should also match exactly.
 	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
-		return nil, fmt.Errorf("script key mismatch")
+		return nil, fmt.Errorf("script key mismatch: expected %v, "+
+			"got %v", key.ScriptKey.PubKey.SerializeCompressed(),
+			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
 	// Now that we know the proof is valid, we'll insert it into the base

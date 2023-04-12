@@ -74,4 +74,8 @@ var testCases = []*testCase{
 		name: "universe REST API",
 		test: testUniverseREST,
 	},
+	{
+		name: "universe sync",
+		test: testUniverseSync,
+	},
 }
