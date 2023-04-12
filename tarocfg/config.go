@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -831,6 +832,7 @@ func getTLSConfig(cfg *Config,
 	}
 
 	tlsCfg := cert.TLSConfFromCert(certData)
+	tlsCfg.NextProtos = []string{http2.NextProtoTLS}
 
 	restCreds, err := credentials.NewClientTLSFromFile(
 		cfg.RpcConf.TLSCertPath, "",
@@ -860,9 +862,13 @@ func getTLSConfig(cfg *Config,
 		// For restListen we will call ListenOnAddress if TLS is
 		// disabled.
 		if cfg.RpcConf.DisableRestTLS {
+			cfgLogger.Infof("Starting HTTP REST proxy listener "+
+				"at %v", addr.String())
 			return lncfg.ListenOnAddress(addr)
 		}
 
+		cfgLogger.Infof("Starting HTTPS REST proxy listener "+
+			"at %v", addr.String())
 		return lncfg.TLSListenOnAddress(addr, tlsCfg)
 	}
 

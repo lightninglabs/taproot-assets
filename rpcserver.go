@@ -2071,19 +2071,13 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 		return &unirpc.UniverseRoot{}, nil
 	}
 
-	branchNode, ok := node.Node.(*mssmt.BranchNode)
-	if !ok {
-		return nil, fmt.Errorf("unable to obtain branch node: "+
-			"have %T", node.Node)
-	}
-
-	nodeHash := branchNode.NodeHash()
+	nodeHash := node.Node.NodeHash()
 
 	return &unirpc.UniverseRoot{
 		Id: marshalUniID(node.ID),
 		MssmtRoot: &unirpc.MerkleSumNode{
 			RootHash: nodeHash[:],
-			RootSum:  int64(branchNode.NodeSum()),
+			RootSum:  int64(node.Node.NodeSum()),
 		},
 	}, nil
 }
@@ -2093,7 +2087,7 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 func (r *rpcServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
-	// First, we'll retreive the full set of known asset Universe roots.
+	// First, we'll retrieve the full set of known asset Universe roots.
 	assetRoots, err := r.cfg.BaseUniverse.RootNodes(ctx)
 	if err != nil {
 		return nil, err
@@ -2103,7 +2097,7 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 		UniverseRoots: make(map[string]*unirpc.UniverseRoot),
 	}
 
-	// For each universe roto, marhsal it into the RPC form, taking care to
+	// For each universe root, marshal it into the RPC form, taking care to
 	// specify the proper universe ID.
 	for _, assetRoot := range assetRoots {
 		idStr := assetRoot.ID.String()

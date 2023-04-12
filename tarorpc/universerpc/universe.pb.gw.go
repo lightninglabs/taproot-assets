@@ -1094,7 +1094,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/{id.asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1117,7 +1117,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/{id.group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1140,7 +1140,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/{asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/asset-id/{asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1163,7 +1163,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/{group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/group-key/{group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1186,7 +1186,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/{asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/asset-id/{asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1209,7 +1209,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/{group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/group-key/{group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1232,7 +1232,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1255,7 +1255,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1278,7 +1278,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1301,7 +1301,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1406,7 +1406,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/{id.asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/asset-id/{id.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1426,7 +1426,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/{id.group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryAssetRoots", runtime.WithHTTPPathPattern("/v1/taro/universe/roots/group-key/{id.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1446,7 +1446,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/{asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/asset-id/{asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1466,7 +1466,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/{group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeafKeys", runtime.WithHTTPPathPattern("/v1/taro/universe/keys/group-key/{group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1486,7 +1486,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/{asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/asset-id/{asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1506,7 +1506,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/{group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/AssetLeaves", runtime.WithHTTPPathPattern("/v1/taro/universe/leaves/group-key/{group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1526,7 +1526,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1546,7 +1546,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1566,7 +1566,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1586,7 +1586,7 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taro/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1628,25 +1628,25 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 var (
 	pattern_Universe_AssetRoots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taro", "universe", "roots"}, ""))
 
-	pattern_Universe_QueryAssetRoots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "taro", "universe", "roots", "id.asset_id_str"}, ""))
+	pattern_Universe_QueryAssetRoots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "universe", "roots", "asset-id", "id.asset_id_str"}, ""))
 
-	pattern_Universe_QueryAssetRoots_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "taro", "universe", "roots", "id.group_key_str"}, ""))
+	pattern_Universe_QueryAssetRoots_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "universe", "roots", "group-key", "id.group_key_str"}, ""))
 
-	pattern_Universe_AssetLeafKeys_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "taro", "universe", "keys", "asset_id_str"}, ""))
+	pattern_Universe_AssetLeafKeys_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "universe", "keys", "asset-id", "asset_id_str"}, ""))
 
-	pattern_Universe_AssetLeafKeys_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "taro", "universe", "keys", "group_key_str"}, ""))
+	pattern_Universe_AssetLeafKeys_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "universe", "keys", "group-key", "group_key_str"}, ""))
 
-	pattern_Universe_AssetLeaves_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "taro", "universe", "leaves", "asset_id_str"}, ""))
+	pattern_Universe_AssetLeaves_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "universe", "leaves", "asset-id", "asset_id_str"}, ""))
 
-	pattern_Universe_AssetLeaves_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "taro", "universe", "leaves", "group_key_str"}, ""))
+	pattern_Universe_AssetLeaves_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "universe", "leaves", "group-key", "group_key_str"}, ""))
 
-	pattern_Universe_QueryIssuanceProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7}, []string{"v1", "taro", "universe", "proofs", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
+	pattern_Universe_QueryIssuanceProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taro", "universe", "proofs", "asset-id", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
 
-	pattern_Universe_QueryIssuanceProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7}, []string{"v1", "taro", "universe", "proofs", "id.group_key_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
+	pattern_Universe_QueryIssuanceProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taro", "universe", "proofs", "group-key", "id.group_key_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
 
-	pattern_Universe_InsertIssuanceProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7}, []string{"v1", "taro", "universe", "proofs", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_InsertIssuanceProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taro", "universe", "proofs", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
 
-	pattern_Universe_InsertIssuanceProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7}, []string{"v1", "taro", "universe", "proofs", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_InsertIssuanceProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taro", "universe", "proofs", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
 
 	pattern_Universe_SyncUniverse_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taro", "universe", "sync"}, ""))
 )

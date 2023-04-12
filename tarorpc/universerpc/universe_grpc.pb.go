@@ -22,7 +22,7 @@ type UniverseClient interface {
 	//AssetRoots queries for the known Universe roots associated with each known
 	//asset. These roots represent the supply/audit state for each known asset.
 	AssetRoots(ctx context.Context, in *AssetRootRequest, opts ...grpc.CallOption) (*AssetRootResponse, error)
-	// tarocli: `universe roots [--asset_id|--group_key]`
+	// tarocli: `universe roots`
 	//QueryAssetRoots attempts to locate the current Universe root for a specific
 	//asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(ctx context.Context, in *AssetRootQuery, opts ...grpc.CallOption) (*QueryRootResponse, error)
@@ -142,7 +142,7 @@ type UniverseServer interface {
 	//AssetRoots queries for the known Universe roots associated with each known
 	//asset. These roots represent the supply/audit state for each known asset.
 	AssetRoots(context.Context, *AssetRootRequest) (*AssetRootResponse, error)
-	// tarocli: `universe roots [--asset_id|--group_key]`
+	// tarocli: `universe roots`
 	//QueryAssetRoots attempts to locate the current Universe root for a specific
 	//asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(context.Context, *AssetRootQuery) (*QueryRootResponse, error)

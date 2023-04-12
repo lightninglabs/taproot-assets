@@ -22,7 +22,7 @@ var (
 
 // Identifier is the identifier for a root/base universe.
 type Identifier struct {
-	// AssetID is the aseet ID for the universe.
+	// AssetID is the asset ID for the universe.
 	//
 	// TODO(roasbeef): make both pointers?
 	AssetID asset.ID

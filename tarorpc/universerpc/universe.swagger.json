@@ -16,7 +16,7 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taro/universe/keys/{asset_id_str}": {
+    "/v1/taro/universe/keys/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
         "operationId": "Universe_AssetLeafKeys",
@@ -71,7 +71,7 @@
         ]
       }
     },
-    "/v1/taro/universe/keys/{group_key_str}": {
+    "/v1/taro/universe/keys/group-key/{group_key_str}": {
       "get": {
         "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
         "operationId": "Universe_AssetLeafKeys2",
@@ -126,7 +126,7 @@
         ]
       }
     },
-    "/v1/taro/universe/leaves/{asset_id_str}": {
+    "/v1/taro/universe/leaves/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tarocli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
         "operationId": "Universe_AssetLeaves",
@@ -181,7 +181,7 @@
         ]
       }
     },
-    "/v1/taro/universe/leaves/{group_key_str}": {
+    "/v1/taro/universe/leaves/group-key/{group_key_str}": {
       "get": {
         "summary": "tarocli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
         "operationId": "Universe_AssetLeaves2",
@@ -236,7 +236,7 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
+    "/v1/taro/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
         "summary": "tarocli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof",
@@ -325,7 +325,68 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
+    "/v1/taro/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+      "post": {
+        "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "operationId": "Universe_InsertIssuanceProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "key.id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "key.leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProof"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taro/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
         "summary": "tarocli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof2",
@@ -414,68 +475,7 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
-      "post": {
-        "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
-        "operationId": "Universe_InsertIssuanceProof",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProofResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "key.id.asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "key.leaf_key.op.hash_str",
-            "description": "The output as a hex encoded (and reversed!) string.",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "key.leaf_key.op.index",
-            "description": "The index of the output.",
-            "in": "path",
-            "required": true,
-            "type": "integer",
-            "format": "int32"
-          },
-          {
-            "name": "key.leaf_key.script_key_str",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProof"
-            }
-          }
-        ],
-        "tags": [
-          "Universe"
-        ]
-      }
-    },
-    "/v1/taro/universe/proofs/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+    "/v1/taro/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
         "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
         "operationId": "Universe_InsertIssuanceProof2",
@@ -559,9 +559,9 @@
         ]
       }
     },
-    "/v1/taro/universe/roots/{id.asset_id_str}": {
+    "/v1/taro/universe/roots/asset-id/{id.asset_id_str}": {
       "get": {
-        "summary": "tarocli: `universe roots [--asset_id|--group_key]`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
+        "summary": "tarocli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
         "operationId": "Universe_QueryAssetRoots",
         "responses": {
           "200": {
@@ -614,9 +614,9 @@
         ]
       }
     },
-    "/v1/taro/universe/roots/{id.group_key_str}": {
+    "/v1/taro/universe/roots/group-key/{id.group_key_str}": {
       "get": {
-        "summary": "tarocli: `universe roots [--asset_id|--group_key]`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
+        "summary": "tarocli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
         "operationId": "Universe_QueryAssetRoots2",
         "responses": {
           "200": {
@@ -780,7 +780,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64",
+          "format": "uint64",
           "description": "The total amount of the asset stored in this Taro UTXO."
         },
         "lock_time": {
@@ -867,10 +867,10 @@
           "type": "string",
           "description": "The name of the asset."
         },
-        "meta": {
+        "meta_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The opaque meta data of the asset."
+          "description": "The hash of the meta data for this genesis asset."
         },
         "asset_id": {
           "type": "string",
@@ -910,7 +910,7 @@
         },
         "amount": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         }
       }
     },

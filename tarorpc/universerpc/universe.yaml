@@ -13,10 +13,10 @@ http:
       get: "/v1/taro/universe/roots/group-key/{id.group_key_str}"
 
     - selector: universerpc.Universe.AssetLeafKeys
-      get: "/v1/taro/universe/keys/asset-id/'{asset_id_str}"
+      get: "/v1/taro/universe/keys/asset-id/{asset_id_str}"
 
     - selector: universerpc.Universe.AssetLeafKeys
-      get: "/v1/taro/universe/keys/group-key{group_key_str}"
+      get: "/v1/taro/universe/keys/group-key/{group_key_str}"
 
     - selector: universerpc.Universe.AssetLeaves
       get: "/v1/taro/universe/leaves/asset-id/{asset_id_str}"
