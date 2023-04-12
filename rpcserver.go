@@ -657,7 +657,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 	withWitness bool) (*tarorpc.Asset, error) {
 
-	rpcAsset, err := r.marshalAsset(ctx, a.Asset, a.IsSpent, withWitness)
+	rpcAsset, err := MarshalAsset(ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook)
 	if err != nil {
 		return nil, err
 	}
@@ -690,13 +690,22 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 	return rpcAsset, nil
 }
 
-func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
-	isSpent, withWitness bool) (*tarorpc.Asset, error) {
+// KeyLookup is used to determine whether a key is under the control of the
+// local wallet.
+type KeyLookup interface {
+	// IsLocalKey returns true if the key is under the control of the
+	// wallet and can be derived by it.
+	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
+}
+
+func MarshalAsset(ctx context.Context, a *asset.Asset,
+	isSpent, withWitness bool,
+	keyRing KeyLookup) (*tarorpc.Asset, error) {
 
 	assetID := a.Genesis.ID()
 	scriptKeyIsLocal := false
-	if a.ScriptKey.TweakedScriptKey != nil {
-		scriptKeyIsLocal = r.cfg.AddrBook.IsLocalKey(
+	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
+		scriptKeyIsLocal = keyRing.IsLocalKey(
 			ctx, a.ScriptKey.RawKey,
 		)
 	}
@@ -741,9 +750,9 @@ func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
 
 			var rpcSplitCommitment *tarorpc.SplitCommitment
 			if witness.SplitCommitment != nil {
-				rootAsset, err := r.marshalAsset(
+				rootAsset, err := MarshalAsset(
 					ctx, &witness.SplitCommitment.RootAsset,
-					false, true,
+					false, true, nil,
 				)
 				if err != nil {
 					return nil, err
@@ -2242,7 +2251,9 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 }
 
 // marshalAssetLeaf marshals an asset leaf into the RPC form.
-func marshalAssetLeaf(assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
+	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+
 	// In order to display the full asset, we'll parse the genesis
 	// proof so we can map that to the asset being proved.
 	var assetProof proof.Proof
@@ -2252,7 +2263,9 @@ func marshalAssetLeaf(assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error
 		return nil, err
 	}
 
-	rpcAsset, err := MarshalAsset(&assetProof.Asset, false)
+	rpcAsset, err := MarshalAsset(
+		ctx, &assetProof.Asset, false, true, r.cfg.AddrBook,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2287,7 +2300,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	for i, assetLeaf := range assetLeaves {
 		assetLeaf := assetLeaf
 
-		resp.Leaves[i], err = marshalAssetLeaf(&assetLeaf)
+		resp.Leaves[i], err = r.marshalAssetLeaf(ctx, &assetLeaf)
 		if err != nil {
 			return nil, err
 		}
@@ -2402,7 +2415,8 @@ func marshalUniverseProof(proof *mssmt.Proof) ([]byte, error) {
 }
 
 // marshalIssuanceProof marshals an issuance proof into the RPC form.
-func marshalIssuanceProof(req *unirpc.UniverseKey,
+func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
+	req *unirpc.UniverseKey,
 	proof *universe.IssuanceProof) (*unirpc.IssuanceProofResponse, error) {
 
 	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
@@ -2416,7 +2430,7 @@ func marshalIssuanceProof(req *unirpc.UniverseKey,
 		return nil, err
 	}
 
-	assetLeaf, err := marshalAssetLeaf(proof.Leaf)
+	assetLeaf, err := r.marshalAssetLeaf(ctx, proof.Leaf)
 	if err != nil {
 		return nil, err
 	}
@@ -2458,7 +2472,7 @@ func (r *rpcServer) QueryIssuanceProof(ctx context.Context,
 	// not be fully specified
 	proof := proofs[0]
 
-	return marshalIssuanceProof(req, proof)
+	return r.marshalIssuanceProof(ctx, req, proof)
 }
 
 // unmarsalAssetLeaf unmarshals an asset leaf from the RPC form.
@@ -2513,15 +2527,15 @@ func (r *rpcServer) InsertIssuanceProof(ctx context.Context,
 		return nil, err
 	}
 
-	return marshalIssuanceProof(req.Key, newUniverseState)
+	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
 }
 
 // unmarshalUniverseSyncType maps an RPC universe sync type into a concrete
 // type.
-func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode,
-) (universe.SyncType, error) {
-	switch req {
+func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
+	universe.SyncType, error) {
 
+	switch req {
 	case unirpc.UniverseSyncMode_SYNC_FULL:
 		return universe.SyncFull, nil
 
@@ -2589,8 +2603,8 @@ func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, 
 }
 
 // marshalUniverseDiff marshals a universe diff into the RPC form.
-func marshalUniverseDiff(uniDiff []universe.AssetSyncDiff,
-) (*unirpc.SyncResponse, error) {
+func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
+	uniDiff []universe.AssetSyncDiff) (*unirpc.SyncResponse, error) {
 
 	resp := &unirpc.SyncResponse{
 		SyncedUniverses: make([]*unirpc.SyncedUniverse, 0, len(uniDiff)),
@@ -2610,7 +2624,7 @@ func marshalUniverseDiff(uniDiff []universe.AssetSyncDiff,
 
 		leaves := make([]*unirpc.AssetLeaf, len(diff.NewLeafProofs))
 		for i, leaf := range diff.NewLeafProofs {
-			leaves[i], err = marshalAssetLeaf(leaf)
+			leaves[i], err = r.marshalAssetLeaf(ctx, leaf)
 			if err != nil {
 				return nil, err
 			}
@@ -2661,5 +2675,5 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 		return nil, fmt.Errorf("unable to sync universe: %w", err)
 	}
 
-	return marshalUniverseDiff(universeDiff)
+	return r.marshalUniverseDiff(ctx, universeDiff)
 }

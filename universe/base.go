@@ -116,7 +116,6 @@ func (a *MintingArchive) RootNode(ctx context.Context,
 
 // RootNodes returns the set of root nodes for all known base universes assets.
 func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
-
 	log.Debugf("Fetching all known Universe roots")
 
 	return a.cfg.UniverseForest.RootNodes(ctx)

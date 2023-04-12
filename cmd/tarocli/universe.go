@@ -291,7 +291,7 @@ func parseUniOutpoint(ctx *cli.Context) (*universerpc.Outpoint, error) {
 			"txid %v", txidStr)
 	}
 
-	outputIndex, err := strconv.Atoi(parts[1])
+	outputIndex, err := strconv.ParseInt(parts[1], 10, 32)
 	if err != nil {
 		return nil, fmt.Errorf("invalid output "+
 			"index: %v", err)
@@ -398,7 +398,9 @@ func universeProofInsert(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	rpcAsset, err := taro.MarshalAsset(&assetProof.Asset, false)
+	rpcAsset, err := taro.MarshalAsset(
+		ctxc, &assetProof.Asset, false, true, nil,
+	)
 	if err != nil {
 		return err
 	}

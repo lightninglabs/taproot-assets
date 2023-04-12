@@ -225,7 +225,7 @@ func (s SyncType) String() string {
 	case SyncFull:
 		return "full"
 	default:
-		return fmt.Sprint("unknown(%v)", int(s))
+		return fmt.Sprintf("unknown(%v)", int(s))
 	}
 }
 

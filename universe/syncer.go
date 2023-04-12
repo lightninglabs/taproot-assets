@@ -230,8 +230,8 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 	case SyncIssuance:
 		break
 
+	// For now, we only support issuance syncs.
 	case SyncFull:
-		// For now, we only support issuance syncs.
 		fallthrough
 
 	default:
