@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
@@ -22,6 +23,15 @@ const (
 	// sqliteTxLockImmediate is a dsn option used to ensure that write
 	// transactions are started immediately.
 	sqliteTxLockImmediate = "_txlock=immediate"
+
+	// maxConns is the number of permitted active and idle connections. We
+	// want to limit this so it isn't unlimited. We use the same value for
+	// the number of idle connections as, this can speed up queries given a
+	// new connection doesn't need to be established each time.
+	maxConns = 25
+
+	// connIdleLifetime is the amount of time a connection can be idle.
+	connIdleLifetime = 5 * time.Minute
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
@@ -65,6 +75,21 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			name:  "busy_timeout",
 			value: "5000",
 		},
+		{
+			// With the WAL mode, this ensures that we also do an
+			// extra WAL sync after each transaction. The normal
+			// sync mode skips this and gives better performance,
+			// but risks durability.
+			name:  "synchronous",
+			value: "full",
+		},
+		{
+			// This is used to ensure proper durability for users
+			// running on Mac OS. It uses the correct fsync system
+			// call to ensure items are fully flushed to disk.
+			name:  "fullfsync",
+			value: "true",
+		},
 	}
 	sqliteOptions := make(url.Values)
 	for _, option := range pragmaOptions {
@@ -86,6 +111,10 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
+	db.SetConnMaxLifetime(connIdleLifetime)
 
 	if !cfg.SkipMigrations {
 		// Now that the database is open, populate the database with
