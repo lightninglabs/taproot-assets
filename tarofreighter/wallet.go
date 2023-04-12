@@ -392,97 +392,10 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		totalInputAmt += anchorAsset.Asset.Amount
 	}
 
-	// If the key found for the input UTXO cannot be identified as belonging
-	// to the lnd wallet, we won't be able to sign for it. This would happen
-	// if a user manually imported an asset that was issued/received for/on
-	// another node. We should probably not create asset entries for such
-	// imported assets in the first place, as we won't be able to spend it
-	// anyway. But for now we just put this check in place.
-	internalKey := assetInput.InternalKey
-	if !f.cfg.KeyRing.IsLocalKey(ctx, internalKey) {
-		return nil, fmt.Errorf("invalid internal key family for "+
-			"selected input, not known to lnd: key=%x, fam=%v, "+
-			"idx=%v", internalKey.PubKey.SerializeCompressed(),
-			internalKey.Family, internalKey.Index)
-	}
-
-	inBip32Derivation, inTrBip32Derivation :=
-		taropsbt.Bip32DerivationFromKeyDesc(
-			internalKey, f.cfg.ChainParams.HDCoinType,
-		)
-
-	anchorPkScript, anchorMerkleRoot, err := inputAnchorPkScript(assetInput)
+	err = f.setVPacketInputs(ctx, selectedCommitments, vPkt)
 	if err != nil {
-		return nil, fmt.Errorf("cannot calculate input asset pk "+
-			"script: %w", err)
+		return nil, err
 	}
-
-	// We'll also include an inclusion proof for the input asset in the
-	// virtual transaction. With that a signer can verify that the asset was
-	// actually committed to in the anchor output.
-	assetID := assetInput.Asset.ID()
-	proofLocator := proof.Locator{
-		AssetID:   &assetID,
-		ScriptKey: *assetInput.Asset.ScriptKey.PubKey,
-	}
-	if assetInput.Asset.GroupKey != nil {
-		proofLocator.GroupKey = &assetInput.Asset.GroupKey.GroupPubKey
-	}
-	inputProofBlob, err := f.cfg.AssetProofs.FetchProof(ctx, proofLocator)
-	if err != nil {
-		return nil, fmt.Errorf("cannot fetch proof for input "+
-			"asset: %w", err)
-	}
-	inputProofFile := &proof.File{}
-	err = inputProofFile.Decode(bytes.NewReader(inputProofBlob))
-	if err != nil {
-		return nil, fmt.Errorf("cannot decode proof for input "+
-			"asset: %w", err)
-	}
-	inputProof, err := inputProofFile.RawLastProof()
-	if err != nil {
-		return nil, fmt.Errorf("cannot get last proof for input "+
-			"asset: %w", err)
-	}
-
-	tapscriptSiblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
-		assetInput.TapscriptSibling,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("cannot encode tapscript sibling: %w",
-			err)
-	}
-
-	// At this point, we have a valid "coin" to spend in the commitment, so
-	// we'll add the relevant information to the virtual TX's input.
-	//
-	// TODO(roasbeef): still need to add family key to PrevID.
-	vPkt.Inputs = []*taropsbt.VInput{{
-		PrevID: asset.PrevID{
-			OutPoint: assetInput.AnchorPoint,
-			ID:       assetInput.Asset.ID(),
-			ScriptKey: asset.ToSerialized(
-				assetInput.Asset.ScriptKey.PubKey,
-			),
-		},
-		Anchor: taropsbt.Anchor{
-			Value:            assetInput.AnchorOutputValue,
-			PkScript:         anchorPkScript,
-			InternalKey:      internalKey.PubKey,
-			MerkleRoot:       anchorMerkleRoot,
-			TapscriptSibling: tapscriptSiblingBytes,
-			Bip32Derivation: []*psbt.Bip32Derivation{
-				inBip32Derivation,
-			},
-			TrBip32Derivation: []*psbt.TaprootBip32Derivation{
-				inTrBip32Derivation,
-			},
-		},
-		PInput: psbt.PInput{
-			SighashType: txscript.SigHashDefault,
-		},
-	}}
-	vPkt.SetInputAsset(0, assetInput.Asset, inputProof)
 
 	// Gather Taro commitments from the selected anchored assets.
 	var selectedTaroCommitments []*commitment.TaroCommitment
@@ -595,6 +508,118 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		VPacket:        vPkt,
 		TaroCommitment: assetInput.Commitment,
 	}, nil
+}
+
+// setVPacketInputs sets the inputs of the given vPkt to the given send eligible
+// commitments. It also returns the assets that were used as inputs.
+func (f *AssetWallet) setVPacketInputs(ctx context.Context,
+	eligibleCommitments []*AnchoredCommitment,
+	vPkt *taropsbt.VPacket) error {
+
+	vPkt.Inputs = make([]*taropsbt.VInput, len(eligibleCommitments))
+
+	for idx, assetInput := range eligibleCommitments {
+		// If the key found for the input UTXO cannot be identified as
+		// belonging to the lnd wallet, we won't be able to sign for it.
+		// This would happen if a user manually imported an asset that
+		// was issued/received for/on another node. We should probably
+		// not create asset entries for such imported assets in the
+		// first place, as we won't be able to spend it anyway. But for
+		// now we just put this check in place.
+		internalKey := assetInput.InternalKey
+		if !f.cfg.KeyRing.IsLocalKey(ctx, internalKey) {
+			return fmt.Errorf("invalid internal key family for "+
+				"selected input, not known to lnd: "+
+				"key=%x, fam=%v, idx=%v",
+				internalKey.PubKey.SerializeCompressed(),
+				internalKey.Family, internalKey.Index)
+		}
+
+		inBip32Derivation, inTrBip32Derivation :=
+			taropsbt.Bip32DerivationFromKeyDesc(
+				internalKey, f.cfg.ChainParams.HDCoinType,
+			)
+
+		anchorPkScript, anchorMerkleRoot, err := inputAnchorPkScript(
+			assetInput,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot calculate input asset pk "+
+				"script: %w", err)
+		}
+
+		// We'll also include an inclusion proof for the input asset in
+		// the virtual transaction. With that a signer can verify that
+		// the asset was actually committed to in the anchor output.
+		assetID := assetInput.Asset.ID()
+		proofLocator := proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *assetInput.Asset.ScriptKey.PubKey,
+		}
+		if assetInput.Asset.GroupKey != nil {
+			proofLocator.GroupKey = &assetInput.Asset.GroupKey.GroupPubKey
+		}
+		inputProofBlob, err := f.cfg.AssetProofs.FetchProof(
+			ctx, proofLocator,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot fetch proof for input "+
+				"asset: %w", err)
+		}
+		inputProofFile := &proof.File{}
+		err = inputProofFile.Decode(bytes.NewReader(inputProofBlob))
+		if err != nil {
+			return fmt.Errorf("cannot decode proof for input "+
+				"asset: %w", err)
+		}
+		inputProof, err := inputProofFile.RawLastProof()
+		if err != nil {
+			return fmt.Errorf("cannot get last proof for input "+
+				"asset: %w", err)
+		}
+
+		tapscriptSiblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
+			assetInput.TapscriptSibling,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot encode tapscript sibling: %w",
+				err)
+		}
+
+		// At this point, we have a valid "coin" to spend in the
+		// commitment, so we'll add the relevant information to the
+		// virtual TX's input.
+		//
+		// TODO(roasbeef): still need to add family key to PrevID.
+		vPkt.Inputs[idx] = &taropsbt.VInput{
+			PrevID: asset.PrevID{
+				OutPoint: assetInput.AnchorPoint,
+				ID:       assetInput.Asset.ID(),
+				ScriptKey: asset.ToSerialized(
+					assetInput.Asset.ScriptKey.PubKey,
+				),
+			},
+			Anchor: taropsbt.Anchor{
+				Value:            assetInput.AnchorOutputValue,
+				PkScript:         anchorPkScript,
+				InternalKey:      internalKey.PubKey,
+				MerkleRoot:       anchorMerkleRoot,
+				TapscriptSibling: tapscriptSiblingBytes,
+				Bip32Derivation: []*psbt.Bip32Derivation{
+					inBip32Derivation,
+				},
+				TrBip32Derivation: []*psbt.TaprootBip32Derivation{
+					inTrBip32Derivation,
+				},
+			},
+			PInput: psbt.PInput{
+				SighashType: txscript.SigHashDefault,
+			},
+		}
+		vPkt.SetInputAsset(idx, assetInput.Asset, inputProof)
+	}
+
+	return nil
 }
 
 // SignVirtualPacketOptions is a set of functional options that allow callers to
