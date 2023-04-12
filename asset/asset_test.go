@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -414,4 +416,20 @@ func FuzzAssetDecode(f *testing.F) {
 			return
 		}
 	})
+}
+
+// TestDecodeHex tests the decoding of a virtual packet from a hex string.
+func TestDecodeHex(t *testing.T) {
+	t.Parallel()
+
+	// The test data file just contains a random asset from a previous
+	// integration test run.
+	fileContent, err := os.ReadFile(filepath.Join("testdata", "asset.hex"))
+	require.NoError(t, err)
+	rawBytes, err := hex.DecodeString(string(fileContent))
+	require.NoError(t, err)
+
+	a := &Asset{}
+	err = a.Decode(bytes.NewReader(rawBytes))
+	require.NoError(t, err)
 }

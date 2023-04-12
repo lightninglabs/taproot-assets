@@ -306,7 +306,7 @@ func TestImportAssetProof(t *testing.T) {
 	err = testProof.AnchorTx.Serialize(&anchorTxBuf)
 	require.NoError(t, err)
 	anchorTXID := testProof.AnchorTx.TxHash()
-	_, err = db.UpsertChainTx(ctx, ChainTx{
+	_, err = db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
 		BlockHeight: sqlInt32(testProof.AnchorBlockHeight),
@@ -325,7 +325,9 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(context.Background(), nil)
+	assets, err := assetStore.FetchAllAssets(
+		context.Background(), false, nil,
+	)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -794,6 +796,13 @@ func TestAssetExportLog(t *testing.T) {
 			Family: keychain.KeyFamily(rand.Int31()),
 		},
 	})
+	newScriptKey2 := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	})
 	newAmt := 9
 
 	newRootHash := sha256.Sum256([]byte("kek"))
@@ -810,48 +819,114 @@ func TestAssetExportLog(t *testing.T) {
 
 	chainFees := int64(100)
 
-	// With the assets inserted, we'll now construct the struct we'll used
-	// to commit a new spend on disk.
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, numAssets)
+
+	// With the assets inserted, we'll now construct the struct that will be
+	// used to commit a new spend on disk.
+	inputAsset := allAssets[0]
 	anchorTxHash := newAnchorTx.TxHash()
-	spendDelta := &tarofreighter.OutboundParcelDelta{
-		OldAnchorPoint: wire.OutPoint{
-			Hash:  assetGen.anchorTxs[0].TxHash(),
-			Index: 0,
-		},
-		NewAnchorPoint: wire.OutPoint{
-			Hash:  anchorTxHash,
-			Index: 0,
-		},
-		NewInternalKey: keychain.KeyDescriptor{
-			PubKey: test.RandPubKey(t),
-			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamily(rand.Int31()),
-				Index:  uint32(test.RandInt[int32]()),
-			},
-		},
-		// This can be anything since we assume the application sets it
-		// properly.
-		TaroRoot:           bytes.Repeat([]byte{0x01}, 100),
+	spendDelta := &tarofreighter.OutboundParcel{
 		AnchorTx:           newAnchorTx,
 		AnchorTxHeightHint: heightHint,
+		ChainFees:          chainFees,
 		// We'll actually modify only one of the assets. This simulates
 		// us create a split of the asset to send to another party.
-		AssetSpendDeltas: []tarofreighter.AssetSpendDelta{
-			{
-				OldScriptKey: *targetScriptKey.PubKey,
-				NewAmt:       uint64(newAmt),
-				NewScriptKey: newScriptKey,
-				SplitCommitmentRoot: mssmt.NewComputedNode(
-					newRootHash, newRootValue,
+		Inputs: []tarofreighter.TransferInput{{
+			PrevID: asset.PrevID{
+				OutPoint: wire.OutPoint{
+					Hash:  assetGen.anchorTxs[0].TxHash(),
+					Index: 0,
+				},
+				ID: inputAsset.ID(),
+				ScriptKey: asset.ToSerialized(
+					inputAsset.ScriptKey.PubKey,
 				),
-				WitnessData:        []asset.Witness{newWitness},
-				SenderAssetProof:   senderBlob,
-				ReceiverAssetProof: receiverBlob,
 			},
-		},
-		ChainFees: int64(chainFees),
+			Amount: inputAsset.Amount,
+		}},
+		Outputs: []tarofreighter.TransferOutput{{
+			Anchor: tarofreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash:  anchorTxHash,
+					Index: 0,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				// This can be anything since we assume the
+				// application sets it properly.
+				MerkleRoot: bytes.Repeat([]byte{0x01}, 32),
+			},
+			ScriptKey:      newScriptKey,
+			ScriptKeyLocal: true,
+			Amount:         uint64(newAmt),
+			WitnessData:    []asset.Witness{newWitness},
+			SplitCommitmentRoot: mssmt.NewComputedNode(
+				newRootHash, newRootValue,
+			),
+			ProofSuffix: receiverBlob,
+		}, {
+			Anchor: tarofreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash:  anchorTxHash,
+					Index: 1,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				// This can be anything since we assume the
+				// application sets it properly.
+				MerkleRoot: bytes.Repeat([]byte{0x01}, 32),
+			},
+			ScriptKey:      newScriptKey2,
+			ScriptKeyLocal: true,
+			Amount:         inputAsset.Amount - uint64(newAmt),
+			WitnessData:    []asset.Witness{newWitness},
+			SplitCommitmentRoot: mssmt.NewComputedNode(
+				newRootHash, newRootValue,
+			),
+			ProofSuffix: senderBlob,
+		}},
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
+
+	assetID := inputAsset.ID()
+	proofs := map[asset.SerializedKey]*proof.AnnotatedProof{
+		asset.ToSerialized(newScriptKey.PubKey): {
+			Locator: proof.Locator{
+				AssetID:   &assetID,
+				ScriptKey: *newScriptKey.PubKey,
+			},
+			Blob: receiverBlob,
+		},
+		asset.ToSerialized(newScriptKey2.PubKey): {
+			Locator: proof.Locator{
+				AssetID:   &assetID,
+				ScriptKey: *newScriptKey2.PubKey,
+			},
+			Blob: senderBlob,
+		},
+	}
 
 	// At this point, we should be able to query for the log parcel, by
 	// looking for all unconfirmed transfers.
@@ -860,10 +935,10 @@ func TestAssetExportLog(t *testing.T) {
 	require.Equal(t, 1, len(assetTransfers))
 
 	// We should also be able to find it based on its outpoint.
-	anchorPointBytes, err := encodeOutpoint(spendDelta.NewAnchorPoint)
-	require.NoError(t, err)
+	firstOutput := spendDelta.Outputs[0]
+	firstOutputAnchor := firstOutput.Anchor
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		NewAnchorPoint: anchorPointBytes,
+		AnchorTxHash: firstOutputAnchor.OutPoint.Hash[:],
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(assetTransfers))
@@ -871,19 +946,23 @@ func TestAssetExportLog(t *testing.T) {
 	// Check that the new UTXO is found among our managed UTXOs.
 	utxos, err = assetsStore.FetchManagedUTXOs(ctx)
 	require.NoError(t, err)
-	require.Len(t, utxos, 2)
+	require.Len(t, utxos, 3)
 
 	// First UTXO should remain unchanged.
 	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
 
 	// Second UTXO will be our new one.
 	newUtxo := utxos[1]
-	require.Equal(t, spendDelta.NewAnchorPoint, newUtxo.OutPoint)
-	require.Equal(t, spendDelta.NewInternalKey, newUtxo.InternalKey)
-	require.Equal(t, spendDelta.AnchorTx.TxOut[0].Value,
-		int64(newUtxo.OutputValue))
-	require.Equal(t, spendDelta.TaroRoot, newUtxo.TaroRoot)
-	require.Equal(t, spendDelta.TapscriptSibling, newUtxo.TapscriptSibling)
+	require.Equal(t, firstOutputAnchor.OutPoint, newUtxo.OutPoint)
+	require.Equal(t, firstOutputAnchor.InternalKey, newUtxo.InternalKey)
+	require.Equal(
+		t, spendDelta.AnchorTx.TxOut[0].Value,
+		int64(newUtxo.OutputValue),
+	)
+	require.Equal(t, firstOutputAnchor.MerkleRoot, newUtxo.TaroRoot)
+	require.Equal(
+		t, firstOutputAnchor.TapscriptSibling, newUtxo.TapscriptSibling,
+	)
 
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
@@ -905,36 +984,40 @@ func TestAssetExportLog(t *testing.T) {
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
 	blockHeight := int32(100)
 	txIndex := int32(10)
-	finalSenderBlob := bytes.Repeat([]byte{0x03}, 100)
-	err = assetsStore.ConfirmParcelDelivery(ctx, &tarofreighter.AssetConfirmEvent{
-		AnchorPoint:      spendDelta.NewAnchorPoint,
-		TxIndex:          txIndex,
-		BlockHeight:      blockHeight,
-		BlockHash:        fakeBlockHash,
-		FinalSenderProof: finalSenderBlob,
-	})
+	err = assetsStore.ConfirmParcelDelivery(
+		ctx, &tarofreighter.AssetConfirmEvent{
+			AnchorTXID:  firstOutputAnchor.OutPoint.Hash,
+			TxIndex:     txIndex,
+			BlockHeight: blockHeight,
+			BlockHash:   fakeBlockHash,
+			FinalProofs: proofs,
+		},
+	)
 	require.NoError(t, err)
 
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
-	chainAssets, err := assetsStore.FetchAllAssets(ctx, nil)
+	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
 	require.NoError(t, err)
-	require.Equal(t, numAssets, len(chainAssets))
+
+	// We split one asset into two UTXOs, so there's now one more than
+	// before.
+	require.Equal(t, numAssets+1, len(chainAssets))
 
 	var mutationFound bool
 	for _, chainAsset := range chainAssets {
-		require.Equal(
-			t, spendDelta.NewAnchorPoint, chainAsset.AnchorOutpoint,
-		)
-
 		// We should find the mutated asset with its _new_ script key
 		// and amount.
 		if chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey) {
+			require.Equal(
+				t, firstOutputAnchor.OutPoint,
+				chainAsset.AnchorOutpoint,
+			)
 			require.True(t, chainAsset.Amount == uint64(newAmt))
 			require.True(
 				t, mssmt.IsEqualNode(
 					chainAsset.SplitCommitmentRoot,
-					spendDelta.AssetSpendDeltas[0].SplitCommitmentRoot,
+					firstOutput.SplitCommitmentRoot,
 				), "split roots don't match",
 			)
 			mutationFound = true
@@ -948,7 +1031,7 @@ func TestAssetExportLog(t *testing.T) {
 		ctx, newScriptKey.PubKey.SerializeCompressed(),
 	)
 	require.NoError(t, err)
-	require.Equal(t, finalSenderBlob, diskSenderBlob.ProofFile)
+	require.Equal(t, receiverBlob, diskSenderBlob.ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.
@@ -956,9 +1039,12 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fakeBlockHash[:], anchorTx.BlockHash[:])
 	require.Equal(
-		t, uint32(blockHeight), extractSqlInt32[uint32](anchorTx.BlockHeight),
+		t, uint32(blockHeight),
+		extractSqlInt32[uint32](anchorTx.BlockHeight),
 	)
-	require.Equal(t, uint32(txIndex), extractSqlInt32[uint32](anchorTx.TxIndex))
+	require.Equal(
+		t, uint32(txIndex), extractSqlInt32[uint32](anchorTx.TxIndex),
+	)
 	require.Equal(t, chainFees, anchorTx.ChainFees)
 
 	// At this point, there should be no more pending parcels.
@@ -1095,7 +1181,7 @@ func TestFetchGroupedAssets(t *testing.T) {
 	)
 
 	// Fetch all assets to check the accuracy of other asset fields.
-	allAssets, err := assetsStore.FetchAllAssets(ctx, nil)
+	allAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
 	require.NoError(t, err)
 
 	// Sort assets to match the order of the asset descriptors.

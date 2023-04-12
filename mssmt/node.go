@@ -15,6 +15,9 @@ var (
 	// EmptyLeafNode represents an empty leaf in a MS-SMT, one with a nil
 	// value and 0 sum.
 	EmptyLeafNode = NewLeafNode(nil, 0)
+
+	// ZeroNodeHash represents the empty node hash that is all zeroes.
+	ZeroNodeHash = NodeHash{}
 )
 
 // NodeHash represents the key of a MS-SMT node.

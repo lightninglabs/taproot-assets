@@ -62,6 +62,11 @@ type UpsertAssetStore interface {
 
 	// UpsertAssetMeta inserts a new asset meta into the DB.
 	UpsertAssetMeta(ctx context.Context, arg NewAssetMeta) (int32, error)
+
+	// SetAssetSpent marks an asset as being spent in the database. The
+	// updated asset's database ID is returned.
+	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int32,
+		error)
 }
 
 // upsertGenesis imports a new genesis point into the database or returns the

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testReissuance tests that we can properly reissue an asset into group, and
+// testReIssuance tests that we can properly reissue an asset into group, and
 // that the daemon handles a group with multiple assets correctly.
-func testReissuance(t *harnessTest) {
+func testReIssuance(t *harnessTest) {
 	// First, we'll mint a collectible and a normal asset, both with
 	// emission enabled.
 	normalGroupGen := mintAssetsConfirmBatch(
@@ -28,7 +28,8 @@ func testReissuance(t *harnessTest) {
 	ctxb := context.Background()
 	groupCount := 2
 
-	// We'll confirm that the node created two separate groups during minting.
+	// We'll confirm that the node created two separate groups during
+	// minting.
 	assertNumGroups(t.t, t.tarod, groupCount)
 
 	// We'll store the group keys and geneses from the minting to use
@@ -63,9 +64,13 @@ func testReissuance(t *harnessTest) {
 
 	firstCollectSend := sendAssetsToAddr(t, t.tarod, collectGroupAddr)
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, firstCollectSend, collectGenInfo.AssetId, 0, 0, 1,
+		t, t.tarod, firstCollectSend, collectGenInfo.AssetId,
+		[]uint64{0, 1}, 0, 1,
 	)
-	sendProof(t, t.tarod, secondTarod, collectGroupAddr, collectGenInfo)
+	sendProof(
+		t, t.tarod, secondTarod, collectGroupAddr.ScriptKey,
+		collectGenInfo,
+	)
 
 	// Check the state of both nodes. The first node should show one
 	// zero-value transfer representing the send of the collectible.
@@ -89,9 +94,12 @@ func testReissuance(t *harnessTest) {
 	firstNormalSend := sendAssetsToAddr(t, t.tarod, normalGroupAddr)
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, firstNormalSend, normalGenInfo.AssetId,
-		normalGroupMintHalf, 1, 2,
+		[]uint64{normalGroupMintHalf, normalGroupMintHalf}, 1, 2,
 	)
-	sendProof(t, t.tarod, secondTarod, normalGroupAddr, normalGenInfo)
+	sendProof(
+		t, t.tarod, secondTarod, normalGroupAddr.ScriptKey,
+		normalGenInfo,
+	)
 
 	// Reissue one more collectible and half the original mint amount for
 	// the normal asset.
@@ -110,24 +118,27 @@ func testReissuance(t *harnessTest) {
 	require.Equal(t.t, 1, len(normalReissueGen))
 	require.Equal(t.t, 1, len(collectReissueGen))
 
-	// Check the node state after reissuance. The total number of groups
+	// Check the node state after re-issuance. The total number of groups
 	// should still be two.
 	assertNumGroups(t.t, t.tarod, groupCount)
 
-	// Both groups should hold two assets; the collectible group has both
-	// the reissued collectible and the zero-value root asset from the send.
+	// The normal group should hold two assets, while the collectible should
+	// only hold one, since the zero-value tombstone is only visible in the
+	// transfers and is not re-created as an asset.
 	groupsAfterReissue, err := t.tarod.ListGroups(
 		ctxb, &tarorpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
 	normalGroup := groupsAfterReissue.Groups[encodedNormalGroupKey]
-	require.Equal(t.t, 2, len(normalGroup.Assets))
+	require.Len(t.t, normalGroup.Assets, 2)
 
 	collectGroup := groupsAfterReissue.Groups[encodedCollectGroupKey]
-	require.Equal(t.t, 2, len(collectGroup.Assets))
+	require.Len(t.t, collectGroup.Assets, 1)
 
-	// The normal group balance should account for the reissuance and equal
+	assertSplitTombstoneTransfer(t.t, t.tarod, collectGenInfo.AssetId)
+
+	// The normal group balance should account for the re-issuance and equal
 	// the original mint amount. The collectible group balance should be
 	// back at 1.
 	assertBalanceByGroup(
@@ -151,9 +162,12 @@ func testReissuance(t *harnessTest) {
 	secondCollectSend := sendAssetsToAddr(t, t.tarod, collectReissueAddr)
 	confirmAndAssertOutboundTransfer(
 		t, t.tarod, secondCollectSend,
-		collectReissueInfo.AssetId, 0, 2, 3,
+		collectReissueInfo.AssetId, []uint64{0, 1}, 2, 3,
 	)
-	sendProof(t, t.tarod, secondTarod, collectReissueAddr, collectReissueInfo)
+	sendProof(
+		t, t.tarod, secondTarod, collectReissueAddr.ScriptKey,
+		collectReissueInfo,
+	)
 
 	// The second node should show two groups, with two assets in
 	// the collectible group and a total balance of 2 for that group.
@@ -181,9 +195,12 @@ func testReissuance(t *harnessTest) {
 	thirdCollectSend := sendAssetsToAddr(t, secondTarod, collectGenAddr)
 	confirmAndAssertOutboundTransfer(
 		t, secondTarod, thirdCollectSend,
-		collectGenInfo.AssetId, 0, 0, 1,
+		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
-	sendProof(t, secondTarod, t.tarod, collectReissueAddr, collectReissueInfo)
+	sendProof(
+		t, secondTarod, t.tarod, collectReissueAddr.ScriptKey,
+		collectReissueInfo,
+	)
 
 	// The collectible balance on the minting node should be 1, and there
 	// should still be only two groups.
@@ -303,9 +320,13 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 
 	collectSend := sendAssetsToAddr(t, t.tarod, collectGroupAddr)
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, collectSend, collectGenInfo.AssetId, 0, 0, 1,
+		t, t.tarod, collectSend, collectGenInfo.AssetId,
+		[]uint64{0, 1}, 0, 1,
 	)
-	sendProof(t, t.tarod, secondTarod, collectGroupAddr, collectGenInfo)
+	sendProof(
+		t, t.tarod, secondTarod, collectGroupAddr.ScriptKey,
+		collectGenInfo,
+	)
 
 	// A reissuance with the second node should still fail because the
 	// group key was not created by that node.

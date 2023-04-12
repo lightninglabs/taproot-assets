@@ -103,7 +103,7 @@ type AddrBook interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTx) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
 
 	// UpsertAddrEvent inserts a new or updates an existing address event
 	// and returns the primary key.
@@ -530,6 +530,51 @@ func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
 	})
 }
 
+// InsertInternalKey inserts an internal key into the database to make sure it
+// is identified as a local key later on when importing proofs. The key can be
+// an internal key for an asset script key or the internal key of an anchor
+// output.
+func (t *TaroAddressBook) InsertInternalKey(ctx context.Context,
+	keyDesc keychain.KeyDescriptor) error {
+
+	var writeTxOpts AddrBookTxOptions
+	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
+		_, err := insertInternalKey(
+			ctx, q, keyDesc,
+		)
+		if err != nil {
+			return fmt.Errorf("error inserting internal key: %w",
+				err)
+		}
+
+		return nil
+	})
+}
+
+// InsertScriptKey inserts an address related script key into the database, so
+// it can be recognized as belonging to the wallet when a transfer comes in
+// later on.
+func (t *TaroAddressBook) InsertScriptKey(ctx context.Context,
+	scriptKey asset.ScriptKey) error {
+
+	var writeTxOpts AddrBookTxOptions
+	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
+		internalKeyID, err := insertInternalKey(
+			ctx, q, scriptKey.RawKey,
+		)
+		if err != nil {
+			return fmt.Errorf("error inserting internal key: %w",
+				err)
+		}
+		_, err = q.UpsertScriptKey(ctx, NewScriptKey{
+			InternalKeyID:    internalKeyID,
+			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
+			Tweak:            scriptKey.Tweak,
+		})
+		return err
+	})
+}
+
 // GetOrCreateEvent creates a new address event for the given status, address
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
@@ -565,7 +610,7 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 	dbErr := t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		// The first step is to make sure we already track the on-chain
 		// transaction in our DB.
-		txUpsert := ChainTx{
+		txUpsert := ChainTxParams{
 			Txid:  txHash[:],
 			RawTx: txBuf.Bytes(),
 		}

@@ -12,7 +12,7 @@ import (
 )
 
 const allAssets = `-- name: AllAssets :many
-SELECT asset_id, genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id 
+SELECT asset_id, genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent 
 FROM assets
 `
 
@@ -38,6 +38,7 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
 			&i.AnchorUtxoID,
+			&i.Spent,
 		); err != nil {
 			return nil, err
 		}
@@ -188,7 +189,7 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 }
 
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
-SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
+SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
 FROM assets 
 JOIN genesis_assets 
     ON assets.genesis_id = genesis_assets.gen_asset_id
@@ -210,6 +211,7 @@ type AssetsByGenesisPointRow struct {
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 	AnchorUtxoID             sql.NullInt32
+	Spent                    bool
 	GenAssetID               int32
 	AssetID_2                []byte
 	AssetTag                 string
@@ -244,6 +246,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
 			&i.AnchorUtxoID,
+			&i.Spent,
 			&i.GenAssetID,
 			&i.AssetID_2,
 			&i.AssetTag,
@@ -356,20 +359,13 @@ func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBat
 }
 
 const confirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
-WITH target_txn(txn_id) AS (
-    SELECT chain_txns.txn_id
-    FROM chain_txns
-    JOIN managed_utxos utxos
-        ON utxos.txn_id = chain_txns.txn_id
-    WHERE utxos.outpoint = $1
-)
 UPDATE chain_txns
 SET block_height = $2, block_hash = $3, tx_index = $4
-WHERE txn_id in (SELECT txn_id FROM target_txn)
+WHERE txid = $1
 `
 
 type ConfirmChainAnchorTxParams struct {
-	Outpoint    []byte
+	Txid        []byte
 	BlockHeight sql.NullInt32
 	BlockHash   []byte
 	TxIndex     sql.NullInt32
@@ -377,7 +373,7 @@ type ConfirmChainAnchorTxParams struct {
 
 func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error {
 	_, err := q.db.ExecContext(ctx, confirmChainAnchorTx,
-		arg.Outpoint,
+		arg.Txid,
 		arg.BlockHeight,
 		arg.BlockHash,
 		arg.TxIndex,
@@ -613,7 +609,7 @@ func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32
 }
 
 const fetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
-SELECT asset_id, genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id
+SELECT asset_id, genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent
 FROM assets
 WHERE anchor_utxo_id = $1
 `
@@ -640,6 +636,7 @@ func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.Nu
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
 			&i.AnchorUtxoID,
+			&i.Spent,
 		); err != nil {
 			return nil, err
 		}
@@ -694,11 +691,15 @@ WITH genesis_info AS (
 )
 SELECT 
     version, script_keys.tweak, script_keys.tweaked_script_key, 
-    internal_keys.raw_key AS script_key_raw, internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index, key_group_info.genesis_sig, 
-    key_group_info.tweaked_group_key, key_group_info.raw_key AS group_key_raw,
-    key_group_info.key_family AS group_key_family, key_group_info.key_index AS group_key_index,
-    script_version, amount, lock_time, relative_lock_time, 
+    internal_keys.raw_key AS script_key_raw,
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index,
+    key_group_info.genesis_sig, 
+    key_group_info.tweaked_group_key,
+    key_group_info.raw_key AS group_key_raw,
+    key_group_info.key_family AS group_key_family,
+    key_group_info.key_index AS group_key_index,
+    script_version, amount, lock_time, relative_lock_time, spent,
     genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_hash, 
     genesis_info.meta_type, genesis_info.meta_blob, 
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
@@ -730,6 +731,7 @@ type FetchAssetsForBatchRow struct {
 	Amount             int64
 	LockTime           sql.NullInt32
 	RelativeLockTime   sql.NullInt32
+	Spent              bool
 	AssetID            []byte
 	AssetTag           string
 	MetaHash           []byte
@@ -769,6 +771,7 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 			&i.Amount,
 			&i.LockTime,
 			&i.RelativeLockTime,
+			&i.Spent,
 			&i.AssetID,
 			&i.AssetTag,
 			&i.MetaHash,
@@ -970,7 +973,8 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 
 const fetchGroupedAssets = `-- name: FetchGroupedAssets :many
 SELECT
-    assets.asset_id AS asset_primary_key, amount, lock_time, relative_lock_time, 
+    assets.asset_id AS asset_primary_key,
+    amount, lock_time, relative_lock_time, spent, 
     genesis_info_view.asset_id AS asset_id,
     genesis_info_view.asset_tag,
     genesis_info_view.meta_Hash, 
@@ -981,6 +985,7 @@ JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
 JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
+WHERE spent = false
 `
 
 type FetchGroupedAssetsRow struct {
@@ -988,6 +993,7 @@ type FetchGroupedAssetsRow struct {
 	Amount           int64
 	LockTime         sql.NullInt32
 	RelativeLockTime sql.NullInt32
+	Spent            bool
 	AssetID          []byte
 	AssetTag         string
 	MetaHash         []byte
@@ -1009,6 +1015,7 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 			&i.Amount,
 			&i.LockTime,
 			&i.RelativeLockTime,
+			&i.Spent,
 			&i.AssetID,
 			&i.AssetTag,
 			&i.MetaHash,
@@ -1492,9 +1499,9 @@ func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitness
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_sig_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id
+    amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 ) RETURNING asset_id
 `
 
@@ -1508,6 +1515,7 @@ type InsertNewAssetParams struct {
 	LockTime         sql.NullInt32
 	RelativeLockTime sql.NullInt32
 	AnchorUtxoID     sql.NullInt32
+	Spent            bool
 }
 
 func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error) {
@@ -1521,6 +1529,7 @@ func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) 
 		arg.LockTime,
 		arg.RelativeLockTime,
 		arg.AnchorUtxoID,
+		arg.Spent,
 	)
 	var asset_id int32
 	err := row.Scan(&asset_id)
@@ -1557,6 +1566,7 @@ JOIN genesis_info_view
         $1 IS NULL)
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
+WHERE spent = FALSE
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          version, genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -1618,6 +1628,7 @@ JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id AND
       (key_group_info_view.tweaked_group_key = $1 OR
         $1 IS NULL)
+WHERE spent = FALSE
 GROUP BY key_group_info_view.tweaked_group_key
 `
 
@@ -1651,7 +1662,7 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, keyGroupFilter 
 
 const queryAssets = `-- name: QueryAssets :many
 SELECT
-    assets.asset_id AS asset_primary_key, assets.genesis_id, version,
+    assets.asset_id AS asset_primary_key, assets.genesis_id, version, spent,
     script_keys.tweak AS script_key_tweak, 
     script_keys.tweaked_script_key, 
     internal_keys.raw_key AS script_key_raw,
@@ -1698,8 +1709,9 @@ JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
     assets.amount >= COALESCE($4, assets.amount) AND
-    (key_group_info_view.tweaked_group_key = $5 OR
-      $5 IS NULL)
+    assets.spent = COALESCE($5, assets.spent) AND
+    (key_group_info_view.tweaked_group_key = $6 OR
+      $6 IS NULL)
 )
 `
 
@@ -1708,6 +1720,7 @@ type QueryAssetsParams struct {
 	TweakedScriptKey []byte
 	AnchorPoint      []byte
 	MinAmt           sql.NullInt64
+	Spent            sql.NullBool
 	KeyGroupFilter   []byte
 }
 
@@ -1715,6 +1728,7 @@ type QueryAssetsRow struct {
 	AssetPrimaryKey          int32
 	GenesisID                int32
 	Version                  int32
+	Spent                    bool
 	ScriptKeyTweak           []byte
 	TweakedScriptKey         []byte
 	ScriptKeyRaw             []byte
@@ -1758,6 +1772,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.TweakedScriptKey,
 		arg.AnchorPoint,
 		arg.MinAmt,
+		arg.Spent,
 		arg.KeyGroupFilter,
 	)
 	if err != nil {
@@ -1771,6 +1786,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AssetPrimaryKey,
 			&i.GenesisID,
 			&i.Version,
+			&i.Spent,
 			&i.ScriptKeyTweak,
 			&i.TweakedScriptKey,
 			&i.ScriptKeyRaw,
@@ -1810,6 +1826,38 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAssetSpent = `-- name: SetAssetSpent :one
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets
+      ON assets.genesis_id = genesis_assets.gen_asset_id
+    WHERE script_keys.tweaked_script_key = $1
+     AND genesis_assets.asset_id = $2
+    -- TODO(guggero): Fix this by disallowing multiple assets with the same
+    -- script key!
+    LIMIT 1
+)
+UPDATE assets
+SET spent = TRUE
+WHERE asset_id = (SELECT asset_id FROM target_asset)
+RETURNING assets.asset_id
+`
+
+type SetAssetSpentParams struct {
+	ScriptKey  []byte
+	GenAssetID []byte
+}
+
+func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, setAssetSpent, arg.ScriptKey, arg.GenAssetID)
+	var asset_id int32
+	err := row.Scan(&asset_id)
+	return asset_id, err
 }
 
 const updateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec

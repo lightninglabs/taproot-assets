@@ -77,6 +77,35 @@ func (l *LndRpcKeyRing) DeriveKey(ctx context.Context,
 	return *keyDesc, nil
 }
 
+// IsLocalKey returns true if the key is under the control of the wallet
+// and can be derived by it.
+func (l *LndRpcKeyRing) IsLocalKey(ctx context.Context,
+	desc keychain.KeyDescriptor) bool {
+
+	// We can't identify the key as belonging to us if the public key is not
+	// set, as we have nothing to compare a derived key to.
+	if desc.PubKey == nil {
+		return false
+	}
+
+	// An external software could use a key outside the Taro key family, so
+	// we can only be sure that it's definitely not a key known by the
+	// wallet if both family and index are 0. That should only be the case
+	// for keys that are imported from a proof for example.
+	if desc.Family == 0 && desc.Index == 0 {
+		return false
+	}
+
+	// Since we have a non-zero family or index, we should ask the lnd we
+	// are connected to, if it knows the key.
+	derived, err := l.lnd.WalletKit.DeriveKey(ctx, &desc.KeyLocator)
+	if err != nil {
+		return false
+	}
+
+	return derived.PubKey.IsEqual(desc.PubKey)
+}
+
 // A compile time assertion to ensure LndRpcKeyRing meets the
 // tarogarden.KeyRing interface.
 var _ tarogarden.KeyRing = (*LndRpcKeyRing)(nil)

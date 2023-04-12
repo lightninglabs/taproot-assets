@@ -123,7 +123,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		assetStore, proofFileStore,
 	)
 
-	var hashMailCourier proof.Courier[address.Taro]
+	var hashMailCourier proof.Courier[proof.Recipient]
 	if cfg.HashMailCourier != nil {
 		hashMailBox, err := proof.NewHashMailBox(
 			cfg.HashMailCourier.Addr,

@@ -16,7 +16,7 @@ type Querier interface {
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
-	ApplySpendDelta(ctx context.Context, arg ApplySpendDeltaParams) (int32, error)
+	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int32, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
@@ -25,14 +25,10 @@ type Querier interface {
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
-	DeletePendingPassiveAsset(ctx context.Context, prevOutpoint []byte) error
-	DeleteSpendProofs(ctx context.Context, transferID int32) error
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
-	FetchAssetDeltas(ctx context.Context, transferID int32) ([]FetchAssetDeltasRow, error)
-	FetchAssetDeltasWithProofs(ctx context.Context, transferID int32) ([]FetchAssetDeltasWithProofsRow, error)
 	FetchAssetMeta(ctx context.Context, metaID int32) (FetchAssetMetaRow, error)
 	FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error)
 	FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error)
@@ -62,26 +58,27 @@ type Querier interface {
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
-	FetchSpendProofs(ctx context.Context, transferID int32) (FetchSpendProofsRow, error)
+	FetchTransferInputs(ctx context.Context, transferID int32) ([]FetchTransferInputsRow, error)
+	FetchTransferOutputs(ctx context.Context, transferID int32) ([]FetchTransferOutputsRow, error)
 	FetchUniverseKeys(ctx context.Context, namespace string) ([]FetchUniverseKeysRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error)
-	InsertAssetDelta(ctx context.Context, arg InsertAssetDeltaParams) error
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error)
+	InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error
+	InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error
 	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
-	InsertPendingPassiveAsset(ctx context.Context, arg InsertPendingPassiveAssetParams) error
+	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
-	InsertSpendProofs(ctx context.Context, arg InsertSpendProofsParams) (int32, error)
 	InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeafParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -90,6 +87,10 @@ type Querier interface {
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter []byte) ([]QueryAssetBalancesByAssetRow, error)
 	QueryAssetBalancesByGroup(ctx context.Context, keyGroupFilter []byte) ([]QueryAssetBalancesByGroupRow, error)
+	// We'll use this clause to filter out for only transfers that are
+	// unconfirmed. But only if the unconf_only field is set.
+	// Here we have another optional query clause to select a given transfer
+	// based on the anchor_tx_hash, but only if it's specified.
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset
@@ -101,11 +102,12 @@ type Querier interface {
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
-	QueryPendingPassiveAssets(ctx context.Context, prevOutpoint []byte) ([]QueryPendingPassiveAssetsRow, error)
+	QueryPassiveAssets(ctx context.Context, transferID int32) ([]QueryPassiveAssetsRow, error)
 	QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error)
 	QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error)
-	ReAnchorAssets(ctx context.Context, arg ReAnchorAssetsParams) error
+	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
+	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int32, error)
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error

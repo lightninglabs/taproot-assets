@@ -8,6 +8,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -16,8 +18,6 @@ import (
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,7 +51,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	bobScriptKey, bobInternalKey := deriveKeys(t.t, t.lndHarness.Bob)
+	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
 
 	// Now we create a script tree consisting of two simple scripts.
 	preImage := []byte("hash locks are cool")
@@ -81,7 +81,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		Amt:                  numUnits,
 		ScriptKey: &tarorpc.ScriptKey{
 			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey),
+			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
 			TapTweak: rootHash[:],
 		},
 		InternalKey: lndKeyDescToTaro(bobInternalKey),
@@ -95,9 +95,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	changeUnits := rpcAssets[0].Amount - numUnits
 	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId, changeUnits, 0, 1,
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
-	_ = sendProof(t, alice, bob, bobAddr, genInfo)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
@@ -149,9 +150,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId, numUnits/2, 0, 1,
+		t, bob, sendResp, genInfo.AssetId,
+		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
-	_ = sendProof(t, bob, alice, aliceAddr, genInfo)
+	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
@@ -194,16 +196,16 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	bobScriptKey, bobInternalKey := deriveKeys(t.t, t.lndHarness.Bob)
+	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
 
 	// Now we create a script tree consisting of two simple scripts.
 	preImage := []byte("hash locks are cool")
 	leaf1 := test.ScriptHashLock(t.t, preImage)
-	leaf2 := test.ScriptSchnorrSig(t.t, bobScriptKey.PubKey)
+	leaf2 := test.ScriptSchnorrSig(t.t, bobScriptKey.RawKey.PubKey)
 	leaf1Hash := leaf1.TapHash()
 	leaf2Hash := leaf2.TapHash()
 	tapscript := input.TapscriptPartialReveal(
-		bobScriptKey.PubKey, leaf2, leaf1Hash[:],
+		bobScriptKey.RawKey.PubKey, leaf2, leaf1Hash[:],
 	)
 	rootHash := tapscript.ControlBlock.RootHash(leaf2.Script)
 
@@ -225,7 +227,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		Amt:                  numUnits,
 		ScriptKey: &tarorpc.ScriptKey{
 			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey),
+			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
 			TapTweak: rootHash[:],
 		},
 		InternalKey: lndKeyDescToTaro(bobInternalKey),
@@ -239,9 +241,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	changeUnits := rpcAssets[0].Amount - numUnits
 	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId, changeUnits, 0, 1,
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
-	_ = sendProof(t, alice, bob, bobAddr, genInfo)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
@@ -295,9 +298,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId, numUnits/2, 0, 1,
+		t, bob, sendResp, genInfo.AssetId,
+		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
-	_ = sendProof(t, bob, alice, aliceAddr, genInfo)
+	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	assertReceiveComplete(t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
@@ -310,17 +314,217 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	t.Logf("Got alice assets: %s", assetsJSON)
 }
 
-func deriveKeys(t *testing.T, lnd *node.HarnessNode) (keychain.KeyDescriptor,
+// testPsbtInteractiveFullValueSend tests that we can properly send assets back
+// and forth, using the full amount, between nodes with the use of PSBTs.
+func testPsbtInteractiveFullValueSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+	chainParams := &address.RegressionNetTaro
+
+	ctxb := context.Background()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	var (
+		sender   = t.tarod
+		receiver = secondTarod
+		id       [32]byte
+		fullAmt  = rpcAssets[0].Amount
+	)
+	copy(id[:], genInfo.AssetId)
+
+	const numSend = 4
+	for i := 0; i < numSend; i++ {
+		// Swap the sender and receiver nodes starting at the second
+		// iteration.
+		if i > 0 {
+			sender, receiver = receiver, sender
+		}
+
+		// We need to derive two keys, one for the new script key and
+		// one for the internal key.
+		receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(
+			t.t, receiver,
+		)
+
+		vPkt := taropsbt.ForInteractiveSend(
+			id, uint64(fullAmt), receiverScriptKey, 0,
+			receiverAnchorIntKeyDesc, chainParams,
+		)
+
+		// Next, we'll attempt to complete a transfer with PSBTs from
+		// our sender node to our receiver, using the full amount.
+		fundResp := fundPacket(t, sender, vPkt)
+		signResp, err := sender.SignVirtualPsbt(
+			ctxb, &wrpc.SignVirtualPsbtRequest{
+				FundedPsbt: fundResp.FundedPsbt,
+			},
+		)
+		require.NoError(t.t, err)
+
+		// Now we'll attempt to complete the transfer.
+		sendResp, err := sender.AnchorVirtualPsbts(
+			ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+				VirtualPsbts: [][]byte{signResp.SignedPsbt},
+			},
+		)
+		require.NoError(t.t, err)
+
+		numOutputs := 1
+		confirmAndAssetOutboundTransferWithOutputs(
+			t, sender, sendResp, genInfo.AssetId, []uint64{fullAmt},
+			i/2, (i/2)+1, numOutputs,
+		)
+		_ = sendProof(
+			t, sender, receiver,
+			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
+		)
+
+		senderAssets, err := sender.ListAssets(
+			ctxb, &tarorpc.ListAssetRequest{
+				WithWitness: true,
+			},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, senderAssets.Assets, 0)
+
+		receiverAssets, err := receiver.ListAssets(
+			ctxb, &tarorpc.ListAssetRequest{
+				WithWitness: true,
+			},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, receiverAssets.Assets, 1)
+		require.EqualValues(
+			t.t, fullAmt, receiverAssets.Assets[0].Amount,
+		)
+	}
+}
+
+// testPsbtInteractiveSplitSend tests that we can properly send assets back
+// and forth, using the full amount, between nodes with the use of PSBTs.
+func testPsbtInteractiveSplitSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+	chainParams := &address.RegressionNetTaro
+
+	ctxb := context.Background()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	var (
+		alice = t.tarod
+		bob   = secondTarod
+	)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKey, bobAnchorInternalKeyDesc := deriveKeys(
+		t.t, bob,
+	)
+
+	const changeAmt = 10
+	var (
+		id            [32]byte
+		partialAmount = rpcAssets[0].Amount - changeAmt
+	)
+	copy(id[:], genInfo.AssetId)
+	vPkt := taropsbt.ForInteractiveSend(
+		id, partialAmount, bobScriptKey, 0, bobAnchorInternalKeyDesc,
+		chainParams,
+	)
+
+	// Next, we'll attempt to complete a transfer with PSBTs from our main
+	// node to Bob, using the full amount.
+	fundResp := fundPacket(t, alice, vPkt)
+	signResp, err := alice.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signResp.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	confirmAndAssetOutboundTransferWithOutputs(
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{partialAmount, changeAmt}, 0, 1, 2,
+	)
+	_ = sendProof(
+		t, alice, bob, bobScriptKey.PubKey.SerializeCompressed(),
+		genInfo,
+	)
+
+	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
+		WithWitness: true,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, aliceAssets.Assets, 1)
+	require.EqualValues(t.t, changeAmt, aliceAssets.Assets[0].Amount)
+
+	bobAssets, err := bob.ListAssets(ctxb, &tarorpc.ListAssetRequest{
+		WithWitness: true,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, bobAssets.Assets, 1)
+	require.EqualValues(t.t, partialAmount, bobAssets.Assets[0].Amount)
+}
+
+func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,
 	keychain.KeyDescriptor) {
 
-	scriptKeyDesc := lnd.RPC.DeriveNextKey(&walletrpc.KeyReq{
-		KeyFamily: int32(asset.TaroKeyFamily),
-	})
+	ctx := context.Background()
+	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
 
-	internalKeyDesc := lnd.RPC.DeriveNextKey(&walletrpc.KeyReq{
-		KeyFamily: int32(asset.TaroKeyFamily),
-	})
+	scriptKeyDesc, err := tarod.NextScriptKey(
+		ctxt, &wrpc.NextScriptKeyRequest{
+			KeyFamily: uint32(asset.TaroKeyFamily),
+		},
+	)
+	require.NoError(t, err)
+	scriptKey, err := taro.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
+	require.NoError(t, err)
 
-	return test.ParseRPCKeyDescriptor(t, scriptKeyDesc),
-		test.ParseRPCKeyDescriptor(t, internalKeyDesc)
+	internalKeyDesc, err := tarod.NextInternalKey(
+		ctxt, &wrpc.NextInternalKeyRequest{
+			KeyFamily: uint32(asset.TaroKeyFamily),
+		},
+	)
+	require.NoError(t, err)
+	internalKeyLnd, err := taro.UnmarshalKeyDescriptor(
+		internalKeyDesc.InternalKey,
+	)
+	require.NoError(t, err)
+
+	return *scriptKey, internalKeyLnd
 }

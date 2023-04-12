@@ -627,7 +627,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// back the same number of seedlings.
 	//
 	// TODO(roasbeef): move into isolated test
-	assets, err := confAssets.FetchAllAssets(ctx, nil)
+	assets, err := confAssets.FetchAllAssets(ctx, false, nil)
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
 

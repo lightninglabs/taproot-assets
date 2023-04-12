@@ -5,6 +5,7 @@ import (
 	"testing"
 	"testing/quick"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
@@ -727,7 +728,7 @@ func TestSplitCommitment(t *testing.T) {
 				return
 			}
 
-			// Verify that the asset input is well formed within the
+			// Verify that the asset input is well-formed within the
 			// InputSet.
 			prevID := asset.PrevID{
 				OutPoint: outPoint,
@@ -743,8 +744,10 @@ func TestSplitCommitment(t *testing.T) {
 			// Verify that the root asset was constructed properly.
 			require.Equal(t, root.AssetID, split.RootAsset.Genesis.ID())
 			require.Equal(
-				t, root.ScriptKey[:],
-				split.RootAsset.ScriptKey.PubKey.SerializeCompressed(),
+				t, root.ScriptKey.SchnorrSerialized(),
+				schnorr.SerializePubKey(
+					split.RootAsset.ScriptKey.PubKey,
+				),
 			)
 			require.Equal(t, root.Amount, split.RootAsset.Amount)
 			require.Len(t, split.RootAsset.PrevWitnesses, 1)
@@ -770,8 +773,10 @@ func TestSplitCommitment(t *testing.T) {
 
 				require.Equal(t, l.AssetID, splitAsset.Genesis.ID())
 				require.Equal(
-					t, l.ScriptKey[:],
-					splitAsset.ScriptKey.PubKey.SerializeCompressed(),
+					t, l.ScriptKey.SchnorrSerialized(),
+					schnorr.SerializePubKey(
+						splitAsset.ScriptKey.PubKey,
+					),
 				)
 				require.Equal(t, l.Amount, splitAsset.Amount)
 				require.Len(t, splitAsset.PrevWitnesses, 1)

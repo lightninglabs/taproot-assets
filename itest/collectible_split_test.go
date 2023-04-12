@@ -65,10 +65,12 @@ func testCollectibleSend(t *harnessTest) {
 			sendResp := sendAssetsToAddr(t, t.tarod, receiverAddr)
 			confirmAndAssertOutboundTransfer(
 				t, t.tarod, sendResp, genInfo.AssetId,
-				0, senderTransferIdx, senderTransferIdx+1,
+				[]uint64{0, fullAmount}, senderTransferIdx,
+				senderTransferIdx+1,
 			)
 			_ = sendProof(
-				t, t.tarod, secondTarod, receiverAddr, genInfo,
+				t, t.tarod, secondTarod, receiverAddr.ScriptKey,
+				genInfo,
 			)
 			senderTransferIdx++
 		} else {
@@ -89,10 +91,12 @@ func testCollectibleSend(t *harnessTest) {
 			)
 			confirmAndAssertOutboundTransfer(
 				t, secondTarod, sendResp, genInfo.AssetId,
-				0, receiverTransferIdx, receiverTransferIdx+1,
+				[]uint64{0, fullAmount}, receiverTransferIdx,
+				receiverTransferIdx+1,
 			)
 			_ = sendProof(
-				t, secondTarod, t.tarod, receiverAddr, genInfo,
+				t, secondTarod, t.tarod, receiverAddr.ScriptKey,
+				genInfo,
 			)
 			receiverTransferIdx++
 		}
@@ -107,21 +111,21 @@ func testCollectibleSend(t *harnessTest) {
 	assertTransfers(t.t, secondTarod, []uint64{0})
 	assertBalanceByID(t.t, secondTarod, genInfo.AssetId, fullAmount)
 
-	// The second daemon should list one group with two assets.
+	// The second daemon should list one group with one asset.
 	listGroupsResp, err := secondTarod.ListGroups(
 		ctxb, &tarorpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
 	groupKeys := maps.Keys(listGroupsResp.Groups)
-	require.Equal(t.t, 1, len(groupKeys))
+	require.Len(t.t, groupKeys, 1)
 
 	rpcGroupKey, err := hex.DecodeString(groupKeys[0])
 	require.NoError(t.t, err)
 	require.Equal(t.t, groupKey, rpcGroupKey)
 
 	groupedAssets := listGroupsResp.Groups[groupKeys[0]].Assets
-	require.Equal(t.t, 2, len(groupedAssets))
+	require.Len(t.t, groupedAssets, 1)
 
 	// Sort the assets with a group by amount, descending.
 	sort.Slice(groupedAssets, func(i, j int) bool {

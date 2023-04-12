@@ -109,7 +109,10 @@ func mintAssets(t *harnessTest) {
 	)
 	defer shutdownAndAssert(t, charlie, secondTarod)
 
-	transferAssetProofs(t, t.tarod, secondTarod, allAssets)
+	// We import the assets into a node that doesn't have the keys to spend
+	// them, so we don't expect them to show up with script_key_is_local set
+	// to true in the list of assets.
+	transferAssetProofs(t, t.tarod, secondTarod, allAssets, false)
 }
 
 // mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
@@ -152,6 +155,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 			assetAmountCheck(assetRequest.Asset.Amount),
 			assetTypeCheck(assetRequest.Asset.AssetType),
 			assetAnchorCheck(*hashes[0], zeroHash),
+			assetScriptKeyIsLocalCheck(true),
 		)
 	}
 
@@ -173,6 +177,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 		mintedAsset := assertAssetState(
 			t, tarod, assetRequest.Asset.Name, metaHash[:],
 			assetAnchorCheck(*hashes[0], blockHash),
+			assetScriptKeyIsLocalCheck(true),
 			func(a *tarorpc.Asset) error {
 				anchor := a.ChainAnchor
 
@@ -207,7 +212,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 // transferAssetProofs locates and exports the proof files for all given assets
 // from the source node and imports them into the destination node.
 func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
-	assets []*tarorpc.Asset) {
+	assets []*tarorpc.Asset, shouldShowUpAsLocal bool) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -242,6 +247,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
 			assetAmountCheck(existingAsset.Amount),
 			assetTypeCheck(existingAsset.AssetType),
 			assetAnchorCheck(*anchorTxHash, *anchorBlockHash),
+			assetScriptKeyIsLocalCheck(shouldShowUpAsLocal),
 		)
 	}
 }

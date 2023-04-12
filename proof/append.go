@@ -16,10 +16,6 @@ import (
 type TransitionParams struct {
 	// BaseProofParams houses the basic chain level parameters needed to
 	// construct a proof.
-	//
-	// TODO(roasbeef): assumes only 2 outputs in the TX (minting output and
-	// change), need more information to make exclusion proofs for the
-	// others.
 	BaseProofParams
 
 	// NewAsset is the new asset created by the asset transition.
@@ -102,7 +98,7 @@ func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
 	// We only use the block, transaction, and transaction index parameters,
 	// so we only need to check the nil-ness of the block and transaction.
 	if params.Block == nil || params.Tx == nil {
-		return fmt.Errorf("Missing block or TX to update proof")
+		return fmt.Errorf("missing block or TX to update proof")
 	}
 
 	// Recompute the proof fields that depend on anchor TX confirmation.

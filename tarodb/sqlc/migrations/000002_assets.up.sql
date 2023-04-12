@@ -188,6 +188,12 @@ CREATE TABLE IF NOT EXISTS assets (
 
     anchor_utxo_id INTEGER REFERENCES managed_utxos(utxo_id),
     
+    -- A boolean that indicates that the asset was spent. This is only
+    -- set for assets that were transferred in an active manner (as part of an
+    -- user initiated transfer). Passive assets that are just re-anchored are
+    -- updated in-place.
+    spent BOOLEAN NOT NULL DEFAULT FALSE,
+    
     UNIQUE(asset_id, genesis_id, script_key_id)
 );
 

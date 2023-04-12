@@ -1,132 +1,113 @@
 -- name: InsertAssetTransfer :one
+WITH target_txn(txn_id) AS (
+    SELECT txn_id
+    FROM chain_txns
+    WHERE txid = @anchor_txid
+)
 INSERT INTO asset_transfers (
-    old_anchor_point, new_internal_key, new_anchor_utxo, height_hint, transfer_time_unix
+    height_hint, anchor_txn_id, transfer_time_unix
 ) VALUES (
-    $1, $2, $3, $4, $5
+    @height_hint, (SELECT txn_id FROM target_txn), @transfer_time_unix
 ) RETURNING id;
 
--- name: InsertAssetDelta :exec
-INSERT INTO asset_deltas (
-    old_script_key, new_amt, new_script_key, serialized_witnesses, transfer_id,
-    proof_id, split_commitment_root_hash, split_commitment_root_value
+-- name: InsertAssetTransferInput :exec
+INSERT INTO asset_transfer_inputs (
+    transfer_id, anchor_point, asset_id, script_key, amount
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
+    $1, $2, $3, $4, $5
 );
 
--- name: InsertSpendProofs :one
-INSERT INTO transfer_proofs (
-   transfer_id, sender_proof, receiver_proof 
+-- name: InsertAssetTransferOutput :exec
+INSERT INTO asset_transfer_outputs (
+    transfer_id, anchor_utxo, script_key, script_key_local,
+    amount, serialized_witnesses, split_commitment_root_hash,
+    split_commitment_root_value, proof_suffix, num_passive_assets
 ) VALUES (
-    $1, $2, $3
-) RETURNING proof_id;
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+);
 
 -- name: QueryAssetTransfers :many
-SELECT 
-    asset_transfers.old_anchor_point, utxos.outpoint AS new_anchor_point,
-    utxos.taro_root, utxos.tapscript_sibling,
-    utxos.utxo_id AS new_anchor_utxo_id, txns.raw_tx AS anchor_tx_bytes,
-    txns.txid AS anchor_txid, txns.txn_id AS anchor_tx_primary_key,
-    txns.chain_fees, transfer_time_unix, keys.raw_key AS internal_key_bytes,
-    keys.key_family AS internal_key_fam, keys.key_index AS internal_key_index,
-    id AS transfer_id, height_hint, transfer_time_unix
-FROM asset_transfers
-JOIN internal_keys keys
-    ON asset_transfers.new_internal_key = keys.key_id
-JOIN managed_utxos utxos
-    ON asset_transfers.new_anchor_utxo = utxos.utxo_id
+SELECT
+    id, height_hint, txns.txid, transfer_time_unix
+FROM asset_transfers transfers
 JOIN chain_txns txns
-    ON utxos.utxo_id = txns.txn_id
-WHERE (
-    -- We'll use this clause to filter out for only transfers that are
-    -- unconfirmed. But only if the unconf_only field is set.
-    -- TODO(roasbeef): just do the confirmed bit,
-    (@unconf_only = false OR @unconf_only IS NULL OR
-      (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = @unconf_only)
+    ON transfers.anchor_txn_id = txns.txn_id
+-- We'll use this clause to filter out for only transfers that are
+-- unconfirmed. But only if the unconf_only field is set.
+WHERE (@unconf_only = false OR @unconf_only IS NULL OR
+    (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = @unconf_only)
 
-    AND
-    
-    -- Here we have another optional query clause to select a given transfer
-    -- based on the new_anchor_point, but only if it's specified.
-    (utxos.outpoint = sqlc.narg('new_anchor_point') OR
-       sqlc.narg('new_anchor_point') IS NULL)
-);
+-- Here we have another optional query clause to select a given transfer
+-- based on the anchor_tx_hash, but only if it's specified.
+AND (txns.txid = sqlc.narg('anchor_tx_hash') OR
+    sqlc.narg('anchor_tx_hash') IS NULL)
+ORDER BY transfer_time_unix;
 
--- name: FetchAssetDeltas :many
-SELECT  
-    deltas.old_script_key, deltas.new_amt, 
-    script_keys.tweaked_script_key AS new_script_key_bytes,
-    script_keys.tweak AS script_key_tweak,
-    deltas.new_script_key AS new_script_key_id, 
-    internal_keys.raw_key AS new_raw_script_key_bytes,
-    internal_keys.key_family AS new_script_key_family, 
-    internal_keys.key_index AS new_script_key_index,
-    deltas.serialized_witnesses, split_commitment_root_hash, 
-    split_commitment_root_value
-FROM asset_deltas deltas
-JOIN script_keys
-    ON deltas.new_script_key = script_keys.script_key_id
-JOIN internal_keys 
-    ON script_keys.internal_key_id = internal_keys.key_id
+-- name: FetchTransferInputs :many
+SELECT input_id, anchor_point, asset_id, script_key, amount
+FROM asset_transfer_inputs inputs
 WHERE transfer_id = $1;
 
--- name: FetchAssetDeltasWithProofs :many
-SELECT  
-    deltas.old_script_key, deltas.new_amt, 
-    script_keys.tweaked_script_key AS new_script_key_bytes,
+-- name: FetchTransferOutputs :many
+SELECT
+    output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
+    split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
+    utxos.utxo_id AS anchor_utxo_id,
+    utxos.outpoint AS anchor_outpoint,
+    utxos.amt_sats AS anchor_value,
+    utxos.taro_root AS anchor_taro_root,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
+    utxo_internal_keys.key_family AS internal_key_family,
+    utxo_internal_keys.key_index AS internal_key_index,
+    script_keys.tweaked_script_key AS script_key_bytes,
     script_keys.tweak AS script_key_tweak,
-    deltas.new_script_key AS new_script_key_id, 
-    internal_keys.raw_key AS new_raw_script_key_bytes,
-    internal_keys.key_family AS new_script_key_family, 
-    internal_keys.key_index AS new_script_key_index,
-    deltas.serialized_witnesses, deltas.split_commitment_root_hash, 
-    deltas.split_commitment_root_value, transfer_proofs.sender_proof,
-    transfer_proofs.receiver_proof
-FROM asset_deltas deltas
+    script_key AS script_key_id,
+    script_internal_keys.raw_key AS script_key_raw_key_bytes,
+    script_internal_keys.key_family AS script_key_family,
+    script_internal_keys.key_index AS script_key_index
+FROM asset_transfer_outputs outputs
+JOIN managed_utxos utxos
+  ON outputs.anchor_utxo = utxos.utxo_id
 JOIN script_keys
-    ON deltas.new_script_key = script_keys.script_key_id
-JOIN internal_keys 
-    ON script_keys.internal_key_id = internal_keys.key_id
-JOIN transfer_proofs
-    ON deltas.proof_id = transfer_proofs.proof_id
-WHERE deltas.transfer_id = $1;
-
--- name: FetchSpendProofs :one
-SELECT sender_proof, receiver_proof
-FROM transfer_proofs
+  ON outputs.script_key = script_keys.script_key_id
+JOIN internal_keys script_internal_keys
+  ON script_keys.internal_key_id = script_internal_keys.key_id
+JOIN internal_keys utxo_internal_keys
+  ON utxos.internal_key_id = utxo_internal_keys.key_id
 WHERE transfer_id = $1;
 
--- name: ReAnchorAssets :exec
-WITH assets_to_update AS (
-    SELECT asset_id
+-- name: ApplyPendingOutput :one
+WITH spent_asset AS (
+    SELECT genesis_id, version, asset_group_sig_id, script_version, lock_time,
+           relative_lock_time
     FROM assets
-    JOIN managed_utxos utxos
-        ON assets.anchor_utxo_id = utxos.utxo_id
-    WHERE utxos.outpoint = sqlc.arg('old_outpoint')
+    WHERE assets.asset_id = @spent_asset_id
 )
-UPDATE assets
-SET anchor_utxo_id = sqlc.arg('new_outpoint_utxo_id')
-WHERE asset_id IN (SELECT asset_id FROM assets_to_update);
-
--- name: ApplySpendDelta :one
-WITH old_script_key_id AS (
-    SELECT script_key_id
-    FROM script_keys
-    WHERE tweaked_script_key = @old_script_key
+INSERT INTO assets (
+    genesis_id, version, asset_group_sig_id, script_version, lock_time,
+    relative_lock_time, script_key_id, anchor_utxo_id, amount,
+    split_commitment_root_hash, split_commitment_root_value
+) VALUES (
+    (SELECT genesis_id FROM spent_asset),
+    (SELECT version FROM spent_asset),
+    (SELECT asset_group_sig_id FROM spent_asset),
+    (SELECT script_version FROM spent_asset),
+    (SELECT lock_time FROM spent_asset),
+    (SELECT relative_lock_time FROM spent_asset),
+    @script_key_id, @anchor_utxo_id, @amount, @split_commitment_root_hash,
+    @split_commitment_root_value
 )
-UPDATE assets
-SET amount = @new_amount, script_key_id = @new_script_key_id, 
-    split_commitment_root_hash = @split_commitment_root_hash,
-    split_commitment_root_value = @split_commitment_root_value
-WHERE script_key_id in (SELECT script_key_id FROM old_script_key_id)
 RETURNING asset_id;
+
+-- name: ReAnchorPassiveAssets :exec
+UPDATE assets
+SET anchor_utxo_id = @new_anchor_utxo_id
+WHERE asset_id = @asset_id;
 
 -- name: DeleteAssetWitnesses :exec
 DELETE FROM asset_witnesses
 WHERE asset_id = $1;
-
--- name: DeleteSpendProofs :exec
-DELETE FROM transfer_proofs
-WHERE transfer_id = $1;
 
 -- name: InsertReceiverProofTransferAttempt :exec
 INSERT INTO receiver_proof_transfer_attempts (
@@ -141,7 +122,7 @@ FROM receiver_proof_transfer_attempts
 WHERE proof_locator_hash = $1
 ORDER BY time_unix DESC;
 
--- name: InsertPendingPassiveAsset :exec
+-- name: InsertPassiveAsset :exec
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
     FROM assets
@@ -155,24 +136,21 @@ WITH target_asset(asset_id) AS (
         AND utxos.outpoint = @prev_outpoint
         AND script_keys.tweaked_script_key = @script_key
 )
-INSERT INTO pending_passive_asset (
-    asset_id, prev_outpoint, script_key, new_witness_stack,
+INSERT INTO passive_assets (
+    asset_id, transfer_id, new_anchor_utxo, script_key, new_witness_stack,
     new_proof
 ) VALUES (
-    (SELECT asset_id FROM target_asset), @prev_outpoint,
-          @script_key, @new_witness_stack, @new_proof
+    (SELECT asset_id FROM target_asset), @transfer_id, @new_anchor_utxo,
+    @script_key, @new_witness_stack, @new_proof
 );
 
--- name: QueryPendingPassiveAssets :many
-SELECT passive.asset_id, passive.script_key, passive.new_witness_stack,
-       passive.new_proof, genesis_info_view.asset_id AS genesis_id
-FROM pending_passive_asset as passive
+-- name: QueryPassiveAssets :many
+SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
+       passive.new_witness_stack, passive.new_proof,
+       genesis_assets.asset_id AS genesis_id
+FROM passive_assets as passive
     JOIN assets
         ON passive.asset_id = assets.asset_id
-    JOIN genesis_info_view
-        ON assets.genesis_id = genesis_info_view.gen_asset_id
-WHERE prev_outpoint = @prev_outpoint;
-
--- name: DeletePendingPassiveAsset :exec
-DELETE FROM pending_passive_asset
-WHERE prev_outpoint = @prev_outpoint;
+    JOIN genesis_assets
+        ON assets.genesis_id = genesis_assets.gen_asset_id
+WHERE passive.transfer_id = @transfer_id;

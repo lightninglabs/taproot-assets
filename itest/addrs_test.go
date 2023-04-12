@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -130,7 +132,10 @@ func testAddresses(t *harnessTest) {
 
 		assetGen := rpcAsset.AssetGenesis
 
-		sendProof(t, t.tarod, secondTarod, receiverAddr, assetGen)
+		sendProof(
+			t, t.tarod, secondTarod, receiverAddr.ScriptKey,
+			assetGen,
+		)
 	}
 
 	// Make sure we have imported and finalized all proofs.
@@ -143,20 +148,20 @@ func testAddresses(t *harnessTest) {
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Transfers, len(rpcAssets))
-		require.Len(t.t, resp.Transfers[0].AssetSpendDeltas, 1)
-		delta := resp.Transfers[0].AssetSpendDeltas[0]
-		require.Equal(t.t,
-			rpcAssets[0].AssetGenesis.AssetId, delta.AssetId,
+		require.Len(t.t, resp.Transfers[0].Outputs, 2)
+		firstOut := resp.Transfers[0].Outputs[0]
+		require.EqualValues(t.t, 1, firstOut.Amount)
+		firstIn := resp.Transfers[0].Inputs[0]
+		require.Equal(
+			t.t, rpcAssets[0].AssetGenesis.AssetId, firstIn.AssetId,
 		)
-		require.EqualValues(t.t, 1, delta.NewAmt)
 
 		return nil
 	}, defaultTimeout/2)
 	require.NoError(t.t, err)
 }
 
-func sendProof(t *harnessTest, src, dst *tarodHarness,
-	recipientAddr *tarorpc.Addr,
+func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 	genInfo *tarorpc.GenesisInfo) *tarorpc.ImportProofResponse {
 
 	ctxb := context.Background()
@@ -165,7 +170,7 @@ func sendProof(t *harnessTest, src, dst *tarodHarness,
 	waitErr := wait.NoError(func() error {
 		resp, err := src.ExportProof(ctxb, &tarorpc.ExportProofRequest{
 			AssetId:   genInfo.AssetId,
-			ScriptKey: recipientAddr.ScriptKey,
+			ScriptKey: scriptKey,
 		})
 		if err != nil {
 			return err
@@ -175,6 +180,8 @@ func sendProof(t *harnessTest, src, dst *tarodHarness,
 		return nil
 	}, defaultWaitTimeout)
 	require.NoError(t.t, waitErr)
+
+	t.Logf("Importing proof %x", proofResp.RawProof)
 
 	importResp, err := dst.ImportProof(ctxb, &tarorpc.ImportProofRequest{
 		ProofFile:    proofResp.RawProof,
@@ -218,6 +225,28 @@ func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
 					rpcAddr.Encoded: 1,
 				},
 			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	return resp
+}
+
+// fundPacket asks the wallet to fund the given virtual packet.
+func fundPacket(t *harnessTest, tarod *tarodHarness,
+	vPkg *taropsbt.VPacket) *wrpc.FundVirtualPsbtResponse {
+
+	var buf bytes.Buffer
+	err := vPkg.Serialize(&buf)
+	require.NoError(t.t, err)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := tarod.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
+		Template: &wrpc.FundVirtualPsbtRequest_Psbt{
+			Psbt: buf.Bytes(),
 		},
 	})
 	require.NoError(t.t, err)

@@ -198,6 +198,10 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			"value")
 	}
 
+	if o.ScriptKey.PubKey == nil {
+		return pOut, nil, fmt.Errorf("output script key is required")
+	}
+
 	// Before we start with any fields that need to go into the Unknowns
 	// slice, we add the information that we can stuff into the wire TX or
 	// existing PSBT fields.

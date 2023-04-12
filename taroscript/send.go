@@ -121,6 +121,26 @@ func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
 	return asset.TaroCommitmentKey(r.ID, r.GroupKey)
 }
 
+// DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
+func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
+	if len(vPkt.Outputs) < 1 {
+		return nil, fmt.Errorf("packet must have at least one output")
+	}
+
+	if len(vPkt.Inputs) != 1 {
+		return nil, fmt.Errorf("only one input is currently supported")
+	}
+
+	desc := &FundingDescriptor{
+		ID: vPkt.Inputs[0].PrevID.ID,
+	}
+	for idx := range vPkt.Outputs {
+		desc.Amount += vPkt.Outputs[idx].Amount
+	}
+
+	return desc, nil
+}
+
 // IsValidInput verifies that the Taro commitment of the input contains an asset
 // that could be spent to the given recipient.
 func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
@@ -303,16 +323,9 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 	default:
 	}
 
-	var (
-		residualAmount = inputAsset.Amount
-		splitLocators  = make([]*commitment.SplitLocator, len(outputs))
-		inputAssetID   = inputAsset.ID()
-	)
+	var residualAmount = inputAsset.Amount
 	for idx := range outputs {
 		residualAmount -= outputs[idx].Amount
-
-		locator := outputs[idx].SplitLocator(inputAssetID)
-		splitLocators[idx] = &locator
 	}
 
 	// We should now have exactly zero value left over after splitting.
@@ -346,9 +359,27 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 		return nil
 	}
 
+	// We need to determine the root locator and the rest of the split
+	// locators now.
+	var (
+		rootLocator   *commitment.SplitLocator
+		splitLocators []*commitment.SplitLocator
+	)
+	for idx := range outputs {
+		vOut := outputs[idx]
+
+		locator := outputs[idx].SplitLocator(input.Asset().ID())
+		if vOut.IsSplitRoot {
+			rootLocator = &locator
+			continue
+		}
+
+		splitLocators = append(splitLocators, &locator)
+	}
+
 	splitCommitment, err := commitment.NewSplitCommitment(
-		inputAsset, input.PrevID.OutPoint, splitLocators[0],
-		splitLocators[1:]...,
+		inputAsset, input.PrevID.OutPoint, rootLocator,
+		splitLocators...,
 	)
 	if err != nil {
 		return err
@@ -356,10 +387,10 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 
 	// Assign each of the split assets to their respective outputs.
 	for idx := range outputs {
-		locator := splitLocators[idx]
 		vOut := outputs[idx]
+		locator := outputs[idx].SplitLocator(input.Asset().ID())
 
-		splitAsset, ok := splitCommitment.SplitAssets[*locator]
+		splitAsset, ok := splitCommitment.SplitAssets[locator]
 		if !ok {
 			return fmt.Errorf("invalid split, asset for locator "+
 				"%v not found", locator)
@@ -415,6 +446,17 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 		input.PrevID: input.Asset(),
 	}
 	newAsset := outputs[0].Asset
+
+	// For splits, the new asset that receives the signature is the one with
+	// the split root set to true.
+	if isSplit {
+		splitOut, err := vPkt.SplitRootOutput()
+		if err != nil {
+			return fmt.Errorf("no split root output found for "+
+				"split transaction: %w", err)
+		}
+		newAsset = splitOut.Asset
+	}
 
 	// Create a Taro virtual transaction representing the asset transfer.
 	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
@@ -566,18 +608,17 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 			continue
 		}
 
-		// If the receiver of this output is receiving through an
-		// address (non-interactive), we need to blank out the split
-		// commitment proof, as the receiver doesn't know of this
-		// information yet. The final commitment will be to a leaf
+		// Because the receiver of this output might be receiving
+		// through an address (non-interactive), we need to blank out
+		// the split commitment proof, as the receiver doesn't know of
+		// this information yet. The final commitment will be to a leaf
 		// without the split commitment proof, that proof will be
 		// delivered in the proof file as part of the non-interactive
-		// send.
-		committedAsset := vOut.Asset
-		if !outputs[idx].Interactive {
-			committedAsset = committedAsset.Copy()
-			committedAsset.PrevWitnesses[0].SplitCommitment = nil
-		}
+		// send. We do the same even for interactive sends to not need
+		// to distinguish between the two cases in the proof file
+		// itself.
+		committedAsset := vOut.Asset.Copy()
+		committedAsset.PrevWitnesses[0].SplitCommitment = nil
 
 		// This is a new output which only commits to a single asset
 		// leaf.
@@ -666,6 +707,7 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 
 	for i := range outputs {
 		out := outputs[i]
+
 		psbtOut := &spendPkt.Outputs[out.AnchorOutputIndex]
 		psbtOut.TaprootInternalKey = schnorr.SerializePubKey(
 			out.AnchorOutputInternalKey,

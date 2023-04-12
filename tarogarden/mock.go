@@ -398,6 +398,10 @@ func (m *MockKeyRing) DeriveKey(ctx context.Context,
 	return keychain.KeyDescriptor{}, nil
 }
 
+func (m *MockKeyRing) IsLocalKey(context.Context, keychain.KeyDescriptor) bool {
+	return true
+}
+
 type MockGenSigner struct {
 	KeyRing *MockKeyRing
 }

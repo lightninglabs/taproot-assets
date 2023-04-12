@@ -44,7 +44,7 @@ var testCases = []*testCase{
 	},
 	{
 		name: "reissuance",
-		test: testReissuance,
+		test: testReIssuance,
 	},
 	{
 		name: "re-issuance asset amount overflow",
@@ -61,5 +61,13 @@ var testCases = []*testCase{
 	{
 		name: "psbt script check sig send",
 		test: testPsbtScriptCheckSigSend,
+	},
+	{
+		name: "psbt interactive full value send",
+		test: testPsbtInteractiveFullValueSend,
+	},
+	{
+		name: "psbt interactive split send",
+		test: testPsbtInteractiveSplitSend,
 	},
 }

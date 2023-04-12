@@ -48,18 +48,7 @@ type Asset struct {
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 	AnchorUtxoID             sql.NullInt32
-}
-
-type AssetDelta struct {
-	ID                       int32
-	OldScriptKey             []byte
-	NewAmt                   int64
-	NewScriptKey             int32
-	SerializedWitnesses      []byte
-	SplitCommitmentRootHash  []byte
-	SplitCommitmentRootValue sql.NullInt64
-	TransferID               int32
-	ProofID                  int32
+	Spent                    bool
 }
 
 type AssetGroup struct {
@@ -105,11 +94,32 @@ type AssetSeedling struct {
 
 type AssetTransfer struct {
 	ID               int32
-	OldAnchorPoint   []byte
-	NewInternalKey   int32
-	NewAnchorUtxo    int32
 	HeightHint       int32
+	AnchorTxnID      int32
 	TransferTimeUnix time.Time
+}
+
+type AssetTransferInput struct {
+	InputID     int32
+	TransferID  int32
+	AnchorPoint []byte
+	AssetID     []byte
+	ScriptKey   []byte
+	Amount      int64
+}
+
+type AssetTransferOutput struct {
+	OutputID                 int32
+	TransferID               int32
+	AnchorUtxo               int32
+	ScriptKey                int32
+	ScriptKeyLocal           bool
+	Amount                   int64
+	SerializedWitnesses      []byte
+	SplitCommitmentRootHash  []byte
+	SplitCommitmentRootValue sql.NullInt64
+	ProofSuffix              []byte
+	NumPassiveAssets         int32
 }
 
 type AssetWitness struct {
@@ -212,10 +222,11 @@ type MssmtRoot struct {
 	RootHash  []byte
 }
 
-type PendingPassiveAsset struct {
-	PendingID       int32
+type PassiveAsset struct {
+	PassiveID       int32
+	TransferID      int32
 	AssetID         int32
-	PrevOutpoint    []byte
+	NewAnchorUtxo   int32
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
@@ -231,13 +242,6 @@ type ScriptKey struct {
 	InternalKeyID    int32
 	TweakedScriptKey []byte
 	Tweak            []byte
-}
-
-type TransferProof struct {
-	ProofID       int32
-	TransferID    int32
-	SenderProof   []byte
-	ReceiverProof []byte
 }
 
 type UniverseLeafe struct {

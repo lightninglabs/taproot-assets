@@ -30,6 +30,7 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -123,6 +124,14 @@ var (
 			Action: "write",
 		}},
 		"/assetwalletrpc.AssetWallet/AnchorVirtualPsbts": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/assetwalletrpc.AssetWallet/NextInternalKey": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/assetwalletrpc.AssetWallet/NextScriptKey": {{
 			Entity: "assets",
 			Action: "write",
 		}},
@@ -555,7 +564,9 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx, req.WithWitness)
+	rpcAssets, err := r.fetchRpcAssets(
+		ctx, req.WithWitness, req.IncludeSpent,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -566,16 +577,16 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 }
 
 func (r *rpcServer) fetchRpcAssets(ctx context.Context,
-	withWitness bool) ([]*tarorpc.Asset, error) {
+	withWitness, includeSpent bool) ([]*tarorpc.Asset, error) {
 
-	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, nil)
+	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, includeSpent, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
 	}
 
 	rpcAssets := make([]*tarorpc.Asset, len(assets))
 	for i, a := range assets {
-		rpcAssets[i], err = marshalChainAsset(a, withWitness)
+		rpcAssets[i], err = r.marshalChainAsset(ctx, a, withWitness)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal asset: %w",
 				err)
@@ -585,10 +596,10 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 	return rpcAssets, nil
 }
 
-func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
-	error) {
+func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
+	withWitness bool) (*tarorpc.Asset, error) {
 
-	rpcAsset, err := marshalAsset(a.Asset, withWitness)
+	rpcAsset, err := r.marshalAsset(ctx, a.Asset, a.IsSpent, withWitness)
 	if err != nil {
 		return nil, err
 	}
@@ -621,8 +632,16 @@ func marshalChainAsset(a *tarodb.ChainAsset, withWitness bool) (*tarorpc.Asset,
 	return rpcAsset, nil
 }
 
-func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
+func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
+	isSpent, withWitness bool) (*tarorpc.Asset, error) {
+
 	assetID := a.Genesis.ID()
+	scriptKeyIsLocal := false
+	if a.ScriptKey.TweakedScriptKey != nil {
+		scriptKeyIsLocal = r.cfg.AddrBook.IsLocalKey(
+			ctx, a.ScriptKey.RawKey,
+		)
+	}
 
 	rpcAsset := &tarorpc.Asset{
 		Version: int32(a.Version),
@@ -639,6 +658,8 @@ func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
 		RelativeLockTime: int32(a.RelativeLockTime),
 		ScriptVersion:    int32(a.ScriptVersion),
 		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
+		ScriptKeyIsLocal: scriptKeyIsLocal,
+		IsSpent:          isSpent,
 	}
 
 	if a.GroupKey != nil {
@@ -662,9 +683,9 @@ func marshalAsset(a *asset.Asset, withWitness bool) (*tarorpc.Asset, error) {
 
 			var rpcSplitCommitment *tarorpc.SplitCommitment
 			if witness.SplitCommitment != nil {
-				rootAsset, err := marshalAsset(
-					&witness.SplitCommitment.RootAsset,
-					true,
+				rootAsset, err := r.marshalAsset(
+					ctx, &witness.SplitCommitment.RootAsset,
+					false, true,
 				)
 				if err != nil {
 					return nil, err
@@ -770,7 +791,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	_ *tarorpc.ListUtxosRequest) (*tarorpc.ListUtxosResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx, false)
+	rpcAssets, err := r.fetchRpcAssets(ctx, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -902,45 +923,15 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 	}
 
 	resp := &tarorpc.ListTransfersResponse{
-		Transfers: make([]*tarorpc.AssetTransfer, 0, len(parcels)),
+		Transfers: make([]*tarorpc.AssetTransfer, len(parcels)),
 	}
 
-	for _, parcel := range parcels {
-		deltas := make(
-			[]*tarorpc.AssetSpendDelta,
-			len(parcel.AssetSpendDeltas),
-		)
-
-		for i, delta := range parcel.AssetSpendDeltas {
-			senderProof := &proof.Proof{}
-			err := senderProof.Decode(
-				bytes.NewReader(delta.SenderAssetProof),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to decode "+
-					"sender proof: %w", err)
-			}
-
-			assetID := senderProof.Asset.ID()
-			deltas[i] = &tarorpc.AssetSpendDelta{
-				AssetId:      assetID[:],
-				OldScriptKey: delta.OldScriptKey.SerializeCompressed(),
-				NewScriptKey: delta.NewScriptKey.PubKey.SerializeCompressed(),
-				NewAmt:       delta.NewAmt,
-			}
+	for idx := range parcels {
+		resp.Transfers[idx], err = marshalOutboundParcel(parcels[idx])
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal parcel: %w",
+				err)
 		}
-
-		anchorTxHash := parcel.AnchorTx.TxHash()
-		resp.Transfers = append(
-			resp.Transfers, &tarorpc.AssetTransfer{
-				TransferTimestamp: parcel.TransferTime.Unix(),
-				OldAnchorPoint:    parcel.OldAnchorPoint.String(),
-				NewAnchorPoint:    parcel.NewAnchorPoint.String(),
-				TaroRoot:          parcel.TaroRoot,
-				AnchorTxHash:      anchorTxHash[:],
-				AssetSpendDeltas:  deltas,
-			},
-		)
 	}
 
 	return resp, nil
@@ -1054,7 +1045,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// Both the script and internal keys were specified.
 	default:
-		scriptKey, err := unmarshalScriptKey(in.ScriptKey)
+		scriptKey, err := UnmarshalScriptKey(in.ScriptKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
@@ -1065,7 +1056,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			scriptKey.RawKey.PubKey.SerializeCompressed(),
 			scriptKey.Tweak[:])
 
-		internalKey, err := unmarshalKeyDescriptor(in.InternalKey)
+		internalKey, err := UnmarshalKeyDescriptor(in.InternalKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode internal "+
 				"key: %w", err)
@@ -1269,45 +1260,71 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	in *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
-	if len(in.GetPsbt()) > 0 {
-		return nil, fmt.Errorf("template PSBT not yet supported")
-	}
-
-	if in.GetRaw() == nil {
-		return nil, fmt.Errorf("raw template must be specified")
-	}
-
-	raw := in.GetRaw()
-	if len(raw.Inputs) > 0 {
-		return nil, fmt.Errorf("template inputs not yet supported")
-	}
-	if len(raw.Recipients) > 1 {
-		return nil, fmt.Errorf("only one recipient supported")
-	}
-
-	var (
-		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		addr       *address.Taro
-		err        error
-	)
-	for a := range raw.Recipients {
-		addr, err = address.DecodeAddress(a, &taroParams)
+	var fundedVPkt *tarofreighter.FundedVPacket
+	switch {
+	case in.GetPsbt() != nil:
+		vPkt, err := taropsbt.NewFromRawBytes(
+			bytes.NewReader(in.GetPsbt()), false,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode addr: %w", err)
+			return nil, fmt.Errorf("unable to decode psbt: %w", err)
 		}
-	}
 
-	if addr == nil {
-		return nil, fmt.Errorf("no recipients specified")
-	}
+		desc, err := taroscript.DescribeRecipients(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to describe packet "+
+				"recipients: %w", err)
+		}
 
-	fundedVPacket, err := r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
-	if err != nil {
-		return nil, fmt.Errorf("error funding address send: %w", err)
+		fundedVPkt, err = r.cfg.AssetWallet.FundPacket(
+			ctx, desc, vPkt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error funding packet: %w", err)
+		}
+
+	case in.GetRaw() != nil:
+		raw := in.GetRaw()
+		if len(raw.Inputs) > 0 {
+			return nil, fmt.Errorf("template inputs not yet " +
+				"supported")
+		}
+		if len(raw.Recipients) > 1 {
+			return nil, fmt.Errorf("only one recipient supported")
+		}
+
+		var (
+			taroParams = address.ParamsForChain(
+				r.cfg.ChainParams.Name,
+			)
+			addr *address.Taro
+			err  error
+		)
+		for a := range raw.Recipients {
+			addr, err = address.DecodeAddress(a, &taroParams)
+			if err != nil {
+				return nil, fmt.Errorf("unable to decode "+
+					"addr: %w", err)
+			}
+		}
+
+		if addr == nil {
+			return nil, fmt.Errorf("no recipients specified")
+		}
+
+		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(ctx, *addr)
+		if err != nil {
+			return nil, fmt.Errorf("error funding address send: "+
+				"%w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("either PSBT or raw template must be " +
+			"specified")
 	}
 
 	var b bytes.Buffer
-	if err := fundedVPacket.VPacket.Serialize(&b); err != nil {
+	if err := fundedVPkt.VPacket.Serialize(&b); err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
 
@@ -1393,7 +1410,70 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
 	}
 
-	return marshalPendingParcel(resp)
+	parcel, err := marshalOutboundParcel(resp)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
+			err)
+	}
+
+	return &tarorpc.SendAssetResponse{
+		Transfer: parcel,
+	}, nil
+}
+
+// NextInternalKey derives the next internal key for the given key family and
+// stores it as an internal key in the database to make sure it is identified
+// as a local key later on when importing proofs. While an internal key can
+// also be used as the internal key of a script key, it is recommended to use
+// the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+// is also recognized as a local key.
+func (r *rpcServer) NextInternalKey(ctx context.Context,
+	req *wrpc.NextInternalKeyRequest) (*wrpc.NextInternalKeyResponse,
+	error) {
+
+	// Due to how we detect local keys, we need to make sure that the key
+	// family is not zero.
+	if req.KeyFamily == 0 {
+		return nil, fmt.Errorf("key family must be set to a non-zero " +
+			"value")
+	}
+
+	keyDesc, err := r.cfg.AddrBook.NextInternalKey(ctx, keychain.KeyFamily(
+		req.KeyFamily,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("error inserting internal key: %w", err)
+	}
+
+	return &wrpc.NextInternalKeyResponse{
+		InternalKey: marshalKeyDescriptor(keyDesc),
+	}, nil
+}
+
+// NextScriptKey derives the next script key (and its corresponding internal
+// key) and stores them both in the database to make sure they are identified
+// as local keys later on when importing proofs.
+func (r *rpcServer) NextScriptKey(ctx context.Context,
+	req *wrpc.NextScriptKeyRequest) (*wrpc.NextScriptKeyResponse,
+	error) {
+
+	// Due to how we detect local keys, we need to make sure that the key
+	// family is not zero.
+	if req.KeyFamily == 0 {
+		return nil, fmt.Errorf("key family must be set to a non-zero " +
+			"value")
+	}
+
+	scriptKey, err := r.cfg.AddrBook.NextScriptKey(ctx, keychain.KeyFamily(
+		req.KeyFamily,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("error inserting internal key: %w", err)
+	}
+
+	return &wrpc.NextScriptKeyResponse{
+		ScriptKey: marshalScriptKey(scriptKey),
+	}, nil
 }
 
 // marshalAddr turns an address into its RPC counterpart.
@@ -1525,58 +1605,76 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 		return nil, err
 	}
 
-	return marshalPendingParcel(resp)
-}
-
-// marshalPendingParcel turns a pending parcel into its RPC counterpart.
-func marshalPendingParcel(
-	parcel *tarofreighter.PendingParcel) (*tarorpc.SendAssetResponse,
-	error) {
-
-	transferTXID := parcel.TransferTx.TxHash()
-
-	var txBuf bytes.Buffer
-	if err := parcel.TransferTx.Serialize(&txBuf); err != nil {
-		return nil, err
-	}
-	transferTxBytes := txBuf.Bytes()
-
-	prevInputs := make([]*tarorpc.PrevInputAsset, len(parcel.AssetInputs))
-	newOutputs := make([]*tarorpc.AssetOutput, len(parcel.AssetOutputs))
-
-	for i, input := range parcel.AssetInputs {
-		input := input
-
-		prevInputs[i] = &tarorpc.PrevInputAsset{
-			AnchorPoint: input.PrevID.OutPoint.String(),
-			AssetId:     input.PrevID.ID[:],
-			ScriptKey:   input.PrevID.ScriptKey[:],
-			Amount:      uint64(input.Amount),
-		}
-	}
-	for i, output := range parcel.AssetOutputs {
-		output := output
-
-		newOutputs[i] = &tarorpc.AssetOutput{
-			AnchorPoint: output.PrevID.OutPoint.String(),
-			AssetId:     output.PrevID.ID[:],
-			ScriptKey:   output.PrevID.ScriptKey[:],
-			Amount:      uint64(output.Amount),
-			// TODO(roasbeef): add blob and split proof
-		}
+	parcel, err := marshalOutboundParcel(resp)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
+			err)
 	}
 
 	return &tarorpc.SendAssetResponse{
-		TransferTxid:      transferTXID.String(),
-		AnchorOutputIndex: int32(parcel.NewAnchorPoint.Index),
-		TransferTxBytes:   transferTxBytes,
-		TaroTransfer: &tarorpc.TaroTransfer{
-			OldTaroRoot: parcel.OldTaroRoot,
-			NewTaroRoot: parcel.NewTaroRoot,
-			PrevInputs:  prevInputs,
-			NewOutputs:  newOutputs,
-		},
-		TotalFeeSats: int64(parcel.TotalFees),
+		Transfer: parcel,
+	}, nil
+}
+
+// marshalOutboundParcel turns a pending parcel into its RPC counterpart.
+func marshalOutboundParcel(
+	parcel *tarofreighter.OutboundParcel) (*tarorpc.AssetTransfer,
+	error) {
+
+	rpcInputs := make([]*tarorpc.TransferInput, len(parcel.Inputs))
+	for idx := range parcel.Inputs {
+		in := parcel.Inputs[idx]
+		rpcInputs[idx] = &tarorpc.TransferInput{
+			AnchorPoint: in.OutPoint.String(),
+			AssetId:     in.ID[:],
+			ScriptKey:   in.ScriptKey[:],
+			Amount:      in.Amount,
+		}
+	}
+
+	rpcOutputs := make(
+		[]*tarorpc.TransferOutput, len(parcel.Outputs),
+	)
+	for idx := range parcel.Outputs {
+		out := parcel.Outputs[idx]
+
+		internalPubKey := out.Anchor.InternalKey.PubKey
+		internalKeyBytes := internalPubKey.SerializeCompressed()
+		rpcAnchor := &tarorpc.TransferOutputAnchor{
+			Outpoint:         out.Anchor.OutPoint.String(),
+			Value:            int64(out.Anchor.Value),
+			InternalKey:      internalKeyBytes,
+			MerkleRoot:       out.Anchor.MerkleRoot[:],
+			TapscriptSibling: out.Anchor.TapscriptSibling[:],
+			NumPassiveAssets: out.Anchor.NumPassiveAssets,
+		}
+		scriptPubKey := out.ScriptKey.PubKey
+
+		var splitCommitRoot []byte
+		if out.SplitCommitmentRoot != nil {
+			hash := out.SplitCommitmentRoot.NodeHash()
+			if hash != mssmt.ZeroNodeHash {
+				splitCommitRoot = hash[:]
+			}
+		}
+		rpcOutputs[idx] = &tarorpc.TransferOutput{
+			Anchor:              rpcAnchor,
+			ScriptKey:           scriptPubKey.SerializeCompressed(),
+			ScriptKeyIsLocal:    out.ScriptKeyLocal,
+			Amount:              out.Amount,
+			NewProofBlob:        out.ProofSuffix,
+			SplitCommitRootHash: splitCommitRoot,
+		}
+	}
+
+	anchorTxHash := parcel.AnchorTx.TxHash()
+	return &tarorpc.AssetTransfer{
+		TransferTimestamp:  parcel.TransferTime.Unix(),
+		AnchorTxHash:       anchorTxHash[:],
+		AnchorTxHeightHint: parcel.AnchorTxHeightHint,
+		AnchorTxChainFees:  parcel.ChainFees,
+		Inputs:             rpcInputs,
+		Outputs:            rpcOutputs,
 	}, nil
 }
 
@@ -1752,8 +1850,8 @@ func marshalBatchState(batch *tarogarden.MintingBatch) (mintrpc.BatchState,
 	}
 }
 
-// unmarshalScriptKey parses the RPC script key into the native counterpart.
-func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
+// UnmarshalScriptKey parses the RPC script key into the native counterpart.
+func UnmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 	var (
 		scriptKey asset.ScriptKey
 		err       error
@@ -1768,7 +1866,7 @@ func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 	// The key descriptor is optional for script keys that are completely
 	// independent of the backing wallet.
 	if rpcKey.KeyDesc != nil {
-		keyDesc, err := unmarshalKeyDescriptor(rpcKey.KeyDesc)
+		keyDesc, err := UnmarshalKeyDescriptor(rpcKey.KeyDesc)
 		if err != nil {
 			return nil, err
 		}
@@ -1784,9 +1882,37 @@ func unmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 	return &scriptKey, nil
 }
 
-// unmarshalKeyDescriptor parses the RPC key descriptor into the native
+// marshalScriptKey marshals the native script key into the RPC counterpart.
+func marshalScriptKey(scriptKey asset.ScriptKey) *tarorpc.ScriptKey {
+	rpcScriptKey := &tarorpc.ScriptKey{
+		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
+	}
+
+	if scriptKey.TweakedScriptKey != nil {
+		rpcScriptKey.KeyDesc = marshalKeyDescriptor(
+			scriptKey.TweakedScriptKey.RawKey,
+		)
+		rpcScriptKey.TapTweak = scriptKey.TweakedScriptKey.Tweak
+	}
+
+	return rpcScriptKey
+}
+
+// marshalKeyDescriptor marshals the native key descriptor into the RPC
 // counterpart.
-func unmarshalKeyDescriptor(
+func marshalKeyDescriptor(desc keychain.KeyDescriptor) *tarorpc.KeyDescriptor {
+	return &tarorpc.KeyDescriptor{
+		RawKeyBytes: desc.PubKey.SerializeCompressed(),
+		KeyLoc: &tarorpc.KeyLocator{
+			KeyFamily: int32(desc.KeyLocator.Family),
+			KeyIndex:  int32(desc.KeyLocator.Index),
+		},
+	}
+}
+
+// UnmarshalKeyDescriptor parses the RPC key descriptor into the native
+// counterpart.
+func UnmarshalKeyDescriptor(
 	rpcDesc *tarorpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
 
 	var (
