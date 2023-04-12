@@ -18,6 +18,10 @@ const (
 	// options. This is used in the following format:
 	//   * sqliteOptionPrefix || option_name = option_value.
 	sqliteOptionPrefix = "_pragma"
+
+	// sqliteTxLockImmediate is a dsn option used to ensure that write
+	// transactions are started immediately.
+	sqliteTxLockImmediate = "_txlock=immediate"
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
@@ -75,7 +79,8 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// details on the formatting here, see the modernc.org/sqlite docs:
 	// https://pkg.go.dev/modernc.org/sqlite#Driver.Open.
 	dsn := fmt.Sprintf(
-		"%v?%v", cfg.DatabaseFileName, sqliteOptions.Encode(),
+		"%v?%v&%v", cfg.DatabaseFileName, sqliteOptions.Encode(),
+		sqliteTxLockImmediate,
 	)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

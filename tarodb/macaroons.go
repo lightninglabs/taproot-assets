@@ -35,6 +35,14 @@ type KeyStoreTxOptions struct {
 	readOnly bool
 }
 
+// NewKeyStoreReadOpts returns a new KeyStoreTxOptions instance triggers a read
+// transaction.
+func NewKeyStoreReadOpts() *KeyStoreTxOptions {
+	return &KeyStoreTxOptions{
+		readOnly: true,
+	}
+}
+
 // ReadOnly returns true if the transaction should be read only.
 //
 // NOTE: This implements the TxOptions
@@ -78,12 +86,24 @@ func NewRootKeyStore(db BatchedKeyStore) *RootKeyStore {
 //
 // NOTE: This implements the bakery.RootKeyStore interface.
 func (r *RootKeyStore) Get(ctx context.Context, id []byte) ([]byte, error) {
-	mac, err := r.db.GetRootKey(ctx, id)
-	if err != nil {
-		return nil, err
+	var macBytes []byte
+
+	readTx := NewKeyStoreReadOpts()
+	dbErr := r.db.ExecTx(ctx, readTx, func(q KeyStore) error {
+		mac, err := r.db.GetRootKey(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		macBytes = mac.RootKey
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
 	}
 
-	return mac.RootKey, nil
+	return macBytes, nil
 }
 
 // RootKey returns the root key to be used for making a new macaroon, and an id
@@ -92,21 +112,21 @@ func (r *RootKeyStore) Get(ctx context.Context, id []byte) ([]byte, error) {
 // NOTE: This implements the bakery.RootKeyStore interface.
 func (r *RootKeyStore) RootKey(ctx context.Context) ([]byte, []byte, error) {
 	var (
-		rootKey, id []byte
-		err         error
+		rootKey []byte
+		err     error
 	)
+
+	// Read the root key ID from the context. If no key is specified in the
+	// context, an error will be returned.
+	id, err := macaroons.RootKeyIDFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Create pass in the set of options to create a read/write
 	// transaction, which is the default.
 	var writeTxOpts KeyStoreTxOptions
 	dbErr := r.db.ExecTx(ctx, &writeTxOpts, func(q KeyStore) error {
-		// Read the root key ID from the context. If no key is
-		// specified in the context, an error will be returned.
-		id, err = macaroons.RootKeyIDFromContext(ctx)
-		if err != nil {
-			return err
-		}
-
 		// Check to see if there's a root key already stored for this
 		// ID.
 		mac, err := r.db.GetRootKey(ctx, id)
