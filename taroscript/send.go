@@ -424,11 +424,6 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 // full asset in case of an interactive full amount send) by creating a
 // signature over the asset transfer, verifying the transfer with the Taro VM,
 // and attaching that signature to the new Asset.
-//
-// TODO(guggero): We also need to take into account any other assets that were
-// in the same commitment as the asset we spend. We need to re-sign those as
-// well and place them in the change output of this transaction.
-// See https://github.com/lightninglabs/taro/issues/241.
 func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 	signer Signer, validator TxValidator) error {
 
