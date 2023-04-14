@@ -1268,7 +1268,7 @@
         },
         "amt": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         },
         "script_key": {
           "$ref": "#/definitions/tarorpcScriptKey",

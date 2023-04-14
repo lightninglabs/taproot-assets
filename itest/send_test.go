@@ -75,14 +75,16 @@ func testBasicSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := genInfo.GenesisBootstrapInfo
 
 	// Now that we have the asset created, we'll make a new node that'll
-	// serve as the node which'll receive the assets.
+	// serve as the node which'll receive the assets. The existing tarod
+	// node will be used to synchronize universe state.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tarodHarnessParams) {
 			params.enableHashMail = true
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
@@ -96,8 +98,8 @@ func testBasicSend(t *harnessTest) {
 	for i := 0; i < numSends; i++ {
 		bobAddr, err := secondTarod.NewAddr(
 			ctxb, &tarorpc.NewAddrRequest{
-				GenesisBootstrapInfo: genBootstrap,
-				Amt:                  numUnits,
+				AssetId: genInfo.AssetId,
+				Amt:     numUnits,
 			},
 		)
 		require.NoError(t.t, err)
@@ -132,14 +134,6 @@ func testBasicSend(t *harnessTest) {
 func testSendPassiveAsset(t *harnessTest) {
 	ctxb := context.Background()
 
-	// Set up a new node that will serve as the receiving node.
-	recvTarod := setupTarodHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
-	defer func() {
-		require.NoError(t.t, recvTarod.stop(true))
-	}()
-
 	// Mint two different assets.
 	assets := []*mintrpc.MintAssetRequest{
 		{
@@ -166,6 +160,19 @@ func testSendPassiveAsset(t *harnessTest) {
 	rpcAssets := mintAssetsConfirmBatch(t, t.tarod, assets)
 	firstAsset := rpcAssets[0]
 
+	// Set up a new node that will serve as the receiving node.
+	recvTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.enableHashMail = true
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, recvTarod.stop(true))
+	}()
+
 	// Next, we'll attempt to transfer some amount of assets[0] to the
 	// receiving node.
 	numUnitsSend := uint64(1200)
@@ -175,8 +182,8 @@ func testSendPassiveAsset(t *harnessTest) {
 	genInfo := firstAsset.AssetGenesis
 	recvAddr, err := recvTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: genInfo.GenesisBootstrapInfo,
-			Amt:                  numUnitsSend,
+			AssetId: genInfo.AssetId,
+			Amt:     numUnitsSend,
 		},
 	)
 	require.NoError(t.t, err)
@@ -214,11 +221,11 @@ func testSendPassiveAsset(t *harnessTest) {
 	secondAsset := rpcAssets[1]
 	genInfo = secondAsset.AssetGenesis
 
-	//Send previously passive asset (the "second" asset).
+	// Send previously passive asset (the "second" asset).
 	recvAddr, err = recvTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: genInfo.GenesisBootstrapInfo,
-			Amt:                  numUnitsSend,
+			AssetId: genInfo.AssetId,
+			Amt:     numUnitsSend,
 		},
 	)
 	require.NoError(t.t, err)
@@ -304,13 +311,16 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := genInfo.GenesisBootstrapInfo
+
+	// Synchronize the Universe state of the second node, with the main
+	// node.
+	t.syncUniverseState(sendTarod, t.tarod, len(rpcAssets))
 
 	// Create a new address for the receiver node.
 	recvAddr, err := t.tarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: genBootstrap,
-			Amt:                  10,
+			AssetId: genInfo.AssetId,
+			Amt:     10,
 		},
 	)
 	require.NoError(t.t, err)

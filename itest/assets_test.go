@@ -309,8 +309,8 @@ func assertAssetBalances(t *harnessTest,
 				)
 				require.Equal(
 					t.t,
-					balance.AssetGenesis.GenesisBootstrapInfo,
-					rpcAsset.AssetGenesis.GenesisBootstrapInfo,
+					balance.AssetGenesis,
+					rpcAsset.AssetGenesis,
 				)
 			}
 		}
@@ -341,8 +341,8 @@ func assertAssetBalances(t *harnessTest,
 				)
 				require.Equal(
 					t.t,
-					balance.AssetGenesis.GenesisBootstrapInfo,
-					rpcAsset.AssetGenesis.GenesisBootstrapInfo,
+					balance.AssetGenesis,
+					rpcAsset.AssetGenesis,
 				)
 			}
 		}

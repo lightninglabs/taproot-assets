@@ -18,7 +18,6 @@ func testFullValueSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := rpcAssets[0].AssetGenesis.GenesisBootstrapInfo
 
 	ctxb := context.Background()
 
@@ -26,6 +25,10 @@ func testFullValueSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -49,8 +52,8 @@ func testFullValueSend(t *harnessTest) {
 		if i%2 == 0 {
 			receiverAddr, err = secondTarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
-					GenesisBootstrapInfo: genBootstrap,
-					Amt:                  fullAmount,
+					AssetId: genInfo.AssetId,
+					Amt:     fullAmount,
 				},
 			)
 			require.NoError(t.t, err)
@@ -72,8 +75,8 @@ func testFullValueSend(t *harnessTest) {
 		} else {
 			receiverAddr, err = t.tarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
-					GenesisBootstrapInfo: genBootstrap,
-					Amt:                  fullAmount,
+					AssetId: genInfo.AssetId,
+					Amt:     fullAmount,
 				},
 			)
 			require.NoError(t.t, err)

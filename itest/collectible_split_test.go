@@ -21,7 +21,6 @@ func testCollectibleSend(t *harnessTest) {
 
 	groupKey := rpcAssets[0].AssetGroup.TweakedGroupKey
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := rpcAssets[0].AssetGenesis.GenesisBootstrapInfo
 
 	ctxb := context.Background()
 
@@ -29,6 +28,10 @@ func testCollectibleSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -52,9 +55,8 @@ func testCollectibleSend(t *harnessTest) {
 		if i%2 == 0 {
 			receiverAddr, err = secondTarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
-					GenesisBootstrapInfo: genBootstrap,
-					GroupKey:             groupKey,
-					Amt:                  fullAmount,
+					AssetId: genInfo.AssetId,
+					Amt:     fullAmount,
 				},
 			)
 			require.NoError(t.t, err)
@@ -76,9 +78,8 @@ func testCollectibleSend(t *harnessTest) {
 		} else {
 			receiverAddr, err = t.tarod.NewAddr(
 				ctxb, &tarorpc.NewAddrRequest{
-					GenesisBootstrapInfo: genBootstrap,
-					GroupKey:             groupKey,
-					Amt:                  fullAmount,
+					AssetId: genInfo.AssetId,
+					Amt:     fullAmount,
 				},
 			)
 			require.NoError(t.t, err)
