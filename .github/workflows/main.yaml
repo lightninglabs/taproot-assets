@@ -18,6 +18,7 @@ defaults:
 env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOCACHE: /home/runner/work/go/pkg/build
+  GOMODCACHE: /home/runner/work/go/pkg/mod
   GOPATH: /home/runner/work/go
   GO111MODULE: on
 
