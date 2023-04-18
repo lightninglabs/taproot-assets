@@ -23,6 +23,16 @@ var (
 	ErrKeyNotFound = errors.New("taropsbt: key not found")
 )
 
+// decoderFunc is a function type for decoding a virtual PSBT item from a byte
+// slice value.
+type decoderFunc func(byteVal []byte) error
+
+// decoderMapping maps a PSBT key to a decoder function.
+type decoderMapping struct {
+	key     []byte
+	decoder decoderFunc
+}
+
 // NewFromRawBytes returns a new instance of a VPacket struct created by reading
 // from a byte slice. If the format is invalid, an error is returned. If the
 // argument b64 is true, the passed byte slice is decoded from base64 encoding
@@ -113,10 +123,7 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 		anchorSigHashType uint64
 	)
 
-	mapping := []struct {
-		key     []byte
-		decoder func([]byte) error
-	}{{
+	mapping := []decoderMapping{{
 		key:     PsbtKeyTypeInputTaroPrevID,
 		decoder: tlvDecoder(&prevID, asset.PrevIDDecoder),
 	}, {
@@ -250,10 +257,7 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	}
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
-	mapping := []struct {
-		key     []byte
-		decoder func([]byte) error
-	}{{
+	mapping := []decoderMapping{{
 		key:     PsbtKeyTypeOutputTaroIsSplitRoot,
 		decoder: booleanDecoder(&o.IsSplitRoot),
 	}, {
@@ -346,7 +350,7 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 
 // tlvDecoder returns a function that encodes the given byte slice using the
 // given TLV tlvDecoder.
-func tlvDecoder(val any, dec tlv.Decoder) func([]byte) error {
+func tlvDecoder(val any, dec tlv.Decoder) decoderFunc {
 	return func(byteVal []byte) error {
 		var (
 			r       = bytes.NewReader(byteVal)
@@ -362,7 +366,7 @@ func tlvDecoder(val any, dec tlv.Decoder) func([]byte) error {
 }
 
 // assetDecoder returns a decoder function that can handle nil assets.
-func assetDecoder(a **asset.Asset) func([]byte) error {
+func assetDecoder(a **asset.Asset) decoderFunc {
 	return func(byteVal []byte) error {
 		if len(byteVal) == 0 {
 			return nil
@@ -377,7 +381,7 @@ func assetDecoder(a **asset.Asset) func([]byte) error {
 
 // booleanDecoder returns a function that decodes the given byte slice as a
 // boolean.
-func booleanDecoder(target *bool) func([]byte) error {
+func booleanDecoder(target *bool) decoderFunc {
 	return func(byteVal []byte) error {
 		*target = bytes.Equal(byteVal, trueAsBytes)
 

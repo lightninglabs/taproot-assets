@@ -27,6 +27,16 @@ var (
 	trueAsBytes = []byte{0x01}
 )
 
+// encoderFunc is a function type for encoding a virtual PSBT item into a byte
+// value.
+type encoderFunc func() ([]byte, error)
+
+// encoderMapping maps a PSBT key to an encoder function.
+type encoderMapping struct {
+	key     []byte
+	encoder encoderFunc
+}
+
 // EncodeAsPsbt returns the PSBT encoding of the current virtual packet, or an
 // error if the encoding fails.
 func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
@@ -110,10 +120,7 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		sigHashType = uint64(i.Anchor.SigHashType)
 	)
 
-	mapping := []struct {
-		key     []byte
-		encoder func() ([]byte, error)
-	}{{
+	mapping := []encoderMapping{{
 		key:     PsbtKeyTypeInputTaroPrevID,
 		encoder: tlvEncoder(&prevID, asset.PrevIDEncoder),
 	}, {
@@ -217,10 +224,7 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	}
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
-	mapping := []struct {
-		key     []byte
-		encoder func() ([]byte, error)
-	}{{
+	mapping := []encoderMapping{{
 		key:     PsbtKeyTypeOutputTaroIsSplitRoot,
 		encoder: booleanEncoder(o.IsSplitRoot),
 	}, {
@@ -290,7 +294,7 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 
 // tlvEncoder returns a function that encodes the given value using the given TLV
 // tlvEncoder.
-func tlvEncoder(val any, enc tlv.Encoder) func() ([]byte, error) {
+func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
 	return func() ([]byte, error) {
 		if val == nil {
 			return nil, nil
@@ -310,7 +314,7 @@ func tlvEncoder(val any, enc tlv.Encoder) func() ([]byte, error) {
 }
 
 // pubKeyEncoder is an encoder that does nothing if the given public key is nil.
-func pubKeyEncoder(pubKey *btcec.PublicKey) func() ([]byte, error) {
+func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 	if pubKey == nil {
 		return func() ([]byte, error) {
 			return nil, nil
@@ -321,7 +325,7 @@ func pubKeyEncoder(pubKey *btcec.PublicKey) func() ([]byte, error) {
 }
 
 // assetEncoder is an encoder that does nothing if the given asset is nil.
-func assetEncoder(a *asset.Asset) func() ([]byte, error) {
+func assetEncoder(a *asset.Asset) encoderFunc {
 	if a == nil {
 		return func() ([]byte, error) {
 			return nil, nil
@@ -333,7 +337,7 @@ func assetEncoder(a *asset.Asset) func() ([]byte, error) {
 
 // booleanEncoder returns a function that encodes the given boolean value as a
 // byte slice.
-func booleanEncoder(val bool) func() ([]byte, error) {
+func booleanEncoder(val bool) encoderFunc {
 	return func() ([]byte, error) {
 		if val {
 			return trueAsBytes, nil
@@ -345,11 +349,9 @@ func booleanEncoder(val bool) func() ([]byte, error) {
 
 // tapscriptPreimageEncoder is an encoder that does nothing if the given
 // preimage is nil.
-func tapscriptPreimageEncoder(t *commitment.TapscriptPreimage) func() ([]byte,
-	error) {
-
+func tapscriptPreimageEncoder(t *commitment.TapscriptPreimage) encoderFunc {
 	if t == nil {
-		return func() ([]byte, error) {
+		return func(key []byte) ([]*customPsbtField, error) {
 			return nil, nil
 		}
 	}
