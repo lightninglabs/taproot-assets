@@ -99,7 +99,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertReceiveComplete(t, bob, 1)
+	assertNonInteractiveRecvComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -154,7 +154,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
-	assertReceiveComplete(t, alice, 1)
+	assertNonInteractiveRecvComplete(t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
 		WithWitness: true,
@@ -245,7 +245,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertReceiveComplete(t, bob, 1)
+	assertNonInteractiveRecvComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -302,7 +302,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
-	assertReceiveComplete(t, alice, 1)
+	assertNonInteractiveRecvComplete(t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
 		WithWitness: true,
@@ -459,9 +459,8 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
 	)
 
-	// There's only one receive event (since only non-interactive sends
-	// appear in that RPC output).
-	assertReceiveComplete(t, secondTarod, 1)
+	// There's only one non-interactive receive event.
+	assertNonInteractiveRecvComplete(t, secondTarod, 1)
 }
 
 // testPsbtInteractiveSplitSend tests that we can properly send assets back
@@ -624,9 +623,8 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
 	)
 
-	// There's only one receive event (since only non-interactive sends
-	// appear in that RPC output).
-	assertReceiveComplete(t, secondTarod, 1)
+	// There's only one non-interactive receive event.
+	assertNonInteractiveRecvComplete(t, secondTarod, 1)
 }
 
 func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,

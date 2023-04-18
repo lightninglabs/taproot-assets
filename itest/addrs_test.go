@@ -139,7 +139,7 @@ func testAddresses(t *harnessTest) {
 	}
 
 	// Make sure we have imported and finalized all proofs.
-	assertReceiveComplete(t, secondTarod, len(rpcAssets))
+	assertNonInteractiveRecvComplete(t, secondTarod, len(rpcAssets))
 
 	// Now sanity check that we can actually list the transfer.
 	err = wait.NoError(func() error {
