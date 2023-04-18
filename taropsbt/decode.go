@@ -46,23 +46,25 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 	}
 
 	// We want an explicit "isVirtual" boolean marker.
-	isVirtual, err := value(
+	isVirtual, err := findUnknownByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTaroIsVirtualTx,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error checking if virtual tx: %w", err)
 	}
-	if !bytes.Equal(isVirtual, trueAsBytes) {
+	if !bytes.Equal(isVirtual.Value, trueAsBytes) {
 		return nil, fmt.Errorf("not a virtual transaction")
 	}
 
 	// We also want the HRP of the Taro chain params.
-	hrp, err := value(packet.Unknowns, PsbtKeyTypeGlobalTaroChainParamsHRP)
+	hrp, err := findUnknownByKeyPrefix(
+		packet.Unknowns, PsbtKeyTypeGlobalTaroChainParamsHRP,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error reading Taro chain params HRP: "+
 			"%w", err)
 	}
-	chainParams, err := address.Net(string(hrp))
+	chainParams, err := address.Net(string(hrp.Value))
 	if err != nil {
 		return nil, fmt.Errorf("error parsing Taro chain params HRP: "+
 			"%w", err)
@@ -175,14 +177,16 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	}}
 
 	for idx := range mapping {
-		byteValue, err := value(i.Unknowns, mapping[idx].key)
+		unknown, err := findUnknownByKeyPrefix(
+			i.Unknowns, mapping[idx].key,
+		)
 
 		// Some value are optional.
-		if errors.Is(err, ErrKeyNotFound) || len(byteValue) == 0 {
+		if errors.Is(err, ErrKeyNotFound) || len(unknown.Value) == 0 {
 			continue
 		}
 
-		err = mapping[idx].decoder(byteValue)
+		err = mapping[idx].decoder(unknown.Value)
 		if err != nil {
 			return fmt.Errorf("error decoding input key %x: %w",
 				mapping[idx].key, err)
@@ -307,14 +311,16 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	}}
 
 	for idx := range mapping {
-		byteValue, err := value(pOut.Unknowns, mapping[idx].key)
+		unknown, err := findUnknownByKeyPrefix(
+			pOut.Unknowns, mapping[idx].key,
+		)
 
 		// Some value are optional.
-		if errors.Is(err, ErrKeyNotFound) || len(byteValue) == 0 {
+		if errors.Is(err, ErrKeyNotFound) || len(unknown.Value) == 0 {
 			continue
 		}
 
-		err = mapping[idx].decoder(byteValue)
+		err = mapping[idx].decoder(unknown.Value)
 		if err != nil {
 			return fmt.Errorf("error decoding output key %x: %w",
 				mapping[idx].key, err)
@@ -379,15 +385,18 @@ func booleanDecoder(target *bool) func([]byte) error {
 	}
 }
 
-// value is a helper function that returns the value of the given key in the
-// list of unknowns. If the key is not found, an error is returned.
-func value(unknowns []*psbt.Unknown, key []byte) ([]byte, error) {
+// findUnknownByKeyPrefix is a helper function that finds an unknown in the list
+// of unknowns by the key type prefix. If the key is not found, an error is
+// returned.
+func findUnknownByKeyPrefix(unknowns []*psbt.Unknown,
+	keyPrefix []byte) (*psbt.Unknown, error) {
+
 	for _, unknown := range unknowns {
-		if bytes.Equal(unknown.Key, key) {
-			return unknown.Value, nil
+		if bytes.HasPrefix(unknown.Key, keyPrefix) {
+			return unknown, nil
 		}
 	}
 
 	return nil, fmt.Errorf("%w: key %x not found in list of unkonwns",
-		ErrKeyNotFound, key)
+		ErrKeyNotFound, keyPrefix)
 }
