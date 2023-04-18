@@ -11,6 +11,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/perms"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -106,7 +107,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// will be used to log the API calls invoked on the GRPC server.
 	interceptorChain := rpcperms.NewInterceptorChain(
 		rpcsLog, s.cfg.RPCConfig.NoMacaroons, nil,
-		macaroonWhitelist,
+		perms.MacaroonWhitelist,
 	)
 	if err := interceptorChain.Start(); err != nil {
 		return mkErr("error starting interceptor chain: %v", err)
@@ -130,7 +131,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 				Checkers: []macaroons.Checker{
 					macaroons.IPLockChecker,
 				},
-				RequiredPerms: RequiredPermissions,
+				RequiredPerms: perms.RequiredPermissions,
 			},
 		)
 		if err != nil {
