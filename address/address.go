@@ -90,7 +90,7 @@ type Taro struct {
 	// different ways an asset can be spent.
 	ScriptKey btcec.PublicKey
 
-	// InternalKey is the BIP-340/341 public key of the receiver.
+	// InternalKey is the BIP-0340/0341 public key of the receiver.
 	InternalKey btcec.PublicKey
 
 	// Amount is the number of asset units being requested by the receiver.

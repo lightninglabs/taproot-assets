@@ -451,9 +451,9 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 				return nil, err
 			}
 
-			// We'll assume BIP 86 everywhere, and use the tweaked
+			// We'll assume BIP-0086 everywhere, and use the tweaked
 			// key from here on out.
-			changeOut.ScriptKey = asset.NewScriptKeyBIP0086(
+			changeOut.ScriptKey = asset.NewScriptKeyBip86(
 				changeScriptKey,
 			)
 		}
@@ -926,9 +926,9 @@ func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 	return pkScript, merkleRoot[:], err
 }
 
-// adjustFundedPsbt takes a funded PSBT which may have used BIP 69 sorting, and
-// creates a new one with outputs shuffled such that the change output is the
-// last output.
+// adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
+// and creates a new one with outputs shuffled such that the change output is
+// the last output.
 func adjustFundedPsbt(fPkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 	// If there is no change there's nothing we need to do.
 	changeIndex := fPkt.ChangeOutputIndex
@@ -976,8 +976,8 @@ func adjustFundedPsbt(fPkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 func addAnchorPsbtInput(btcPkt *psbt.Packet, vPkt *taropsbt.VPacket,
 	feeRate chainfee.SatPerKWeight, params *chaincfg.Params) error {
 
-	// With the BIP 32 information completed, we'll now add the information
-	// as a partial input and also add the input to the unsigned
+	// With the BIP-0032 information completed, we'll now add the
+	// information as a partial input and also add the input to the unsigned
 	// transaction.
 	vIn := vPkt.Inputs[0]
 	btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{

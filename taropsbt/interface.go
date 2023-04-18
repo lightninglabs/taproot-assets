@@ -18,8 +18,8 @@ import (
 // We define a set of Taro specific global, input and output PSBT key types here
 // that correspond to the custom types defined in the VPacket below. We start at
 // 0x70 because that is sufficiently high to not conflict with any of the keys
-// specified in BIP174. Also, 7 is leet speak for "t" as in Taro.
-// It would perhaps make sense to wrap these values in the BIP174 defined
+// specified in BIP-0174. Also, 7 is leet speak for "t" as in Taro.
+// It would perhaps make sense to wrap these values in the BIP-0174 defined
 // proprietary types to make 100% sure that no parser removes them. But the BIP
 // also mentions to not remove unknown keys, so we should be fine like this as
 // well.
@@ -219,11 +219,11 @@ type Anchor struct {
 	// TapscriptSibling is the tapscript sibling of the Taro commitment.
 	TapscriptSibling []byte
 
-	// Bip32Derivation is the BIP32 derivation of the anchor output's
+	// Bip32Derivation is the BIP-0032 derivation of the anchor output's
 	// internal key.
 	Bip32Derivation []*psbt.Bip32Derivation
 
-	// TrBip32Derivation is the Taproot BIP32 derivation of the anchor
+	// TrBip32Derivation is the Taproot BIP-0032 derivation of the anchor
 	// output's internal key.
 	TrBip32Derivation []*psbt.TaprootBip32Derivation
 }
@@ -338,12 +338,12 @@ type VOutput struct {
 	// asset output will be committed to.
 	AnchorOutputInternalKey *btcec.PublicKey
 
-	// AnchorOutputBip32Derivation is the BIP32 derivation of the anchor
+	// AnchorOutputBip32Derivation is the BIP-0032 derivation of the anchor
 	// output's internal key.
 	AnchorOutputBip32Derivation []*psbt.Bip32Derivation
 
-	// AnchorOutputTaprootBip32Derivation is the Taproot BIP32 derivation of
-	// the anchor output's internal key.
+	// AnchorOutputTaprootBip32Derivation is the Taproot BIP-0032 derivation
+	// of the anchor output's internal key.
 	AnchorOutputTaprootBip32Derivation []*psbt.TaprootBip32Derivation
 
 	// AnchorOutputTapscriptPreimage is the preimage of the tapscript
@@ -399,7 +399,7 @@ func (o *VOutput) SetAnchorInternalKey(keyDesc keychain.KeyDescriptor,
 }
 
 // AnchorKeyToDesc attempts to extract the key descriptor of the anchor output
-// from the anchor output BIP32 derivation information.
+// from the anchor output BIP-0032 derivation information.
 func (o *VOutput) AnchorKeyToDesc() (keychain.KeyDescriptor, error) {
 	if len(o.AnchorOutputBip32Derivation) == 0 {
 		return keychain.KeyDescriptor{}, fmt.Errorf("anchor output " +
@@ -416,7 +416,7 @@ func (o *VOutput) AnchorKeyToDesc() (keychain.KeyDescriptor, error) {
 }
 
 // KeyDescFromBip32Derivation attempts to extract the key descriptor from the
-// given public key and BIP32 derivation information.
+// given public key and BIP-0032 derivation information.
 func KeyDescFromBip32Derivation(
 	bip32Derivation *psbt.Bip32Derivation) (keychain.KeyDescriptor, error) {
 
@@ -442,7 +442,7 @@ func KeyDescFromBip32Derivation(
 	}, nil
 }
 
-// Bip32DerivationFromKeyDesc returns the default and Taproot BIP32 key
+// Bip32DerivationFromKeyDesc returns the default and Taproot BIP-0032 key
 // derivation information from the given key descriptor information.
 func Bip32DerivationFromKeyDesc(keyDesc keychain.KeyDescriptor,
 	coinType uint32) (*psbt.Bip32Derivation, *psbt.TaprootBip32Derivation) {
@@ -467,8 +467,8 @@ func Bip32DerivationFromKeyDesc(keyDesc keychain.KeyDescriptor,
 	}
 }
 
-// extractLocatorFromPath extracts the key family and index from the given BIP32
-// derivation path. The derivation path is expected to be of the form:
+// extractLocatorFromPath extracts the key family and index from the given
+// BIP-0032 derivation path. The derivation path is expected to be of the form:
 //
 //	m/1017'/coin_type'/key_family'/0/index.
 func extractLocatorFromPath(path []uint32) (keychain.KeyLocator, error) {
@@ -508,10 +508,10 @@ func serializeTweakedScriptKey(key *asset.TweakedScriptKey,
 	)
 
 	// If we have a non-empty tweak of the script key, it means we don't
-	// have a BIP-86 key, so we need to add the tweak to the derivation path
-	// as a leaf hash (since the tweak will represent the root hash of the
-	// script tree). Unfortunately outputs don't have the TaprootMerkleRoot
-	// field as inputs have.
+	// have a BIP-0086 key, so we need to add the tweak to the derivation
+	// path as a leaf hash (since the tweak will represent the root hash of
+	// the script tree). Unfortunately outputs don't have the
+	// TaprootMerkleRoot field as inputs have.
 	if len(key.Tweak) > 0 {
 		trBip32Derivation.LeafHashes = [][]byte{key.Tweak}
 	}

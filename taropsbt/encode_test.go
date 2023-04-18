@@ -27,7 +27,7 @@ func randomPacket(t testing.TB) *VPacket {
 			Index:  456,
 		},
 	}
-	inputScriptKey := asset.NewScriptKeyBIP0086(keyDesc)
+	inputScriptKey := asset.NewScriptKeyBip86(keyDesc)
 	inputScriptKey.Tweak = []byte("merkle root")
 
 	bip32Derivation, trBip32Derivation := Bip32DerivationFromKeyDesc(
@@ -39,7 +39,7 @@ func randomPacket(t testing.TB) *VPacket {
 	testAsset.ScriptKey = inputScriptKey
 
 	testOutputAsset := asset.RandAsset(t, asset.Normal)
-	testOutputAsset.ScriptKey = asset.NewScriptKeyBIP0086(keyDesc)
+	testOutputAsset.ScriptKey = asset.NewScriptKeyBip86(keyDesc)
 
 	// The raw key won't be serialized within the asset, so let's blank it
 	// out here to get a fully, byte-by-byte comparable PSBT.

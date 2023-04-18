@@ -454,7 +454,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 		newAsset, err := asset.New(
 			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBIP0086(scriptKey), groupKey,
+			asset.NewScriptKeyBip86(scriptKey), groupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %v",
@@ -796,7 +796,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// need to create the series of proof file blobs for each of
 		// the assets. In case the lnd wallet creates a P2TR change
 		// output we need to create an exclusion proof for it (and for
-		// all other P2TR outputs, we just assume BIP0086 here).
+		// all other P2TR outputs, we just assume BIP-0086 here).
 		baseProof := &proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
 				Block:       confInfo.Block,

@@ -26,7 +26,7 @@ func NewLndRpcKeyRing(lnd *lndclient.LndServices) *LndRpcKeyRing {
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family
-// (account in BIP43) specified. This method should return the next external
+// (account in BIP-0043) specified. This method should return the next external
 // child within this branch.
 func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {

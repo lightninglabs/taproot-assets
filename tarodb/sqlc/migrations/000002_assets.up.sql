@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS script_keys (
     tweaked_script_key BLOB NOT NULL UNIQUE CHECK(length(tweaked_script_key) = 33),
 
     -- An optional tweak for the script_key. If NULL, the raw_key may be
-    -- tweaked BIP0086 style.
+    -- tweaked BIP-0086 style.
     tweak BLOB
 );
 

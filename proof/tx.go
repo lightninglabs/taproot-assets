@@ -11,7 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// TxMerkleProof represents a simplified version of BIP-37 transaction merkle
+// TxMerkleProof represents a simplified version of BIP-0037 transaction merkle
 // proofs for a single transaction.
 type TxMerkleProof struct {
 	// Nodes is the list of nodes to hash along with the transaction being

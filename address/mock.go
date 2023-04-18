@@ -37,7 +37,7 @@ func RandAddr(t testing.TB, params *ChainParams,
 		groupPubKey = groupKeyPriv.PubKey()
 	}
 
-	scriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: scriptKeyPriv.PubKey(),
 	})
 

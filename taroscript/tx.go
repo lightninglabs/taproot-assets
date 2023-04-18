@@ -338,7 +338,8 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 	// Before we even attempt to sign anything, we need to make sure all the
 	// input information we require is present.
 	if len(vIn.TaprootBip32Derivation) == 0 {
-		return nil, fmt.Errorf("missing input Taproot BIP32 derivation")
+		return nil, fmt.Errorf("missing input Taproot BIP-0032 " +
+			"derivation")
 	}
 
 	// Currently, we only support creating one signature per input.
@@ -346,14 +347,14 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 	// TODO(guggero): Should we support signing multiple paths at the same
 	// time? What are the performance and security implications?
 	if len(vIn.TaprootBip32Derivation) > 1 {
-		return nil, fmt.Errorf("unsupported multiple taproot BIP32 " +
-			"derivation info found, can only sign for one at a" +
-			"time")
+		return nil, fmt.Errorf("unsupported multiple taproot " +
+			"BIP-0032 derivation info found, can only sign for " +
+			"one at a time")
 	}
 	if len(vIn.TaprootBip32Derivation[0].LeafHashes) > 1 {
 		return nil, fmt.Errorf("unsupported number of leaf hashes in " +
-			"taproot BIP32 derivation info, can only sign for one " +
-			"at a time")
+			"taproot BIP-0032 derivation info, can only sign for " +
+			"one at a time")
 	}
 
 	derivation := vIn.TaprootBip32Derivation[0]
@@ -364,8 +365,8 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 		return nil, err
 	}
 
-	// Start with a default sign descriptor and the BIP 86 sign method then
-	// adjust depending on the input parameters.
+	// Start with a default sign descriptor and the BIP-0086 sign method
+	// then adjust depending on the input parameters.
 	spendDesc := lndclient.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: vIn.Asset().ScriptKey.RawKey.PubKey,
@@ -376,10 +377,10 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 		InputIndex: idx,
 	}
 
-	// There are three possible signing cases: BIP 86 key spend path, key
+	// There are three possible signing cases: BIP-0086 key spend path, key
 	// spend path with a script root, and script spend path.
 	switch {
-	// If there is no merkle root, we're doing a BIP 86 key spend.
+	// If there is no merkle root, we're doing a BIP-0086 key spend.
 	case len(vIn.TaprootMerkleRoot) == 0:
 		// This is the default case, so we don't need to do anything.
 
@@ -402,8 +403,8 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 		// appropriate field.
 		if len(vIn.TaprootLeafScript) != 1 {
 			return nil, fmt.Errorf("specified leaf hash in " +
-				"taproot BIP32 derivation but missing taproot " +
-				"leaf script")
+				"taproot BIP-0032 derivation but missing " +
+				"taproot leaf script")
 		}
 
 		leafScript := vIn.TaprootLeafScript[0]
@@ -414,8 +415,9 @@ func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
 		leafHash := leaf.TapHash()
 		if !bytes.Equal(leafHash[:], derivation.LeafHashes[0]) {
 			return nil, fmt.Errorf("specified leaf hash in " +
-				"taproot BIP32 derivation but corresponding " +
-				"taproot leaf script was not found")
+				"taproot BIP-0032 derivation but " +
+				"corresponding taproot leaf script was not " +
+				"found")
 		}
 
 		spendDesc.SignMethod = input.TaprootScriptSpendSignMethod

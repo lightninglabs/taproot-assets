@@ -184,12 +184,12 @@ committed to the asset input being spent.
 | The 32 byte Merkle root hash of the BTC level anchor output that committed to
 the asset input being spent.
 |-
-| Anchor Output BIP 32 Derivation Path
+| Anchor Output BIP-0032 Derivation Path
 | <tt>PSBT_IN_TARO_ANCHOR_BIP32_DERIVATION = 0x76</tt>
 | <tt><bytes pubkey></tt>
 | The public key
 | <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
-| The master key fingerprint as defined by BIP 32 concatenated with the
+| The master key fingerprint as defined by BIP-0032 concatenated with the
 derivation path of the public key that was used for the BTC level anchor output
 that committed to the asset input being spent. The derivation path is
 represented as 32 bit unsigned integer indexes concatenated with each other.
@@ -286,18 +286,18 @@ to be committed to.
 | The X-only pubkey used as the internal key of the BTC level anchor output that
 will be committing to the asset output.
 |-
-| Anchor Output BIP 32 Derivation Path
+| Anchor Output BIP-0032 Derivation Path
 | <tt>PSBT_OUT_TARO_ANCHOR_BIP32_DERIVATION = 0x74</tt>
 | <tt><bytes pubkey></tt>
 | The public key
 | <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
-| The master key fingerprint as defined by BIP 32 concatenated with the
+| The master key fingerprint as defined by BIP-0032 concatenated with the
 derivation path of the public key that will be used for the BTC level anchor
 output that is committing to the asset output. The derivation path is
 represented as 32 bit unsigned integer indexes concatenated with each other.
 Public keys are those that will be needed to sign this input.
 |-
-| Anchor Output Taproot Key BIP 32 Derivation Path
+| Anchor Output Taproot Key BIP-0032 Derivation Path
 | <tt>PSBT_OUT_TARO_ANCHOR_TAP_BIP32_DERIVATION = 0x75</tt>
 | <tt><32 byte xonlypubkey></tt>
 | A 32 byte X-only public key involved in this input. It may be the output key,

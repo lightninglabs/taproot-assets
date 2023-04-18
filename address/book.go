@@ -182,10 +182,10 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
 
-	// Given the raw key desc for the script key, we'll map this to a BIP
-	// 86 tweaked key as by default we'll generate keys that can be used
-	// with a plain key spend.
-	scriptKey := asset.NewScriptKeyBIP0086(rawScriptKeyDesc)
+	// Given the raw key desc for the script key, we'll map this to a
+	// BIP-0086 tweaked key as by default we'll generate keys that can be
+	// used with a plain key spend.
+	scriptKey := asset.NewScriptKeyBip86(rawScriptKeyDesc)
 
 	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
 	if err != nil {
@@ -301,7 +301,7 @@ func (b *Book) NextScriptKey(ctx context.Context,
 			"key: %w", err)
 	}
 
-	scriptKey := asset.NewScriptKeyBIP0086(keyDesc)
+	scriptKey := asset.NewScriptKeyBip86(keyDesc)
 	if err := b.cfg.Store.InsertScriptKey(ctx, scriptKey); err != nil {
 		return asset.ScriptKey{}, err
 	}

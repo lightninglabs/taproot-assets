@@ -291,7 +291,7 @@ type WalletAnchor interface {
 // a passed context which allows for cancellation of requests.
 type KeyRing interface {
 	// DeriveNextKey attempts to derive the *next* key within the key
-	// family (account in BIP43) specified. This method should return the
+	// family (account in BIP-0043) specified. This method should return the
 	// next external child within this branch.
 	DeriveNextKey(context.Context,
 		keychain.KeyFamily) (keychain.KeyDescriptor, error)
