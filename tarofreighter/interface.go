@@ -71,10 +71,11 @@ type AnchoredCommitment struct {
 }
 
 var (
-	// ErrNoPossibleAssetInputs is returned when an instance of a
-	// CommitmentSelector cannot satisfy the coin selection constraints.
-	ErrNoPossibleAssetInputs = fmt.Errorf("unable to satisfy coin " +
-		"selection constraints")
+	// ErrMatchingAssetsNotFound is returned when an instance of
+	// AssetStoreListCoins cannot satisfy the given asset identification
+	// constraints.
+	ErrMatchingAssetsNotFound = fmt.Errorf("failed to find coin(s) which" +
+		"satisfy given constraints")
 )
 
 // CommitmentSelector attracts over the coin selection process needed to be
@@ -84,7 +85,7 @@ type CommitmentSelector interface {
 	// an AnchoredCommitment that returns all the information needed to use
 	// the commitment as an input to an on chain taro transaction.
 	//
-	// If coin selection cannot be completed, then ErrNoPossibleAssetInputs
+	// If coin selection cannot be completed, then ErrMatchingAssetsNotFound
 	// should be returned.
 	SelectCommitment(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)

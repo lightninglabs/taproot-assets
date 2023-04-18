@@ -614,7 +614,7 @@ func TestSelectCommitment(t *testing.T) {
 				MinAmt: 10,
 			},
 			numAssets: 0,
-			err:       tarofreighter.ErrNoPossibleAssetInputs,
+			err:       tarofreighter.ErrMatchingAssetsNotFound,
 		},
 
 		// Asset ID not found on disk, no matches should be returned.
@@ -635,7 +635,7 @@ func TestSelectCommitment(t *testing.T) {
 				MinAmt: 10,
 			},
 			numAssets: 0,
-			err:       tarofreighter.ErrNoPossibleAssetInputs,
+			err:       tarofreighter.ErrMatchingAssetsNotFound,
 		},
 
 		// Create two assets, one has a key group the other doesn't.
@@ -721,7 +721,7 @@ func TestSelectCommitment(t *testing.T) {
 				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
 			)
 			require.ErrorIs(
-				t, err, tarofreighter.ErrNoPossibleAssetInputs,
+				t, err, tarofreighter.ErrMatchingAssetsNotFound,
 			)
 		})
 	}

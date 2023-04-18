@@ -1419,7 +1419,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		}
 
 		if len(matchingAssets) == 0 {
-			return tarofreighter.ErrNoPossibleAssetInputs
+			return tarofreighter.ErrMatchingAssetsNotFound
 		}
 
 		// At this point, we have the set of assets that match our
