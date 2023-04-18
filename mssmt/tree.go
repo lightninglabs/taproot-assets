@@ -20,6 +20,11 @@ var (
 	// which all the leaves are empty.
 	EmptyTree []Node
 
+	// EmptyTreeRootHash caches the value of a completely empty tree's root
+	// hash. This can be used to detect a tree's emptiness without needing
+	// to rely on the root sum alone.
+	EmptyTreeRootHash NodeHash
+
 	// ErrIntegerOverflow is an error returned when the result of an
 	// arithmetic operation on two integer values exceeds the maximum value
 	// that can be stored in the data type.
@@ -47,6 +52,8 @@ func init() {
 
 		EmptyTree[i] = branch
 	}
+
+	EmptyTreeRootHash = EmptyTree[0].NodeHash()
 }
 
 // FullTree represents a Merkle-Sum Sparse Merkle Tree (MS-SMT). A MS-SMT is an

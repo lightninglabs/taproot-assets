@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -342,21 +343,50 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		outCommitment := outputCommitments[vOut.AnchorOutputIndex]
 		taroRoot := outCommitment.TapscriptRoot(tapscriptSibling)
 
-		proofSuffix, err := s.createProofSuffix(idx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create proof %d: %w",
-				idx, err)
-		}
-		var proofSuffixBuf bytes.Buffer
-		if err := proofSuffix.Encode(&proofSuffixBuf); err != nil {
-			return nil, fmt.Errorf("unable to encode proof %d: %w",
-				idx, err)
-		}
+		var (
+			numPassiveAssets    uint32
+			passiveAnchorOnly   bool
+			proofSuffixBuf      bytes.Buffer
+			witness             []asset.Witness
+			splitCommitmentRoot mssmt.Node
+		)
 
-		// The split root is where we commit the passive assets to.
-		var numPassiveAssets uint32
+		// If there are passive assets, they are always committed to the
+		// output that is marked as the split root.
 		if vOut.IsSplitRoot {
 			numPassiveAssets = uint32(len(s.PassiveAssets))
+		}
+
+		// Either we have an asset that we commit to or we have an
+		// output just for the passive assets, which we mark as an
+		// interactive split root.
+		switch {
+		// This is a "valid" output for just carrying passive assets
+		// (marked as interactive split root and not committing to an
+		// active asset transfer).
+		case vOut.Interactive && vOut.IsSplitRoot && vOut.Asset == nil:
+			passiveAnchorOnly = true
+
+		// In any other case we expect an active asset transfer to be
+		// committed to.
+		case vOut.Asset != nil:
+			proofSuffix, err := s.createProofSuffix(idx)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create "+
+					"proof %d: %w", idx, err)
+			}
+			err = proofSuffix.Encode(&proofSuffixBuf)
+			if err != nil {
+				return nil, fmt.Errorf("unable to encode "+
+					"proof %d: %w", idx, err)
+			}
+			witness = vOut.Asset.PrevWitnesses
+			splitCommitmentRoot = vOut.Asset.SplitCommitmentRoot
+
+		default:
+			return nil, fmt.Errorf("invalid output %d, asset "+
+				"missing and not marked for passive assets",
+				idx)
 		}
 
 		txOut := s.AnchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
@@ -374,9 +404,10 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 			},
 			ScriptKey:           vOut.ScriptKey,
 			Amount:              vOut.Amount,
-			WitnessData:         vOut.Asset.PrevWitnesses,
-			SplitCommitmentRoot: vOut.Asset.SplitCommitmentRoot,
+			WitnessData:         witness,
+			SplitCommitmentRoot: splitCommitmentRoot,
 			ProofSuffix:         proofSuffixBuf.Bytes(),
+			PassiveAssetsOnly:   passiveAnchorOnly,
 		}
 	}
 
@@ -463,32 +494,19 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		return nil, err
 	}
 
-	// If there is no split, then we have an interactive full value transfer
-	// and the "sender" doesn't get a proof anymore.
-	if !isSplit {
-		receiverOut := vPkt.Outputs[outIndex]
-		receiverIndex := receiverOut.AnchorOutputIndex
-		receiverTaroTree := outputCommitments[receiverIndex]
-		receiverAsset := receiverOut.Asset
-
-		receiverParams := newParams(
-			anchorTx, receiverAsset, int(receiverIndex),
-			receiverOut.AnchorOutputInternalKey, receiverTaroTree,
-		)
-
-		return receiverParams, nil
-	}
-
 	// Is this the split root? Then we need exclusion proofs from all the
-	// split outputs.
-	if vPkt.Outputs[outIndex].IsSplitRoot {
-		splitRootOut := vPkt.Outputs[outIndex]
-		splitRootIndex := splitRootOut.AnchorOutputIndex
-		splitRootTaroTree := outputCommitments[splitRootIndex]
+	// split outputs. We can also use this path for interactive full value
+	// send case, where we also just commit to an asset that has a TX
+	// witness. We just need an inclusion proof and the exclusion proofs for
+	// any other outputs.
+	if vPkt.Outputs[outIndex].IsSplitRoot || !isSplit {
+		rootOut := vPkt.Outputs[outIndex]
+		rootIndex := rootOut.AnchorOutputIndex
+		rootTaroTree := outputCommitments[rootIndex]
 
-		rootSplitParams := newParams(
-			anchorTx, splitRootOut.Asset, int(splitRootIndex),
-			splitRootOut.AnchorOutputInternalKey, splitRootTaroTree,
+		rootParams := newParams(
+			anchorTx, rootOut.Asset, int(rootIndex),
+			rootOut.AnchorOutputInternalKey, rootTaroTree,
 		)
 
 		for idx := range vPkt.Outputs {
@@ -501,8 +519,8 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 			splitTaroTree := outputCommitments[splitIndex]
 
 			_, splitExclusionProof, err := splitTaroTree.Proof(
-				splitRootOut.Asset.TaroCommitmentKey(),
-				splitRootOut.Asset.AssetCommitmentKey(),
+				rootOut.Asset.TaroCommitmentKey(),
+				rootOut.Asset.AssetCommitmentKey(),
 			)
 			if err != nil {
 				return nil, err
@@ -515,12 +533,12 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 					Proof: *splitExclusionProof,
 				},
 			}
-			rootSplitParams.ExclusionProofs = append(
-				rootSplitParams.ExclusionProofs, exclusionProof,
+			rootParams.ExclusionProofs = append(
+				rootParams.ExclusionProofs, exclusionProof,
 			)
 		}
 
-		return rootSplitParams, nil
+		return rootParams, nil
 	}
 
 	// If this isn't the split root, then we need an exclusion proof from
@@ -566,66 +584,86 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 
 // createReAnchorProof creates the new proof for the re-anchoring of a passive
 // asset.
-func (s *sendPackage) createReAnchorProof(vPkt *taropsbt.VPacket) (*proof.Proof,
-	error) {
+func (s *sendPackage) createReAnchorProof(
+	passivePkt *taropsbt.VPacket) (*proof.Proof, error) {
 
-	vIn := vPkt.Inputs[0]
-	vOut := vPkt.Outputs[0]
+	// Passive asset transfers only have a single input and a single output.
+	passiveIn := passivePkt.Inputs[0]
+	passiveOut := passivePkt.Outputs[0]
+
+	// Passive assets are always anchored at the "split root", which
+	// normally contains asset change. But it can also be that the split
+	// root output was just created for the passive assets, if there is no
+	// active transfer or no change.
+	changeOut, err := s.VirtualPacket.SplitRootOutput()
+	if err != nil {
+		return nil, fmt.Errorf("anchor output for passive assets not "+
+			"found: %w", err)
+	}
 
 	outputCommitments := s.AnchorTx.OutputCommitments
+	passiveOutputIndex := passiveOut.AnchorOutputIndex
+	passiveTaroTree := outputCommitments[passiveOutputIndex]
 
-	// Create the exclusion proof for the receiver's tree.
-	// TODO(ffranr): Remove static output index once PSBT work is complete.
-	receiverOutputIndex := uint32(1)
-	receiverTaroTree := outputCommitments[receiverOutputIndex]
-	receiverOut := s.VirtualPacket.Outputs[receiverOutputIndex]
-
-	_, receiverTreeExclusionProof, err := receiverTaroTree.Proof(
-		vIn.Asset().TaroCommitmentKey(),
-		vIn.Asset().AssetCommitmentKey(),
+	// The base parameters include the inclusion proof of the passive asset
+	// in the split root output.
+	passiveParams := newParams(
+		s.AnchorTx, passiveOut.Asset, int(passiveOutputIndex),
+		changeOut.AnchorOutputInternalKey,
+		passiveTaroTree,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("error creating exclusion proof for "+
-			"re-anchor: %w", err)
-	}
 
-	receiverTaprootProof := proof.TaprootProof{
-		OutputIndex: receiverOutputIndex,
-		InternalKey: receiverOut.AnchorOutputInternalKey,
-		CommitmentProof: &proof.CommitmentProof{
-			Proof: *receiverTreeExclusionProof,
-		},
-	}
+	// Since a transfer might contain other anchor outputs, we need to
+	// provide an exclusion proof of the passive asset for each of the other
+	// BTC level outputs.
+	for idx := range s.VirtualPacket.Outputs {
+		otherOut := s.VirtualPacket.Outputs[idx]
+		otherIndex := otherOut.AnchorOutputIndex
 
-	// Fetch the new Taro tree for the passive asset.
-	passiveAssetTaroTree := outputCommitments[vOut.AnchorOutputIndex]
+		// The same anchor output index means this output is committed
+		// to the same top level tree, and we don't need an exclusion
+		// proof.
+		if otherIndex == passiveOutputIndex {
+			continue
+		}
 
-	// Create the base proof parameters for the re-anchor.
-	baseProofParams := proof.BaseProofParams{
-		Block: &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{
-				s.AnchorTx.FinalTx,
+		otherTaroTree := outputCommitments[otherIndex]
+		_, otherExclusionProof, err := otherTaroTree.Proof(
+			passiveOut.Asset.TaroCommitmentKey(),
+			passiveOut.Asset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		passiveParams.ExclusionProofs = append(
+			passiveParams.ExclusionProofs, proof.TaprootProof{
+				OutputIndex: otherIndex,
+				InternalKey: otherOut.AnchorOutputInternalKey,
+				CommitmentProof: &proof.CommitmentProof{
+					Proof: *otherExclusionProof,
+				},
 			},
-		},
-		Tx:              s.AnchorTx.FinalTx,
-		OutputIndex:     int(vOut.AnchorOutputIndex),
-		InternalKey:     vOut.AnchorOutputInternalKey,
-		TaroRoot:        passiveAssetTaroTree,
-		ExclusionProofs: []proof.TaprootProof{receiverTaprootProof},
+		)
 	}
 
-	// Add exclusion proof(s) for any P2TR change outputs.
-	if s.AnchorTx.FundedPsbt.ChangeOutputIndex > -1 {
+	// Add exclusion proof(s) for any P2TR (=BIP-0086, not carrying any
+	// assets) change outputs.
+	if len(s.AnchorTx.FundedPsbt.Pkt.UnsignedTx.TxOut) > 1 {
 		isAnchor := func(idx uint32) bool {
-			// We exclude both sender and receiver
-			// commitments because those get their own,
-			// individually created exclusion proofs.
-			return idx == vOut.AnchorOutputIndex ||
-				idx == receiverOutputIndex
+			for outIdx := range s.VirtualPacket.Outputs {
+				vOut := s.VirtualPacket.Outputs[outIdx]
+				if vOut.AnchorOutputIndex == idx {
+					return true
+				}
+			}
+
+			return false
 		}
 
 		err := proof.AddExclusionProofs(
-			&baseProofParams, s.AnchorTx.FundedPsbt.Pkt, isAnchor,
+			&passiveParams.BaseProofParams,
+			s.AnchorTx.FundedPsbt.Pkt, isAnchor,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error adding exclusion "+
@@ -634,12 +672,8 @@ func (s *sendPackage) createReAnchorProof(vPkt *taropsbt.VPacket) (*proof.Proof,
 	}
 
 	// Generate a proof of this new state transition.
-	transitionParams := proof.TransitionParams{
-		BaseProofParams: baseProofParams,
-		NewAsset:        vOut.Asset,
-	}
 	reAnchorProof, err := proof.CreateTransitionProof(
-		vIn.PrevID.OutPoint, &transitionParams,
+		passiveIn.PrevID.OutPoint, passiveParams,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating re-anchor proof: %w",

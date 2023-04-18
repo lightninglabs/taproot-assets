@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -70,6 +71,12 @@ type Wallet interface {
 	SignVirtualPacket(vPkt *taropsbt.VPacket,
 		optFuncs ...SignVirtualPacketOption) ([]uint32, error)
 
+	// SignPassiveAssets creates and signs the passive asset packets for the
+	// given input commitment and virtual packet that contains the active
+	// asset transfer.
+	SignPassiveAssets(inputCommitment *commitment.TaroCommitment,
+		vPkt *taropsbt.VPacket) ([]*PassiveAssetReAnchor, error)
+
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets (for both
 	// sending and passive asset re-anchoring).
@@ -100,46 +107,6 @@ type AnchorVTxnsParams struct {
 	// PassiveAssetsVPkts is a list of all the virtual transactions which
 	// re-anchor passive assets.
 	PassiveAssetsVPkts []*taropsbt.VPacket
-}
-
-// AnchorPassiveAssets anchors the passive assets within the given taro
-// commitment.
-func (p *AnchorVTxnsParams) AnchorPassiveAssets(
-	taroCommitment *commitment.TaroCommitment) error {
-
-	for idx := range p.PassiveAssetsVPkts {
-		passiveAsset := p.PassiveAssetsVPkts[idx].Outputs[0].Asset
-		var err error
-
-		// Ensure that a commitment for this asset exists.
-		assetCommitment, ok := taroCommitment.Commitment(passiveAsset)
-		if ok {
-			err = assetCommitment.Upsert(passiveAsset)
-			if err != nil {
-				return fmt.Errorf("unable to upsert passive "+
-					"asset into asset commitment: %w", err)
-			}
-		} else {
-			// If no commitment exists yet, create one and insert
-			// the passive asset into it.
-			assetCommitment, err = commitment.NewAssetCommitment(
-				passiveAsset,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to create "+
-					"commitment for passive asset: %w", err)
-			}
-		}
-
-		err = taroCommitment.Upsert(assetCommitment)
-		if err != nil {
-			return fmt.Errorf("unable to upsert passive "+
-				"asset commitment into taro commitment: %w",
-				err)
-		}
-	}
-
-	return nil
 }
 
 // WalletConfig holds the configuration for a new Wallet.
@@ -194,10 +161,6 @@ type FundedVPacket struct {
 	// transfer.
 	VPacket *taropsbt.VPacket
 
-	// PassiveAssetReAnchors is the data necessary to re-anchor passive
-	// assets as housekeeping for the transfer.
-	PassiveAssetReAnchors []*PassiveAssetReAnchor
-
 	// TaroCommitment is the Taro level commitment associated with the
 	// assets selected for this transfer.
 	TaroCommitment *commitment.TaroCommitment
@@ -229,36 +192,6 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	}
 
 	return fundedVPkt, nil
-}
-
-// passiveAssets gathers virtual packets and other data necessary for
-// re-anchoring passive assets.
-func (f *AssetWallet) passiveAssets(
-	passiveCommitments commitment.AssetCommitments,
-	anchorPoint wire.OutPoint, anchorOutputIndex uint32,
-	internalKey *keychain.KeyDescriptor) []*PassiveAssetReAnchor {
-
-	// Create a VPacket for each asset.
-	var passiveAssetsReAnchor []*PassiveAssetReAnchor
-	for _, passiveCommitment := range passiveCommitments {
-		for _, passiveAsset := range passiveCommitment.Assets() {
-			vPkt := f.passiveAssetVPacket(
-				passiveAsset, anchorPoint, anchorOutputIndex,
-				internalKey,
-			)
-			reAnchor := &PassiveAssetReAnchor{
-				VPacket:         vPkt,
-				GenesisID:       passiveAsset.ID(),
-				PrevAnchorPoint: anchorPoint,
-				ScriptKey:       passiveAsset.ScriptKey,
-			}
-			passiveAssetsReAnchor = append(
-				passiveAssetsReAnchor, reAnchor,
-			)
-		}
-	}
-
-	return passiveAssetsReAnchor
 }
 
 // passiveAssetVPacket creates a virtual packet for the given passive asset.
@@ -451,22 +384,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
-	// Gather passive assets found in the commitment. This creates a copy of
-	// the commitment map, so we can remove things freely.
-	passiveCommitments := assetInput.Commitment.Commitments()
-
-	// Remove input assets (the assets being spent) from list of assets to
-	// re-sign.
-	//
-	// TODO(ffranr): This is a temporary solution. We should remove
-	//  individual asset leaves at this point rather than the whole
-	//  commitment (of a given asset type).
-	for _, vIn := range vPkt.Inputs {
-		delete(passiveCommitments, vIn.Asset().TaroCommitmentKey())
+	// For now, we just need to know _if_ there are any passive assets, so
+	// we can create a change output if needed. We'll actually sign the
+	// passive packets later.
+	passiveCommitments, err := removeActiveCommitments(
+		assetInput.Commitment, vPkt,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	// We expect some change back, so let's create a script key to receive
-	// the change on.
+	// We expect some change back, or have passive assets to commit to, so
+	// let's make sure we create a transfer output.
 	var changeOut *taropsbt.VOutput
 	if !fullValue || len(passiveCommitments) > 0 {
 		// Do we need to add a change output?
@@ -491,13 +420,16 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		// need to make sure it is going to an address that we control.
 		// This should only be the case where we create the default
 		// change output with the NUMS key to avoid deriving too many
-		// keys prematurely.
+		// keys prematurely. We don't need to derive a new key if we
+		// only have passive assets to commit to, since they all have
+		// their own script key and the output is more of a placeholder
+		// to attach the passive assets to.
 		unSpendable, err := changeOut.ScriptKey.IsUnSpendable()
 		if err != nil {
 			return nil, fmt.Errorf("cannot determine if script "+
 				"key is spendable: %w", err)
 		}
-		if unSpendable {
+		if unSpendable && !fullValue {
 			changeScriptKey, err := f.cfg.KeyRing.DeriveNextKey(
 				ctx, asset.TaroKeyFamily,
 			)
@@ -543,31 +475,9 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, fmt.Errorf("unable to create split commit: %w", err)
 	}
 
-	var passiveAssets []*PassiveAssetReAnchor
-	if len(passiveCommitments) > 0 {
-		// When there are left over passive assets, we know we have a
-		// change output present, since we created one above if there
-		// was none to begin with.
-		changeInternalKey, err := changeOut.AnchorKeyToDesc()
-		if err != nil {
-			return nil, fmt.Errorf("unable to get change "+
-				"internal key: %w", err)
-		}
-
-		passiveAssets = f.passiveAssets(
-			passiveCommitments, assetInput.AnchorPoint,
-			changeOut.AnchorOutputIndex, &changeInternalKey,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate passive "+
-				"asset virtual packets: %w", err)
-		}
-	}
-
 	return &FundedVPacket{
-		VPacket:               vPkt,
-		PassiveAssetReAnchors: passiveAssets,
-		TaroCommitment:        assetInput.Commitment,
+		VPacket:        vPkt,
+		TaroCommitment: assetInput.Commitment,
 	}, nil
 }
 
@@ -696,6 +606,125 @@ func verifyInclusionProof(vIn *taropsbt.VInput) error {
 	return nil
 }
 
+// removeActiveCommitments removes all active commitments from the given input
+// commitment and only returns a tree of passive commitments.
+func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
+	vPkt *taropsbt.VPacket) (commitment.AssetCommitments, error) {
+
+	// Gather passive assets found in the commitment. This creates a copy of
+	// the commitment map, so we can remove things freely.
+	passiveCommitments := inputCommitment.Commitments()
+
+	// Remove input assets (the assets being spent) from list of assets to
+	// re-sign.
+	for _, vIn := range vPkt.Inputs {
+		key := vIn.Asset().TaroCommitmentKey()
+		assetCommitment, ok := passiveCommitments[key]
+		if !ok {
+			continue
+		}
+
+		// We need to make a copy in order to not modify the original
+		// commitment, as the above call to get all commitments just
+		// creates a new slice, but we still have a pointer to the
+		// original asset commitment.
+		var err error
+		assetCommitment, err = assetCommitment.Copy()
+		if err != nil {
+			return nil, fmt.Errorf("unable to copy asset "+
+				"commitment: %w", err)
+		}
+
+		// Now we can remove the asset from the commitment.
+		err = assetCommitment.Delete(vIn.Asset())
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete asset "+
+				"commitment: %w", err)
+		}
+
+		// Since we're not returning the root Taro commitment but a map
+		// of all asset commitments, we need to prune the asset
+		// commitment manually if it is empty now.
+		rootHash := assetCommitment.TreeRoot.NodeHash()
+		if rootHash == mssmt.EmptyTreeRootHash {
+			delete(passiveCommitments, key)
+
+			continue
+		}
+
+		// There are other leaves of this asset in our asset tree, let's
+		// now update our passive commitment map so these will be
+		// carried along.
+		passiveCommitments[key] = assetCommitment
+	}
+
+	return passiveCommitments, nil
+}
+
+// SignPassiveAssets creates and signs the passive asset packets for the given
+// input commitment and virtual packet that contains the active asset transfer.
+func (f *AssetWallet) SignPassiveAssets(
+	inputCommitment *commitment.TaroCommitment,
+	vPkt *taropsbt.VPacket) ([]*PassiveAssetReAnchor, error) {
+
+	passiveCommitments, err := removeActiveCommitments(
+		inputCommitment, vPkt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(passiveCommitments) == 0 {
+		return nil, nil
+	}
+
+	// When there are left over passive assets, we know we have a change
+	// output present, since we created one in a previous step if there
+	// was none to begin with.
+	anchorPoint := vPkt.Inputs[0].PrevID.OutPoint
+	changeOut, err := vPkt.SplitRootOutput()
+	if err != nil {
+		return nil, fmt.Errorf("missing split root output for passive "+
+			"assets: %w", err)
+	}
+
+	changeInternalKey, err := changeOut.AnchorKeyToDesc()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get change internal key: %w",
+			err)
+	}
+
+	var passiveAssets []*PassiveAssetReAnchor
+	for _, passiveCommitment := range passiveCommitments {
+		for _, passiveAsset := range passiveCommitment.Assets() {
+			passivePkt := f.passiveAssetVPacket(
+				passiveAsset, anchorPoint,
+				changeOut.AnchorOutputIndex,
+				&changeInternalKey,
+			)
+			reAnchor := &PassiveAssetReAnchor{
+				VPacket:         passivePkt,
+				GenesisID:       passiveAsset.ID(),
+				PrevAnchorPoint: anchorPoint,
+				ScriptKey:       passiveAsset.ScriptKey,
+			}
+			passiveAssets = append(passiveAssets, reAnchor)
+		}
+	}
+
+	// Sign all the passive assets virtual packets.
+	for _, passiveAsset := range passiveAssets {
+		_, err := f.SignVirtualPacket(
+			passiveAsset.VPacket, SkipInputProofVerify(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sign passive asset "+
+				"virtual packet: %w", err)
+		}
+	}
+
+	return passiveAssets, nil
+}
+
 // AnchorVirtualTransactions creates a BTC level anchor transaction that anchors
 // all the virtual transactions of the given packets (for both sending and
 // passive asset re-anchoring).
@@ -719,48 +748,15 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	inputCommitment := params.InputCommitments[0]
 
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		inputCommitment, vPacket,
+		inputCommitment, vPacket, params.PassiveAssetsVPkts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
 	}
 
-	// Anchor the passive assets to the change output commitment.
-	//
-	// As a first step, we need to find the change output (by index).
-	changeOutputIdx := -1
-	for idx := range vPacket.Outputs {
-		if vPacket.Outputs[idx].IsSplitRoot {
-			changeOutputIdx = idx
-			break
-		}
-	}
-	if len(params.PassiveAssetsVPkts) > 0 {
-		if changeOutputIdx == -1 {
-			// TODO(ffranr): Modify call to
-			// taroscript.CreateOutputCommitments such that a change
-			// commitment is created even for full value spend if
-			// passive asset is present.
-			return nil, fmt.Errorf("no change output found in " +
-				"spending vPacket")
-		}
-
-		changeCommitment := outputCommitments[changeOutputIdx]
-		err = params.AnchorPassiveAssets(changeCommitment)
-		if err != nil {
-			return nil, fmt.Errorf("unable to anchor passive "+
-				"assets: %w", err)
-		}
-	}
-
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
-	//
-	// TODO(ffranr): Where a full spend is concerned, do passive asset
-	// re-anchoring outputs need to be included in the fee estimation?
-	// The re-anchoring process might add a new output if a change output is
-	// missing.
 	sendPacket, err := taroscript.CreateAnchorTx(vPacket.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)

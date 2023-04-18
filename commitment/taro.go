@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -25,6 +26,12 @@ var (
 	// Taro commitment to uniquely identify from any other leaves in the
 	// tapscript tree.
 	TaroMarker = sha256.Sum256([]byte(taroMarkerTag))
+
+	// ErrMissingAssetCommitment is an error returned when we attempt to
+	// update or delete a Taro commitment without an asset commitment.
+	ErrMissingAssetCommitment = errors.New(
+		"taro commitment: missing asset commitment",
+	)
 )
 
 // AssetCommitments is the set of assetCommitments backing a TaroCommitment.
@@ -99,8 +106,7 @@ func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 // MS-SMT and in the internal AssetCommitment map.
 func (c *TaroCommitment) Delete(asset *AssetCommitment) error {
 	if asset == nil {
-		// TODO(jhb): Concrete error types
-		panic("taro commitment update is missing asset commitment")
+		return ErrMissingAssetCommitment
 	}
 
 	key := asset.TaroCommitmentKey()
@@ -122,28 +128,41 @@ func (c *TaroCommitment) Delete(asset *AssetCommitment) error {
 }
 
 // Upsert modifies one entry in the TaroCommitment by inserting (or updating)
-// it in the inner MS-SMT and in the internal AssetCommitment map.
+// it in the inner MS-SMT and in the internal AssetCommitment map. If the asset
+// commitment passed in is empty, it is instead pruned from the Taro tree.
 func (c *TaroCommitment) Upsert(asset *AssetCommitment) error {
 	if asset == nil {
-		// TODO(jhb): Concrete error types
-		panic("taro commitment update is missing asset commitment")
+		return ErrMissingAssetCommitment
 	}
 
 	key := asset.TaroCommitmentKey()
-
-	// TODO(bhandras): thread the context through.
 	leaf := asset.TaroCommitmentLeaf()
-	_, err := c.tree.Insert(context.TODO(), key, leaf)
-	if err != nil {
-		return err
+
+	// Because the Taro tree has a different root whether we insert an empty
+	// asset tree vs. there being an empty leaf, we need to remove the whole
+	// asset tree if the given asset commitment is empty.
+	if asset.TreeRoot.NodeHash() == mssmt.EmptyTreeRootHash {
+		_, err := c.tree.Delete(context.TODO(), key)
+		if err != nil {
+			return err
+		}
+
+		delete(c.assetCommitments, key)
+	} else {
+		// TODO(bhandras): thread the context through.
+		_, err := c.tree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return err
+		}
+
+		c.assetCommitments[key] = asset
 	}
 
+	var err error
 	c.TreeRoot, err = c.tree.Root(context.TODO())
 	if err != nil {
 		return err
 	}
-
-	c.assetCommitments[key] = asset
 
 	return nil
 }

@@ -36,7 +36,7 @@ var (
 	)
 
 	// ErrInvalidScriptKey is an error returned when a root locator has zero
-	// value but does not use the correct unspendable script key.
+	// value but does not use the correct un-spendable script key.
 	ErrInvalidScriptKey = errors.New(
 		"invalid script key for zero-amount locator",
 	)
@@ -48,9 +48,9 @@ var (
 	)
 
 	// ErrNonZeroSplitAmount is an error returned when a root locator uses
-	// an unspendable script key but has a non-zero amount.
+	// an un-spendable script key but has a non-zero amount.
 	ErrNonZeroSplitAmount = errors.New(
-		"unspendable root locator has non-zero amount",
+		"un-spendable root locator has non-zero amount",
 	)
 )
 
@@ -149,7 +149,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	}
 
 	// To transfer a collectible with a split, the split root must be
-	// unspendable, and there can only be only one external locator.
+	// un-spendable, and there can only be one external locator.
 	if input.Type == asset.Collectible {
 		if rootLocator.Amount != 0 {
 			return nil, ErrNonZeroSplitAmount
@@ -160,8 +160,8 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		}
 	}
 
-	// The only valid unspendable root locator uses the correct unspendable
-	// script key and has zero value.
+	// The only valid un-spendable root locator uses the correct
+	// un-spendable script key and has zero value.
 	if rootLocator.Amount == 0 &&
 		rootLocator.ScriptKey != asset.NUMSCompressedKey {
 

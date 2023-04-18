@@ -52,7 +52,7 @@ var (
 	// asset split leaves.
 	ZeroPrevID PrevID
 
-	// NUMSBytes is the NUMs point we'll use for unspendable script keys.
+	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
 	// "taro" with SHA2-256. The code for the try-and-increment approach
 	// can be seen here:
@@ -781,9 +781,9 @@ func (a *Asset) HasSplitCommitmentWitness() bool {
 		witness.SplitCommitment != nil
 }
 
-// IsUnspendable returns true if an asset uses the unspendable script key and
+// IsUnSpendable returns true if an asset uses the un-spendable script key and
 // has zero value.
-func (a *Asset) IsUnspendable() bool {
+func (a *Asset) IsUnSpendable() bool {
 	return ToSerialized(a.ScriptKey.PubKey) == NUMSCompressedKey &&
 		a.Amount == 0
 }

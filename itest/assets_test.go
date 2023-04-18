@@ -24,7 +24,7 @@ var (
 				AssetType: tarorpc.AssetType_NORMAL,
 				Name:      "itestbuxx",
 				AssetMeta: &tarorpc.AssetMeta{
-					Data: []byte("some metadata for the itest assets"),
+					Data: []byte("some metadata"),
 				},
 				Amount: 5000,
 			},
@@ -34,7 +34,7 @@ var (
 				AssetType: tarorpc.AssetType_COLLECTIBLE,
 				Name:      "itestbuxx-collectible",
 				AssetMeta: &tarorpc.AssetMeta{
-					Data: []byte("some metadata for the itest assets"),
+					Data: []byte("some metadata"),
 				},
 				Amount: 1,
 			},

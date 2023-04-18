@@ -37,19 +37,21 @@ CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
     
     script_key INTEGER NOT NULL REFERENCES script_keys(script_key_id),
     
-    script_key_local bool NOT NULL,
+    script_key_local BOOL NOT NULL,
     
     amount BIGINT NOT NULL,
     
-    serialized_witnesses BLOB NOT NULL,
+    serialized_witnesses BLOB,
     
     split_commitment_root_hash BLOB,
     
     split_commitment_root_value BIGINT,
     
-    proof_suffix BLOB NOT NULL,
+    proof_suffix BLOB,
 
-    num_passive_assets INTEGER NOT NULL
+    num_passive_assets INTEGER NOT NULL,
+    
+    passive_assets_only BOOL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS transfer_outputs_idx
     ON asset_transfer_outputs (transfer_id);

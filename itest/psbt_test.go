@@ -318,9 +318,23 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 // and forth, using the full amount, between nodes with the use of PSBTs.
 func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
-	// going to send backand forth.
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -360,7 +374,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		)
 
 		vPkt := taropsbt.ForInteractiveSend(
-			id, uint64(fullAmt), receiverScriptKey, 0,
+			id, fullAmt, receiverScriptKey, 0,
 			receiverAnchorIntKeyDesc, chainParams,
 		)
 
@@ -383,8 +397,14 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		require.NoError(t.t, err)
 
 		numOutputs := 1
+		amounts := []uint64{fullAmt}
+		if i == 0 {
+			// Account for the passive asset in the first transfer.
+			numOutputs = 2
+			amounts = []uint64{fullAmt, 0}
+		}
 		confirmAndAssetOutboundTransferWithOutputs(
-			t, sender, sendResp, genInfo.AssetId, []uint64{fullAmt},
+			t, sender, sendResp, genInfo.AssetId, amounts,
 			i/2, (i/2)+1, numOutputs,
 		)
 		_ = sendProof(
@@ -393,32 +413,78 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		)
 
 		senderAssets, err := sender.ListAssets(
-			ctxb, &tarorpc.ListAssetRequest{
-				WithWitness: true,
-			},
+			ctxb, &tarorpc.ListAssetRequest{},
 		)
 		require.NoError(t.t, err)
-		require.Len(t.t, senderAssets.Assets, 0)
+
+		// Depending on what direction we currently have, the number of
+		// expected assets is different, since the initial sender always
+		// has the passive asset left.
+		numSenderAssets := 1
+		numReceiverAssets := 1
+		if sender == secondTarod {
+			numSenderAssets = 0
+			numReceiverAssets = 2
+		}
+		require.Len(t.t, senderAssets.Assets, numSenderAssets)
 
 		receiverAssets, err := receiver.ListAssets(
-			ctxb, &tarorpc.ListAssetRequest{
-				WithWitness: true,
-			},
+			ctxb, &tarorpc.ListAssetRequest{},
 		)
 		require.NoError(t.t, err)
-		require.Len(t.t, receiverAssets.Assets, 1)
-		require.EqualValues(
-			t.t, fullAmt, receiverAssets.Assets[0].Amount,
+		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
+		assertAssetState(
+			t, receiver, genInfo.Name, genInfo.MetaHash,
+			assetAmountCheck(fullAmt),
 		)
 	}
+
+	// Finally, make sure we can still send out the passive asset.
+	passiveGen := rpcAssets[1].AssetGenesis
+	bobAddr, err := secondTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			GenesisBootstrapInfo: passiveGen.GenesisBootstrapInfo,
+			Amt:                  rpcAssets[1].Amount,
+		},
+	)
+	require.NoError(t.t, err)
+
+	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
+	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, passiveGen.AssetId,
+		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
+	)
+	_ = sendProof(
+		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
+	)
+
+	// There's only one receive event (since only non-interactive sends
+	// appear in that RPC output).
+	assertReceiveComplete(t, secondTarod, 1)
 }
 
 // testPsbtInteractiveSplitSend tests that we can properly send assets back
 // and forth, using the full amount, between nodes with the use of PSBTs.
 func testPsbtInteractiveSplitSend(t *harnessTest) {
-	// First, we'll make a normal asset with a bunch of units.
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -436,67 +502,131 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 	}()
 
 	var (
-		alice = t.tarod
-		bob   = secondTarod
-	)
-
-	// We need to derive two keys, one for the new script key and one for
-	// the internal key.
-	bobScriptKey, bobAnchorInternalKeyDesc := deriveKeys(
-		t.t, bob,
-	)
-
-	const changeAmt = 10
-	var (
-		id            [32]byte
-		partialAmount = rpcAssets[0].Amount - changeAmt
+		sender      = t.tarod
+		receiver    = secondTarod
+		senderSum   = simpleAssets[0].Asset.Amount
+		receiverSum = uint64(0)
+		id          [32]byte
 	)
 	copy(id[:], genInfo.AssetId)
-	vPkt := taropsbt.ForInteractiveSend(
-		id, partialAmount, bobScriptKey, 0, bobAnchorInternalKeyDesc,
-		chainParams,
-	)
 
-	// Next, we'll attempt to complete a transfer with PSBTs from our main
-	// node to Bob, using the full amount.
-	fundResp := fundPacket(t, alice, vPkt)
-	signResp, err := alice.SignVirtualPsbt(
-		ctxb, &wrpc.SignVirtualPsbtRequest{
-			FundedPsbt: fundResp.FundedPsbt,
+	// We are going to send 4200 units at the beginning, then always half
+	// the amount of the previous transfer, doing a total of 4 transfers.
+	const (
+		numSend        = 4
+		initialSendAmt = 4800
+	)
+	var (
+		sendAmt   = uint64(initialSendAmt)
+		changeAmt = senderSum - sendAmt
+	)
+	for i := 0; i < numSend; i++ {
+		// Swap the sender and receiver nodes starting at the second
+		// iteration.
+		if i > 0 {
+			sendAmt = sendAmt / 2
+			changeAmt = sendAmt
+			sender, receiver = receiver, sender
+			senderSum, receiverSum = receiverSum, senderSum
+		}
+		if i == 3 {
+			changeAmt = (initialSendAmt / 2) - sendAmt
+		}
+
+		// We need to derive two keys, one for the new script key and
+		// one for the internal key.
+		receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(
+			t.t, receiver,
+		)
+
+		vPkt := taropsbt.ForInteractiveSend(
+			id, sendAmt, receiverScriptKey, 0,
+			receiverAnchorIntKeyDesc, chainParams,
+		)
+
+		// Next, we'll attempt to complete a transfer with PSBTs from
+		// our sender node to our receiver, using the partial amount.
+		fundResp := fundPacket(t, sender, vPkt)
+		signResp, err := sender.SignVirtualPsbt(
+			ctxb, &wrpc.SignVirtualPsbtRequest{
+				FundedPsbt: fundResp.FundedPsbt,
+			},
+		)
+		require.NoError(t.t, err)
+
+		// Now we'll attempt to complete the transfer.
+		sendResp, err := sender.AnchorVirtualPsbts(
+			ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+				VirtualPsbts: [][]byte{signResp.SignedPsbt},
+			},
+		)
+		require.NoError(t.t, err)
+
+		numOutputs := 2
+		confirmAndAssetOutboundTransferWithOutputs(
+			t, sender, sendResp, genInfo.AssetId,
+			[]uint64{sendAmt, changeAmt}, i/2, (i/2)+1,
+			numOutputs,
+		)
+		_ = sendProof(
+			t, sender, receiver,
+			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
+		)
+
+		senderAssets, err := sender.ListAssets(
+			ctxb, &tarorpc.ListAssetRequest{},
+		)
+		require.NoError(t.t, err)
+
+		// Depending on what direction we currently have, the number of
+		// expected assets is different, since the initial sender always
+		// has the passive asset left. We start with 5k units for the
+		// active asset and 123 units for the passive assets.
+		// 	i	alice			send	     bob
+		//	--------------------------------------------------------
+		// 	0	123, 200		4.8k ->	     4800
+		// 	1	123, 200, 2400		<- 2.4k	     2400
+		// 	2	123, 200, 1200		1.2k ->      2400, 1200
+		// 	3	123, 200, 1250, 600	<- 600	     2400, 600
+		aliceOutputs := 1 + ((i + 1) / 2) + 1
+		bobOutputs := 1 + (i / 2)
+		numSenderAssets, numReceiverAssets := aliceOutputs, bobOutputs
+		if i%2 != 0 {
+			numSenderAssets, numReceiverAssets = bobOutputs,
+				aliceOutputs
+		}
+		require.Len(t.t, senderAssets.Assets, numSenderAssets)
+
+		receiverAssets, err := receiver.ListAssets(
+			ctxb, &tarorpc.ListAssetRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
+	}
+
+	// Finally, make sure we can still send out the passive asset.
+	passiveGen := rpcAssets[1].AssetGenesis
+	bobAddr, err := secondTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			GenesisBootstrapInfo: passiveGen.GenesisBootstrapInfo,
+			Amt:                  rpcAssets[1].Amount,
 		},
 	)
 	require.NoError(t.t, err)
 
-	// Now we'll attempt to complete the transfer.
-	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
-			VirtualPsbts: [][]byte{signResp.SignedPsbt},
-		},
-	)
-	require.NoError(t.t, err)
-
-	confirmAndAssetOutboundTransferWithOutputs(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{partialAmount, changeAmt}, 0, 1, 2,
+	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
+	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, passiveGen.AssetId,
+		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
 	)
 	_ = sendProof(
-		t, alice, bob, bobScriptKey.PubKey.SerializeCompressed(),
-		genInfo,
+		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
 	)
 
-	aliceAssets, err := alice.ListAssets(ctxb, &tarorpc.ListAssetRequest{
-		WithWitness: true,
-	})
-	require.NoError(t.t, err)
-	require.Len(t.t, aliceAssets.Assets, 1)
-	require.EqualValues(t.t, changeAmt, aliceAssets.Assets[0].Amount)
-
-	bobAssets, err := bob.ListAssets(ctxb, &tarorpc.ListAssetRequest{
-		WithWitness: true,
-	})
-	require.NoError(t.t, err)
-	require.Len(t.t, bobAssets.Assets, 1)
-	require.EqualValues(t.t, partialAmount, bobAssets.Assets[0].Amount)
+	// There's only one receive event (since only non-interactive sends
+	// appear in that RPC output).
+	assertReceiveComplete(t, secondTarod, 1)
 }
 
 func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,

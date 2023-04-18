@@ -573,7 +573,7 @@ func TestSplitCommitment(t *testing.T) {
 			err: ErrInvalidSplitLocator,
 		},
 		{
-			name: "unspendable root locator with non-zero amount",
+			name: "un-spendable root locator with non-zero amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
 					t, genesisNormal, groupKeyNormal,
@@ -1025,6 +1025,36 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	assetCommitments = copyOfCommitment.Commitments()
 	require.Equal(t, len(assetCommitments), 2)
 	require.Equal(t, assetCommitments[commitmentKey2], assetCommitment2)
+
+	// Make sure that when we upsert an empty asset commitment, the whole
+	// asset tree is pruned from the Taro tree.
+	err = assetCommitment2.Delete(asset2)
+	require.NoError(t, err)
+	require.Equal(
+		t, mssmt.EmptyTreeRootHash,
+		assetCommitment2.TreeRoot.NodeHash(),
+	)
+	err = copyOfCommitment.Upsert(assetCommitment2)
+	require.NoError(t, err)
+	_, ok := copyOfCommitment.Commitment(asset2)
+	require.False(t, ok)
+
+	// And if we remove the second asset commitment, we arrive at an empty
+	// Taro tree.
+	err = assetCommitment1.Delete(asset1)
+	require.NoError(t, err)
+	require.Equal(
+		t, mssmt.EmptyTreeRootHash,
+		assetCommitment1.TreeRoot.NodeHash(),
+	)
+	err = copyOfCommitment.Upsert(assetCommitment1)
+	require.NoError(t, err)
+	_, ok = copyOfCommitment.Commitment(asset1)
+	require.False(t, ok)
+	require.Equal(
+		t, mssmt.EmptyTreeRootHash,
+		copyOfCommitment.TreeRoot.NodeHash(),
+	)
 }
 
 // TestAssetCommitmentDeepCopy tests that we're able to properly perform a deep
