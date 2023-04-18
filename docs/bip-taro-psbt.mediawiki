@@ -1,0 +1,336 @@
+<pre>
+  BIP: ???
+  Layer: Applications
+  Title: Taro Asset PSBT
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+          Oliver Gugger <gugger@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2023-02-24
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes the custom fields used in the
+[[https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki|Partially
+Signed Bitcoin Transaction (PSBT, BIP-0174)]] format for Taro asset state
+transition transactions.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Design==
+
+A Taro asset state transition transaction is also referred to as a "virtual
+transaction" or asset transfer transaction. The word "virtual" is used to
+distinguish between these asset transfers that only happen in the off-chain,
+asset overlay context as opposed to "anchor" transactions, which are BTC level
+on-chain transaction that commit many asset level transfers to the Bitcoin
+chain.
+
+A virtual transaction has many similarities to its Bitcoin wire transaction
+counterpart in that it spends one or more asset inputs (asset UTXOs or asset
+"coins") and creates one or more new asset outputs.
+
+The main difference to a Bitcoin transaction is that a virtual asset transaction
+does not place the witness that satisfies each input's previous output script in
+the input itself but instead uses the <code>prev_asset_witnesses</code> field of
+the dedicated output that houses the split root asset.
+This allows a many-in-many-out virtual transaction to be compressed into a
+1-in-1-out transaction (as described in
+[[../master/bip-taro-vm.mediawiki|bip-taro-vm]]) for validation in the Taro
+Virtual Machine.
+
+To assemble the full witness stack that satisfies each input's previous output
+script the transaction might need to be signed by multiple parties and/or
+devices. This requires the virtual transaction to be passed around among
+multiple participants, each adding their part (e.g. signatures) to it. Given the
+similarities of virtual transactions to existing Bitcoin transactions, the PSBT
+format was chosen as the exchange format for virtual asset state transfers as
+well, with a set of new PSBT <code><keytype></code>s as defined in this
+document. 
+
+TODO(guggero): Define interactive vs. non-interactive.
+
+==Specification==
+
+A virtual transaction can only contain inputs and outputs of assets that are
+fungible among each other. Assets are considered fungible if they either have
+the same genesis ID (were minted in the same tranche) or reference the same
+<code>group_key</code> (were minted in different tranches).
+
+Within a virtual transaction multiple inputs (asset coins) that have the '''same
+genesis ID''' can be merged and split the same way Bitcoin inputs can be merged
+and split again. Fungible assets with '''different genesis IDs''' (but same
+<code>group_key</code>) can be used together in the same virtual transaction in
+order to satisfy a payment request, but the UTXOs/coins must remain separate to
+not violate the non-inflation/non-deflation properties.
+
+TODO(guggero): Describe what that means for non-interactive sends.
+
+When splitting an asset UTXO a split commitment is created (as described in
+[[../master/bip-taro-vm.mediawiki|bip-taro-vm]]). The split root is placed in
+one of the outputs (often being the change output going back to the sender of
+the asset) and marked with the `IsSplitRoot` flag.
+If the remaining change of a split is 0, the <code>script_key</code> of the
+split root asset output should be the well-known NUMS point to prove the output
+cannot be spent further. This so-called "split tombstone" is required for
+non-interactive sends (send to Taro address) of the full value of a coin.
+These zero-value tombstone outputs can be pruned in an interactive scenario in
+which the recipient is a ware of the full root asset leaf (including the
+TX witness) and can construct the commitment tree root correctly.
+
+==Custom PSBT fields for Taro virtual transactions==
+
+[[https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki|BIP-0174]]
+defines roughly 6 global, 24 input and 7 output <code>keytype</code>s. This
+leaves enough room for new BIPs to specify additional types without a big risk
+of collision. The proprietary type <code>0xFX</code> does not apply to this case
+as that is meant for application/vendor specific data, not fields declared in
+a BIP.
+
+To further reduce the risk of colliding with key types of other (in-flight) BIPs
+we start at the (arbitrarily chosen) value <code>0x70</code> for each section
+of new key types.
+
+===Global types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Virtual Transaction Marker
+| <tt>PSBT_GLOBAL_TARO_IS_VIRTUAL_TX = 0x70</tt>
+| None
+| No key data
+| <tt><byte 0x01></tt>
+| The static marker of <code>0x01</code> to identify this transaction as a Taro
+virtual transaction.
+|-
+| Taro Chain HRP
+| <tt>PSBT_GLOBAL_TARO_CHAIN_HRP = 0x71</tt>
+| None
+| No key data
+| <tt><string HRP></tt>
+| The Human Readable Prefix of the Taro chain identifier as specified in 
+[[../master/bip-taro-addr.mediawiki|bip-taro-addr]].
+|}
+
+===Input types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Previous Asset Leaf
+| <tt>PSBT_IN_TARO_PREV_ID = 0x70</tt>
+| None
+| No key data
+| <tt><tlv_blob prev_asset_id></tt>
+| The previous asset leaf (identified by
+<code>prev_outpoint || asset_id || asset_script_hash</code>) in TLV format as
+defined in [[../master/bip-taro.mediawiki#asset-leaf-format|bip-taro asset
+leaf format]].
+|-
+| Anchor Output Value
+| <tt>PSBT_IN_TARO_ANCHOR_VALUE = 0x71</tt>
+| None
+| No key data
+| <tt><64-bit big endian int value></tt>
+| The value in satoshis of the BTC level anchor output that committed to the
+asset input being spent.
+|-
+| Anchor Output <code>pkScript</code>
+| <tt>PSBT_IN_TARO_ANCHOR_PK_SCRIPT = 0x72</tt>
+| None
+| No key data
+| <tt><bytes pkScript></tt>
+| The <code>pkScript</code> of the BTC level anchor output that committed to the
+asset input being spent.
+|-
+| Anchor Output Sighash Type
+| <tt>PSBT_IN_TARO_ANCHOR_SIGHASH_TYPE = 0x73</tt>
+| None
+| No key data
+| <tt><64-bit big endian int sighash type></tt>
+| The 64-bit big endian unsigned integer specifying the sighash type to be used
+for the BTC level anchor output that committed to the asset input being spent.
+|-
+| Anchor Output Taproot Internal Key 
+| <tt>PSBT_IN_TARO_ANCHOR_TAP_INTERNAL_KEY = 0x74</tt>
+| None
+| No key data
+| <tt><32-byte xonlypubkey></tt>
+| The X-only pubkey used as the internal key of the BTC level anchor output that
+committed to the asset input being spent.
+|-
+| Anchor Output Taproot Merkle Root
+| <tt>PSBT_IN_TARO_ANCHOR_TAP_MERKLE_ROOT = 0x75</tt>
+| None
+| No key data
+| <tt><32-byte hash></tt>
+| The 32 byte Merkle root hash of the BTC level anchor output that committed to
+the asset input being spent.
+|-
+| Anchor Output BIP 32 Derivation Path
+| <tt>PSBT_IN_TARO_ANCHOR_BIP32_DERIVATION = 0x76</tt>
+| <tt><bytes pubkey></tt>
+| The public key
+| <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the
+derivation path of the public key that was used for the BTC level anchor output
+that committed to the asset input being spent. The derivation path is
+represented as 32 bit unsigned integer indexes concatenated with each other.
+Public keys are those that will be needed to sign this input.
+|-
+| Anchor Output Taproot Key BIP 32 Derivation Path
+| <tt>PSBT_IN_TARO_ANCHOR_TAP_BIP32_DERIVATION = 0x77</tt>
+| <tt><32 byte xonlypubkey></tt>
+| A 32 byte X-only public key involved in this input. It may be the output key,
+the internal key, or a key present in a leaf script.
+| <tt><compact size uint number of hashes> <32 byte leaf hash>*
+<4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| A compact size unsigned integer representing the number of leaf hashes,
+followed by a list of leaf hashes, followed by the 4 byte master key fingerprint
+concatenated with the derivation path of the public key. The derivation path is
+represented as 32-bit little endian unsigned integer indexes concatenated with
+each other. Public keys are those needed to spend this output. The leaf hashes
+are of the leaves which involve this public key. The internal key does not have
+leaf hashes, so can be indicated with a <tt>hashes len</tt> of 0. Finalizers
+should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is
+constructed.
+|-
+| Anchor Output Tapscript Sibling
+| <tt>PSBT_IN_TARO_ANCHOR_TAPSCRIPT_SIBLING = 0x78</tt>
+| None
+| No key data
+| <tt><32 byte tapscript sibling hash></tt>
+| The hash of the tapscript sibling that is on the same level as the Taro
+commitment that was committed to in the anchor. If this is not present, then the
+Taro commitment is the only script leaf in the tree.
+|-
+| Taro Asset
+| <tt>PSBT_IN_TARO_ASSET = 0x79</tt>
+| None
+| No key data
+| <tt><tlv_blob asset></tt>
+| The full input asset leaf that is being spent, in TLV format as defined in 
+[[../master/bip-taro.mediawiki#asset-leaf-format|bip-taro asset leaf format]].
+|-
+| Taro Asset Proof
+| <tt>PSBT_IN_TARO_ASSET_PROOF = 0x7a</tt>
+| None
+| No key data
+| <tt><tlv_blob proof></tt>
+| The last proof of the input asset being spent, in TLV format as defined in 
+[[../master/bip-taro-proof-file.mediawiki#file-serialization|
+bip-taro-proof-file File Serialization]].
+|}
+
+===Output types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Is Split Root
+| <tt>PSBT_OUT_TARO_IS_SPLIT_ROOT = 0x70</tt>
+| None
+| No key data
+| <tt><byte 0x00/0x01></tt>
+| A boolean value indicating whether the output is housing the split root of an
+asset split. This indicates that either an input asset amount was split into two
+or more pieces, or that the recipient of the asset is receiving in a
+non-interactive manner that requires the creation of split root output, even if
+the remaining amount is zero.
+|-
+| Is Interactive
+| <tt>PSBT_OUT_TARO_IS_SPLIT_ROOT = 0x71</tt>
+| None
+| No key data
+| <tt><byte 0x00/0x01></tt>
+| A boolean value indicating whether the recipient of the output is aware of the
+full asset leaf they are receiving (=interactive) or not (=non-interactive). In
+the non-interactive case, the recipient will expect this output to be a split
+output.
+|-
+| Anchor Output Index
+| <tt>PSBT_OUT_TARO_ANCHOR_OUTPUT_INDEX = 0x72</tt>
+| None
+| No key data
+| <tt><64-bit big endian int value></tt>
+| The Bitcoin level anchor transaction output index this asset output is going
+to be committed to.
+|-
+| Anchor Output Taproot Internal Key 
+| <tt>PSBT_OUT_TARO_ANCHOR_TAP_INTERNAL_KEY = 0x73</tt>
+| None
+| No key data
+| <tt><32-byte xonlypubkey></tt>
+| The X-only pubkey used as the internal key of the BTC level anchor output that
+will be committing to the asset output.
+|-
+| Anchor Output BIP 32 Derivation Path
+| <tt>PSBT_OUT_TARO_ANCHOR_BIP32_DERIVATION = 0x74</tt>
+| <tt><bytes pubkey></tt>
+| The public key
+| <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the
+derivation path of the public key that will be used for the BTC level anchor
+output that is committing to the asset output. The derivation path is
+represented as 32 bit unsigned integer indexes concatenated with each other.
+Public keys are those that will be needed to sign this input.
+|-
+| Anchor Output Taproot Key BIP 32 Derivation Path
+| <tt>PSBT_OUT_TARO_ANCHOR_TAP_BIP32_DERIVATION = 0x75</tt>
+| <tt><32 byte xonlypubkey></tt>
+| A 32 byte X-only public key involved in this input. It may be the output key,
+the internal key, or a key present in a leaf script.
+| <tt><compact size uint number of hashes> <32 byte leaf hash>*
+<4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| A compact size unsigned integer representing the number of leaf hashes,
+followed by a list of leaf hashes, followed by the 4 byte master key fingerprint
+concatenated with the derivation path of the public key. The derivation path is
+represented as 32-bit little endian unsigned integer indexes concatenated with
+each other. Public keys are those needed to spend this output. The leaf hashes
+are of the leaves which involve this public key. The internal key does not have
+leaf hashes, so can be indicated with a <tt>hashes len</tt> of 0. Finalizers
+should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is
+constructed.
+|-
+| Taro Asset
+| <tt>PSBT_OUT_TARO_ASSET = 0x76</tt>
+| None
+| No key data
+| <tt><tlv_blob asset></tt>
+| The full output asset leaf being created, in TLV format as defined in 
+[[../master/bip-taro.mediawiki#asset-leaf-format|bip-taro asset leaf format]].
+|-
+| Taro Split Asset
+| <tt>PSBT_OUT_TARO_SPLIT_ASSET = 0x77</tt>
+| None
+| No key data
+| <tt><tlv_blob split_asset></tt>
+| In case the asset serialized in the <tt>PSBT_OUT_TARO_ASSET</tt> is a split
+root (<tt>PSBT_OUT_TARO_IS_SPLIT_ROOT=0x01</tt>), this field houses the created
+split asset at the root locator that contains the split commitment witness. This
+is used for validation only and isn't committed to in any tree. If present the
+split asset is encoded in TLV format as defined in 
+[[../master/bip-taro.mediawiki#asset-leaf-format|bip-taro asset leaf format]].
+|}
