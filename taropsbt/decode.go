@@ -57,7 +57,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 	}
 
 	// We want an explicit "isVirtual" boolean marker.
-	isVirtual, err := findUnknownByKeyPrefix(
+	isVirtual, err := findCustomFieldsByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTaroIsVirtualTx,
 	)
 	if err != nil {
@@ -68,7 +68,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 	}
 
 	// We also want the HRP of the Taro chain params.
-	hrp, err := findUnknownByKeyPrefix(
+	hrp, err := findCustomFieldsByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTaroChainParamsHRP,
 	)
 	if err != nil {
@@ -162,7 +162,7 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	}}
 
 	for idx := range mapping {
-		unknown, err := findUnknownByKeyPrefix(
+		unknown, err := findCustomFieldsByKeyPrefix(
 			i.Unknowns, mapping[idx].key,
 		)
 
@@ -255,7 +255,7 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	}}
 
 	for idx := range mapping {
-		unknown, err := findUnknownByKeyPrefix(
+		unknown, err := findCustomFieldsByKeyPrefix(
 			pOut.Unknowns, mapping[idx].key,
 		)
 
@@ -385,15 +385,15 @@ func taprootBip32DerivationDecoder(
 	}
 }
 
-// findUnknownByKeyPrefix is a helper function that finds an unknown in the list
-// of unknowns by the key type prefix. If the key is not found, an error is
-// returned.
-func findUnknownByKeyPrefix(unknowns []*psbt.Unknown,
-	keyPrefix []byte) (*psbt.Unknown, error) {
+// findCustomFieldsByKeyPrefix is a helper function that finds a custom field in
+// the list of custom fields by the key type prefix. If the key is not found, an
+// error is returned.
+func findCustomFieldsByKeyPrefix(customFields []*customPsbtField,
+	keyPrefix []byte) (*customPsbtField, error) {
 
-	for _, unknown := range unknowns {
-		if bytes.HasPrefix(unknown.Key, keyPrefix) {
-			return unknown, nil
+	for _, customField := range customFields {
+		if bytes.HasPrefix(customField.Key, keyPrefix) {
+			return customField, nil
 		}
 	}
 

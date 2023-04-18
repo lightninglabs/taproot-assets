@@ -28,9 +28,13 @@ var (
 	trueAsBytes = []byte{0x01}
 )
 
+// customPsbtField is a type alias psbt.Unknown to make it more clear that we
+// are using the Unknown struct to represent a custom PSBT field.
+type customPsbtField = psbt.Unknown
+
 // encoderFunc is a function type for encoding a virtual PSBT item into a list
 // of Unknown struct.
-type encoderFunc func(key []byte) ([]*psbt.Unknown, error)
+type encoderFunc func(key []byte) ([]*customPsbtField, error)
 
 // encoderMapping maps a PSBT key to an encoder function.
 type encoderMapping struct {
@@ -50,7 +54,7 @@ func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
 		UnsignedTx: unsignedTx,
 		Inputs:     make([]psbt.PInput, len(p.Inputs)),
 		Outputs:    make([]psbt.POutput, len(p.Outputs)),
-		Unknowns: []*psbt.Unknown{
+		Unknowns: []*customPsbtField{
 			{
 				Key:   PsbtKeyTypeGlobalTaroIsVirtualTx,
 				Value: trueAsBytes,
@@ -159,14 +163,14 @@ func (i *VInput) encode() (psbt.PInput, error) {
 	}}
 
 	for idx := range mapping {
-		unknowns, err := mapping[idx].encoder(mapping[idx].key)
+		customFields, err := mapping[idx].encoder(mapping[idx].key)
 		if err != nil {
 			return pIn, fmt.Errorf("error encoding input key %x: "+
 				"%w", mapping[idx].key, err)
 		}
 
-		if len(unknowns) > 0 {
-			pIn.Unknowns = append(pIn.Unknowns, unknowns...)
+		if len(customFields) > 0 {
+			pIn.Unknowns = append(pIn.Unknowns, customFields...)
 		}
 	}
 
@@ -239,14 +243,14 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	}}
 
 	for idx := range mapping {
-		unknowns, err := mapping[idx].encoder(mapping[idx].key)
+		customFields, err := mapping[idx].encoder(mapping[idx].key)
 		if err != nil {
 			return pOut, nil, fmt.Errorf("error encoding input "+
 				"key %x: %w", mapping[idx].key, err)
 		}
 
-		if len(unknowns) > 0 {
-			pOut.Unknowns = append(pOut.Unknowns, unknowns...)
+		if len(customFields) > 0 {
+			pOut.Unknowns = append(pOut.Unknowns, customFields...)
 		}
 	}
 
@@ -256,7 +260,7 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 // tlvEncoder returns a function that encodes the given value using the given TLV
 // tlvEncoder.
 func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
-	return func(key []byte) ([]*psbt.Unknown, error) {
+	return func(key []byte) ([]*customPsbtField, error) {
 		if val == nil {
 			return nil, nil
 		}
@@ -270,7 +274,7 @@ func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
 				err)
 		}
 
-		return []*psbt.Unknown{
+		return []*customPsbtField{
 			{
 				Key:   chanutils.CopySlice(key),
 				Value: b.Bytes(),
@@ -282,7 +286,7 @@ func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
 // pubKeyEncoder is an encoder that does nothing if the given public key is nil.
 func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 	if pubKey == nil {
-		return func([]byte) ([]*psbt.Unknown, error) {
+		return func([]byte) ([]*customPsbtField, error) {
 			return nil, nil
 		}
 	}
@@ -293,7 +297,7 @@ func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 // assetEncoder is an encoder that does nothing if the given asset is nil.
 func assetEncoder(a *asset.Asset) encoderFunc {
 	if a == nil {
-		return func([]byte) ([]*psbt.Unknown, error) {
+		return func([]byte) ([]*customPsbtField, error) {
 			return nil, nil
 		}
 	}
@@ -304,8 +308,8 @@ func assetEncoder(a *asset.Asset) encoderFunc {
 // booleanEncoder returns a function that encodes the given boolean value as a
 // byte slice.
 func booleanEncoder(val bool) encoderFunc {
-	return func(key []byte) ([]*psbt.Unknown, error) {
-		unknown := &psbt.Unknown{
+	return func(key []byte) ([]*customPsbtField, error) {
+		unknown := &customPsbtField{
 			Key:   chanutils.CopySlice(key),
 			Value: chanutils.CopySlice(falseAsBytes),
 		}
@@ -313,24 +317,24 @@ func booleanEncoder(val bool) encoderFunc {
 			unknown.Value = chanutils.CopySlice(trueAsBytes)
 		}
 
-		return []*psbt.Unknown{unknown}, nil
+		return []*customPsbtField{unknown}, nil
 	}
 }
 
 // bip32DerivationEncoder returns a function that encodes the given bip32
 // derivation.
 func bip32DerivationEncoder(derivations []*psbt.Bip32Derivation) encoderFunc {
-	return func(key []byte) ([]*psbt.Unknown, error) {
+	return func(key []byte) ([]*customPsbtField, error) {
 		if derivations == nil {
 			return nil, nil
 		}
 
-		unknowns := make([]*psbt.Unknown, len(derivations))
+		unknowns := make([]*customPsbtField, len(derivations))
 		for idx := range derivations {
 			d := derivations[idx]
 
 			keyCopy := chanutils.CopySlice(key)
-			unknowns[idx] = &psbt.Unknown{
+			unknowns[idx] = &customPsbtField{
 				Key: append(keyCopy, d.PubKey...),
 				Value: psbt.SerializeBIP32Derivation(
 					d.MasterKeyFingerprint, d.Bip32Path,
@@ -347,12 +351,12 @@ func bip32DerivationEncoder(derivations []*psbt.Bip32Derivation) encoderFunc {
 func taprootBip32DerivationEncoder(
 	derivations []*psbt.TaprootBip32Derivation) encoderFunc {
 
-	return func(key []byte) ([]*psbt.Unknown, error) {
+	return func(key []byte) ([]*customPsbtField, error) {
 		if derivations == nil {
 			return nil, nil
 		}
 
-		unknowns := make([]*psbt.Unknown, len(derivations))
+		unknowns := make([]*customPsbtField, len(derivations))
 		for idx := range derivations {
 			d := derivations[idx]
 			value, err := psbt.SerializeTaprootBip32Derivation(d)
@@ -361,7 +365,7 @@ func taprootBip32DerivationEncoder(
 			}
 
 			keyCopy := chanutils.CopySlice(key)
-			unknowns[idx] = &psbt.Unknown{
+			unknowns[idx] = &customPsbtField{
 				Key:   append(keyCopy, d.XOnlyPubKey...),
 				Value: value,
 			}
