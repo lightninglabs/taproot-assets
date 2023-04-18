@@ -319,44 +319,55 @@ func booleanEncoder(val bool) encoderFunc {
 
 // bip32DerivationEncoder returns a function that encodes the given bip32
 // derivation.
-func bip32DerivationEncoder(d *psbt.Bip32Derivation) encoderFunc {
+func bip32DerivationEncoder(derivations []*psbt.Bip32Derivation) encoderFunc {
 	return func(key []byte) ([]*psbt.Unknown, error) {
-		if d == nil {
+		if derivations == nil {
 			return nil, nil
 		}
 
-		keyCopy := chanutils.CopySlice(key)
-		return []*psbt.Unknown{
-			{
+		unknowns := make([]*psbt.Unknown, len(derivations))
+		for idx := range derivations {
+			d := derivations[idx]
+
+			keyCopy := chanutils.CopySlice(key)
+			unknowns[idx] = &psbt.Unknown{
 				Key: append(keyCopy, d.PubKey...),
 				Value: psbt.SerializeBIP32Derivation(
 					d.MasterKeyFingerprint, d.Bip32Path,
 				),
-			},
-		}, nil
+			}
+		}
+
+		return unknowns, nil
 	}
 }
 
 // taprootBip32DerivationEncoder returns a function that encodes the given
 // taproot bip32 derivation.
-func taprootBip32DerivationEncoder(d *psbt.TaprootBip32Derivation) encoderFunc {
+func taprootBip32DerivationEncoder(
+	derivations []*psbt.TaprootBip32Derivation) encoderFunc {
+
 	return func(key []byte) ([]*psbt.Unknown, error) {
-		if d == nil {
+		if derivations == nil {
 			return nil, nil
 		}
 
-		value, err := psbt.SerializeTaprootBip32Derivation(d)
-		if err != nil {
-			return nil, err
-		}
+		unknowns := make([]*psbt.Unknown, len(derivations))
+		for idx := range derivations {
+			d := derivations[idx]
+			value, err := psbt.SerializeTaprootBip32Derivation(d)
+			if err != nil {
+				return nil, err
+			}
 
-		keyCopy := chanutils.CopySlice(key)
-		return []*psbt.Unknown{
-			{
+			keyCopy := chanutils.CopySlice(key)
+			unknowns[idx] = &psbt.Unknown{
 				Key:   append(keyCopy, d.XOnlyPubKey...),
 				Value: value,
-			},
-		}, nil
+			}
+		}
+
+		return unknowns, nil
 	}
 }
 

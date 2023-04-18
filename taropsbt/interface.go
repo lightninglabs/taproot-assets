@@ -221,15 +221,11 @@ type Anchor struct {
 
 	// Bip32Derivation is the BIP32 derivation of the anchor output's
 	// internal key.
-	//
-	// TODO(guggero): Do we also want to allow multiple derivations to be
-	// specified here? That would allow us to specify multiple keys involved
-	// in MuSig2 for example. Same for the Taproot derivation below.
-	Bip32Derivation *psbt.Bip32Derivation
+	Bip32Derivation []*psbt.Bip32Derivation
 
 	// TrBip32Derivation is the Taproot BIP32 derivation of the anchor
 	// output's internal key.
-	TrBip32Derivation *psbt.TaprootBip32Derivation
+	TrBip32Derivation []*psbt.TaprootBip32Derivation
 }
 
 // VInput represents an input to a virtual asset state transition transaction.
@@ -344,11 +340,11 @@ type VOutput struct {
 
 	// AnchorOutputBip32Derivation is the BIP32 derivation of the anchor
 	// output's internal key.
-	AnchorOutputBip32Derivation *psbt.Bip32Derivation
+	AnchorOutputBip32Derivation []*psbt.Bip32Derivation
 
 	// AnchorOutputTaprootBip32Derivation is the Taproot BIP32 derivation of
 	// the anchor output's internal key.
-	AnchorOutputTaprootBip32Derivation *psbt.TaprootBip32Derivation
+	AnchorOutputTaprootBip32Derivation []*psbt.TaprootBip32Derivation
 
 	// AnchorOutputTapscriptPreimage is the preimage of the tapscript
 	// sibling of the Taro commitment.
@@ -394,19 +390,29 @@ func (o *VOutput) SetAnchorInternalKey(keyDesc keychain.KeyDescriptor,
 		keyDesc, coinType,
 	)
 	o.AnchorOutputInternalKey = keyDesc.PubKey
-	o.AnchorOutputBip32Derivation = bip32Derivation
-	o.AnchorOutputTaprootBip32Derivation = trBip32Derivation
+	o.AnchorOutputBip32Derivation = append(
+		o.AnchorOutputBip32Derivation, bip32Derivation,
+	)
+	o.AnchorOutputTaprootBip32Derivation = append(
+		o.AnchorOutputTaprootBip32Derivation, trBip32Derivation,
+	)
 }
 
 // AnchorKeyToDesc attempts to extract the key descriptor of the anchor output
 // from the anchor output BIP32 derivation information.
 func (o *VOutput) AnchorKeyToDesc() (keychain.KeyDescriptor, error) {
-	if o.AnchorOutputBip32Derivation == nil {
+	if len(o.AnchorOutputBip32Derivation) == 0 {
 		return keychain.KeyDescriptor{}, fmt.Errorf("anchor output " +
 			"bip32 derivation is missing")
 	}
 
-	return KeyDescFromBip32Derivation(o.AnchorOutputBip32Derivation)
+	if len(o.AnchorOutputBip32Derivation) > 1 {
+		return keychain.KeyDescriptor{}, fmt.Errorf("multiple anchor " +
+			"output bip32 derivations found, only one supported " +
+			"currently")
+	}
+
+	return KeyDescFromBip32Derivation(o.AnchorOutputBip32Derivation[0])
 }
 
 // KeyDescFromBip32Derivation attempts to extract the key descriptor from the

@@ -321,7 +321,7 @@ func booleanDecoder(target *bool) decoderFunc {
 
 // bip32DerivationDecoder returns a function that decodes the given bip32
 // derivation.
-func bip32DerivationDecoder(target **psbt.Bip32Derivation) decoderFunc {
+func bip32DerivationDecoder(target *[]*psbt.Bip32Derivation) decoderFunc {
 	return func(key, byteVal []byte) error {
 		// Make sure the public key encoded in the key itself (directly
 		// following the one byte key type) is a valid 33-byte
@@ -343,11 +343,11 @@ func bip32DerivationDecoder(target **psbt.Bip32Derivation) decoderFunc {
 			return err
 		}
 
-		*target = &psbt.Bip32Derivation{
+		*target = append(*target, &psbt.Bip32Derivation{
 			PubKey:               key[1:],
 			MasterKeyFingerprint: master,
 			Bip32Path:            derivationPath,
-		}
+		})
 
 		return nil
 	}
@@ -356,7 +356,7 @@ func bip32DerivationDecoder(target **psbt.Bip32Derivation) decoderFunc {
 // taprootBip32DerivationDecoder returns a function that decodes the given
 // taproot bip32 derivation.
 func taprootBip32DerivationDecoder(
-	target **psbt.TaprootBip32Derivation) decoderFunc {
+	target *[]*psbt.TaprootBip32Derivation) decoderFunc {
 
 	return func(key, byteVal []byte) error {
 		// Make sure the public key encoded in the key itself (directly
@@ -379,7 +379,7 @@ func taprootBip32DerivationDecoder(
 			return err
 		}
 
-		*target = derivation
+		*target = append(*target, derivation)
 
 		return nil
 	}
