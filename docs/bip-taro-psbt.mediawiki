@@ -2,8 +2,8 @@
   BIP: ???
   Layer: Applications
   Title: Taro Asset PSBT
-  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
-          Oliver Gugger <gugger@gmail.com>
+  Author: Oliver Gugger <gugger@gmail.com>
+          Olaoluwa Osuntokun <laolu32@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://git
   Status: Draft
@@ -67,8 +67,9 @@ Within a virtual transaction multiple inputs (asset coins) that have the '''same
 genesis ID''' can be merged and split the same way Bitcoin inputs can be merged
 and split again. Fungible assets with '''different genesis IDs''' (but same
 <code>group_key</code>) can be used together in the same virtual transaction in
-order to satisfy a payment request, but the UTXOs/coins must remain separate to
-not violate the non-inflation/non-deflation properties.
+order to satisfy a payment request, but merging two fungible assets (with
+distinct asset IDs) into the _same_ asset UTXO is disallowed. See the
+[[../master/bip-taro-vm.mediawiki|bip-taro-vm]] for more details.
 
 TODO(guggero): Describe what that means for non-interactive sends.
 
@@ -122,6 +123,14 @@ virtual transaction.
 | <tt><string HRP></tt>
 | The Human Readable Prefix of the Taro chain identifier as specified in 
 [[../master/bip-taro-addr.mediawiki|bip-taro-addr]].
+|-
+| Taro PSBT Version
+| <tt>PSBT_GLOBAL_TARO_PSBT_VERSION = 0x72</tt>
+| None
+| No key data
+| <tt><byte version></tt>
+| The version of the Taro PSBT format. Currently <code>0x00</code> is the only
+known and supported version.
 |}
 
 ===Input types===
@@ -261,7 +270,7 @@ non-interactive manner that requires the creation of split root output, even if
 the remaining amount is zero.
 |-
 | Is Interactive
-| <tt>PSBT_OUT_TARO_IS_SPLIT_ROOT = 0x71</tt>
+| <tt>PSBT_OUT_TARO_IS_INTERACTIVE = 0x71</tt>
 | None
 | No key data
 | <tt><byte 0x00/0x01></tt>

@@ -26,6 +26,7 @@ import (
 var (
 	PsbtKeyTypeGlobalTaroIsVirtualTx    = []byte{0x70}
 	PsbtKeyTypeGlobalTaroChainParamsHRP = []byte{0x71}
+	PsbtKeyTypeGlobalTaroPsbtVersion    = []byte{0x72}
 
 	PsbtKeyTypeInputTaroPrevID                             = []byte{0x70}
 	PsbtKeyTypeInputTaroAnchorValue                        = []byte{0x71}
@@ -103,6 +104,11 @@ type VPacket struct {
 	// ChainParams are the Taro chain parameters that are used to encode and
 	// decode certain contents of the virtual packet.
 	ChainParams *address.ChainParams
+
+	// Version is the version of the virtual transaction. This is currently
+	// unused but can be used to signal a new version of the virtual PSBT
+	// format in the future.
+	Version uint8
 }
 
 // SetInputAsset sets the input asset that is being spent.

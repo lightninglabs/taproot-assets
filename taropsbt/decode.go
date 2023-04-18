@@ -51,8 +51,8 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*VPacket, error) {
 // custom fields on the given PSBT packet.
 func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 	// Make sure we have the correct markers for a virtual transaction.
-	if len(packet.Unknowns) != 2 {
-		return nil, fmt.Errorf("expected 2 global unknown fields, "+
+	if len(packet.Unknowns) != 3 {
+		return nil, fmt.Errorf("expected 3 global unknown fields, "+
 			"got %d", len(packet.Unknowns))
 	}
 
@@ -81,7 +81,17 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 			"%w", err)
 	}
 
+	// The version is currently optional, as it's not used anywhere.
+	var version uint8
+	versionField, err := findCustomFieldsByKeyPrefix(
+		packet.Unknowns, PsbtKeyTypeGlobalTaroPsbtVersion,
+	)
+	if err == nil {
+		version = versionField.Value[0]
+	}
+
 	vPkt := &VPacket{
+		Version:     version,
 		ChainParams: chainParams,
 		Inputs:      make([]*VInput, len(packet.Inputs)),
 		Outputs:     make([]*VOutput, len(packet.Outputs)),
