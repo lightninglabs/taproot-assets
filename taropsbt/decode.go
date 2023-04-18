@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -24,8 +25,8 @@ var (
 )
 
 // decoderFunc is a function type for decoding a virtual PSBT item from a byte
-// slice value.
-type decoderFunc func(byteVal []byte) error
+// slice key and value.
+type decoderFunc func(key, byteVal []byte) error
 
 // decoderMapping maps a PSBT key to a decoder function.
 type decoderMapping struct {
@@ -142,36 +143,13 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 		key:     PsbtKeyTypeInputTaroAnchorMerkleRoot,
 		decoder: tlvDecoder(&i.Anchor.MerkleRoot, tlv.DVarBytes),
 	}, {
-		key: PsbtKeyTypeInputTaroAnchorOutputBip32Derivation,
-		decoder: func(byteVal []byte) error {
-			master, derivationPath, err := psbt.ReadBip32Derivation(
-				byteVal,
-			)
-			if err != nil {
-				return err
-			}
-
-			i.Anchor.Bip32Derivation = &psbt.Bip32Derivation{
-				MasterKeyFingerprint: master,
-				Bip32Path:            derivationPath,
-			}
-
-			return nil
-		},
+		key:     PsbtKeyTypeInputTaroAnchorOutputBip32Derivation,
+		decoder: bip32DerivationDecoder(&i.Anchor.Bip32Derivation),
 	}, {
 		key: PsbtKeyTypeInputTaroAnchorOutputTaprootBip32Derivation,
-		decoder: func(byteVal []byte) error {
-			derivation, err := psbt.ReadTaprootBip32Derivation(
-				nil, byteVal,
-			)
-			if err != nil {
-				return err
-			}
-
-			i.Anchor.TrBip32Derivation = derivation
-
-			return nil
-		},
+		decoder: taprootBip32DerivationDecoder(
+			&i.Anchor.TrBip32Derivation,
+		),
 	}, {
 		key:     PsbtKeyTypeInputTaroAnchorTapscriptSibling,
 		decoder: tlvDecoder(&i.Anchor.TapscriptSibling, tlv.DVarBytes),
@@ -193,7 +171,7 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 			continue
 		}
 
-		err = mapping[idx].decoder(unknown.Value)
+		err = mapping[idx].decoder(unknown.Key, unknown.Value)
 		if err != nil {
 			return fmt.Errorf("error decoding input key %x: %w",
 				mapping[idx].key, err)
@@ -207,21 +185,6 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	}
 	i.Anchor.Value = btcutil.Amount(anchorValue)
 	i.Anchor.SigHashType = txscript.SigHashType(anchorSigHashType)
-
-	// The actual pubKey isn't serialized together with the derivation path,
-	// and is therefore not de-serialized either. So we set it manually here
-	// in case some code relies on it being set (even though we already
-	// have the key in the internal key field).
-	if i.Anchor.InternalKey != nil {
-		pubKeyBytes := i.Anchor.InternalKey.SerializeCompressed()
-		sPK := pubKeyBytes[1:]
-		if i.Anchor.Bip32Derivation != nil {
-			i.Anchor.Bip32Derivation.PubKey = pubKeyBytes
-		}
-		if i.Anchor.TrBip32Derivation != nil {
-			i.Anchor.TrBip32Derivation.XOnlyPubKey = sPK
-		}
-	}
 
 	// The asset leaf encoding doesn't store the full script key info, only
 	// the top level Taproot key. In order to be able to sign for it, we
@@ -270,36 +233,13 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 		key:     PsbtKeyTypeOutputTaroAnchorOutputInternalKey,
 		decoder: tlvDecoder(&o.AnchorOutputInternalKey, tlv.DPubKey),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation,
-		decoder: func(byteVal []byte) error {
-			master, derivationPath, err := psbt.ReadBip32Derivation(
-				byteVal,
-			)
-			if err != nil {
-				return err
-			}
-
-			o.AnchorOutputBip32Derivation = &psbt.Bip32Derivation{
-				MasterKeyFingerprint: master,
-				Bip32Path:            derivationPath,
-			}
-
-			return nil
-		},
+		key:     PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation,
+		decoder: bip32DerivationDecoder(&o.AnchorOutputBip32Derivation),
 	}, {
 		key: PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation,
-		decoder: func(byteVal []byte) error {
-			derivation, err := psbt.ReadTaprootBip32Derivation(
-				nil, byteVal,
-			)
-			if err != nil {
-				return err
-			}
-
-			o.AnchorOutputTaprootBip32Derivation = derivation
-
-			return nil
-		},
+		decoder: taprootBip32DerivationDecoder(
+			&o.AnchorOutputTaprootBip32Derivation,
+		),
 	}, {
 		key:     PsbtKeyTypeOutputTaroAsset,
 		decoder: assetDecoder(&o.Asset),
@@ -324,7 +264,7 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 			continue
 		}
 
-		err = mapping[idx].decoder(unknown.Value)
+		err = mapping[idx].decoder(unknown.Key, unknown.Value)
 		if err != nil {
 			return fmt.Errorf("error decoding output key %x: %w",
 				mapping[idx].key, err)
@@ -334,16 +274,6 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	// For some fields an intermediate step was required, copy them over
 	// into their target type now.
 	o.AnchorOutputIndex = uint32(anchorOutputIndex)
-	if o.AnchorOutputInternalKey != nil {
-		pubKeyBytes := o.AnchorOutputInternalKey.SerializeCompressed()
-		sPK := pubKeyBytes[1:]
-		if o.AnchorOutputBip32Derivation != nil {
-			o.AnchorOutputBip32Derivation.PubKey = pubKeyBytes
-		}
-		if o.AnchorOutputTaprootBip32Derivation != nil {
-			o.AnchorOutputTaprootBip32Derivation.XOnlyPubKey = sPK
-		}
-	}
 
 	return nil
 }
@@ -351,7 +281,7 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 // tlvDecoder returns a function that encodes the given byte slice using the
 // given TLV tlvDecoder.
 func tlvDecoder(val any, dec tlv.Decoder) decoderFunc {
-	return func(byteVal []byte) error {
+	return func(_, byteVal []byte) error {
 		var (
 			r       = bytes.NewReader(byteVal)
 			l       = uint64(len(byteVal))
@@ -367,7 +297,7 @@ func tlvDecoder(val any, dec tlv.Decoder) decoderFunc {
 
 // assetDecoder returns a decoder function that can handle nil assets.
 func assetDecoder(a **asset.Asset) decoderFunc {
-	return func(byteVal []byte) error {
+	return func(key, byteVal []byte) error {
 		if len(byteVal) == 0 {
 			return nil
 		}
@@ -375,15 +305,81 @@ func assetDecoder(a **asset.Asset) decoderFunc {
 		if *a == nil {
 			*a = &asset.Asset{}
 		}
-		return tlvDecoder(*a, asset.LeafDecoder)(byteVal)
+		return tlvDecoder(*a, asset.LeafDecoder)(key, byteVal)
 	}
 }
 
 // booleanDecoder returns a function that decodes the given byte slice as a
 // boolean.
 func booleanDecoder(target *bool) decoderFunc {
-	return func(byteVal []byte) error {
+	return func(_, byteVal []byte) error {
 		*target = bytes.Equal(byteVal, trueAsBytes)
+
+		return nil
+	}
+}
+
+// bip32DerivationDecoder returns a function that decodes the given bip32
+// derivation.
+func bip32DerivationDecoder(target **psbt.Bip32Derivation) decoderFunc {
+	return func(key, byteVal []byte) error {
+		// Make sure the public key encoded in the key itself (directly
+		// following the one byte key type) is a valid 33-byte
+		// compressed public key.
+		if len(key) != btcec.PubKeyBytesLenCompressed+1 {
+			return fmt.Errorf("invalid key length for bip32 " +
+				"derivation")
+		}
+		_, err := btcec.ParsePubKey(key[1:])
+		if err != nil {
+			return fmt.Errorf("invalid public key for bip32 "+
+				"derivation: %w", err)
+		}
+
+		master, derivationPath, err := psbt.ReadBip32Derivation(
+			byteVal,
+		)
+		if err != nil {
+			return err
+		}
+
+		*target = &psbt.Bip32Derivation{
+			PubKey:               key[1:],
+			MasterKeyFingerprint: master,
+			Bip32Path:            derivationPath,
+		}
+
+		return nil
+	}
+}
+
+// taprootBip32DerivationDecoder returns a function that decodes the given
+// taproot bip32 derivation.
+func taprootBip32DerivationDecoder(
+	target **psbt.TaprootBip32Derivation) decoderFunc {
+
+	return func(key, byteVal []byte) error {
+		// Make sure the public key encoded in the key itself (directly
+		// following the one byte key type) is a valid 32-byte x-only
+		// public key.
+		if len(key) != schnorr.PubKeyBytesLen+1 {
+			return fmt.Errorf("invalid key length for taproot " +
+				"bip32 derivation")
+		}
+		_, err := schnorr.ParsePubKey(key[1:])
+		if err != nil {
+			return fmt.Errorf("invalid public key for taproot "+
+				"bip32 derivation: %w", err)
+		}
+
+		derivation, err := psbt.ReadTaprootBip32Derivation(
+			key[1:], byteVal,
+		)
+		if err != nil {
+			return err
+		}
+
+		*target = derivation
 
 		return nil
 	}

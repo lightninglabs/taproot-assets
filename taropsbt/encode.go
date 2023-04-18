@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -27,9 +28,9 @@ var (
 	trueAsBytes = []byte{0x01}
 )
 
-// encoderFunc is a function type for encoding a virtual PSBT item into a byte
-// value.
-type encoderFunc func() ([]byte, error)
+// encoderFunc is a function type for encoding a virtual PSBT item into a list
+// of Unknown struct.
+type encoderFunc func(key []byte) ([]*psbt.Unknown, error)
 
 // encoderMapping maps a PSBT key to an encoder function.
 type encoderMapping struct {
@@ -139,30 +140,13 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		key:     PsbtKeyTypeInputTaroAnchorMerkleRoot,
 		encoder: tlvEncoder(&i.Anchor.MerkleRoot, tlv.EVarBytes),
 	}, {
-		key: PsbtKeyTypeInputTaroAnchorOutputBip32Derivation,
-		encoder: func() ([]byte, error) {
-			derivation := i.Anchor.Bip32Derivation
-			if derivation == nil {
-				return nil, nil
-			}
-
-			return psbt.SerializeBIP32Derivation(
-				derivation.MasterKeyFingerprint,
-				derivation.Bip32Path,
-			), nil
-		},
+		key:     PsbtKeyTypeInputTaroAnchorOutputBip32Derivation,
+		encoder: bip32DerivationEncoder(i.Anchor.Bip32Derivation),
 	}, {
 		key: PsbtKeyTypeInputTaroAnchorOutputTaprootBip32Derivation,
-		encoder: func() ([]byte, error) {
-			derivation := i.Anchor.TrBip32Derivation
-			if derivation == nil {
-				return nil, nil
-			}
-
-			return psbt.SerializeTaprootBip32Derivation(
-				derivation,
-			)
-		},
+		encoder: taprootBip32DerivationEncoder(
+			i.Anchor.TrBip32Derivation,
+		),
 	}, {
 		key:     PsbtKeyTypeInputTaroAnchorTapscriptSibling,
 		encoder: tlvEncoder(&i.Anchor.TapscriptSibling, tlv.EVarBytes),
@@ -175,17 +159,14 @@ func (i *VInput) encode() (psbt.PInput, error) {
 	}}
 
 	for idx := range mapping {
-		value, err := mapping[idx].encoder()
+		unknowns, err := mapping[idx].encoder(mapping[idx].key)
 		if err != nil {
 			return pIn, fmt.Errorf("error encoding input key %x: "+
 				"%w", mapping[idx].key, err)
 		}
 
-		if value != nil {
-			pIn.Unknowns = append(pIn.Unknowns, &psbt.Unknown{
-				Key:   mapping[idx].key,
-				Value: value,
-			})
+		if len(unknowns) > 0 {
+			pIn.Unknowns = append(pIn.Unknowns, unknowns...)
 		}
 	}
 
@@ -237,30 +218,13 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 		key:     PsbtKeyTypeOutputTaroAnchorOutputInternalKey,
 		encoder: pubKeyEncoder(o.AnchorOutputInternalKey),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation,
-		encoder: func() ([]byte, error) {
-			derivation := o.AnchorOutputBip32Derivation
-			if derivation == nil {
-				return nil, nil
-			}
-
-			return psbt.SerializeBIP32Derivation(
-				derivation.MasterKeyFingerprint,
-				derivation.Bip32Path,
-			), nil
-		},
+		key:     PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation,
+		encoder: bip32DerivationEncoder(o.AnchorOutputBip32Derivation),
 	}, {
 		key: PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation,
-		encoder: func() ([]byte, error) {
-			derivation := o.AnchorOutputTaprootBip32Derivation
-			if derivation == nil {
-				return nil, nil
-			}
-
-			return psbt.SerializeTaprootBip32Derivation(
-				derivation,
-			)
-		},
+		encoder: taprootBip32DerivationEncoder(
+			o.AnchorOutputTaprootBip32Derivation,
+		),
 	}, {
 		key:     PsbtKeyTypeOutputTaroAsset,
 		encoder: assetEncoder(o.Asset),
@@ -275,17 +239,14 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	}}
 
 	for idx := range mapping {
-		value, err := mapping[idx].encoder()
+		unknowns, err := mapping[idx].encoder(mapping[idx].key)
 		if err != nil {
 			return pOut, nil, fmt.Errorf("error encoding input "+
 				"key %x: %w", mapping[idx].key, err)
 		}
 
-		if value != nil {
-			pOut.Unknowns = append(pOut.Unknowns, &psbt.Unknown{
-				Key:   mapping[idx].key,
-				Value: value,
-			})
+		if len(unknowns) > 0 {
+			pOut.Unknowns = append(pOut.Unknowns, unknowns...)
 		}
 	}
 
@@ -295,7 +256,7 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 // tlvEncoder returns a function that encodes the given value using the given TLV
 // tlvEncoder.
 func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
-	return func() ([]byte, error) {
+	return func(key []byte) ([]*psbt.Unknown, error) {
 		if val == nil {
 			return nil, nil
 		}
@@ -309,14 +270,19 @@ func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
 				err)
 		}
 
-		return b.Bytes(), nil
+		return []*psbt.Unknown{
+			{
+				Key:   chanutils.CopySlice(key),
+				Value: b.Bytes(),
+			},
+		}, nil
 	}
 }
 
 // pubKeyEncoder is an encoder that does nothing if the given public key is nil.
 func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 	if pubKey == nil {
-		return func() ([]byte, error) {
+		return func([]byte) ([]*psbt.Unknown, error) {
 			return nil, nil
 		}
 	}
@@ -327,7 +293,7 @@ func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 // assetEncoder is an encoder that does nothing if the given asset is nil.
 func assetEncoder(a *asset.Asset) encoderFunc {
 	if a == nil {
-		return func() ([]byte, error) {
+		return func([]byte) ([]*psbt.Unknown, error) {
 			return nil, nil
 		}
 	}
@@ -338,12 +304,59 @@ func assetEncoder(a *asset.Asset) encoderFunc {
 // booleanEncoder returns a function that encodes the given boolean value as a
 // byte slice.
 func booleanEncoder(val bool) encoderFunc {
-	return func() ([]byte, error) {
+	return func(key []byte) ([]*psbt.Unknown, error) {
+		unknown := &psbt.Unknown{
+			Key:   chanutils.CopySlice(key),
+			Value: chanutils.CopySlice(falseAsBytes),
+		}
 		if val {
-			return trueAsBytes, nil
+			unknown.Value = chanutils.CopySlice(trueAsBytes)
 		}
 
-		return falseAsBytes, nil
+		return []*psbt.Unknown{unknown}, nil
+	}
+}
+
+// bip32DerivationEncoder returns a function that encodes the given bip32
+// derivation.
+func bip32DerivationEncoder(d *psbt.Bip32Derivation) encoderFunc {
+	return func(key []byte) ([]*psbt.Unknown, error) {
+		if d == nil {
+			return nil, nil
+		}
+
+		keyCopy := chanutils.CopySlice(key)
+		return []*psbt.Unknown{
+			{
+				Key: append(keyCopy, d.PubKey...),
+				Value: psbt.SerializeBIP32Derivation(
+					d.MasterKeyFingerprint, d.Bip32Path,
+				),
+			},
+		}, nil
+	}
+}
+
+// taprootBip32DerivationEncoder returns a function that encodes the given
+// taproot bip32 derivation.
+func taprootBip32DerivationEncoder(d *psbt.TaprootBip32Derivation) encoderFunc {
+	return func(key []byte) ([]*psbt.Unknown, error) {
+		if d == nil {
+			return nil, nil
+		}
+
+		value, err := psbt.SerializeTaprootBip32Derivation(d)
+		if err != nil {
+			return nil, err
+		}
+
+		keyCopy := chanutils.CopySlice(key)
+		return []*psbt.Unknown{
+			{
+				Key:   append(keyCopy, d.XOnlyPubKey...),
+				Value: value,
+			},
+		}, nil
 	}
 }
 
