@@ -1,6 +1,7 @@
 package tarocfg
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -114,6 +116,31 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	assetStore := tarodb.NewAssetStore(assetDB)
 
+	uniDB := tarodb.NewTransactionExecutor[tarodb.BaseUniverseStore](
+		db, func(tx *sql.Tx) tarodb.BaseUniverseStore {
+			return db.WithTx(tx)
+		},
+	)
+	uniForestDB := tarodb.NewTransactionExecutor[tarodb.BaseUniverseForestStore](
+		db, func(tx *sql.Tx) tarodb.BaseUniverseForestStore {
+			return db.WithTx(tx)
+		},
+	)
+	uniForest := tarodb.NewBaseUniverseForest(uniForestDB)
+
+	headerVerifier := tarogarden.GenHeaderVerifier(
+		context.Background(), chainBridge,
+	)
+	uniCfg := universe.MintingArchiveConfig{
+		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
+			return tarodb.NewBaseUniverseTree(
+				uniDB, id,
+			)
+		},
+		HeaderVerifier: headerVerifier,
+		UniverseForest: uniForest,
+	}
+
 	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open disk archive: %v", err)
@@ -142,6 +169,14 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	baseUni := universe.NewMintingArchive(uniCfg)
+
+	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
+		LocalDiffEngine:     baseUni,
+		NewRemoteDiffEngine: taro.NewRpcUniverseDiff,
+		LocalRegistrar:      baseUni,
+	})
+
 	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
 	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
 		CoinSelector: assetStore,
@@ -165,6 +200,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 					lndServices,
 				),
 				ProofFiles: proofFileStore,
+				Universe:   baseUni,
 			},
 			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,
@@ -199,6 +235,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				ErrChan:      mainErrChan,
 			},
 		),
+		BaseUniverse:      baseUni,
+		UniverseSyncer:    universeSyncer,
 		SignalInterceptor: shutdownInterceptor,
 		LogWriter:         cfg.LogWriter,
 		RPCConfig: &taro.RPCConfig{
@@ -215,10 +253,11 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			MacaroonPath:   cfg.RpcConf.MacaroonPath,
 		},
 		DatabaseConfig: &taro.DatabaseConfig{
-			RootKeyStore: tarodb.NewRootKeyStore(rksDB),
-			MintingStore: assetMintingStore,
-			AssetStore:   assetStore,
-			TaroAddrBook: tarodbAddrBook,
+			RootKeyStore:   tarodb.NewRootKeyStore(rksDB),
+			MintingStore:   assetMintingStore,
+			AssetStore:     assetStore,
+			TaroAddrBook:   tarodbAddrBook,
+			UniverseForest: uniForest,
 		},
 	})
 

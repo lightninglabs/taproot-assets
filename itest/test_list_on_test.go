@@ -70,4 +70,12 @@ var testCases = []*testCase{
 		name: "psbt interactive split send",
 		test: testPsbtInteractiveSplitSend,
 	},
+	{
+		name: "universe REST API",
+		test: testUniverseREST,
+	},
+	{
+		name: "universe sync",
+		test: testUniverseSync,
+	},
 }

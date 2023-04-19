@@ -3,6 +3,9 @@ package universe
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -12,15 +15,30 @@ import (
 	"github.com/lightninglabs/taro/proof"
 )
 
+var (
+	// ErrNoUniverseRoot is returned when no universe root is found.
+	ErrNoUniverseRoot = fmt.Errorf("no universe root found")
+)
+
 // Identifier is the identifier for a root/base universe.
 type Identifier struct {
-	// AssetID is the aseet ID for the universe.
+	// AssetID is the asset ID for the universe.
 	//
 	// TODO(roasbeef): make both pointers?
 	AssetID asset.ID
 
 	// GroupKey is the group key for the universe.
 	GroupKey *btcec.PublicKey
+}
+
+// String returns a string representation of the ID.
+func (i *Identifier) String() string {
+	if i.GroupKey != nil {
+		h := sha256.Sum256(schnorr.SerializePubKey(i.GroupKey))
+		return hex.EncodeToString(h[:])
+	}
+
+	return hex.EncodeToString(i.AssetID[:])
 }
 
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
@@ -83,8 +101,8 @@ func (b BaseKey) UniverseKey() [32]byte {
 }
 
 // IssuanceProof is a complete issuance proof for a given asset specified by
-// the minintng key. This proof can be used to verify that a valid asset exists
-// (based on the proof in the leaf), and that the asset is commited to within
+// the minting key. This proof can be used to verify that a valid asset exists
+// (based on the proof in the leaf), and that the asset is committed to within
 // the universe root.
 type IssuanceProof struct {
 	// MintingKey is the minting key for the asset.
@@ -100,6 +118,19 @@ type IssuanceProof struct {
 
 	// Leaf is the leaf node for the asset within the universe tree.
 	Leaf *MintingLeaf
+}
+
+// VerifyRoot verifies that the inclusion proof for the root node matches the
+// specified root. This is useful for sanity checking an issuance proof against
+// the purported root, and the included leaf.
+func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) bool {
+	reconstructedRoot := i.InclusionProof.Root(
+		i.MintingKey.UniverseKey(),
+		i.Leaf.SmtLeafNode(),
+	)
+
+	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
+		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 
 // BaseBackend is the backend storage interface for a base universe. The
@@ -165,6 +196,89 @@ type Registrar interface {
 	// universe tree (based on the ID), stored at the base key.
 	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
 		leaf *MintingLeaf) (*IssuanceProof, error)
+}
+
+// ServerAddr wraps the reachable network address of a remote universe
+// server.
+type ServerAddr struct {
+	// Addr is the address the universe is hosted at.
+	Addr net.Addr
+}
+
+// SyncType is an enum that describes the type of sync that should be performed
+// between a local and remote universe.
+type SyncType uint8
+
+const (
+	// SyncIssuance is a sync that will only sync new asset issuance events.
+	SyncIssuance SyncType = iota
+
+	// SyncFull is a sync that will sync all the assets in the universe.
+	SyncFull
+)
+
+// String returns a human readable string representation of the sync type.
+func (s SyncType) String() string {
+	switch s {
+	case SyncIssuance:
+		return "issuance"
+	case SyncFull:
+		return "full"
+	default:
+		return fmt.Sprintf("unknown(%v)", int(s))
+	}
+}
+
+// AssetSyncDiff is the result of a success Universe sync. The diff contains the
+// Universe root, and the set of assets that were added to the Universe.
+type AssetSyncDiff struct {
+	// OldUniverseRoot is the root of the universe before the sync.
+	OldUniverseRoot BaseRoot
+
+	// NewUniverseRoot is the new root of the Universe after the sync.
+	NewUniverseRoot BaseRoot
+
+	// NewAssetLeaves is the set of new leaf proofs that were added to the
+	// Universe.
+	NewLeafProofs []*MintingLeaf
+
+	// TODO(roasbeef): ability to return if things failed?
+	//  * can used a sealed interface to return the error
+}
+
+// Syncer is used to synchronize the state of two Universe instances: a local
+// instance and a remote instance. As a Universe is a tree based structure,
+// tree based bisection can be used to find the point of divergence with
+// syncing happening once that's found.
+type Syncer interface {
+	// SyncUniverse attempts to synchronize the local universe with the
+	// remote universe, governed by the sync type and the set of universe
+	// IDs to sync.
+	SyncUniverse(ctx context.Context, host ServerAddr,
+		syncType SyncType,
+		idsToSync ...Identifier) ([]AssetSyncDiff, error)
+}
+
+// DiffEngine is a Universe diff engine that can be used to compare the state
+// of two universes and find the set of assets that are different between them.
+type DiffEngine interface {
+	BaseForest
+
+	// RootNode returns the root node for a given base universe.
+	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
+
+	// MintingKeys returns all the keys inserted in the universe.
+	MintingKeys(ctx context.Context, id Identifier) ([]BaseKey, error)
+
+	// FethcIssuanceProof attempts to fetch an issuance proof for the
+	// target base leaf based on the universe identifier
+	// (assetID/groupKey).
+	//
+	// TODO(roasbeef): actually add this somewhere else?  * rn kinda
+	// asymmetric, as just need this to complete final portion
+	// of diff
+	FetchIssuanceProof(ctx context.Context, id Identifier,
+		key BaseKey) ([]*IssuanceProof, error)
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle

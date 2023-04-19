@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/address"
@@ -30,7 +34,9 @@ import (
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -43,6 +49,8 @@ const (
 	// poolMacaroonLocation is the value we use for the taro macaroons'
 	// "Location" field when baking them.
 	taroMacaroonLocation = "taro"
+
+	defaultRPCPort = 10029
 )
 
 var (
@@ -151,6 +159,47 @@ var (
 			Entity: "mint",
 			Action: "read",
 		}},
+		"/universerpc.Universe/AssetRoots": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/QueryAssetRoots": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/AssetLeafKeys": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/AssetLeaves": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/QueryIssuanceProof": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/InsertIssuanceProof": {{
+			Entity: "universe",
+			Action: "write",
+		}},
+		"/universerpc.Universe/SyncUniverse": {{
+			Entity: "universe",
+			Action: "write",
+		}},
+	}
+
+	// macaroonWhitelist defines methods that we don't require macaroons to
+	// access. For now, these are the Universe related read/write methods.
+	// We permit InsertIssuanceProof as a valid proof requires an on-chain
+	// transaction, so we gain a layer of DoS defense.
+	macaroonWhitelist = map[string]struct{}{
+		"/universerpc.Universe/AssetRoots":          {},
+		"/universerpc.Universe/QueryAssetRoots":     {},
+		"/universerpc.Universe/AssetLeafKeys":       {},
+		"/universerpc.Universe/AssetLeaves":         {},
+		"/universerpc.Universe/QueryIssuanceProof":  {},
+		"/universerpc.Universe/InsertIssuanceProof": {},
 	}
 )
 
@@ -163,6 +212,7 @@ type rpcServer struct {
 	tarorpc.UnimplementedTaroServer
 	wrpc.UnimplementedAssetWalletServer
 	mintrpc.UnimplementedMintServer
+	unirpc.UnimplementedUniverseServer
 
 	interceptor signal.Interceptor
 
@@ -230,6 +280,7 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	tarorpc.RegisterTaroServer(grpcServer, r)
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	mintrpc.RegisterMintServer(grpcServer, r)
+	unirpc.RegisterUniverseServer(grpcServer, r)
 	return nil
 }
 
@@ -255,6 +306,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 	}
 
 	err = mintrpc.RegisterMintHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = unirpc.RegisterUniverseHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
@@ -599,7 +657,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 	withWitness bool) (*tarorpc.Asset, error) {
 
-	rpcAsset, err := r.marshalAsset(ctx, a.Asset, a.IsSpent, withWitness)
+	rpcAsset, err := MarshalAsset(ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook)
 	if err != nil {
 		return nil, err
 	}
@@ -632,13 +690,22 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 	return rpcAsset, nil
 }
 
-func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
-	isSpent, withWitness bool) (*tarorpc.Asset, error) {
+// KeyLookup is used to determine whether a key is under the control of the
+// local wallet.
+type KeyLookup interface {
+	// IsLocalKey returns true if the key is under the control of the
+	// wallet and can be derived by it.
+	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
+}
+
+func MarshalAsset(ctx context.Context, a *asset.Asset,
+	isSpent, withWitness bool,
+	keyRing KeyLookup) (*tarorpc.Asset, error) {
 
 	assetID := a.Genesis.ID()
 	scriptKeyIsLocal := false
-	if a.ScriptKey.TweakedScriptKey != nil {
-		scriptKeyIsLocal = r.cfg.AddrBook.IsLocalKey(
+	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
+		scriptKeyIsLocal = keyRing.IsLocalKey(
 			ctx, a.ScriptKey.RawKey,
 		)
 	}
@@ -663,8 +730,12 @@ func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	if a.GroupKey != nil {
+		var rawKey []byte
+		if a.GroupKey.RawKey.PubKey != nil {
+			rawKey = a.GroupKey.RawKey.PubKey.SerializeCompressed()
+		}
 		rpcAsset.AssetGroup = &tarorpc.AssetGroup{
-			RawGroupKey:     a.GroupKey.RawKey.PubKey.SerializeCompressed(),
+			RawGroupKey:     rawKey,
 			TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
 			AssetIdSig:      a.GroupKey.Sig.Serialize(),
 		}
@@ -683,9 +754,9 @@ func (r *rpcServer) marshalAsset(ctx context.Context, a *asset.Asset,
 
 			var rpcSplitCommitment *tarorpc.SplitCommitment
 			if witness.SplitCommitment != nil {
-				rootAsset, err := r.marshalAsset(
+				rootAsset, err := MarshalAsset(
 					ctx, &witness.SplitCommitment.RootAsset,
-					false, true,
+					false, true, nil,
 				)
 				if err != nil {
 					return nil, err
@@ -1988,4 +2059,625 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 		Type:     tarorpc.AssetMetaType(assetMeta.Type),
 		MetaHash: metaHash[:],
 	}, nil
+}
+
+func marshalUniID(id universe.Identifier) *unirpc.ID {
+	var uniID unirpc.ID
+
+	if id.GroupKey != nil {
+		uniID.Id = &unirpc.ID_GroupKey{
+			GroupKey: schnorr.SerializePubKey(id.GroupKey),
+		}
+	} else {
+		uniID.Id = &unirpc.ID_AssetId{
+			AssetId: id.AssetID[:],
+		}
+	}
+
+	return &uniID
+}
+
+// marshallUniverseRoot marshals the universe root into the RPC counterpart.
+func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
+	// There was no old base root, so we'll just return a blank root.
+	if node.Node == nil {
+		return &unirpc.UniverseRoot{}, nil
+	}
+
+	nodeHash := node.Node.NodeHash()
+
+	return &unirpc.UniverseRoot{
+		Id: marshalUniID(node.ID),
+		MssmtRoot: &unirpc.MerkleSumNode{
+			RootHash: nodeHash[:],
+			RootSum:  int64(node.Node.NodeSum()),
+		},
+	}, nil
+}
+
+// AssetRoots queries for the known Universe roots associated with each known
+// asset. These roots represent the supply/audit state for each known asset.
+func (r *rpcServer) AssetRoots(ctx context.Context,
+	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
+
+	// First, we'll retrieve the full set of known asset Universe roots.
+	assetRoots, err := r.cfg.BaseUniverse.RootNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &unirpc.AssetRootResponse{
+		UniverseRoots: make(map[string]*unirpc.UniverseRoot),
+	}
+
+	// For each universe root, marshal it into the RPC form, taking care to
+	// specify the proper universe ID.
+	for _, assetRoot := range assetRoots {
+		idStr := assetRoot.ID.String()
+
+		resp.UniverseRoots[idStr], err = marshalUniverseRoot(
+			assetRoot,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return resp, nil
+}
+
+// unmarshalUniID parses the RPC universe ID into the native counterpart.
+func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+	switch {
+	case rpcID.GetAssetId() != nil:
+		var assetID asset.ID
+		copy(assetID[:], rpcID.GetAssetId())
+
+		return universe.Identifier{
+			AssetID: assetID,
+		}, nil
+
+	case rpcID.GetAssetIdStr() != "":
+		assetIDBytes, err := hex.DecodeString(rpcID.GetAssetIdStr())
+		if err != nil {
+			return universe.Identifier{}, err
+		}
+
+		// TODO(roasbeef): reuse with above
+
+		var assetID asset.ID
+		copy(assetID[:], assetIDBytes)
+
+		return universe.Identifier{
+			AssetID: assetID,
+		}, nil
+
+	case rpcID.GetGroupKey() != nil:
+		groupKey, err := schnorr.ParsePubKey(rpcID.GetGroupKey())
+		if err != nil {
+			return universe.Identifier{}, err
+		}
+
+		return universe.Identifier{
+			GroupKey: groupKey,
+		}, nil
+
+	case rpcID.GetGroupKeyStr() != "":
+		groupKeyBytes, err := hex.DecodeString(rpcID.GetGroupKeyStr())
+		if err != nil {
+			return universe.Identifier{}, err
+		}
+
+		// TODO(roasbeef): reuse with above
+
+		groupKey, err := schnorr.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return universe.Identifier{}, err
+		}
+
+		return universe.Identifier{
+			GroupKey: groupKey,
+		}, nil
+
+	default:
+		return universe.Identifier{}, fmt.Errorf("no id set")
+	}
+}
+
+// QueryAssetRoots attempts to locate the current Universe root for a specific
+// asset. This asset can be identified by its asset ID or group key.
+func (r *rpcServer) QueryAssetRoots(ctx context.Context,
+	req *unirpc.AssetRootQuery) (*unirpc.QueryRootResponse, error) {
+
+	universeID, err := unmarshalUniID(req.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	assetRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	if err != nil {
+		return nil, err
+	}
+
+	uniRoot, err := marshalUniverseRoot(assetRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.QueryRootResponse{
+		AssetRoot: uniRoot,
+	}, nil
+}
+
+func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
+	return &unirpc.AssetKey{
+		Outpoint: &unirpc.AssetKey_OpStr{
+			OpStr: leafKey.MintingOutpoint.String(),
+		},
+		ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+			ScriptKeyBytes: schnorr.SerializePubKey(
+				leafKey.ScriptKey.PubKey,
+			),
+		},
+	}
+}
+
+// AssetLeafKeys queries for the set of Universe keys associated with a given
+// asset_id or group_key. Each key takes the form: (outpoint, script_key),
+// where outpoint is an outpoint in the Bitcoin blockchain that anchors a valid
+// Taro asset commitment, and script_key is the script_key of the asset within
+// the Taro asset commitment for the given asset_id or group_key.
+func (r *rpcServer) AssetLeafKeys(ctx context.Context,
+	req *unirpc.ID) (*unirpc.AssetLeafKeyResponse, error) {
+
+	universeID, err := unmarshalUniID(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): tell above if was tring or not, then would set
+	// below diff
+
+	leafKeys, err := r.cfg.BaseUniverse.MintingKeys(ctx, universeID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &unirpc.AssetLeafKeyResponse{
+		AssetKeys: make([]*unirpc.AssetKey, len(leafKeys)),
+	}
+
+	for i, leafKey := range leafKeys {
+		resp.AssetKeys[i] = marshalLeafKey(leafKey)
+	}
+
+	return resp, nil
+}
+
+// marshalAssetLeaf marshals an asset leaf into the RPC form.
+func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
+	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+
+	// In order to display the full asset, we'll parse the genesis
+	// proof so we can map that to the asset being proved.
+	var assetProof proof.Proof
+	if err := assetProof.Decode(
+		bytes.NewReader(assetLeaf.GenesisProof),
+	); err != nil {
+		return nil, err
+	}
+
+	rpcAsset, err := MarshalAsset(
+		ctx, &assetProof.Asset, false, true, r.cfg.AddrBook,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.AssetLeaf{
+		Asset:         rpcAsset,
+		IssuanceProof: assetLeaf.GenesisProof[:],
+	}, nil
+}
+
+// AssetLeaves queries for the set of asset leaves (the values in the Universe
+// MS-SMT tree) for a given asset_id or group_key. These represents either
+// asset issuance events (they have a genesis witness) or asset transfers that
+// took place on chain. The leaves contain a normal Taro asset proof, as well
+// as details for the asset.
+func (r *rpcServer) AssetLeaves(ctx context.Context,
+	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
+
+	universeID, err := unmarshalUniID(req)
+	if err != nil {
+		return nil, err
+	}
+
+	assetLeaves, err := r.cfg.BaseUniverse.MintingLeaves(ctx, universeID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &unirpc.AssetLeafResponse{
+		Leaves: make([]*unirpc.AssetLeaf, len(assetLeaves)),
+	}
+	for i, assetLeaf := range assetLeaves {
+		assetLeaf := assetLeaf
+
+		resp.Leaves[i], err = r.marshalAssetLeaf(ctx, &assetLeaf)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return resp, nil
+}
+
+// unmarshalLeafKey unmarshals a leaf key from the RPC form.
+func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
+	var (
+		baseKey universe.BaseKey
+		err     error
+	)
+
+	switch {
+	case key.GetScriptKeyBytes() != nil:
+		pubKey, err := schnorr.ParsePubKey(
+			key.GetScriptKeyBytes(),
+		)
+		if err != nil {
+			return baseKey, err
+		}
+
+		baseKey.ScriptKey = &asset.ScriptKey{
+			PubKey: pubKey,
+		}
+
+	case key.GetScriptKeyStr() != "":
+		scriptKeyBytes, sErr := hex.DecodeString(key.GetScriptKeyStr())
+		if sErr != nil {
+			return baseKey, err
+		}
+
+		pubKey, err := schnorr.ParsePubKey(
+			scriptKeyBytes,
+		)
+		if err != nil {
+			return baseKey, err
+		}
+
+		baseKey.ScriptKey = &asset.ScriptKey{
+			PubKey: pubKey,
+		}
+	default:
+		// TODO(roasbeef): can actually allow not to be, then would
+		// fetch all for the given outpoint
+		return baseKey, fmt.Errorf("script key must be set")
+	}
+
+	switch {
+	case key.GetOpStr() != "":
+		// Parse a bitcoin outpoint in the form txid:index into a
+		// wire.OutPoint struct.
+		parts := strings.Split(key.GetOpStr(), ":")
+		if len(parts) != 2 {
+			return baseKey, errors.New("outpoint should be of " +
+				"the form txid:index")
+		}
+		txidStr := parts[0]
+		if hex.DecodedLen(len(txidStr)) != chainhash.HashSize {
+			return baseKey, fmt.Errorf("invalid hex-encoded "+
+				"txid %v", txidStr)
+		}
+
+		txid, err := chainhash.NewHashFromStr(txidStr)
+		if err != nil {
+			return baseKey, err
+		}
+
+		outputIndex, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return baseKey, fmt.Errorf("invalid output "+
+				"index: %v", err)
+		}
+
+		baseKey.MintingOutpoint = wire.OutPoint{
+			Hash:  *txid,
+			Index: uint32(outputIndex),
+		}
+
+	case key.GetOutpoint() != nil:
+		op := key.GetOp()
+
+		hash, err := chainhash.NewHashFromStr(op.HashStr)
+		if err != nil {
+			return baseKey, err
+		}
+
+		baseKey.MintingOutpoint = wire.OutPoint{
+			Hash:  *hash,
+			Index: uint32(op.Index),
+		}
+
+	default:
+		return baseKey, fmt.Errorf("outpoint not set: %v", err)
+	}
+
+	return baseKey, nil
+}
+
+// marshalUniverseProof marshals a universe proof into the RPC form.
+func marshalUniverseProof(proof *mssmt.Proof) ([]byte, error) {
+	compressedProof := proof.Compress()
+
+	var b bytes.Buffer
+	if err := compressedProof.Encode(&b); err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
+}
+
+// marshalIssuanceProof marshals an issuance proof into the RPC form.
+func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
+	req *unirpc.UniverseKey,
+	proof *universe.IssuanceProof) (*unirpc.IssuanceProofResponse, error) {
+
+	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
+		Node: proof.UniverseRoot,
+	})
+	if err != nil {
+		return nil, err
+	}
+	uniProof, err := marshalUniverseProof(proof.InclusionProof)
+	if err != nil {
+		return nil, err
+	}
+
+	assetLeaf, err := r.marshalAssetLeaf(ctx, proof.Leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.IssuanceProofResponse{
+		Req:                    req,
+		UniverseRoot:           uniRoot,
+		UniverseInclusionProof: uniProof,
+		AssetLeaf:              assetLeaf,
+	}, nil
+}
+
+// QueryIssuanceProof attempts to query for an issuance proof for a given asset
+// based on its UniverseKey. A UniverseKey is composed of the Universe ID
+// (asset_id/group_key) and also a leaf key (outpoint || script_key). If found,
+// then the issuance proof is returned that includes an inclusion proof to the
+// known Universe root, as well as a Taro state transition or issuance proof
+// for the said asset.
+func (r *rpcServer) QueryIssuanceProof(ctx context.Context,
+	req *unirpc.UniverseKey) (*unirpc.IssuanceProofResponse, error) {
+
+	universeID, err := unmarshalUniID(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	leafKey, err := unmarshalLeafKey(req.LeafKey)
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
+		ctx, universeID, leafKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): query may return multiple proofs, if allow key to
+	// not be fully specified
+	proof := proofs[0]
+
+	return r.marshalIssuanceProof(ctx, req, proof)
+}
+
+// unmarsalAssetLeaf unmarshals an asset leaf from the RPC form.
+func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
+	// We'll just pull the asset details from the serialized issuance proof
+	// itself.
+	var assetProof proof.Proof
+	if err := assetProof.Decode(
+		bytes.NewReader(leaf.IssuanceProof),
+	); err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): double check posted file format everywhere
+	//  * raw proof, or within file?
+
+	return &universe.MintingLeaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis:  assetProof.Asset.Genesis,
+			GroupKey: assetProof.Asset.GroupKey,
+		},
+		GenesisProof: leaf.IssuanceProof,
+		Amt:          assetProof.Asset.Amount,
+	}, nil
+}
+
+// InsertIssuanceProof attempts to insert a new issuance proof into the
+// Universe tree specified by the UniverseKey. If valid, then the proof is
+// inserted into the database, with a new Universe root returned for the
+// updated asset_id/group_key.
+func (r *rpcServer) InsertIssuanceProof(ctx context.Context,
+	req *unirpc.IssuanceProof) (*unirpc.IssuanceProofResponse, error) {
+
+	universeID, err := unmarshalUniID(req.Key.Id)
+	if err != nil {
+		return nil, err
+	}
+	leafKey, err := unmarshalLeafKey(req.Key.LeafKey)
+	if err != nil {
+		return nil, err
+	}
+
+	assetLeaf, err := unmarshalAssetLeaf(req.AssetLeaf)
+	if err != nil {
+		return nil, err
+	}
+
+	newUniverseState, err := r.cfg.BaseUniverse.RegisterIssuance(
+		ctx, universeID, leafKey, assetLeaf,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
+}
+
+// unmarshalUniverseSyncType maps an RPC universe sync type into a concrete
+// type.
+func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
+	universe.SyncType, error) {
+
+	switch req {
+	case unirpc.UniverseSyncMode_SYNC_FULL:
+		return universe.SyncFull, nil
+
+	case unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY:
+		return universe.SyncIssuance, nil
+
+	default:
+		return 0, fmt.Errorf("unknown sync type: %v", req)
+	}
+}
+
+// unmarshalUniverseHost maps an RPC universe host (of the form 'host' or
+// 'host:port') into a net.Addr.
+func unmarshalUniverseHost(uniAddr string) (universe.ServerAddr, error) {
+	var (
+		host      string
+		port      int
+		uniServer universe.ServerAddr
+	)
+
+	if len(uniAddr) == 0 {
+		return uniServer, fmt.Errorf("universe host cannot be empty")
+	}
+
+	// Split the address into its host and port components.
+	h, p, err := net.SplitHostPort(uniAddr)
+	if err != nil {
+		// If a port wasn't specified, we'll assume the address only
+		// contains the host so we'll use the default port.
+		host = uniAddr
+		port = defaultRPCPort
+	} else {
+		// Otherwise, we'll note both the host and ports.
+		host = h
+		portNum, err := strconv.Atoi(p)
+		if err != nil {
+			return uniServer, err
+		}
+		port = portNum
+	}
+
+	// TODO(roasbeef): add tor support
+
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	uniServer.Addr, err = net.ResolveTCPAddr("tcp", hostPort)
+	if err != nil {
+		return uniServer, err
+	}
+
+	return uniServer, nil
+}
+
+// unmarshalSyncTargets maps an RPC sync target into a concrete type.
+func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
+	uniIDs := make([]universe.Identifier, 0, len(targets))
+	for _, target := range targets {
+		uniID, err := unmarshalUniID(target.Id)
+		if err != nil {
+			return nil, err
+		}
+		uniIDs = append(uniIDs, uniID)
+	}
+
+	return uniIDs, nil
+}
+
+// marshalUniverseDiff marshals a universe diff into the RPC form.
+func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
+	uniDiff []universe.AssetSyncDiff) (*unirpc.SyncResponse, error) {
+
+	resp := &unirpc.SyncResponse{
+		SyncedUniverses: make([]*unirpc.SyncedUniverse, 0, len(uniDiff)),
+	}
+
+	for _, diff := range uniDiff {
+		oldUniRoot, err := marshalUniverseRoot(diff.OldUniverseRoot)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal old "+
+				"uni root: %w", err)
+		}
+		newUniRoot, err := marshalUniverseRoot(diff.NewUniverseRoot)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal new unit "+
+				"root: %w", err)
+		}
+
+		leaves := make([]*unirpc.AssetLeaf, len(diff.NewLeafProofs))
+		for i, leaf := range diff.NewLeafProofs {
+			leaves[i], err = r.marshalAssetLeaf(ctx, leaf)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		resp.SyncedUniverses = append(
+			resp.SyncedUniverses, &unirpc.SyncedUniverse{
+				OldAssetRoot:   oldUniRoot,
+				NewAssetRoot:   newUniRoot,
+				NewAssetLeaves: leaves,
+			},
+		)
+	}
+
+	return resp, nil
+}
+
+// SyncUniverse takes host information for a remote Universe server, then
+// attempts to synchronize either only the set of specified asset_ids, or all
+// assets if none are specified. The sync process will attempt to query for the
+// latest known root for each asset, performing tree based reconciliation to
+// arrive at a new shared root.
+func (r *rpcServer) SyncUniverse(ctx context.Context,
+	req *unirpc.SyncRequest) (*unirpc.SyncResponse, error) {
+
+	// TODO(roasbeef): have another layer, only allow single outstanding
+	// sync request per host?
+
+	syncMode, err := unmarshalUniverseSyncType(req.SyncMode)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sync type: %w", err)
+	}
+	uniAddr, err := unmarshalUniverseHost(req.UniverseHost)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse universe host: %w", err)
+	}
+	syncTargets, err := unmarshalSyncTargets(req.SyncTargets)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sync targets: %w", err)
+	}
+
+	// TODO(roasbeef): add layer of indirection in front of?
+	//  * just interface interaction
+	universeDiff, err := r.cfg.UniverseSyncer.SyncUniverse(
+		ctx, uniAddr, syncMode, syncTargets...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to sync universe: %w", err)
+	}
+
+	return r.marshalUniverseDiff(ctx, universeDiff)
 }

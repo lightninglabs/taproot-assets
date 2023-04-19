@@ -2,16 +2,22 @@ package itest
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"sort"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
+	"golang.org/x/net/http2"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -62,6 +68,22 @@ var (
 				Amount: 1,
 			},
 			EnableEmission: true,
+		},
+	}
+
+	transport = &http2.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	client = http.Client{
+		Transport: transport,
+		Timeout:   1 * time.Second,
+	}
+	jsonMarshaler = &proxy.JSONPb{
+		MarshalOptions: protojson.MarshalOptions{
+			UseProtoNames:   true,
+			EmitUnpopulated: true,
 		},
 	}
 )

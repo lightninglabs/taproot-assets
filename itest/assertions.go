@@ -11,11 +11,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
+	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -559,5 +562,89 @@ func assertListAssets(t *harnessTest, ctx context.Context, tarod *tarodHarness,
 			}
 		}
 		require.True(t.t, assetMatched, "asset not matched: %v", a)
+	}
+}
+
+func assertUniverseRootEqual(t *testing.T, a, b *unirpc.UniverseRoot) {
+	// The ids should batch exactly.
+	require.Equal(t, a.Id.Id, b.Id.Id)
+
+	// The sum and root hash should also match for the SMT root itself.
+	require.Equal(
+		t, a.MssmtRoot.RootHash, b.MssmtRoot.RootHash,
+	)
+	require.Equal(
+		t, a.MssmtRoot.RootSum, b.MssmtRoot.RootSum,
+	)
+}
+
+func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
+	// The set of keys in the maps should match exactly, as this means the
+	// same set of asset IDs are being tracked.
+	uniKeys := maps.Keys(a.UniverseRoots)
+	require.Equal(t, len(a.UniverseRoots), len(b.UniverseRoots))
+	require.True(t, chanutils.All(uniKeys, func(key string) bool {
+		_, ok := b.UniverseRoots[key]
+		return ok
+	}))
+
+	// Now that we know the same set of assets are being tracked, we'll
+	// ensure that the root values are also the same.
+	for uniID := range a.UniverseRoots {
+		rootA, ok := a.UniverseRoots[uniID]
+		require.True(t, ok)
+
+		rootB, ok := b.UniverseRoots[uniID]
+		require.True(t, ok)
+
+		assertUniverseRootEqual(t, rootA, rootB)
+	}
+}
+
+func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
+	a, b *tarodHarness) {
+
+	for _, uniID := range uniIDs {
+		aLeaves, err := a.AssetLeaves(context.Background(), uniID)
+		require.NoError(t, err)
+
+		bLeaves, err := b.AssetLeaves(context.Background(), uniID)
+		require.NoError(t, err)
+
+		require.Equal(t, len(aLeaves.Leaves), len(bLeaves.Leaves))
+
+		for i := 0; i < len(aLeaves.Leaves); i++ {
+			require.Equal(
+				t, aLeaves.Leaves[i].Asset,
+				bLeaves.Leaves[i].Asset,
+			)
+
+			require.Equal(
+				t, aLeaves.Leaves[i].IssuanceProof,
+				bLeaves.Leaves[i].IssuanceProof,
+			)
+		}
+	}
+}
+
+func assertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
+	a, b *tarodHarness) {
+
+	for _, uniID := range uniIDs {
+		aUniKeys, err := a.AssetLeafKeys(context.Background(), uniID)
+		require.NoError(t, err)
+
+		bUniKeys, err := b.AssetLeafKeys(context.Background(), uniID)
+		require.NoError(t, err)
+
+		require.Equal(
+			t, len(aUniKeys.AssetKeys), len(bUniKeys.AssetKeys),
+		)
+
+		for i := 0; i < len(aUniKeys.AssetKeys); i++ {
+			require.Equal(
+				t, aUniKeys.AssetKeys[i], bUniKeys.AssetKeys[i],
+			)
+		}
 	}
 }

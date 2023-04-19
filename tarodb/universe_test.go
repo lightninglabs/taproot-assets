@@ -73,7 +73,7 @@ func TestUniverseEmptyTree(t *testing.T) {
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	_, err := baseUniverse.RootNode(ctx)
-	require.ErrorIs(t, err, ErrNoUniverseRoot)
+	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
 func randBaseKey(t *testing.T) universe.BaseKey {

@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/proof"
 )
 
@@ -59,9 +60,9 @@ func NewMintingArchive(cfg MintingArchiveConfig) *MintingArchive {
 	return a
 }
 
-// fetchBaseUni returns the base universe instance for the passed identifier.
+// fetchUniverse returns the base universe instance for the passed identifier.
 // The universe will be laoded in on demand if it has not been seen before.
-func (a *MintingArchive) fetchBaseUni(id Identifier) BaseBackend {
+func (a *MintingArchive) fetchUniverse(id Identifier) BaseBackend {
 	a.Lock()
 	defer a.Unlock()
 
@@ -74,52 +75,50 @@ func (a *MintingArchive) fetchBaseUni(id Identifier) BaseBackend {
 	return baseUni
 }
 
-type (
-	// uniFetcher takes a base universe ID, and returns the base universe
-	// backend associated with the ID.
-	uniFetcher func(id Identifier) BaseBackend
-
-	// uniAction is a function that takes a base universe backend, and does
-	// something to it, returning a type T and an error.
-	uniAction[T any] func(BaseBackend) (T, error)
-)
-
-// universeCtx is a context manager that can be used to perform scoped actions
-// to a base universe instance.
-type universeCtx[T any] struct {
-	fetcher uniFetcher
+// uniFetcher takes a base universe ID, and returns the base universe
+// backend associated with the ID.
+type uniFetcher interface {
+	fetchUniverse(id Identifier) BaseBackend
 }
 
-// withBaseUni is a helper method that takes a base universe ID, and a applies
-// some function f to the base universe backed for that DI.
-func (u *universeCtx[T]) withBaseUni(id Identifier,
-	f uniAction[T]) (T, error) {
-
-	baseUni := u.fetcher(id)
-
-	return f(baseUni)
-}
+// uniAction is a function that takes a base universe backend, and does
+// something to it, returning a type T and an error.
+type uniAction[T any] func(BaseBackend) (T, error)
 
 // withBaseUni is a helper function for performing some action on/with a base
 // universe with a generic return value.
-func withBaseUni[T any](id Identifier, f uniAction[T]) (T, error) {
-	var uniCtx universeCtx[T]
+func withBaseUni[T any](fetcher uniFetcher, id Identifier,
+	f uniAction[T]) (T, error) {
 
-	return uniCtx.withBaseUni(id, f)
+	baseUni := fetcher.fetchUniverse(id)
+
+	return f(baseUni)
 }
 
 // RootNode returns the root node of the base universe corresponding to the
 // passed ID.
 func (a *MintingArchive) RootNode(ctx context.Context,
-	id Identifier) (mssmt.Node, error) {
+	id Identifier) (BaseRoot, error) {
 
-	return withBaseUni(id, func(baseUni BaseBackend) (mssmt.Node, error) {
-		return baseUni.RootNode(ctx)
+	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
+
+	return withBaseUni(a, id, func(baseUni BaseBackend) (BaseRoot, error) {
+		smtNode, err := baseUni.RootNode(ctx)
+		if err != nil {
+			return BaseRoot{}, err
+		}
+
+		return BaseRoot{
+			ID:   id,
+			Node: smtNode,
+		}, nil
 	})
 }
 
 // RootNodes returns the set of root nodes for all known base universes assets.
 func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
+	log.Debugf("Fetching all known Universe roots")
+
 	return a.cfg.UniverseForest.RootNodes(ctx)
 }
 
@@ -130,7 +129,10 @@ func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
 func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	key BaseKey, leaf *MintingLeaf) (*IssuanceProof, error) {
 
-	baseUni := a.fetchBaseUni(id)
+	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
+		id.String(), spew.Sdump(key))
+
+	baseUni := a.fetchUniverse(id)
 
 	// We'll first check to see if we already know of this leaf within the
 	// base uni instance. If so, then we'll return the existing issuance
@@ -144,13 +146,53 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// Otherwise, this is a new proof, so we'll first perform validation of
 	// the minting leaf to ensure it's a valid issuance proof.
 	//
+	// The proofs we insert are just the state transition, so we'll encode
+	// it as a file first as that's what the expected wants.
+	//
 	// TODO(roasbeef): add option to skip proof verification?
-	var proofVerifier proof.BaseVerifier
-	assetSnapshot, err := proofVerifier.Verify(
-		ctx, bytes.NewReader(leaf.GenesisProof), a.cfg.HeaderVerifier,
-	)
+	var newProof proof.Proof
+	err := newProof.Decode(bytes.NewReader(leaf.GenesisProof))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof: %v", err)
+	}
+	assetSnapshot, err := newProof.Verify(ctx, nil, a.cfg.HeaderVerifier)
+	if err != nil {
+		return nil, fmt.Errorf("unable to verify proof: %v", err)
+	}
+
+	newAsset := assetSnapshot.Asset
+
+	// The final asset we extract from the proof should also match up with
+	// both the universe ID and also the base key.
+	switch {
+	// If the group key is present, then that should match the group key of
+	// the universe.
+	case id.GroupKey != nil && !bytes.Equal(
+		schnorr.SerializePubKey(id.GroupKey),
+		schnorr.SerializePubKey(&newAsset.GroupKey.GroupPubKey),
+	):
+		return nil, fmt.Errorf("group key mismatch: expected %x, "+
+			"got %x", id.GroupKey.SerializeCompressed(),
+			newAsset.GroupKey.GroupPubKey.SerializeCompressed())
+
+	// If the group key is nil, then the asset ID should match.
+	case id.GroupKey == nil && id.AssetID != newAsset.ID():
+		return nil, fmt.Errorf("asset id mismatch: expected %v, got %v",
+			id.AssetID, newAsset.ID())
+
+	// The outpoint of the final resting place of the asset should match
+	// the leaf key
+	//
+	// TODO(roasbeef): this restrict to issuance
+	case assetSnapshot.OutPoint != key.MintingOutpoint:
+		return nil, fmt.Errorf("outpoint mismatch: expected %v, got %v",
+			key.MintingOutpoint, assetSnapshot.OutPoint)
+
+	// The script key should also match exactly.
+	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
+		return nil, fmt.Errorf("script key mismatch: expected %v, "+
+			"got %v", key.ScriptKey.PubKey.SerializeCompressed(),
+			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
 	// Now that we know the proof is valid, we'll insert it into the base
@@ -171,7 +213,10 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	key BaseKey) ([]*IssuanceProof, error) {
 
-	return withBaseUni(id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
+	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
+		id.String(), spew.Sdump(key))
+
+	return withBaseUni(a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
 		return baseUni.FetchIssuanceProof(ctx, key)
 	})
 }
@@ -181,7 +226,9 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 func (a *MintingArchive) MintingKeys(ctx context.Context,
 	id Identifier) ([]BaseKey, error) {
 
-	return withBaseUni(id, func(baseUni BaseBackend) ([]BaseKey, error) {
+	log.Debugf("Retrieving all keys for Universe: id=%v", id.String())
+
+	return withBaseUni(a, id, func(baseUni BaseBackend) ([]BaseKey, error) {
 		return baseUni.MintingKeys(ctx)
 	})
 }
@@ -191,7 +238,9 @@ func (a *MintingArchive) MintingKeys(ctx context.Context,
 func (a *MintingArchive) MintingLeaves(ctx context.Context,
 	id Identifier) ([]MintingLeaf, error) {
 
-	return withBaseUni(id, func(baseUni BaseBackend) ([]MintingLeaf, error) {
+	log.Debugf("Retrieving all leaves for Universe: id=%v", id.String())
+
+	return withBaseUni(a, id, func(baseUni BaseBackend) ([]MintingLeaf, error) {
 		return baseUni.MintingLeaves(ctx)
 	})
 }

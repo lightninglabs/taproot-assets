@@ -18,6 +18,8 @@ type ErrFunc[V any] func(context.Context, V) error
 // Context will be passed in executable func and canceled the first time a
 // function passed returns a non-nil error.  Returns the first non-nil error
 // (if any).
+//
+// TODO(roasbeef): rename Par?
 func ErrGroup[V any](ctx context.Context, s []V, f ErrFunc[V]) error {
 	errGroup, ctx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(runtime.NumCPU())
