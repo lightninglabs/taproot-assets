@@ -356,9 +356,10 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	t.Logf("Got response from list transfers: %v", transferRespJSON)
 }
 
-// assertReceiveComplete makes sure the given receiver has the correct number of
-// completed inbound asset transfers in their list of events.
-func assertReceiveComplete(t *harnessTest, receiver *tarodHarness,
+// assertNonInteractiveRecvComplete makes sure the given receiver has the
+// correct number of completed non-interactive inbound asset transfers in their
+// list of events.
+func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tarodHarness,
 	totalInboundTransfers int) {
 
 	ctxb := context.Background()

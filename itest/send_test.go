@@ -117,7 +117,7 @@ func testBasicSend(t *harnessTest) {
 		_ = sendProof(
 			t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo,
 		)
-		assertReceiveComplete(t, secondTarod, i+1)
+		assertNonInteractiveRecvComplete(t, secondTarod, i+1)
 	}
 
 	// Close event stream.
@@ -192,7 +192,7 @@ func testSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
 	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
-	assertReceiveComplete(t, recvTarod, 1)
+	assertNonInteractiveRecvComplete(t, recvTarod, 1)
 
 	// Assert that the sending node returns the correct asset list via RPC.
 	assertListAssets(
@@ -234,7 +234,7 @@ func testSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
 	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
-	assertReceiveComplete(t, recvTarod, 2)
+	assertNonInteractiveRecvComplete(t, recvTarod, 2)
 }
 
 // testReattemptFailedAssetSend tests that a failed attempt at sending an asset
