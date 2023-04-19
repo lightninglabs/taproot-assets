@@ -10,6 +10,7 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -228,6 +229,16 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	case <-s.cfg.SignalInterceptor.ShutdownChannel():
 
 	case err := <-mainErrChan:
+		if err == nil {
+			return nil
+		}
+
+		// We'll report the error to the main daemon, but only if this
+		// isn't a context cancel.
+		if chanutils.IsCanceled(err) {
+			return nil
+		}
+
 		return mkErr("received critical error from subsystem: %w", err)
 
 	case <-s.quit:
