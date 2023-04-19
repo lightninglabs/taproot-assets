@@ -358,7 +358,7 @@ func TestImportAssetProof(t *testing.T) {
 	} else {
 		assetConstraints.AssetID = &assetID
 	}
-	selectedAssets, err := assetStore.SelectCommitment(
+	selectedAssets, err := assetStore.ListEligibleCoins(
 		ctx, assetConstraints,
 	)
 	require.NoError(t, err)
@@ -684,7 +684,7 @@ func TestSelectCommitment(t *testing.T) {
 			// With the assets inserted, we'll now attempt to query
 			// for the set of matching assets based on the
 			// constraints.
-			selectedAssets, err := assetsStore.SelectCommitment(
+			selectedAssets, err := assetsStore.ListEligibleCoins(
 				ctx, tc.constraints,
 			)
 			require.ErrorIs(t, tc.err, err)

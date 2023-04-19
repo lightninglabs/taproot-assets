@@ -78,16 +78,16 @@ var (
 		"satisfy given constraints")
 )
 
-// CommitmentSelector attracts over the coin selection process needed to be
+// CoinLister attracts over the coin selection process needed to be
 // able to execute moving taro assets on chain.
-type CommitmentSelector interface {
-	// SelectCommitment takes the set of commitment constraints and returns
+type CoinLister interface {
+	// ListEligibleCoins takes the set of commitment constraints and returns
 	// an AnchoredCommitment that returns all the information needed to use
 	// the commitment as an input to an on chain taro transaction.
 	//
 	// If coin selection cannot be completed, then ErrMatchingAssetsNotFound
 	// should be returned.
-	SelectCommitment(context.Context,
+	ListEligibleCoins(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
 }
 

@@ -1371,12 +1371,10 @@ func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 	return commitments[0], nil
 }
 
-// SelectCommitment takes the set of commitment contrarians and returns an
-// AnchoredCommitment that returns all the information needed to use the
-// commitment as an input to an on chain taro transaction.
+// ListEligibleCoins lists eligible commitments given a set of constraints.
 //
-// NOTE: This implements the tarofreighter.CommitmentSelector interface.
-func (a *AssetStore) SelectCommitment(
+// NOTE: This implements the tarofreighter.CoinLister interface.
+func (a *AssetStore) ListEligibleCoins(
 	ctx context.Context, constraints tarofreighter.CommitmentConstraints) (
 	[]*tarofreighter.AnchoredCommitment, error) {
 
@@ -2419,8 +2417,8 @@ func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
 var _ proof.Archiver = (*AssetStore)(nil)
 
 // A compile-time constraint to ensure that AssetStore meets the
-// tarofreighter.CommitmentSelector interface.
-var _ tarofreighter.CommitmentSelector = (*AssetStore)(nil)
+// tarofreighter.CoinLister interface.
+var _ tarofreighter.CoinLister = (*AssetStore)(nil)
 
 // A compile-time constraint to ensure that AssetStore meets the
 // tarofreighter.ExportLog interface.

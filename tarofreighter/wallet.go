@@ -114,7 +114,7 @@ type AnchorVTxnsParams struct {
 type WalletConfig struct {
 	// CoinSelector is the interface used to select input coins (assets)
 	// for the transfer.
-	CoinSelector CommitmentSelector
+	CoinSelector CoinLister
 
 	// AssetProofs is used to write the proof files on disk for the
 	// receiver during a transfer.
@@ -280,7 +280,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		AssetID:  &fundDesc.ID,
 		MinAmt:   fundDesc.Amount,
 	}
-	eligibleCommitments, err := f.cfg.CoinSelector.SelectCommitment(
+	eligibleCommitments, err := f.cfg.CoinSelector.ListEligibleCoins(
 		ctx, constraints,
 	)
 	if err != nil {
