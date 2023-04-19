@@ -259,6 +259,12 @@ func (c *Custodian) watchInboundAssets() {
 		}
 
 		if err != nil {
+			// We'll report the error to the main daemon, but only
+			// if this isn't a context cancel.
+			if chanutils.IsCanceled(err) {
+				return
+			}
+
 			log.Errorf("Aborting main custodian event loop: %v",
 				err)
 
