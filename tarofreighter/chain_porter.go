@@ -27,7 +27,7 @@ import (
 type ChainPorterConfig struct {
 	// CoinSelector is the interface used to select input coins (assets)
 	// for the transfer.
-	CoinSelector CoinLister
+	CoinSelector CoinSelector
 
 	// Signer implements the Taro level signing we need to sign a virtual
 	// transaction.

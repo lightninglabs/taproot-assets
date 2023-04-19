@@ -223,7 +223,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:  assetWallet,
 		ChainPorter: tarofreighter.NewChainPorter(
 			&tarofreighter.ChainPorterConfig{
-				CoinSelector: assetStore,
+				CoinSelector: coinSelect,
 				Signer:       virtualTxSigner,
 				TxValidator:  &taro.ValidatorV0{},
 				ExportLog:    assetStore,
