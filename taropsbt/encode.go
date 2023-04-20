@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -262,6 +263,11 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	}, {
 		key:     PsbtKeyTypeOutputTaroSplitAsset,
 		encoder: assetEncoder(o.SplitAsset),
+	}, {
+		key: PsbtKeyTypeOutputTaroAnchorTapscriptPreimage,
+		encoder: tapscriptPreimageEncoder(
+			o.AnchorOutputTapscriptPreimage,
+		),
 	}}
 
 	for idx := range mapping {
@@ -335,6 +341,20 @@ func booleanEncoder(val bool) func() ([]byte, error) {
 
 		return falseAsBytes, nil
 	}
+}
+
+// tapscriptPreimageEncoder is an encoder that does nothing if the given
+// preimage is nil.
+func tapscriptPreimageEncoder(t *commitment.TapscriptPreimage) func() ([]byte,
+	error) {
+
+	if t == nil {
+		return func() ([]byte, error) {
+			return nil, nil
+		}
+	}
+
+	return tlvEncoder(&t, commitment.TapscriptPreimageEncoder)
 }
 
 // payToTaprootScript creates a pk script for a pay-to-taproot output key. We

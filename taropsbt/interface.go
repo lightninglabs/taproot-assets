@@ -47,6 +47,7 @@ var (
 	PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation = []byte{0x75}
 	PsbtKeyTypeOutputTaroAsset                              = []byte{0x76}
 	PsbtKeyTypeOutputTaroSplitAsset                         = []byte{0x77}
+	PsbtKeyTypeOutputTaroAnchorTapscriptPreimage            = []byte{0x78}
 )
 
 // VOutPredicate is a function that can be used to filter virtual outputs.
@@ -348,6 +349,10 @@ type VOutput struct {
 	// AnchorOutputTaprootBip32Derivation is the Taproot BIP32 derivation of
 	// the anchor output's internal key.
 	AnchorOutputTaprootBip32Derivation *psbt.TaprootBip32Derivation
+
+	// AnchorOutputTapscriptPreimage is the preimage of the tapscript
+	// sibling of the Taro commitment.
+	AnchorOutputTapscriptPreimage *commitment.TapscriptPreimage
 
 	// Asset is the actual asset (including witness or split commitment
 	// data) that this output will commit to on chain. This asset will be

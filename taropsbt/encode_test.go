@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,14 @@ func randomPacket(t testing.TB) *VPacket {
 	testAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
 	testOutputAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
 	testOutputAsset.ScriptKey.TweakedScriptKey = nil
+	leaf1 := txscript.TapLeaf{
+		LeafVersion: txscript.BaseLeafVersion,
+		Script:      []byte("not a valid script"),
+	}
+	testPreimage1 := commitment.NewPreimageFromLeaf(leaf1)
+	testPreimage2 := commitment.NewPreimageFromBranch(
+		txscript.NewTapBranch(leaf1, leaf1),
+	)
 
 	vPacket := &VPacket{
 		Inputs: []*VInput{{
@@ -74,6 +83,7 @@ func randomPacket(t testing.TB) *VPacket {
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			SplitAsset:                         testOutputAsset,
+			AnchorOutputTapscriptPreimage:      testPreimage1,
 		}, {
 			Amount:                             345,
 			IsSplitRoot:                        false,
@@ -84,6 +94,7 @@ func randomPacket(t testing.TB) *VPacket {
 			AnchorOutputTaprootBip32Derivation: trBip32Derivation,
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
+			AnchorOutputTapscriptPreimage:      testPreimage2,
 		}},
 		ChainParams: testParams,
 	}
