@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"encoding/hex"
 	"math/rand"
 	"testing"
 	"testing/quick"
@@ -12,6 +13,14 @@ import (
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	testTaroCommitmentScript, _ = hex.DecodeString(
+		"008ff52c91ed7d509440aa7fbf04ad60ad554e4a01f101e5222916e70f9f" +
+			"68fb451cfee543eac337024a6f13bb5f496e99209207a3792a74" +
+			"89ccc21d4dbbe5ed180000000000001389",
+	)
 )
 
 func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
@@ -1120,4 +1129,13 @@ func TestTaroCommitmentDeepCopy(t *testing.T) {
 	require.True(t, mssmt.IsEqualNode(
 		taroCommitment.TreeRoot, newCommitment.TreeRoot),
 	)
+}
+
+// TestTaroCommitmentScript tests that we're able to properly verify if a given
+// script is a valid taro commitment script or not.
+func TestIsTaroCommitmentScript(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, IsTaroCommitmentScript(testTaroCommitmentScript))
+	require.False(t, IsTaroCommitmentScript(TaroMarker[:]))
 }

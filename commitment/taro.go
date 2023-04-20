@@ -32,6 +32,14 @@ var (
 	ErrMissingAssetCommitment = errors.New(
 		"taro commitment: missing asset commitment",
 	)
+
+	// TaroCommitmentScriptSize is the size of the Taro commitment script:
+	//
+	//	- 1 byte for the version
+	//	- 32 bytes for the TaroMarker
+	//	- 32 bytes for the root hash
+	//	- 8 bytes for the root sum
+	TaroCommitmentScriptSize = 1 + 32 + 32 + 8
 )
 
 // AssetCommitments is the set of assetCommitments backing a TaroCommitment.
@@ -208,6 +216,19 @@ func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {
 		l, r = r, l
 	}
 	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
+}
+
+// IsTaroCommitmentScript returns true if the passed script is a valid Taro
+// commitment script.
+func IsTaroCommitmentScript(script []byte) bool {
+	if len(script) != TaroCommitmentScriptSize {
+		return false
+	}
+	if script[0] != byte(asset.V0) {
+		return false
+	}
+
+	return bytes.Equal(script[1:1+len(TaroMarker)], TaroMarker[:])
 }
 
 // TapscriptRoot returns the tapscript root for this TaroCommitment. If
