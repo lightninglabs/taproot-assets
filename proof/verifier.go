@@ -346,6 +346,11 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
+	// 6. At this point we know there is an inclusion proof, which must be
+	// a commitment proof. So we can extract the tapscript preimage directly
+	// from there.
+	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
+
 	// TODO(roasbeef): need tx index and block height as well
 
 	return &AssetSnapshot{
@@ -354,13 +359,14 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
 		},
-		AnchorBlockHash: p.BlockHeader.BlockHash(),
-		AnchorTx:        &p.AnchorTx,
-		OutputIndex:     p.InclusionProof.OutputIndex,
-		InternalKey:     p.InclusionProof.InternalKey,
-		ScriptRoot:      taroCommitment,
-		SplitAsset:      splitAsset != nil,
-		MetaReveal:      p.MetaReveal,
+		AnchorBlockHash:  p.BlockHeader.BlockHash(),
+		AnchorTx:         &p.AnchorTx,
+		OutputIndex:      p.InclusionProof.OutputIndex,
+		InternalKey:      p.InclusionProof.InternalKey,
+		ScriptRoot:       taroCommitment,
+		TapscriptSibling: tapscriptPreimage,
+		SplitAsset:       splitAsset != nil,
+		MetaReveal:       p.MetaReveal,
 	}, nil
 }
 

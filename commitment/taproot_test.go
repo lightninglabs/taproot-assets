@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -9,6 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	testEncodedPreimage = "00c01876a9148f15527faa0d84ce8bd364e32d4b627fb4" +
+		"8efb9288"
+)
+
+// TestTapscriptPreimage tests the various methods of the TapscriptPreimage
+// struct.
 func TestTapscriptPreimage(t *testing.T) {
 	t.Parallel()
 
@@ -117,6 +125,37 @@ func TestTapscriptPreimage(t *testing.T) {
 
 			require.NoError(tt, err)
 			require.Equal(tt, tc.expectedHash, hash)
+
+			// Make sure that the preimage is detected as not being
+			// a Taro commitment.
+			require.NoError(tt, preimage.VerifyNoCommitment())
 		})
 	}
+}
+
+// TestMaybeDecodeTapscriptPreimage tests the MaybeDecodeTapscriptPreimage
+// function.
+func TestMaybeDecodeTapscriptPreimage(t *testing.T) {
+	testBytes, err := hex.DecodeString(testEncodedPreimage)
+	require.NoError(t, err)
+	preimage, hash, err := MaybeDecodeTapscriptPreimage(testBytes)
+	require.NoError(t, err)
+	require.NotNil(t, hash)
+	require.False(t, preimage.IsEmpty())
+}
+
+// TestMaybeEncodeTapscriptPreimage tests the MaybeEncodeTapscriptPreimage
+// function.
+func TestMaybeEncodeTapscriptPreimage(t *testing.T) {
+	preImage := []byte("hash locks are cool")
+	siblingLeaf := test.ScriptHashLock(t, preImage)
+
+	encodedPreimage, _, err := MaybeEncodeTapscriptPreimage(
+		NewPreimageFromLeaf(siblingLeaf),
+	)
+	require.NoError(t, err)
+
+	require.Equal(
+		t, testEncodedPreimage, hex.EncodeToString(encodedPreimage),
+	)
 }

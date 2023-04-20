@@ -36,6 +36,12 @@ var (
 	ErrInvalidTapscriptPreimageLen = errors.New(
 		"invalid tapscript preimage length",
 	)
+
+	// ErrPreimageIsTaroCommitment is an error returned when a tapscript
+	// preimage is a valid Taro commitment.
+	ErrPreimageIsTaroCommitment = errors.New(
+		"preimage is a taro commitment",
+	)
 )
 
 // TapscriptPreimageType denotes the type of tapscript sibling preimage.
@@ -139,6 +145,73 @@ func (t *TapscriptPreimage) TapHash() (*chainhash.Hash, error) {
 		return nil, fmt.Errorf("unknown sibling type: <%d>",
 			t.SiblingType)
 	}
+}
+
+// VerifyNoCommitment verifies that the preimage is not a Taro commitment.
+func (t *TapscriptPreimage) VerifyNoCommitment() error {
+	if IsTaroCommitmentScript(t.SiblingPreimage) {
+		return ErrPreimageIsTaroCommitment
+	}
+
+	return nil
+}
+
+// MaybeDecodeTapscriptPreimage returns the decoded preimage and hash of the
+// Tapscript sibling or nil if the encoded content is empty.
+func MaybeDecodeTapscriptPreimage(encoded []byte) (*TapscriptPreimage,
+	*chainhash.Hash, error) {
+
+	if len(encoded) == 0 {
+		return nil, nil, nil
+	}
+
+	var (
+		preimage = &TapscriptPreimage{}
+		scratch  [8]byte
+	)
+	err := TapscriptPreimageDecoder(
+		bytes.NewReader(encoded), &preimage, &scratch,
+		uint64(len(encoded)),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error decoding tapscript "+
+			"preimage: %w", err)
+	}
+
+	tapHash, err := preimage.TapHash()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error deriving tap hash "+
+			"from preimage: %w", err)
+	}
+
+	return preimage, tapHash, nil
+}
+
+// MaybeEncodeTapscriptPreimage returns the encoded preimage and hash of the
+// Tapscript sibling or nil if the preimage is nil.
+func MaybeEncodeTapscriptPreimage(t *TapscriptPreimage) ([]byte,
+	*chainhash.Hash, error) {
+
+	if t == nil {
+		return nil, nil, nil
+	}
+
+	tapHash, err := t.TapHash()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error deriving tap hash "+
+			"from preimage: %w", err)
+	}
+
+	var (
+		b       bytes.Buffer
+		scratch [8]byte
+	)
+	if err := TapscriptPreimageEncoder(&b, &t, &scratch); err != nil {
+		return nil, tapHash, fmt.Errorf("error encoding tapscript "+
+			"preimage: %w", err)
+	}
+
+	return b.Bytes(), tapHash, nil
 }
 
 // NewTapBranchHash takes the raw tap hashes of the left and right nodes and

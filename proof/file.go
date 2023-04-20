@@ -363,6 +363,11 @@ type AssetSnapshot struct {
 	// internal key in the Anchor transaction.
 	ScriptRoot *commitment.TaroCommitment
 
+	// TapscriptSibling is the pre-image to the tapscript hash of the
+	// sibling to the Taro root. If this is nil then it means the Taro root
+	// is the only tapscript leaf in the tree.
+	TapscriptSibling *commitment.TapscriptPreimage
+
 	// SplitAsset is the optional indicator that the asset in the snapshot
 	// resulted from splitting an asset. If this is true then the root asset
 	// of the split can be found in the asset witness' split commitment.
