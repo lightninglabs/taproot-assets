@@ -56,9 +56,9 @@ type AnchoredCommitment struct {
 	// in the above out point.
 	InternalKey keychain.KeyDescriptor
 
-	// TapscriptSibling is the tapscript sibling of this asset. This will
-	// usually be blank.
-	TapscriptSibling []byte
+	// TapscriptSibling is the tapscript sibling preimage of this asset.
+	// This will usually be nil.
+	TapscriptSibling *commitment.TapscriptPreimage
 
 	// Commitment is the full Taro commitment anchored at the above
 	// outpoint. This includes both the asset to be used as an input, along
@@ -116,7 +116,8 @@ type Anchor struct {
 	// contains the Taro commitment of the anchor output.
 	MerkleRoot []byte
 
-	// TapscriptSibling is the tapscript sibling of the Taro commitment.
+	// TapscriptSibling is the serialized preimage of the tapscript sibling
+	// of the Taro commitment.
 	TapscriptSibling []byte
 
 	// NumPassiveAssets is the number of passive assets in the commitment

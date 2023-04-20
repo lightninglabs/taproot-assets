@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -347,6 +348,14 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			"asset: %w", err)
 	}
 
+	tapscriptSiblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
+		assetInput.TapscriptSibling,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot encode tapscript sibling: %w",
+			err)
+	}
+
 	// At this point, we have a valid "coin" to spend in the commitment, so
 	// we'll add the relevant information to the virtual TX's input.
 	//
@@ -364,6 +373,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			PkScript:          anchorPkScript,
 			InternalKey:       internalKey.PubKey,
 			MerkleRoot:        anchorMerkleRoot,
+			TapscriptSibling:  tapscriptSiblingBytes,
 			Bip32Derivation:   inBip32Derivation,
 			TrBip32Derivation: inTrBip32Derivation,
 		},
@@ -893,13 +903,23 @@ func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 		}
 	}
 
-	taroScriptRoot := inputAnchorCommitmentCopy.TapscriptRoot(nil)
+	// Decode the Tapscript sibling preimage if there was one, so we can
+	// arrive at the correct merkle root hash.
+	var siblingHash *chainhash.Hash
+	if assetInput.TapscriptSibling != nil {
+		siblingHash, err = assetInput.TapscriptSibling.TapHash()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	merkleRoot := inputAnchorCommitmentCopy.TapscriptRoot(siblingHash)
 	anchorPubKey := txscript.ComputeTaprootOutputKey(
-		assetInput.InternalKey.PubKey, taroScriptRoot[:],
+		assetInput.InternalKey.PubKey, merkleRoot[:],
 	)
 
 	pkScript, err := taroscript.PayToTaprootScript(anchorPubKey)
-	return pkScript, taroScriptRoot[:], err
+	return pkScript, merkleRoot[:], err
 }
 
 // adjustFundedPsbt takes a funded PSBT which may have used BIP 69 sorting, and

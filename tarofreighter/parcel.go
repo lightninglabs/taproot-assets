@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -337,11 +336,16 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 			}
 		}
 
-		var tapscriptSibling *chainhash.Hash
-		// TODO(guggero): Actually store and retrieve the tapscript
-		// sibling, verify with unit/integration test.
+		preimageBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+			vOut.AnchorOutputTapscriptPreimage,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode tapscript "+
+				"preimage: %w", err)
+		}
+
 		outCommitment := outputCommitments[vOut.AnchorOutputIndex]
-		taroRoot := outCommitment.TapscriptRoot(tapscriptSibling)
+		merkleRoot := outCommitment.TapscriptRoot(siblingHash)
 
 		var (
 			numPassiveAssets    uint32
@@ -398,8 +402,8 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 				},
 				Value:            btcutil.Amount(txOut.Value),
 				InternalKey:      anchorInternalKey,
-				MerkleRoot:       taroRoot[:],
-				TapscriptSibling: nil,
+				MerkleRoot:       merkleRoot[:],
+				TapscriptSibling: preimageBytes,
 				NumPassiveAssets: numPassiveAssets,
 			},
 			ScriptKey:           vOut.ScriptKey,
@@ -462,8 +466,8 @@ func (s *sendPackage) createProofSuffix(outIndex int) (*proof.Proof, error) {
 // newParams is used to create a set of new params for the final state
 // transition.
 func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
-	internalKey *btcec.PublicKey,
-	taroRoot *commitment.TaroCommitment) *proof.TransitionParams {
+	internalKey *btcec.PublicKey, taroRoot *commitment.TaroCommitment,
+	siblingPreimage *commitment.TapscriptPreimage) *proof.TransitionParams {
 
 	return &proof.TransitionParams{
 		BaseProofParams: proof.BaseProofParams{
@@ -472,11 +476,12 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 					anchorTx.FinalTx,
 				},
 			},
-			Tx:          anchorTx.FinalTx,
-			TxIndex:     0,
-			OutputIndex: outputIndex,
-			InternalKey: internalKey,
-			TaroRoot:    taroRoot,
+			Tx:               anchorTx.FinalTx,
+			TxIndex:          0,
+			OutputIndex:      outputIndex,
+			InternalKey:      internalKey,
+			TaroRoot:         taroRoot,
+			TapscriptSibling: siblingPreimage,
 		},
 		NewAsset: a,
 	}
@@ -507,6 +512,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		rootParams := newParams(
 			anchorTx, rootOut.Asset, int(rootIndex),
 			rootOut.AnchorOutputInternalKey, rootTaroTree,
+			rootOut.AnchorOutputTapscriptPreimage,
 		)
 
 		for idx := range vPkt.Outputs {
@@ -526,11 +532,13 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 				return nil, err
 			}
 
+			preimage := splitOut.AnchorOutputTapscriptPreimage
 			exclusionProof := proof.TaprootProof{
 				OutputIndex: splitIndex,
 				InternalKey: splitOut.AnchorOutputInternalKey,
 				CommitmentProof: &proof.CommitmentProof{
-					Proof: *splitExclusionProof,
+					Proof:              *splitExclusionProof,
+					TapSiblingPreimage: preimage,
 				},
 			}
 			rootParams.ExclusionProofs = append(
@@ -564,9 +572,11 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		return nil, err
 	}
 
+	splitRootPreimage := splitRootOut.AnchorOutputTapscriptPreimage
 	splitParams := newParams(
 		anchorTx, splitOut.Asset, int(splitIndex),
 		splitOut.AnchorOutputInternalKey, splitTaroTree,
+		splitOut.AnchorOutputTapscriptPreimage,
 	)
 	splitParams.RootOutputIndex = splitRootIndex
 	splitParams.RootInternalKey = splitRootOut.AnchorOutputInternalKey
@@ -575,7 +585,8 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		OutputIndex: splitRootIndex,
 		InternalKey: splitRootOut.AnchorOutputInternalKey,
 		CommitmentProof: &proof.CommitmentProof{
-			Proof: *splitRootExclusionProof,
+			Proof:              *splitRootExclusionProof,
+			TapSiblingPreimage: splitRootPreimage,
 		},
 	}}
 
@@ -609,8 +620,8 @@ func (s *sendPackage) createReAnchorProof(
 	// in the split root output.
 	passiveParams := newParams(
 		s.AnchorTx, passiveOut.Asset, int(passiveOutputIndex),
-		changeOut.AnchorOutputInternalKey,
-		passiveTaroTree,
+		changeOut.AnchorOutputInternalKey, passiveTaroTree,
+		changeOut.AnchorOutputTapscriptPreimage,
 	)
 
 	// Since a transfer might contain other anchor outputs, we need to
@@ -636,12 +647,14 @@ func (s *sendPackage) createReAnchorProof(
 			return nil, err
 		}
 
+		otherPreimage := otherOut.AnchorOutputTapscriptPreimage
 		passiveParams.ExclusionProofs = append(
 			passiveParams.ExclusionProofs, proof.TaprootProof{
 				OutputIndex: otherIndex,
 				InternalKey: otherOut.AnchorOutputInternalKey,
 				CommitmentProof: &proof.CommitmentProof{
-					Proof: *otherExclusionProof,
+					Proof:              *otherExclusionProof,
+					TapSiblingPreimage: otherPreimage,
 				},
 			},
 		)

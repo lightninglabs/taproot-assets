@@ -1239,17 +1239,25 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return fmt.Errorf("unable to insert internal key: %w", err)
 	}
 
+	// Calculate the Tapscript sibling hash (if there was a sibling).
+	siblingBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		proof.TapscriptSibling,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to encode tapscript preimage: %w",
+			err)
+	}
+
 	// Next, we'll insert the managed UTXO that points to the output in our
 	// control for the specified asset.
-	//
-	// TODO(roasbeef): also need to store sibling hash here?
-	merkleRoot := proof.ScriptRoot.TapscriptRoot(nil)
+	merkleRoot := proof.ScriptRoot.TapscriptRoot(siblingHash)
 	utxoID, err := db.UpsertManagedUTXO(ctx, RawManagedUTXO{
-		RawKey:     proof.InternalKey.SerializeCompressed(),
-		Outpoint:   anchorPoint,
-		AmtSats:    anchorOutput.Value,
-		MerkleRoot: merkleRoot[:],
-		TxnID:      chainTXID,
+		RawKey:           proof.InternalKey.SerializeCompressed(),
+		Outpoint:         anchorPoint,
+		AmtSats:          anchorOutput.Value,
+		MerkleRoot:       merkleRoot[:],
+		TapscriptSibling: siblingBytes,
+		TxnID:            chainTXID,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to insert managed utxo: %w", err)
@@ -1305,8 +1313,8 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		for _, proof := range proofs {
-			err := a.importAssetFromProof(ctx, q, proof)
+		for _, p := range proofs {
+			err := a.importAssetFromProof(ctx, q, p)
 			if err != nil {
 				return fmt.Errorf("unable to import asset: %w",
 					err)
@@ -1523,6 +1531,13 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			return nil, err
 		}
 
+		tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
+			anchorUTXO.TapscriptSibling,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		selectedAssets[i] = &tarofreighter.AnchoredCommitment{
 			AnchorPoint:       anchorPoint,
 			AnchorOutputValue: btcutil.Amount(anchorUTXO.AmtSats),
@@ -1535,7 +1550,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 					),
 				},
 			},
-			TapscriptSibling: anchorUTXO.TapscriptSibling,
+			TapscriptSibling: tapscriptSibling,
 			Asset:            matchingAsset.Asset,
 			Commitment:       anchorPointToCommitment[anchorPoint],
 		}

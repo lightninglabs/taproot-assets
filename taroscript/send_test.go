@@ -1013,6 +1013,33 @@ func TestCreateOutputCommitments(t *testing.T) {
 }
 
 var createOutputCommitmentsTestCases = []testCase{{
+	name: "non-identical anchor output information",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1, state.asset1PrevID,
+			state, state.asset1InputAssets, false,
+		)
+		tpl := pkt.Outputs[1]
+
+		testPreimage := commitment.NewPreimageFromLeaf(
+			txscript.TapLeaf{
+				LeafVersion: txscript.BaseLeafVersion,
+				Script:      []byte("not a valid script"),
+			},
+		)
+		pkt.Outputs = append(pkt.Outputs, &taropsbt.VOutput{
+			AnchorOutputIndex:             tpl.AnchorOutputIndex,
+			AnchorOutputTapscriptPreimage: testPreimage,
+		})
+
+		_, err := taroscript.CreateOutputCommitments(nil, pkt, nil)
+		return err
+	},
+	err: taroscript.ErrInvalidAnchorInfo,
+}, {
 	name: "missing input asset commitment",
 	f: func(t *testing.T) error {
 		state := initSpendScenario(t)

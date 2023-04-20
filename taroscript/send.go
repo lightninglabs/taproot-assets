@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -87,6 +89,12 @@ var (
 	// is not found.
 	ErrMissingTaroCommitment = errors.New(
 		"send: Taro commitment not found",
+	)
+
+	// ErrInvalidAnchorInfo is an error returned when the anchor output
+	// information on a virtual transaction output is invalid.
+	ErrInvalidAnchorInfo = errors.New(
+		"send: invalid anchor output info",
 	)
 )
 
@@ -558,6 +566,12 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 	outputs := vPkt.Outputs
 	inputAsset := input.Asset().Copy()
 
+	// We require all outputs that reference the same anchor output to be
+	// identical, otherwise some assumptions in the code below don't hold.
+	if err := assertAnchorsEqual(vPkt); err != nil {
+		return nil, err
+	}
+
 	// Remove the spent Asset from the AssetCommitment of the sender. Fail
 	// if the input AssetCommitment or Asset were not in the input
 	// TaroCommitment.
@@ -841,14 +855,27 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 			return nil, err
 		}
 
+		// Prepare the anchor output's tapscript sibling, if there is
+		// one. We assume (and checked in an earlier step) that each
+		// virtual output declares the same tapscript sibling if
+		// multiple virtual outputs are committed to the same anchor
+		// output index.
+		var (
+			siblingPreimage = vOut.AnchorOutputTapscriptPreimage
+			siblingHash     *chainhash.Hash
+		)
+		if siblingPreimage != nil {
+			siblingHash, err = siblingPreimage.TapHash()
+			if err != nil {
+				return nil, fmt.Errorf("unable to get "+
+					"sibling hash: %w", err)
+			}
+		}
+
 		// Create the scripts corresponding to the receiver's
 		// TaroCommitment.
-		//
-		// NOTE: We currently default to the Taro commitment having no
-		// sibling in the Tapscript tree. Any sibling would need to be
-		// checked to verify that it is not also a Taro commitment.
 		script, err := PayToAddrScript(
-			*internalKey, nil, *outputCommitment,
+			*internalKey, siblingHash, *outputCommitment,
 		)
 		if err != nil {
 			return nil, err
@@ -888,4 +915,43 @@ func interactiveFullValueSend(input *taropsbt.VInput,
 		outputs[recipientIndex].Interactive
 
 	return recipientIndex, fullValueInteractiveSend
+}
+
+// assertAnchorsEqual makes sure that the anchor output information for each
+// output of the virtual packet that anchors to the same BTC level output is
+// identical.
+func assertAnchorsEqual(vPkt *taropsbt.VPacket) error {
+	deDupMap := make(map[uint32]*taropsbt.Anchor)
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+
+		siblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
+			vOut.AnchorOutputTapscriptPreimage,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to encode tapscript "+
+				"preimage: %w", err)
+		}
+		outAnchor := &taropsbt.Anchor{
+			InternalKey:       vOut.AnchorOutputInternalKey,
+			TapscriptSibling:  siblingBytes,
+			Bip32Derivation:   vOut.AnchorOutputBip32Derivation,
+			TrBip32Derivation: vOut.AnchorOutputTaprootBip32Derivation,
+		}
+
+		anchor, ok := deDupMap[vOut.AnchorOutputIndex]
+		if !ok {
+			deDupMap[vOut.AnchorOutputIndex] = outAnchor
+			continue
+		}
+
+		if !reflect.DeepEqual(anchor, outAnchor) {
+			return fmt.Errorf("%w: anchor output information for "+
+				"output %d is not identical to previous "+
+				"with same anchor output index",
+				ErrInvalidAnchorInfo, idx)
+		}
+	}
+
+	return nil
 }
