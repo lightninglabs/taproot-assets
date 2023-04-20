@@ -71,6 +71,10 @@ var testCases = []*testCase{
 		test: testPsbtInteractiveSplitSend,
 	},
 	{
+		name: "psbt interactive tapscript sibling",
+		test: testPsbtInteractiveTapscriptSibling,
+	},
+	{
 		name: "universe REST API",
 		test: testUniverseREST,
 	},
