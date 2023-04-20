@@ -171,6 +171,20 @@ message AnchorInfo {
     The raw internal key that was used to create the anchor Taproot output key.
     */
     bytes internal_key = 5;
+
+    /*
+    The Taproot merkle root hash of the anchor output the asset was committed
+    to. If there is no Tapscript sibling, this is equal to the Taro root
+    commitment hash.
+    */
+    bytes merkle_root = 6;
+
+    /*
+    The serialized preimage of a Tapscript sibling, if there was one. If this
+    is empty, then the merkle_root hash is equal to the Taproot root hash of the
+    anchor output.
+    */
+    bytes tapscript_sibling = 7;
 }
 
 message GenesisInfo {

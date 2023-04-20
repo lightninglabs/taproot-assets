@@ -337,6 +337,16 @@ type ChainAsset struct {
 	// AnchorInternalKey is the raw internal key that was used to create the
 	// anchor Taproot output key.
 	AnchorInternalKey *btcec.PublicKey
+
+	// AnchorMerkleRoot is the Taproot merkle root hash of the anchor output
+	// the asset was committed to. If there is no Tapscript sibling, this is
+	// equal to the Taro root commitment hash.
+	AnchorMerkleRoot []byte
+
+	// AnchorTapscriptSibling is the serialized preimage of a Tapscript
+	// sibling, if there was one. If this is empty, then the AnchorTaroRoot
+	// hash is equal to the Taproot root hash of the anchor output.
+	AnchorTapscriptSibling []byte
 }
 
 // ManagedUTXO holds information about a given UTXO we manage.
@@ -356,8 +366,8 @@ type ManagedUTXO struct {
 	// root commitment hash.
 	MerkleRoot []byte
 
-	// TapscriptSibling is the tapscript sibling of this asset. This will
-	// usually be blank.
+	// TapscriptSibling is the serialized tapscript sibling preimage of
+	// this asset. This will usually be blank.
 	TapscriptSibling []byte
 }
 
@@ -674,13 +684,15 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		}
 
 		chainAssets[i] = &ChainAsset{
-			Asset:             assetSprout,
-			IsSpent:           sprout.Spent,
-			AnchorTx:          anchorTx,
-			AnchorTxid:        anchorTx.TxHash(),
-			AnchorBlockHash:   anchorBlockHash,
-			AnchorOutpoint:    anchorOutpoint,
-			AnchorInternalKey: anchorInternalKey,
+			Asset:                  assetSprout,
+			IsSpent:                sprout.Spent,
+			AnchorTx:               anchorTx,
+			AnchorTxid:             anchorTx.TxHash(),
+			AnchorBlockHash:        anchorBlockHash,
+			AnchorOutpoint:         anchorOutpoint,
+			AnchorInternalKey:      anchorInternalKey,
+			AnchorMerkleRoot:       sprout.AnchorMerkleRoot,
+			AnchorTapscriptSibling: sprout.AnchorTapscriptSibling,
 		}
 	}
 

@@ -347,6 +347,8 @@ SELECT
     txns.txid AS anchor_txid,
     txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxos.merkle_root AS anchor_merkle_root,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
 FROM assets

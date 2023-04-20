@@ -1705,6 +1705,8 @@ SELECT
     txns.txid AS anchor_txid,
     txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxos.merkle_root AS anchor_merkle_root,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
 FROM assets
@@ -1774,6 +1776,8 @@ type QueryAssetsRow struct {
 	AnchorTxid               []byte
 	AnchorBlockHash          []byte
 	AnchorOutpoint           []byte
+	AnchorTapscriptSibling   []byte
+	AnchorMerkleRoot         []byte
 	AnchorInternalKey        []byte
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
@@ -1832,6 +1836,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorTxid,
 			&i.AnchorBlockHash,
 			&i.AnchorOutpoint,
+			&i.AnchorTapscriptSibling,
+			&i.AnchorMerkleRoot,
 			&i.AnchorInternalKey,
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
