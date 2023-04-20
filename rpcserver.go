@@ -1603,7 +1603,6 @@ func marshalAddrEvent(event *address.Event,
 		Status:                  rpcStatus,
 		Outpoint:                event.Outpoint.String(),
 		UtxoAmtSat:              uint64(event.Amt),
-		TaprootSibling:          event.TapscriptSibling,
 		ConfirmationHeight:      event.ConfirmationHeight,
 		HasProof:                event.HasProof,
 	}, nil

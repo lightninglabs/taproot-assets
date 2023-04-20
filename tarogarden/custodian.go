@@ -306,7 +306,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				event, err = c.cfg.AddrBook.GetOrCreateEvent(
 					ctxt,
 					address.StatusTransactionConfirmed,
-					event.Addr, walletTx, uint32(idx), nil,
+					event.Addr, walletTx, uint32(idx),
 				)
 				cancel()
 				if err != nil {
@@ -422,7 +422,7 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 	// Block here, a shutdown can wait on this operation.
 	ctxt, cancel = c.CtxBlocking()
 	event, err := c.cfg.AddrBook.GetOrCreateEvent(
-		ctxt, status, addr, walletTx, outputIdx, nil,
+		ctxt, status, addr, walletTx, outputIdx,
 	)
 	cancel()
 	if err != nil {

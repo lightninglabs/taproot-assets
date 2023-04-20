@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
@@ -338,10 +337,10 @@ func (b *Book) SetAddrManaged(ctx context.Context, addr *AddrWithKeyInfo,
 // then the status and transaction information is updated instead.
 func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
 	addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-	outputIdx uint32, tapscriptSibling *chainhash.Hash) (*Event, error) {
+	outputIdx uint32) (*Event, error) {
 
 	return b.cfg.Store.GetOrCreateEvent(
-		ctx, status, addr, walletTx, outputIdx, tapscriptSibling,
+		ctx, status, addr, walletTx, outputIdx,
 	)
 }
 
