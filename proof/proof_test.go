@@ -125,7 +125,7 @@ func TestProofEncoding(t *testing.T) {
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	groupKey := asset.RandGroupKey(t, genesis)
 
-	commitment, assets, err := commitment.Mint(
+	mintCommitment, assets, err := commitment.Mint(
 		genesis, groupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        test.PubToKeyDesc(test.RandPubKey(t)),
@@ -148,11 +148,23 @@ func TestProofEncoding(t *testing.T) {
 
 	asset.ScriptKey.TweakedScriptKey = nil
 
-	_, commitmentProof, err := commitment.Proof(
+	_, commitmentProof, err := mintCommitment.Proof(
 		asset.TaroCommitmentKey(), asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
+	testLeafPreimage := &commitment.TapscriptPreimage{
+		SiblingPreimage: []byte{1},
+		SiblingType:     commitment.LeafPreimage,
+	}
+	testLeafPreimage2 := &commitment.TapscriptPreimage{
+		SiblingPreimage: []byte{2},
+		SiblingType:     commitment.LeafPreimage,
+	}
+	testBranchPreimage := &commitment.TapscriptPreimage{
+		SiblingPreimage: []byte{1},
+		SiblingType:     commitment.BranchPreimage,
+	}
 	proof := Proof{
 		PrevOut:       genesis.FirstPrevOut,
 		BlockHeader:   oddTxBlock.Header,
@@ -163,11 +175,8 @@ func TestProofEncoding(t *testing.T) {
 			OutputIndex: 1,
 			InternalKey: test.RandPubKey(t),
 			CommitmentProof: &CommitmentProof{
-				Proof: *commitmentProof,
-				TapSiblingPreimage: &TapscriptPreimage{
-					SiblingPreimage: []byte{1},
-					SiblingType:     LeafPreimage,
-				},
+				Proof:              *commitmentProof,
+				TapSiblingPreimage: testLeafPreimage,
 			},
 			TapscriptProof: nil,
 		},
@@ -176,11 +185,8 @@ func TestProofEncoding(t *testing.T) {
 				OutputIndex: 2,
 				InternalKey: test.RandPubKey(t),
 				CommitmentProof: &CommitmentProof{
-					Proof: *commitmentProof,
-					TapSiblingPreimage: &TapscriptPreimage{
-						SiblingPreimage: []byte{1},
-						SiblingType:     LeafPreimage,
-					},
+					Proof:              *commitmentProof,
+					TapSiblingPreimage: testLeafPreimage,
 				},
 				TapscriptProof: nil,
 			},
@@ -189,15 +195,9 @@ func TestProofEncoding(t *testing.T) {
 				InternalKey:     test.RandPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
-					TapPreimage1: &TapscriptPreimage{
-						SiblingPreimage: []byte{1},
-						SiblingType:     BranchPreimage,
-					},
-					TapPreimage2: &TapscriptPreimage{
-						SiblingPreimage: []byte{2},
-						SiblingType:     LeafPreimage,
-					},
-					BIP86: true,
+					TapPreimage1: testBranchPreimage,
+					TapPreimage2: testLeafPreimage2,
+					BIP86:        true,
 				},
 			},
 			{
@@ -236,7 +236,7 @@ func TestProofEncoding(t *testing.T) {
 }
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
-	amt *uint64, tapscriptPreimage *TapscriptPreimage,
+	amt *uint64, tapscriptPreimage *commitment.TapscriptPreimage,
 	noMetaHash bool, metaReveal *MetaReveal,
 	genesisMutator genMutator) (Proof, *btcec.PrivateKey) {
 
@@ -348,7 +348,7 @@ func TestGenesisProofVerification(t *testing.T) {
 		name              string
 		assetType         asset.Type
 		amount            *uint64
-		tapscriptPreimage *TapscriptPreimage
+		tapscriptPreimage *commitment.TapscriptPreimage
 		metaReveal        *MetaReveal
 		noMetaHash        bool
 		genesisMutator    genMutator
@@ -360,16 +360,20 @@ func TestGenesisProofVerification(t *testing.T) {
 			noMetaHash: true,
 		},
 		{
-			name:              "collectible with leaf preimage",
-			assetType:         asset.Collectible,
-			tapscriptPreimage: NewPreimageFromLeaf(leaf1),
-			noMetaHash:        true,
+			name:      "collectible with leaf preimage",
+			assetType: asset.Collectible,
+			tapscriptPreimage: commitment.NewPreimageFromLeaf(
+				leaf1,
+			),
+			noMetaHash: true,
 		},
 		{
-			name:              "collectible with branch preimage",
-			assetType:         asset.Collectible,
-			tapscriptPreimage: NewPreimageFromBranch(branch),
-			noMetaHash:        true,
+			name:      "collectible with branch preimage",
+			assetType: asset.Collectible,
+			tapscriptPreimage: commitment.NewPreimageFromBranch(
+				branch,
+			),
+			noMetaHash: true,
 		},
 		{
 			name:       "normal genesis",
@@ -378,18 +382,22 @@ func TestGenesisProofVerification(t *testing.T) {
 			noMetaHash: true,
 		},
 		{
-			name:              "normal with leaf preimage",
-			assetType:         asset.Normal,
-			amount:            &amount,
-			tapscriptPreimage: NewPreimageFromLeaf(leaf1),
-			noMetaHash:        true,
+			name:      "normal with leaf preimage",
+			assetType: asset.Normal,
+			amount:    &amount,
+			tapscriptPreimage: commitment.NewPreimageFromLeaf(
+				leaf1,
+			),
+			noMetaHash: true,
 		},
 		{
-			name:              "normal with branch preimage",
-			assetType:         asset.Normal,
-			amount:            &amount,
-			tapscriptPreimage: NewPreimageFromBranch(branch),
-			noMetaHash:        true,
+			name:      "normal with branch preimage",
+			assetType: asset.Normal,
+			amount:    &amount,
+			tapscriptPreimage: commitment.NewPreimageFromBranch(
+				branch,
+			),
+			noMetaHash: true,
 		},
 		{
 			name:      "normal asset with a meta reveal",

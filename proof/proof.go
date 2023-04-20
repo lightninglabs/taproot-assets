@@ -10,10 +10,6 @@ import (
 )
 
 var (
-	// ErrInvalidTaprootProof is an error returned upon verifying an invalid
-	// Taproot proof.
-	ErrInvalidTaprootProof = errors.New("invalid taproot proof")
-
 	// ErrInvalidTxMerkleProof is an error returned upon verifying an
 	// invalid on-chain transaction merkle proof.
 	ErrInvalidTxMerkleProof = errors.New("invalid transaction merkle proof")

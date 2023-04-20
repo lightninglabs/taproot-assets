@@ -102,7 +102,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 		return taroCommitment, nil
 	}
 
-	return nil, ErrInvalidTaprootProof
+	return nil, commitment.ErrInvalidTaprootProof
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
@@ -272,10 +272,10 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
-		return nil, ErrInvalidTaprootProof // TODO
+		return nil, commitment.ErrInvalidTaprootProof // TODO
 	}
 	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
-		return nil, ErrInvalidTaprootProof // TODO
+		return nil, commitment.ErrInvalidTaprootProof // TODO
 	}
 
 	// Cross-check block header with a bitcoin node.
