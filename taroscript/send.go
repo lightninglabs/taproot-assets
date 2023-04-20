@@ -149,7 +149,8 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 	fullValue := false
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
-	// specified in the address.
+	// specified by the funding descriptor's asset (group) specific
+	// commitment locator.
 	inputCommitments := input.Commitments()
 	assetCommitment, ok := inputCommitments[desc.TaroCommitmentKey()]
 	if !ok {

@@ -724,8 +724,9 @@ func (a *Asset) TaroCommitmentKey() [32]byte {
 	return TaroCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
 }
 
-// AssetCommitmentKey is the key that maps to a specific owner of an asset
-// within a Taro AssetCommitment.
+// AssetCommitmentKey returns a key which can be used to locate an
+// asset within an AssetCommitment that is specific to a particular owner
+// (script key).
 //
 // NOTE: This function is also used outside the asset package.
 func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
