@@ -119,7 +119,7 @@ SELECT
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
-    utxos.taro_root AS anchor_taro_root,
+    utxos.merkle_root AS anchor_merkle_root,
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
     utxo_internal_keys.key_family AS internal_key_family,
@@ -155,7 +155,7 @@ type FetchTransferOutputsRow struct {
 	AnchorUtxoID             int32
 	AnchorOutpoint           []byte
 	AnchorValue              int64
-	AnchorTaroRoot           []byte
+	AnchorMerkleRoot         []byte
 	AnchorTapscriptSibling   []byte
 	InternalKeyRawKeyBytes   []byte
 	InternalKeyFamily        int32
@@ -190,7 +190,7 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int32) ([
 			&i.AnchorUtxoID,
 			&i.AnchorOutpoint,
 			&i.AnchorValue,
-			&i.AnchorTaroRoot,
+			&i.AnchorMerkleRoot,
 			&i.AnchorTapscriptSibling,
 			&i.InternalKeyRawKeyBytes,
 			&i.InternalKeyFamily,

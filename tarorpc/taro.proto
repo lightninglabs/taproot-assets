@@ -280,8 +280,12 @@ message ManagedUtxo {
     // The internal key used for the on-chain output.
     bytes internal_key = 3;
 
-    // The Taro root that commits to the set of assets at this UTXO.
-    bytes taro_root = 4;
+    /*
+    The Taproot merkle root hash committed to by the outpoint of this UTXO.
+    If there is no Tapscript sibling, this is equal to the Taro root commitment
+    hash.
+    */
+    bytes merkle_root = 4;
 
     // The assets held at this UTXO.
     repeated Asset assets = 5;

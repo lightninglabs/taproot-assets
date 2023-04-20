@@ -862,7 +862,7 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 			OutPoint:    u.OutPoint.String(),
 			AmtSat:      int64(u.OutputValue),
 			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
-			TaroRoot:    u.TaroRoot,
+			MerkleRoot:  u.MerkleRoot,
 		}
 	}
 

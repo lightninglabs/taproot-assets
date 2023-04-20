@@ -454,7 +454,7 @@ WITH target_key(key_id) AS (
     WHERE raw_key = $1
 )
 INSERT INTO managed_utxos (
-    outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
+    outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id
 ) VALUES (
     $2, $3, (SELECT key_id FROM target_key), $4, $5, $6
 ) ON CONFLICT (outpoint)

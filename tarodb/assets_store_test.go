@@ -959,7 +959,7 @@ func TestAssetExportLog(t *testing.T) {
 		t, spendDelta.AnchorTx.TxOut[0].Value,
 		int64(newUtxo.OutputValue),
 	)
-	require.Equal(t, firstOutputAnchor.MerkleRoot, newUtxo.TaroRoot)
+	require.Equal(t, firstOutputAnchor.MerkleRoot, newUtxo.MerkleRoot)
 	require.Equal(
 		t, firstOutputAnchor.TapscriptSibling, newUtxo.TapscriptSibling,
 	)

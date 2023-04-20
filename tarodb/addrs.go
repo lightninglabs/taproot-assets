@@ -627,14 +627,14 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error deriving commitment: %w", err)
 		}
-		taroRoot := commitment.TapscriptRoot(nil)
+		merkleRoot := commitment.TapscriptRoot(nil)
 
 		utxoUpsert := RawManagedUTXO{
-			RawKey:   addr.InternalKey.SerializeCompressed(),
-			Outpoint: outpointBytes,
-			AmtSats:  outputDetails.Amount,
-			TaroRoot: taroRoot[:],
-			TxnID:    chainTxID,
+			RawKey:     addr.InternalKey.SerializeCompressed(),
+			Outpoint:   outpointBytes,
+			AmtSats:    outputDetails.Amount,
+			MerkleRoot: merkleRoot[:],
+			TxnID:      chainTxID,
 		}
 		managedUtxoID, err := db.UpsertManagedUTXO(ctx, utxoUpsert)
 		if err != nil {
