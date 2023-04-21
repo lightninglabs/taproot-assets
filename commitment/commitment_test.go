@@ -944,11 +944,10 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 0:
 					assets := soloAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					proofAsset, _, err := groupAssetCommitment.AssetProof(
+					_, ok := groupAssetCommitment.Asset(
 						asset.AssetCommitmentKey(),
 					)
-					require.NoError(t, err)
-					require.Nil(t, proofAsset)
+					require.False(t, ok)
 
 				// Fresh asset commitment.
 				case 1:
@@ -962,12 +961,12 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 2:
 					assets := groupAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					proofAsset, _, err := groupAssetCommitment.AssetProof(
+					committedAsset, ok := groupAssetCommitment.Asset(
 						asset.AssetCommitmentKey(),
 					)
-					require.NoError(t, err)
+					require.True(t, ok)
 					require.True(t, asset.DeepEqual(
-						proofAsset,
+						committedAsset,
 					))
 				}
 			}
