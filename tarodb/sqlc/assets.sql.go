@@ -815,6 +815,27 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 	return i, err
 }
 
+const fetchGenesisByAssetID = `-- name: FetchGenesisByAssetID :one
+SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out 
+FROM genesis_info_view
+WHERE asset_id = $1
+`
+
+func (q *Queries) FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error) {
+	row := q.db.QueryRowContext(ctx, fetchGenesisByAssetID, assetID)
+	var i GenesisInfoView
+	err := row.Scan(
+		&i.GenAssetID,
+		&i.AssetID,
+		&i.AssetTag,
+		&i.MetaHash,
+		&i.OutputIndex,
+		&i.AssetType,
+		&i.PrevOut,
+	)
+	return i, err
+}
+
 const fetchGenesisByID = `-- name: FetchGenesisByID :one
 SELECT
     asset_id, asset_tag, assets_meta.meta_data_hash, output_index, asset_type,

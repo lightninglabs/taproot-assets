@@ -1,8 +1,6 @@
 package address
 
 import (
-	"bytes"
-
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -15,8 +13,8 @@ const (
 	// addrVersionType is the TLV type of the addr version.
 	addrVersionType addressTLVType = 0
 
-	// addrAssetGenesisType is the TLV type of the asset genesis.
-	addrAssetGenesisType addressTLVType = 2
+	// addrAssetIDType is the TLV type of the asset asset ID.
+	addrAssetIDType addressTLVType = 2
 
 	// addrGroupKeyType is the TLV type of the group key of the asset.
 	addrGroupKeyType addressTLVType = 3
@@ -38,20 +36,9 @@ func newAddressVersionRecord(version *asset.Version) tlv.Record {
 	)
 }
 
-func newAddressGenesisRecord(genesis *asset.Genesis) tlv.Record {
-	recordSize := func() uint64 {
-		var (
-			b   bytes.Buffer
-			buf [8]byte
-		)
-		if err := asset.GenesisEncoder(&b, genesis, &buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(b.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		addrAssetGenesisType, genesis, recordSize,
-		asset.GenesisEncoder, asset.GenesisDecoder,
+func newAddressAssetID(assetID *asset.ID) tlv.Record {
+	return tlv.MakePrimitiveRecord(
+		addrAssetIDType, (*[32]byte)(assetID),
 	)
 }
 

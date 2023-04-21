@@ -36,16 +36,24 @@ func testReIssuance(t *harnessTest) {
 	// later when creating addresses.
 	normalGroupKey := normalGroupGen[0].AssetGroup.TweakedGroupKey
 	encodedNormalGroupKey := hex.EncodeToString(normalGroupKey)
+
 	normalGenInfo := normalGroupGen[0].AssetGenesis
 	collectGroupKey := collectGroupGen[0].AssetGroup.TweakedGroupKey
+
 	encodedCollectGroupKey := hex.EncodeToString(collectGroupKey)
+
 	collectGenInfo := collectGroupGen[0].AssetGenesis
 	normalGroupMintHalf := normalGroupGen[0].Amount / 2
 
 	// Create a second node, which will have no information about previously
 	// minted assets or asset groups.
+	numTotalAssets := len(normalGroupGen) + len(collectGroupGen)
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = numTotalAssets
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -55,9 +63,8 @@ func testReIssuance(t *harnessTest) {
 	// the asset group.
 	collectGroupAddr, err := secondTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: collectGenInfo.GenesisBootstrapInfo,
-			GroupKey:             collectGroupKey,
-			Amt:                  1,
+			AssetId: collectGenInfo.AssetId,
+			Amt:     1,
 		},
 	)
 	require.NoError(t.t, err)
@@ -84,9 +91,8 @@ func testReIssuance(t *harnessTest) {
 	// Send half of the normal asset to the second node before reissuance.
 	normalGroupAddr, err := secondTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: normalGenInfo.GenesisBootstrapInfo,
-			GroupKey:             normalGroupKey,
-			Amt:                  normalGroupMintHalf,
+			AssetId: normalGenInfo.AssetId,
+			Amt:     normalGroupMintHalf,
 		},
 	)
 	require.NoError(t.t, err)
@@ -118,13 +124,19 @@ func testReIssuance(t *harnessTest) {
 	require.Equal(t.t, 1, len(normalReissueGen))
 	require.Equal(t.t, 1, len(collectReissueGen))
 
+	// Sync the second node with the new universe state.
+	t.syncUniverseState(
+		t.tarod, secondTarod,
+		len(normalReissueGen)+len(collectReissueGen),
+	)
+
 	// Check the node state after re-issuance. The total number of groups
 	// should still be two.
 	assertNumGroups(t.t, t.tarod, groupCount)
 
-	// The normal group should hold two assets, while the collectible should
-	// only hold one, since the zero-value tombstone is only visible in the
-	// transfers and is not re-created as an asset.
+	// The normal group should hold two assets, while the collectible
+	// should only hold one, since the zero-value tombstone is only visible
+	// in the transfers and is not re-created as an asset.
 	groupsAfterReissue, err := t.tarod.ListGroups(
 		ctxb, &tarorpc.ListGroupsRequest{},
 	)
@@ -138,9 +150,9 @@ func testReIssuance(t *harnessTest) {
 
 	assertSplitTombstoneTransfer(t.t, t.tarod, collectGenInfo.AssetId)
 
-	// The normal group balance should account for the re-issuance and equal
-	// the original mint amount. The collectible group balance should be
-	// back at 1.
+	// The normal group balance should account for the re-issuance and
+	// equal the original mint amount. The collectible group balance should
+	// be back at 1.
 	assertBalanceByGroup(
 		t.t, t.tarod, normalGroupKey, normalGroupGen[0].Amount,
 	)
@@ -151,10 +163,8 @@ func testReIssuance(t *harnessTest) {
 	collectReissueInfo := collectReissueGen[0].AssetGenesis
 	collectReissueAddr, err := secondTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: collectReissueInfo.
-				GenesisBootstrapInfo,
-			GroupKey: collectGroupKey,
-			Amt:      1,
+			AssetId: collectReissueInfo.AssetId,
+			Amt:     1,
 		},
 	)
 	require.NoError(t.t, err)
@@ -182,12 +192,11 @@ func testReIssuance(t *harnessTest) {
 
 	assertBalanceByGroup(t.t, secondTarod, collectGroupKey, 2)
 
-	// We should also be able to send a collectile back to the minting node.
+	// We should also be able to send a collectible back to the minting node.
 	collectGenAddr, err := t.tarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: collectGenInfo.GenesisBootstrapInfo,
-			GroupKey:             collectGroupKey,
-			Amt:                  1,
+			AssetId: collectGenInfo.AssetId,
+			Amt:     1,
 		},
 	)
 	require.NoError(t.t, err)
@@ -297,6 +306,10 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// minted assets or asset groups.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(collectGroupGen)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -305,15 +318,14 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// The node must have information on the group to reissue, so this
 	// minting request must fail on the second node.
 	_, err = secondTarod.MintAsset(ctxb, reissueRequest)
-	require.ErrorContains(t.t, err, "not found")
+	require.ErrorContains(t.t, err, "can't sign")
 
 	// Send the minted collectible to the second node so that it imports
 	// the asset group.
 	collectGroupAddr, err := secondTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: collectGenInfo.GenesisBootstrapInfo,
-			GroupKey:             collectGroupKey,
-			Amt:                  1,
+			AssetId: collectGenInfo.AssetId,
+			Amt:     1,
 		},
 	)
 	require.NoError(t.t, err)

@@ -39,6 +39,10 @@ func testAddresses(t *harnessTest) {
 	// assets made above.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -49,17 +53,11 @@ func testAddresses(t *harnessTest) {
 		events    []*tarorpc.AddrEvent
 	)
 	for _, a := range rpcAssets {
-		var groupKey []byte
-		if a.AssetGroup != nil {
-			groupKey = a.AssetGroup.TweakedGroupKey
-		}
-
 		// In order to force a split, we don't try to send the full
 		// asset.
 		addr, err := secondTarod.NewAddr(ctxt, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: a.AssetGenesis.GenesisBootstrapInfo,
-			GroupKey:             groupKey,
-			Amt:                  a.Amount - 1,
+			AssetId: a.AssetGenesis.AssetId,
+			Amt:     a.Amount - 1,
 		})
 		require.NoError(t.t, err)
 		addresses = append(addresses, addr)
@@ -69,6 +67,7 @@ func testAddresses(t *harnessTest) {
 		sendResp := sendAssetsToAddr(t, t.tarod, addr)
 		sendRespJSON, err := formatProtoJSON(sendResp)
 		require.NoError(t.t, err)
+
 		t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 		// Make sure that eventually we see a single event for the
@@ -96,6 +95,7 @@ func testAddresses(t *harnessTest) {
 			eventJSON, err := formatProtoJSON(resp.Events[0])
 			require.NoError(t.t, err)
 			t.Logf("Got address event %s", eventJSON)
+
 			events = append(events, resp.Events[0])
 
 			return nil

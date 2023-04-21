@@ -26,8 +26,6 @@ var addrCommands = []cli.Command{
 }
 
 const (
-	genesisBootstrapInfo = "genesis_bootstrap_info"
-
 	groupKeyName = "group_key"
 
 	amtName = "amt"
@@ -40,13 +38,8 @@ var newAddrCommand = cli.Command{
 	Description: "Create a new Taro address to receive an asset on-chain",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name: genesisBootstrapInfo,
-			Usage: "the asset genesis bootstrap info of the " +
-				"asset to receive",
-		},
-		cli.StringFlag{
-			Name:  groupKeyName,
-			Usage: "optional, the group key of the asset to receive",
+			Name:  assetIDName,
+			Usage: "the asset genesis ID of the asset to receive",
 		},
 		cli.Uint64Flag{
 			Name:  amtName,
@@ -62,25 +55,19 @@ func newAddr(ctx *cli.Context) error {
 	defer cleanUp()
 
 	switch {
-	case ctx.String(genesisBootstrapInfo) == "":
+	case ctx.String(assetIDName) == "":
 		_ = cli.ShowCommandHelp(ctx, "new")
 		return nil
 	}
 
-	genInfo, err := hex.DecodeString(ctx.String(genesisBootstrapInfo))
+	assetID, err := hex.DecodeString(ctx.String(assetIDName))
 	if err != nil {
-		return fmt.Errorf("unable to decode asset genesis bootstrap "+
-			"info: %v", err)
-	}
-	groupKey, err := hex.DecodeString(ctx.String(groupKeyName))
-	if err != nil {
-		return fmt.Errorf("unable to decode group key: %w", err)
+		return fmt.Errorf("unable to decode assetID: %v", err)
 	}
 
 	addr, err := client.NewAddr(ctxc, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genInfo,
-		GroupKey:             groupKey,
-		Amt:                  ctx.Uint64(amtName),
+		AssetId: assetID,
+		Amt:     ctx.Uint64(amtName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)

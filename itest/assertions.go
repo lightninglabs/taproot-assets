@@ -436,7 +436,7 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 	}
 
 	require.True(t, ok)
-	require.EqualValues(t, amt, balance.Balance)
+	require.Equal(t, uint64(amt), uint64(balance.Balance))
 }
 
 // assertBalanceByGroup asserts that the balance of a single asset group

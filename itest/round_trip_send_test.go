@@ -2,6 +2,7 @@ package itest
 
 import (
 	"context"
+	"time"
 
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -19,7 +20,6 @@ func testRoundTripSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := genInfo.GenesisBootstrapInfo
 
 	ctxb := context.Background()
 
@@ -27,6 +27,10 @@ func testRoundTripSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -40,8 +44,8 @@ func testRoundTripSend(t *harnessTest) {
 
 	// First, we'll send half of the units to Bob.
 	bobAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genBootstrap,
-		Amt:                  bobAmt,
+		AssetId: genInfo.AssetId,
+		Amt:     bobAmt,
 	})
 	require.NoError(t.t, err)
 
@@ -59,8 +63,8 @@ func testRoundTripSend(t *harnessTest) {
 
 	// Now, Alice will request half of the assets she sent to Bob.
 	aliceAddr, err := t.tarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genBootstrap,
-		Amt:                  aliceAmt,
+		AssetId: genInfo.AssetId,
+		Amt:     aliceAmt,
 	})
 	require.NoError(t.t, err)
 
@@ -75,6 +79,9 @@ func testRoundTripSend(t *harnessTest) {
 		[]uint64{aliceAmt, aliceAmt}, 0, 1,
 	)
 	_ = sendProof(t, secondTarod, t.tarod, aliceAddr.ScriptKey, genInfo)
+
+	// Give both nodes some time to process the final transfer.
+	time.Sleep(time.Second * 1)
 
 	// Check the final state of both nodes. Each node should list
 	// one transfer, and Alice should have 3/4 of the total units.

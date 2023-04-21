@@ -192,14 +192,8 @@ message GenesisInfo {
     */
     uint32 output_index = 5;
 
-    /*
-    The full genesis information encoded in a portable manner so it can be
-    easily copy/pasted for address creation.
-    */
-    bytes genesis_bootstrap_info = 6;
-
     // The version of the Taro commitment that created this asset.
-    int32 version = 7;
+    int32 version = 6;
 }
 
 message AssetGroup {
@@ -522,11 +516,9 @@ message QueryAddrResponse {
 }
 
 message NewAddrRequest {
-    bytes genesis_bootstrap_info = 1;
+    bytes asset_id = 1;
 
-    bytes group_key = 2;
-
-    uint64 amt = 3;
+    uint64 amt = 2;
 
     /*
     The optional script key that the receiving asset should be locked to. If no
@@ -536,7 +528,7 @@ message NewAddrRequest {
     NOTE: The script_key and internal_key fields should either both be set or
     both be empty.
     */
-    ScriptKey script_key = 4;
+    ScriptKey script_key = 3;
 
     /*
     The optional internal key of the receiving BTC level transaction output on
@@ -546,7 +538,7 @@ message NewAddrRequest {
     NOTE: The script_key and internal_key fields should either both be set or
     both be empty.
     */
-    KeyDescriptor internal_key = 5;
+    KeyDescriptor internal_key = 4;
 }
 
 message ScriptKey {

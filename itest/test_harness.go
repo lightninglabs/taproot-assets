@@ -2,6 +2,7 @@ package itest
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -27,6 +28,8 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
+
+	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 )
 
 var (
@@ -190,6 +193,23 @@ func (h *harnessTest) newLndClient(
 	})
 }
 
+func (h *harnessTest) syncUniverseState(target, syncer *tarodHarness,
+	numExpectedAssets int) {
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), defaultWaitTimeout,
+	)
+	defer cancel()
+
+	syncDiff, err := syncer.SyncUniverse(ctxt, &unirpc.SyncRequest{
+		UniverseHost: target.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+	})
+	require.NoError(h.t, err)
+
+	require.Len(h.t, syncDiff.SyncedUniverses, numExpectedAssets)
+}
+
 // nextAvailablePort returns the first port that is available for listening by
 // a new node. It panics if no port is found and the maximum available TCP port
 // is reached.
@@ -250,6 +270,14 @@ type tarodHarnessParams struct {
 	// expectErrExit indicates whether tarod is expected to exit with an
 	// error.
 	expectErrExit bool
+
+	// startupSyncNode if present, then this node will be used to
+	// synchronize the Universe state of the newly created node.
+	startupSyncNode *tarodHarness
+
+	// startupSyncNumAssets is the number of assets that are expected to be
+	// synced from the above node.
+	startupSyncNumAssets int
 }
 
 type Option func(*tarodHarnessParams)
@@ -275,6 +303,16 @@ func setupTarodHarness(t *testing.T, ht *harnessTest,
 	// Start the tarod harness now.
 	err = tarodHarness.start(params.expectErrExit)
 	require.NoError(t, err)
+
+	// Before we exit, we'll check to see if we need to sync the universe
+	// state.
+	if params.startupSyncNode != nil {
+		ht.syncUniverseState(
+			params.startupSyncNode, tarodHarness,
+			params.startupSyncNumAssets,
+		)
+	}
+
 	return tarodHarness
 }
 

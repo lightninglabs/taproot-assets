@@ -14,7 +14,9 @@ import (
 )
 
 // RandAddr creates a random address for testing.
-func RandAddr(t testing.TB, params *ChainParams) *AddrWithKeyInfo {
+func RandAddr(t testing.TB, params *ChainParams,
+) (*AddrWithKeyInfo, *asset.Genesis) {
+
 	scriptKeyPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
@@ -46,12 +48,13 @@ func RandAddr(t testing.TB, params *ChainParams) *AddrWithKeyInfo {
 	return &AddrWithKeyInfo{
 		Taro: &Taro{
 			Version:     asset.Version(rand.Int31()),
-			Genesis:     genesis,
+			AssetID:     genesis.ID(),
 			GroupKey:    groupPubKey,
 			ScriptKey:   *scriptKey.PubKey,
 			InternalKey: *internalKey.PubKey(),
 			Amount:      amount,
 			ChainParams: params,
+			assetGen:    genesis,
 		},
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{
@@ -63,5 +66,5 @@ func RandAddr(t testing.TB, params *ChainParams) *AddrWithKeyInfo {
 		},
 		TaprootOutputKey: *taprootOutputKey,
 		CreationTime:     time.Now(),
-	}
+	}, &genesis
 }

@@ -882,11 +882,6 @@
           "format": "int64",
           "description": "The index of the output that carries the unique Taro commitment in the\ngenesis transaction."
         },
-        "genesis_bootstrap_info": {
-          "type": "string",
-          "format": "byte",
-          "description": "The full genesis information encoded in a portable manner so it can be\neasily copy/pasted for address creation."
-        },
         "version": {
           "type": "integer",
           "format": "int32",

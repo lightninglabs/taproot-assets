@@ -182,7 +182,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	vPkt := taropsbt.FromAddress(&receiverAddr, 1)
 
 	fundDesc := &taroscript.FundingDescriptor{
-		ID:       receiverAddr.ID(),
+		ID:       receiverAddr.AssetID,
 		GroupKey: receiverAddr.GroupKey,
 		Amount:   receiverAddr.Amount,
 	}

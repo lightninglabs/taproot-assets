@@ -31,7 +31,6 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := genInfo.GenesisBootstrapInfo
 
 	ctxb := context.Background()
 
@@ -39,6 +38,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -77,8 +80,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	// node to Bob.
 	const numUnits = 10
 	bobAddr, err := bob.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genBootstrap,
-		Amt:                  numUnits,
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
 		ScriptKey: &tarorpc.ScriptKey{
 			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
 			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
@@ -103,8 +106,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genBootstrap,
-		Amt:                  numUnits / 2,
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits / 2,
 	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
@@ -176,7 +179,6 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	genBootstrap := genInfo.GenesisBootstrapInfo
 
 	ctxb := context.Background()
 
@@ -184,6 +186,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -223,8 +229,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// node to Bob.
 	const numUnits = 10
 	bobAddr, err := bob.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genBootstrap,
-		Amt:                  numUnits,
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
 		ScriptKey: &tarorpc.ScriptKey{
 			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
 			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
@@ -249,8 +255,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		GenesisBootstrapInfo: genBootstrap,
-		Amt:                  numUnits / 2,
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits / 2,
 	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
@@ -346,6 +352,10 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -443,8 +453,8 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	passiveGen := rpcAssets[1].AssetGenesis
 	bobAddr, err := secondTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: passiveGen.GenesisBootstrapInfo,
-			Amt:                  rpcAssets[1].Amount,
+			AssetId: passiveGen.AssetId,
+			Amt:     rpcAssets[1].Amount,
 		},
 	)
 	require.NoError(t.t, err)
@@ -495,6 +505,10 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTarod := setupTarodHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTarod.stop(true))
@@ -607,8 +621,8 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 	passiveGen := rpcAssets[1].AssetGenesis
 	bobAddr, err := secondTarod.NewAddr(
 		ctxb, &tarorpc.NewAddrRequest{
-			GenesisBootstrapInfo: passiveGen.GenesisBootstrapInfo,
-			Amt:                  rpcAssets[1].Amount,
+			AssetId: passiveGen.AssetId,
+			Amt:     rpcAssets[1].Amount,
 		},
 	)
 	require.NoError(t.t, err)
