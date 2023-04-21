@@ -34,15 +34,17 @@ import (
 )
 
 const (
-	defaultDataDirname      = "data"
-	defaultTLSCertFilename  = "tls.cert"
-	defaultTLSKeyFilename   = "tls.key"
-	defaultAdminMacFilename = "admin.macaroon"
-	defaultLogLevel         = "info"
-	defaultLogDirname       = "logs"
-	defaultLogFilename      = "taro.log"
-	defaultRPCPort          = 10029
-	defaultRESTPort         = 8089
+	defaultDataDirname        = "data"
+	defaultTLSCertFilename    = "tls.cert"
+	defaultTLSKeyFilename     = "tls.key"
+	defaultAdminMacFilename   = "admin.macaroon"
+	defaultLogLevel           = "info"
+	defaultLogDirname         = "logs"
+	defaultLogFilename        = "taro.log"
+	defaultRPCPort            = 10029
+	defaultRESTPort           = 8089
+	defaultLetsEncryptDirname = "letsencrypt"
+	defaultLetsEncryptListen  = ":80"
 
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
@@ -110,6 +112,8 @@ var (
 
 	defaultTLSCertPath = filepath.Join(DefaultTaroDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
+
+	defaultLetsEncryptDir = filepath.Join(DefaultTaroDir, defaultLetsEncryptDirname)
 
 	defaultSqliteDatabaseFileName = "taro.db"
 
@@ -183,6 +187,11 @@ type RpcConfig struct {
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
 
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
+
+	LetsEncryptDir    string `long:"letsencryptdir" description:"The directory to store Let's Encrypt certificates within"`
+	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which lnd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address."`
+	LetsEncryptDomain string `long:"letsencryptdomain" description:"Request a Let's Encrypt certificate for this domain. Note that the certificate is only requested and stored when the first rpc connection comes in."`
+	LetsEncryptEmail  string `long:"letsencryptemail" description:"The email address to use for Let's Encrypt account registration."`
 }
 
 // LndConfig is the main config we'll use to connect to the lnd node that backs
@@ -266,11 +275,13 @@ func DefaultConfig() Config {
 		MaxLogFileSize: defaultMaxLogFileSize,
 		net:            &tor.ClearNet{},
 		RpcConf: &RpcConfig{
-			TLSCertPath:     defaultTLSCertPath,
-			TLSKeyPath:      defaultTLSKeyPath,
-			TLSCertDuration: defaultTLSCertDuration,
-			WSPingInterval:  lnrpc.DefaultPingInterval,
-			WSPongWait:      lnrpc.DefaultPongWait,
+			TLSCertPath:       defaultTLSCertPath,
+			TLSKeyPath:        defaultTLSKeyPath,
+			TLSCertDuration:   defaultTLSCertDuration,
+			WSPingInterval:    lnrpc.DefaultPingInterval,
+			WSPongWait:        lnrpc.DefaultPongWait,
+			LetsEncryptDir:    defaultLetsEncryptDir,
+			LetsEncryptListen: defaultLetsEncryptListen,
 		},
 		ChainConf: &ChainConfig{
 			Network: defaultNetwork,
