@@ -204,7 +204,7 @@ type ManagedUtxo struct {
 	AmtSats          int64
 	InternalKeyID    int32
 	TapscriptSibling []byte
-	TaroRoot         []byte
+	MerkleRoot       []byte
 	TxnID            int32
 }
 

@@ -573,15 +573,14 @@ func (t *TaroAddressBook) InsertScriptKey(ctx context.Context,
 // then the status and transaction information is updated instead.
 func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 	status address.Status, addr *address.AddrWithKeyInfo,
-	walletTx *lndclient.Transaction, outputIdx uint32,
-	tapscriptSibling *chainhash.Hash) (*address.Event, error) {
+	walletTx *lndclient.Transaction, outputIdx uint32) (*address.Event,
+	error) {
 
 	var (
-		writeTxOpts  AddrBookTxOptions
-		event        *address.Event
-		txHash       = walletTx.Tx.TxHash()
-		txBuf        bytes.Buffer
-		siblingBytes []byte
+		writeTxOpts AddrBookTxOptions
+		event       *address.Event
+		txHash      = walletTx.Tx.TxHash()
+		txBuf       bytes.Buffer
 	)
 	if err := walletTx.Tx.Serialize(&txBuf); err != nil {
 		return nil, fmt.Errorf("error serializing tx: %w", err)
@@ -595,10 +594,6 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 		return nil, fmt.Errorf("error encoding outpoint: %w", err)
 	}
 	outputDetails := walletTx.OutputDetails[outputIdx]
-
-	if tapscriptSibling != nil {
-		siblingBytes = tapscriptSibling[:]
-	}
 
 	dbErr := t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		// The first step is to make sure we already track the on-chain
@@ -632,15 +627,14 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error deriving commitment: %w", err)
 		}
-		taroRoot := commitment.TapscriptRoot(tapscriptSibling)
+		merkleRoot := commitment.TapscriptRoot(nil)
 
 		utxoUpsert := RawManagedUTXO{
-			RawKey:           addr.InternalKey.SerializeCompressed(),
-			Outpoint:         outpointBytes,
-			AmtSats:          outputDetails.Amount,
-			TapscriptSibling: siblingBytes,
-			TaroRoot:         taroRoot[:],
-			TxnID:            chainTxID,
+			RawKey:     addr.InternalKey.SerializeCompressed(),
+			Outpoint:   outpointBytes,
+			AmtSats:    outputDetails.Amount,
+			MerkleRoot: merkleRoot[:],
+			TxnID:      chainTxID,
 		}
 		managedUtxoID, err := db.UpsertManagedUTXO(ctx, utxoUpsert)
 		if err != nil {
@@ -770,7 +764,6 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 		Outpoint:           op,
 		Amt:                btcutil.Amount(dbEvent.AmtSats.Int64),
 		InternalKey:        internalKey,
-		TapscriptSibling:   dbEvent.TapscriptSibling,
 		ConfirmationHeight: uint32(dbEvent.ConfirmationHeight.Int32),
 		HasProof:           dbEvent.AssetProofID.Valid,
 	}, nil

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/address"
@@ -363,7 +362,7 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	outputIndex := rand.Intn(len(txn.Tx.TxOut))
 
 	_, err = addrBook.GetOrCreateEvent(
-		ctx, address.Status(4), addr, txn, uint32(outputIndex), nil,
+		ctx, address.Status(4), addr, txn, uint32(outputIndex),
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "constraint")
@@ -398,14 +397,9 @@ func TestAddrEventCreation(t *testing.T) {
 		txns[i] = randWalletTx()
 		outputIndex := rand.Intn(len(txns[i].Tx.TxOut))
 
-		var tapscriptSibling *chainhash.Hash
-		if rand.Int31()%2 == 0 {
-			hash := test.RandHash()
-			tapscriptSibling = &hash
-		}
 		event, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionDetected, addr, txns[i],
-			uint32(outputIndex), tapscriptSibling,
+			uint32(outputIndex),
 		)
 		require.NoError(t, err)
 
@@ -422,18 +416,9 @@ func TestAddrEventCreation(t *testing.T) {
 	// If we try to create the same events again, we should just get the
 	// exact same event back.
 	for idx := range events {
-		var tapscriptSibling *chainhash.Hash
-		if len(events[idx].TapscriptSibling) > 0 {
-			tapscriptSibling, err = chainhash.NewHash(
-				events[idx].TapscriptSibling,
-			)
-			require.NoError(t, err)
-		}
-
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionDetected,
 			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			tapscriptSibling,
 		)
 		require.NoError(t, err)
 
@@ -450,7 +435,6 @@ func TestAddrEventCreation(t *testing.T) {
 		actual, err := addrBook.GetOrCreateEvent(
 			ctx, address.StatusTransactionConfirmed,
 			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
-			nil,
 		)
 		require.NoError(t, err)
 
@@ -489,7 +473,7 @@ func TestAddressEventQuery(t *testing.T) {
 		// Make sure we use all states at least once.
 		status := address.Status(i % int(address.StatusCompleted+1))
 		event, err := addrBook.GetOrCreateEvent(
-			ctx, status, addr, txn, uint32(outputIndex), nil,
+			ctx, status, addr, txn, uint32(outputIndex),
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, i+1, event.ID)

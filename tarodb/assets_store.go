@@ -337,6 +337,16 @@ type ChainAsset struct {
 	// AnchorInternalKey is the raw internal key that was used to create the
 	// anchor Taproot output key.
 	AnchorInternalKey *btcec.PublicKey
+
+	// AnchorMerkleRoot is the Taproot merkle root hash of the anchor output
+	// the asset was committed to. If there is no Tapscript sibling, this is
+	// equal to the Taro root commitment hash.
+	AnchorMerkleRoot []byte
+
+	// AnchorTapscriptSibling is the serialized preimage of a Tapscript
+	// sibling, if there was one. If this is empty, then the AnchorTaroRoot
+	// hash is equal to the Taproot root hash of the anchor output.
+	AnchorTapscriptSibling []byte
 }
 
 // ManagedUTXO holds information about a given UTXO we manage.
@@ -351,11 +361,13 @@ type ManagedUTXO struct {
 	// in the outpoint.
 	InternalKey keychain.KeyDescriptor
 
-	// TaroRoot is the taro commitment committed to by this outpoint.
-	TaroRoot []byte
+	// MerkleRoot is the Taproot merkle root hash committed to by this
+	// outpoint. If there is no Tapscript sibling, this is equal to the Taro
+	// root commitment hash.
+	MerkleRoot []byte
 
-	// TapscriptSibling is the tapscript sibling of this asset. This will
-	// usually be blank.
+	// TapscriptSibling is the serialized tapscript sibling preimage of
+	// this asset. This will usually be blank.
 	TapscriptSibling []byte
 }
 
@@ -672,13 +684,15 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		}
 
 		chainAssets[i] = &ChainAsset{
-			Asset:             assetSprout,
-			IsSpent:           sprout.Spent,
-			AnchorTx:          anchorTx,
-			AnchorTxid:        anchorTx.TxHash(),
-			AnchorBlockHash:   anchorBlockHash,
-			AnchorOutpoint:    anchorOutpoint,
-			AnchorInternalKey: anchorInternalKey,
+			Asset:                  assetSprout,
+			IsSpent:                sprout.Spent,
+			AnchorTx:               anchorTx,
+			AnchorTxid:             anchorTx.TxHash(),
+			AnchorBlockHash:        anchorBlockHash,
+			AnchorOutpoint:         anchorOutpoint,
+			AnchorInternalKey:      anchorInternalKey,
+			AnchorMerkleRoot:       sprout.AnchorMerkleRoot,
+			AnchorTapscriptSibling: sprout.AnchorTapscriptSibling,
 		}
 	}
 
@@ -1009,7 +1023,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 					),
 				},
 			},
-			TaroRoot:         u.TaroRoot,
+			MerkleRoot:       u.MerkleRoot,
 			TapscriptSibling: u.TapscriptSibling,
 		}
 	}
@@ -1225,17 +1239,25 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return fmt.Errorf("unable to insert internal key: %w", err)
 	}
 
+	// Calculate the Tapscript sibling hash (if there was a sibling).
+	siblingBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		proof.TapscriptSibling,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to encode tapscript preimage: %w",
+			err)
+	}
+
 	// Next, we'll insert the managed UTXO that points to the output in our
 	// control for the specified asset.
-	//
-	// TODO(roasbeef): also need to store sibling hash here?
-	tapscriptRoot := proof.ScriptRoot.TapscriptRoot(nil)
+	merkleRoot := proof.ScriptRoot.TapscriptRoot(siblingHash)
 	utxoID, err := db.UpsertManagedUTXO(ctx, RawManagedUTXO{
-		RawKey:   proof.InternalKey.SerializeCompressed(),
-		Outpoint: anchorPoint,
-		AmtSats:  anchorOutput.Value,
-		TaroRoot: tapscriptRoot[:],
-		TxnID:    chainTXID,
+		RawKey:           proof.InternalKey.SerializeCompressed(),
+		Outpoint:         anchorPoint,
+		AmtSats:          anchorOutput.Value,
+		MerkleRoot:       merkleRoot[:],
+		TapscriptSibling: siblingBytes,
+		TxnID:            chainTXID,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to insert managed utxo: %w", err)
@@ -1291,8 +1313,8 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		for _, proof := range proofs {
-			err := a.importAssetFromProof(ctx, q, proof)
+		for _, p := range proofs {
+			err := a.importAssetFromProof(ctx, q, p)
 			if err != nil {
 				return fmt.Errorf("unable to import asset: %w",
 					err)
@@ -1509,6 +1531,13 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			return nil, err
 		}
 
+		tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
+			anchorUTXO.TapscriptSibling,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		selectedAssets[i] = &tarofreighter.AnchoredCommitment{
 			AnchorPoint:       anchorPoint,
 			AnchorOutputValue: btcutil.Amount(anchorUTXO.AmtSats),
@@ -1521,7 +1550,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 					),
 				},
 			},
-			TapscriptSibling: anchorUTXO.TapscriptSibling,
+			TapscriptSibling: tapscriptSibling,
 			Asset:            matchingAsset.Asset,
 			Commitment:       anchorPointToCommitment[anchorPoint],
 		}
@@ -1693,7 +1722,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		RawKey:           internalKeyBytes,
 		Outpoint:         anchorPointBytes,
 		AmtSats:          int64(anchor.Value),
-		TaroRoot:         anchor.MerkleRoot,
+		MerkleRoot:       anchor.MerkleRoot,
 		TapscriptSibling: anchor.TapscriptSibling,
 		TxnID:            txnID,
 	})
@@ -1859,7 +1888,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 						),
 					},
 				},
-				MerkleRoot:       dbOut.AnchorTaroRoot,
+				MerkleRoot:       dbOut.AnchorMerkleRoot,
 				TapscriptSibling: dbOut.AnchorTapscriptSibling,
 				NumPassiveAssets: uint32(
 					dbOut.NumPassiveAssets,

@@ -57,7 +57,7 @@ SELECT
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
-    utxos.taro_root AS anchor_taro_root,
+    utxos.merkle_root AS anchor_merkle_root,
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
     utxo_internal_keys.key_family AS internal_key_family,

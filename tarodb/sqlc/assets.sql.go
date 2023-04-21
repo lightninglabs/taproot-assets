@@ -1057,7 +1057,7 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 }
 
 const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1078,7 +1078,7 @@ type FetchManagedUTXORow struct {
 	AmtSats          int64
 	InternalKeyID    int32
 	TapscriptSibling []byte
-	TaroRoot         []byte
+	MerkleRoot       []byte
 	TxnID            int32
 	KeyID            int32
 	RawKey           []byte
@@ -1095,7 +1095,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 		&i.AmtSats,
 		&i.InternalKeyID,
 		&i.TapscriptSibling,
-		&i.TaroRoot,
+		&i.MerkleRoot,
 		&i.TxnID,
 		&i.KeyID,
 		&i.RawKey,
@@ -1106,7 +1106,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 }
 
 const fetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1118,7 +1118,7 @@ type FetchManagedUTXOsRow struct {
 	AmtSats          int64
 	InternalKeyID    int32
 	TapscriptSibling []byte
-	TaroRoot         []byte
+	MerkleRoot       []byte
 	TxnID            int32
 	KeyID            int32
 	RawKey           []byte
@@ -1141,7 +1141,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 			&i.AmtSats,
 			&i.InternalKeyID,
 			&i.TapscriptSibling,
-			&i.TaroRoot,
+			&i.MerkleRoot,
 			&i.TxnID,
 			&i.KeyID,
 			&i.RawKey,
@@ -1705,6 +1705,8 @@ SELECT
     txns.txid AS anchor_txid,
     txns.block_hash AS anchor_block_hash,
     utxos.outpoint AS anchor_outpoint,
+    utxos.tapscript_sibling AS anchor_tapscript_sibling,
+    utxos.merkle_root AS anchor_merkle_root,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
 FROM assets
@@ -1774,6 +1776,8 @@ type QueryAssetsRow struct {
 	AnchorTxid               []byte
 	AnchorBlockHash          []byte
 	AnchorOutpoint           []byte
+	AnchorTapscriptSibling   []byte
+	AnchorMerkleRoot         []byte
 	AnchorInternalKey        []byte
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
@@ -1832,6 +1836,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorTxid,
 			&i.AnchorBlockHash,
 			&i.AnchorOutpoint,
+			&i.AnchorTapscriptSibling,
+			&i.AnchorMerkleRoot,
 			&i.AnchorInternalKey,
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
@@ -2168,7 +2174,7 @@ WITH target_key(key_id) AS (
     WHERE raw_key = $1
 )
 INSERT INTO managed_utxos (
-    outpoint, amt_sats, internal_key_id, tapscript_sibling, taro_root, txn_id
+    outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id
 ) VALUES (
     $2, $3, (SELECT key_id FROM target_key), $4, $5, $6
 ) ON CONFLICT (outpoint)
@@ -2183,7 +2189,7 @@ type UpsertManagedUTXOParams struct {
 	Outpoint         []byte
 	AmtSats          int64
 	TapscriptSibling []byte
-	TaroRoot         []byte
+	MerkleRoot       []byte
 	TxnID            int32
 }
 
@@ -2193,7 +2199,7 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 		arg.Outpoint,
 		arg.AmtSats,
 		arg.TapscriptSibling,
-		arg.TaroRoot,
+		arg.MerkleRoot,
 		arg.TxnID,
 	)
 	var utxo_id int32

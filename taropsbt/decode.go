@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -297,6 +298,12 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	}, {
 		key:     PsbtKeyTypeOutputTaroSplitAsset,
 		decoder: assetDecoder(&o.SplitAsset),
+	}, {
+		key: PsbtKeyTypeOutputTaroAnchorTapscriptPreimage,
+		decoder: tlvDecoder(
+			&o.AnchorOutputTapscriptPreimage,
+			commitment.TapscriptPreimageDecoder,
+		),
 	}}
 
 	for idx := range mapping {

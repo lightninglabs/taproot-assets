@@ -759,6 +759,16 @@
           "type": "string",
           "format": "byte",
           "description": "The raw internal key that was used to create the anchor Taproot output key."
+        },
+        "merkle_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taro root\ncommitment hash."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The serialized preimage of a Tapscript sibling, if there was one. If this\nis empty, then the merkle_root hash is equal to the Taproot root hash of the\nanchor output."
         }
       }
     },

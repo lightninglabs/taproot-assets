@@ -674,11 +674,13 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 	}
 
 	rpcAsset.ChainAnchor = &tarorpc.AnchorInfo{
-		AnchorTx:        anchorTxBytes,
-		AnchorTxid:      a.AnchorTxid.String(),
-		AnchorBlockHash: a.AnchorBlockHash[:],
-		AnchorOutpoint:  a.AnchorOutpoint.String(),
-		InternalKey:     a.AnchorInternalKey.SerializeCompressed(),
+		AnchorTx:         anchorTxBytes,
+		AnchorTxid:       a.AnchorTxid.String(),
+		AnchorBlockHash:  a.AnchorBlockHash[:],
+		AnchorOutpoint:   a.AnchorOutpoint.String(),
+		InternalKey:      a.AnchorInternalKey.SerializeCompressed(),
+		MerkleRoot:       a.AnchorMerkleRoot,
+		TapscriptSibling: a.AnchorTapscriptSibling,
 	}
 
 	return rpcAsset, nil
@@ -862,7 +864,7 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 			OutPoint:    u.OutPoint.String(),
 			AmtSat:      int64(u.OutputValue),
 			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
-			TaroRoot:    u.TaroRoot,
+			MerkleRoot:  u.MerkleRoot,
 		}
 	}
 
@@ -1603,7 +1605,6 @@ func marshalAddrEvent(event *address.Event,
 		Status:                  rpcStatus,
 		Outpoint:                event.Outpoint.String(),
 		UtxoAmtSat:              uint64(event.Amt),
-		TaprootSibling:          event.TapscriptSibling,
 		ConfirmationHeight:      event.ConfirmationHeight,
 		HasProof:                event.HasProof,
 	}, nil
@@ -1723,7 +1724,7 @@ func marshalOutboundParcel(
 			Value:            int64(out.Anchor.Value),
 			InternalKey:      internalKeyBytes,
 			MerkleRoot:       out.Anchor.MerkleRoot[:],
-			TapscriptSibling: out.Anchor.TapscriptSibling[:],
+			TapscriptSibling: out.Anchor.TapscriptSibling,
 			NumPassiveAssets: out.Anchor.NumPassiveAssets,
 		}
 		scriptPubKey := out.ScriptKey.PubKey

@@ -576,7 +576,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 		TxnID: sqlInt32(dbGenTx.TxnID),
 	})
 	require.NoError(t, err)
-	require.Equal(t, scriptRoot, managedUTXO.TaroRoot)
+	require.Equal(t, scriptRoot, managedUTXO.MerkleRoot)
 
 	// Next, we'll confirm that all the assets inserted previously now are
 	// able to be queried according to the anchor UTXO primary key.

@@ -1,13 +1,11 @@
 package proof
 
 import (
-	"bytes"
 	"errors"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 )
@@ -84,16 +82,6 @@ func ExtractTaprootKeyFromScript(pkScript []byte) (*btcec.PublicKey, error) {
 	}
 
 	return schnorr.ParsePubKey(keyBytes)
-}
-
-// newTapBranchHash takes the raw tap hashes of the left and right nodes and
-// hashes them into a branch.
-func newTapBranchHash(l, r chainhash.Hash) chainhash.Hash {
-	if bytes.Compare(l[:], r[:]) > 0 {
-		l, r = r, l
-	}
-
-	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
 }
 
 // nextPowerOfTwo returns the next highest power of two from a given number if

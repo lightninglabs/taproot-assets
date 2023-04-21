@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -193,7 +194,7 @@ func TaprootProofTapscriptProofRecord(proof **TapscriptProof) tlv.Record {
 }
 
 func CommitmentProofTapSiblingPreimageRecord(
-	preimage **TapscriptPreimage) tlv.Record {
+	preimage **commitment.TapscriptPreimage) tlv.Record {
 
 	sizeFunc := func() uint64 {
 		// 1 byte for the type, and then the pre-image itself.
@@ -201,11 +202,14 @@ func CommitmentProofTapSiblingPreimageRecord(
 	}
 	return tlv.MakeDynamicRecord(
 		CommitmentProofTapSiblingPreimageType, preimage, sizeFunc,
-		TapscriptPreimageEncoder, TapscriptPreimageDecoder,
+		commitment.TapscriptPreimageEncoder,
+		commitment.TapscriptPreimageDecoder,
 	)
 }
 
-func TapscriptProofTapPreimage1Record(preimage **TapscriptPreimage) tlv.Record {
+func TapscriptProofTapPreimage1Record(
+	preimage **commitment.TapscriptPreimage) tlv.Record {
+
 	sizeFunc := func() uint64 {
 		// 1 byte for the type, and then the pre-image itself.
 		return 1 + uint64(len((*preimage).SiblingPreimage))
@@ -213,11 +217,14 @@ func TapscriptProofTapPreimage1Record(preimage **TapscriptPreimage) tlv.Record {
 
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage1, preimage,
-		sizeFunc, TapscriptPreimageEncoder, TapscriptPreimageDecoder,
+		sizeFunc, commitment.TapscriptPreimageEncoder,
+		commitment.TapscriptPreimageDecoder,
 	)
 }
 
-func TapscriptProofTapPreimage2Record(preimage **TapscriptPreimage) tlv.Record {
+func TapscriptProofTapPreimage2Record(
+	preimage **commitment.TapscriptPreimage) tlv.Record {
+
 	sizeFunc := func() uint64 {
 		// 1 byte for the type, and then the pre-image itself.
 		return 1 + uint64(len((*preimage).SiblingPreimage))
@@ -225,7 +232,8 @@ func TapscriptProofTapPreimage2Record(preimage **TapscriptPreimage) tlv.Record {
 
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage2, preimage,
-		sizeFunc, TapscriptPreimageEncoder, TapscriptPreimageDecoder,
+		sizeFunc, commitment.TapscriptPreimageEncoder,
+		commitment.TapscriptPreimageDecoder,
 	)
 }
 

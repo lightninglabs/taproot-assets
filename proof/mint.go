@@ -44,6 +44,11 @@ type BaseProofParams struct {
 	// above transaction.
 	TaroRoot *commitment.TaroCommitment
 
+	// TapscriptSibling is the pre-image to the tapscript hash of the
+	// sibling to the Taro root. If this is nil then it means the Taro root
+	// is the only tapscript leaf in the tree.
+	TapscriptSibling *commitment.TapscriptPreimage
+
 	// ExclusionProofs is the set of TaprootProofs proving the exclusion of
 	// any assets from all other Taproot outputs within Tx.
 	ExclusionProofs []TaprootProof

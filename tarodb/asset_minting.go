@@ -932,7 +932,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	batchKey *btcec.PublicKey, genesisPkt *tarogarden.FundedPsbt,
-	anchorOutputIndex uint32, taroScriptRoot []byte) error {
+	anchorOutputIndex uint32, merkleRoot []byte) error {
 
 	// The managed UTXO we'll insert only contains the raw tx of the
 	// genesis packet, so we'll extract that now.
@@ -1000,11 +1000,11 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// batch, we'll create a new managed UTXO for this batch as
 		// this is where all the assets will be anchored within.
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:   rawBatchKey,
-			Outpoint: anchorOutpoint,
-			AmtSats:  anchorOutput.Value,
-			TaroRoot: taroScriptRoot,
-			TxnID:    chainTXID,
+			RawKey:     rawBatchKey,
+			Outpoint:   anchorOutpoint,
+			AmtSats:    anchorOutput.Value,
+			MerkleRoot: merkleRoot,
+			TxnID:      chainTXID,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert managed utxo: %w", err)

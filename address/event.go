@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 )
@@ -84,17 +83,6 @@ type Event struct {
 	// TaprootOutputKey of the Addr.
 	InternalKey *btcec.PublicKey
 
-	// TapscriptSibling, if non-empty, signals that a Tapscript sibling leaf
-	// was present in the on-chain Taproot output that sent the assets. This
-	// can only be achieved by importing a proof and then scanning for the
-	// Taproot output on chain retroactively, since at the time a Taro
-	// address is created the sibling might not yet be known.
-	//
-	// NOTE: The functionality described above (importing the proof and re-
-	// scanning the chain) is not yet implemented, so this should always be
-	// empty or nil at the moment.
-	TapscriptSibling []byte
-
 	// ConfirmationHeight is the block height at which the incoming asset
 	// transfer transaction was first confirmed.
 	ConfirmationHeight uint32
@@ -114,8 +102,7 @@ type EventStorage interface {
 	// updated instead.
 	GetOrCreateEvent(ctx context.Context, status Status,
 		addr *AddrWithKeyInfo, walletTx *lndclient.Transaction,
-		outputIdx uint32, tapscriptSibling *chainhash.Hash) (*Event,
-		error)
+		outputIdx uint32) (*Event, error)
 
 	// QueryAddrEvents returns a list of event that match the given query
 	// parameters.

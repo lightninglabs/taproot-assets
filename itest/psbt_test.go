@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
@@ -639,6 +640,127 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 
 	// There's only one non-interactive receive event.
 	assertNonInteractiveRecvComplete(t, secondTarod, 1)
+}
+
+// testPsbtInteractiveTapscriptSibling tests that we can send assets to an
+// anchor output that also commits to a tapscript sibling.
+func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+	chainParams := &address.RegressionNetTaro
+
+	ctxb := context.Background()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(p *tarodHarnessParams) {
+			p.startupSyncNode = t.tarod
+			p.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	var (
+		alice = t.tarod
+		bob   = secondTarod
+		id    [32]byte
+	)
+	copy(id[:], genInfo.AssetId)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(t.t, bob)
+
+	var (
+		sendAmt   = uint64(1000)
+		changeAmt = rpcAssets[0].Amount - sendAmt
+	)
+	vPkt := taropsbt.ForInteractiveSend(
+		id, sendAmt, receiverScriptKey, 0, receiverAnchorIntKeyDesc,
+		chainParams,
+	)
+
+	// We now create a Tapscript sibling with a simple hash lock script.
+	preImage := []byte("hash locks are cool")
+	siblingLeaf := test.ScriptHashLock(t.t, preImage)
+
+	preimage := commitment.NewPreimageFromLeaf(siblingLeaf)
+	vPkt.Outputs[0].AnchorOutputTapscriptPreimage = preimage
+
+	// Next, we'll attempt to complete a transfer with PSBTs from alice to
+	// bob, using the partial amount.
+	fundResp := fundPacket(t, alice, vPkt)
+	signResp, err := alice.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signResp.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	confirmAndAssetOutboundTransferWithOutputs(
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{sendAmt, changeAmt}, 0, 1, 2,
+	)
+	_ = sendProof(
+		t, alice, bob,
+		receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	senderAssets, err := alice.ListAssets(
+		ctxb, &tarorpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, senderAssets.Assets, 1)
+
+	receiverAssets, err := bob.ListAssets(
+		ctxb, &tarorpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, receiverAssets.Assets, 1)
+	require.True(t.t, bytes.Contains(
+		receiverAssets.Assets[0].ChainAnchor.TapscriptSibling,
+		siblingLeaf.Script,
+	))
+
+	assetsJSON, err := formatProtoJSON(receiverAssets)
+	require.NoError(t.t, err)
+	t.Logf("Got bob assets: %s", assetsJSON)
+
+	// And finally, make sure we can spend the asset again.
+	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmt / 2,
+	})
+	require.NoError(t.t, err)
+
+	assertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
+	sendResp = sendAssetsToAddr(t, bob, aliceAddr)
+	confirmAndAssertOutboundTransfer(
+		t, bob, sendResp, genInfo.AssetId,
+		[]uint64{sendAmt / 2, sendAmt / 2}, 0, 1,
+	)
+	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
+
+	// There's only one receive event (since only non-interactive sends
+	// appear in that RPC output).
+	assertNonInteractiveRecvComplete(t, alice, 1)
 }
 
 func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,

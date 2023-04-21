@@ -138,11 +138,9 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 
 	// With the merkle proof obtained, we can now set that in the main
 	// inclusion proof.
-	//
-	// NOTE: We don't add a TapSiblingPreimage here since we assume that
-	// this minting output ONLY commits to the Taro commitment.
 	proof.InclusionProof.CommitmentProof = &CommitmentProof{
-		Proof: *assetMerkleProof,
+		Proof:              *assetMerkleProof,
+		TapSiblingPreimage: params.TapscriptSibling,
 	}
 
 	// If the asset is a split asset, we also need to generate MS-SMT

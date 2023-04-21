@@ -102,7 +102,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 		return taroCommitment, nil
 	}
 
-	return nil, ErrInvalidTaprootProof
+	return nil, commitment.ErrInvalidTaprootProof
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
@@ -272,10 +272,10 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
-		return nil, ErrInvalidTaprootProof // TODO
+		return nil, commitment.ErrInvalidTaprootProof // TODO
 	}
 	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
-		return nil, ErrInvalidTaprootProof // TODO
+		return nil, commitment.ErrInvalidTaprootProof // TODO
 	}
 
 	// Cross-check block header with a bitcoin node.
@@ -346,6 +346,11 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
+	// 6. At this point we know there is an inclusion proof, which must be
+	// a commitment proof. So we can extract the tapscript preimage directly
+	// from there.
+	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
+
 	// TODO(roasbeef): need tx index and block height as well
 
 	return &AssetSnapshot{
@@ -354,13 +359,14 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
 		},
-		AnchorBlockHash: p.BlockHeader.BlockHash(),
-		AnchorTx:        &p.AnchorTx,
-		OutputIndex:     p.InclusionProof.OutputIndex,
-		InternalKey:     p.InclusionProof.InternalKey,
-		ScriptRoot:      taroCommitment,
-		SplitAsset:      splitAsset != nil,
-		MetaReveal:      p.MetaReveal,
+		AnchorBlockHash:  p.BlockHeader.BlockHash(),
+		AnchorTx:         &p.AnchorTx,
+		OutputIndex:      p.InclusionProof.OutputIndex,
+		InternalKey:      p.InclusionProof.InternalKey,
+		ScriptRoot:       taroCommitment,
+		TapscriptSibling: tapscriptPreimage,
+		SplitAsset:       splitAsset != nil,
+		MetaReveal:       p.MetaReveal,
 	}, nil
 }
 

@@ -230,11 +230,13 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 		return nil, err
 	}
 
-	taroCommitment, err := commitment.NewTaroCommitment(&commitment.AssetCommitment{
-		Version:  a.Version,
-		AssetID:  a.AssetID,
-		TreeRoot: updatedRoot,
-	})
+	taroCommitment, err := commitment.NewTaroCommitment(
+		&commitment.AssetCommitment{
+			Version:  a.Version,
+			AssetID:  a.AssetID,
+			TreeRoot: updatedRoot,
+		},
+	)
 
 	return taroCommitment, err
 }
