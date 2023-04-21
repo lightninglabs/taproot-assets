@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/caddyserver/certmagic"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/rpcperms"
@@ -255,30 +254,6 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 			wg.Done()
 			_ = grpcServer.Serve(lis)
 		}(lis)
-	}
-
-	// If Let's Encrypt was enabled, then we'll use that to create another
-	// listening interface for the gRPC server.
-	if cfg.LetsEncryptDomain != "" {
-		domain := cfg.LetsEncryptDomain
-
-		certmagic.DefaultACME.Agreed = true
-		certmagic.DefaultACME.Email = cfg.LetsEncryptEmail
-
-		wg.Add(1)
-		go func() {
-			rpcsLog.Infof("RPC server listening on Let's Encrypt "+
-				"interface for domain: %v", domain)
-
-			tlsLis, err := certmagic.Listen([]string{domain})
-			if err != nil {
-				rpcsLog.Errorf("Error creating Let's Encrypt "+
-					"listener: %v", err)
-			}
-
-			wg.Done()
-			_ = grpcServer.Serve(tlsLis)
-		}()
 	}
 
 	// Wait for gRPC servers to be up running.
