@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -108,6 +109,46 @@ func NewTaroCommitment(assets ...*AssetCommitment) (*TaroCommitment, error) {
 		assetCommitments: assetCommitments,
 		tree:             tree,
 	}, nil
+}
+
+// FromAssets creates a new Taro commitment for the given assets, creating the
+// appropriate asset commitments internally.
+func FromAssets(assets ...*asset.Asset) (*TaroCommitment, error) {
+	lowerCommitments := make(map[[32]byte]*AssetCommitment, len(assets))
+
+	// Create the necessary asset commitments. Assets are upserted into
+	// commitments based on their Taro commitment keys.
+	for _, a := range assets {
+		key := a.TaroCommitmentKey()
+		commitment, ok := lowerCommitments[key]
+		if ok {
+			err := commitment.Upsert(a)
+			if err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+
+		commitment, err := NewAssetCommitment(a)
+		if err != nil {
+			return nil, err
+		}
+
+		lowerCommitments[key] = commitment
+	}
+
+	// Finally, we'll construct the Taro commitment for this group
+	// of assets.
+	topCommitment, err := NewTaroCommitment(
+		maps.Values(lowerCommitments)...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make new taro commitment "+
+			"from assets: %w", err)
+	}
+
+	return topCommitment, nil
 }
 
 // Delete modifies one entry in the TaroCommitment by deleting it in the inner

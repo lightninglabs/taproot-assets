@@ -1074,6 +1074,15 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	require.Equal(t, len(assetCommitments), 2)
 	require.Equal(t, assetCommitments[commitmentKey2], assetCommitment2)
 
+	// Make a new Taro commitment directly from the same assets, and check
+	// equality with the version made via upserts.
+	commitmentFromAssets, err := FromAssets(asset1, asset2)
+	require.NoError(t, err)
+	require.Equal(
+		t, copyOfCommitment.TapscriptRoot(nil),
+		commitmentFromAssets.TapscriptRoot(nil),
+	)
+
 	// Make sure that when we upsert an empty asset commitment, the whole
 	// asset tree is pruned from the Taro tree.
 	err = assetCommitment2.Delete(asset2)
