@@ -6,6 +6,7 @@ import (
 	"testing"
 	"testing/quick"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
@@ -62,7 +63,10 @@ func TestNewAssetCommitment(t *testing.T) {
 	genesis1 := asset.RandGenesis(t, asset.Normal)
 	genesis1Collectible := asset.RandGenesis(t, asset.Collectible)
 	genesis2 := asset.RandGenesis(t, asset.Normal)
-	groupKey1 := asset.RandGroupKey(t, genesis1)
+	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(t, genesis1)
+	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	group1Anchor := randAsset(t, genesis1, nil)
+	group1Anchor.GroupKey = groupKey1
 	groupKey1Collectible := asset.RandGroupKey(t, genesis1Collectible)
 	groupKey2 := asset.RandGroupKey(t, genesis2)
 	copyOfGroupKey1Collectible := &asset.GroupKey{
@@ -70,6 +74,13 @@ func TestNewAssetCommitment(t *testing.T) {
 		GroupPubKey: groupKey1Collectible.GroupPubKey,
 		Sig:         groupKey1Collectible.Sig,
 	}
+	group1Reissued := randAsset(t, genesis2, nil)
+	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
+		asset.NewRawKeyGenesisSigner(group1Priv),
+		test.PubToKeyDesc(group1Pub), genesis1, &genesis2,
+	)
+	require.NoError(t, err)
+	group1Reissued.GroupKey = group1ReissuedGroupKey
 
 	testCases := []struct {
 		name string
@@ -97,7 +108,7 @@ func TestNewAssetCommitment(t *testing.T) {
 			err: ErrAssetGenesisMismatch,
 		},
 		{
-			name: "same group key asset id mismatch",
+			name: "same group with invalid signature",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
 					randAsset(t, genesis1, groupKey1),
@@ -117,11 +128,11 @@ func TestNewAssetCommitment(t *testing.T) {
 			err: ErrAssetDuplicateScriptKey,
 		},
 		{
-			name: "valid normal asset commitment with group key",
+			name: "valid normal asset commitment with group reissue",
 			f: func() []*asset.Asset {
 				return []*asset.Asset{
-					randAsset(t, genesis1, groupKey1),
-					randAsset(t, genesis1, groupKey1),
+					group1Anchor,
+					group1Reissued,
 				}
 			},
 			err: nil,
@@ -861,21 +872,30 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	genesis2 := asset.RandGenesis(t, asset.Normal)
 	genesis1collect := genesis1
 	genesis1collect.Type = asset.Collectible
-	groupKey1 := asset.RandGroupKey(t, genesis1)
+	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(t, genesis1)
+	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	group1Anchor := randAsset(t, genesis1, nil)
+	group1Anchor.GroupKey = groupKey1
 	groupKey2 := asset.RandGroupKey(t, genesis2)
 	copyOfGroupKey1 := &asset.GroupKey{
 		RawKey:      groupKey1.RawKey,
 		GroupPubKey: groupKey1.GroupPubKey,
 		Sig:         groupKey1.Sig,
 	}
+	group1Reissued := randAsset(t, genesis2, nil)
+	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
+		asset.NewRawKeyGenesisSigner(group1Priv),
+		test.PubToKeyDesc(group1Pub), genesis1, &genesis2,
+	)
+	require.NoError(t, err)
+	group1Reissued.GroupKey = group1ReissuedGroupKey
 
-	assetWithGroup := randAsset(t, genesis1, groupKey1)
 	assetNoGroup := randAsset(t, genesis2, nil)
 	copyOfAssetNoGroup := assetNoGroup.Copy()
 
 	// Create two AssetCommitments, both including one asset.
 	// One AssetCommitment includes an asset with a group key.
-	groupAssetCommitment, err := NewAssetCommitment(assetWithGroup)
+	groupAssetCommitment, err := NewAssetCommitment(group1Anchor)
 	require.NoError(t, err)
 	soloAssetCommitment, err := NewAssetCommitment(assetNoGroup)
 	require.NoError(t, err)
@@ -896,27 +916,44 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			err:       ErrAssetGroupKeyMismatch,
 		},
 		{
-			name: "genesis mismatch",
+			name: "asset type mismatch",
 			f: func() (*asset.Asset, error) {
-				mismatchedAsset := randAsset(t, genesis2, nil)
+				mismatchedAsset := randAsset(t, genesis1collect, nil)
 				return nil, groupAssetCommitment.Upsert(mismatchedAsset)
 			},
 			numAssets: 0,
-			err:       ErrAssetGenesisMismatch,
+			err:       ErrAssetTypeMismatch,
+		},
+		{
+			name: "invalid group signature",
+			f: func() (*asset.Asset, error) {
+				mismatchedAsset := randAsset(t, genesis2, copyOfGroupKey1)
+				return nil, groupAssetCommitment.Upsert(mismatchedAsset)
+			},
+			numAssets: 0,
+			err:       ErrAssetGenesisInvalidSig,
 		},
 		{
 			name: "fresh asset commitment",
 			f: func() (*asset.Asset, error) {
-				return assetWithGroup, nil
+				return group1Anchor, nil
 			},
 			numAssets: 1,
 			err:       nil,
 		},
 		{
-			name: "insertion of collectible with group key",
+			name: "insertion of asset with group key",
 			f: func() (*asset.Asset, error) {
-				newAsset := randAsset(t, genesis1collect, copyOfGroupKey1)
-				return newAsset, groupAssetCommitment.Upsert(newAsset)
+				group1Reissued := randAsset(t, genesis2, nil)
+				group1ReissuedGroupKey, err := asset.DeriveGroupKey(
+					asset.NewRawKeyGenesisSigner(group1Priv),
+					test.PubToKeyDesc(group1Priv.PubKey()),
+					genesis1, &genesis2,
+				)
+				require.NoError(t, err)
+				group1Reissued.GroupKey = group1ReissuedGroupKey
+				return group1Reissued,
+					groupAssetCommitment.Upsert(group1Reissued)
 			},
 			numAssets: 2,
 			err:       nil,

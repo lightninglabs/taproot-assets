@@ -27,6 +27,13 @@ var (
 		"asset commitment: genesis mismatch",
 	)
 
+	// ErrAssetTypeMismatch is an error returned when we attempt to insert
+	// an asset into an asset commitment and the asset type does not match
+	// the assets stored in the commitment.
+	ErrAssetTypeMismatch = errors.New(
+		"asset commitment: asset type mismatch",
+	)
+
 	// ErrAssetGroupKeyMismatch is an error returned when we attempt to
 	// create a new asset commitment and two assets disagree on their
 	// group key.
@@ -97,7 +104,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	assetsMap := make(CommittedAssets, len(assets))
 	for _, asset := range assets {
 		switch {
-		case !assetGroupKey.IsEqual(asset.GroupKey):
+		case !assetGroupKey.IsEqualGroup(asset.GroupKey):
 			return nil, ErrAssetGroupKeyMismatch
 
 		case assetGroupKey == nil:
@@ -109,7 +116,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 			// There should be a valid Schnorr sig over the asset ID
 			// in the group key struct.
 			validSig := asset.Genesis.VerifySignature(
-				&assetGroupKey.Sig, &assetGroupKey.GroupPubKey,
+				&asset.GroupKey.Sig, &assetGroupKey.GroupPubKey,
 			)
 			if !validSig {
 				return nil, ErrAssetGenesisInvalidSig
@@ -187,6 +194,16 @@ func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
 		return ErrNoAssets
 	}
 
+	// Sanity check the asset type of the given asset. Since we don't store
+	// the asset type in the AssetCommitment, we fetch the type of a random,
+	// already included and validated asset.
+	for _, randAsset := range c.assets {
+		if randAsset.Type != asset.Type {
+			return ErrAssetTypeMismatch
+		}
+		break
+	}
+
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
@@ -195,6 +212,17 @@ func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
 			return ErrAssetGroupKeyMismatch
 		}
 		return ErrAssetGenesisMismatch
+	}
+
+	// There should be a valid Schnorr sig over the asset ID
+	// in the group key struct.
+	if asset.GroupKey != nil {
+		validSig := asset.Genesis.VerifySignature(
+			&asset.GroupKey.Sig, &asset.GroupKey.GroupPubKey,
+		)
+		if !validSig {
+			return ErrAssetGenesisInvalidSig
+		}
 	}
 
 	key := asset.AssetCommitmentKey()

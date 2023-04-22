@@ -421,9 +421,28 @@ type GroupKey struct {
 	Sig schnorr.Signature
 }
 
-// IsEqual returns true if this group key is equivalent to the passed other
-// group key.
+// IsEqual returns true if this group key and signature are exactly equivalent
+// to the passed other group key.
 func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
+	if g == nil {
+		return otherGroupKey == nil
+	}
+
+	if otherGroupKey == nil {
+		return false
+	}
+
+	equalGroup := g.IsEqualGroup(otherGroupKey)
+	if !equalGroup {
+		return false
+	}
+
+	return g.Sig.IsEqual(&otherGroupKey.Sig)
+}
+
+// IsEqualGroup returns true if this group key describes the same asset group
+// as the passed other group key.
+func (g *GroupKey) IsEqualGroup(otherGroupKey *GroupKey) bool {
 	// If this key is nil, the other must be nil too.
 	if g == nil {
 		return otherGroupKey == nil
@@ -439,8 +458,7 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
-	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey) &&
-		g.Sig.IsEqual(&otherGroupKey.Sig)
+	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey)
 }
 
 // IsLocal returns true if the private key that corresponds to this group key
