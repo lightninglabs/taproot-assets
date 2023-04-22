@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -92,6 +93,52 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 		&i.AssetName,
 	)
 	return i, err
+}
+
+const insertNewProofEvent = `-- name: InsertNewProofEvent :exec
+WITH root_asset_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE asset_id = $2
+)
+INSERT INTO universe_events (
+    event_type, universe_root_id, event_time
+) VALUES (
+    "NEW_PROOF", (SELECT id FROM root_asset_id), $1
+)
+`
+
+type InsertNewProofEventParams struct {
+	EventTime time.Time
+	AssetID   []byte
+}
+
+func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertNewProofEvent, arg.EventTime, arg.AssetID)
+	return err
+}
+
+const insertNewSyncEvent = `-- name: InsertNewSyncEvent :exec
+WITH root_asset_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE asset_id = $2
+)
+INSERT INTO universe_events (
+    event_type, universe_root_id, event_time
+) VALUES (
+    "SYNC", (SELECT id FROM root_asset_id), $1
+)
+`
+
+type InsertNewSyncEventParams struct {
+	EventTime time.Time
+	AssetID   []byte
+}
+
+func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertNewSyncEvent, arg.EventTime, arg.AssetID)
+	return err
 }
 
 const insertUniverseLeaf = `-- name: InsertUniverseLeaf :exec
@@ -186,6 +233,101 @@ func (q *Queries) LogServerSync(ctx context.Context, arg LogServerSyncParams) er
 	return err
 }
 
+const queryUniverseAssetStats = `-- name: QueryUniverseAssetStats :many
+
+WITH asset_supply AS (
+    SELECT SUM(nodes.sum) AS supply, gen.asset_id AS asset_id
+    FROM universe_leaves leaves
+    JOIN mssmt_nodes nodes
+        ON leaves.leaf_node_key = nodes.key AND
+           leaves.leaf_node_namespace = nodes.namespace
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
+    GROUP BY gen.asset_id
+), asset_info AS (
+    SELECT asset_supply.supply, gen.asset_id AS asset_id,
+           gen.asset_tag AS asset_name, gen.asset_type AS asset_type
+    FROM genesis_info_view gen
+    JOIN asset_supply
+        ON asset_supply.asset_id = gen.asset_id
+    WHERE (gen.asset_tag = $4 OR $4 IS NULL) AND
+          (gen.asset_type = $5 OR $5 IS NULL) AND
+          (gen.asset_id = $6 OR $6 IS NULL)
+)
+SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
+    asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
+    universe_stats.total_asset_syncs AS total_syncs,
+    universe_stats.total_asset_proofs AS total_proofs
+FROM asset_info
+JOIN universe_stats
+    ON asset_info.asset_id = universe_stats.asset_id
+ORDER BY
+    CASE
+        WHEN $1 = 'asset_id' THEN asset_info.asset_id
+        WHEN $1 = 'asset_name' THEN asset_info.asset_name
+        WHEN $1 = 'asset_type' THEN asset_info.asset_type
+        ELSE NULL
+    END
+LIMIT $3 OFFSET $2
+`
+
+type QueryUniverseAssetStatsParams struct {
+	SortBy    interface{}
+	NumOffset int32
+	NumLimit  int32
+	AssetName sql.NullString
+	AssetType sql.NullInt16
+	AssetID   []byte
+}
+
+type QueryUniverseAssetStatsRow struct {
+	AssetSupply int64
+	AssetName   string
+	AssetType   int16
+	AssetID     []byte
+	TotalSyncs  int64
+	TotalProofs int64
+}
+
+// TODO(roasbeef): use the universe id instead for the grouping? so namespace
+// root, simplifies queries
+func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryUniverseAssetStats,
+		arg.SortBy,
+		arg.NumOffset,
+		arg.NumLimit,
+		arg.AssetName,
+		arg.AssetType,
+		arg.AssetID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryUniverseAssetStatsRow
+	for rows.Next() {
+		var i QueryUniverseAssetStatsRow
+		if err := rows.Scan(
+			&i.AssetSupply,
+			&i.AssetName,
+			&i.AssetType,
+			&i.AssetID,
+			&i.TotalSyncs,
+			&i.TotalProofs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const queryUniverseLeaves = `-- name: QueryUniverseLeaves :many
 SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value genesis_proof, 
        nodes.sum sum_amt
@@ -243,6 +385,30 @@ func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeav
 		return nil, err
 	}
 	return items, nil
+}
+
+const queryUniverseStats = `-- name: QueryUniverseStats :one
+WITH num_assets As (
+    SELECT COUNT(*) AS num_assets
+    FROM universe_roots
+)
+SELECT COALESCE(SUM(universe_stats.total_asset_syncs), 0) AS total_syncs,
+       COALESCE(SUM(universe_stats.total_asset_proofs), 0) AS total_proofs,
+       COUNT(num_assets) AS total_num_assets
+FROM universe_stats, num_assets
+`
+
+type QueryUniverseStatsRow struct {
+	TotalSyncs     interface{}
+	TotalProofs    interface{}
+	TotalNumAssets int64
+}
+
+func (q *Queries) QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error) {
+	row := q.db.QueryRowContext(ctx, queryUniverseStats)
+	var i QueryUniverseStatsRow
+	err := row.Scan(&i.TotalSyncs, &i.TotalProofs, &i.TotalNumAssets)
+	return i, err
 }
 
 const universeLeaves = `-- name: UniverseLeaves :many

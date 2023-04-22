@@ -248,6 +248,13 @@ type ScriptKey struct {
 	Tweak            []byte
 }
 
+type UniverseEvent struct {
+	EventID        int32
+	EventType      string
+	UniverseRootID int32
+	EventTime      time.Time
+}
+
 type UniverseLeafe struct {
 	ID                int32
 	AssetGenesisID    int32
@@ -269,4 +276,12 @@ type UniverseServer struct {
 	ID           int32
 	ServerHost   string
 	LastSyncTime time.Time
+}
+
+type UniverseStat struct {
+	TotalAssetSyncs  int64
+	TotalAssetProofs int64
+	AssetID          []byte
+	GroupKey         []byte
+	NamespaceRoot    string
 }

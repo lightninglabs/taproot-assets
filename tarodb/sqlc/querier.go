@@ -81,6 +81,8 @@ type Querier interface {
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error)
+	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
+	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
@@ -112,7 +114,11 @@ type Querier interface {
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	QueryPassiveAssets(ctx context.Context, transferID int32) ([]QueryPassiveAssetsRow, error)
 	QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error)
+	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
+	// root, simplifies queries
+	QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error)
 	QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error)
+	QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error)
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int32, error)
