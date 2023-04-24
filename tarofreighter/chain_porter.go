@@ -537,9 +537,13 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	defer cancel()
 
 	deliver := func(ctx context.Context, out TransferOutput) error {
+		key := out.ScriptKey.PubKey
+
 		// If this is an output that is going to our own node/wallet,
 		// we don't need to transfer the proof.
 		if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
+			log.Debugf("Not transferring proof for local output "+
+				"script key %x", key.SerializeCompressed())
 			return nil
 		}
 
@@ -555,12 +559,14 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		}
 		if receiverProof == nil {
 			return fmt.Errorf("no proof found for output with "+
-				"script key %x",
-				out.ScriptKey.PubKey.SerializeCompressed())
+				"script key %x", key.SerializeCompressed())
 		}
 
+		log.Debugf("Attempting to deliver proof for script key %x",
+			key.SerializeCompressed())
+
 		recipient := proof.Recipient{
-			ScriptKey: out.ScriptKey.PubKey,
+			ScriptKey: key,
 			AssetID:   *receiverProof.AssetID,
 			Amount:    out.Amount,
 		}
