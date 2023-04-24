@@ -96,11 +96,11 @@ func (n *LeafNode) IsEmpty() bool {
 func (n *LeafNode) Copy() Node {
 	var nodeHashCopy *NodeHash
 	if n.nodeHash != nil {
-		nodeHashCopy = new(NodeHash)
-		*nodeHashCopy = *n.nodeHash
+		nodeHashCopy = &NodeHash{}
+		copy(nodeHashCopy[:], n.nodeHash[:])
 	}
 
-	valueCopy := make([]byte, 0, len(n.Value))
+	valueCopy := make([]byte, len(n.Value))
 	copy(valueCopy, n.Value)
 
 	return &LeafNode{
@@ -110,7 +110,7 @@ func (n *LeafNode) Copy() Node {
 	}
 }
 
-// CompactedLeafNode holds a leafnode that represents a whole "compacted"
+// CompactedLeafNode holds a leaf node that represents a whole "compacted"
 // subtree omitting all default branches and leafs in the represented subtree.
 type CompactedLeafNode struct {
 	*LeafNode
@@ -123,7 +123,7 @@ type CompactedLeafNode struct {
 	compactedNodeHash NodeHash
 }
 
-// newCompactedLeafNode creates a new compacted leaf at the passed height with
+// NewCompactedLeafNode creates a new compacted leaf at the passed height with
 // the passed leaf key.
 func NewCompactedLeafNode(height int, key *[32]byte,
 	leaf *LeafNode) *CompactedLeafNode {
@@ -241,8 +241,8 @@ func (n *BranchNode) NodeSum() uint64 {
 func (n *BranchNode) Copy() Node {
 	var nodeHashCopy *NodeHash
 	if n.nodeHash != nil {
-		nodeHashCopy = new(NodeHash)
-		*nodeHashCopy = *n.nodeHash
+		nodeHashCopy = &NodeHash{}
+		copy(nodeHashCopy[:], n.nodeHash[:])
 	}
 
 	var sumCopy *uint64

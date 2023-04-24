@@ -223,7 +223,8 @@ func NewSplitCommitment(ctx context.Context, input *asset.Asset,
 
 		return nil
 	}
-	for idx, locator := range locators {
+	for idx := range locators {
+		locator := locators[idx]
 		if idx != rootIdx && locator.Amount == 0 {
 			return nil, ErrZeroSplitAmount
 		}
@@ -258,11 +259,11 @@ func NewSplitCommitment(ctx context.Context, input *asset.Asset,
 			return nil, err
 		}
 
-		splitAssets[*locator].PrevWitnesses[0].SplitCommitment =
-			&asset.SplitCommitment{
-				Proof:     *proof,
-				RootAsset: *rootAsset,
-			}
+		prevWitnesses := splitAssets[*locator].PrevWitnesses
+		prevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
+			Proof:     *proof,
+			RootAsset: *rootAsset,
+		}
 	}
 
 	return &SplitCommitment{

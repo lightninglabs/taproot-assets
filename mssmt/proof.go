@@ -51,9 +51,9 @@ func (p Proof) Root(key [32]byte, leaf *LeafNode) *BranchNode {
 
 // Copy returns a deep copy of the proof.
 func (p Proof) Copy() *Proof {
-	nodesCopy := make([]Node, 0, len(p.Nodes))
-	for _, node := range p.Nodes {
-		nodesCopy = append(nodesCopy, node.Copy())
+	nodesCopy := make([]Node, len(p.Nodes))
+	for idx := range p.Nodes {
+		nodesCopy[idx] = p.Nodes[idx].Copy()
 	}
 	return &Proof{Nodes: nodesCopy}
 }
@@ -65,11 +65,13 @@ func (p Proof) Compress() *CompressedProof {
 		bits  = make([]bool, len(p.Nodes))
 		nodes []Node
 	)
-	for i, node := range p.Nodes {
+	for idx := range p.Nodes {
+		node := p.Nodes[idx]
+
 		// The proof nodes start at the leaf, while the EmptyTree starts
 		// at the root.
-		if node.NodeHash() == EmptyTree[MaxTreeLevels-i].NodeHash() {
-			bits[i] = true
+		if node.NodeHash() == EmptyTree[MaxTreeLevels-idx].NodeHash() {
+			bits[idx] = true
 		} else {
 			nodes = append(nodes, node)
 		}
