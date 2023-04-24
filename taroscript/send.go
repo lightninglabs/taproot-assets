@@ -824,22 +824,23 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 	}
 
 	for i := range outputs {
-		out := outputs[i]
+		vOut := outputs[i]
 
-		psbtOut := &spendPkt.Outputs[out.AnchorOutputIndex]
-		psbtOut.TaprootInternalKey = schnorr.SerializePubKey(
-			out.AnchorOutputInternalKey,
+		out := &spendPkt.Outputs[vOut.AnchorOutputIndex]
+		out.TaprootInternalKey = schnorr.SerializePubKey(
+			vOut.AnchorOutputInternalKey,
 		)
-		if out.AnchorOutputBip32Derivation != nil {
-			psbtOut.Bip32Derivation = append(
-				psbtOut.Bip32Derivation,
-				out.AnchorOutputBip32Derivation...,
+
+		for idx := range vOut.AnchorOutputBip32Derivation {
+			out.Bip32Derivation = taropsbt.AddBip32Derivation(
+				out.Bip32Derivation,
+				vOut.AnchorOutputBip32Derivation[idx],
 			)
 		}
-		if out.AnchorOutputTaprootBip32Derivation != nil {
-			psbtOut.TaprootBip32Derivation = append(
-				psbtOut.TaprootBip32Derivation,
-				out.AnchorOutputTaprootBip32Derivation...,
+		for idx := range vOut.AnchorOutputTaprootBip32Derivation {
+			out.TaprootBip32Derivation = taropsbt.AddTaprootBip32Derivation(
+				out.TaprootBip32Derivation,
+				vOut.AnchorOutputTaprootBip32Derivation[idx],
 			)
 		}
 	}
