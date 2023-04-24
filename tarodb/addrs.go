@@ -771,14 +771,14 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 
 // CompleteEvent updates an address event as being complete and links it with
 // the proof and asset that was imported/created for it.
-func (t *TaroAddressBook) CompleteEvent(ctx context.Context,
+func (a *TaroAddressBook) CompleteEvent(ctx context.Context,
 	event *address.Event, status address.Status,
 	anchorPoint wire.OutPoint) error {
 
 	scriptKeyBytes := event.Addr.ScriptKey.SerializeCompressed()
 
 	var writeTxOpts AddrBookTxOptions
-	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
+	return a.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		proofData, err := db.FetchAssetProof(ctx, scriptKeyBytes)
 		if err != nil {
 			return fmt.Errorf("error fetching asset proof: %w", err)

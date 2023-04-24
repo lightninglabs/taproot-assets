@@ -304,13 +304,18 @@ type BatchedAssetStore interface {
 // AssetStore is used to query for the set of pending and confirmed assets.
 type AssetStore struct {
 	db BatchedAssetStore
+
+	// eventDistributor is an event distributor that will be used to notify
+	// subscribers about new proofs that are added to the archiver.
+	eventDistributor *chanutils.EventDistributor[proof.Blob]
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
 // interface.
 func NewAssetStore(db BatchedAssetStore) *AssetStore {
 	return &AssetStore{
-		db: db,
+		db:               db,
+		eventDistributor: chanutils.NewEventDistributor[proof.Blob](),
 	}
 }
 
@@ -1312,7 +1317,7 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		for _, p := range proofs {
 			err := a.importAssetFromProof(ctx, q, p)
 			if err != nil {
@@ -1323,6 +1328,61 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("unable to import proofs: %w", err)
+	}
+
+	// Notify any event subscribers that there are new proofs. We do this
+	// outside of the transaction to avoid the subscribers trying to look up
+	// the proofs before they are committed.
+	proofBlobs := chanutils.Map(
+		proofs, func(p *proof.AnnotatedProof) proof.Blob {
+			return p.Blob
+		},
+	)
+	a.eventDistributor.NotifySubscribers(proofBlobs...)
+
+	return nil
+}
+
+// RegisterSubscriber adds a new subscriber for receiving events. The
+// deliverExisting boolean indicates whether already existing items should be
+// sent to the NewItemCreated channel when the subscription is started. An
+// optional deliverFrom can be specified to indicate from which timestamp/index/
+// marker onward existing items should be delivered on startup. If deliverFrom
+// is nil/zero/empty then all existing items will be delivered.
+func (a *AssetStore) RegisterSubscriber(
+	receiver *chanutils.EventReceiver[proof.Blob],
+	deliverExisting bool, deliverFrom []*proof.Locator) error {
+
+	a.eventDistributor.RegisterSubscriber(receiver)
+
+	// No delivery of existing items requested, we're done here.
+	if !deliverExisting {
+		return nil
+	}
+
+	ctx := context.Background()
+	for _, loc := range deliverFrom {
+		blob, err := a.FetchProof(ctx, *loc)
+		if err != nil {
+			return err
+		}
+
+		// Deliver the found proof to the new item queue of the
+		// subscriber.
+		receiver.NewItemCreated.ChanIn() <- blob
+	}
+
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+func (a *AssetStore) RemoveSubscriber(
+	subscriber *chanutils.EventReceiver[proof.Blob]) error {
+
+	return a.eventDistributor.RemoveSubscriber(subscriber)
 }
 
 // queryChainAssets queries the database for assets matching the passed filter.
@@ -2022,8 +2082,11 @@ func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
 func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 	conf *tarofreighter.AssetConfirmEvent) error {
 
-	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+	var (
+		writeTxOpts    AssetStoreTxOptions
+		localProofKeys []asset.SerializedKey
+	)
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		// First, we'll fetch the asset transfer based on its outpoint
 		// bytes, so we can apply the delta it describes.
 		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
@@ -2134,6 +2197,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 					"with script key %x",
 					out.ScriptKeyBytes)
 			}
+			localProofKeys = append(localProofKeys, scriptKey)
 
 			// Now we can update the asset proof for the sender for
 			// this given delta.
@@ -2178,6 +2242,24 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("failed to confirm transfer: %w", err)
+	}
+
+	// Notify any event subscribers that there are new proofs. We do this
+	// outside of the transaction to avoid the subscribers trying to look up
+	// the proofs before they are committed.
+	for idx := range localProofKeys {
+		localKey := localProofKeys[idx]
+		finalProof := conf.FinalProofs[localKey]
+		a.eventDistributor.NotifySubscribers(finalProof.Blob)
+	}
+	for idx := range conf.PassiveAssetProofFiles {
+		passiveProof := conf.PassiveAssetProofFiles[idx]
+		a.eventDistributor.NotifySubscribers(passiveProof)
+	}
+
+	return nil
 }
 
 // reAnchorPassiveAssets re-anchors all passive assets that were anchored by
@@ -2412,9 +2494,9 @@ func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
 	return assetMeta, nil
 }
 
-// A compile-time constraint to ensure that AssetStore meets the proof.Archiver
-// interface.
-var _ proof.Archiver = (*AssetStore)(nil)
+// A compile-time constraint to ensure that AssetStore meets the
+// proof.NotifyArchiver interface.
+var _ proof.NotifyArchiver = (*AssetStore)(nil)
 
 // A compile-time constraint to ensure that AssetStore meets the
 // tarofreighter.CoinLister interface.
