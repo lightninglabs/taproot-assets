@@ -304,10 +304,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	outpoints := make(map[string]struct{})
 	scripts := make(map[string]struct{})
 	for _, o := range outputs {
-		_, ok := outpoints[o.Anchor.Outpoint]
-		require.False(t.t, ok)
-
-		_, ok = scripts[string(o.ScriptKey)]
+		_, ok := scripts[string(o.ScriptKey)]
 		require.False(t.t, ok)
 
 		outpoints[o.Anchor.Outpoint] = struct{}{}

@@ -76,3 +76,18 @@ func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 
 	return vPkt
 }
+
+// AddOutput adds an interactive output to the given packet.
+func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
+	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor) {
+
+	vOut := &VOutput{
+		Amount:            amount,
+		Interactive:       true,
+		AnchorOutputIndex: outputIndex,
+		ScriptKey:         scriptAddr,
+	}
+	vOut.SetAnchorInternalKey(anchorInternalKey, pkt.ChainParams.HDCoinType)
+
+	pkt.Outputs = append(pkt.Outputs, vOut)
+}
