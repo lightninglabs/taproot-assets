@@ -87,7 +87,7 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 
 	tarodCfg.ChainConf.Network = cfg.NetParams.Name
 	tarodCfg.TaroDir = cfg.BaseDir
-	tarodCfg.DebugLevel = "debug"
+	tarodCfg.DebugLevel = *logLevel
 
 	// Decide which DB backend to use.
 	switch *dbbackend {

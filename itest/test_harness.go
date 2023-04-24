@@ -47,6 +47,11 @@ var (
 	// data directories.
 	noDelete = flag.Bool("nodelete", false, "Set to true to keep all "+
 		"tarod data directories after completing the tests")
+
+	// logLevel is a command line flag for setting the log level of the
+	// integration test output.
+	logLevel = flag.String("loglevel", "info", "Set the log level of the "+
+		"integration test output")
 )
 
 const (
@@ -180,6 +185,8 @@ func (h *harnessTest) setupLogging() {
 
 	taro.SetupLoggers(h.logWriter, h.interceptor)
 	aperture.SetupLoggers(h.logWriter, h.interceptor)
+
+	h.logWriter.SetLogLevels(*logLevel)
 }
 
 func (h *harnessTest) newLndClient(
