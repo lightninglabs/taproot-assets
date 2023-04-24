@@ -201,6 +201,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// If we want to test splitting, we do that now, as a second transfer.
 	split1PrivKey := test.RandPrivKey(t)
 	split2PrivKey := test.RandPrivKey(t)
+	split3PrivKey := test.RandPrivKey(t)
 	transitionOutpoint := wire.OutPoint{
 		Hash:  transitionProof.AnchorTx.TxHash(),
 		Index: transitionProof.InclusionProof.OutputIndex,
@@ -209,28 +210,39 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		OutputIndex: 0,
 		AssetID:     newAsset.ID(),
 		ScriptKey:   asset.ToSerialized(split1PrivKey.PubKey()),
-		Amount:      50,
+		Amount:      40,
 	}
 	split2Locator := &commitment.SplitLocator{
 		OutputIndex: 1,
 		AssetID:     newAsset.ID(),
 		ScriptKey:   asset.ToSerialized(split2PrivKey.PubKey()),
-		Amount:      50,
+		Amount:      40,
+	}
+	split3Locator := &commitment.SplitLocator{
+		OutputIndex: 2,
+		AssetID:     newAsset.ID(),
+		ScriptKey:   asset.ToSerialized(split3PrivKey.PubKey()),
+		Amount:      20,
 	}
 	splitCommitment, err := commitment.NewSplitCommitment(
-		&newAsset, transitionOutpoint, rootLocator, split2Locator,
+		context.Background(), &newAsset, transitionOutpoint,
+		rootLocator, split2Locator, split3Locator,
 	)
 	require.NoError(t, err)
 	split1Asset := splitCommitment.RootAsset
 	split2Asset := &splitCommitment.SplitAssets[*split2Locator].Asset
+	split3Asset := &splitCommitment.SplitAssets[*split3Locator].Asset
 
 	split2AssetNoSplitProof := split2Asset.Copy()
 	split2AssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
 
+	split3AssetNoSplitProof := split3Asset.Copy()
+	split3AssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
+
 	// Sign the new (root) asset over to the recipient.
 	signAssetTransfer(
 		t, transitionProof, split1Asset, recipientPrivKey,
-		[]*asset.Asset{split2Asset},
+		[]*asset.Asset{split2Asset, split3Asset},
 	)
 
 	split1Commitment, err := commitment.NewAssetCommitment(split1Asset)
@@ -239,20 +251,31 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split2AssetNoSplitProof,
 	)
 	require.NoError(t, err)
+	split3Commitment, err := commitment.NewAssetCommitment(
+		split3AssetNoSplitProof,
+	)
+	require.NoError(t, err)
 	taro1Commitment, err := commitment.NewTaroCommitment(split1Commitment)
 	require.NoError(t, err)
 	taro2Commitment, err := commitment.NewTaroCommitment(split2Commitment)
 	require.NoError(t, err)
+	taro3Commitment, err := commitment.NewTaroCommitment(split3Commitment)
+	require.NoError(t, err)
 
 	tapscript1Root := taro1Commitment.TapscriptRoot(nil)
 	tapscript2Root := taro2Commitment.TapscriptRoot(nil)
+	tapscript3Root := taro3Commitment.TapscriptRoot(nil)
 	internalKey1 := test.RandPubKey(t)
 	internalKey2 := test.RandPubKey(t)
+	internalKey3 := test.RandPubKey(t)
 	taproot1Key := txscript.ComputeTaprootOutputKey(
 		internalKey1, tapscript1Root[:],
 	)
 	taproot2Key := txscript.ComputeTaprootOutputKey(
 		internalKey2, tapscript2Root[:],
+	)
+	taproot3Key := txscript.ComputeTaprootOutputKey(
+		internalKey3, tapscript3Root[:],
 	)
 
 	splitTx := &wire.MsgTx{
@@ -269,6 +292,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		}, {
 			PkScript: test.ComputeTaprootScript(t, taproot2Key),
 			Value:    330,
+		}, {
+			PkScript: test.ComputeTaprootScript(t, taproot3Key),
+			Value:    330,
 		}},
 	}
 
@@ -284,15 +310,36 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	splitTxMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{splitTx}, 0)
 	require.NoError(t, err)
 
-	_, split1ExclusionProof, err := taro2Commitment.Proof(
+	_, split1In2ExclusionProof, err := taro2Commitment.Proof(
+		split1Asset.TaroCommitmentKey(),
+		split1Asset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	_, split1In3ExclusionProof, err := taro3Commitment.Proof(
 		split1Asset.TaroCommitmentKey(),
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
-	_, split2ExclusionProof, err := taro1Commitment.Proof(
+	_, split2In1ExclusionProof, err := taro1Commitment.Proof(
 		split2Asset.TaroCommitmentKey(),
 		split2Asset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	_, split2In3ExclusionProof, err := taro3Commitment.Proof(
+		split2Asset.TaroCommitmentKey(),
+		split2Asset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	_, split3In1ExclusionProof, err := taro1Commitment.Proof(
+		split3Asset.TaroCommitmentKey(),
+		split3Asset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	_, split3In2ExclusionProof, err := taro2Commitment.Proof(
+		split3Asset.TaroCommitmentKey(),
+		split3Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
@@ -313,7 +360,13 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				OutputIndex: 1,
 				InternalKey: internalKey2,
 				CommitmentProof: &CommitmentProof{
-					Proof: *split1ExclusionProof,
+					Proof: *split1In2ExclusionProof,
+				},
+			}, {
+				OutputIndex: 2,
+				InternalKey: internalKey3,
+				CommitmentProof: &CommitmentProof{
+					Proof: *split1In3ExclusionProof,
 				},
 			}},
 		},
@@ -345,7 +398,13 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				OutputIndex: 0,
 				InternalKey: internalKey1,
 				CommitmentProof: &CommitmentProof{
-					Proof: *split2ExclusionProof,
+					Proof: *split2In1ExclusionProof,
+				},
+			}, {
+				OutputIndex: 2,
+				InternalKey: internalKey3,
+				CommitmentProof: &CommitmentProof{
+					Proof: *split2In3ExclusionProof,
 				},
 			}},
 		},
@@ -364,6 +423,48 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	split2Snapshot := verifyBlob(t, split2Blob)
 
 	require.True(t, split2Snapshot.SplitAsset)
+
+	// And finally for the third split (the second recipient output).
+	split3Params := &TransitionParams{
+		BaseProofParams: BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *splitBlockHeader,
+				Transactions: []*wire.MsgTx{splitTx},
+			},
+			Tx:          splitTx,
+			TxIndex:     0,
+			OutputIndex: 2,
+			InternalKey: internalKey3,
+			TaroRoot:    taro3Commitment,
+			ExclusionProofs: []TaprootProof{{
+				OutputIndex: 0,
+				InternalKey: internalKey1,
+				CommitmentProof: &CommitmentProof{
+					Proof: *split3In1ExclusionProof,
+				},
+			}, {
+				OutputIndex: 1,
+				InternalKey: internalKey2,
+				CommitmentProof: &CommitmentProof{
+					Proof: *split3In2ExclusionProof,
+				},
+			}},
+		},
+		NewAsset:        split3Asset,
+		RootInternalKey: internalKey1,
+		RootOutputIndex: 0,
+		RootTaroTree:    taro1Commitment,
+	}
+
+	split3Blob, split3Proof, err := AppendTransition(
+		transitionBlob, split3Params, MockHeaderVerifier,
+	)
+	require.NoError(t, err)
+	require.Greater(t, len(split3Blob), len(transitionBlob))
+	require.Equal(t, splitTxMerkleProof, &split3Proof.TxMerkleProof)
+	split3Snapshot := verifyBlob(t, split3Blob)
+
+	require.True(t, split3Snapshot.SplitAsset)
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and
