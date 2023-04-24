@@ -273,6 +273,70 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 	assertAddr(t, expected, rpcAddr)
 }
 
+// assertAddrEvent makes sure the given address was detected by the given
+// daemon.
+func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		resp, err := tarod.AddrReceives(
+			ctxt, &tarorpc.AddrReceivesRequest{
+				FilterAddr: addr.Encoded,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Events) != 1 {
+			return fmt.Errorf("got %d events, wanted 1",
+				len(resp.Events))
+		}
+
+		if resp.Events[0].Status != statusDetected {
+			return fmt.Errorf("got status %v, wanted %v",
+				resp.Events[0].Status, statusDetected)
+		}
+
+		eventJSON, err := formatProtoJSON(resp.Events[0])
+		require.NoError(t, err)
+		t.Logf("Got address event %s", eventJSON)
+
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t, err)
+}
+
+// assertAddrReceives makes sure the given number of events with the given
+// status were received.
+func assertAddrReceives(t *testing.T, tarod *tarodHarness, numEvents int,
+	expectedStatus tarorpc.AddrEventStatus) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		resp, err := tarod.AddrReceives(
+			ctxt, &tarorpc.AddrReceivesRequest{},
+		)
+		require.NoError(t, err)
+		require.Len(t, resp.Events, numEvents)
+
+		for _, event := range resp.Events {
+			if event.Status != expectedStatus {
+				return fmt.Errorf("got status %v, wanted %v",
+					resp.Events[0].Status, expectedStatus)
+			}
+		}
+
+		return nil
+	}, defaultWaitTimeout/2)
+	require.NoError(t, err)
+}
+
 // confirmAndAssertOutboundTransfer makes sure the given outbound transfer has
 // the correct state before confirming it and then asserting the confirmed state
 // with the node.

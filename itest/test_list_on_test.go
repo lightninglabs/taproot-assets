@@ -17,6 +17,10 @@ var testCases = []*testCase{
 		test: testAddresses,
 	},
 	{
+		name: "multi address",
+		test: testMultiAddress,
+	},
+	{
 		name:           "basic send",
 		test:           testBasicSend,
 		enableHashMail: true,

@@ -48,10 +48,7 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
-	var (
-		addresses []*tarorpc.Addr
-		events    []*tarorpc.AddrEvent
-	)
+	var addresses []*tarorpc.Addr
 	for _, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
 		// asset.
@@ -72,35 +69,7 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure that eventually we see a single event for the
 		// address.
-		err = wait.NoError(func() error {
-			resp, err := secondTarod.AddrReceives(
-				ctxt, &tarorpc.AddrReceivesRequest{
-					FilterAddr: addr.Encoded,
-				},
-			)
-			if err != nil {
-				return err
-			}
-
-			if len(resp.Events) != 1 {
-				return fmt.Errorf("got %d events, wanted 1",
-					len(resp.Events))
-			}
-
-			if resp.Events[0].Status != statusDetected {
-				return fmt.Errorf("got status %v, wanted %v",
-					resp.Events[0].Status, statusDetected)
-			}
-
-			eventJSON, err := formatProtoJSON(resp.Events[0])
-			require.NoError(t.t, err)
-			t.Logf("Got address event %s", eventJSON)
-
-			events = append(events, resp.Events[0])
-
-			return nil
-		}, defaultWaitTimeout/2)
-		require.NoError(t.t, err)
+		assertAddrEvent(t.t, secondTarod, addr)
 	}
 
 	// Mine a block to make sure the events are marked as confirmed.
@@ -161,6 +130,129 @@ func testAddresses(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
+// testMultiAddress tests that we can send assets to multiple addresses at the
+// same time.
+func testMultiAddress(t *harnessTest) {
+	// First, mint an asset, so we have one to create addresses for.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We'll make a second node now that'll be the receiver of all the
+	// assets made above.
+	alice := t.tarod
+	bob := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = alice
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(true))
+	}()
+
+	// In order to force a split, we don't try to send the full asset.
+	const sendAmt = 100
+	var bobAddresses []*tarorpc.Addr
+	bobAddr1, err := bob.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmt,
+	})
+	require.NoError(t.t, err)
+	bobAddresses = append(bobAddresses, bobAddr1)
+	assertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
+
+	bobAddr2, err := bob.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmt,
+	})
+	require.NoError(t.t, err)
+	bobAddresses = append(bobAddresses, bobAddr2)
+	assertAddrCreated(t.t, bob, mintedAsset, bobAddr2)
+
+	// To test that Alice can also receive to multiple addresses in a single
+	// transaction as well, we also add two addresses for her.
+	aliceAddr1, err := alice.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmt,
+	})
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
+
+	aliceAddr2, err := alice.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmt,
+	})
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, alice, mintedAsset, aliceAddr2)
+
+	sendResp := sendAssetsToAddr(
+		t, alice, bobAddr1, bobAddr2, aliceAddr1, aliceAddr2,
+	)
+	sendRespJSON, err := formatProtoJSON(sendResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from sending assets: %v", sendRespJSON)
+
+	// Make sure that eventually we see a single event for the address.
+	assertAddrEvent(t.t, bob, bobAddr1)
+	assertAddrEvent(t.t, bob, bobAddr2)
+	assertAddrEvent(t.t, alice, aliceAddr1)
+	assertAddrEvent(t.t, alice, aliceAddr2)
+
+	// Mine a block to make sure the events are marked as confirmed.
+	_ = mineBlocks(t, t.lndHarness, 1, 1)[0]
+
+	// Eventually the events should be marked as confirmed.
+	assertAddrReceives(t.t, bob, 2, statusConfirmed)
+
+	// For local addresses, we should already have the proof in the DB at
+	// this point, so the status should go to completed directly.
+	assertAddrReceives(t.t, alice, 2, statusCompleted)
+
+	// To complete the transfer, we'll export the proof from the sender and
+	// import it into the receiver for each asset set. This should not be
+	// necessary for the sends to Alice, as she is both the sender and
+	// receiver and should detect the local proof once it's written to disk.
+	for i := range bobAddresses {
+		sendProof(t, alice, bob, bobAddresses[i].ScriptKey, genInfo)
+	}
+
+	// Make sure we have imported and finalized all proofs.
+	assertNonInteractiveRecvComplete(t, bob, 2)
+	assertNonInteractiveRecvComplete(t, alice, 2)
+
+	// Now sanity check that we can actually list the transfer.
+	const (
+		numOutputs = 5
+		numAddrs   = 4
+	)
+	changeAmt := mintedAsset.Amount - (sendAmt * numAddrs)
+	err = wait.NoError(func() error {
+		resp, err := alice.ListTransfers(
+			ctxt, &tarorpc.ListTransfersRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, resp.Transfers, len(rpcAssets))
+		require.Len(t.t, resp.Transfers[0].Outputs, numOutputs)
+		firstOut := resp.Transfers[0].Outputs[0]
+		require.EqualValues(t.t, changeAmt, firstOut.Amount)
+		firstIn := resp.Transfers[0].Inputs[0]
+		require.Equal(
+			t.t, rpcAssets[0].AssetGenesis.AssetId, firstIn.AssetId,
+		)
+
+		return nil
+	}, defaultTimeout/2)
+	require.NoError(t.t, err)
+}
+
 func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 	genInfo *tarorpc.GenesisInfo) *tarorpc.ImportProofResponse {
 
@@ -195,14 +287,19 @@ func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
 func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
-	receiverAddr *tarorpc.Addr) *tarorpc.SendAssetResponse {
+	receiverAddrs ...*tarorpc.Addr) *tarorpc.SendAssetResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
+	encodedAddrs := make([]string, len(receiverAddrs))
+	for i, addr := range receiverAddrs {
+		encodedAddrs[i] = addr.Encoded
+	}
+
 	resp, err := sender.SendAsset(ctxt, &tarorpc.SendAssetRequest{
-		TaroAddrs: []string{receiverAddr.Encoded},
+		TaroAddrs: encodedAddrs,
 	})
 	require.NoError(t.t, err)
 
