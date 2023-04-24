@@ -1670,24 +1670,60 @@ func marshalAddrEventStatus(status address.Status) (tarorpc.AddrEventStatus,
 	}
 }
 
-// SendAsset uses a passed taro address to attempt to complete an asset send.
-// The method returns information w.r.t the on chain send, as well as the proof
-// file information the receiver needs to fully receive the asset.
-func (r *rpcServer) SendAsset(ctx context.Context,
+// SendAsset uses one or multiple passed taro address(es) to attempt to complete
+// an asset send. The method returns information w.r.t the on chain send, as
+// well as the proof file information the receiver needs to fully receive the
+// asset.
+func (r *rpcServer) SendAsset(_ context.Context,
 	in *tarorpc.SendAssetRequest) (*tarorpc.SendAssetResponse, error) {
 
-	if in.TaroAddr == "" {
-		return nil, fmt.Errorf("addr must be set")
+	if len(in.TaroAddrs) == 0 {
+		return nil, fmt.Errorf("at least one addr is required")
 	}
 
-	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-	taroAddr, err := address.DecodeAddress(in.TaroAddr, &taroParams)
-	if err != nil {
-		return nil, err
+	var (
+		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
+		taroAddrs  = make([]*address.Taro, len(in.TaroAddrs))
+		err        error
+	)
+	for idx := range in.TaroAddrs {
+		if len(in.TaroAddrs[idx]) == 0 {
+			return nil, fmt.Errorf("addr %d must be specified", idx)
+		}
+
+		taroAddrs[idx], err = address.DecodeAddress(
+			in.TaroAddrs[idx], &taroParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Ensure all addrs are of the same asset ID. Within a single
+		// transfer (=a single virtual packet), we expect only to have
+		// inputs and outputs of the same asset ID. Multiple assets can
+		// be moved in a single BTC level anchor output, but the
+		// expectation is that they would be in separate virtual
+		// packets, one for each asset ID. They would then be merged
+		// into the same anchor output in the wallet's
+		// AnchorVirtualTransactions call.
+		//
+		// TODO(guggero): Support creating multiple virtual packets, one
+		// for each asset ID when the user wants to send multiple asset
+		// IDs at the same time without going through the PSBT flow.
+		//
+		// TODO(guggero): Revisit after we have a way to send fungible
+		// assets with different IDs to an address (non-interactive).
+		if idx > 0 {
+			if taroAddrs[idx].AssetID != taroAddrs[0].AssetID {
+				return nil, fmt.Errorf("all addrs must be of "+
+					"the same asset ID %v",
+					taroAddrs[0].AssetID)
+			}
+		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tarofreighter.NewAddressParcel(taroAddr),
+		tarofreighter.NewAddressParcel(taroAddrs...),
 	)
 	if err != nil {
 		return nil, err

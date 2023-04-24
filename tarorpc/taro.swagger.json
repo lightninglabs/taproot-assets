@@ -506,7 +506,7 @@
     },
     "/v1/taro/send": {
       "post": {
-        "summary": "tarocli: `assets send`\nSendAsset uses a passed taro address to attempt to complete an asset send.\nThe method returns information w.r.t the on chain send, as well as the\nproof file information the receiver needs to fully receive the asset.",
+        "summary": "tarocli: `assets send`\nSendAsset uses one or multiple passed taro address(es) to attempt to\ncomplete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
         "operationId": "Taro_SendAsset",
         "responses": {
           "200": {
@@ -1414,8 +1414,11 @@
     "tarorpcSendAssetRequest": {
       "type": "object",
       "properties": {
-        "taro_addr": {
-          "type": "string"
+        "taro_addrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

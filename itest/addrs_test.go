@@ -202,7 +202,7 @@ func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
 	defer cancel()
 
 	resp, err := sender.SendAsset(ctxt, &tarorpc.SendAssetRequest{
-		TaroAddr: receiverAddr.Encoded,
+		TaroAddrs: []string{receiverAddr.Encoded},
 	})
 	require.NoError(t.t, err)
 

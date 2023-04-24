@@ -88,9 +88,10 @@ service Taro {
     rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
 
     /* tarocli: `assets send`
-    SendAsset uses a passed taro address to attempt to complete an asset send.
-    The method returns information w.r.t the on chain send, as well as the
-    proof file information the receiver needs to fully receive the asset.
+    SendAsset uses one or multiple passed taro address(es) to attempt to
+    complete an asset send. The method returns information w.r.t the on chain
+    send, as well as the proof file information the receiver needs to fully
+    receive the asset.
     */
     rpc SendAsset (SendAssetRequest) returns (SendAssetResponse);
 
@@ -695,7 +696,7 @@ message AddrReceivesResponse {
 }
 
 message SendAssetRequest {
-    string taro_addr = 1;
+    repeated string taro_addrs = 1;
 
     // TODO(roasbeef): maybe in future add details re type of ProofCourier or
     // w/e
