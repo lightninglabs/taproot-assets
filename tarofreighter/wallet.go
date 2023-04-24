@@ -1006,40 +1006,13 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 	error) {
 
-	// If the input asset was received non-interactively, then the Taro tree
-	// of the input anchor output was built with asset leaves that had empty
-	// SplitCommitments. However, the SplitCommitment field was
-	// populated when the transfer of the input asset was verified.
-	// To recompute the correct output script, we need to build a Taro tree
-	// from the input asset without any SplitCommitment.
-	inputAssetCopy := assetInput.Asset.Copy()
-	inputAnchorCommitmentCopy, err := assetInput.Commitment.Copy()
+	// If any of the assets were received non-interactively, then the Taro
+	// tree of the input anchor output was built with asset leaves that had
+	// empty SplitCommitments. We need to replicate this here as well.
+	inputCommitment, err := trimSplitWitnesses(assetInput.Commitment)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	// Assets received via non-interactive split should have one witness,
-	// with an empty PrevID and a SplitCommitment present.
-	if inputAssetCopy.HasSplitCommitmentWitness() &&
-		*inputAssetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
-
-		inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
-
-		// Build the new Taro tree by first updating the asset
-		// commitment tree with the new asset leaf, and then the
-		// top-level Taro tree.
-		inputCommitments := inputAnchorCommitmentCopy.Commitments()
-		inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
-		inputAssetTree := inputCommitments[inputCommitmentKey]
-		err = inputAssetTree.Upsert(inputAssetCopy)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		err = inputAnchorCommitmentCopy.Upsert(inputAssetTree)
-		if err != nil {
-			return nil, nil, err
-		}
+		return nil, nil, fmt.Errorf("unable to trim split "+
+			"witnesses: %w", err)
 	}
 
 	// Decode the Tapscript sibling preimage if there was one, so we can
@@ -1052,13 +1025,62 @@ func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 		}
 	}
 
-	merkleRoot := inputAnchorCommitmentCopy.TapscriptRoot(siblingHash)
+	merkleRoot := inputCommitment.TapscriptRoot(siblingHash)
 	anchorPubKey := txscript.ComputeTaprootOutputKey(
 		assetInput.InternalKey.PubKey, merkleRoot[:],
 	)
 
 	pkScript, err := taroscript.PayToTaprootScript(anchorPubKey)
 	return pkScript, merkleRoot[:], err
+}
+
+// trimSplitWitnesses returns a copy of the input commitment in which all assets
+// with a split commitment witness have their SplitCommitment field set to nil.
+func trimSplitWitnesses(
+	original *commitment.TaroCommitment) (*commitment.TaroCommitment,
+	error) {
+
+	// If the input asset was received non-interactively, then the Taro tree
+	// of the input anchor output was built with asset leaves that had empty
+	// SplitCommitments. However, the SplitCommitment field was
+	// populated when the transfer of the input asset was verified.
+	// To recompute the correct output script, we need to build a Taro tree
+	// from the input asset without any SplitCommitment.
+	taroCommitmentCopy, err := original.Copy()
+	if err != nil {
+		return nil, err
+	}
+
+	allAssets := taroCommitmentCopy.CommittedAssets()
+	for _, inputAsset := range allAssets {
+		inputAssetCopy := inputAsset.Copy()
+
+		// Assets received via non-interactive split should have one
+		// witness, with an empty PrevID and a SplitCommitment present.
+		if inputAssetCopy.HasSplitCommitmentWitness() &&
+			*inputAssetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
+
+			inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
+
+			// Build the new Taro tree by first updating the asset
+			// commitment tree with the new asset leaf, and then the
+			// top-level Taro tree.
+			inputCommitments := taroCommitmentCopy.Commitments()
+			inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
+			inputAssetTree := inputCommitments[inputCommitmentKey]
+			err = inputAssetTree.Upsert(inputAssetCopy)
+			if err != nil {
+				return nil, err
+			}
+
+			err = taroCommitmentCopy.Upsert(inputAssetTree)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return taroCommitmentCopy, nil
 }
 
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
