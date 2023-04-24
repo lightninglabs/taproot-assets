@@ -1,6 +1,7 @@
 package taroscript
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -267,7 +268,7 @@ func ValidateInputs(inputTaroCommitments []*commitment.TaroCommitment,
 // or partial amount send) it computes a split commitment with the given inputs
 // and spend information. The inputs MUST be checked as valid beforehand and the
 // change output is expected to be declared as such (and be at index 0).
-func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
+func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	// We currently only support a single input.
 	//
 	// TODO(guggero): Support multiple inputs.
@@ -450,7 +451,7 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
-		inputAsset, input.PrevID.OutPoint, rootLocator,
+		ctx, inputAsset, input.PrevID.OutPoint, rootLocator,
 		splitLocators...,
 	)
 	if err != nil {

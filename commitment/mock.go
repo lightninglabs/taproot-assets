@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lightninglabs/taro/asset"
@@ -29,7 +30,7 @@ func RandSplitCommit(t testing.TB, a asset.Asset) *asset.SplitCommitment {
 	}
 
 	split, err := NewSplitCommitment(
-		&a, test.RandOp(t), &rootLoc, &splitLoc,
+		context.Background(), &a, test.RandOp(t), &rootLoc, &splitLoc,
 	)
 	require.NoError(t, err)
 

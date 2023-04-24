@@ -131,9 +131,9 @@ type SplitCommitment struct {
 // state transition? Imagine 3 separate UTXOs containing 5 USD each and merged
 // to create a split payment of 7 USD in one UTXO for the recipient and a change
 // UTXO of 8 USD.
-func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
-	rootLocator *SplitLocator, externalLocators ...*SplitLocator) (
-	*SplitCommitment, error) {
+func NewSplitCommitment(ctx context.Context, input *asset.Asset,
+	outPoint wire.OutPoint, rootLocator *SplitLocator,
+	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
 
 	prevID := &asset.PrevID{
 		OutPoint:  outPoint,
@@ -209,8 +209,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 			return err
 		}
 
-		// TODO(bhandras): thread the context through.
-		_, err = splitTree.Insert(context.TODO(), splitKey, splitLeaf)
+		_, err = splitTree.Insert(ctx, splitKey, splitLeaf)
 		if err != nil {
 			return err
 		}
@@ -251,11 +250,10 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	}
 
 	// We'll also update each asset split with it's split commitment proof.
-	for _, locator := range locators {
-		// TODO(bhandras): thread the context through.
-		proof, err := splitTree.MerkleProof(
-			context.TODO(), locator.Hash(),
-		)
+	for idx := range locators {
+		locator := locators[idx]
+
+		proof, err := splitTree.MerkleProof(ctx, locator.Hash())
 		if err != nil {
 			return nil, err
 		}

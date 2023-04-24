@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"context"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -724,7 +725,8 @@ func TestSplitCommitment(t *testing.T) {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			input, root, external := testCase.f()
 			split, err := NewSplitCommitment(
-				input, outPoint, root, external...,
+				context.Background(), input, outPoint, root,
+				external...,
 			)
 			require.Equal(t, testCase.err, err)
 

@@ -549,7 +549,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		)
 	}
 
-	if err := taroscript.PrepareOutputAssets(vPkt); err != nil {
+	if err := taroscript.PrepareOutputAssets(ctx, vPkt); err != nil {
 		return nil, fmt.Errorf("unable to create split commit: %w", err)
 	}
 
