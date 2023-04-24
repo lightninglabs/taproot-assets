@@ -496,25 +496,6 @@ func TestSplitCommitment(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "locator duplicate output index",
-			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
-				root := &SplitLocator{
-					OutputIndex: 0,
-					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						input.ScriptKey.PubKey,
-					),
-					Amount: input.Amount,
-				}
-				external := []*SplitLocator{root}
-				return input, root, external
-			},
-			err: ErrDuplicateSplitOutputIndex,
-		},
-		{
 			name: "invalid split amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(

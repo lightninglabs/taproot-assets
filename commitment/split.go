@@ -178,22 +178,11 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	// each split's amount from the asset input to ensure we fully consume
 	// the total input amount.
 	locators := append(externalLocators, rootLocator)
-	locatorOutputs := make(map[uint32]struct{}, len(locators))
 	splitAssets := make(SplitSet, len(locators))
 	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	remainingAmount := input.Amount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
-		// Return an error if we've already seen a locator with this
-		// output index.
-		//
-		// TODO(roasbeef): is there any reason to allow the external
-		// split to map to a series of internal splits? so you split
-		// into more UTXOs within the tree
-		if _, ok := locatorOutputs[locator.OutputIndex]; ok {
-			return ErrDuplicateSplitOutputIndex
-		}
-
 		assetSplit := input.Copy()
 		assetSplit.Amount = locator.Amount
 
@@ -208,8 +197,6 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 			SplitCommitment: nil,
 		}}
 		assetSplit.SplitCommitmentRoot = nil
-
-		locatorOutputs[locator.OutputIndex] = struct{}{}
 
 		splitAssets[*locator] = &SplitAsset{
 			Asset:       *assetSplit,
