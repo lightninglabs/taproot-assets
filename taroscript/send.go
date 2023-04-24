@@ -857,19 +857,31 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 	map[uint32]*commitment.TaroCommitment, error) {
 
 	// Add the commitment outputs to the BTC level PSBT now.
-	mergedCommitments := make(map[uint32]*commitment.TaroCommitment)
+	anchorCommitments := make(map[uint32]*commitment.TaroCommitment)
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
-		outputCommitment := outputCommitments[idx]
+		vOutCommitment := outputCommitments[idx]
 
 		// The commitment must be defined at this point.
-		//
-		// TODO(guggero): Merge multiple Taro level commitments that use
-		// the same external output index.
-		if outputCommitment == nil {
+		if vOutCommitment == nil {
 			return nil, ErrMissingTaroCommitment
 		}
-		mergedCommitments[vOut.AnchorOutputIndex] = outputCommitment
+
+		// It could be that we have multiple outputs that are being
+		// committed into the same anchor output. We need to merge them
+		// into a single commitment.
+		anchorIdx := vOut.AnchorOutputIndex
+		anchorCommitment, ok := anchorCommitments[anchorIdx]
+		if ok {
+			err := anchorCommitment.Merge(vOutCommitment)
+			if err != nil {
+				return nil, fmt.Errorf("cannot merge output "+
+					"commitments: %w", err)
+			}
+		} else {
+			anchorCommitment = vOutCommitment
+		}
+		anchorCommitments[anchorIdx] = anchorCommitment
 
 		// The external output index cannot be out of bounds of the
 		// actual TX outputs. This should be checked earlier and is just
@@ -906,7 +918,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 		// Create the scripts corresponding to the receiver's
 		// TaroCommitment.
 		script, err := PayToAddrScript(
-			*internalKey, siblingHash, *outputCommitment,
+			*internalKey, siblingHash, *anchorCommitment,
 		)
 		if err != nil {
 			return nil, err
@@ -916,7 +928,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 		btcTxOut.PkScript = script
 	}
 
-	return mergedCommitments, nil
+	return anchorCommitments, nil
 }
 
 // interactiveFullValueSend returns true (and the index of the recipient output)

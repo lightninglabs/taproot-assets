@@ -385,3 +385,57 @@ func (c *TaroCommitment) Copy() (*TaroCommitment, error) {
 	// the taro commitment as a whole.
 	return NewTaroCommitment(newAssetCommitments...)
 }
+
+// Merge merges the other commitment into this commitment. If the other
+// commitment is empty, then this is a no-op. If the other commitment was
+// constructed with NewTaroCommitmentWithRoot, then an error is returned.
+func (c *TaroCommitment) Merge(other *TaroCommitment) error {
+	// If this was constructed with NewTaroCommitmentWithRoot then we can't
+	// merge as we don't have the asset commitments.
+	if other.assetCommitments == nil {
+		return fmt.Errorf("cannot merge commitments without asset " +
+			"commitments")
+	}
+
+	// If the other commitment is empty, then we can just exit early.
+	if len(other.assetCommitments) == 0 {
+		return nil
+	}
+
+	// Otherwise, we'll need to merge the other asset commitments into
+	// this commitment.
+	for key, otherCommitment := range other.assetCommitments {
+		existingCommitment, ok := c.assetCommitments[key]
+
+		// If we already have an asset commitment for this key, then we
+		// merge the two asset trees together.
+		if ok {
+			commitmentCopy, err := otherCommitment.Copy()
+			if err != nil {
+				return fmt.Errorf("error copying asset "+
+					"commitment: %w", err)
+			}
+			err = existingCommitment.Merge(commitmentCopy)
+			if err != nil {
+				return fmt.Errorf("error merging asset "+
+					"commitment: %w", err)
+			}
+		} else {
+			existingCommitment = otherCommitment
+		}
+
+		// With either the new or merged asset commitment obtained, we
+		// can now (re-)insert it into the Taro commitment.
+		existingCommitmentCopy, err := existingCommitment.Copy()
+		if err != nil {
+			return fmt.Errorf("error copying asset commitment: "+
+				"%w", err)
+		}
+		if err := c.Upsert(existingCommitmentCopy); err != nil {
+			return fmt.Errorf("error upserting other commitment: "+
+				"%w", err)
+		}
+	}
+
+	return nil
+}
