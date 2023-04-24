@@ -84,12 +84,13 @@ func TestMinimalContent(t *testing.T) {
 
 	addr, _ := address.RandAddr(t, testParams)
 
-	pkg := FromAddress(addr.Taro, 1)
+	pkg, err := FromAddresses([]*address.Taro{addr.Taro}, 1)
+	require.NoError(t, err)
 	pkg.Outputs = append(pkg.Outputs, &VOutput{
 		ScriptKey: asset.RandScriptKey(t),
 	})
 	var buf bytes.Buffer
-	err := pkg.Serialize(&buf)
+	err = pkg.Serialize(&buf)
 	require.NoError(t, err)
 
 	decoded, err := NewFromRawBytes(&buf, false)

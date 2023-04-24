@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -138,12 +139,38 @@ func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
 	if len(vPkt.Inputs) != 1 {
 		return nil, fmt.Errorf("only one input is currently supported")
 	}
+	firstInput := vPkt.Inputs[0]
+
+	var groupKey *btcec.PublicKey
+	if firstInput.Asset() != nil && firstInput.Asset().GroupKey != nil {
+		groupKey = &firstInput.Asset().GroupKey.GroupPubKey
+	}
 
 	desc := &FundingDescriptor{
-		ID: vPkt.Inputs[0].PrevID.ID,
+		ID:       firstInput.PrevID.ID,
+		GroupKey: groupKey,
 	}
 	for idx := range vPkt.Outputs {
 		desc.Amount += vPkt.Outputs[idx].Amount
+	}
+
+	return desc, nil
+}
+
+// DescribeAddrs extracts the recipient descriptors from a list of Taro
+// addresses.
+func DescribeAddrs(addrs []*address.Taro) (*FundingDescriptor, error) {
+	if len(addrs) < 1 {
+		return nil, fmt.Errorf("at least one address must be specified")
+	}
+
+	firstAddr := addrs[0]
+	desc := &FundingDescriptor{
+		ID:       firstAddr.AssetID,
+		GroupKey: firstAddr.GroupKey,
+	}
+	for idx := range addrs {
+		desc.Amount += addrs[idx].Amount
 	}
 
 	return desc, nil

@@ -124,8 +124,9 @@ type parcelKit struct {
 type AddressParcel struct {
 	*parcelKit
 
-	// destAddr is the address that should be used to satisfy the transfer.
-	destAddr *address.Taro
+	// destAddrs is the list of address that should be used to satisfy the
+	// transfer.
+	destAddrs []*address.Taro
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -133,20 +134,20 @@ type AddressParcel struct {
 var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
-func NewAddressParcel(destAddr *address.Taro) *AddressParcel {
+func NewAddressParcel(destAddrs ...*address.Taro) *AddressParcel {
 	return &AddressParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		destAddr: destAddr,
+		destAddrs: destAddrs,
 	}
 }
 
 // pkg returns the send package that should be delivered.
 func (p *AddressParcel) pkg() *sendPackage {
-	log.Infof("Received to send request to: %x:%x", p.destAddr.AssetID,
-		p.destAddr.ScriptKey.SerializeCompressed())
+	log.Infof("Received to send request to %d addrs: %v", len(p.destAddrs),
+		p.destAddrs)
 
 	// Initialize a package with the destination address.
 	return &sendPackage{
@@ -160,8 +161,8 @@ func (p *AddressParcel) kit() *parcelKit {
 }
 
 // dest returns the destination address for the parcel.
-func (p *AddressParcel) dest() *address.Taro {
-	return p.destAddr
+func (p *AddressParcel) dest() []*address.Taro {
+	return p.destAddrs
 }
 
 // PreSignedParcel is a request to issue an asset transfer of a pre-signed

@@ -61,7 +61,7 @@ type Wallet interface {
 	// asset re-anchors and the Taro level commitment of the selected
 	// assets.
 	FundAddressSend(ctx context.Context,
-		receiverAddr address.Taro) (*FundedVPacket, error)
+		receiverAddrs ...*address.Taro) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
@@ -256,19 +256,23 @@ type FundedVPacket struct {
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
-	receiverAddr address.Taro) (*FundedVPacket, error) {
+	receiverAddrs ...*address.Taro) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a
 	// non-interactive process, we can use this function that always creates
 	// a change output.
-	vPkt := taropsbt.FromAddress(&receiverAddr, 1)
-
-	fundDesc := &taroscript.FundingDescriptor{
-		ID:       receiverAddr.AssetID,
-		GroupKey: receiverAddr.GroupKey,
-		Amount:   receiverAddr.Amount,
+	vPkt, err := taropsbt.FromAddresses(receiverAddrs, 1)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create virtual transaction "+
+			"from addresses: %w", err)
 	}
+
+	fundDesc, err := taroscript.DescribeAddrs(receiverAddrs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to describe recipients: %w", err)
+	}
+
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
 		return nil, err

@@ -752,7 +752,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"address parcel")
 		}
 		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
-			ctx, *addrParcel.destAddr,
+			ctx, addrParcel.destAddrs...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund address send: "+
