@@ -316,6 +316,14 @@ func (c *AssetCommitment) Assets() CommittedAssets {
 	return assets
 }
 
+// Asset returns the committed asset specified by the given asset commitment
+// key. If the asset is not present, the second result OK parameter is false.
+func (c *AssetCommitment) Asset(key [32]byte) (*asset.Asset, bool) {
+	a := c.assets[key]
+	ok := a != nil
+	return a, ok
+}
+
 // Copy returns a deep copy of tha target AssetCommitment.
 func (c *AssetCommitment) Copy() (*AssetCommitment, error) {
 	// If there're no assets in this commitment, then we can simply return

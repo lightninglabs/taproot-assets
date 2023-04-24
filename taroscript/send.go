@@ -172,12 +172,8 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 	assetCommitmentKey := asset.AssetCommitmentKey(
 		desc.ID, &inputScriptKey, desc.GroupKey == nil,
 	)
-	inputAsset, _, err := assetCommitment.AssetProof(assetCommitmentKey)
-	if err != nil {
-		return nil, fullValue, err
-	}
-
-	if inputAsset == nil {
+	inputAsset, ok := assetCommitment.Asset(assetCommitmentKey)
+	if !ok {
 		return nil, fullValue, fmt.Errorf("input commitment does not "+
 			"contain leaf with script_key=%x: %w",
 			inputScriptKey.SerializeCompressed(),

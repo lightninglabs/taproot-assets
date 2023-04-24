@@ -173,15 +173,18 @@ func TestNewAssetCommitment(t *testing.T) {
 			commitment, err := NewAssetCommitment(assets...)
 			require.ErrorIs(t, err, testCase.err)
 			if testCase.err == nil {
-				// Ensure that the Taro commitment was properly set.
+				// Ensure that the Taro commitment was properly
+				// set: each asset is present and a proof can be
+				// generated for each asset.
 				require.NotZero(t, commitment.TaroCommitmentKey())
 
-				for _, asset := range assets {
-					asset, _, err = commitment.AssetProof(
-						asset.AssetCommitmentKey(),
+				for _, a := range assets {
+					committedAsset, proof, err := commitment.AssetProof(
+						a.AssetCommitmentKey(),
 					)
 					require.NoError(t, err)
-					require.NotNil(t, asset)
+					require.NotNil(t, committedAsset)
+					require.NotNil(t, proof)
 				}
 			}
 		})
@@ -944,11 +947,10 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 0:
 					assets := soloAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					proofAsset, _, err := groupAssetCommitment.AssetProof(
+					_, ok := groupAssetCommitment.Asset(
 						asset.AssetCommitmentKey(),
 					)
-					require.NoError(t, err)
-					require.Nil(t, proofAsset)
+					require.False(t, ok)
 
 				// Fresh asset commitment.
 				case 1:
@@ -962,12 +964,12 @@ func TestUpdateAssetCommitment(t *testing.T) {
 				case 2:
 					assets := groupAssetCommitment.Assets()
 					require.Equal(t, len(assets), testCase.numAssets)
-					proofAsset, _, err := groupAssetCommitment.AssetProof(
+					committedAsset, ok := groupAssetCommitment.Asset(
 						asset.AssetCommitmentKey(),
 					)
-					require.NoError(t, err)
+					require.True(t, ok)
 					require.True(t, asset.DeepEqual(
-						proofAsset,
+						committedAsset,
 					))
 				}
 			}
