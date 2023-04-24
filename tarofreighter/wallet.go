@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
@@ -547,6 +548,13 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 			return fmt.Errorf("cannot calculate input asset pk "+
 				"script: %w", err)
 		}
+
+		log.Tracef("Input commitment taro_root=%x, internal_key=%x, "+
+			"pk_script=%x, trimmed_merkle_root=%x",
+			chanutils.ByteSlice(
+				assetInput.Commitment.TapscriptRoot(nil),
+			), internalKey.PubKey.SerializeCompressed(),
+			anchorPkScript, anchorMerkleRoot[:])
 
 		// We'll also include an inclusion proof for the input asset in
 		// the virtual transaction. With that a signer can verify that

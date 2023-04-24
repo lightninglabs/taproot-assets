@@ -138,6 +138,11 @@ func (g Genesis) TagHash() [sha256.Size]byte {
 //	  outputIndex || assetType)
 type ID [sha256.Size]byte
 
+// String returns the hex-encoded string representation of the ID.
+func (i ID) String() string {
+	return hex.EncodeToString(i[:])
+}
+
 // ID computes an asset's unique identifier from its metadata.
 func (g Genesis) ID() ID {
 	tagHash := g.TagHash()
