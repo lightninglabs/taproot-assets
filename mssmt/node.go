@@ -177,6 +177,15 @@ func (c *CompactedLeafNode) Extract(height int) Node {
 	return current
 }
 
+// Copy returns a deep copy of the compacted leaf node.
+func (c *CompactedLeafNode) Copy() Node {
+	return &CompactedLeafNode{
+		LeafNode:          c.LeafNode.Copy().(*LeafNode),
+		key:               c.key,
+		compactedNodeHash: c.compactedNodeHash,
+	}
+}
+
 // BranchNode represents an intermediate or root node within a MS-SMT. It
 // commits to its left and right children, along with their respective sum
 // values.
