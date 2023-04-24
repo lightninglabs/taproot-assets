@@ -57,6 +57,7 @@ type Querier interface {
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
+	FetchScriptKeyByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (FetchScriptKeyByTweakedKeyRow, error)
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int32) ([]FetchTransferInputsRow, error)

@@ -180,6 +180,13 @@ func TestAddressInsertion(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assertEqualAddr(t, addr, *dbAddr)
+
+		// Also make sure the script key for this address was inserted
+		// correctly.
+		scriptKey, err := addrBook.FetchScriptKey(ctx, &addr.ScriptKey)
+		require.NoError(t, err)
+		require.NotNil(t, scriptKey.RawKey.PubKey)
+		require.False(t, scriptKey.RawKey.IsEmpty())
 	}
 
 	// All addresses should be unmanaged at this point.

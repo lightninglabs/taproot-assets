@@ -182,6 +182,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
 		CoinSelector: coinSelect,
 		AssetProofs:  proofArchive,
+		AddrBook:     tarodbAddrBook,
 		KeyRing:      keyRing,
 		Signer:       virtualTxSigner,
 		TxValidator:  &taro.ValidatorV0{},

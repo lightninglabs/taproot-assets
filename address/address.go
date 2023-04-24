@@ -61,6 +61,12 @@ var (
 	ErrNoAddr = errors.New(
 		"address: no address found",
 	)
+
+	// ErrScriptKeyNotFound is returned when a script key is not found in
+	// the local database.
+	ErrScriptKeyNotFound = errors.New(
+		"script key not found",
+	)
 )
 
 const (

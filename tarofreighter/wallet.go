@@ -3,9 +3,11 @@ package tarofreighter
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -90,6 +92,16 @@ type Wallet interface {
 	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
 		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+}
+
+// AddrBook is an interface that provides access to the address book.
+type AddrBook interface {
+	// FetchScriptKey attempts to fetch the full tweaked script key struct
+	// (including the key descriptor) for the given tweaked script key. If
+	// the key cannot be found, then ErrScriptKeyNotFound is returned.
+	FetchScriptKey(ctx context.Context,
+		tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey,
+		error)
 }
 
 // AnchorVTxnsParams holds all the parameters needed to create a BTC level
@@ -203,6 +215,10 @@ type WalletConfig struct {
 	//
 	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
+
+	// AddrBook is used to fetch information about local address book
+	// related data in the database.
+	AddrBook AddrBook
 
 	// KeyRing is used to generate new keys throughout the transfer
 	// process.
@@ -416,6 +432,34 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// We want to know if we are sending to ourselves. We detect that by
+	// looking at the key descriptor of the script key. Because that is not
+	// part of addresses and might not be specified by the user through the
+	// PSBT interface, we now attempt to detect all local script keys and
+	// mark them as such by filling in the descriptor.
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+
+		tweakedKey, err := f.cfg.AddrBook.FetchScriptKey(
+			ctx, vOut.ScriptKey.PubKey,
+		)
+		switch {
+		case err == nil:
+			// We found a tweaked key for this output, so we'll
+			// update the key with the full descriptor info.
+			vOut.ScriptKey.TweakedScriptKey = tweakedKey
+
+		case errors.Is(err, address.ErrScriptKeyNotFound):
+			// This is not a local key, or at least we don't know of
+			// it in the database.
+			continue
+
+		case err != nil:
+			return nil, fmt.Errorf("cannot fetch script key: %w",
+				err)
+		}
 	}
 
 	// For now, we just need to know _if_ there are any passive assets, so
