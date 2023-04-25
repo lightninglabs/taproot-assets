@@ -15,13 +15,13 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightningnetwork/lnd/keychain"
-	"golang.org/x/exp/maps"
 )
 
 type (
@@ -1477,35 +1477,16 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		map[wire.OutPoint]*commitment.TaroCommitment,
 	)
 	for anchorPoint, anchoredAssets := range chainAnchorToAssets {
-		// First, we need to group each of the assets according to
-		// their asset.
-		assetsByID := make(map[asset.ID][]*asset.Asset)
-		for _, a := range anchoredAssets {
-			assetID := a.ID()
-			assetsByID[assetID] = append(
-				assetsByID[assetID], a.Asset,
-			)
+		// Fetch the asset leaves from each chain asset, and then
+		// build a Taro commitment from this set of assets.
+		fetchAsset := func(cAsset *ChainAsset) *asset.Asset {
+			return cAsset.Asset
 		}
 
-		// Now that we have each asset grouped by their asset ID, we
-		// can make an asset commitment for each of them.
-		assetCommitments := make(map[asset.ID]*commitment.AssetCommitment)
-		for assetID, assets := range assetsByID {
-			assetCommitment, err := commitment.NewAssetCommitment(
-				assets...,
-			)
-			if err != nil {
-				return nil, err
-			}
+		assets := chanutils.Map(anchoredAssets, fetchAsset)
 
-			assetCommitments[assetID] = assetCommitment
-		}
+		taroCommitment, err := commitment.FromAssets(assets...)
 
-		// Finally, we'll construct the Taro commitment for this group
-		// of assets.
-		taroCommitment, err := commitment.NewTaroCommitment(
-			maps.Values(assetCommitments)...,
-		)
 		if err != nil {
 			return nil, err
 		}

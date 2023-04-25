@@ -371,15 +371,14 @@ func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
 // transaction.
 func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	genesisPoint wire.OutPoint,
-	taroOutputIndex uint32) ([]*commitment.AssetCommitment, error) {
+	taroOutputIndex uint32) (*commitment.TaroCommitment, error) {
 
 	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
 		"with genesis_point=%v", b.batchKey[:], len(b.cfg.Batch.Seedlings),
 		genesisPoint)
 
-	assetRoots := make(
-		[]*commitment.AssetCommitment, 0, len(b.cfg.Batch.Seedlings),
-	)
+	newAssets := make([]*asset.Asset, 0, len(b.cfg.Batch.Seedlings))
+
 	for _, seedling := range b.cfg.Batch.Seedlings {
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
@@ -461,20 +460,13 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				err)
 		}
 
-		// Finally make a new asset commitment (the inner SMT tree) for
-		// this newly created asset.
-		assetRoot, err := commitment.NewAssetCommitment(
-			newAsset,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to make new asset "+
-				"commitment: %w", err)
-		}
-
-		assetRoots = append(assetRoots, assetRoot)
+		newAssets = append(newAssets, newAsset)
 	}
 
-	return assetRoots, nil
+	// Now that we have all our assets created, we'll make a new
+	// Taro asset commitment, which commits to all the assets we
+	// created above in a new root.
+	return commitment.FromAssets(newAssets...)
 }
 
 // stateStep attempts to transition the state machine from one state to
@@ -529,22 +521,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		// First, we'll turn all the seedlings into actual taro assets.
-		assetRoots, err := b.seedlingsToAssetSprouts(
+		taroCommitment, err := b.seedlingsToAssetSprouts(
 			ctx, genesisPoint, uint32(b.anchorOutputIndex),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to map seedlings to "+
 				"sprouts: %v", err)
-		}
-
-		// Now that we have all our assets created, we'll make a new
-		// Taro asset commitment, which commits to all the assets we
-		// created above in a new root.
-		taroCommitment, err := commitment.NewTaroCommitment(
-			assetRoots...,
-		)
-		if err != nil {
-			return 0, err
 		}
 
 		b.cfg.Batch.RootAssetCommitment = taroCommitment

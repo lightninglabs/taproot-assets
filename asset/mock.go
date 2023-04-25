@@ -42,6 +42,21 @@ func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
 	return groupKey
 }
 
+// RandGroupKeyWithSigner creates a random group key for testing, and provides
+// the signer for reissuing assets into the same group.
+func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
+	privateKey := test.RandPrivKey(t)
+
+	genSigner := NewRawKeyGenesisSigner(privateKey)
+	groupKey, err := DeriveGroupKey(
+		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
+		genesis, nil,
+	)
+	require.NoError(t, err)
+
+	return groupKey, privateKey.Serialize()
+}
+
 // RandScriptKey creates a random script key for testing.
 func RandScriptKey(t testing.TB) ScriptKey {
 	return NewScriptKey(test.RandPrivKey(t).PubKey())
