@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // Server is the main daemon construct for the Taro server. It handles spinning
@@ -31,7 +32,8 @@ type Server struct {
 
 	cfg *Config
 
-	rpcServer *rpcServer
+	*rpcServer
+	macaroonService *lndclient.MacaroonService
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -120,10 +122,11 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		}
 	}()
 
-	// If we're usign macaroons, then go ahead and instntiate the main
+	// If we're usign macaroons, then go ahead and instantiate the main
 	// macaroon service.
 	if !s.cfg.RPCConfig.NoMacaroons {
-		macaroonService, err := lndclient.NewMacaroonService(
+		var err error
+		s.macaroonService, err = lndclient.NewMacaroonService(
 			&lndclient.MacaroonServiceConfig{
 				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
 				MacaroonLocation: taroMacaroonLocation,
@@ -141,13 +144,14 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		rpcsLog.Infof("Validating RPC requests based on macaroon "+
 			"at: %v", s.cfg.MacaroonPath)
 
-		if err := macaroonService.Start(); err != nil {
+		if err := s.macaroonService.Start(); err != nil {
 			return err
 		}
 
 		// Register the macaroon service with the main interceptor
 		// chain.
-		interceptorChain.AddMacaroonService(macaroonService.Service)
+		interceptorChain.AddMacaroonService(s.macaroonService.Service)
+
 	}
 
 	rpcServerOpts := interceptorChain.CreateServerOpts()
@@ -245,6 +249,25 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	case <-s.quit:
 	}
 	return nil
+}
+
+// ValidateMacaroon extracts the macaroon from the context's gRPC metadata,
+// checks its signature, makes sure all specified permissions for the called
+// method are contained within and finally ensures all caveat conditions are
+// met. A non-nil error is returned if any of the checks fail. This method is
+// needed to enable tarod running as an external subserver in the same process
+// as lnd but still validate its own macaroons.
+func (s *Server) ValidateMacaroon(ctx context.Context,
+	requiredPermissions []bakery.Op, fullMethod string) error {
+
+	if s.macaroonService == nil {
+		return fmt.Errorf("macaroon service has not been initialised")
+	}
+
+	// Delegate the call to taro's own macaroon validator service.
+	return s.macaroonService.ValidateMacaroon(
+		ctx, requiredPermissions, fullMethod,
+	)
 }
 
 // startGrpcListen starts the GRPC server on the passed listeners.
@@ -418,6 +441,13 @@ func (s *Server) Stop() error {
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {
 		return err
+	}
+
+	if s.macaroonService != nil {
+		err := s.macaroonService.Stop()
+		if err != nil {
+			return err
+		}
 	}
 
 	close(s.quit)
