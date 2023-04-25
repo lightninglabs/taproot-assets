@@ -41,6 +41,14 @@ type RPCConfig struct {
 	NoMacaroons bool
 
 	MacaroonPath string
+
+	LetsEncryptDir string
+
+	LetsEncryptListen string
+
+	LetsEncryptDomain string
+
+	LetsEncryptEmail string
 }
 
 // DatabaseConfig is the config that holds all the persistence related structs
