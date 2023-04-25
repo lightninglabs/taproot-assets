@@ -71,23 +71,49 @@ type AnchoredCommitment struct {
 }
 
 var (
-	// ErrNoPossibleAssetInputs is returned when an instance of a
-	// CommitmentSelector cannot satisfy the coin selection constraints.
-	ErrNoPossibleAssetInputs = fmt.Errorf("unable to satisfy coin " +
-		"selection constraints")
+	// ErrMatchingAssetsNotFound is returned when an instance of
+	// AssetStoreListCoins cannot satisfy the given asset identification
+	// constraints.
+	ErrMatchingAssetsNotFound = fmt.Errorf("failed to find coin(s) which" +
+		"satisfy given constraints")
 )
 
-// CommitmentSelector attracts over the coin selection process needed to be
+// CoinLister attracts over the coin selection process needed to be
 // able to execute moving taro assets on chain.
-type CommitmentSelector interface {
-	// SelectCommitment takes the set of commitment constraints and returns
+type CoinLister interface {
+	// ListEligibleCoins takes the set of commitment constraints and returns
 	// an AnchoredCommitment that returns all the information needed to use
 	// the commitment as an input to an on chain taro transaction.
 	//
-	// If coin selection cannot be completed, then ErrNoPossibleAssetInputs
+	// If coin selection cannot be completed, then ErrMatchingAssetsNotFound
 	// should be returned.
-	SelectCommitment(context.Context,
+	ListEligibleCoins(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
+}
+
+// MultiCommitmentSelectStrategy is an enum that describes the strategy that
+// should be used when preferentially selecting multiple commitments.
+type MultiCommitmentSelectStrategy uint8
+
+const (
+	// PreferMaxAmount is a strategy which considers commitments in order of
+	// descending amounts and selects the first subset which cumulatively
+	// sums to at least the minimum target amount.
+	PreferMaxAmount MultiCommitmentSelectStrategy = iota
+)
+
+// CoinSelector is an interface that describes the functionality used in
+// selecting coins during the asset send process.
+type CoinSelector interface {
+	CoinLister
+
+	// SelectForAmount takes a set of commitments and a strategy, and
+	// returns a subset of the commitments that satisfy the strategy and the
+	// minimum total amount.
+	SelectForAmount(minTotalAmount uint64,
+		eligibleCommitments []*AnchoredCommitment,
+		strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
+		error)
 }
 
 // TransferInput represents the database level input to an asset transfer.

@@ -1854,80 +1854,166 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 	name: "valid normal",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, addrToFundDesc(state.address1),
-			state.spenderScriptKey,
+		fundDesc := addrToFundDesc(state.address1)
+
+		inputAsset, err := taroscript.IsValidInput(
+			&state.asset1TaroTree, fundDesc, state.spenderScriptKey,
+			asset.Normal,
 		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		fullValue, err := taroscript.ValidateInputs(
+			[]*commitment.TaroCommitment{&state.asset1TaroTree},
+			&state.spenderScriptKey, inputAsset.Type, fundDesc,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
 		require.True(t, fullValue)
-		return &state.asset1, inputAsset, err
+
+		return &state.asset1, inputAsset, nil
 	},
 	err: nil,
 }, {
 	name: "valid collectible with group key",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
+		fundDesc := addrToFundDesc(state.address1CollectGroup)
+
+		inputAsset, err := taroscript.IsValidInput(
 			&state.asset1CollectGroupTaroTree,
-			addrToFundDesc(state.address1CollectGroup),
-			state.spenderScriptKey,
+			fundDesc, state.spenderScriptKey, asset.Collectible,
 		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		fullValue, err := taroscript.ValidateInputs(
+			[]*commitment.TaroCommitment{
+				&state.asset1CollectGroupTaroTree,
+			},
+			&state.spenderScriptKey, inputAsset.Type, fundDesc,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
 		require.True(t, fullValue)
-		return &state.asset1CollectGroup, inputAsset, err
+
+		return &state.asset1CollectGroup, inputAsset, nil
 	},
 	err: nil,
 }, {
 	name: "valid asset split",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset2TaroTree, addrToFundDesc(state.address1),
-			state.spenderScriptKey,
+		fundDesc := addrToFundDesc(state.address1)
+
+		inputAsset, err := taroscript.IsValidInput(
+			&state.asset2TaroTree, fundDesc,
+			state.spenderScriptKey, asset.Normal,
 		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		fullValue, err := taroscript.ValidateInputs(
+			[]*commitment.TaroCommitment{&state.asset2TaroTree},
+			&state.spenderScriptKey, inputAsset.Type, fundDesc,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
 		require.False(t, fullValue)
-		return &state.asset2, inputAsset, err
+
+		return &state.asset2, inputAsset, nil
 	},
 	err: nil,
 }, {
 	name: "normal with insufficient amount",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, addrToFundDesc(state.address2),
-			state.spenderScriptKey,
+		fundDesc := addrToFundDesc(state.address2)
+
+		inputAsset, err := taroscript.IsValidInput(
+			&state.asset1TaroTree, fundDesc, state.spenderScriptKey,
+			asset.Normal,
 		)
-		require.False(t, fullValue)
-		return &state.asset1, inputAsset, err
+		if err != nil {
+			return nil, nil, err
+		}
+
+		fullValue, err := taroscript.ValidateInputs(
+			[]*commitment.TaroCommitment{&state.asset1TaroTree},
+			&state.spenderScriptKey, inputAsset.Type, fundDesc,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		require.True(t, fullValue)
+
+		return &state.asset1, inputAsset, nil
 	},
-	err: taroscript.ErrInsufficientInputAsset,
+	err: taroscript.ErrInsufficientInputAssets,
 }, {
 	name: "collectible with missing input asset",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree,
-			addrToFundDesc(state.address1CollectGroup),
-			state.spenderScriptKey,
+		fundDesc := addrToFundDesc(state.address1CollectGroup)
+
+		inputAsset, err := taroscript.IsValidInput(
+			&state.asset1TaroTree, fundDesc, state.spenderScriptKey,
+			asset.Normal,
 		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		fullValue, err := taroscript.ValidateInputs(
+			[]*commitment.TaroCommitment{&state.asset1TaroTree},
+			&state.spenderScriptKey, inputAsset.Type, fundDesc,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
 		require.False(t, fullValue)
-		return &state.asset1, inputAsset, err
+
+		return &state.asset1, inputAsset, nil
 	},
 	err: taroscript.ErrMissingInputAsset,
 }, {
 	name: "normal with bad sender script key",
 	f: func(t *testing.T) (*asset.Asset, *asset.Asset, error) {
 		state := initSpendScenario(t)
+
 		address1testnet, err := address.New(
 			state.genesis1, nil, state.receiverPubKey,
 			state.receiverPubKey, state.normalAmt1,
 			&address.TestNet3Taro,
 		)
 		require.NoError(t, err)
-		inputAsset, fullValue, err := taroscript.IsValidInput(
-			&state.asset1TaroTree, addrToFundDesc(*address1testnet),
-			state.receiverPubKey,
+
+		fundDesc := addrToFundDesc(*address1testnet)
+
+		inputAsset, err := taroscript.IsValidInput(
+			&state.asset1TaroTree, fundDesc, state.receiverPubKey,
+			asset.Normal,
 		)
-		require.False(t, fullValue)
-		return &state.asset1, inputAsset, err
+		if err != nil {
+			return nil, nil, err
+		}
+
+		fullValue, err := taroscript.ValidateInputs(
+			[]*commitment.TaroCommitment{&state.asset1TaroTree},
+			&state.spenderScriptKey, inputAsset.Type, fundDesc,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		require.True(t, fullValue)
+
+		return &state.asset1, inputAsset, nil
 	},
 	err: taroscript.ErrMissingInputAsset,
 }}

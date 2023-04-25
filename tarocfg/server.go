@@ -178,8 +178,9 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	})
 
 	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
+	coinSelect := tarofreighter.NewCoinSelect(assetStore)
 	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
-		CoinSelector: assetStore,
+		CoinSelector: coinSelect,
 		AssetProofs:  proofArchive,
 		KeyRing:      keyRing,
 		Signer:       virtualTxSigner,
@@ -222,7 +223,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:  assetWallet,
 		ChainPorter: tarofreighter.NewChainPorter(
 			&tarofreighter.ChainPorterConfig{
-				CoinSelector: assetStore,
+				CoinSelector: coinSelect,
 				Signer:       virtualTxSigner,
 				TxValidator:  &taro.ValidatorV0{},
 				ExportLog:    assetStore,

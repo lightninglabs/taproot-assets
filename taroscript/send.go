@@ -57,11 +57,11 @@ var (
 		"send: Input does not contain requested asset",
 	)
 
-	// ErrInsufficientInputAsset is an error returned when we attempt
-	// to spend to a Taro address from an input that contains
-	// insufficient asset funds.
-	ErrInsufficientInputAsset = errors.New(
-		"send: Input asset value is insufficient",
+	// ErrInsufficientInputAssets is an error returned when we attempt
+	// to spend to a Taro address from a set of inputs which contain an
+	// insufficient amount of total funds.
+	ErrInsufficientInputAssets = errors.New(
+		"send: Input assets total funds is insufficient",
 	)
 
 	// ErrInvalidOutputIndexes is an error returned when we attempt to spend
@@ -151,10 +151,12 @@ func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
 
 // IsValidInput verifies that the Taro commitment of the input contains an asset
 // that could be spent to the given recipient.
+//
+// TODO(ffranr): Stop exporting this function now that we have ValidateInputs.
+// Also, this function shouldn't return an asset.
 func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
-	inputScriptKey btcec.PublicKey) (*asset.Asset, bool, error) {
-
-	fullValue := false
+	inputScriptKey btcec.PublicKey,
+	expectedAssetType asset.Type) (*asset.Asset, error) {
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
 	// specified by the funding descriptor's asset (group) specific
@@ -162,7 +164,7 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 	inputCommitments := input.Commitments()
 	assetCommitment, ok := inputCommitments[desc.TaroCommitmentKey()]
 	if !ok {
-		return nil, fullValue, fmt.Errorf("input commitment does "+
+		return nil, fmt.Errorf("input commitment does "+
 			"not contain asset_id=%x: %w", desc.TaroCommitmentKey(),
 			ErrMissingInputAsset)
 	}
@@ -174,31 +176,67 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 	)
 	inputAsset, ok := assetCommitment.Asset(assetCommitmentKey)
 	if !ok {
-		return nil, fullValue, fmt.Errorf("input commitment does not "+
+		return nil, fmt.Errorf("input commitment does not "+
 			"contain leaf with script_key=%x: %w",
 			inputScriptKey.SerializeCompressed(),
 			ErrMissingInputAsset)
 	}
 
-	// For Normal assets, we also check that the input asset amount is
-	// at least as large as the amount specified in the address.
-	// If the input amount is exactly the amount specified in the address,
-	// the spend must use an un-spendable zero-value root split.
-	if inputAsset.Type == asset.Normal {
-		if inputAsset.Amount < desc.Amount {
-			return nil, fullValue, ErrInsufficientInputAsset
-		}
-
-		if inputAsset.Amount == desc.Amount {
-			fullValue = true
-		}
-	} else {
-		// Collectible assets always require the spending split to use
-		// an un-spendable zero-value root split.
-		fullValue = true
+	// Ensure input asset has the expected type.
+	if inputAsset.Type != expectedAssetType {
+		return nil, fmt.Errorf("unexpected input asset type")
 	}
 
-	return inputAsset, fullValue, nil
+	return inputAsset, nil
+}
+
+// ValidateInputs validates a set of inputs against a funding request. It
+// returns true if the inputs would be spent fully, otherwise false.
+func ValidateInputs(inputTaroCommitments []*commitment.TaroCommitment,
+	senderScriptKey *btcec.PublicKey, expectedAssetType asset.Type,
+	desc *FundingDescriptor) (bool, error) {
+
+	inputAssets := make([]*asset.Asset, 0)
+	for _, selectedTaroCommitment := range inputTaroCommitments {
+		// We'll validate the selected input and commitment. From this
+		// we'll gain the asset that we'll use as an input and info
+		// w.r.t if we need to use an un-spendable zero-value root.
+		inputAsset, err := IsValidInput(
+			selectedTaroCommitment, desc,
+			*senderScriptKey, expectedAssetType,
+		)
+		if err != nil {
+			return false, err
+		}
+
+		inputAssets = append(inputAssets, inputAsset)
+	}
+
+	// Validate total amount of input assets and determine full value spend
+	// status.
+	var isFullValueSpend bool
+	switch expectedAssetType {
+	case asset.Normal:
+		// Sum the total amount of the input assets.
+		var totalInputsAmount uint64
+		for _, inputAsset := range inputAssets {
+			totalInputsAmount += inputAsset.Amount
+		}
+
+		// Ensure that the input assets are sufficient to cover the amount
+		// being sent.
+		if totalInputsAmount < desc.Amount {
+			return false, ErrInsufficientInputAssets
+		}
+
+		// Check if the input assets are fully spent.
+		isFullValueSpend = totalInputsAmount == desc.Amount
+
+	case asset.Collectible:
+		isFullValueSpend = true
+	}
+
+	return isFullValueSpend, nil
 }
 
 // PrepareOutputAssets prepares the assets of the given outputs depending on
