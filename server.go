@@ -68,8 +68,8 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	}
 
 	// Show version at startup.
-	srvrLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
-		"debuglevel=%s", Version(), Commit, build.Deployment,
+	srvrLog.Infof("Version: %s, build=%s, logging=%s, "+
+		"debuglevel=%s", Version(), build.Deployment,
 		build.LoggingType, s.cfg.DebugLevel)
 
 	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
