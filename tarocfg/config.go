@@ -785,9 +785,14 @@ func getTLSConfig(cfg *Config,
 	return serverOpts, restDialOpts, restListen, nil
 }
 
+// getCertificateConfig returns a useable TLS config and set of transport
+// credentials given a valid configuration..
 func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	credentials.TransportCredentials, error) {
 
+	// If let's encrypt is active, then we'll use certmagic to issue a TLS
+	// certificate for the desried domain. In this case, we can skip
+	// generating the local tls cert files if needed.
 	if cfg.RpcConf.LetsEncryptDomain != "" {
 		domainNames := []string{cfg.RpcConf.LetsEncryptDomain}
 		certmagic.DefaultACME.Agreed = true
