@@ -111,6 +111,14 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
+// AssetGroupQuerier is an interface that allows us to query for asset groups by
+// asset ID.
+type AssetGroupQuerier interface {
+	// QueryAssetGroup attempts to locate the asset group information
+	// (genesis + group key) associated with a given asset.
+	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+}
+
 // FundingDescriptor describes the information that is needed to select and
 // verify input assets in order to send to a specific recipient. It is a subset
 // of the information contained in a Taro address.
@@ -132,7 +140,9 @@ func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
-func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
+func DescribeRecipients(ctx context.Context, vPkt *taropsbt.VPacket,
+	groupQuerier AssetGroupQuerier) (*FundingDescriptor, error) {
+
 	if len(vPkt.Outputs) < 1 {
 		return nil, fmt.Errorf("packet must have at least one output")
 	}
@@ -142,14 +152,19 @@ func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
 	}
 	firstInput := vPkt.Inputs[0]
 
-	var groupKey *btcec.PublicKey
-	if firstInput.Asset() != nil && firstInput.Asset().GroupKey != nil {
-		groupKey = &firstInput.Asset().GroupKey.GroupPubKey
+	var groupPubKey *btcec.PublicKey
+	groupKey, err := groupQuerier.QueryAssetGroup(ctx, firstInput.PrevID.ID)
+	switch {
+	case err == nil && groupKey.GroupKey != nil:
+		groupPubKey = &groupKey.GroupPubKey
+
+	case err != nil:
+		return nil, fmt.Errorf("unable to query asset group: %v", err)
 	}
 
 	desc := &FundingDescriptor{
 		ID:       firstInput.PrevID.ID,
-		GroupKey: groupKey,
+		GroupKey: groupPubKey,
 	}
 	for idx := range vPkt.Outputs {
 		desc.Amount += vPkt.Outputs[idx].Amount

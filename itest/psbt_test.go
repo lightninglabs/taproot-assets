@@ -482,7 +482,7 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 	// should remain where it is.
 	rpcAssets := mintAssetsConfirmBatch(
 		t, t.tarod, []*mintrpc.MintAssetRequest{
-			simpleAssets[0],
+			issuableAssets[0],
 			// Our "passive" asset.
 			{
 				Asset: &mintrpc.MintAsset{
@@ -518,7 +518,7 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 	var (
 		sender      = t.tarod
 		receiver    = secondTarod
-		senderSum   = simpleAssets[0].Asset.Amount
+		senderSum   = rpcAssets[0].Amount
 		receiverSum = uint64(0)
 		id          [32]byte
 	)

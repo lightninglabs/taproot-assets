@@ -1336,13 +1336,9 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		// Extract the recipient information from the packet. This
 		// basically assembles the asset ID we want to send to and the
 		// sum of all output amounts.
-		//
-		// TODO(guggero): Fix this for assets with a group key. We need
-		// to add the group key as its own field in the vInput or
-		// VOutput since we don't have any of the Asset fields set at
-		// this point, so we don't have a way to find out what group key
-		// we should use.
-		desc, err := taroscript.DescribeRecipients(vPkt)
+		desc, err := taroscript.DescribeRecipients(
+			ctx, vPkt, r.cfg.TaroAddrBook,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to describe packet "+
 				"recipients: %w", err)
