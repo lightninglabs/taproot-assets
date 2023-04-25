@@ -661,7 +661,7 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 
 	// Just a sanity check that the asset we're spending really was in the
 	// list of input assets.
-	_, ok = inputCommitment.Assets()[inputAsset.AssetCommitmentKey()]
+	_, ok = inputCommitment.Asset(inputAsset.AssetCommitmentKey())
 	if !ok {
 		return nil, ErrMissingInputAsset
 	}
