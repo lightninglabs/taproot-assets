@@ -181,7 +181,7 @@ func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
 		groupKey = pubKey
 	}
 
-	scriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: pubKey,
 	})
 	pubKeyCopy2 := *pubKey

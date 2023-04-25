@@ -557,7 +557,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
-			asset.NewScriptKeyBIP0086(scriptKey), groupKey,
+			asset.NewScriptKeyBip86(scriptKey), groupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+

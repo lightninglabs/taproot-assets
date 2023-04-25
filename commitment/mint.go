@@ -67,7 +67,7 @@ func mintAssets(genesis asset.Genesis, groupKey *asset.GroupKey,
 
 		a, err := asset.New(
 			genesis, amount, mint.LockTime, mint.RelativeLockTime,
-			asset.NewScriptKeyBIP0086(mint.ScriptKey), groupKey,
+			asset.NewScriptKeyBip86(mint.ScriptKey), groupKey,
 		)
 		if err != nil {
 			return nil, err

@@ -99,7 +99,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// Transfer the asset to a new owner.
 	recipientPrivKey := test.RandPrivKey(t)
 	newAsset := *genesisProof.Asset.Copy()
-	newAsset.ScriptKey = asset.NewScriptKeyBIP0086(
+	newAsset.ScriptKey = asset.NewScriptKeyBip86(
 		test.PubToKeyDesc(recipientPrivKey.PubKey()),
 	)
 	recipientTaprootInternalKey := test.SchnorrPubKey(t, recipientPrivKey)
@@ -179,7 +179,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 			OutputIndex: 1,
 			InternalKey: changeInternalKey,
 			TapscriptProof: &TapscriptProof{
-				BIP86: true,
+				Bip86: true,
 			},
 		}}
 	}

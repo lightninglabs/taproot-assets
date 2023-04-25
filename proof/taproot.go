@@ -85,9 +85,9 @@ type TapscriptProof struct {
 	// depth 1.
 	TapPreimage2 *commitment.TapscriptPreimage
 
-	// BIP86 indicates this is a normal BIP-86 wallet output (likely a
+	// Bip86 indicates this is a normal BIP-0086 wallet output (likely a
 	// change output) that does not commit to any script or Taro root.
-	BIP86 bool
+	Bip86 bool
 }
 
 // EncodeRecords returns the encoding records for TapscriptProof.
@@ -103,7 +103,7 @@ func (p TapscriptProof) EncodeRecords() []tlv.Record {
 			&p.TapPreimage2,
 		))
 	}
-	records = append(records, TapscriptProofBIP86Record(&p.BIP86))
+	records = append(records, TapscriptProofBip86Record(&p.Bip86))
 	return records
 }
 
@@ -112,7 +112,7 @@ func (p *TapscriptProof) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		TapscriptProofTapPreimage1Record(&p.TapPreimage1),
 		TapscriptProofTapPreimage2Record(&p.TapPreimage2),
-		TapscriptProofBIP86Record(&p.BIP86),
+		TapscriptProofBip86Record(&p.Bip86),
 	}
 }
 
@@ -433,15 +433,16 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 
 		tapscriptRoot = tapHash[:]
 
-	// This is a BIP-86 change output that doesn't commit to any root hash.
-	case p.BIP86:
+	// This is a BIP-0086 change output that doesn't commit to any root
+	// hash.
+	case p.Bip86:
 		tapscriptRoot = []byte{}
 
 	default:
 		// TODO(roasbeef): revisit
 		return nil, fmt.Errorf("invalid tapscript pre-images: "+
 			"%v + %v (bip86=%v)", spew.Sdump(p.TapPreimage1),
-			spew.Sdump(p.TapPreimage2), p.BIP86)
+			spew.Sdump(p.TapPreimage2), p.Bip86)
 	}
 
 	// Now that we have the expected tapscript root, we'll derive our
@@ -506,7 +507,7 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 				"invalid: %w", outIdx, err)
 		}
 
-		// Make sure this is a BIP0086 key spend as that is the only
+		// Make sure this is a BIP-0086 key spend as that is the only
 		// method we currently support here.
 		if len(out.TaprootTapTree) > 0 {
 			return fmt.Errorf("cannot add exclusion proof, output "+
@@ -514,14 +515,14 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 				"supported", outIdx)
 		}
 
-		// Okay, we now know this is a normal BIP0086 key spend and can
+		// Okay, we now know this is a normal BIP-0086 key spend and can
 		// add the exclusion proof accordingly.
 		baseProof.ExclusionProofs = append(
 			baseProof.ExclusionProofs, TaprootProof{
 				OutputIndex: uint32(outIdx),
 				InternalKey: internalKey,
 				TapscriptProof: &TapscriptProof{
-					BIP86: true,
+					Bip86: true,
 				},
 			},
 		)

@@ -108,7 +108,7 @@ func TestNewMintingBlobs(t *testing.T) {
 				OutputIndex: 1,
 				InternalKey: changeInternalKey,
 				TapscriptProof: &TapscriptProof{
-					BIP86: true,
+					Bip86: true,
 				},
 			}},
 		},

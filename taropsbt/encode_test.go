@@ -3,6 +3,7 @@ package taropsbt
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -26,17 +27,19 @@ func randomPacket(t testing.TB) *VPacket {
 			Index:  456,
 		},
 	}
-	inputScriptKey := asset.NewScriptKeyBIP0086(keyDesc)
+	inputScriptKey := asset.NewScriptKeyBip86(keyDesc)
 	inputScriptKey.Tweak = []byte("merkle root")
 
 	bip32Derivation, trBip32Derivation := Bip32DerivationFromKeyDesc(
 		keyDesc, testParams.HDCoinType,
 	)
+	bip32Derivations := []*psbt.Bip32Derivation{bip32Derivation}
+	trBip32Derivations := []*psbt.TaprootBip32Derivation{trBip32Derivation}
 	testAsset := asset.RandAsset(t, asset.Normal)
 	testAsset.ScriptKey = inputScriptKey
 
 	testOutputAsset := asset.RandAsset(t, asset.Normal)
-	testOutputAsset.ScriptKey = asset.NewScriptKeyBIP0086(keyDesc)
+	testOutputAsset.ScriptKey = asset.NewScriptKeyBip86(keyDesc)
 
 	// The raw key won't be serialized within the asset, so let's blank it
 	// out here to get a fully, byte-by-byte comparable PSBT.
@@ -66,8 +69,8 @@ func randomPacket(t testing.TB) *VPacket {
 				InternalKey:       testPubKey,
 				MerkleRoot:        []byte("merkle root"),
 				TapscriptSibling:  []byte("sibling"),
-				Bip32Derivation:   bip32Derivation,
-				TrBip32Derivation: trBip32Derivation,
+				Bip32Derivation:   bip32Derivations,
+				TrBip32Derivation: trBip32Derivations,
 			},
 		}, {
 			// Empty input.
@@ -78,8 +81,8 @@ func randomPacket(t testing.TB) *VPacket {
 			Interactive:                        true,
 			AnchorOutputIndex:                  0,
 			AnchorOutputInternalKey:            testPubKey,
-			AnchorOutputBip32Derivation:        bip32Derivation,
-			AnchorOutputTaprootBip32Derivation: trBip32Derivation,
+			AnchorOutputBip32Derivation:        bip32Derivations,
+			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			SplitAsset:                         testOutputAsset,
@@ -90,8 +93,8 @@ func randomPacket(t testing.TB) *VPacket {
 			Interactive:                        false,
 			AnchorOutputIndex:                  1,
 			AnchorOutputInternalKey:            testPubKey,
-			AnchorOutputBip32Derivation:        bip32Derivation,
-			AnchorOutputTaprootBip32Derivation: trBip32Derivation,
+			AnchorOutputBip32Derivation:        bip32Derivations,
+			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			AnchorOutputTapscriptPreimage:      testPreimage2,

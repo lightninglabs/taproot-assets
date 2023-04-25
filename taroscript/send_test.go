@@ -117,7 +117,7 @@ func initSpendScenario(t *testing.T) spendData {
 		PubKey: &state.spenderPubKey,
 	}
 
-	spenderScriptKey := asset.NewScriptKeyBIP0086(state.spenderDescriptor)
+	spenderScriptKey := asset.NewScriptKeyBip86(state.spenderDescriptor)
 	state.spenderScriptKey = *spenderScriptKey.PubKey
 
 	receiverPrivKey, receiverPubKey := btcec.PrivKeyFromBytes(key2Bytes)
@@ -181,7 +181,7 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 	// Assets to cover both asset types and all three asset values.
 	asset1, err := asset.New(
 		state.genesis1, state.normalAmt1, locktime,
-		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
+		relLocktime, asset.NewScriptKeyBip86(state.spenderDescriptor),
 		nil,
 	)
 	require.NoError(t, err)
@@ -189,7 +189,7 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 
 	asset1CollectGroup, err := asset.New(
 		state.genesis1collect, state.collectAmt, locktime,
-		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
+		relLocktime, asset.NewScriptKeyBip86(state.spenderDescriptor),
 		&state.groupKey,
 	)
 	require.NoError(t, err)
@@ -197,7 +197,7 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 
 	asset2, err := asset.New(
 		state.genesis1, state.normalAmt2, locktime,
-		relLocktime, asset.NewScriptKeyBIP0086(state.spenderDescriptor),
+		relLocktime, asset.NewScriptKeyBip86(state.spenderDescriptor),
 		nil,
 	)
 	require.NoError(t, err)
@@ -1945,7 +1945,7 @@ func TestPayToAddrScript(t *testing.T) {
 	ownerDescriptor := test.PubToKeyDesc(test.RandPrivKey(t).PubKey())
 
 	internalKey := test.RandPrivKey(t).PubKey()
-	recipientScriptKey := asset.NewScriptKeyBIP0086(test.PubToKeyDesc(
+	recipientScriptKey := asset.NewScriptKeyBip86(test.PubToKeyDesc(
 		test.RandPrivKey(t).PubKey(),
 	))
 
@@ -1953,7 +1953,7 @@ func TestPayToAddrScript(t *testing.T) {
 	// units.
 	inputAsset1, err := asset.New(
 		gen, uint64(normalAmt1), 1, 1,
-		asset.NewScriptKeyBIP0086(ownerDescriptor), nil,
+		asset.NewScriptKeyBip86(ownerDescriptor), nil,
 	)
 	require.NoError(t, err)
 	inputAsset1AssetTree := sendCommitment(

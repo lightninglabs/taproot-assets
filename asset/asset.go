@@ -474,7 +474,7 @@ type TweakedScriptKey struct {
 	RawKey keychain.KeyDescriptor
 
 	// Tweak is the tweak that is applied on the raw script key to get the
-	// public key. If this is nil, then a BIP 86 tweak is assumed.
+	// public key. If this is nil, then a BIP-0086 tweak is assumed.
 	Tweak []byte
 }
 
@@ -512,11 +512,11 @@ func NewScriptKey(key *btcec.PublicKey) ScriptKey {
 	}
 }
 
-// NewScriptKeyBIP0086 constructs a ScriptKey tweaked BIP0086 style. The
-// resulting script key will include the specified BIP 86 tweak (no real
+// NewScriptKeyBip86 constructs a ScriptKey tweaked BIP-0086 style. The
+// resulting script key will include the specified BIP-0086 tweak (no real
 // tweak), and also apply that to the final external PubKey.
-func NewScriptKeyBIP0086(rawKey keychain.KeyDescriptor) ScriptKey {
-	// Tweak the script key BIP0086 style (such that we only commit to the
+func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
+	// Tweak the script key BIP-0086 style (such that we only commit to the
 	// internal key when signing).
 	tweakedPubKey := txscript.ComputeTaprootKeyNoScript(
 		rawKey.PubKey,

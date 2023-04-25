@@ -111,6 +111,12 @@ func TestDecodeBase64(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, packet.Outputs, 2)
+
+	// Make sure we re-encode the PSBT to the exact same base64 string.
+	reEncoded, err := packet.B64Encode()
+	require.NoError(t, err)
+
+	require.Equal(t, string(fileContent), reEncoded)
 }
 
 // TestDecodeHex tests the decoding of a virtual packet from a hex string.

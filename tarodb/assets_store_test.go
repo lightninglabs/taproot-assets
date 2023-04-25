@@ -48,7 +48,7 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 		groupKeyPriv: test.RandPrivKey(t),
 		amt:          uint64(test.RandInt[uint32]()),
 		genesisPoint: test.RandOp(t),
-		scriptKey: asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+		scriptKey: asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 			PubKey: test.RandPubKey(t),
 			KeyLocator: keychain.KeyLocator{
 				Family: test.RandInt[keychain.KeyFamily](),
@@ -176,7 +176,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		}
 		witnesses = make([]asset.Witness, numWitness)
 		for i := 0; i < numWitness; i++ {
-			scriptKey := asset.NewScriptKeyBIP0086(
+			scriptKey := asset.NewScriptKeyBip86(
 				keychain.KeyDescriptor{
 					PubKey: test.RandPubKey(t),
 				},
@@ -736,7 +736,7 @@ func TestAssetExportLog(t *testing.T) {
 	_, assetsStore, db := newAssetStore(t)
 	ctx := context.Background()
 
-	targetScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+	targetScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Family: test.RandInt[keychain.KeyFamily](),
@@ -789,14 +789,14 @@ func TestAssetExportLog(t *testing.T) {
 	})
 	const heightHint = 1450
 
-	newScriptKey := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+	newScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Index:  uint32(rand.Int31()),
 			Family: keychain.KeyFamily(rand.Int31()),
 		},
 	})
-	newScriptKey2 := asset.NewScriptKeyBIP0086(keychain.KeyDescriptor{
+	newScriptKey2 := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: test.RandPubKey(t),
 		KeyLocator: keychain.KeyLocator{
 			Index:  uint32(rand.Int31()),

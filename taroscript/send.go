@@ -799,13 +799,13 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 		if out.AnchorOutputBip32Derivation != nil {
 			psbtOut.Bip32Derivation = append(
 				psbtOut.Bip32Derivation,
-				out.AnchorOutputBip32Derivation,
+				out.AnchorOutputBip32Derivation...,
 			)
 		}
 		if out.AnchorOutputTaprootBip32Derivation != nil {
 			psbtOut.TaprootBip32Derivation = append(
 				psbtOut.TaprootBip32Derivation,
-				out.AnchorOutputTaprootBip32Derivation,
+				out.AnchorOutputTaprootBip32Derivation...,
 			)
 		}
 	}

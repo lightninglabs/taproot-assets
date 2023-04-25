@@ -34,7 +34,7 @@ const (
 
 	TapscriptProofTapPreimage1 tlv.Type = 0
 	TapscriptProofTapPreimage2 tlv.Type = 1
-	TapscriptProofBIP86        tlv.Type = 2
+	TapscriptProofBip86        tlv.Type = 2
 
 	MetaRevealEncodingType tlv.Type = 0
 	MetaRevealDataType     tlv.Type = 1
@@ -237,9 +237,9 @@ func TapscriptProofTapPreimage2Record(
 	)
 }
 
-func TapscriptProofBIP86Record(bip86 *bool) tlv.Record {
+func TapscriptProofBip86Record(bip86 *bool) tlv.Record {
 	return tlv.MakeStaticRecord(
-		TapscriptProofBIP86, bip86, 1, BoolEncoder, BoolDecoder,
+		TapscriptProofBip86, bip86, 1, BoolEncoder, BoolDecoder,
 	)
 }
 

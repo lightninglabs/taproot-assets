@@ -197,7 +197,7 @@ func TestProofEncoding(t *testing.T) {
 				TapscriptProof: &TapscriptProof{
 					TapPreimage1: testBranchPreimage,
 					TapPreimage2: testLeafPreimage2,
-					BIP86:        true,
+					Bip86:        true,
 				},
 			},
 			{
@@ -205,7 +205,7 @@ func TestProofEncoding(t *testing.T) {
 				InternalKey:     test.RandPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
-					BIP86: true,
+					Bip86: true,
 				},
 			},
 		},

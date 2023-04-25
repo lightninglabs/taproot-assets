@@ -1953,7 +1953,7 @@ func UnmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 			RawKey: keyDesc,
 
 			// The tweak is optional, if it's empty it means the key
-			// is derived using BIP 86.
+			// is derived using BIP-0086.
 			Tweak: rpcKey.TapTweak,
 		}
 	}
