@@ -118,7 +118,8 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		TLSPath:      cfg.LndNode.Cfg.TLSCertPath,
 	}
 
-	finalCfg, _, err := tarocfg.ValidateConfig(tarodCfg, ht.interceptor)
+	cfgLogger := tarodCfg.LogWriter.GenSubLogger("CONF", nil)
+	finalCfg, err := tarocfg.ValidateConfig(tarodCfg, cfgLogger)
 	if err != nil {
 		return nil, err
 	}

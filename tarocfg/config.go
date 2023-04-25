@@ -391,29 +391,28 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		return nil, nil, err
 	}
 
+	// Initialize logging at the default logging level.
+	taro.SetupLoggers(cfg.LogWriter, interceptor)
+	err = cfg.LogWriter.InitLogRotator(
+		filepath.Join(cfg.LogDir, defaultLogFilename),
+		cfg.MaxLogFileSize, cfg.MaxLogFiles,
+	)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+		return nil, nil, err
+	}
+
+	cfgLogger := cfg.LogWriter.GenSubLogger("CONF", nil)
+
 	// Make sure everything we just loaded makes sense.
-	cleanCfg, cfgLogger, err := ValidateConfig(cfg, interceptor)
+	cleanCfg, err := ValidateConfig(cfg, cfgLogger)
 	if err != nil {
 		// Log help message in case of usage error.
 		if _, ok := err.(*usageError); ok {
-			// The logging system might not yet be initialized, so
-			// we also write to stderr to make sure the message
-			// appears somewhere.
-			_, _ = fmt.Fprintln(os.Stderr, usageMessage)
-			if cfgLogger != nil {
-				cfgLogger.Warnf("Incorrect usage: %v",
-					usageMessage)
-			}
+			cfgLogger.Warnf("Incorrect usage: %v", usageMessage)
 		}
 
-		// The logging system might not yet be initialized, so we also
-		// write to stderr to make sure the error appears somewhere.
-		// We still try to log the error there since some packaging
-		// solutions might only look at the log and not stdout/stderr.
-		_, _ = fmt.Fprintln(os.Stderr, err.Error())
-		if cfgLogger != nil {
-			cfgLogger.Warnf("Error validating config: %v", err)
-		}
+		cfgLogger.Warnf("Error validating config: %v", err)
 		return nil, nil, err
 	}
 
@@ -442,9 +441,7 @@ func (u *usageError) Error() string {
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
-func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
-	btclog.Logger, error) {
-
+func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	// If the provided tarod directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	taroDir := CleanAndExpandPath(cfg.TaroDir)
@@ -517,9 +514,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 				cfg.ChainConf.SigNetChallenge,
 			)
 			if err != nil {
-				return nil, nil, mkErr("Invalid "+
-					"signet challenge, hex decode "+
-					"failed: %v", err)
+				return nil, mkErr("Invalid signet challenge, "+
+					"hex decode failed: %v", err)
 			}
 			sigNetChallenge = challenge
 		}
@@ -529,7 +525,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		)
 		cfg.ActiveNetParams = chainParams
 	default:
-		return nil, nil, mkErr(fmt.Sprintf("invalid network: %v",
+		return nil, mkErr(fmt.Sprintf("invalid network: %v",
 			cfg.ChainConf.Network))
 	}
 
@@ -543,13 +539,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 			// Determine if the port is valid.
 			profilePort, err := strconv.Atoi(hostPort)
 			if err != nil || profilePort < 1024 || profilePort > 65535 {
-				return nil, nil, &usageError{mkErr(str)}
+				return nil, &usageError{mkErr(str)}
 			}
 		} else {
 			// Try to parse Profile as a port.
 			profilePort, err := strconv.Atoi(cfg.Profile)
 			if err != nil || profilePort < 1024 || profilePort > 65535 {
-				return nil, nil, &usageError{mkErr(str)}
+				return nil, &usageError{mkErr(str)}
 			}
 
 			// Since the user just set a port, we will serve debugging
@@ -586,7 +582,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 	case cfg.Lnd.MacaroonPath != defaultLndMacaroonPath &&
 		cfg.Lnd.MacaroonDir != "":
 
-		return nil, nil, fmt.Errorf("use --lnd.macaroonpath only")
+		return nil, fmt.Errorf("use --lnd.macaroonpath only")
 
 	case cfg.Lnd.MacaroonDir != "":
 		// With the new version of lndclient we can only specify a
@@ -604,7 +600,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		)
 
 	default:
-		return nil, nil, fmt.Errorf("must specify --lnd.macaroonpath")
+		return nil, fmt.Errorf("must specify --lnd.macaroonpath")
 	}
 
 	// Adjust the default lnd macaroon path if only the network is
@@ -629,7 +625,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 	}
 	for _, dir := range dirs {
 		if err := makeDirectory(dir); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -642,7 +638,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 	// A log writer must be passed in, otherwise we can't function and would
 	// run into a panic later on.
 	if cfg.LogWriter == nil {
-		return nil, nil, mkErr("log writer missing in config")
+		return nil, mkErr("log writer missing in config")
 	}
 
 	// Special show command to list supported subsystems and exit.
@@ -652,24 +648,11 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		os.Exit(0)
 	}
 
-	// Initialize logging at the default logging level.
-	taro.SetupLoggers(cfg.LogWriter, interceptor)
-	err := cfg.LogWriter.InitLogRotator(
-		filepath.Join(cfg.LogDir, defaultLogFilename),
-		cfg.MaxLogFileSize, cfg.MaxLogFiles,
-	)
-	if err != nil {
-		str := "log rotation setup failed: %v"
-		return nil, nil, mkErr(str, err)
-	}
-
-	taroCfgLog := cfg.LogWriter.GenSubLogger("CONF", nil)
-
 	// Parse, validate, and set debug log level(s).
-	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
+	err := build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
 	if err != nil {
 		str := "error parsing debug level: %v"
-		return nil, taroCfgLog, &usageError{mkErr(str, err)}
+		return nil, &usageError{mkErr(str, err)}
 	}
 
 	// At least one RPCListener is required. So listen on localhost per
@@ -696,7 +679,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
-		return nil, taroCfgLog, mkErr("error normalizing RPC listen addrs: %v", err)
+		return nil, mkErr("error normalizing RPC listen addrs: %v", err)
 	}
 
 	// Add default port to all REST listener addresses if needed and remove
@@ -706,7 +689,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
-		return nil, taroCfgLog, mkErr("error normalizing REST listen addrs: %v", err)
+		return nil, mkErr("error normalizing REST listen addrs: %v",
+			err)
 	}
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
@@ -717,12 +701,12 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 		cfg.rpcListeners, !cfg.RpcConf.NoMacaroons, true,
 	)
 	if err != nil {
-		return nil, taroCfgLog, mkErr("error enforcing safe authentication on "+
-			"RPC ports: %v", err)
+		return nil, mkErr("error enforcing safe authentication on RPC "+
+			"ports: %v", err)
 	}
 
 	if cfg.RpcConf.DisableRest {
-		taroCfgLog.Infof("REST API is disabled!")
+		cfgLogger.Infof("REST API is disabled!")
 		cfg.restListeners = nil
 	} else {
 		err = lncfg.EnforceSafeAuthentication(
@@ -730,13 +714,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor) (*Config,
 			!cfg.RpcConf.DisableRestTLS,
 		)
 		if err != nil {
-			return nil, taroCfgLog, mkErr("error enforcing safe "+
+			return nil, mkErr("error enforcing safe "+
 				"authentication on REST ports: %v", err)
 		}
 	}
 
 	// All good, return the sanitized result.
-	return &cfg, taroCfgLog, nil
+	return &cfg, nil
 }
 
 // getTLSConfig returns a TLS configuration for the gRPC server and credentials
