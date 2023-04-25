@@ -149,20 +149,17 @@ func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
 	return desc, nil
 }
 
-// IsValidInput verifies that the Taro commitment of the input contains an asset
-// that could be spent to the given recipient.
-//
-// TODO(ffranr): Stop exporting this function now that we have ValidateInputs.
-// Also, this function shouldn't return an asset.
-func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
-	inputScriptKey btcec.PublicKey,
-	expectedAssetType asset.Type) (*asset.Asset, error) {
+// AssetFromTaroCommitment uses a script key to extract an asset from a given
+// taro commitment.
+func AssetFromTaroCommitment(taroCommitment *commitment.TaroCommitment,
+	desc *FundingDescriptor,
+	inputScriptKey btcec.PublicKey) (*asset.Asset, error) {
 
 	// The top-level Taro tree must have a non-empty asset tree at the leaf
 	// specified by the funding descriptor's asset (group) specific
 	// commitment locator.
-	inputCommitments := input.Commitments()
-	assetCommitment, ok := inputCommitments[desc.TaroCommitmentKey()]
+	assetCommitments := taroCommitment.Commitments()
+	assetCommitment, ok := assetCommitments[desc.TaroCommitmentKey()]
 	if !ok {
 		return nil, fmt.Errorf("input commitment does "+
 			"not contain asset_id=%x: %w", desc.TaroCommitmentKey(),
@@ -182,11 +179,6 @@ func IsValidInput(input *commitment.TaroCommitment, desc *FundingDescriptor,
 			ErrMissingInputAsset)
 	}
 
-	// Ensure input asset has the expected type.
-	if inputAsset.Type != expectedAssetType {
-		return nil, fmt.Errorf("unexpected input asset type")
-	}
-
 	return inputAsset, nil
 }
 
@@ -196,17 +188,21 @@ func ValidateInputs(inputTaroCommitments []*commitment.TaroCommitment,
 	senderScriptKey *btcec.PublicKey, expectedAssetType asset.Type,
 	desc *FundingDescriptor) (bool, error) {
 
+	// Extract the input assets from the input commitments.
 	inputAssets := make([]*asset.Asset, 0)
 	for _, selectedTaroCommitment := range inputTaroCommitments {
-		// We'll validate the selected input and commitment. From this
-		// we'll gain the asset that we'll use as an input and info
-		// w.r.t if we need to use an un-spendable zero-value root.
-		inputAsset, err := IsValidInput(
-			selectedTaroCommitment, desc,
-			*senderScriptKey, expectedAssetType,
+		// Gain the asset that we'll use as an input and in the process
+		// validate the selected input and commitment.
+		inputAsset, err := AssetFromTaroCommitment(
+			selectedTaroCommitment, desc, *senderScriptKey,
 		)
 		if err != nil {
 			return false, err
+		}
+
+		// Ensure input asset has the expected type.
+		if inputAsset.Type != expectedAssetType {
+			return false, fmt.Errorf("unexpected input asset type")
 		}
 
 		inputAssets = append(inputAssets, inputAsset)

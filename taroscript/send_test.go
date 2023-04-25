@@ -1856,9 +1856,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		fundDesc := addrToFundDesc(state.address1)
 
-		inputAsset, err := taroscript.IsValidInput(
+		inputAsset, err := taroscript.AssetFromTaroCommitment(
 			&state.asset1TaroTree, fundDesc, state.spenderScriptKey,
-			asset.Normal,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1882,9 +1881,9 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		fundDesc := addrToFundDesc(state.address1CollectGroup)
 
-		inputAsset, err := taroscript.IsValidInput(
-			&state.asset1CollectGroupTaroTree,
-			fundDesc, state.spenderScriptKey, asset.Collectible,
+		inputAsset, err := taroscript.AssetFromTaroCommitment(
+			&state.asset1CollectGroupTaroTree, fundDesc,
+			state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1910,9 +1909,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		fundDesc := addrToFundDesc(state.address1)
 
-		inputAsset, err := taroscript.IsValidInput(
-			&state.asset2TaroTree, fundDesc,
-			state.spenderScriptKey, asset.Normal,
+		inputAsset, err := taroscript.AssetFromTaroCommitment(
+			&state.asset2TaroTree, fundDesc, state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1936,9 +1934,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		fundDesc := addrToFundDesc(state.address2)
 
-		inputAsset, err := taroscript.IsValidInput(
+		inputAsset, err := taroscript.AssetFromTaroCommitment(
 			&state.asset1TaroTree, fundDesc, state.spenderScriptKey,
-			asset.Normal,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1962,9 +1959,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 		fundDesc := addrToFundDesc(state.address1CollectGroup)
 
-		inputAsset, err := taroscript.IsValidInput(
+		inputAsset, err := taroscript.AssetFromTaroCommitment(
 			&state.asset1TaroTree, fundDesc, state.spenderScriptKey,
-			asset.Normal,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1996,9 +1992,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fundDesc := addrToFundDesc(*address1testnet)
 
-		inputAsset, err := taroscript.IsValidInput(
+		inputAsset, err := taroscript.AssetFromTaroCommitment(
 			&state.asset1TaroTree, fundDesc, state.receiverPubKey,
-			asset.Normal,
 		)
 		if err != nil {
 			return nil, nil, err
