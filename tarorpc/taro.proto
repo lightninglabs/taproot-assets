@@ -503,11 +503,19 @@ message Addr {
     bytes internal_key = 7;
 
     /*
+    The optional serialized tapscript sibling preimage to use for the receiving
+    asset. This is usually empty as it is only needed when there should be an
+    additional script path in the Taproot tree alongside the Taro commitment of
+    the asset.
+    */
+    bytes tapscript_sibling = 8;
+
+    /*
     The tweaked internal key that commits to the asset and represents the
     on-chain output key the Bitcoin transaction must send to in order to
     transfer assets described in this address.
     */
-    bytes taproot_output_key = 8;
+    bytes taproot_output_key = 9;
 }
 
 message QueryAddrRequest {
@@ -558,6 +566,14 @@ message NewAddrRequest {
     both be empty.
     */
     KeyDescriptor internal_key = 4;
+
+    /*
+    The optional serialized tapscript sibling preimage to use for the receiving
+    asset. This is usually empty as it is only needed when there should be an
+    additional script path in the Taproot tree alongside the Taro commitment of
+    the asset.
+    */
+    bytes tapscript_sibling = 5;
 }
 
 message ScriptKey {
