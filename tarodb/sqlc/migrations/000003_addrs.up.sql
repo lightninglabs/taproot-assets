@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS addrs (
     -- taproot internal key to receive this asset.
     taproot_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
+    -- tapscript_sibling is the serialized tapscript sibling preimage that
+    -- should be committed to in the taproot output alongside the Taro
+    -- commitment. If no sibling is present, this field will be NULL.
+    tapscript_sibling BLOB,
+
     -- taproot_output_key is the tweaked taproot output key that assets must
     -- be sent to on chain to be received, represented as a 32-byte x-only
     -- public key.

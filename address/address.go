@@ -99,6 +99,11 @@ type Taro struct {
 	// InternalKey is the BIP-0340/0341 public key of the receiver.
 	InternalKey btcec.PublicKey
 
+	// TapscriptSibling is the tapscript sibling preimage of the script that
+	// will be committed to alongside the assets received through this
+	// address. This will usually be empty.
+	TapscriptSibling *commitment.TapscriptPreimage
+
 	// Amount is the number of asset units being requested by the receiver.
 	Amount uint64
 
@@ -277,6 +282,11 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 
 	records = append(records, newAddressScriptKeyRecord(&a.ScriptKey))
 	records = append(records, newAddressInternalKeyRecord(&a.InternalKey))
+	if a.TapscriptSibling != nil {
+		records = append(records, newAddressTapscriptSiblingRecord(
+			&a.TapscriptSibling,
+		))
+	}
 	records = append(records, newAddressAmountRecord(&a.Amount))
 
 	return records
@@ -291,6 +301,7 @@ func (a *Taro) DecodeRecords() []tlv.Record {
 		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
 		newAddressInternalKeyRecord(&a.InternalKey),
+		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
 	}
 }

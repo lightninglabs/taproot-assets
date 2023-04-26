@@ -16,6 +16,7 @@ type Addr struct {
 	GroupKey         []byte
 	ScriptKeyID      int32
 	TaprootKeyID     int32
+	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
 	AssetType        int16
