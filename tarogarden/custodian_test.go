@@ -20,7 +20,6 @@ import (
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -165,50 +164,9 @@ func newHarness(t *testing.T,
 }
 
 func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
-	amount := uint64(1)
-	assetType := asset.Collectible
+	addr, genesis := address.RandAddr(h.t, &address.RegressionNetTaro)
 
-	if rand.Int31()%2 == 0 {
-		assetType = asset.Normal
-		amount = rand.Uint64()
-	}
-
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(h.t, err)
-	pubKey := privKey.PubKey()
-
-	var groupKey *btcec.PublicKey
-	if rand.Int31()%2 == 0 {
-		groupKey = pubKey
-	}
-
-	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
-		PubKey: pubKey,
-	})
-	pubKeyCopy2 := *pubKey
-
-	genesis := asset.RandGenesis(h.t, assetType)
-	taro, err := address.New(
-		genesis, groupKey, *scriptKey.PubKey, pubKeyCopy2, amount,
-		&address.RegressionNetTaro,
-	)
-	require.NoError(h.t, err)
-
-	taprootOutputKey, err := taro.TaprootOutputKey(nil)
-	require.NoError(h.t, err)
-
-	addr := &address.AddrWithKeyInfo{
-		Taro:           taro,
-		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
-		InternalKeyDesc: keychain.KeyDescriptor{
-			KeyLocator: keychain.KeyLocator{},
-			PubKey:     &pubKeyCopy2,
-		},
-		TaprootOutputKey: *taprootOutputKey,
-		CreationTime:     time.Now(),
-	}
-
-	err = h.tarodbBook.InsertAssetGen(context.Background(), &genesis)
+	err := h.tarodbBook.InsertAssetGen(context.Background(), genesis)
 	require.NoError(h.t, err)
 
 	return addr
