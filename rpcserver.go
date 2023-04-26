@@ -26,7 +26,6 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/perms"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarodb"
@@ -79,13 +78,6 @@ type rpcServer struct {
 func newRPCServer(interceptor signal.Interceptor,
 	interceptorChain *rpcperms.InterceptorChain,
 	cfg *Config) (*rpcServer, error) {
-
-	// Register all our known permission with the macaroon service.
-	for method, ops := range perms.RequiredPermissions {
-		if err := interceptorChain.AddPermission(method, ops); err != nil {
-			return nil, err
-		}
-	}
 
 	return &rpcServer{
 		interceptor:      interceptor,
