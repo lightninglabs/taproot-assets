@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btclog"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
@@ -26,21 +27,15 @@ type databaseBackend interface {
 	WithTx(tx *sql.Tx) *sqlc.Queries
 }
 
-// CreateServerFromConfig creates a new Taro server from the given CLI config.
-func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
-	shutdownInterceptor signal.Interceptor,
-	mainErrChan chan<- error) (*taro.Server, error) {
+// genServerConfig generates a server config from the given tarod config.
+//
+// NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
+// after genereting the server config.
+func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
+	lndServices *lndclient.LndServices,
+	mainErrChan chan<- error) (*taro.Config, error) {
 
-	// Given the config above, grab the TLS config which includes the set
-	// of dial options, and also the listeners we'll use to listen on the
-	// RPC system.
-	serverOpts, restDialOpts, restListen, err := getTLSConfig(
-		cfg, cfgLogger,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to load TLS credentials: %v",
-			err)
-	}
+	var err error
 
 	// Now that we know where the database will live, we'll go ahead and
 	// open up the default implementation of it.
@@ -92,20 +87,9 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		addrBookDB, &taroChainParams,
 	)
 
-	cfgLogger.Infof("Attempting to establish connection to lnd...")
-	lndConn, err := getLnd(
-		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to lnd node: %v", err)
-	}
-	lndServices := &lndConn.LndServices
-
 	keyRing := taro.NewLndRpcKeyRing(lndServices)
 	walletAnchor := taro.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := taro.NewLndRpcChainBridge(lndServices)
-
-	cfgLogger.Infof("lnd connection initialized")
 
 	addrBook := address.NewBook(address.BookConfig{
 		Store:        tarodbAddrBook,
@@ -116,12 +100,12 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	assetStore := tarodb.NewAssetStore(assetDB)
 
-	uniDB := tarodb.NewTransactionExecutor[tarodb.BaseUniverseStore](
+	uniDB := tarodb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tarodb.BaseUniverseStore {
 			return db.WithTx(tx)
 		},
 	)
-	uniForestDB := tarodb.NewTransactionExecutor[tarodb.BaseUniverseForestStore](
+	uniForestDB := tarodb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tarodb.BaseUniverseForestStore {
 			return db.WithTx(tx)
 		},
@@ -157,9 +141,10 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			cfg.HashMailCourier.TlsCertPath,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to make "+
-				"mailbox: %v", err)
+			return nil, fmt.Errorf("unable to make mailbox: %v",
+				err)
 		}
+
 		hashMailCourier, err = proof.NewHashMailCourier(
 			cfg.HashMailCourier, hashMailBox, assetStore,
 		)
@@ -189,7 +174,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		Wallet:       walletAnchor,
 		ChainParams:  &taroChainParams,
 	})
-	server := taro.NewServer(&taro.Config{
+
+	return &taro.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
 		AssetMinter: tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
@@ -238,27 +224,9 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 				ErrChan:      mainErrChan,
 			},
 		),
-		BaseUniverse:      baseUni,
-		UniverseSyncer:    universeSyncer,
-		SignalInterceptor: shutdownInterceptor,
-		LogWriter:         cfg.LogWriter,
-		RPCConfig: &taro.RPCConfig{
-			LisCfg:            &lnd.ListenerCfg{},
-			RPCListeners:      cfg.rpcListeners,
-			RESTListeners:     cfg.restListeners,
-			GrpcServerOpts:    serverOpts,
-			RestDialOpts:      restDialOpts,
-			RestListenFunc:    restListen,
-			WSPingInterval:    cfg.RpcConf.WSPingInterval,
-			WSPongWait:        cfg.RpcConf.WSPongWait,
-			RestCORS:          cfg.RpcConf.RestCORS,
-			NoMacaroons:       cfg.RpcConf.NoMacaroons,
-			MacaroonPath:      cfg.RpcConf.MacaroonPath,
-			LetsEncryptDir:    cfg.RpcConf.LetsEncryptDir,
-			LetsEncryptListen: cfg.RpcConf.LetsEncryptListen,
-			LetsEncryptEmail:  cfg.RpcConf.LetsEncryptEmail,
-			LetsEncryptDomain: cfg.RpcConf.LetsEncryptDomain,
-		},
+		BaseUniverse:   baseUni,
+		UniverseSyncer: universeSyncer,
+		LogWriter:      cfg.LogWriter,
 		DatabaseConfig: &taro.DatabaseConfig{
 			RootKeyStore:   tarodb.NewRootKeyStore(rksDB),
 			MintingStore:   assetMintingStore,
@@ -266,7 +234,84 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			TaroAddrBook:   tarodbAddrBook,
 			UniverseForest: uniForest,
 		},
-	})
+	}, nil
+}
 
-	return server, nil
+// CreateServerFromConfig creates a new Taro server from the given CLI config.
+func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
+	shutdownInterceptor signal.Interceptor,
+	mainErrChan chan<- error) (*taro.Server, error) {
+
+	// Given the config above, grab the TLS config which includes the set
+	// of dial options, and also the listeners we'll use to listen on the
+	// RPC system.
+	serverOpts, restDialOpts, restListen, err := getTLSConfig(
+		cfg, cfgLogger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load TLS credentials: %v",
+			err)
+	}
+
+	cfgLogger.Infof("Attempting to establish connection to lnd...")
+
+	lndConn, err := getLnd(
+		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to lnd node: %v", err)
+	}
+
+	cfgLogger.Infof("lnd connection initialized")
+
+	serverCfg, err := genServerConfig(
+		cfg, cfgLogger, &lndConn.LndServices, mainErrChan,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate server config: %v",
+			err)
+	}
+
+	serverCfg.SignalInterceptor = shutdownInterceptor
+
+	serverCfg.RPCConfig = &taro.RPCConfig{
+		LisCfg:            &lnd.ListenerCfg{},
+		RPCListeners:      cfg.rpcListeners,
+		RESTListeners:     cfg.restListeners,
+		GrpcServerOpts:    serverOpts,
+		RestDialOpts:      restDialOpts,
+		RestListenFunc:    restListen,
+		WSPingInterval:    cfg.RpcConf.WSPingInterval,
+		WSPongWait:        cfg.RpcConf.WSPongWait,
+		RestCORS:          cfg.RpcConf.RestCORS,
+		NoMacaroons:       cfg.RpcConf.NoMacaroons,
+		MacaroonPath:      cfg.RpcConf.MacaroonPath,
+		LetsEncryptDir:    cfg.RpcConf.LetsEncryptDir,
+		LetsEncryptListen: cfg.RpcConf.LetsEncryptListen,
+		LetsEncryptEmail:  cfg.RpcConf.LetsEncryptEmail,
+		LetsEncryptDomain: cfg.RpcConf.LetsEncryptDomain,
+	}
+
+	return taro.NewServer(serverCfg), nil
+}
+
+// CreateServerFromConfig creates a new Taro server from the given CLI config.
+func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
+	lndServices *lndclient.LndServices,
+	mainErrChan chan<- error) (*taro.Server, error) {
+
+	serverCfg, err := genServerConfig(
+		cfg, cfgLogger, lndServices, mainErrChan,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate server config: %v",
+			err)
+	}
+
+	serverCfg.RPCConfig = &taro.RPCConfig{
+		NoMacaroons:  cfg.RpcConf.NoMacaroons,
+		MacaroonPath: cfg.RpcConf.MacaroonPath,
+	}
+
+	return taro.NewServer(serverCfg), nil
 }

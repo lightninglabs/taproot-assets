@@ -307,6 +307,18 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	return nil
 }
 
+// StartAsSubserver is an alternative to Start where the RPC server does not
+// create its own gRPC server but registers to an existing one. The same goes
+// for REST (if enabled), instead of creating an own mux and HTTP server, we
+// register to an existing one.
+func (s *Server) StartAsSubserver(lndGrpc *lndclient.GrpcLndServices) error {
+	if err := s.initialize(nil); err != nil {
+		return fmt.Errorf("unable to initialize RPC server: %v", err)
+	}
+
+	return nil
+}
+
 // ValidateMacaroon extracts the macaroon from the context's gRPC metadata,
 // checks its signature, makes sure all specified permissions for the called
 // method are contained within and finally ensures all caveat conditions are
