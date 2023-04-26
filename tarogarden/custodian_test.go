@@ -241,7 +241,9 @@ func TestCustodianNewAddr(t *testing.T) {
 	}()
 	ctx := context.Background()
 	addr := randAddr(h)
-	dbAddr, err := h.addrBook.NewAddress(ctx, addr.AssetID, addr.Amount)
+	dbAddr, err := h.addrBook.NewAddress(
+		ctx, addr.AssetID, addr.Amount, nil,
+	)
 	require.NoError(t, err)
 
 	h.assertAddrsRegistered(dbAddr)
@@ -309,7 +311,7 @@ func mustMakeAddr(t *testing.T,
 
 	var p btcec.PublicKey
 	addr, err := address.New(
-		gen, groupKey, scriptKey, p, 1, &address.TestNet3Taro,
+		gen, groupKey, scriptKey, p, 1, nil, &address.TestNet3Taro,
 	)
 	require.NoError(t, err)
 
