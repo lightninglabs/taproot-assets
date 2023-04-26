@@ -366,9 +366,13 @@ type ManagedUTXO struct {
 	// in the outpoint.
 	InternalKey keychain.KeyDescriptor
 
+	// TaroRoot is the Taro commitment root hash committed to by this
+	// outpoint.
+	TaroRoot []byte
+
 	// MerkleRoot is the Taproot merkle root hash committed to by this
-	// outpoint. If there is no Tapscript sibling, this is equal to the Taro
-	// root commitment hash.
+	// outpoint. If there is no Tapscript sibling, this is equal to
+	// TaroRoot.
 	MerkleRoot []byte
 
 	// TapscriptSibling is the serialized tapscript sibling preimage of
@@ -1028,6 +1032,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 					),
 				},
 			},
+			TaroRoot:         u.TaroRoot,
 			MerkleRoot:       u.MerkleRoot,
 			TapscriptSibling: u.TapscriptSibling,
 		}
@@ -1256,10 +1261,12 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	// Next, we'll insert the managed UTXO that points to the output in our
 	// control for the specified asset.
 	merkleRoot := proof.ScriptRoot.TapscriptRoot(siblingHash)
+	taroRoot := proof.ScriptRoot.TapscriptRoot(nil)
 	utxoID, err := db.UpsertManagedUTXO(ctx, RawManagedUTXO{
 		RawKey:           proof.InternalKey.SerializeCompressed(),
 		Outpoint:         anchorPoint,
 		AmtSats:          anchorOutput.Value,
+		TaroRoot:         taroRoot[:],
 		MerkleRoot:       merkleRoot[:],
 		TapscriptSibling: siblingBytes,
 		TxnID:            chainTXID,
@@ -1761,6 +1768,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		RawKey:           internalKeyBytes,
 		Outpoint:         anchorPointBytes,
 		AmtSats:          int64(anchor.Value),
+		TaroRoot:         anchor.TaroRoot,
 		MerkleRoot:       anchor.MerkleRoot,
 		TapscriptSibling: anchor.TapscriptSibling,
 		TxnID:            txnID,
@@ -1927,6 +1935,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 						),
 					},
 				},
+				TaroRoot:         dbOut.AnchorTaroRoot,
 				MerkleRoot:       dbOut.AnchorMerkleRoot,
 				TapscriptSibling: dbOut.AnchorTapscriptSibling,
 				NumPassiveAssets: uint32(

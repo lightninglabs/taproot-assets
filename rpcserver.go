@@ -865,6 +865,7 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 			OutPoint:    u.OutPoint.String(),
 			AmtSat:      int64(u.OutputValue),
 			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
+			TaroRoot:    u.TaroRoot,
 			MerkleRoot:  u.MerkleRoot,
 		}
 	}
@@ -1782,6 +1783,7 @@ func marshalOutboundParcel(
 			Outpoint:         out.Anchor.OutPoint.String(),
 			Value:            int64(out.Anchor.Value),
 			InternalKey:      internalKeyBytes,
+			TaroRoot:         out.Anchor.TaroRoot[:],
 			MerkleRoot:       out.Anchor.MerkleRoot[:],
 			TapscriptSibling: out.Anchor.TapscriptSibling,
 			NumPassiveAssets: out.Anchor.NumPassiveAssets,

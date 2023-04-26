@@ -353,6 +353,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 
 		outCommitment := outputCommitments[vOut.AnchorOutputIndex]
 		merkleRoot := outCommitment.TapscriptRoot(siblingHash)
+		taroRoot := outCommitment.TapscriptRoot(nil)
 
 		var (
 			numPassiveAssets    uint32
@@ -409,6 +410,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 				},
 				Value:            btcutil.Amount(txOut.Value),
 				InternalKey:      anchorInternalKey,
+				TaroRoot:         taroRoot[:],
 				MerkleRoot:       merkleRoot[:],
 				TapscriptSibling: preimageBytes,
 				NumPassiveAssets: numPassiveAssets,

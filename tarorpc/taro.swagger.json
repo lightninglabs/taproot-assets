@@ -720,7 +720,7 @@
         "taproot_sibling": {
           "type": "string",
           "format": "byte",
-          "description": "The taproot sibling hash that was used to send to the Taproot output.\nNOTE: Not yet implemented."
+          "description": "The taproot sibling hash that was used to send to the Taproot output."
         },
         "confirmation_height": {
           "type": "integer",
@@ -1260,6 +1260,11 @@
           "format": "byte",
           "description": "The internal key used for the on-chain output."
         },
+        "taro_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taro root commitment hash."
+        },
         "merkle_root": {
           "type": "string",
           "format": "byte",
@@ -1520,6 +1525,10 @@
           "format": "int64"
         },
         "internal_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "taro_root": {
           "type": "string",
           "format": "byte"
         },

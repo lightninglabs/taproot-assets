@@ -530,6 +530,10 @@
           "type": "string",
           "format": "byte"
         },
+        "taro_root": {
+          "type": "string",
+          "format": "byte"
+        },
         "merkle_root": {
           "type": "string",
           "format": "byte"

@@ -204,6 +204,7 @@ type ManagedUtxo struct {
 	Outpoint         []byte
 	AmtSats          int64
 	InternalKeyID    int32
+	TaroRoot         []byte
 	TapscriptSibling []byte
 	MerkleRoot       []byte
 	TxnID            int32

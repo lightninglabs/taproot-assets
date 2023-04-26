@@ -1000,9 +1000,12 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// batch, we'll create a new managed UTXO for this batch as
 		// this is where all the assets will be anchored within.
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:     rawBatchKey,
-			Outpoint:   anchorOutpoint,
-			AmtSats:    anchorOutput.Value,
+			RawKey:   rawBatchKey,
+			Outpoint: anchorOutpoint,
+			AmtSats:  anchorOutput.Value,
+			// When minting, we never have a tapscript sibling, so
+			// the Taro root is always equal to the merkle root.
+			TaroRoot:   merkleRoot,
 			MerkleRoot: merkleRoot,
 			TxnID:      chainTXID,
 		})

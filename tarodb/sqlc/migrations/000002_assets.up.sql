@@ -130,6 +130,9 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
 
     internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
+    -- The Taro root commitment hash.
+    taro_root BLOB NOT NULL CHECK(length(taro_root) = 32),
+
     -- The serialized tapscript sibling preimage. If this is empty then the
     -- Taro root commitment is equal to the merkle_root below.
     tapscript_sibling BLOB,

@@ -138,8 +138,12 @@ type Anchor struct {
 	// anchored at the new outpoint.
 	InternalKey keychain.KeyDescriptor
 
+	// TaroRoot is the Taro commitment root hash of the anchor output.
+	TaroRoot []byte
+
 	// MerkleRoot is the root of the tap script merkle tree that also
-	// contains the Taro commitment of the anchor output.
+	// contains the Taro commitment of the anchor output. If there is no
+	// tapscript sibling, then this is equal to the TaroRoot.
 	MerkleRoot []byte
 
 	// TapscriptSibling is the serialized preimage of the tapscript sibling
