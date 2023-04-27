@@ -874,63 +874,60 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 }
 
 // SignPassiveAssets creates and signs the passive asset packets for the given
-// input commitment and virtual packet that contains the active asset transfer.
+// virtual packet and input taro commitments.
 func (f *AssetWallet) SignPassiveAssets(vPkt *taropsbt.VPacket,
 	inputCommitments taropsbt.InputCommitments) ([]*PassiveAssetReAnchor,
 	error) {
 
-	// Select taro commitment which correspond to the first
-	// (and currently only) virtual input.
-	//
-	// NOTE: This is a temporary change and will be removed
-	// once this function can handle multiple inputs.
-	var inputCommitment *commitment.TaroCommitment
-	for _, taroCommitment := range inputCommitments {
-		inputCommitment = taroCommitment
-		break
-	}
-
-	passiveCommitments, err := removeActiveCommitments(
-		inputCommitment, vPkt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(passiveCommitments) == 0 {
-		return nil, nil
-	}
-
-	// When there are left over passive assets, we know we have a change
-	// output present, since we created one in a previous step if there
-	// was none to begin with.
-	anchorPoint := vPkt.Inputs[0].PrevID.OutPoint
-	changeOut, err := vPkt.SplitRootOutput()
-	if err != nil {
-		return nil, fmt.Errorf("missing split root output for passive "+
-			"assets: %w", err)
-	}
-
-	changeInternalKey, err := changeOut.AnchorKeyToDesc()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get change internal key: %w",
-			err)
-	}
-
+	// Gather passive assets found in each input taro commitment.
 	var passiveAssets []*PassiveAssetReAnchor
-	for _, passiveCommitment := range passiveCommitments {
-		for _, passiveAsset := range passiveCommitment.Assets() {
-			passivePkt := f.passiveAssetVPacket(
-				passiveAsset, anchorPoint,
-				changeOut.AnchorOutputIndex,
-				&changeInternalKey,
-			)
-			reAnchor := &PassiveAssetReAnchor{
-				VPacket:         passivePkt,
-				GenesisID:       passiveAsset.ID(),
-				PrevAnchorPoint: anchorPoint,
-				ScriptKey:       passiveAsset.ScriptKey,
+	for inputIdx := range inputCommitments {
+		taroCommitment := inputCommitments[inputIdx]
+
+		// Each virtual input is associated with a distinct taro
+		// commitment. Therefore, each input may be associated with a
+		// distinct set of passive assets.
+		passiveCommitments, err := removeActiveCommitments(
+			taroCommitment, vPkt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if len(passiveCommitments) == 0 {
+			continue
+		}
+
+		// When there are left over passive assets, we know we have a
+		// change output present, since we created one in a previous
+		// step if there was none to begin with.
+		anchorPoint := vPkt.Inputs[inputIdx].PrevID.OutPoint
+		changeOut, err := vPkt.SplitRootOutput()
+		if err != nil {
+			return nil, fmt.Errorf("missing split root output "+
+				"for passive assets: %w", err)
+		}
+
+		changeInternalKey, err := changeOut.AnchorKeyToDesc()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get change "+
+				"internal key: %w", err)
+		}
+
+		for _, passiveCommitment := range passiveCommitments {
+			for _, passiveAsset := range passiveCommitment.Assets() {
+				passivePkt := f.passiveAssetVPacket(
+					passiveAsset, anchorPoint,
+					changeOut.AnchorOutputIndex,
+					&changeInternalKey,
+				)
+				reAnchor := &PassiveAssetReAnchor{
+					VPacket:         passivePkt,
+					GenesisID:       passiveAsset.ID(),
+					PrevAnchorPoint: anchorPoint,
+					ScriptKey:       passiveAsset.ScriptKey,
+				}
+				passiveAssets = append(passiveAssets, reAnchor)
 			}
-			passiveAssets = append(passiveAssets, reAnchor)
 		}
 	}
 
