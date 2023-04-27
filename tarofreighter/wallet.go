@@ -407,7 +407,6 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	//
 	// TODO(ffranr): Remove selected commitment truncation.
 	selectedCommitments = selectedCommitments[:1]
-	assetInput := selectedCommitments[0]
 
 	totalInputAmt := uint64(0)
 	for _, anchorAsset := range selectedCommitments {
@@ -468,17 +467,27 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// For now, we just need to know _if_ there are any passive assets, so
 	// we can create a change output if needed. We'll actually sign the
 	// passive packets later.
-	passiveCommitments, err := removeActiveCommitments(
-		assetInput.Commitment, vPkt,
-	)
-	if err != nil {
-		return nil, err
+	passiveAssetsPresent := false
+	for idx := range inputCommitments {
+		taroCommitment := inputCommitments[idx]
+
+		passiveCommitments, err := removeActiveCommitments(
+			taroCommitment, vPkt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(passiveCommitments) > 0 {
+			passiveAssetsPresent = true
+			break
+		}
 	}
 
 	// We expect some change back, or have passive assets to commit to, so
 	// let's make sure we create a transfer output.
 	var changeOut *taropsbt.VOutput
-	if !fullValue || len(passiveCommitments) > 0 {
+	if !fullValue || passiveAssetsPresent {
 		// Do we need to add a change output?
 		changeOut, err = vPkt.SplitRootOutput()
 		if err != nil {
