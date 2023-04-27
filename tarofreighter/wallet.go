@@ -431,7 +431,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	senderScriptKey := vPkt.Inputs[0].Asset().ScriptKey.PubKey
 	fullValue, err := taroscript.ValidateInputs(
-		selectedTaroCommitments, senderScriptKey, assetType, fundDesc,
+		inputCommitments, senderScriptKey, assetType, fundDesc,
 	)
 	if err != nil {
 		return nil, err
