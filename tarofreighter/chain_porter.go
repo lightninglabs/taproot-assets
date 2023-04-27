@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -766,7 +765,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		currentPkg.VirtualPacket = fundSendRes.VPacket
-		currentPkg.InputCommitment = fundSendRes.TaroCommitment
+		currentPkg.InputCommitments = fundSendRes.InputCommitments
 
 		currentPkg.SendState = SendStateVirtualSign
 
@@ -823,8 +822,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// Gather passive assets virtual packets and sign them.
 		wallet := p.cfg.AssetWallet
+
 		currentPkg.PassiveAssets, err = wallet.SignPassiveAssets(
-			currentPkg.InputCommitment, vPacket,
+			vPacket, currentPkg.InputCommitments,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign passive "+
@@ -840,11 +840,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
-				FeeRate: feeRate,
-				InputCommitments: []*commitment.TaroCommitment{
-					currentPkg.InputCommitment,
-				},
+				FeeRate:            feeRate,
 				VPkts:              []*taropsbt.VPacket{vPacket},
+				InputCommitments:   currentPkg.InputCommitments,
 				PassiveAssetsVPkts: passiveVPackets,
 			},
 		)
