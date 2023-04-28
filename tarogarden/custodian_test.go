@@ -142,12 +142,13 @@ func newHarness(t *testing.T,
 	}
 
 	cfg := &tarogarden.CustodianConfig{
-		ChainParams:  chainParams,
-		ChainBridge:  chainBridge,
-		WalletAnchor: walletAnchor,
-		AddrBook:     addrBook,
-		ProofArchive: proofArchive,
-		ErrChan:      make(chan error, 1),
+		ChainParams:   chainParams,
+		ChainBridge:   chainBridge,
+		WalletAnchor:  walletAnchor,
+		AddrBook:      addrBook,
+		ProofArchive:  proofArchive,
+		ProofNotifier: assetDB,
+		ErrChan:       make(chan error, 1),
 	}
 	return &custodianHarness{
 		t:            t,

@@ -4,6 +4,7 @@
 package mssmt_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -67,11 +68,11 @@ func makeSmolTree(store mssmt.TreeStore) mssmt.Tree {
 	return tree
 }
 
-// TestInsertion asserts that we can insert N leaves and retrieve them by their
+// testInsertion asserts that we can insert N leaves and retrieve them by their
 // insertion key. Keys that do not exist within the tree should return an empty
 // leaf.
 func testInsertion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
-	ctx := context.TODO()
+	ctx := context.Background()
 	for _, item := range leaves {
 		_, err := tree.Insert(ctx, item.key, item.leaf)
 		require.NoError(t, err)
@@ -85,11 +86,41 @@ func testInsertion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 		require.Equal(t, item.leaf, leafCopy)
 	}
 
-	// Finally veryify that we're able to loop up a random key (resulting
+	// Finally verify that we're able to loop up a random key (resulting
 	// in the default empty leaf).
 	emptyLeaf, err := tree.Get(ctx, randKey())
 	require.NoError(t, err)
 	require.True(t, emptyLeaf.IsEmpty())
+}
+
+// testProofs asserts that we can generate merkle proofs for leaves in the tree.
+func testProofs(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
+	ctx := context.Background()
+
+	for _, item := range leaves {
+		proof, err := tree.MerkleProof(ctx, item.key)
+		require.NoError(t, err)
+
+		// Verify that compressing and encoding then decoding and
+		// decompressing leads to identical proofs.
+		var buf bytes.Buffer
+		err = proof.Compress().Encode(&buf)
+		require.NoError(t, err)
+
+		compressedProof := &mssmt.CompressedProof{}
+		err = compressedProof.Decode(&buf)
+		require.NoError(t, err)
+
+		copiedProof, err := compressedProof.Decompress()
+		require.NoError(t, err)
+
+		assertEqualProof(t, proof, copiedProof)
+
+		// Now make sure that copying a proof also results in an
+		// identical copy.
+		copiedProof = proof.Copy()
+		assertEqualProof(t, proof, copiedProof)
+	}
 }
 
 func TestInsertion(t *testing.T) {
@@ -97,7 +128,8 @@ func TestInsertion(t *testing.T) {
 
 	leaves := randTree(100)
 
-	runTest := func(t *testing.T, name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
+	runTest := func(t *testing.T, name string,
+		makeTree func(mssmt.TreeStore) mssmt.Tree,
 		makeStore makeTestTreeStoreFunc) {
 
 		t.Run(name, func(t *testing.T) {
@@ -107,6 +139,7 @@ func TestInsertion(t *testing.T) {
 			tree := makeTree(store)
 
 			testInsertion(t, leaves, tree)
+			testProofs(t, leaves, tree)
 			printStoreStats(t, store)
 		})
 	}

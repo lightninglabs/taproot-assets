@@ -1,6 +1,7 @@
 package taropsbt
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -54,6 +55,14 @@ var (
 // VOutPredicate is a function that can be used to filter virtual outputs.
 type VOutPredicate func(*VOutput) bool
 
+// bip32DerivationPredicate is a function that can be used to filter BIP-0032
+// derivation paths.
+type bip32DerivationPredicate func(*psbt.Bip32Derivation) bool
+
+// bip32DerivationPredicate is a function that can be used to filter Taproot
+// BIP-0032 derivation paths.
+type taprootBip32DerivationPredicate func(*psbt.TaprootBip32Derivation) bool
+
 var (
 	// VOutIsSplitRoot is a predicate that returns true if the virtual
 	// output is a split root output.
@@ -71,6 +80,25 @@ var (
 	// transaction is interactive.
 	VOutIsInteractive = func(o *VOutput) bool {
 		return o.Interactive
+	}
+
+	// bip32DerivationKeyEqual returns a predicate that returns true if the
+	// BIP-0032 derivation path's public key matches the given target.
+	bip32DerivationKeyEqual = func(target []byte) bip32DerivationPredicate {
+		return func(d *psbt.Bip32Derivation) bool {
+			return bytes.Equal(d.PubKey, target)
+		}
+	}
+
+	// taprootBip32DerivationKeyEqual returns a predicate that returns true
+	// if the Taproot BIP-0032 derivation path's public key matches the
+	// given target.
+	taprootBip32DerivationKeyEqual = func(
+		target []byte) taprootBip32DerivationPredicate {
+
+		return func(d *psbt.TaprootBip32Derivation) bool {
+			return bytes.Equal(d.XOnlyPubKey, target)
+		}
 	}
 )
 
@@ -471,6 +499,40 @@ func Bip32DerivationFromKeyDesc(keyDesc keychain.KeyDescriptor,
 		Bip32Path:            bip32Derivation.Bip32Path,
 		LeafHashes:           make([][]byte, 0),
 	}
+}
+
+// AddBip32Derivation adds the given target BIP-0032 derivation to the list of
+// derivations if it is not already present.
+func AddBip32Derivation(derivations []*psbt.Bip32Derivation,
+	target *psbt.Bip32Derivation) []*psbt.Bip32Derivation {
+
+	if target == nil {
+		return derivations
+	}
+
+	predicate := bip32DerivationKeyEqual(target.PubKey)
+	if chanutils.Any(derivations, predicate) {
+		return derivations
+	}
+
+	return append(derivations, target)
+}
+
+// AddTaprootBip32Derivation adds the given target Taproot BIP-0032 derivation
+// to the list of derivations if it is not already present.
+func AddTaprootBip32Derivation(derivations []*psbt.TaprootBip32Derivation,
+	target *psbt.TaprootBip32Derivation) []*psbt.TaprootBip32Derivation {
+
+	if target == nil {
+		return derivations
+	}
+
+	predicate := taprootBip32DerivationKeyEqual(target.XOnlyPubKey)
+	if chanutils.Any(derivations, predicate) {
+		return derivations
+	}
+
+	return append(derivations, target)
 }
 
 // extractLocatorFromPath extracts the key family and index from the given

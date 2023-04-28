@@ -17,6 +17,10 @@ var testCases = []*testCase{
 		test: testAddresses,
 	},
 	{
+		name: "multi address",
+		test: testMultiAddress,
+	},
+	{
 		name:           "basic send",
 		test:           testBasicSend,
 		enableHashMail: true,
@@ -73,6 +77,10 @@ var testCases = []*testCase{
 	{
 		name: "psbt interactive tapscript sibling",
 		test: testPsbtInteractiveTapscriptSibling,
+	},
+	{
+		name: "psbt multi send",
+		test: testPsbtMultiSend,
 	},
 	{
 		name: "universe REST API",

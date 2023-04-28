@@ -58,6 +58,9 @@ type (
 
 	// Genesis is a type alias for fetching the genesis asset information.
 	Genesis = sqlc.FetchGenesisByIDRow
+
+	// ScriptKey is a type alias for fetching the script key information.
+	ScriptKey = sqlc.FetchScriptKeyByTweakedKeyRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -128,6 +131,11 @@ type AddrBook interface {
 	// for a given asset ID.
 	FetchGenesisByAssetID(ctx context.Context,
 		assetID []byte) (sqlc.GenesisInfoView, error)
+
+	// FetchScriptKeyByTweakedKey attempts to fetch the script key and
+	// corresponding internal key from the database.
+	FetchScriptKeyByTweakedKey(ctx context.Context,
+		tweakedScriptKey []byte) (ScriptKey, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -771,14 +779,14 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 
 // CompleteEvent updates an address event as being complete and links it with
 // the proof and asset that was imported/created for it.
-func (t *TaroAddressBook) CompleteEvent(ctx context.Context,
+func (a *TaroAddressBook) CompleteEvent(ctx context.Context,
 	event *address.Event, status address.Status,
 	anchorPoint wire.OutPoint) error {
 
 	scriptKeyBytes := event.Addr.ScriptKey.SerializeCompressed()
 
 	var writeTxOpts AddrBookTxOptions
-	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
+	return a.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		proofData, err := db.FetchAssetProof(ctx, scriptKeyBytes)
 		if err != nil {
 			return fmt.Errorf("error fetching asset proof: %w", err)
@@ -902,6 +910,55 @@ func (t *TaroAddressBook) InsertAssetGen(ctx context.Context,
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		return insertFullAssetGen(ctx, gen)(db)
 	})
+}
+
+// FetchScriptKey attempts to fetch the full tweaked script key struct
+// (including the key descriptor) for the given tweaked script key. If the key
+// cannot be found, then ErrScriptKeyNotFound is returned.
+func (t *TaroAddressBook) FetchScriptKey(ctx context.Context,
+	tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
+
+	var (
+		readOpts  = NewAddrBookReadTx()
+		scriptKey *asset.TweakedScriptKey
+	)
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		dbKey, err := db.FetchScriptKeyByTweakedKey(
+			ctx, tweakedScriptKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+
+		rawKey, err := btcec.ParsePubKey(dbKey.RawKey)
+		if err != nil {
+			return fmt.Errorf("unable to parse raw key: %w", err)
+		}
+
+		scriptKey = &asset.TweakedScriptKey{
+			Tweak: dbKey.Tweak,
+			RawKey: keychain.KeyDescriptor{
+				PubKey: rawKey,
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(
+						dbKey.KeyFamily,
+					),
+					Index: uint32(dbKey.KeyIndex),
+				},
+			},
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, address.ErrScriptKeyNotFound
+
+	case err != nil:
+		return nil, err
+	}
+
+	return scriptKey, nil
 }
 
 // A set of compile-time assertions to ensure that TaroAddressBook meets the

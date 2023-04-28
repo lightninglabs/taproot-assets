@@ -72,6 +72,7 @@ const fetchTransferInputs = `-- name: FetchTransferInputs :many
 SELECT input_id, anchor_point, asset_id, script_key, amount
 FROM asset_transfer_inputs inputs
 WHERE transfer_id = $1
+ORDER BY input_id
 `
 
 type FetchTransferInputsRow struct {
@@ -140,6 +141,7 @@ JOIN internal_keys script_internal_keys
 JOIN internal_keys utxo_internal_keys
   ON utxos.internal_key_id = utxo_internal_keys.key_id
 WHERE transfer_id = $1
+ORDER BY output_id
 `
 
 type FetchTransferOutputsRow struct {

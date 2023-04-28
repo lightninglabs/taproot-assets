@@ -35,8 +35,16 @@ type CustodianConfig struct {
 	// AddrBook is the storage backend for addresses.
 	AddrBook *address.Book
 
-	// ProofArchive is the storage backend for proofs.
-	ProofArchive *proof.MultiArchiver
+	// ProofArchive is the storage backend for proofs to which we store new
+	// incoming proofs.
+	ProofArchive proof.NotifyArchiver
+
+	// ProofNotifier is the storage backend for proofs from which we are
+	// notified about new proofs. This can be the same as the ProofArchive
+	// above but can also be different (for example if we should _store_ the
+	// proofs to a multi archiver but only be notified about new proofs
+	// being available in the relational database).
+	ProofNotifier proof.NotifyArchiver
 
 	// ProofCourier is used to optionally deliver the final proof to the
 	// user using an asynchronous transport mechanism.
@@ -123,7 +131,7 @@ func (c *Custodian) Start() error {
 		}
 
 		// We want all new proofs to be delivered to us for inspection.
-		err = c.cfg.ProofArchive.RegisterSubscriber(
+		err = c.cfg.ProofNotifier.RegisterSubscriber(
 			c.proofSubscription, false, nil,
 		)
 		if err != nil {
@@ -146,7 +154,7 @@ func (c *Custodian) Stop() error {
 			stopErr = err
 		}
 
-		err = c.cfg.ProofArchive.RemoveSubscriber(c.proofSubscription)
+		err = c.cfg.ProofNotifier.RemoveSubscriber(c.proofSubscription)
 		if err != nil {
 			stopErr = err
 		}
@@ -249,6 +257,7 @@ func (c *Custodian) watchInboundAssets() {
 			err = c.inspectWalletTx(&tx)
 
 		case newProof := <-c.proofSubscription.NewItemCreated.ChanOut():
+			log.Tracef("New proof received from notifier")
 			err = c.mapProofToEvent(newProof)
 
 		case err = <-txErrChan:
@@ -341,13 +350,16 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			ctx, cancel := c.WithCtxQuitNoTimeout()
 			defer cancel()
 
+			log.Debugf("Waiting to receive proof for script key %x",
+				addr.ScriptKey.SerializeCompressed())
+
 			assetID := addr.AssetID
 			recipient := proof.Recipient{
 				ScriptKey: &addr.ScriptKey,
 				AssetID:   assetID,
 				Amount:    addr.Amount,
 			}
-			proof, err := c.cfg.ProofCourier.ReceiveProof(
+			addrProof, err := c.cfg.ProofCourier.ReceiveProof(
 				ctx, recipient, proof.Locator{
 					AssetID:   &assetID,
 					ScriptKey: addr.ScriptKey,
@@ -358,6 +370,10 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				return
 			}
 
+			log.Debugf("Received proof for script key %x: %v",
+				addr.ScriptKey.SerializeCompressed(),
+				addrProof)
+
 			ctx, cancel = c.CtxBlocking()
 			defer cancel()
 
@@ -365,7 +381,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				ctx, c.cfg.ChainBridge,
 			)
 			err = c.cfg.ProofArchive.ImportProofs(
-				ctx, headerVerifier, proof,
+				ctx, headerVerifier, addrProof,
 			)
 			if err != nil {
 				log.Errorf("unable to import proofs: %v", err)
@@ -479,9 +495,12 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	ctxt, cancel := c.WithCtxQuit()
 	defer cancel()
 
-	// TODO(roasbeef): use the courier here?
-
-	blob, err := c.cfg.ProofArchive.FetchProof(ctxt, proof.Locator{
+	// We check if the local proof is already available. We check the same
+	// source that would notify us and not the proof archive (which might
+	// be a multi archiver that includes file based storage) to make sure
+	// the proof is available in the relational database. If the proof is
+	// not in the DB, we can't update the event.
+	blob, err := c.cfg.ProofNotifier.FetchProof(ctxt, proof.Locator{
 		AssetID:   chanutils.Ptr(event.Addr.AssetID),
 		GroupKey:  event.Addr.GroupKey,
 		ScriptKey: event.Addr.ScriptKey,

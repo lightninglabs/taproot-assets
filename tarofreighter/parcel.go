@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
@@ -123,8 +124,9 @@ type parcelKit struct {
 type AddressParcel struct {
 	*parcelKit
 
-	// destAddr is the address that should be used to satisfy the transfer.
-	destAddr *address.Taro
+	// destAddrs is the list of address that should be used to satisfy the
+	// transfer.
+	destAddrs []*address.Taro
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -132,20 +134,20 @@ type AddressParcel struct {
 var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
-func NewAddressParcel(destAddr *address.Taro) *AddressParcel {
+func NewAddressParcel(destAddrs ...*address.Taro) *AddressParcel {
 	return &AddressParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		destAddr: destAddr,
+		destAddrs: destAddrs,
 	}
 }
 
 // pkg returns the send package that should be delivered.
 func (p *AddressParcel) pkg() *sendPackage {
-	log.Infof("Received to send request to: %x:%x", p.destAddr.AssetID,
-		p.destAddr.ScriptKey.SerializeCompressed())
+	log.Infof("Received to send request to %d addrs: %v", len(p.destAddrs),
+		p.destAddrs)
 
 	// Initialize a package with the destination address.
 	return &sendPackage{
@@ -159,8 +161,8 @@ func (p *AddressParcel) kit() *parcelKit {
 }
 
 // dest returns the destination address for the parcel.
-func (p *AddressParcel) dest() *address.Taro {
-	return p.destAddr
+func (p *AddressParcel) dest() []*address.Taro {
+	return p.destAddrs
 }
 
 // PreSignedParcel is a request to issue an asset transfer of a pre-signed
@@ -515,35 +517,16 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 			rootOut.AnchorOutputTapscriptPreimage,
 		)
 
-		for idx := range vPkt.Outputs {
-			if idx == outIndex {
-				continue
-			}
-
-			splitOut := vPkt.Outputs[idx]
-			splitIndex := splitOut.AnchorOutputIndex
-			splitTaroTree := outputCommitments[splitIndex]
-
-			_, splitExclusionProof, err := splitTaroTree.Proof(
-				rootOut.Asset.TaroCommitmentKey(),
-				rootOut.Asset.AssetCommitmentKey(),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			preimage := splitOut.AnchorOutputTapscriptPreimage
-			exclusionProof := proof.TaprootProof{
-				OutputIndex: splitIndex,
-				InternalKey: splitOut.AnchorOutputInternalKey,
-				CommitmentProof: &proof.CommitmentProof{
-					Proof:              *splitExclusionProof,
-					TapSiblingPreimage: preimage,
-				},
-			}
-			rootParams.ExclusionProofs = append(
-				rootParams.ExclusionProofs, exclusionProof,
-			)
+		// Add exclusion proofs for all the other outputs.
+		err = addOtherOutputExclusionProofs(
+			vPkt.Outputs, rootOut.Asset, rootParams,
+			outputCommitments,
+			func(i int, _ *taropsbt.VOutput) bool {
+				return i == outIndex
+			},
+		)
+		if err != nil {
+			return nil, err
 		}
 
 		return rootParams, nil
@@ -590,7 +573,74 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		},
 	}}
 
+	// Add exclusion proofs for all the other outputs.
+	err = addOtherOutputExclusionProofs(
+		vPkt.Outputs, splitOut.Asset, splitParams, outputCommitments,
+		func(i int, vOut *taropsbt.VOutput) bool {
+			// We don't need exclusion proofs for:
+			//	- The split output itself.
+			//	- The split root output.
+			//	- Any output that is committed to the same
+			//	  anchor output as our split output.
+			return i == outIndex || vOut == splitRootOut ||
+				vOut.AnchorOutputIndex == splitIndex
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return splitParams, nil
+}
+
+// addOtherOutputExclusionProofs adds exclusion proofs for all the outputs that
+// are asset outputs but haven't been processed yet (the skip function needs to
+// return false for not yet processed outputs, otherwise they'll be skipped).
+func addOtherOutputExclusionProofs(outputs []*taropsbt.VOutput,
+	asset *asset.Asset, params *proof.TransitionParams,
+	outputCommitments map[uint32]*commitment.TaroCommitment,
+	skip func(int, *taropsbt.VOutput) bool) error {
+
+	for idx := range outputs {
+		vOut := outputs[idx]
+
+		haveProof := params.HaveExclusionProof(vOut.AnchorOutputIndex)
+		if skip(idx, vOut) || haveProof {
+			continue
+		}
+
+		outIndex := vOut.AnchorOutputIndex
+		taroTree := outputCommitments[outIndex]
+
+		_, splitExclusionProof, err := taroTree.Proof(
+			asset.TaroCommitmentKey(),
+			asset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return err
+		}
+
+		log.Tracef("Generated exclusion proof for anchor output index "+
+			"%d with asset_id=%v, taro_root=%x, internal_key=%x",
+			outIndex, asset.ID(),
+			chanutils.ByteSlice(taroTree.TapscriptRoot(nil)),
+			vOut.AnchorOutputInternalKey.SerializeCompressed())
+
+		siblingPreimage := vOut.AnchorOutputTapscriptPreimage
+		exclusionProof := proof.TaprootProof{
+			OutputIndex: outIndex,
+			InternalKey: vOut.AnchorOutputInternalKey,
+			CommitmentProof: &proof.CommitmentProof{
+				Proof:              *splitExclusionProof,
+				TapSiblingPreimage: siblingPreimage,
+			},
+		}
+		params.ExclusionProofs = append(
+			params.ExclusionProofs, exclusionProof,
+		)
+	}
+
+	return nil
 }
 
 // createReAnchorProof creates the new proof for the re-anchoring of a passive
@@ -627,37 +677,14 @@ func (s *sendPackage) createReAnchorProof(
 	// Since a transfer might contain other anchor outputs, we need to
 	// provide an exclusion proof of the passive asset for each of the other
 	// BTC level outputs.
-	for idx := range s.VirtualPacket.Outputs {
-		otherOut := s.VirtualPacket.Outputs[idx]
-		otherIndex := otherOut.AnchorOutputIndex
-
-		// The same anchor output index means this output is committed
-		// to the same top level tree, and we don't need an exclusion
-		// proof.
-		if otherIndex == passiveOutputIndex {
-			continue
-		}
-
-		otherTaroTree := outputCommitments[otherIndex]
-		_, otherExclusionProof, err := otherTaroTree.Proof(
-			passiveOut.Asset.TaroCommitmentKey(),
-			passiveOut.Asset.AssetCommitmentKey(),
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		otherPreimage := otherOut.AnchorOutputTapscriptPreimage
-		passiveParams.ExclusionProofs = append(
-			passiveParams.ExclusionProofs, proof.TaprootProof{
-				OutputIndex: otherIndex,
-				InternalKey: otherOut.AnchorOutputInternalKey,
-				CommitmentProof: &proof.CommitmentProof{
-					Proof:              *otherExclusionProof,
-					TapSiblingPreimage: otherPreimage,
-				},
-			},
-		)
+	err = addOtherOutputExclusionProofs(
+		s.VirtualPacket.Outputs, passiveOut.Asset, passiveParams,
+		outputCommitments, func(i int, vOut *taropsbt.VOutput) bool {
+			return vOut.AnchorOutputIndex == passiveOutputIndex
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// Add exclusion proof(s) for any P2TR (=BIP-0086, not carrying any

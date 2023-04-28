@@ -1270,6 +1270,33 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 	return items, nil
 }
 
+const fetchScriptKeyByTweakedKey = `-- name: FetchScriptKeyByTweakedKey :one
+SELECT tweak, raw_key, key_family, key_index
+FROM script_keys
+JOIN internal_keys
+  ON script_keys.internal_key_id = internal_keys.key_id
+WHERE script_keys.tweaked_script_key = $1
+`
+
+type FetchScriptKeyByTweakedKeyRow struct {
+	Tweak     []byte
+	RawKey    []byte
+	KeyFamily int32
+	KeyIndex  int32
+}
+
+func (q *Queries) FetchScriptKeyByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (FetchScriptKeyByTweakedKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchScriptKeyByTweakedKey, tweakedScriptKey)
+	var i FetchScriptKeyByTweakedKeyRow
+	err := row.Scan(
+		&i.Tweak,
+		&i.RawKey,
+		&i.KeyFamily,
+		&i.KeyIndex,
+	)
+	return i, err
+}
+
 const fetchScriptKeyIDByTweakedKey = `-- name: FetchScriptKeyIDByTweakedKey :one
 SELECT script_key_id
 FROM script_keys

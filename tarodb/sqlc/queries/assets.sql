@@ -669,6 +669,13 @@ SELECT script_key_id
 FROM script_keys
 WHERE tweaked_script_key = $1;
 
+-- name: FetchScriptKeyByTweakedKey :one
+SELECT tweak, raw_key, key_family, key_index
+FROM script_keys
+JOIN internal_keys
+  ON script_keys.internal_key_id = internal_keys.key_id
+WHERE script_keys.tweaked_script_key = $1;
+
 -- name: FetchGenesisByAssetID :one
 SELECT * 
 FROM genesis_info_view

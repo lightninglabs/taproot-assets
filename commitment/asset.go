@@ -365,11 +365,38 @@ func (c *AssetCommitment) Copy() (*AssetCommitment, error) {
 		}, nil
 	}
 
-	// First, we'll perform a deep copy of all the assets that that this
-	// existing commitment is committing to.
+	// First, we'll perform a deep copy of all the assets that this existing
+	// commitment is committing to.
 	newAssets := chanutils.CopyAll(maps.Values(c.Assets()))
 
 	// Now that we have a deep copy of all the assets, we can just create a
-	// brand new commitment from the set of assets.
+	// brand-new commitment from the set of assets.
 	return NewAssetCommitment(newAssets...)
+}
+
+// Merge merges the other commitment into this commitment. If the other
+// commitment is empty, then this is a no-op. If the other commitment was
+// not constructed with NewAssetCommitment, then an error is returned.
+func (c *AssetCommitment) Merge(other *AssetCommitment) error {
+	// If this was not constructed with NewAssetCommitment then we can't
+	// merge as we don't have the assets available.
+	if other.assets == nil {
+		return fmt.Errorf("cannot merge commitments without assets")
+	}
+
+	// If the other commitment is empty, then we can just exit early.
+	if len(other.assets) == 0 {
+		return nil
+	}
+
+	// Otherwise, we'll need to merge the other asset commitments into
+	// this commitment.
+	for _, otherCommitment := range other.assets {
+		if err := c.Upsert(otherCommitment.Copy()); err != nil {
+			return fmt.Errorf("error upserting other commitment: "+
+				"%w", err)
+		}
+	}
+
+	return nil
 }

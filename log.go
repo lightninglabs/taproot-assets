@@ -2,6 +2,7 @@ package taro
 
 import (
 	"github.com/btcsuite/btclog"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tarodb"
@@ -96,6 +97,9 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, proof.Subsystem, interceptor, proof.UseLogger)
 	AddSubLogger(root, tarodb.Subsystem, interceptor, tarodb.UseLogger)
 	AddSubLogger(root, universe.Subsystem, interceptor, universe.UseLogger)
+	AddSubLogger(
+		root, commitment.Subsystem, interceptor, commitment.UseLogger,
+	)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

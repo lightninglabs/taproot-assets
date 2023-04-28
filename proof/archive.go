@@ -10,7 +10,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -103,6 +102,14 @@ type Archiver interface {
 		proofs ...*AnnotatedProof) error
 }
 
+// NotifyArchiver is an Archiver that also allows callers to subscribe to
+// notifications about new proofs being added to the archiver.
+type NotifyArchiver interface {
+	Archiver
+
+	chanutils.EventPublisher[Blob, []*Locator]
+}
+
 // FileArchiver implements proof Archiver backed by an on-disk file system. The
 // archiver takes a single root directory then creates the following overlap
 // mapping:
@@ -115,6 +122,10 @@ type FileArchiver struct {
 	// proofPath is the directory name that we'll use as the roof for all
 	// our files.
 	proofPath string
+
+	// eventDistributor is an event distributor that will be used to notify
+	// subscribers about new proofs that are added to the archiver.
+	eventDistributor *chanutils.EventDistributor[Blob]
 }
 
 // NewFileArchiver creates a new file archive rooted at the passed specified
@@ -133,7 +144,8 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 	}
 
 	return &FileArchiver{
-		proofPath: proofPath,
+		proofPath:        proofPath,
+		eventDistributor: chanutils.NewEventDistributor[Blob](),
 	}, nil
 }
 
@@ -163,7 +175,7 @@ func genProofFilePath(rootPath string, loc Locator) (string, error) {
 // returned.
 //
 // NOTE: This implements the Archiver interface.
-func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error) {
+func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 	// All our on-disk storage is based on asset IDs, so to look up a path,
 	// we just need to compute the full file path and see if it exists on
 	// disk.
@@ -189,7 +201,7 @@ func (f *FileArchiver) FetchProof(ctx context.Context, id Locator) (Blob, error)
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the Archiver interface.
-func (f *FileArchiver) ImportProofs(ctx context.Context,
+func (f *FileArchiver) ImportProofs(_ context.Context,
 	_ HeaderVerifier, proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
@@ -206,14 +218,55 @@ func (f *FileArchiver) ImportProofs(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("unable to store proof: %v", err)
 		}
+
+		f.eventDistributor.NotifySubscribers(proof.Blob)
 	}
 
 	return nil
 }
 
-// A compile-time interface to ensure FileArchiver meets the Archiver
+// RegisterSubscriber adds a new subscriber for receiving events. The
+// deliverExisting boolean indicates whether already existing items should be
+// sent to the NewItemCreated channel when the subscription is started. An
+// optional deliverFrom can be specified to indicate from which timestamp/index/
+// marker onward existing items should be delivered on startup. If deliverFrom
+// is nil/zero/empty then all existing items will be delivered.
+func (f *FileArchiver) RegisterSubscriber(
+	receiver *chanutils.EventReceiver[Blob],
+	deliverExisting bool, deliverFrom []*Locator) error {
+
+	f.eventDistributor.RegisterSubscriber(receiver)
+
+	// No delivery of existing items requested, we're done here.
+	if !deliverExisting {
+		return nil
+	}
+
+	for _, loc := range deliverFrom {
+		blob, err := f.FetchProof(nil, *loc)
+		if err != nil {
+			return err
+		}
+
+		// Deliver the found proof to the new item queue of the
+		// subscriber.
+		receiver.NewItemCreated.ChanIn() <- blob
+	}
+
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+func (f *FileArchiver) RemoveSubscriber(
+	subscriber *chanutils.EventReceiver[Blob]) error {
+
+	return f.eventDistributor.RemoveSubscriber(subscriber)
+}
+
+// A compile-time interface to ensure FileArchiver meets the NotifyArchiver
 // interface.
-var _ Archiver = (*FileArchiver)(nil)
+var _ NotifyArchiver = (*FileArchiver)(nil)
 
 // MultiArchiver is an archive of archives. It contains several archives and
 // attempts to use them either as a look-aside cache, or a write through cache
@@ -226,13 +279,9 @@ type MultiArchiver struct {
 	// interaction.
 	archiveTimeout time.Duration
 
-	// subscribers is a map of components that want to be notified on new
-	// proofs, keyed by their subscription ID.
-	subscribers map[uint64]*chanutils.EventReceiver[Blob]
-
-	// subscriberMtx guards the subscribers map and access to the
-	// subscriptionID.
-	subscriberMtx sync.Mutex
+	// eventDistributor is an event distributor that will be used to notify
+	// subscribers about new proofs that are added to the archiver.
+	eventDistributor *chanutils.EventDistributor[Blob]
 }
 
 // NewMultiArchiver creates a new MultiArchiver based on the set of specified
@@ -241,12 +290,10 @@ func NewMultiArchiver(verifier Verifier, archiveTimeout time.Duration,
 	backends ...Archiver) *MultiArchiver {
 
 	return &MultiArchiver{
-		proofVerifier:  verifier,
-		backends:       backends,
-		archiveTimeout: archiveTimeout,
-		subscribers: make(
-			map[uint64]*chanutils.EventReceiver[Blob],
-		),
+		proofVerifier:    verifier,
+		backends:         backends,
+		archiveTimeout:   archiveTimeout,
+		eventDistributor: chanutils.NewEventDistributor[Blob](),
 	}
 }
 
@@ -334,14 +381,10 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	}
 
 	// Deliver each new proof to the new item queue of the subscribers.
-	m.subscriberMtx.Lock()
-	for i := range proofs {
-		for id := range m.subscribers {
-			receiver := m.subscribers[id]
-			receiver.NewItemCreated.ChanIn() <- proofs[i].Blob
-		}
-	}
-	m.subscriberMtx.Unlock()
+	blobs := chanutils.Map(proofs, func(p *AnnotatedProof) Blob {
+		return p.Blob
+	})
+	m.eventDistributor.NotifySubscribers(blobs...)
 
 	return nil
 }
@@ -356,10 +399,7 @@ func (m *MultiArchiver) RegisterSubscriber(
 	receiver *chanutils.EventReceiver[Blob],
 	deliverExisting bool, deliverFrom []*Locator) error {
 
-	m.subscriberMtx.Lock()
-	defer m.subscriberMtx.Unlock()
-
-	m.subscribers[receiver.ID()] = receiver
+	m.eventDistributor.RegisterSubscriber(receiver)
 
 	// No delivery of existing items requested, we're done here.
 	if !deliverExisting {
@@ -390,21 +430,9 @@ func (m *MultiArchiver) RegisterSubscriber(
 func (m *MultiArchiver) RemoveSubscriber(
 	subscriber *chanutils.EventReceiver[Blob]) error {
 
-	m.subscriberMtx.Lock()
-	defer m.subscriberMtx.Unlock()
-
-	_, ok := m.subscribers[subscriber.ID()]
-	if !ok {
-		return fmt.Errorf("subscriber with ID %d not found",
-			subscriber.ID())
-	}
-
-	subscriber.Stop()
-	delete(m.subscribers, subscriber.ID())
-
-	return nil
+	return m.eventDistributor.RemoveSubscriber(subscriber)
 }
 
 // A compile-time assertion to make sure MultiArchiver satisfies the
-// chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[Blob, []*Locator] = (*MultiArchiver)(nil)
+// NotifyArchiver interface.
+var _ NotifyArchiver = (*MultiArchiver)(nil)

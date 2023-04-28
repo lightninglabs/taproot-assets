@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"context"
 	"encoding/hex"
 	"math/rand"
 	"testing"
@@ -496,25 +497,6 @@ func TestSplitCommitment(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "locator duplicate output index",
-			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
-				root := &SplitLocator{
-					OutputIndex: 0,
-					AssetID:     genesisNormal.ID(),
-					ScriptKey: asset.ToSerialized(
-						input.ScriptKey.PubKey,
-					),
-					Amount: input.Amount,
-				}
-				external := []*SplitLocator{root}
-				return input, root, external
-			},
-			err: ErrDuplicateSplitOutputIndex,
-		},
-		{
 			name: "invalid split amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
@@ -743,7 +725,8 @@ func TestSplitCommitment(t *testing.T) {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			input, root, external := testCase.f()
 			split, err := NewSplitCommitment(
-				input, outPoint, root, external...,
+				context.Background(), input, outPoint, root,
+				external...,
 			)
 			require.Equal(t, testCase.err, err)
 

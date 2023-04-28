@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -281,6 +282,12 @@ func (p TaprootProof) DeriveByAssetInclusion(
 		return nil, nil, err
 	}
 
+	log.Tracef("Derived Taro commitment taro_root=%x, internal_key=%x, "+
+		"taproot_key=%x",
+		chanutils.ByteSlice(taroCommitment.TapscriptRoot(nil)),
+		p.InternalKey.SerializeCompressed(),
+		schnorr.SerializePubKey(pubKey))
+
 	return pubKey, taroCommitment, nil
 }
 
@@ -317,6 +324,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	// specified key maps to an empty leaf node (no asset ID sub-tree in
 	// the root commitment).
 	case p.CommitmentProof.AssetProof == nil:
+		log.Debugf("Deriving commitment by asset commitment exclusion")
 		commitment, err = p.CommitmentProof.
 			DeriveByAssetCommitmentExclusion(taroCommitmentKey)
 
@@ -324,12 +332,17 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	// asset ID, but we want to verify that the particular asset we care
 	// about isn't included.
 	default:
+		log.Debugf("Deriving commitment by asset exclusion")
 		commitment, err = p.CommitmentProof.
 			DeriveByAssetExclusion(assetCommitmentKey)
 	}
 	if err != nil {
 		return nil, err
 	}
+
+	log.Tracef("Derived Taro commitment taro_root=%x, internal_key=%x",
+		chanutils.ByteSlice(commitment.TapscriptRoot(nil)),
+		p.InternalKey.SerializeCompressed())
 
 	return deriveTaprootKeysFromTaroCommitment(
 		commitment, p.InternalKey, p.CommitmentProof.TapSiblingPreimage,

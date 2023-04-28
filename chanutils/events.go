@@ -1,6 +1,8 @@
 package chanutils
 
 import (
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -78,4 +80,63 @@ type EventPublisher[T any, Q any] interface {
 // Event is a generic event that can be sent to a subscriber.
 type Event interface {
 	Timestamp() time.Time
+}
+
+// EventDistributor is a struct type that helps to distribute events to multiple
+// subscribers.
+type EventDistributor[T any] struct {
+	// subscribers is a map of components that want to be notified on new
+	// events, keyed by their subscription ID.
+	subscribers map[uint64]*EventReceiver[T]
+
+	// subscriberMtx guards the subscribers map and access to the
+	// subscriptionID.
+	subscriberMtx sync.Mutex
+}
+
+// NewEventDistributor creates a new event distributor of the declared type.
+func NewEventDistributor[T any]() *EventDistributor[T] {
+	return &EventDistributor[T]{
+		subscribers: make(map[uint64]*EventReceiver[T]),
+	}
+}
+
+// RegisterSubscriber adds a new subscriber for receiving events.
+func (d *EventDistributor[T]) RegisterSubscriber(subscriber *EventReceiver[T]) {
+	d.subscriberMtx.Lock()
+	defer d.subscriberMtx.Unlock()
+
+	d.subscribers[subscriber.ID()] = subscriber
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+func (d *EventDistributor[T]) RemoveSubscriber(
+	subscriber *EventReceiver[T]) error {
+
+	d.subscriberMtx.Lock()
+	defer d.subscriberMtx.Unlock()
+
+	_, ok := d.subscribers[subscriber.ID()]
+	if !ok {
+		return fmt.Errorf("subscriber with ID %d not found",
+			subscriber.ID())
+	}
+
+	subscriber.Stop()
+	delete(d.subscribers, subscriber.ID())
+
+	return nil
+}
+
+// NotifySubscribers sends the given events to all subscribers.
+func (d *EventDistributor[T]) NotifySubscribers(events ...T) {
+	d.subscriberMtx.Lock()
+	for i := range events {
+		event := events[i]
+		for id := range d.subscribers {
+			d.subscribers[id].NewItemCreated.ChanIn() <- event
+		}
+	}
+	d.subscriberMtx.Unlock()
 }

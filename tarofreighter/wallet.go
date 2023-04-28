@@ -3,9 +3,11 @@ package tarofreighter
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -15,6 +17,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
@@ -60,7 +63,7 @@ type Wallet interface {
 	// asset re-anchors and the Taro level commitment of the selected
 	// assets.
 	FundAddressSend(ctx context.Context,
-		receiverAddr address.Taro) (*FundedVPacket, error)
+		receiverAddrs ...*address.Taro) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
@@ -89,6 +92,16 @@ type Wallet interface {
 	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
 		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+}
+
+// AddrBook is an interface that provides access to the address book.
+type AddrBook interface {
+	// FetchScriptKey attempts to fetch the full tweaked script key struct
+	// (including the key descriptor) for the given tweaked script key. If
+	// the key cannot be found, then ErrScriptKeyNotFound is returned.
+	FetchScriptKey(ctx context.Context,
+		tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey,
+		error)
 }
 
 // AnchorVTxnsParams holds all the parameters needed to create a BTC level
@@ -203,6 +216,10 @@ type WalletConfig struct {
 	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
 
+	// AddrBook is used to fetch information about local address book
+	// related data in the database.
+	AddrBook AddrBook
+
 	// KeyRing is used to generate new keys throughout the transfer
 	// process.
 	KeyRing KeyRing
@@ -255,19 +272,23 @@ type FundedVPacket struct {
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
-	receiverAddr address.Taro) (*FundedVPacket, error) {
+	receiverAddrs ...*address.Taro) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a
 	// non-interactive process, we can use this function that always creates
 	// a change output.
-	vPkt := taropsbt.FromAddress(&receiverAddr, 1)
-
-	fundDesc := &taroscript.FundingDescriptor{
-		ID:       receiverAddr.AssetID,
-		GroupKey: receiverAddr.GroupKey,
-		Amount:   receiverAddr.Amount,
+	vPkt, err := taropsbt.FromAddresses(receiverAddrs, 1)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create virtual transaction "+
+			"from addresses: %w", err)
 	}
+
+	fundDesc, err := taroscript.DescribeAddrs(receiverAddrs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to describe recipients: %w", err)
+	}
+
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
 		return nil, err
@@ -413,6 +434,34 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
+	// We want to know if we are sending to ourselves. We detect that by
+	// looking at the key descriptor of the script key. Because that is not
+	// part of addresses and might not be specified by the user through the
+	// PSBT interface, we now attempt to detect all local script keys and
+	// mark them as such by filling in the descriptor.
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+
+		tweakedKey, err := f.cfg.AddrBook.FetchScriptKey(
+			ctx, vOut.ScriptKey.PubKey,
+		)
+		switch {
+		case err == nil:
+			// We found a tweaked key for this output, so we'll
+			// update the key with the full descriptor info.
+			vOut.ScriptKey.TweakedScriptKey = tweakedKey
+
+		case errors.Is(err, address.ErrScriptKeyNotFound):
+			// This is not a local key, or at least we don't know of
+			// it in the database.
+			continue
+
+		case err != nil:
+			return nil, fmt.Errorf("cannot fetch script key: %w",
+				err)
+		}
+	}
+
 	// For now, we just need to know _if_ there are any passive assets, so
 	// we can create a change output if needed. We'll actually sign the
 	// passive packets later.
@@ -500,7 +549,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		)
 	}
 
-	if err := taroscript.PrepareOutputAssets(vPkt); err != nil {
+	if err := taroscript.PrepareOutputAssets(ctx, vPkt); err != nil {
 		return nil, fmt.Errorf("unable to create split commit: %w", err)
 	}
 
@@ -547,6 +596,13 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 			return fmt.Errorf("cannot calculate input asset pk "+
 				"script: %w", err)
 		}
+
+		log.Tracef("Input commitment taro_root=%x, internal_key=%x, "+
+			"pk_script=%x, trimmed_merkle_root=%x",
+			chanutils.ByteSlice(
+				assetInput.Commitment.TapscriptRoot(nil),
+			), internalKey.PubKey.SerializeCompressed(),
+			anchorPkScript, anchorMerkleRoot[:])
 
 		// We'll also include an inclusion proof for the input asset in
 		// the virtual transaction. With that a signer can verify that
@@ -998,40 +1054,13 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 	error) {
 
-	// If the input asset was received non-interactively, then the Taro tree
-	// of the input anchor output was built with asset leaves that had empty
-	// SplitCommitments. However, the SplitCommitment field was
-	// populated when the transfer of the input asset was verified.
-	// To recompute the correct output script, we need to build a Taro tree
-	// from the input asset without any SplitCommitment.
-	inputAssetCopy := assetInput.Asset.Copy()
-	inputAnchorCommitmentCopy, err := assetInput.Commitment.Copy()
+	// If any of the assets were received non-interactively, then the Taro
+	// tree of the input anchor output was built with asset leaves that had
+	// empty SplitCommitments. We need to replicate this here as well.
+	inputCommitment, err := trimSplitWitnesses(assetInput.Commitment)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	// Assets received via non-interactive split should have one witness,
-	// with an empty PrevID and a SplitCommitment present.
-	if inputAssetCopy.HasSplitCommitmentWitness() &&
-		*inputAssetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
-
-		inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
-
-		// Build the new Taro tree by first updating the asset
-		// commitment tree with the new asset leaf, and then the
-		// top-level Taro tree.
-		inputCommitments := inputAnchorCommitmentCopy.Commitments()
-		inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
-		inputAssetTree := inputCommitments[inputCommitmentKey]
-		err = inputAssetTree.Upsert(inputAssetCopy)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		err = inputAnchorCommitmentCopy.Upsert(inputAssetTree)
-		if err != nil {
-			return nil, nil, err
-		}
+		return nil, nil, fmt.Errorf("unable to trim split "+
+			"witnesses: %w", err)
 	}
 
 	// Decode the Tapscript sibling preimage if there was one, so we can
@@ -1044,13 +1073,62 @@ func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 		}
 	}
 
-	merkleRoot := inputAnchorCommitmentCopy.TapscriptRoot(siblingHash)
+	merkleRoot := inputCommitment.TapscriptRoot(siblingHash)
 	anchorPubKey := txscript.ComputeTaprootOutputKey(
 		assetInput.InternalKey.PubKey, merkleRoot[:],
 	)
 
 	pkScript, err := taroscript.PayToTaprootScript(anchorPubKey)
 	return pkScript, merkleRoot[:], err
+}
+
+// trimSplitWitnesses returns a copy of the input commitment in which all assets
+// with a split commitment witness have their SplitCommitment field set to nil.
+func trimSplitWitnesses(
+	original *commitment.TaroCommitment) (*commitment.TaroCommitment,
+	error) {
+
+	// If the input asset was received non-interactively, then the Taro tree
+	// of the input anchor output was built with asset leaves that had empty
+	// SplitCommitments. However, the SplitCommitment field was
+	// populated when the transfer of the input asset was verified.
+	// To recompute the correct output script, we need to build a Taro tree
+	// from the input asset without any SplitCommitment.
+	taroCommitmentCopy, err := original.Copy()
+	if err != nil {
+		return nil, err
+	}
+
+	allAssets := taroCommitmentCopy.CommittedAssets()
+	for _, inputAsset := range allAssets {
+		inputAssetCopy := inputAsset.Copy()
+
+		// Assets received via non-interactive split should have one
+		// witness, with an empty PrevID and a SplitCommitment present.
+		if inputAssetCopy.HasSplitCommitmentWitness() &&
+			*inputAssetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
+
+			inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
+
+			// Build the new Taro tree by first updating the asset
+			// commitment tree with the new asset leaf, and then the
+			// top-level Taro tree.
+			inputCommitments := taroCommitmentCopy.Commitments()
+			inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
+			inputAssetTree := inputCommitments[inputCommitmentKey]
+			err = inputAssetTree.Upsert(inputAssetCopy)
+			if err != nil {
+				return nil, err
+			}
+
+			err = taroCommitmentCopy.Upsert(inputAssetTree)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return taroCommitmentCopy, nil
 }
 
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,

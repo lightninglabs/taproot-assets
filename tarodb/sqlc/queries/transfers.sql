@@ -47,7 +47,8 @@ ORDER BY transfer_time_unix;
 -- name: FetchTransferInputs :many
 SELECT input_id, anchor_point, asset_id, script_key, amount
 FROM asset_transfer_inputs inputs
-WHERE transfer_id = $1;
+WHERE transfer_id = $1
+ORDER BY input_id;
 
 -- name: FetchTransferOutputs :many
 SELECT
@@ -77,7 +78,8 @@ JOIN internal_keys script_internal_keys
   ON script_keys.internal_key_id = script_internal_keys.key_id
 JOIN internal_keys utxo_internal_keys
   ON utxos.internal_key_id = utxo_internal_keys.key_id
-WHERE transfer_id = $1;
+WHERE transfer_id = $1
+ORDER BY output_id;
 
 -- name: ApplyPendingOutput :one
 WITH spent_asset AS (

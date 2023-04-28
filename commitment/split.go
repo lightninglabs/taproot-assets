@@ -131,9 +131,9 @@ type SplitCommitment struct {
 // state transition? Imagine 3 separate UTXOs containing 5 USD each and merged
 // to create a split payment of 7 USD in one UTXO for the recipient and a change
 // UTXO of 8 USD.
-func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
-	rootLocator *SplitLocator, externalLocators ...*SplitLocator) (
-	*SplitCommitment, error) {
+func NewSplitCommitment(ctx context.Context, input *asset.Asset,
+	outPoint wire.OutPoint, rootLocator *SplitLocator,
+	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
 
 	prevID := &asset.PrevID{
 		OutPoint:  outPoint,
@@ -178,22 +178,11 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	// each split's amount from the asset input to ensure we fully consume
 	// the total input amount.
 	locators := append(externalLocators, rootLocator)
-	locatorOutputs := make(map[uint32]struct{}, len(locators))
 	splitAssets := make(SplitSet, len(locators))
 	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 	remainingAmount := input.Amount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
-		// Return an error if we've already seen a locator with this
-		// output index.
-		//
-		// TODO(roasbeef): is there any reason to allow the external
-		// split to map to a series of internal splits? so you split
-		// into more UTXOs within the tree
-		if _, ok := locatorOutputs[locator.OutputIndex]; ok {
-			return ErrDuplicateSplitOutputIndex
-		}
-
 		assetSplit := input.Copy()
 		assetSplit.Amount = locator.Amount
 
@@ -209,8 +198,6 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 		}}
 		assetSplit.SplitCommitmentRoot = nil
 
-		locatorOutputs[locator.OutputIndex] = struct{}{}
-
 		splitAssets[*locator] = &SplitAsset{
 			Asset:       *assetSplit,
 			OutputIndex: locator.OutputIndex,
@@ -222,8 +209,7 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 			return err
 		}
 
-		// TODO(bhandras): thread the context through.
-		_, err = splitTree.Insert(context.TODO(), splitKey, splitLeaf)
+		_, err = splitTree.Insert(ctx, splitKey, splitLeaf)
 		if err != nil {
 			return err
 		}
@@ -237,7 +223,8 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 
 		return nil
 	}
-	for idx, locator := range locators {
+	for idx := range locators {
+		locator := locators[idx]
 		if idx != rootIdx && locator.Amount == 0 {
 			return nil, ErrZeroSplitAmount
 		}
@@ -264,20 +251,19 @@ func NewSplitCommitment(input *asset.Asset, outPoint wire.OutPoint,
 	}
 
 	// We'll also update each asset split with it's split commitment proof.
-	for _, locator := range locators {
-		// TODO(bhandras): thread the context through.
-		proof, err := splitTree.MerkleProof(
-			context.TODO(), locator.Hash(),
-		)
+	for idx := range locators {
+		locator := locators[idx]
+
+		proof, err := splitTree.MerkleProof(ctx, locator.Hash())
 		if err != nil {
 			return nil, err
 		}
 
-		splitAssets[*locator].PrevWitnesses[0].SplitCommitment =
-			&asset.SplitCommitment{
-				Proof:     *proof,
-				RootAsset: *rootAsset,
-			}
+		prevWitnesses := splitAssets[*locator].PrevWitnesses
+		prevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
+			Proof:     *proof,
+			RootAsset: *rootAsset,
+		}
 	}
 
 	return &SplitCommitment{

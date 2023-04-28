@@ -73,9 +73,10 @@ type TaroClient interface {
 	//script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 	// tarocli: `assets send`
-	//SendAsset uses a passed taro address to attempt to complete an asset send.
-	//The method returns information w.r.t the on chain send, as well as the
-	//proof file information the receiver needs to fully receive the asset.
+	//SendAsset uses one or multiple passed taro address(es) to attempt to
+	//complete an asset send. The method returns information w.r.t the on chain
+	//send, as well as the proof file information the receiver needs to fully
+	//receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
 	//
 	//SubscribeSendAssetEventNtfns registers a subscription to the event
@@ -330,9 +331,10 @@ type TaroServer interface {
 	//script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	// tarocli: `assets send`
-	//SendAsset uses a passed taro address to attempt to complete an asset send.
-	//The method returns information w.r.t the on chain send, as well as the
-	//proof file information the receiver needs to fully receive the asset.
+	//SendAsset uses one or multiple passed taro address(es) to attempt to
+	//complete an asset send. The method returns information w.r.t the on chain
+	//send, as well as the proof file information the receiver needs to fully
+	//receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
 	//
 	//SubscribeSendAssetEventNtfns registers a subscription to the event

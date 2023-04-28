@@ -416,9 +416,10 @@ var sendAssetsCommand = cli.Command{
 	Usage:       "send an asset",
 	Description: "send asset w/ a taro addr",
 	Flags: []cli.Flag{
-		cli.StringFlag{
-			Name:  addrName,
-			Usage: "addr to send to",
+		cli.StringSliceFlag{
+			Name: addrName,
+			Usage: "addr to send to; can be specified multiple " +
+				"times to send to multiple addresses at once",
 		},
 		// TODO(roasbeef): add arg for file name to write sender proof
 		// blob
@@ -431,14 +432,14 @@ func sendAssets(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	switch {
-	case ctx.String(addrName) == "":
+	addrs := ctx.StringSlice(addrName)
+	if ctx.NArg() != 0 || ctx.NumFlags() == 0 || len(addrs) == 0 {
 		_ = cli.ShowCommandHelp(ctx, "send")
 		return nil
 	}
 
 	resp, err := client.SendAsset(ctxc, &tarorpc.SendAssetRequest{
-		TaroAddr: ctx.String(addrName),
+		TaroAddrs: addrs,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)

@@ -40,22 +40,19 @@ func testBasicSend(t *harnessTest) {
 	go func() {
 		defer wg.Done()
 
+		broadcastState := tarofreighter.SendStateBroadcast.String()
 		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
 			case *tarorpc.SendAssetEvent_ExecuteSendStateEvent:
 				ev := eventTyped.ExecuteSendStateEvent
 
 				// Log send state execution.
-				timestamp := time.UnixMicro(
-					ev.Timestamp,
-				)
+				timestamp := time.UnixMicro(ev.Timestamp)
 				t.Logf("Executing send state (%v): %v",
 					timestamp.Format(time.RFC3339Nano),
-					ev.SendState,
-				)
+					ev.SendState)
 
-				return ev.SendState ==
-					tarofreighter.SendStateBroadcast.String()
+				return ev.SendState == broadcastState
 			}
 
 			return false

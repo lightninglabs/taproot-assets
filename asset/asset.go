@@ -138,6 +138,11 @@ func (g Genesis) TagHash() [sha256.Size]byte {
 //	  outputIndex || assetType)
 type ID [sha256.Size]byte
 
+// String returns the hex-encoded string representation of the ID.
+func (i ID) String() string {
+	return hex.EncodeToString(i[:])
+}
+
 // ID computes an asset's unique identifier from its metadata.
 func (g Genesis) ID() ID {
 	tagHash := g.TagHash()
@@ -811,8 +816,10 @@ func (a *Asset) IsUnSpendable() bool {
 func (a *Asset) Copy() *Asset {
 	assetCopy := *a
 
-	assetCopy.PrevWitnesses = make([]Witness, 0, len(a.PrevWitnesses))
-	for _, witness := range a.PrevWitnesses {
+	assetCopy.PrevWitnesses = make([]Witness, len(a.PrevWitnesses))
+	for idx := range a.PrevWitnesses {
+		witness := a.PrevWitnesses[idx]
+
 		var witnessCopy Witness
 		if witness.PrevID != nil {
 			witnessCopy.PrevID = &PrevID{
@@ -838,9 +845,7 @@ func (a *Asset) Copy() *Asset {
 				RootAsset: *witness.SplitCommitment.RootAsset.Copy(),
 			}
 		}
-		assetCopy.PrevWitnesses = append(
-			assetCopy.PrevWitnesses, witnessCopy,
-		)
+		assetCopy.PrevWitnesses[idx] = witnessCopy
 	}
 
 	if a.SplitCommitmentRoot != nil {

@@ -61,6 +61,12 @@ var (
 	ErrNoAddr = errors.New(
 		"address: no address found",
 	)
+
+	// ErrScriptKeyNotFound is returned when a script key is not found in
+	// the local database.
+	ErrScriptKeyNotFound = errors.New(
+		"script key not found",
+	)
 )
 
 const (
@@ -331,6 +337,12 @@ func (a *Taro) EncodeAddress() (string, error) {
 	}
 
 	return "", ErrUnsupportedHRP
+}
+
+// String returns the string representation of a Taro address.
+func (a *Taro) String() string {
+	return fmt.Sprintf("TaroAddr{id=%s, amount=%d, script_key=%x}",
+		a.AssetID, a.Amount, a.ScriptKey.SerializeCompressed())
 }
 
 // DecodeAddress parses a bech32m encoded Taro address string and

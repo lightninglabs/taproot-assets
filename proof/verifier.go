@@ -74,6 +74,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// tapscript tree, which will then be tweaked as normal with the
 	// internal key to derive the expected output key.
 	case inclusion:
+		log.Tracef("Verifying inclusion proof for asset %v", asset.ID())
 		derivedKey, taroCommitment, err = proof.DeriveByAssetInclusion(
 			asset,
 		)
@@ -83,6 +84,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// commitment exists, or one does, but the asset in question isn't
 	// present.
 	case proof.CommitmentProof != nil:
+		log.Tracef("Verifying exclusion proof for asset %v", asset.ID())
 		derivedKey, err = proof.DeriveByAssetExclusion(
 			asset.AssetCommitmentKey(),
 			asset.TaroCommitmentKey(),
@@ -91,6 +93,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// If this is a tapscript proof, then we want to verify that the target
 	// output DOES NOT contain any sort of Taro commitment.
 	case proof.TapscriptProof != nil:
+		log.Tracef("Verifying tapscript proof")
 		derivedKey, err = proof.DeriveByTapscriptProof()
 	}
 	if err != nil {

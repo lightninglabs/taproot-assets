@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -125,6 +126,10 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TaroCommitment,
 		assetCommitment.TaroCommitmentKey(),
 		assetCommitment.TaroCommitmentLeaf(),
 	)
+	log.Tracef("Derived asset inclusion proof for asset_id=%v, "+
+		"asset_commitment_key=%x, asset_commitment_leaf=%s",
+		asset.ID(), chanutils.ByteSlice(asset.AssetCommitmentKey()),
+		assetCommitmentLeaf.NodeHash())
 
 	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
 }

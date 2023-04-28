@@ -14,8 +14,8 @@ import (
 )
 
 // RandAddr creates a random address for testing.
-func RandAddr(t testing.TB, params *ChainParams,
-) (*AddrWithKeyInfo, *asset.Genesis) {
+func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
+	*asset.Genesis) {
 
 	scriptKeyPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -39,6 +39,10 @@ func RandAddr(t testing.TB, params *ChainParams,
 
 	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: scriptKeyPriv.PubKey(),
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(rand.Intn(255) + 1),
+			Index:  uint32(rand.Intn(255)),
+		},
 	})
 
 	taprootOutputKey, _ := schnorr.ParsePubKey(schnorr.SerializePubKey(

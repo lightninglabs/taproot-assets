@@ -1,6 +1,7 @@
 package taroscript
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -109,6 +111,14 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
+// AssetGroupQuerier is an interface that allows us to query for asset groups by
+// asset ID.
+type AssetGroupQuerier interface {
+	// QueryAssetGroup attempts to locate the asset group information
+	// (genesis + group key) associated with a given asset.
+	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+}
+
 // FundingDescriptor describes the information that is needed to select and
 // verify input assets in order to send to a specific recipient. It is a subset
 // of the information contained in a Taro address.
@@ -130,7 +140,9 @@ func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
-func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
+func DescribeRecipients(ctx context.Context, vPkt *taropsbt.VPacket,
+	groupQuerier AssetGroupQuerier) (*FundingDescriptor, error) {
+
 	if len(vPkt.Outputs) < 1 {
 		return nil, fmt.Errorf("packet must have at least one output")
 	}
@@ -138,12 +150,43 @@ func DescribeRecipients(vPkt *taropsbt.VPacket) (*FundingDescriptor, error) {
 	if len(vPkt.Inputs) != 1 {
 		return nil, fmt.Errorf("only one input is currently supported")
 	}
+	firstInput := vPkt.Inputs[0]
+
+	var groupPubKey *btcec.PublicKey
+	groupKey, err := groupQuerier.QueryAssetGroup(ctx, firstInput.PrevID.ID)
+	switch {
+	case err == nil && groupKey.GroupKey != nil:
+		groupPubKey = &groupKey.GroupPubKey
+
+	case err != nil:
+		return nil, fmt.Errorf("unable to query asset group: %v", err)
+	}
 
 	desc := &FundingDescriptor{
-		ID: vPkt.Inputs[0].PrevID.ID,
+		ID:       firstInput.PrevID.ID,
+		GroupKey: groupPubKey,
 	}
 	for idx := range vPkt.Outputs {
 		desc.Amount += vPkt.Outputs[idx].Amount
+	}
+
+	return desc, nil
+}
+
+// DescribeAddrs extracts the recipient descriptors from a list of Taro
+// addresses.
+func DescribeAddrs(addrs []*address.Taro) (*FundingDescriptor, error) {
+	if len(addrs) < 1 {
+		return nil, fmt.Errorf("at least one address must be specified")
+	}
+
+	firstAddr := addrs[0]
+	desc := &FundingDescriptor{
+		ID:       firstAddr.AssetID,
+		GroupKey: firstAddr.GroupKey,
+	}
+	for idx := range addrs {
+		desc.Amount += addrs[idx].Amount
 	}
 
 	return desc, nil
@@ -240,7 +283,7 @@ func ValidateInputs(inputTaroCommitments []*commitment.TaroCommitment,
 // or partial amount send) it computes a split commitment with the given inputs
 // and spend information. The inputs MUST be checked as valid beforehand and the
 // change output is expected to be declared as such (and be at index 0).
-func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
+func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	// We currently only support a single input.
 	//
 	// TODO(guggero): Support multiple inputs.
@@ -423,7 +466,7 @@ func PrepareOutputAssets(vPkt *taropsbt.VPacket) error {
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
-		inputAsset, input.PrevID.OutPoint, rootLocator,
+		ctx, inputAsset, input.PrevID.OutPoint, rootLocator,
 		splitLocators...,
 	)
 	if err != nil {
@@ -824,22 +867,23 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 	}
 
 	for i := range outputs {
-		out := outputs[i]
+		vOut := outputs[i]
 
-		psbtOut := &spendPkt.Outputs[out.AnchorOutputIndex]
-		psbtOut.TaprootInternalKey = schnorr.SerializePubKey(
-			out.AnchorOutputInternalKey,
+		out := &spendPkt.Outputs[vOut.AnchorOutputIndex]
+		out.TaprootInternalKey = schnorr.SerializePubKey(
+			vOut.AnchorOutputInternalKey,
 		)
-		if out.AnchorOutputBip32Derivation != nil {
-			psbtOut.Bip32Derivation = append(
-				psbtOut.Bip32Derivation,
-				out.AnchorOutputBip32Derivation...,
+
+		for idx := range vOut.AnchorOutputBip32Derivation {
+			out.Bip32Derivation = taropsbt.AddBip32Derivation(
+				out.Bip32Derivation,
+				vOut.AnchorOutputBip32Derivation[idx],
 			)
 		}
-		if out.AnchorOutputTaprootBip32Derivation != nil {
-			psbtOut.TaprootBip32Derivation = append(
-				psbtOut.TaprootBip32Derivation,
-				out.AnchorOutputTaprootBip32Derivation...,
+		for idx := range vOut.AnchorOutputTaprootBip32Derivation {
+			out.TaprootBip32Derivation = taropsbt.AddTaprootBip32Derivation(
+				out.TaprootBip32Derivation,
+				vOut.AnchorOutputTaprootBip32Derivation[idx],
 			)
 		}
 	}
@@ -856,19 +900,31 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 	map[uint32]*commitment.TaroCommitment, error) {
 
 	// Add the commitment outputs to the BTC level PSBT now.
-	mergedCommitments := make(map[uint32]*commitment.TaroCommitment)
+	anchorCommitments := make(map[uint32]*commitment.TaroCommitment)
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
-		outputCommitment := outputCommitments[idx]
+		vOutCommitment := outputCommitments[idx]
 
 		// The commitment must be defined at this point.
-		//
-		// TODO(guggero): Merge multiple Taro level commitments that use
-		// the same external output index.
-		if outputCommitment == nil {
+		if vOutCommitment == nil {
 			return nil, ErrMissingTaroCommitment
 		}
-		mergedCommitments[vOut.AnchorOutputIndex] = outputCommitment
+
+		// It could be that we have multiple outputs that are being
+		// committed into the same anchor output. We need to merge them
+		// into a single commitment.
+		anchorIdx := vOut.AnchorOutputIndex
+		anchorCommitment, ok := anchorCommitments[anchorIdx]
+		if ok {
+			err := anchorCommitment.Merge(vOutCommitment)
+			if err != nil {
+				return nil, fmt.Errorf("cannot merge output "+
+					"commitments: %w", err)
+			}
+		} else {
+			anchorCommitment = vOutCommitment
+		}
+		anchorCommitments[anchorIdx] = anchorCommitment
 
 		// The external output index cannot be out of bounds of the
 		// actual TX outputs. This should be checked earlier and is just
@@ -905,7 +961,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 		// Create the scripts corresponding to the receiver's
 		// TaroCommitment.
 		script, err := PayToAddrScript(
-			*internalKey, siblingHash, *outputCommitment,
+			*internalKey, siblingHash, *anchorCommitment,
 		)
 		if err != nil {
 			return nil, err
@@ -915,7 +971,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 		btcTxOut.PkScript = script
 	}
 
-	return mergedCommitments, nil
+	return anchorCommitments, nil
 }
 
 // interactiveFullValueSend returns true (and the index of the recipient output)

@@ -721,7 +721,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 			state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		checkPreparedOutputsNonInteractive(
@@ -740,7 +740,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 			state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		checkPreparedOutputsNonInteractive(
@@ -759,7 +759,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 			state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, true,
 		)
-		return taroscript.PrepareOutputAssets(pkt)
+		return taroscript.PrepareOutputAssets(context.Background(), pkt)
 	},
 	err: commitment.ErrInvalidScriptKey,
 }, {
@@ -771,7 +771,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 			state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, true,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		checkPreparedOutputsInteractive(
@@ -791,7 +791,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 			state.asset1CollectGroupPrevID,
 			state, state.asset1CollectGroupInputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		checkPreparedOutputsNonInteractive(
@@ -810,7 +810,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 			state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		return taroscript.PrepareOutputAssets(pkt)
+		return taroscript.PrepareOutputAssets(context.Background(), pkt)
 	},
 	err: commitment.ErrInvalidScriptKey,
 }}
@@ -841,7 +841,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		pkt.Inputs[0].Asset().Genesis = state.genesis1collect
@@ -860,7 +860,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		firstPrevID := pkt.Outputs[0].Asset.PrevWitnesses[0].PrevID
@@ -882,7 +882,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
@@ -907,7 +907,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, true,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
@@ -931,7 +931,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, true,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
@@ -954,7 +954,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
@@ -979,7 +979,7 @@ var signVirtualTransactionTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
@@ -1049,7 +1049,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1081,7 +1081,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1117,7 +1117,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1143,7 +1143,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, true,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1169,7 +1169,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1196,7 +1196,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1224,7 +1224,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1269,7 +1269,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1303,7 +1303,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1337,7 +1337,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, true,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1374,7 +1374,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, true,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1411,7 +1411,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1449,7 +1449,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1488,7 +1488,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
-		err := taroscript.PrepareOutputAssets(pkt)
+		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
 			pkt, 0, state.signer, state.validator,
@@ -1539,7 +1539,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	// correct outputs.
 	pkt.Outputs[1].AnchorOutputIndex = 1
 
-	err := taroscript.PrepareOutputAssets(pkt)
+	err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 	require.NoError(t, err)
 	err = taroscript.SignVirtualTransaction(
 		pkt, 0, state.signer, state.validator,

@@ -54,6 +54,18 @@ type BaseProofParams struct {
 	ExclusionProofs []TaprootProof
 }
 
+// HaveExclusionProof returns true if the set of exclusion proofs already
+// contains a proof for the given anchor output index.
+func (p *BaseProofParams) HaveExclusionProof(anchorOutputIndex uint32) bool {
+	for _, proof := range p.ExclusionProofs {
+		if proof.OutputIndex == anchorOutputIndex {
+			return true
+		}
+	}
+
+	return false
+}
+
 // MintParams holds the set of chain level information needed to make a proof
 // file for the set of assets minted in a batch.
 type MintParams struct {
