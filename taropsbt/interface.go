@@ -342,6 +342,10 @@ func (i *VInput) deserializeScriptKey() error {
 	return nil
 }
 
+// InputCommitments is a map from virtual package input index to its
+// associated taro commitment.
+type InputCommitments = map[int]*commitment.TaroCommitment
+
 // VOutput represents an output of a virtual asset state transition.
 type VOutput struct {
 	// Amount is the amount of units of the asset that this output is

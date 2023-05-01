@@ -184,6 +184,8 @@ type PreSignedParcel struct {
 var _ Parcel = (*PreSignedParcel)(nil)
 
 // NewPreSignedParcel creates a new PreSignedParcel.
+//
+// TODO(ffranr): Add support for multiple inputs (commitments).
 func NewPreSignedParcel(vPkt *taropsbt.VPacket,
 	inputCommitment *commitment.TaroCommitment) *PreSignedParcel {
 
@@ -205,10 +207,12 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 	// Initialize a package the signed virtual transaction and input
 	// commitment.
 	return &sendPackage{
-		Parcel:          p,
-		SendState:       SendStateAnchorSign,
-		VirtualPacket:   p.vPkt,
-		InputCommitment: p.inputCommitment,
+		Parcel:        p,
+		SendState:     SendStateAnchorSign,
+		VirtualPacket: p.vPkt,
+		InputCommitments: taropsbt.InputCommitments{
+			0: p.inputCommitment,
+		},
 	}
 }
 
@@ -226,14 +230,15 @@ type sendPackage struct {
 	// virtual asset transition transaction.
 	VirtualPacket *taropsbt.VPacket
 
+	// InputCommitments is a map from virtual package input index to its
+	// associated taro commitment.
+	InputCommitments taropsbt.InputCommitments
+
 	// PassiveAssets is the data used in re-anchoring passive assets.
 	PassiveAssets []*PassiveAssetReAnchor
 
 	// Parcel is the asset transfer request that kicked off this transfer.
 	Parcel Parcel
-
-	// InputCommitment is the full Taro tree of the asset being spent.
-	InputCommitment *commitment.TaroCommitment
 
 	// AnchorTx is the BTC level anchor transaction with all its information
 	// as it was used when funding/signing it.
