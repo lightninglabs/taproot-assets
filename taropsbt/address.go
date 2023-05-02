@@ -58,8 +58,8 @@ func FromAddresses(receiverAddrs []*address.Taro,
 			ScriptKey: asset.NewScriptKey(
 				&addr.ScriptKey,
 			),
-			AnchorOutputInternalKey:       &addr.InternalKey,
-			AnchorOutputTapscriptPreimage: addr.TapscriptSibling,
+			AnchorOutputInternalKey:      &addr.InternalKey,
+			AnchorOutputTapscriptSibling: addr.TapscriptSibling,
 		})
 	}
 

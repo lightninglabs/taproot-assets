@@ -257,9 +257,9 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 		key:     PsbtKeyTypeOutputTaroSplitAsset,
 		decoder: assetDecoder(&o.SplitAsset),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorTapscriptPreimage,
+		key: PsbtKeyTypeOutputTaroAnchorTapscriptSibling,
 		decoder: tlvDecoder(
-			&o.AnchorOutputTapscriptPreimage,
+			&o.AnchorOutputTapscriptSibling,
 			commitment.TapscriptPreimageDecoder,
 		),
 	}}

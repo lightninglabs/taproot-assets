@@ -743,7 +743,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	siblingLeaf := test.ScriptHashLock(t.t, preImage)
 
 	preimage := commitment.NewPreimageFromLeaf(siblingLeaf)
-	vPkt.Outputs[0].AnchorOutputTapscriptPreimage = preimage
+	vPkt.Outputs[0].AnchorOutputTapscriptSibling = preimage
 
 	// Next, we'll attempt to complete a transfer with PSBTs from alice to
 	// bob, using the partial amount.

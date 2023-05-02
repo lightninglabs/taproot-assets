@@ -101,7 +101,7 @@ blob with the following format:
 ******* type: 1
 ******** value: [<code>...*byte</code>:<code>ms_smt_inclusion_proof</code>]
 ******* type: 2 (<code>taproot_sibling_preimage</code>)
-******** value: [<code>...*byte</code>:<code>tapscript_preimage</code>]
+******** value: [<code>byte</code>:<code>sibling_type</code>][<code>varint</code>:<code>num_bytes</code>][<code>...*byte</code>:<code>tapscript_preimage</code>]
 **** type: 3 (<code>taro_commitment_exclusion_proof</code>
 ***** value: [<code>...*byte</code>:<code>taproot_exclusion_proof</code>]
 ****** type: 0 (<code>tap_image_1</code>)

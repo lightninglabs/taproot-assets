@@ -344,7 +344,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		}
 
 		preimageBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
-			vOut.AnchorOutputTapscriptPreimage,
+			vOut.AnchorOutputTapscriptSibling,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode tapscript "+
@@ -520,7 +520,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		rootParams := newParams(
 			anchorTx, rootOut.Asset, int(rootIndex),
 			rootOut.AnchorOutputInternalKey, rootTaroTree,
-			rootOut.AnchorOutputTapscriptPreimage,
+			rootOut.AnchorOutputTapscriptSibling,
 		)
 
 		// Add exclusion proofs for all the other outputs.
@@ -561,11 +561,11 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		return nil, err
 	}
 
-	splitRootPreimage := splitRootOut.AnchorOutputTapscriptPreimage
+	splitRootPreimage := splitRootOut.AnchorOutputTapscriptSibling
 	splitParams := newParams(
 		anchorTx, splitOut.Asset, int(splitIndex),
 		splitOut.AnchorOutputInternalKey, splitTaroTree,
-		splitOut.AnchorOutputTapscriptPreimage,
+		splitOut.AnchorOutputTapscriptSibling,
 	)
 	splitParams.RootOutputIndex = splitRootIndex
 	splitParams.RootInternalKey = splitRootOut.AnchorOutputInternalKey
@@ -632,7 +632,7 @@ func addOtherOutputExclusionProofs(outputs []*taropsbt.VOutput,
 			chanutils.ByteSlice(taroTree.TapscriptRoot(nil)),
 			vOut.AnchorOutputInternalKey.SerializeCompressed())
 
-		siblingPreimage := vOut.AnchorOutputTapscriptPreimage
+		siblingPreimage := vOut.AnchorOutputTapscriptSibling
 		exclusionProof := proof.TaprootProof{
 			OutputIndex: outIndex,
 			InternalKey: vOut.AnchorOutputInternalKey,
@@ -677,7 +677,7 @@ func (s *sendPackage) createReAnchorProof(
 	passiveParams := newParams(
 		s.AnchorTx, passiveOut.Asset, int(passiveOutputIndex),
 		changeOut.AnchorOutputInternalKey, passiveTaroTree,
-		changeOut.AnchorOutputTapscriptPreimage,
+		changeOut.AnchorOutputTapscriptSibling,
 	)
 
 	// Since a transfer might contain other anchor outputs, we need to

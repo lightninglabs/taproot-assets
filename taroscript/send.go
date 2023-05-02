@@ -1048,7 +1048,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 		// multiple virtual outputs are committed to the same anchor
 		// output index.
 		var (
-			siblingPreimage = vOut.AnchorOutputTapscriptPreimage
+			siblingPreimage = vOut.AnchorOutputTapscriptSibling
 			siblingHash     *chainhash.Hash
 		)
 		if siblingPreimage != nil {
@@ -1113,7 +1113,7 @@ func assertAnchorsEqual(vPkt *taropsbt.VPacket) error {
 		vOut := vPkt.Outputs[idx]
 
 		siblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
-			vOut.AnchorOutputTapscriptPreimage,
+			vOut.AnchorOutputTapscriptSibling,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to encode tapscript "+
