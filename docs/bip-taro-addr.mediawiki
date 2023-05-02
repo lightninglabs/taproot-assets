@@ -51,7 +51,7 @@ Let the human readable prefix (as specified by BIP 173) be:
 
 We refer to this value as the <code>taro_hrp</code>
 
-Given the full <code>asset_genesis</code>, 32-byte
+Given the 32-byte <code>asset_id</code>, 32-byte
 <code>asset_script_key</code>, and 32-byte x-only BIP 340/341 internal public
 key, 8-byte amount to send, an address is encoded as:
 * <code>bech32m(hrp=taro_hrp, addr_tlv_payload)</code>
@@ -61,15 +61,9 @@ types:
 * type: 0 (<code>taro_version</code>)
 ** value:
 *** [<code>u8</code>:<code>version</code>]
-* type: 2 (<code>asset_genesis</code>)
+* type: 2 (<code>asset_id</code>)
 ** value:
-*** [<code>32*byte</code>:<code>first_prev_out_hash</code>]
-*** [<code>u32</code>:<code>first_prev_out_index</code>]
-*** [<code>BigSize</code>:<code>tag_len</code>]
-*** [<code>tag_len*byte</code>:<code>tag</code>]
-*** [<code>32*byte</code>:<code>meta_hash</code>]
-*** [<code>u32</code>:<code>output_index</code>]
-*** [<code>u8</code>:<code>type</code>]
+*** [<code>32*byte</code>:<code>asset_id</code>]
 * type: 3 (<code>asset_key_family</code>)
 ** value:
 *** [<code>32*byte</code>:<code>family_key</code>]
@@ -100,7 +94,8 @@ field isn't specified, then one can assume a normal asset is being sent.
 
 Given a valid Taro address, decompose the contents into the referenced
 <code>asset_id</code>, <code>asset_script_key</code>, and
-<code>internal_key</code>.
+<code>internal_key</code>. Look up the full <code>asset_genesis</code> with the
+<code>asset_id</code> in the appropriate Universe.
 
 Construct a new blank Taro leaf according to the default
 [[./bip-taro.mediawiki#asset-leaf-format|Asset Leaf Format]] with the following
