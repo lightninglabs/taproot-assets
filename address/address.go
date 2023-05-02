@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -99,6 +100,11 @@ type Taro struct {
 	// InternalKey is the BIP-0340/0341 public key of the receiver.
 	InternalKey btcec.PublicKey
 
+	// TapscriptSibling is the tapscript sibling preimage of the script that
+	// will be committed to alongside the assets received through this
+	// address. This will usually be empty.
+	TapscriptSibling *commitment.TapscriptPreimage
+
 	// Amount is the number of asset units being requested by the receiver.
 	Amount uint64
 
@@ -110,6 +116,7 @@ type Taro struct {
 // New creates an address for receiving a Taro asset.
 func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	scriptKey btcec.PublicKey, internalKey btcec.PublicKey, amt uint64,
+	tapscriptSibling *commitment.TapscriptPreimage,
 	net *ChainParams) (*Taro, error) {
 
 	// Check for invalid combinations of asset type and amount.
@@ -134,15 +141,24 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, ErrUnsupportedHRP
 	}
 
+	// We can only use a tapscript sibling that is not a Taro commitment.
+	if tapscriptSibling != nil {
+		if err := tapscriptSibling.VerifyNoCommitment(); err != nil {
+			return nil, errors.New("address: tapscript sibling " +
+				"is a Taro commitment")
+		}
+	}
+
 	payload := Taro{
-		ChainParams: net,
-		Version:     asset.V0,
-		AssetID:     genesis.ID(),
-		GroupKey:    groupKey,
-		ScriptKey:   scriptKey,
-		InternalKey: internalKey,
-		Amount:      amt,
-		assetGen:    genesis,
+		ChainParams:      net,
+		Version:          asset.V0,
+		AssetID:          genesis.ID(),
+		GroupKey:         groupKey,
+		ScriptKey:        scriptKey,
+		InternalKey:      internalKey,
+		TapscriptSibling: tapscriptSibling,
+		Amount:           amt,
+		assetGen:         genesis,
 	}
 	return &payload, nil
 }
@@ -248,18 +264,31 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 }
 
 // TaprootOutputKey returns the on-chain Taproot output key.
-func (a *Taro) TaprootOutputKey(sibling *chainhash.Hash) (*btcec.PublicKey,
-	error) {
-
+func (a *Taro) TaprootOutputKey() (*btcec.PublicKey, error) {
 	c, err := a.TaroCommitment()
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive taro commitment: %w",
 			err)
 	}
-	tapscriptRoot := c.TapscriptRoot(sibling)
+
+	var siblingHash *chainhash.Hash
+	if a.TapscriptSibling != nil {
+		siblingHash, err = a.TapscriptSibling.TapHash()
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive tapscript "+
+				"sibling hash: %w", err)
+		}
+	}
+
+	tapscriptRoot := c.TapscriptRoot(siblingHash)
 	taprootOutputKey := txscript.ComputeTaprootOutputKey(
 		&a.InternalKey, tapscriptRoot[:],
 	)
+
+	// Make sure we always return the parity stripped key.
+	taprootOutputKey, _ = schnorr.ParsePubKey(schnorr.SerializePubKey(
+		taprootOutputKey,
+	))
 
 	return taprootOutputKey, nil
 }
@@ -277,6 +306,11 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 
 	records = append(records, newAddressScriptKeyRecord(&a.ScriptKey))
 	records = append(records, newAddressInternalKeyRecord(&a.InternalKey))
+	if a.TapscriptSibling != nil {
+		records = append(records, newAddressTapscriptSiblingRecord(
+			&a.TapscriptSibling,
+		))
+	}
 	records = append(records, newAddressAmountRecord(&a.Amount))
 
 	return records
@@ -291,6 +325,7 @@ func (a *Taro) DecodeRecords() []tlv.Record {
 		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
 		newAddressInternalKeyRecord(&a.InternalKey),
+		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
 	}
 }

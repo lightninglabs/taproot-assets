@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -244,16 +245,25 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 					"taproot key: %w", err)
 			}
 
+			siblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
+				addr.TapscriptSibling,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to encode tapscript "+
+					"sibling: %w", err)
+			}
+
 			var groupKeyBytes []byte
 			if addr.GroupKey != nil {
 				groupKeyBytes = addr.GroupKey.SerializeCompressed()
 			}
 			_, err = db.InsertAddr(ctx, NewAddr{
-				Version:        int16(addr.Version),
-				GenesisAssetID: genAssetID,
-				GroupKey:       groupKeyBytes,
-				ScriptKeyID:    scriptKeyID,
-				TaprootKeyID:   taprootKeyID,
+				Version:          int16(addr.Version),
+				GenesisAssetID:   genAssetID,
+				GroupKey:         groupKeyBytes,
+				ScriptKeyID:      scriptKeyID,
+				TaprootKeyID:     taprootKeyID,
+				TapscriptSibling: siblingBytes,
 				TaprootOutputKey: schnorr.SerializePubKey(
 					&addr.TaprootOutputKey,
 				),
@@ -375,10 +385,18 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					"output key: %w", err)
 			}
 
+			tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
+				addr.TapscriptSibling,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to decode tapscript "+
+					"sibling: %w", err)
+			}
+
 			taroAddr, err := address.New(
 				assetGenesis, groupKey, *scriptKey,
-				*internalKey,
-				uint64(addr.Amount), t.params,
+				*internalKey, uint64(addr.Amount),
+				tapscriptSibling, t.params,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
@@ -491,9 +509,17 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		PubKey: internalKey,
 	}
 
+	tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
+		dbAddr.TapscriptSibling,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode tapscript sibling: %w",
+			err)
+	}
+
 	taroAddr, err := address.New(
 		genesis, groupKey, *scriptKey, *internalKey,
-		uint64(dbAddr.Amount), params,
+		uint64(dbAddr.Amount), tapscriptSibling, params,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
@@ -603,6 +629,14 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 	}
 	outputDetails := walletTx.OutputDetails[outputIdx]
 
+	siblingBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		addr.TapscriptSibling,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding tapscript sibling: %w",
+			err)
+	}
+
 	dbErr := t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		// The first step is to make sure we already track the on-chain
 		// transaction in our DB.
@@ -631,18 +665,21 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 			return fmt.Errorf("error upserting chain TX: %w", err)
 		}
 
-		commitment, err := addr.TaroCommitment()
+		taroCommitment, err := addr.TaroCommitment()
 		if err != nil {
 			return fmt.Errorf("error deriving commitment: %w", err)
 		}
-		merkleRoot := commitment.TapscriptRoot(nil)
+		merkleRoot := taroCommitment.TapscriptRoot(siblingHash)
+		taroRoot := taroCommitment.TapscriptRoot(nil)
 
 		utxoUpsert := RawManagedUTXO{
-			RawKey:     addr.InternalKey.SerializeCompressed(),
-			Outpoint:   outpointBytes,
-			AmtSats:    outputDetails.Amount,
-			MerkleRoot: merkleRoot[:],
-			TxnID:      chainTxID,
+			RawKey:           addr.InternalKey.SerializeCompressed(),
+			Outpoint:         outpointBytes,
+			AmtSats:          outputDetails.Amount,
+			TaroRoot:         taroRoot[:],
+			MerkleRoot:       merkleRoot[:],
+			TapscriptSibling: siblingBytes,
+			TxnID:            chainTxID,
 		}
 		managedUtxoID, err := db.UpsertManagedUTXO(ctx, utxoUpsert)
 		if err != nil {

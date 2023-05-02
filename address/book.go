@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -167,8 +168,9 @@ func NewBook(cfg BookConfig) *Book {
 }
 
 // NewAddress creates a new Taro address based on the input parameters.
-func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
-	amount uint64) (*AddrWithKeyInfo, error) {
+func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
+	tapscriptSibling *commitment.TapscriptPreimage) (*AddrWithKeyInfo,
+	error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
 	// of this asset ID already.
@@ -194,6 +196,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 
 	return b.NewAddressWithKeys(
 		ctx, assetID, amount, scriptKey, internalKeyDesc,
+		tapscriptSibling,
 	)
 }
 
@@ -201,7 +204,9 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID,
 // that include pre-derived script and internal keys.
 func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	amount uint64, scriptKey asset.ScriptKey,
-	internalKeyDesc keychain.KeyDescriptor) (*AddrWithKeyInfo, error) {
+	internalKeyDesc keychain.KeyDescriptor,
+	tapscriptSibling *commitment.TapscriptPreimage) (*AddrWithKeyInfo,
+	error) {
 
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't
@@ -218,13 +223,13 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 
 	baseAddr, err := New(
 		*assetGroup.Genesis, groupKey, *scriptKey.PubKey,
-		*internalKeyDesc.PubKey, amount, &b.cfg.Chain,
+		*internalKeyDesc.PubKey, amount, tapscriptSibling, &b.cfg.Chain,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
 	}
 
-	taprootOutputKey, err := baseAddr.TaprootOutputKey(nil)
+	taprootOutputKey, err := baseAddr.TaprootOutputKey()
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive Taproot output key:"+
 			" %w", err)

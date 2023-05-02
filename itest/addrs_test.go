@@ -4,11 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
@@ -22,14 +18,9 @@ func testAddresses(t *harnessTest) {
 	// We mint all of them in individual batches to avoid needing to sign
 	// for multiple internal asset transfers when only sending one of them
 	// to an external address.
-	//
-	// TODO(guggero): Update this test once we support pocket universes with
-	// virtual TX outpoints in prevID so we don't have to sign for every
-	// asset within a commitment if we only move one of them.
-	var rpcAssets []*tarorpc.Asset
-	rpcAssets = append(rpcAssets, mintAssetsConfirmBatch(
+	rpcAssets := mintAssetsConfirmBatch(
 		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
-	)...)
+	)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -349,43 +340,4 @@ func fundPacket(t *harnessTest, tarod *tarodHarness,
 	require.NoError(t.t, err)
 
 	return resp
-}
-
-// signVirtualPacket asks the wallet to sign the given virtual packet.
-func signVirtualPacket(t *harnessTest, tarod *tarodHarness,
-	fundedPacket []byte) *wrpc.SignVirtualPsbtResponse {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	resp, err := tarod.SignVirtualPsbt(ctxt, &wrpc.SignVirtualPsbtRequest{
-		FundedPsbt: fundedPacket,
-	})
-	require.NoError(t.t, err)
-
-	return resp
-}
-
-func parseOutPoint(s string) (*wire.OutPoint, error) {
-	split := strings.Split(s, ":")
-	if len(split) != 2 {
-		return nil, fmt.Errorf("expecting outpoint to be in format of: " +
-			"txid:index")
-	}
-
-	index, err := strconv.ParseInt(split[1], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode output index: %v", err)
-	}
-
-	txid, err := chainhash.NewHashFromStr(split[0])
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse hex string: %v", err)
-	}
-
-	return &wire.OutPoint{
-		Hash:  *txid,
-		Index: uint32(index),
-	}, nil
 }

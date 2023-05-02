@@ -680,6 +680,11 @@
           "format": "byte",
           "description": "The internal key used for the on-chain output."
         },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taro commitment of\nthe asset."
+        },
         "taproot_output_key": {
           "type": "string",
           "format": "byte",
@@ -715,7 +720,7 @@
         "taproot_sibling": {
           "type": "string",
           "format": "byte",
-          "description": "The taproot sibling hash that was used to send to the Taproot output.\nNOTE: Not yet implemented."
+          "description": "The taproot sibling hash that was used to send to the Taproot output."
         },
         "confirmation_height": {
           "type": "integer",
@@ -1255,6 +1260,11 @@
           "format": "byte",
           "description": "The internal key used for the on-chain output."
         },
+        "taro_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taro root commitment hash."
+        },
         "merkle_root": {
           "type": "string",
           "format": "byte",
@@ -1287,6 +1297,11 @@
         "internal_key": {
           "$ref": "#/definitions/tarorpcKeyDescriptor",
           "description": "The optional internal key of the receiving BTC level transaction output on\nwhich the receiving asset transfers will be committed to. If no internal key\nis provided, a key will be derived from the underlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taro commitment of\nthe asset."
         }
       }
     },
@@ -1510,6 +1525,10 @@
           "format": "int64"
         },
         "internal_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "taro_root": {
           "type": "string",
           "format": "byte"
         },

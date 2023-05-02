@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
@@ -864,6 +865,7 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 			OutPoint:    u.OutPoint.String(),
 			AmtSat:      int64(u.OutputValue),
 			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
+			TaroRoot:    u.TaroRoot,
 			MerkleRoot:  u.MerkleRoot,
 		}
 	}
@@ -1063,6 +1065,14 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
+	// Was there a tapscript sibling preimage specified?
+	tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
+		in.TapscriptSibling,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tapscript sibling: %w", err)
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1070,7 +1080,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, assetID, uint64(in.Amt),
+			ctx, assetID, in.Amt, tapscriptSibling,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1109,8 +1119,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, assetID, uint64(in.Amt), *scriptKey,
-			internalKey,
+			ctx, assetID, in.Amt, *scriptKey, internalKey,
+			tapscriptSibling,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1274,7 +1284,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 
 		addr.AttachGenesis(*assetGroup.Genesis)
 
-		taprootOutputKey, err := addr.TaprootOutputKey(nil)
+		taprootOutputKey, err := addr.TaprootOutputKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving Taproot key: %w",
 				err)
@@ -1563,13 +1573,21 @@ func marshalAddr(addr *address.Taro,
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
 
-		outputKey, err := addr.TaprootOutputKey(nil)
+		outputKey, err := addr.TaprootOutputKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving Taproot "+
 				"output key: %w", err)
 		}
 
 		taprootOutputKey = schnorr.SerializePubKey(outputKey)
+	}
+
+	siblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
+		addr.TapscriptSibling,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding tapscript sibling: %w",
+			err)
 	}
 
 	id := addr.AssetID
@@ -1579,6 +1597,7 @@ func marshalAddr(addr *address.Taro,
 		Amount:           addr.Amount,
 		ScriptKey:        addr.ScriptKey.SerializeCompressed(),
 		InternalKey:      addr.InternalKey.SerializeCompressed(),
+		TapscriptSibling: siblingBytes,
 		TaprootOutputKey: taprootOutputKey,
 		AssetType:        tarorpc.AssetType(addr.AssetType()),
 	}
@@ -1764,6 +1783,7 @@ func marshalOutboundParcel(
 			Outpoint:         out.Anchor.OutPoint.String(),
 			Value:            int64(out.Anchor.Value),
 			InternalKey:      internalKeyBytes,
+			TaroRoot:         out.Anchor.TaroRoot[:],
 			MerkleRoot:       out.Anchor.MerkleRoot[:],
 			TapscriptSibling: out.Anchor.TapscriptSibling,
 			NumPassiveAssets: out.Anchor.NumPassiveAssets,

@@ -16,6 +16,7 @@ type Addr struct {
 	GroupKey         []byte
 	ScriptKeyID      int32
 	TaprootKeyID     int32
+	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
 	AssetType        int16
@@ -203,6 +204,7 @@ type ManagedUtxo struct {
 	Outpoint         []byte
 	AmtSats          int64
 	InternalKeyID    int32
+	TaroRoot         []byte
 	TapscriptSibling []byte
 	MerkleRoot       []byte
 	TxnID            int32

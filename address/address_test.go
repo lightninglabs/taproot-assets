@@ -8,7 +8,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,13 +24,12 @@ var (
 	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
 )
 
-func randAddress(t *testing.T, net *ChainParams, groupPubKey bool,
+func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	amt *uint64, assetType asset.Type) (*Taro, error) {
 
 	t.Helper()
 
-	var amount uint64
-	amount = 1
+	amount := uint64(1)
 	if amt != nil {
 		amount = *amt
 	}
@@ -42,46 +43,36 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey bool,
 		groupKey = pubKey
 	}
 
+	var tapscriptSibling *commitment.TapscriptPreimage
+	if sibling {
+		tapscriptSibling = commitment.NewPreimageFromLeaf(
+			txscript.NewBaseTapLeaf([]byte("not a valid script")),
+		)
+	}
+
 	pubKeyCopy1 := *pubKey
 	pubKeyCopy2 := *pubKey
 
 	genesis := asset.RandGenesis(t, assetType)
-	return New(genesis, groupKey, pubKeyCopy1, pubKeyCopy2, amount, net)
+	return New(
+		genesis, groupKey, pubKeyCopy1, pubKeyCopy2, amount,
+		tapscriptSibling, net,
+	)
 }
 
-func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey bool,
-	assetType asset.Type) (*Taro, string, error) {
+func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
+	sibling bool, assetType asset.Type) (*Taro, string, error) {
 
 	t.Helper()
 
-	var amount uint64
-	if assetType == asset.Normal {
-		amount = rand.Uint64()
-	}
-
-	var groupKey *btcec.PublicKey
-	if groupPubKey {
-		groupKey = pubKey
-	}
-
-	pubKeyCopy1 := *pubKey
-	pubKeyCopy2 := *pubKey
-
-	gen := asset.RandGenesis(t, assetType)
-
-	newAddr := Taro{
-		ChainParams: net,
-		Version:     asset.Version(TaroScriptVersion),
-		AssetID:     gen.ID(),
-		GroupKey:    groupKey,
-		ScriptKey:   pubKeyCopy1,
-		InternalKey: pubKeyCopy2,
-		Amount:      amount,
-	}
+	newAddr, err := randAddress(
+		t, net, groupPubKey, sibling, nil, assetType,
+	)
+	require.NoError(t, err)
 
 	encodedAddr, err := newAddr.EncodeAddress()
 
-	return &newAddr, encodedAddr, err
+	return newAddr, encodedAddr, err
 }
 
 func assertAddressEqual(t *testing.T, a, b *Taro) {
@@ -108,7 +99,7 @@ func TestNewAddress(t *testing.T) {
 			name: "normal address",
 			f: func() (*Taro, error) {
 				return randAddress(
-					t, &TestNet3Taro, false, nil,
+					t, &TestNet3Taro, false, false, nil,
 					asset.Normal,
 				)
 			},
@@ -118,7 +109,17 @@ func TestNewAddress(t *testing.T) {
 			name: "collectible address with group key",
 			f: func() (*Taro, error) {
 				return randAddress(
-					t, &MainNetTaro, true, nil,
+					t, &MainNetTaro, true, false, nil,
+					asset.Collectible,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "collectible address with group key and sibling",
+			f: func() (*Taro, error) {
+				return randAddress(
+					t, &MainNetTaro, true, true, nil,
 					asset.Collectible,
 				)
 			},
@@ -129,8 +130,8 @@ func TestNewAddress(t *testing.T) {
 			f: func() (*Taro, error) {
 				zeroAmt := uint64(0)
 				return randAddress(
-					t, &TestNet3Taro, false, &zeroAmt,
-					asset.Normal,
+					t, &TestNet3Taro, false, false,
+					&zeroAmt, asset.Normal,
 				)
 			},
 			err: ErrInvalidAmountNormal,
@@ -140,7 +141,7 @@ func TestNewAddress(t *testing.T) {
 			f: func() (*Taro, error) {
 				badAmt := uint64(2)
 				return randAddress(
-					t, &TestNet3Taro, false, &badAmt,
+					t, &TestNet3Taro, false, false, &badAmt,
 					asset.Collectible,
 				)
 			},
@@ -150,7 +151,8 @@ func TestNewAddress(t *testing.T) {
 			name: "invalid hrp",
 			f: func() (*Taro, error) {
 				return randAddress(
-					t, &invalidNet, false, nil, asset.Normal,
+					t, &invalidNet, false, false, nil,
+					asset.Normal,
 				)
 			},
 			err: ErrUnsupportedHRP,
@@ -201,7 +203,8 @@ func TestAddressEncoding(t *testing.T) {
 			name: "valid address",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &RegressionNetTaro, false, asset.Normal,
+					t, &RegressionNetTaro, false, false,
+					asset.Normal,
 				)
 			},
 			err: nil,
@@ -210,7 +213,8 @@ func TestAddressEncoding(t *testing.T) {
 			name: "group collectible",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &SigNetTaro, true, asset.Collectible,
+					t, &SigNetTaro, true, false,
+					asset.Collectible,
 				)
 			},
 			err: nil,
@@ -219,7 +223,18 @@ func TestAddressEncoding(t *testing.T) {
 			name: "simnet collectible",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTaro, false, asset.Collectible,
+					t, &SimNetTaro, false, false,
+					asset.Collectible,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "simnet collectible with sibling",
+			f: func() (*Taro, string, error) {
+				return randEncodedAddress(
+					t, &SimNetTaro, false, true,
+					asset.Collectible,
 				)
 			},
 			err: nil,
@@ -228,7 +243,8 @@ func TestAddressEncoding(t *testing.T) {
 			name: "unsupported hrp",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &invalidNet, true, asset.Collectible,
+					t, &invalidNet, true, false,
+					asset.Collectible,
 				)
 			},
 			err: ErrUnsupportedHRP,
@@ -237,9 +253,12 @@ func TestAddressEncoding(t *testing.T) {
 			name: "mismatched hrp",
 			f: func() (*Taro, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Taro, true, asset.Collectible,
+					t, &TestNet3Taro, true, false,
+					asset.Collectible,
 				)
-				_, err := DecodeAddress(encodedAddr, &MainNetTaro)
+				_, err := DecodeAddress(
+					encodedAddr, &MainNetTaro,
+				)
 				return newAddr, "", err
 			},
 			err: ErrMismatchedHRP,
@@ -248,10 +267,13 @@ func TestAddressEncoding(t *testing.T) {
 			name: "missing hrp",
 			f: func() (*Taro, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Taro, true, asset.Collectible,
+					t, &TestNet3Taro, true, false,
+					asset.Collectible,
 				)
 				encodedAddr = encodedAddr[4:]
-				_, err := DecodeAddress(encodedAddr[4:], &TestNet3Taro)
+				_, err := DecodeAddress(
+					encodedAddr[4:], &TestNet3Taro,
+				)
 				return newAddr, "", err
 			},
 			err: ErrInvalidBech32m,

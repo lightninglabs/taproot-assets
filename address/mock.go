@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -29,12 +29,19 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		amount = 1
 	}
 
-	var groupPubKey *btcec.PublicKey
+	var (
+		groupPubKey      *btcec.PublicKey
+		tapscriptSibling *commitment.TapscriptPreimage
+	)
 	if rand.Int31()%2 == 0 {
 		groupKeyPriv, err := btcec.NewPrivateKey()
 		require.NoError(t, err)
 
 		groupPubKey = groupKeyPriv.PubKey()
+
+		tapscriptSibling = commitment.NewPreimageFromLeaf(
+			txscript.NewBaseTapLeaf([]byte("not a valid script")),
+		)
 	}
 
 	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
@@ -45,21 +52,17 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		},
 	})
 
-	taprootOutputKey, _ := schnorr.ParsePubKey(schnorr.SerializePubKey(
-		txscript.ComputeTaprootOutputKey(internalKey.PubKey(), nil),
-	))
+	taro, err := New(
+		genesis, groupPubKey, *scriptKey.PubKey, *internalKey.PubKey(),
+		amount, tapscriptSibling, params,
+	)
+	require.NoError(t, err)
+
+	taprootOutputKey, err := taro.TaprootOutputKey()
+	require.NoError(t, err)
 
 	return &AddrWithKeyInfo{
-		Taro: &Taro{
-			Version:     asset.Version(rand.Int31()),
-			AssetID:     genesis.ID(),
-			GroupKey:    groupPubKey,
-			ScriptKey:   *scriptKey.PubKey,
-			InternalKey: *internalKey.PubKey(),
-			Amount:      amount,
-			ChainParams: params,
-			assetGen:    genesis,
-		},
+		Taro:           taro,
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{

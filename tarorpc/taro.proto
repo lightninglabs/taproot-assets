@@ -295,15 +295,18 @@ message ManagedUtxo {
     // The internal key used for the on-chain output.
     bytes internal_key = 3;
 
+    // The Taro root commitment hash.
+    bytes taro_root = 4;
+
     /*
     The Taproot merkle root hash committed to by the outpoint of this UTXO.
     If there is no Tapscript sibling, this is equal to the Taro root commitment
     hash.
     */
-    bytes merkle_root = 4;
+    bytes merkle_root = 5;
 
     // The assets held at this UTXO.
-    repeated Asset assets = 5;
+    repeated Asset assets = 6;
 }
 
 message ListUtxosResponse {
@@ -440,11 +443,13 @@ message TransferOutputAnchor {
 
     bytes internal_key = 3;
 
-    bytes merkle_root = 4;
+    bytes taro_root = 4;
 
-    bytes tapscript_sibling = 5;
+    bytes merkle_root = 5;
 
-    uint32 num_passive_assets = 6;
+    bytes tapscript_sibling = 6;
+
+    uint32 num_passive_assets = 7;
 }
 
 message TransferOutput {
@@ -503,11 +508,19 @@ message Addr {
     bytes internal_key = 7;
 
     /*
+    The optional serialized tapscript sibling preimage to use for the receiving
+    asset. This is usually empty as it is only needed when there should be an
+    additional script path in the Taproot tree alongside the Taro commitment of
+    the asset.
+    */
+    bytes tapscript_sibling = 8;
+
+    /*
     The tweaked internal key that commits to the asset and represents the
     on-chain output key the Bitcoin transaction must send to in order to
     transfer assets described in this address.
     */
-    bytes taproot_output_key = 8;
+    bytes taproot_output_key = 9;
 }
 
 message QueryAddrRequest {
@@ -558,6 +571,14 @@ message NewAddrRequest {
     both be empty.
     */
     KeyDescriptor internal_key = 4;
+
+    /*
+    The optional serialized tapscript sibling preimage to use for the receiving
+    asset. This is usually empty as it is only needed when there should be an
+    additional script path in the Taproot tree alongside the Taro commitment of
+    the asset.
+    */
+    bytes tapscript_sibling = 5;
 }
 
 message ScriptKey {
@@ -665,7 +686,6 @@ message AddrEvent {
 
     /*
     The taproot sibling hash that was used to send to the Taproot output.
-    NOTE: Not yet implemented.
     */
     bytes taproot_sibling = 6;
 

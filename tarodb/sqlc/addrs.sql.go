@@ -13,8 +13,8 @@ import (
 
 const fetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
 SELECT
-    version, genesis_asset_id, group_key, taproot_output_key, amount, asset_type,
-    creation_time, managed_from,
+    version, genesis_asset_id, group_key, tapscript_sibling, taproot_output_key,
+    amount, asset_type, creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key as raw_script_key,
@@ -37,6 +37,7 @@ type FetchAddrByTaprootOutputKeyRow struct {
 	Version          int16
 	GenesisAssetID   int32
 	GroupKey         []byte
+	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
 	AssetType        int16
@@ -59,6 +60,7 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 		&i.Version,
 		&i.GenesisAssetID,
 		&i.GroupKey,
+		&i.TapscriptSibling,
 		&i.TaprootOutputKey,
 		&i.Amount,
 		&i.AssetType,
@@ -128,8 +130,8 @@ func (q *Queries) FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventR
 
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
-    version, genesis_asset_id, group_key, taproot_output_key, amount, asset_type,
-    creation_time, managed_from,
+    version, genesis_asset_id, group_key, tapscript_sibling, taproot_output_key,
+    amount, asset_type, creation_time, managed_from,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key AS raw_script_key,
@@ -165,6 +167,7 @@ type FetchAddrsRow struct {
 	Version          int16
 	GenesisAssetID   int32
 	GroupKey         []byte
+	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
 	AssetType        int16
@@ -199,6 +202,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.Version,
 			&i.GenesisAssetID,
 			&i.GroupKey,
+			&i.TapscriptSibling,
 			&i.TaprootOutputKey,
 			&i.Amount,
 			&i.AssetType,
@@ -229,8 +233,8 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 const insertAddr = `-- name: InsertAddr :one
 INSERT INTO addrs (
     version, genesis_asset_id, group_key, script_key_id, taproot_key_id,
-    taproot_output_key, amount, asset_type, creation_time
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+    tapscript_sibling, taproot_output_key, amount, asset_type, creation_time
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
 `
 
 type InsertAddrParams struct {
@@ -239,6 +243,7 @@ type InsertAddrParams struct {
 	GroupKey         []byte
 	ScriptKeyID      int32
 	TaprootKeyID     int32
+	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
 	AssetType        int16
@@ -252,6 +257,7 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, 
 		arg.GroupKey,
 		arg.ScriptKeyID,
 		arg.TaprootKeyID,
+		arg.TapscriptSibling,
 		arg.TaprootOutputKey,
 		arg.Amount,
 		arg.AssetType,

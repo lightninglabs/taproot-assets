@@ -3,6 +3,7 @@ package address
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -24,6 +25,10 @@ const (
 
 	// addrInternalKeyType is the TLV type of the internal key for the asset.
 	addrInternalKeyType addressTLVType = 6
+
+	// addrTapscriptSiblingType is the TLV type of the tapscript sibling for
+	// the asset commitment.
+	addrTapscriptSiblingType addressTLVType = 7
 
 	// addrAmountType is the TLV type of the amount of the asset.
 	addrAmountType addressTLVType = 8
@@ -60,6 +65,20 @@ func newAddressInternalKeyRecord(internalKey *btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
 		addrInternalKeyType, internalKey, btcec.PubKeyBytesLenCompressed,
 		compressedPubKeyEncoder, compressedPubKeyDecoder,
+	)
+}
+
+func newAddressTapscriptSiblingRecord(
+	tapscriptSibling **commitment.TapscriptPreimage) tlv.Record {
+
+	sizeFunc := func() uint64 {
+		// 1 byte for the type, and then the pre-image itself.
+		return 1 + uint64(len((*tapscriptSibling).SiblingPreimage))
+	}
+	return tlv.MakeDynamicRecord(
+		addrTapscriptSiblingType, tapscriptSibling, sizeFunc,
+		commitment.TapscriptPreimageEncoder,
+		commitment.TapscriptPreimageDecoder,
 	)
 }
 
