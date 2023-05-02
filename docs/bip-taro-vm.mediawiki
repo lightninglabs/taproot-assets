@@ -14,7 +14,7 @@
 ==Abstract==
 
 This document describes the virtual machine execution environment used to
-validate Taro transfers that utilize an </code>asset_script_version</code> of
+validate Taro transfers that utilize an <code>asset_script_version</code> of
 1. The execution environment described in this document is a slight twist on
 the taproot validation rules defined in BIPs 341 and 342. Given a Taro asset
 one or more Taro asset leaves to be spent (inputs) and asset leaves to be
