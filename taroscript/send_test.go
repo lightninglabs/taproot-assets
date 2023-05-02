@@ -1861,7 +1861,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1888,7 +1889,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1CollectGroupTaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1914,7 +1916,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset2TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1940,7 +1943,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1966,7 +1970,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2000,7 +2005,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err

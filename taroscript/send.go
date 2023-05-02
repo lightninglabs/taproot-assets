@@ -228,13 +228,14 @@ func AssetFromTaroCommitment(taroCommitment *commitment.TaroCommitment,
 // ValidateInputs validates a set of inputs against a funding request. It
 // returns true if the inputs would be spent fully, otherwise false.
 func ValidateInputs(inputCommitments taropsbt.InputCommitments,
-	senderScriptKey *btcec.PublicKey, expectedAssetType asset.Type,
+	inputsScriptKeys []*btcec.PublicKey, expectedAssetType asset.Type,
 	desc *FundingDescriptor) (bool, error) {
 
 	// Extract the input assets from the input commitments.
-	inputAssets := make([]*asset.Asset, 0)
+	inputAssets := make([]*asset.Asset, len(inputsScriptKeys))
 	for inputIndex := range inputCommitments {
 		taroCommitment := inputCommitments[inputIndex]
+		senderScriptKey := inputsScriptKeys[inputIndex]
 
 		// Gain the asset that we'll use as an input and in the process
 		// validate the selected input and commitment.
@@ -250,7 +251,7 @@ func ValidateInputs(inputCommitments taropsbt.InputCommitments,
 			return false, fmt.Errorf("unexpected input asset type")
 		}
 
-		inputAssets = append(inputAssets, inputAsset)
+		inputAssets[inputIndex] = inputAsset
 	}
 
 	// Validate total amount of input assets and determine full value spend

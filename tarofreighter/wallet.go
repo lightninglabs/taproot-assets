@@ -422,9 +422,14 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		)
 	}
 
-	senderScriptKey := vPkt.Inputs[0].Asset().ScriptKey.PubKey
+	inputsScriptKeys := chanutils.Map(
+		vPkt.Inputs, func(vInput *taropsbt.VInput) *btcec.PublicKey {
+			return vInput.Asset().ScriptKey.PubKey
+		},
+	)
+
 	fullValue, err := taroscript.ValidateInputs(
-		inputCommitments, senderScriptKey, assetType, fundDesc,
+		inputCommitments, inputsScriptKeys, assetType, fundDesc,
 	)
 	if err != nil {
 		return nil, err
