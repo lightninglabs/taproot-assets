@@ -54,8 +54,6 @@ format was chosen as the exchange format for virtual asset state transfers as
 well, with a set of new PSBT <code><keytype></code>s as defined in this
 document. 
 
-TODO(guggero): Define interactive vs. non-interactive.
-
 ==Specification==
 
 A virtual transaction can only contain inputs and outputs of assets that are
@@ -71,16 +69,43 @@ order to satisfy a payment request, but merging two fungible assets (with
 distinct asset IDs) into the _same_ asset UTXO is disallowed. See the
 [[../master/bip-taro-vm.mediawiki|bip-taro-vm]] for more details.
 
-TODO(guggero): Describe what that means for non-interactive sends.
+The construction of the virtual transaction outputs must follow different rules
+depending on whether the output is received in an interactive or non-interactive
+way by the recipient:
+<ul>
+<li>
+''Interactive:'' The recipient will see the full virtual transaction (e.g. as
+a PSBT), including the fully signed new asset leaf. They have all the required
+information to be able to fully construct the BTC level anchor output Taproot
+key (including the complete asset witness and potentially multiple asset leaves
+being committed to in a single BTC level anchor output) to observe the inbound
+transfer on chain. Therefore in a scenario where a leaf is sent completely (full
+value send), a "split tombstone" (see below) is not required.
+</li>
+<li>
+''Non-interactive'': The recipient has created a Taro address and is only
+watching that Taproot output key on chain. Assets must be committed to the tree
+as a split asset, with the split commitment pruned before serializing, to make
+the resulting Taro tree completely predictable for the receiver. The split
+commitment and root asset proof will be delivered in the proof file. A full
+value send must also be created as a split with the sender creating a zero value
+"split tombstone" output with the NUMS point as the script key (see below).
+</li>
+</ul>
+
+TODO(guggero): Describe how fungible assets are handled in a non-interactive way
+once that is defined.
 
 When splitting an asset UTXO a split commitment is created (as described in
 [[../master/bip-taro-vm.mediawiki|bip-taro-vm]]). The split root is placed in
 one of the outputs (often being the change output going back to the sender of
 the asset) and marked with the `IsSplitRoot` flag.
 If the remaining change of a split is 0, the <code>script_key</code> of the
-split root asset output should be the well-known NUMS point to prove the output
-cannot be spent further. This so-called "split tombstone" is required for
-non-interactive sends (send to Taro address) of the full value of a coin.
+split root asset output should be the well-known NUMS point (using the string
+"taro" and the traditional "hash and increment" approach to generating the point
+) to prove the output cannot be spent further.
+This so-called "split tombstone" is required for non-interactive sends (send to
+Taro address) of the full value of a coin.
 These zero-value tombstone outputs can be pruned in an interactive scenario in
 which the recipient is a ware of the full root asset leaf (including the
 TX witness) and can construct the commitment tree root correctly.
@@ -342,4 +367,70 @@ split asset at the root locator that contains the split commitment witness. This
 is used for validation only and isn't committed to in any tree. If present the
 split asset is encoded in TLV format as defined in 
 [[../master/bip-taro.mediawiki#asset-leaf-format|bip-taro asset leaf format]].
+|}
+
+==Committing Taro virtual transactions into a BTC level anchor transaction==
+
+The above section defined new fields for representing a virtual asset
+transaction. This section explains how one or multiple virtual asset
+transactions can be mapped to and be committed to in a single Bitcoin level
+on-chain "anchor" transaction.
+
+The following steps should be taken for committing one or more Taro virtual
+transactions onto a single BTC anchor transaction:
+# Sign the virtual transaction as described in [[../master/bip-taro.mediawiki|bip-taro]].
+# Validate that each input in each virtual transaction has the necessary anchor information set (<code>PSBT_IN_TARO_ANCHOR_*</code>).
+# Validate that each output in each virtual transaction has the necessary anchor information set (<code>PSBT_OUT_TARO_ANCHOR_*</code>).
+# Validate that each virtual input's anchor information referencing the same previous outpoint (<code>PSBT_IN_TARO_PREV_ID.prev_outpoint</code>) is the same as all fields should refer to the same on-chain unspent output.
+# Validate that each virtual output's anchor information referencing the same anchor output index (<code>PSBT_OUT_TARO_ANCHOR_OUTPUT_INDEX</code>) is the same as all fields should refer to the same on-chain output being created.
+# For each input, add the last transition proof of the input asset to the BTC anchor PSBT input (field <code>PSBT_IN_TARO_PROOF</code>).
+# For each unique anchor output index, create an output on the BTC anchor transaction:
+## Merge all assets into a single Taro tree.
+## If a Tapscript sibling is present for the BTC anchor output, verify it is not a Taro commitment.
+## Calculate the merkle root hash from the merged Taro tree and the optional Tapscript sibling.
+## Calculate the Taproot output key from the internal key and the merkle root hash, update the <code>pkScript</code> of the BTC anchor output.
+# Create a single transition proof for each of the virtual transaction outputs and add them to the BTC anchor output, keyed by each asset's <code>script_key</code> (field <code>PSBT_OUT_TARO_PROOF</code>).
+
+Once the BTC level anchor transaction has the extra information attached, it can
+then be passed to all signers to produce the necessary signatures for getting it
+finalized.
+
+==Custom PSBT fields for BTC level anchor transactions==
+
+===Input types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Taro Asset Proof
+| <tt>PSBT_IN_TARO_PROOF = 0x70</tt>
+| <tt><32 byte xonlyscriptkey></tt>
+| The 32 byte X-only script key of the input asset being spent.
+| <tt><tlv_blob proof></tt>
+| The last proof of the input asset being spent, in TLV format as defined in 
+[[../master/bip-taro-proof-file.mediawiki#file-serialization|
+bip-taro-proof-file File Serialization]].
+|}
+
+===Output types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Is Split Root
+| <tt>PSBT_OUT_TARO_PROOF = 0x70</tt>
+| <tt><32 byte xonlyscriptkey></tt>
+| The 32 byte X-only script key of the input asset being spent.
+| <tt><tlv_blob proof></tt>
+| The new transition proof(s) for the new asset(s) created in this output.
 |}

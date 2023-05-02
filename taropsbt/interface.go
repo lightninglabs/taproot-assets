@@ -52,6 +52,15 @@ var (
 	PsbtKeyTypeOutputTaroAnchorTapscriptPreimage            = []byte{0x78}
 )
 
+// The following keys are used as custom fields on the BTC level anchor
+// transaction PSBTs only. They are defined here for completeness' sake but are
+// not directly used by the taropsbt package.
+var (
+	PsbtKeyTypeInputTaroProof = []byte{0x70}
+
+	PsbtKeyTypeOutputTaroProof = []byte{0x70}
+)
+
 // VOutPredicate is a function that can be used to filter virtual outputs.
 type VOutPredicate func(*VOutput) bool
 
