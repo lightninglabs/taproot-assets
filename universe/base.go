@@ -65,7 +65,7 @@ func NewMintingArchive(cfg MintingArchiveConfig) *MintingArchive {
 }
 
 // fetchUniverse returns the base universe instance for the passed identifier.
-// The universe will be laoded in on demand if it has not been seen before.
+// The universe will be loaded in on demand if it has not been seen before.
 func (a *MintingArchive) fetchUniverse(id Identifier) BaseBackend {
 	a.Lock()
 	defer a.Unlock()
@@ -224,7 +224,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	return issuanceProof, nil
 }
 
-// FethcIssuanceProof attempts to fetch an issuance proof for the target base
+// FetchIssuanceProof attempts to fetch an issuance proof for the target base
 // leaf based on the universe identifier (assetID/groupKey).
 func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	key BaseKey) ([]*IssuanceProof, error) {

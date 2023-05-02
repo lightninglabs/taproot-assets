@@ -68,15 +68,18 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		// as a series of parallel requests backed by a worker pool.
 		//
 		// TODO(roasbeef): can actually make non-blocking..
-		err = chanutils.ParSlice(ctx, idsToSync, func(ctx context.Context, id Identifier) error {
-			root, err := diffEngine.RootNode(ctx, id)
-			if err != nil {
-				return err
-			}
+		err = chanutils.ParSlice(
+			ctx, idsToSync,
+			func(ctx context.Context, id Identifier) error {
+				root, err := diffEngine.RootNode(ctx, id)
+				if err != nil {
+					return err
+				}
 
-			rootsToSync <- root
-			return nil
-		})
+				rootsToSync <- root
+				return nil
+			},
+		)
 
 	// Otherwise, we'll just fetch all the roots from the remote universe.
 	default:
