@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"reflect"
 	"sort"
 
@@ -287,21 +288,63 @@ func ValidateInputs(inputCommitments taropsbt.InputCommitments,
 // and spend information. The inputs MUST be checked as valid beforehand and the
 // change output is expected to be declared as such (and be at index 0).
 func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
-	// We currently only support a single input.
-	//
-	// TODO(guggero): Support multiple inputs.
-	if len(vPkt.Inputs) != 1 {
-		return fmt.Errorf("only a single input is currently supported")
-	}
-	input := vPkt.Inputs[0]
+	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
-	// This should be caught way earlier but just to make sure that we never
-	// overflow when converting the input amount to int64 we check this
-	// again.
-	inputAsset := input.Asset()
-	if inputAsset.Amount > math.MaxInt64 {
-		return fmt.Errorf("amount int64 overflow")
+	if len(inputs) == 0 {
+		return fmt.Errorf("no inputs specified in virtual packet")
+	}
+
+	var (
+		totalInputAmount uint64
+
+		// Inspect first asset to determine all input asset IDs.
+		//
+		// TODO(ffranr): Add support for multiple different input asset
+		// IDs.
+		assetID = inputs[0].Asset().ID()
+
+		// Inspect first asset to determine all input asset types.
+		inputAssetType = inputs[0].Asset().Type
+
+		inputAssets    = make([]*asset.Asset, len(inputs))
+		inputOutPoints = make([]wire.OutPoint, len(inputs))
+	)
+	for idx := range inputs {
+		vIn := inputs[idx]
+		inputAsset := vIn.Asset()
+
+		// This should be caught way earlier but just to make sure that
+		// we never overflow when converting the input amount to int64
+		// we check this again.
+		if inputAsset.Amount > math.MaxInt64 {
+			return fmt.Errorf("amount int64 overflow")
+		}
+
+		// Calculate sum total input amounts with overflow check.
+		newTotalInputAmount, carry := bits.Add64(
+			totalInputAmount, inputAsset.Amount, 0,
+		)
+		overflow := carry != 0
+		if overflow {
+			return fmt.Errorf("total input amount uint64 overflow")
+		}
+		totalInputAmount = newTotalInputAmount
+
+		// Gather input assets.
+		inputAssets[idx] = inputAsset
+
+		// Gather input outpoints.
+		inputOutPoints[idx] = inputs[idx].PrevID.OutPoint
+
+		// TODO(ffranr): Right now, we only support a single input or
+		// multiple inputs with the same asset ID. We need to support
+		// multiple input assets from the same group but do not
+		// necessarily share the same asset ID.
+		if idx > 0 && inputs[idx].Asset().ID() != assetID {
+			return fmt.Errorf("multiple input assets " +
+				"must have the same asset ID")
+		}
 	}
 
 	// Do some general sanity checks on the outputs, these should be
@@ -359,7 +402,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 			return fmt.Errorf("single output must be interactive")
 		}
 
-		if vOut.Amount != inputAsset.Amount {
+		if vOut.Amount != totalInputAmount {
 			return ErrInvalidSplitAmounts
 		}
 
@@ -370,7 +413,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		// a two output transaction to be a valid collectible send, it
 		// needs to be a non-interactive send where we expect there to
 		// be a tombstone output for the split root.
-		if inputAsset.Type == asset.Collectible {
+		if inputAssetType == asset.Collectible {
 			if !vPkt.HasSplitRootOutput() {
 				return ErrInvalidCollectibleSplit
 			}
@@ -411,7 +454,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	default:
 	}
 
-	var residualAmount = inputAsset.Amount
+	var residualAmount = totalInputAmount
 	for idx := range outputs {
 		residualAmount -= outputs[idx].Amount
 	}
@@ -423,15 +466,15 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 
 	// If we have an interactive full value send, we don't need a tomb stone
 	// at all.
-	inputIDCopy := input.PrevID
+	inputIDCopy := inputs[0].PrevID
 	recipientIndex, isFullValueInteractiveSend := interactiveFullValueSend(
-		input, outputs,
+		inputs[0], outputs,
 	)
 	if isFullValueInteractiveSend {
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		outputs[recipientIndex].Asset = inputAsset.Copy()
+		outputs[recipientIndex].Asset = inputs[0].Asset().Copy()
 		outputs[recipientIndex].Asset.ScriptKey = outputs[0].ScriptKey
 
 		// Record the PrevID of the input asset in a Witness for the new
@@ -459,7 +502,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	for idx := range outputs {
 		vOut := outputs[idx]
 
-		locator := outputs[idx].SplitLocator(input.Asset().ID())
+		locator := outputs[idx].SplitLocator(assetID)
 		if vOut.IsSplitRoot {
 			rootLocator = &locator
 			continue
@@ -469,7 +512,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
-		ctx, inputAsset, input.PrevID.OutPoint, rootLocator,
+		ctx, inputs[0].Asset(), inputs[0].PrevID.OutPoint, rootLocator,
 		splitLocators...,
 	)
 	if err != nil {
@@ -479,7 +522,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	// Assign each of the split assets to their respective outputs.
 	for idx := range outputs {
 		vOut := outputs[idx]
-		locator := outputs[idx].SplitLocator(input.Asset().ID())
+		locator := outputs[idx].SplitLocator(assetID)
 
 		splitAsset, ok := splitCommitment.SplitAssets[locator]
 		if !ok {
