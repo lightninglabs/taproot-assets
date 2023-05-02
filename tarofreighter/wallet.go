@@ -402,12 +402,6 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	assetType := selectedCommitments[0].Asset.Type
 
-	// We'll take just the first commitment here as we need enough
-	// to complete the send w/o merging inputs.
-	//
-	// TODO(ffranr): Remove selected commitment truncation.
-	selectedCommitments = selectedCommitments[:1]
-
 	totalInputAmt := uint64(0)
 	for _, anchorAsset := range selectedCommitments {
 		totalInputAmt += anchorAsset.Asset.Amount
