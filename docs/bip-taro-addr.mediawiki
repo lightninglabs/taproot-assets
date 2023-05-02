@@ -73,6 +73,9 @@ types:
 * type: 6 (<code>internal_key</code>)
 ** value:
 *** [<code>32*byte</code>:<code>taproot_internal_key</code>]
+* type: 7 (<code>taproot_sibling_preimage</code>)
+** value:
+*** [<code>...*byte</code>:<code>tapscript_preimage</code>]
 * type: 8 (<code>amt</code>)
 ** value:
 *** [<code>BigSize</code>:<code>amt_to_send</code>]
