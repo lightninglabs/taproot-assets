@@ -543,7 +543,7 @@ where:
 * <code>asset_script_version</code>: is a 2 byte asset script version that governs how the following TLV value is to be validated.
 * <code>asset_script_key</code>: is the external public key derived in a BIP 341 manner which may commit to an asset script that encumbers this asset leaf.
 * <code>asset_family_key</code>: is a 32-byte public key as defined by [[../master/bip-0340.mediawiki|BIP-340]] followed by a 64-byte BIP 340 signature over the <code>asset_id</code>. This key can be used to associate distinct assets as identified by their <code>asset_id</code>, effectively allowing further issuance of a base asset. Assets that references the same <code>asset_family_key</code> are to be considered the same asset. This is an optional field, and assets that don't contain this field are effectively considered to be a one-time only issuance event, meaning no further assets related to the derived <code>asset_id</code> can be created.
-* <code>canonical_universe<code>: is a key (with no corresponding value) which if specified, designates the existence of an on-chain canonical Universe. Specified further in bip-taro-universe.mediawiki, a canonical Universe is maintained by the issuer of an asset and can be used to allow 3rd parties to easily audit the total asset supply and also track future issuance. In short, if this is specified, ''second'' output of the next spend of the outpoint created during asset issuance MUST commit to the root hash of a base Universe and all subsequent spends must only happen after later asset issuance events, and MUST commit to a new valid Universe root. This feature allows light clients to watch a set of outputs on chain to be notified of future asset issuance.
+* <code>canonical_universe</code>: is a key (with no corresponding value) which if specified, designates the existence of an on-chain canonical Universe. Specified further in bip-taro-universe.mediawiki, a canonical Universe is maintained by the issuer of an asset and can be used to allow 3rd parties to easily audit the total asset supply and also track future issuance. In short, if this is specified, ''second'' output of the next spend of the outpoint created during asset issuance MUST commit to the root hash of a base Universe and all subsequent spends must only happen after later asset issuance events, and MUST commit to a new valid Universe root. This feature allows light clients to watch a set of outputs on chain to be notified of future asset issuance.
 
 (TODO(roasbeef): merkle sum commitment over input set as well? enables probabilistic validation?)
 
@@ -976,7 +976,7 @@ collectibles assets with the following additions:
 ### The sender no longer needs to transmit a full non-inclusion proof, but instead opens the Taro root commitment of their change output, allowing the receiver to verify that amount <code>t-n</code> is committed to, with <code>t</code> being the prior asset root sum.
 ### For each new asset leaf associated with the input split, verify that the serialized leaf is a member of the <code>split_commitment_root</code> within the change output.
 
-Note that for a given input <code>asset_id<code> in a transaction, any
+Note that for a given input <code>asset_id</code> in a transaction, any
 resulting internal splits will share the same input witness (referenced
 indirectly) as well as <code>split_commitment_root</code>.
 
