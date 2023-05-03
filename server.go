@@ -11,6 +11,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taro/perms"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // Server is the main daemon construct for the Taro server. It handles spinning
@@ -30,7 +32,8 @@ type Server struct {
 
 	cfg *Config
 
-	rpcServer *rpcServer
+	*rpcServer
+	macaroonService *lndclient.MacaroonService
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -42,6 +45,124 @@ func NewServer(cfg *Config) *Server {
 		cfg:  cfg,
 		quit: make(chan struct{}, 1),
 	}
+}
+
+// initialize creates and initializes an instance of the macaroon service and
+// rpc server based on the server configuration. This method ensures that
+// everything is cleaned up in case there is an error while initializing any of
+// the components.
+//
+// NOTE: the rpc server is not registered with any grpc server in this function.
+func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
+	// Show version at startup.
+	srvrLog.Infof("Version: %s, build=%s, logging=%s, "+
+		"debuglevel=%s", Version(), build.Deployment,
+		build.LoggingType, s.cfg.DebugLevel)
+
+	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
+
+	// Depending on how far we got in initializing the server, we might need
+	// to clean up certain services that were already started. Keep track of
+	// them with this map of service name to shutdown function.
+	shutdownFuncs := make(map[string]func() error)
+	defer func() {
+		for serviceName, shutdownFn := range shutdownFuncs {
+			if err := shutdownFn(); err != nil {
+				srvrLog.Errorf("Error shutting down %s "+
+					"service: %w", serviceName, err)
+			}
+		}
+	}()
+
+	// If we're usign macaroons, then go ahead and instantiate the main
+	// macaroon service.
+	if !s.cfg.RPCConfig.NoMacaroons {
+		var err error
+		s.macaroonService, err = lndclient.NewMacaroonService(
+			&lndclient.MacaroonServiceConfig{
+				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
+				MacaroonLocation: taroMacaroonLocation,
+				MacaroonPath:     s.cfg.MacaroonPath,
+				Checkers: []macaroons.Checker{
+					macaroons.IPLockChecker,
+				},
+				RequiredPerms: perms.RequiredPermissions,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to create macaroon "+
+				"service: %v", err)
+		}
+		rpcsLog.Infof("Validating RPC requests based on macaroon "+
+			"at: %v", s.cfg.MacaroonPath)
+
+		if err := s.macaroonService.Start(); err != nil {
+			return err
+		}
+
+		shutdownFuncs["macaroonService"] = s.macaroonService.Stop
+
+		if interceptorChain != nil {
+			// Register the macaroon service with the main
+			// interceptor chain.
+			interceptorChain.AddMacaroonService(
+				s.macaroonService.Service,
+			)
+
+			// Register all our known permission with the macaroon
+			// service.
+			for method, ops := range perms.RequiredPermissions {
+				err := interceptorChain.AddPermission(
+					method, ops,
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// Initialize, and register our implementation of the gRPC interface
+	// exported by the rpcServer.
+	var err error
+	s.rpcServer, err = newRPCServer(
+		s.cfg.SignalInterceptor, interceptorChain, s.cfg,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create rpc server: %v", err)
+	}
+
+	// First, we'll start the main batched asset minter.
+	if err := s.cfg.AssetMinter.Start(); err != nil {
+		return fmt.Errorf("unable to start asset minter: %v", err)
+	}
+
+	// Next, we'll start the asset custodian.
+	if err := s.cfg.AssetCustodian.Start(); err != nil {
+		return fmt.Errorf("unable to start asset custodian: %v", err)
+	}
+
+	if err := s.cfg.ChainPorter.Start(); err != nil {
+		return fmt.Errorf("unable to start chain porter: %v", err)
+	}
+
+	// Now we have created all dependencies necessary to populate and
+	// start the RPC server.
+	if err := s.rpcServer.Start(); err != nil {
+		return fmt.Errorf("unable to start RPC server: %v", err)
+	}
+
+	// This does have no effect if starting the rpc server is the last step
+	// in this function, but its better to have it here in case we add more
+	// steps in the future.
+	//
+	// NOTE: if this is not the last step in the function, feel free to
+	// delete this comment.
+	shutdownFuncs["rpcServer"] = s.rpcServer.Stop
+
+	shutdownFuncs = nil
+
+	return nil
 }
 
 // RunUntilShutdown runs the main Taro server loop until a signal is received
@@ -65,13 +186,6 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 			"method: "+logFormat, args...)
 		return fmt.Errorf(format, args...)
 	}
-
-	// Show version at startup.
-	srvrLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
-		"debuglevel=%s", Version(), Commit, build.Deployment,
-		build.LoggingType, s.cfg.DebugLevel)
-
-	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
 
 	// If we have chosen to start with a dedicated listener for the rpc
 	// server, we set it directly.
@@ -106,7 +220,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// will be used to log the API calls invoked on the GRPC server.
 	interceptorChain := rpcperms.NewInterceptorChain(
 		rpcsLog, s.cfg.RPCConfig.NoMacaroons, nil,
-		macaroonWhitelist,
+		perms.MacaroonWhitelist,
 	)
 	if err := interceptorChain.Start(); err != nil {
 		return mkErr("error starting interceptor chain: %v", err)
@@ -119,34 +233,9 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		}
 	}()
 
-	// If we're usign macaroons, then go ahead and instntiate the main
-	// macaroon service.
-	if !s.cfg.RPCConfig.NoMacaroons {
-		macaroonService, err := lndclient.NewMacaroonService(
-			&lndclient.MacaroonServiceConfig{
-				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
-				MacaroonLocation: taroMacaroonLocation,
-				MacaroonPath:     s.cfg.MacaroonPath,
-				Checkers: []macaroons.Checker{
-					macaroons.IPLockChecker,
-				},
-				RequiredPerms: RequiredPermissions,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to create macaroon "+
-				"service: %v", err)
-		}
-		rpcsLog.Infof("Validating RPC requests based on macaroon "+
-			"at: %v", s.cfg.MacaroonPath)
-
-		if err := macaroonService.Start(); err != nil {
-			return err
-		}
-
-		// Register the macaroon service with the main interceptor
-		// chain.
-		interceptorChain.AddMacaroonService(macaroonService.Service)
+	err := s.initialize(interceptorChain)
+	if err != nil {
+		return mkErr("unable to initialize RPC server: %v", err)
 	}
 
 	rpcServerOpts := interceptorChain.CreateServerOpts()
@@ -158,15 +247,6 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	grpcServer := grpc.NewServer(serverOpts...)
 	defer grpcServer.Stop()
 
-	// Initialize, and register our implementation of the gRPC interface
-	// exported by the rpcServer.
-	var err error
-	s.rpcServer, err = newRPCServer(
-		s.cfg.SignalInterceptor, interceptorChain, s.cfg,
-	)
-	if err != nil {
-		return mkErr("unable to create rpc server: %v", err)
-	}
 	err = s.rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
 		return mkErr("error registering gRPC server: %v", err)
@@ -192,25 +272,6 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// TODO(roasbeef): make macaroons service, needs the lnd APIs present
 	// an abstracted
 
-	// First, we'll start the main batched asset minter.
-	if err := s.cfg.AssetMinter.Start(); err != nil {
-		return mkErr("unable to start asset minter: %v", err)
-	}
-
-	// Next, we'll start the asset custodian.
-	if err := s.cfg.AssetCustodian.Start(); err != nil {
-		return mkErr("unable to start asset custodian: %v", err)
-	}
-
-	if err := s.cfg.ChainPorter.Start(); err != nil {
-		return mkErr("unable to start chain porter: %v", err)
-	}
-
-	// Now we have created all dependencies necessary to populate and
-	// start the RPC server.
-	if err := s.rpcServer.Start(); err != nil {
-		return mkErr("unable to start RPC server: %v", err)
-	}
 	defer func() {
 		_ = s.rpcServer.Stop()
 	}()
@@ -244,6 +305,37 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	case <-s.quit:
 	}
 	return nil
+}
+
+// StartAsSubserver is an alternative to Start where the RPC server does not
+// create its own gRPC server but registers to an existing one. The same goes
+// for REST (if enabled), instead of creating an own mux and HTTP server, we
+// register to an existing one.
+func (s *Server) StartAsSubserver(lndGrpc *lndclient.GrpcLndServices) error {
+	if err := s.initialize(nil); err != nil {
+		return fmt.Errorf("unable to initialize RPC server: %v", err)
+	}
+
+	return nil
+}
+
+// ValidateMacaroon extracts the macaroon from the context's gRPC metadata,
+// checks its signature, makes sure all specified permissions for the called
+// method are contained within and finally ensures all caveat conditions are
+// met. A non-nil error is returned if any of the checks fail. This method is
+// needed to enable tarod running as an external subserver in the same process
+// as lnd but still validate its own macaroons.
+func (s *Server) ValidateMacaroon(ctx context.Context,
+	requiredPermissions []bakery.Op, fullMethod string) error {
+
+	if s.macaroonService == nil {
+		return fmt.Errorf("macaroon service has not been initialised")
+	}
+
+	// Delegate the call to taro's own macaroon validator service.
+	return s.macaroonService.ValidateMacaroon(
+		ctx, requiredPermissions, fullMethod,
+	)
 }
 
 // startGrpcListen starts the GRPC server on the passed listeners.
@@ -417,6 +509,13 @@ func (s *Server) Stop() error {
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {
 		return err
+	}
+
+	if s.macaroonService != nil {
+		err := s.macaroonService.Stop()
+		if err != nil {
+			return err
+		}
 	}
 
 	close(s.quit)

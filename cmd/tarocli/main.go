@@ -249,7 +249,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 func main() {
 	app := cli.NewApp()
 	app.Name = "tarocli"
-	app.Version = taro.Version() + " commit=" + taro.Commit
+	app.Version = taro.Version()
 	app.Usage = "control plane for your Taro Daemon (tarod)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
