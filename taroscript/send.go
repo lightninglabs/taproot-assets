@@ -466,15 +466,24 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 
 	// If we have an interactive full value send, we don't need a tomb stone
 	// at all.
-	inputIDCopy := inputs[0].PrevID
 	recipientIndex, isFullValueInteractiveSend := interactiveFullValueSend(
-		inputs[0], outputs,
+		totalInputAmount, outputs,
 	)
+
 	if isFullValueInteractiveSend {
+		if len(inputs) != 1 {
+			return fmt.Errorf("full value interactive send " +
+				"must have exactly one input")
+		}
+
+		// TODO(ffranr): Add support for interactive full value multiple
+		// input spend.
+		input := inputs[0]
+
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		outputs[recipientIndex].Asset = inputs[0].Asset().Copy()
+		outputs[recipientIndex].Asset = input.Asset().Copy()
 		outputs[recipientIndex].Asset.ScriptKey = outputs[0].ScriptKey
 
 		// Record the PrevID of the input asset in a Witness for the new
@@ -482,7 +491,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		// asset to be valid.
 		outputs[recipientIndex].Asset.PrevWitnesses = []asset.Witness{
 			{
-				PrevID:          &inputIDCopy,
+				PrevID:          &input.PrevID,
 				TxWitness:       nil,
 				SplitCommitment: nil,
 			},
@@ -1023,7 +1032,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 // interactiveFullValueSend returns true (and the index of the recipient output)
 // if there is exactly one output that spends the input fully and interactively
 // (when discarding any potential passive asset anchor outputs).
-func interactiveFullValueSend(input *taropsbt.VInput,
+func interactiveFullValueSend(totalInputAmount uint64,
 	outputs []*taropsbt.VOutput) (int, bool) {
 
 	var (
@@ -1043,7 +1052,7 @@ func interactiveFullValueSend(input *taropsbt.VInput,
 	}
 
 	fullValueInteractiveSend := numRecipientOutputs == 1 &&
-		outputs[recipientIndex].Amount == input.Asset().Amount &&
+		outputs[recipientIndex].Amount == totalInputAmount &&
 		outputs[recipientIndex].Interactive
 
 	return recipientIndex, fullValueInteractiveSend
