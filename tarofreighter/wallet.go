@@ -730,9 +730,6 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket,
 		optFunc(opts)
 	}
 
-	// Now we'll use the signer to sign all the inputs for the new taro
-	// leaves. The witness data for each input will be assigned for us.
-	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
 		// Conditionally skip the inclusion proof verification. We may
 		// not need to verify the input proof if we're only using the
@@ -748,15 +745,21 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket,
 					"inclusion proof: %w", err)
 			}
 		}
+	}
 
-		err := taroscript.SignVirtualTransaction(
-			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to generate taro "+
-				"witness data: %w", err)
-		}
+	// Now we'll use the signer to sign all the inputs for the new taro
+	// leaves. The witness data for each input will be assigned for us.
+	err := taroscript.SignVirtualTransaction(
+		vPkt, f.cfg.Signer, f.cfg.TxValidator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate taro "+
+			"witness data: %w", err)
+	}
 
+	// Mark all inputs as signed.
+	signedInputs := make([]uint32, len(vPkt.Inputs))
+	for idx := range vPkt.Inputs {
 		signedInputs[idx] = uint32(idx)
 	}
 

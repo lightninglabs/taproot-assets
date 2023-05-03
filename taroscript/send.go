@@ -560,16 +560,10 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 // full asset in case of an interactive full amount send) by creating a
 // signature over the asset transfer, verifying the transfer with the Taro VM,
 // and attaching that signature to the new Asset.
-func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
-	signer Signer, validator TxValidator) error {
+func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
+	validator TxValidator) error {
 
-	// We currently only support a single input.
-	//
-	// TODO(guggero): Support multiple inputs.
-	if len(vPkt.Inputs) != 1 || inputIdx != 0 {
-		return fmt.Errorf("only a single input is currently supported")
-	}
-	input := vPkt.Inputs[0]
+	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
 	// If this is a split transfer, it means that the asset to be signed is
@@ -579,13 +573,9 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 		return err
 	}
 
-	prevAssets := commitment.InputSet{
-		input.PrevID: input.Asset(),
-	}
+	// Identify new output asset. For splits, the new asset that receives
+	// the signature is the one with the split root set to true.
 	newAsset := outputs[0].Asset
-
-	// For splits, the new asset that receives the signature is the one with
-	// the split root set to true.
 	if isSplit {
 		splitOut, err := vPkt.SplitRootOutput()
 		if err != nil {
@@ -595,29 +585,42 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 		newAsset = splitOut.Asset
 	}
 
+	// Construct input set from all input assets.
+	prevAssets := make(commitment.InputSet, len(inputs))
+	for idx := range vPkt.Inputs {
+		input := vPkt.Inputs[idx]
+		prevAssets[input.PrevID] = input.Asset()
+	}
+
 	// Create a Taro virtual transaction representing the asset transfer.
 	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
 	if err != nil {
 		return err
 	}
 
-	// For each input asset leaf, we need to produce a witness. Update the
-	// input of the virtual TX, generate a witness, and attach it to the
-	// copy of the new Asset.
-	virtualTxCopy := VirtualTxWithInput(
-		virtualTx, input.Asset(), uint32(inputIdx), nil,
-	)
+	for idx := range inputs {
+		input := inputs[idx]
 
-	// Sign the virtual transaction based on the input script information
-	// (key spend or script spend).
-	newWitness, err := CreateTaprootSignature(
-		input, virtualTxCopy, inputIdx, signer,
-	)
-	if err != nil {
-		return fmt.Errorf("error creating taproot signature: %w", err)
+		// For each input asset leaf, we need to produce a witness.
+		// Update the input of the virtual TX, generate a witness, and
+		// attach it to the copy of the new Asset.
+		virtualTxCopy := virtualTx.Copy()
+		inputSpecificVirtualTx := VirtualTxWithInput(
+			virtualTxCopy, input.Asset(), uint32(idx), nil,
+		)
+
+		// Sign the virtual transaction based on the input script
+		// information (key spend or script spend).
+		newWitness, err := CreateTaprootSignature(
+			input, inputSpecificVirtualTx, 0, signer,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating taproot "+
+				"signature: %w", err)
+		}
+
+		newAsset.PrevWitnesses[idx].TxWitness = newWitness
 	}
-
-	newAsset.PrevWitnesses[inputIdx].TxWitness = newWitness
 
 	// Create an instance of the Taro VM and validate the transfer.
 	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
