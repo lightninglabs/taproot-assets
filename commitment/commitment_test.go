@@ -726,8 +726,7 @@ func TestSplitCommitment(t *testing.T) {
 			input, root, external := testCase.f()
 			split, err := NewSplitCommitment(
 				context.Background(), []*asset.Asset{input},
-				outPoint, root,
-				external...,
+				[]wire.OutPoint{outPoint}, root, external...,
 			)
 			require.Equal(t, testCase.err, err)
 

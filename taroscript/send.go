@@ -521,8 +521,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
-		ctx, inputAssets, inputs[0].PrevID.OutPoint, rootLocator,
-		splitLocators...,
+		ctx, inputAssets, inputOutPoints, rootLocator, splitLocators...,
 	)
 	if err != nil {
 		return err

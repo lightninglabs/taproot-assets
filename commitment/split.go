@@ -127,7 +127,7 @@ type SplitCommitment struct {
 // considered to be the "change" output in the transfer: this is the location
 // where all the other splits (elsewhere in the transaction are committed to).
 func NewSplitCommitment(ctx context.Context, inputs []*asset.Asset,
-	outPoint wire.OutPoint, rootLocator *SplitLocator,
+	outPoints []wire.OutPoint, rootLocator *SplitLocator,
 	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
 
 	// Calculate sum total input amounts.
@@ -249,6 +249,7 @@ func NewSplitCommitment(ctx context.Context, inputs []*asset.Asset,
 
 	for idx := range inputs {
 		input := inputs[idx]
+		outPoint := outPoints[idx]
 		prevID := &asset.PrevID{
 			OutPoint:  outPoint,
 			ID:        input.Genesis.ID(),

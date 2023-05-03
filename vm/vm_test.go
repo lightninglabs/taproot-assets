@@ -251,7 +251,8 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	}}
 	splitCommitment, err := commitment.NewSplitCommitment(
 		context.Background(), []*asset.Asset{genesisAsset},
-		genesisOutPoint, rootLocator, externalLocators...,
+		[]wire.OutPoint{genesisOutPoint}, rootLocator,
+		externalLocators...,
 	)
 	require.NoError(t, err)
 
@@ -297,7 +298,8 @@ func splitFullValueStateTransition(validRootLocator,
 		}}
 		splitCommitment, err := commitment.NewSplitCommitment(
 			context.Background(), []*asset.Asset{genesisAsset},
-			genesisOutPoint, rootLocator, externalLocators...,
+			[]wire.OutPoint{genesisOutPoint}, rootLocator,
+			externalLocators...,
 		)
 		require.NoError(t, err)
 
@@ -351,7 +353,8 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 		}}
 		splitCommitment, err := commitment.NewSplitCommitment(
 			context.Background(), []*asset.Asset{genesisAsset},
-			genesisOutPoint, rootLocator, externalLocators...,
+			[]wire.OutPoint{genesisOutPoint}, rootLocator,
+			externalLocators...,
 		)
 		require.NoError(t, err)
 
@@ -450,7 +453,8 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 
 		splitCommitment, err := commitment.NewSplitCommitment(
 			context.Background(), []*asset.Asset{genesisAsset},
-			genesisOutPoint, rootLocator, externalLocators...,
+			[]wire.OutPoint{genesisOutPoint}, rootLocator,
+			externalLocators...,
 		)
 		require.NoError(t, err)
 
