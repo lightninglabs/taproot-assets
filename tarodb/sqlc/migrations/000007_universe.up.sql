@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS universe_roots (
     group_key BLOB CHECK(LENGTH(group_key) = 32)
 );
 
+CREATE INDEX IF NOT EXISTS universe_roots_asset_id_idx ON universe_roots(asset_id);
+CREATE INDEX IF NOT EXISTS universe_roots_group_key_idx ON universe_roots(group_key);
+
 CREATE TABLE IF NOT EXISTS universe_leaves (
     id INTEGER PRIMARY KEY,
 
@@ -32,6 +35,9 @@ CREATE TABLE IF NOT EXISTS universe_leaves (
 
     UNIQUE(minting_point, script_key_bytes)
 );
+
+CREATE INDEX IF NOT EXISTS universe_leaves_key_idx ON universe_leaves(leaf_node_key);
+CREATE INDEX IF NOT EXISTS universe_leaves_namespace ON universe_leaves(leaf_node_namespace);
 
 CREATE TABLE IF NOT EXISTS universe_servers (
     id INTEGER PRIMARY KEY,

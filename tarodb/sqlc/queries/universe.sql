@@ -66,7 +66,7 @@ JOIN mssmt_nodes
 JOIN genesis_assets
     ON genesis_assets.asset_id = universe_roots.asset_id;
 
-    -- name: InsertUniverseServer :exec
+-- name: InsertUniverseServer :exec
 INSERT INTO universe_servers(
     server_host, last_sync_time
 ) VALUES (
