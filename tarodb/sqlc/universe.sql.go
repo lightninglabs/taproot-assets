@@ -245,7 +245,7 @@ WITH asset_supply AS (
         ON leaves.asset_genesis_id = gen.gen_asset_id
     GROUP BY gen.asset_id
 ), asset_info AS (
-    SELECT asset_supply.supply, gen.asset_id AS asset_id,
+    SELECT asset_supply.supply, gen.asset_id AS asset_id, 
            gen.asset_tag AS asset_name, gen.asset_type AS asset_type
     FROM genesis_info_view gen
     JOIN asset_supply

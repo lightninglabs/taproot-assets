@@ -30,12 +30,37 @@ func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
 	}
 }
 
+// sqlInt16 turns a numerical integer type into the NullInt16 that sql/sqlc
+// uses when an integer field can be permitted to be NULL.
+//
+// We use this constraints.Integer constraint here which maps to all signed and
+// unsigned integer types.
+func sqlInt16[T constraints.Integer](num T) sql.NullInt16 {
+	return sql.NullInt16{
+		Int16: int16(num),
+		Valid: true,
+	}
+}
+
 // sqlBool turns a boolean into the NullBool that sql/sqlc uses when a boolean
 // field can be permitted to be NULL.
 func sqlBool(b bool) sql.NullBool {
 	return sql.NullBool{
 		Bool:  b,
 		Valid: true,
+	}
+}
+
+// sqlStr turns a string into the NullString that sql/sqlc uses when a string
+// can be permitted to be NULL.
+func sqlStr(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+
+	return sql.NullString{
+		String: s,
+		Valid:  true,
 	}
 }
 
