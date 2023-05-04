@@ -514,7 +514,9 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 	witnesses assetWitnesses) ([]*ChainAsset, error) {
 
 	chainAssets := make([]*ChainAsset, len(dbAssets))
-	for i, sprout := range dbAssets {
+	for i := range dbAssets {
+		sprout := dbAssets[i]
+
 		// First, we'll decode the script key which every asset must
 		// specify, and populate the key locator information.
 		rawScriptKeyPub, err := btcec.ParsePubKey(sprout.ScriptKeyRaw)
@@ -621,6 +623,13 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
 				"%v", err)
+		}
+
+		// We cannot use 0 as the amount when creating a new asset with
+		// the New function above. But if this is a tombstone asset, we
+		// actually have to set the amount to 0.
+		if scriptKeyPub.IsEqual(asset.NUMSPubKey) && sprout.Amount == 0 {
+			assetSprout.Amount = 0
 		}
 
 		if len(sprout.SplitCommitmentRootHash) != 0 {
@@ -1495,7 +1504,8 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		// To obtain this, we'll first do another query to fetch all
 		// the _other_ assets that are anchored at the anchor point for
 		// each of the assets above.
-		for _, matchingAsset := range matchingAssets {
+		for idx := range matchingAssets {
+			matchingAsset := matchingAssets[idx]
 			anchorPoint := matchingAsset.AnchorOutpoint
 			anchorPointBytes, err := encodeOutpoint(
 				matchingAsset.AnchorOutpoint,
@@ -1541,7 +1551,10 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 	anchorPointToCommitment := make(
 		map[wire.OutPoint]*commitment.TaroCommitment,
 	)
-	for anchorPoint, anchoredAssets := range chainAnchorToAssets {
+	for anchorPoint := range chainAnchorToAssets {
+		anchorPoint := anchorPoint
+		anchoredAssets := chainAnchorToAssets[anchorPoint]
+
 		// Fetch the asset leaves from each chain asset, and then
 		// build a Taro commitment from this set of assets.
 		fetchAsset := func(cAsset *ChainAsset) *asset.Asset {
@@ -2142,13 +2155,17 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		for idx := range outputs {
 			out := outputs[idx]
 
+			isTombstone := bytes.Equal(
+				out.ScriptKeyBytes, asset.NUMSBytes,
+			) && out.Amount == 0 && !out.PassiveAssetsOnly
+
 			// If this is an outbound transfer (meaning that our
 			// node doesn't control the script key), we don't create
 			// an asset entry in the DB. The transfer will be the
 			// only reference to the asset leaving the node. The
 			// same goes for outputs that are only used to anchor
 			// passive assets, which are handled separately.
-			if !out.ScriptKeyLocal || out.PassiveAssetsOnly {
+			if !isTombstone && !out.ScriptKeyLocal {
 				continue
 			}
 
@@ -2171,6 +2188,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
 				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
 				SpentAssetID:             templateID,
+				Spent:                    isTombstone,
 			}
 			newAssetID, err := q.ApplyPendingOutput(ctx, params)
 			if err != nil {
