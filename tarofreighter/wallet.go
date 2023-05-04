@@ -1022,9 +1022,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 
 	// Now that all the real outputs are in the PSBT, we'll also
-	// add our anchor input as well, since the wallet can sign for
+	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	err = addAnchorPsbtInput(
+	err = addAnchorPsbtInputs(
 		signAnchorPkt, vPacket, params.FeeRate,
 		f.cfg.ChainParams.Params,
 	)
@@ -1200,33 +1200,35 @@ func adjustFundedPsbt(fPkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 	fPkt.ChangeOutputIndex = int32(maxOutputIndex)
 }
 
-// addAnchorPsbtInput adds the input anchor information to the PSBT packet.
-// This is called after the PSBT has been funded, but before signing.
-func addAnchorPsbtInput(btcPkt *psbt.Packet, vPkt *taropsbt.VPacket,
+// addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
+// packet. This is called after the PSBT has been funded, but before signing.
+func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *taropsbt.VPacket,
 	feeRate chainfee.SatPerKWeight, params *chaincfg.Params) error {
 
-	// With the BIP-0032 information completed, we'll now add the
-	// information as a partial input and also add the input to the unsigned
-	// transaction.
-	vIn := vPkt.Inputs[0]
-	btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
-		WitnessUtxo: &wire.TxOut{
-			Value:    int64(vIn.Anchor.Value),
-			PkScript: vIn.Anchor.PkScript,
-		},
-		SighashType:            vIn.Anchor.SigHashType,
-		Bip32Derivation:        vIn.Anchor.Bip32Derivation,
-		TaprootBip32Derivation: vIn.Anchor.TrBip32Derivation,
-		TaprootInternalKey: schnorr.SerializePubKey(
-			vIn.Anchor.InternalKey,
-		),
-		TaprootMerkleRoot: vIn.Anchor.MerkleRoot,
-	})
-	btcPkt.UnsignedTx.TxIn = append(
-		btcPkt.UnsignedTx.TxIn, &wire.TxIn{
-			PreviousOutPoint: vIn.PrevID.OutPoint,
-		},
-	)
+	for idx := range vPkt.Inputs {
+		// With the BIP-0032 information completed, we'll now add the
+		// information as a partial input and also add the input to the
+		// unsigned transaction.
+		vIn := vPkt.Inputs[idx]
+		btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				Value:    int64(vIn.Anchor.Value),
+				PkScript: vIn.Anchor.PkScript,
+			},
+			SighashType:            vIn.Anchor.SigHashType,
+			Bip32Derivation:        vIn.Anchor.Bip32Derivation,
+			TaprootBip32Derivation: vIn.Anchor.TrBip32Derivation,
+			TaprootInternalKey: schnorr.SerializePubKey(
+				vIn.Anchor.InternalKey,
+			),
+			TaprootMerkleRoot: vIn.Anchor.MerkleRoot,
+		})
+		btcPkt.UnsignedTx.TxIn = append(
+			btcPkt.UnsignedTx.TxIn, &wire.TxIn{
+				PreviousOutPoint: vIn.PrevID.OutPoint,
+			},
+		)
+	}
 
 	// Now that we've added an extra input, we'll want to re-calculate the
 	// total weight of the transaction, so we can ensure we're paying
