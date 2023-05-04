@@ -1126,6 +1126,10 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 
 		addr.AttachGenesis(*assetGroup.Genesis)
 
+		if assetGroup.GroupKey != nil {
+			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+		}
+
 		taprootOutputKey, err := addr.TaprootOutputKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving Taproot key: %w",
@@ -1414,6 +1418,10 @@ func marshalAddr(addr *address.Taro,
 	)
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
+
+		if assetGroup.GroupKey != nil {
+			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+		}
 
 		outputKey, err := addr.TaprootOutputKey()
 		if err != nil {

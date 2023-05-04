@@ -2,7 +2,6 @@ package address
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -93,6 +91,10 @@ type Taro struct {
 	// asset to be made possible.
 	GroupKey *btcec.PublicKey
 
+	// groupSig is the signature of the asset genesis with the group key
+	// that is used to verify asset membership in a group.
+	groupSig *schnorr.Signature
+
 	// ScriptKey represents a tweaked Taproot output key encumbering the
 	// different ways an asset can be spent.
 	ScriptKey btcec.PublicKey
@@ -115,7 +117,8 @@ type Taro struct {
 
 // New creates an address for receiving a Taro asset.
 func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
-	scriptKey btcec.PublicKey, internalKey btcec.PublicKey, amt uint64,
+	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
+	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
 	net *ChainParams) (*Taro, error) {
 
@@ -149,11 +152,16 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		}
 	}
 
+	if groupKey != nil && groupSig == nil {
+		return nil, fmt.Errorf("address: missing group signature")
+	}
+
 	payload := Taro{
 		ChainParams:      net,
 		Version:          asset.V0,
 		AssetID:          genesis.ID(),
 		GroupKey:         groupKey,
+		groupSig:         groupSig,
 		ScriptKey:        scriptKey,
 		InternalKey:      internalKey,
 		TapscriptSibling: tapscriptSibling,
@@ -170,6 +178,10 @@ func (a *Taro) Copy() *Taro {
 	if a.GroupKey != nil {
 		groupPubKey := *a.GroupKey
 		addressCopy.GroupKey = &groupPubKey
+	}
+	if a.groupSig != nil {
+		groupSig := *a.groupSig
+		addressCopy.groupSig = &groupSig
 	}
 
 	return &addressCopy
@@ -190,6 +202,11 @@ func (a *Taro) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
 }
 
+// AttachGroupSig attaches the asset's group signature to the address.
+func (a *Taro) AttachGroupSig(sig schnorr.Signature) {
+	a.groupSig = &sig
+}
+
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a Taro address.
 func (a *Taro) TaroCommitmentKey() [32]byte {
@@ -207,9 +224,6 @@ func (a *Taro) AssetCommitmentKey() [32]byte {
 // TaroCommitment constructs the Taro commitment that is expected to appear on
 // chain when assets are being sent to this address.
 func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
-	key := a.AssetCommitmentKey()
-	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-
 	// If this genesis wasn't actually set, then we'll fail here as we need
 	// it in order to make the asset template.
 	var zeroOp wire.OutPoint
@@ -221,8 +235,13 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 	// it in the TLV leaf.
 	var groupKey *asset.GroupKey
 	if a.GroupKey != nil {
+		if a.groupSig == nil {
+			return nil, fmt.Errorf("missing group signature")
+		}
+
 		groupKey = &asset.GroupKey{
 			GroupPubKey: *a.GroupKey,
+			Sig:         *a.groupSig,
 		}
 	}
 	newAsset, err := asset.New(
@@ -233,34 +252,7 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 		return nil, err
 	}
 
-	var buf bytes.Buffer
-	if err := newAsset.Encode(&buf); err != nil {
-		return nil, err
-	}
-
-	leaf := mssmt.NewLeafNode(buf.Bytes(), a.Amount)
-
-	// We use the default, in-memory store that doesn't actually use the
-	// context.
-	updatedTree, err := tree.Insert(context.Background(), key, leaf)
-	if err != nil {
-		return nil, err
-	}
-
-	updatedRoot, err := updatedTree.Root(context.Background())
-	if err != nil {
-		return nil, err
-	}
-
-	taroCommitment, err := commitment.NewTaroCommitment(
-		&commitment.AssetCommitment{
-			Version:  a.Version,
-			AssetID:  a.AssetID,
-			TreeRoot: updatedRoot,
-		},
-	)
-
-	return taroCommitment, err
+	return commitment.FromAssets(newAsset)
 }
 
 // TaprootOutputKey returns the on-chain Taproot output key.

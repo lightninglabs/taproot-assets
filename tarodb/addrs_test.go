@@ -151,13 +151,13 @@ func TestAddressInsertion(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
 
 		addrs[i] = *addr
 
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
-			insertFullAssetGen(ctx, assetGen),
+			insertFullAssetGen(ctx, assetGen, assetGroup),
 		)
 		require.NoError(t, err)
 	}
@@ -242,11 +242,11 @@ func TestAddressQuery(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
 
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
-			insertFullAssetGen(ctx, assetGen),
+			insertFullAssetGen(ctx, assetGen, assetGroup),
 		)
 		require.NoError(t, err)
 
@@ -354,11 +354,11 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	addr, assetGen := address.RandAddr(t, chainParams)
+	addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
 
 	var writeTxOpts AddrBookTxOptions
 	err := addrBook.db.ExecTx(
-		ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen),
+		ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen, assetGroup),
 	)
 	require.NoError(t, err)
 
@@ -390,11 +390,12 @@ func TestAddrEventCreation(t *testing.T) {
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
 
 		var writeTxOpts AddrBookTxOptions
 		err := addrBook.db.ExecTx(
-			ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen),
+			ctx, &writeTxOpts,
+			insertFullAssetGen(ctx, assetGen, assetGroup),
 		)
 		require.NoError(t, err)
 
@@ -465,10 +466,11 @@ func TestAddressEventQuery(t *testing.T) {
 	const numAddrs = 5
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
 
 		err := addrBook.db.ExecTx(
-			ctx, &writeTxOpts, insertFullAssetGen(ctx, assetGen),
+			ctx, &writeTxOpts,
+			insertFullAssetGen(ctx, assetGen, assetGroup),
 		)
 		require.NoError(t, err)
 

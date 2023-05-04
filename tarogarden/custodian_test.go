@@ -164,9 +164,9 @@ func newHarness(t *testing.T,
 }
 
 func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
-	addr, genesis := address.RandAddr(h.t, &address.RegressionNetTaro)
+	addr, genesis, group := address.RandAddr(h.t, &address.RegressionNetTaro)
 
-	err := h.tarodbBook.InsertAssetGen(context.Background(), genesis)
+	err := h.tarodbBook.InsertAssetGen(context.Background(), genesis, group)
 	require.NoError(h.t, err)
 
 	return addr
@@ -307,11 +307,12 @@ func TestTransactionHandling(t *testing.T) {
 
 func mustMakeAddr(t *testing.T,
 	gen asset.Genesis, groupKey *btcec.PublicKey,
-	scriptKey btcec.PublicKey) *address.Taro {
+	groupSig *schnorr.Signature, scriptKey btcec.PublicKey) *address.Taro {
 
 	var p btcec.PublicKey
 	addr, err := address.New(
-		gen, groupKey, scriptKey, p, 1, nil, &address.TestNet3Taro,
+		gen, groupKey, groupSig, scriptKey,
+		p, 1, nil, &address.TestNet3Taro,
 	)
 	require.NoError(t, err)
 
@@ -326,6 +327,8 @@ func TestAddrMatchesAsset(t *testing.T) {
 	randKey1, randKey2 := test.RandPubKey(t), test.RandPubKey(t)
 	randGen1 := asset.RandGenesis(t, asset.Normal)
 	randGen2 := asset.RandGenesis(t, asset.Normal)
+	randGroup1 := asset.RandGroupKey(t, randGen1)
+	randGroup2 := asset.RandGroupKey(t, randGen2)
 
 	var blankKey btcec.PublicKey
 
@@ -337,7 +340,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}{{
 		name: "both group keys nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, nil, blankKey),
+			Taro: mustMakeAddr(t, randGen1, nil, nil, blankKey),
 		},
 		a: &asset.Asset{
 			Genesis: randGen1,
@@ -349,13 +352,12 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "no group key nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, randKey1, blankKey),
+			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+				&randGroup1.Sig, blankKey),
 		},
 		a: &asset.Asset{
-			Genesis: randGen1,
-			GroupKey: &asset.GroupKey{
-				GroupPubKey: *randKey1,
-			},
+			Genesis:  randGen1,
+			GroupKey: randGroup1,
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
 			},
@@ -365,13 +367,11 @@ func TestAddrMatchesAsset(t *testing.T) {
 		name: "no group key nil but mismatch",
 		addr: &address.AddrWithKeyInfo{
 			Taro: &address.Taro{
-				GroupKey: randKey1,
+				GroupKey: &randGroup1.GroupPubKey,
 			},
 		},
 		a: &asset.Asset{
-			GroupKey: &asset.GroupKey{
-				GroupPubKey: *randKey2,
-			},
+			GroupKey: randGroup2,
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
 			},
@@ -383,9 +383,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 			Taro: &address.Taro{},
 		},
 		a: &asset.Asset{
-			GroupKey: &asset.GroupKey{
-				GroupPubKey: *randKey1,
-			},
+			GroupKey: randGroup1,
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
 			},
@@ -394,13 +392,12 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "id mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, randKey1, *randKey1),
+			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+				&randGroup1.Sig, *randKey1),
 		},
 		a: &asset.Asset{
-			Genesis: randGen2,
-			GroupKey: &asset.GroupKey{
-				GroupPubKey: *randKey1,
-			},
+			Genesis:  randGen2,
+			GroupKey: randGroup1,
 			ScriptKey: asset.ScriptKey{
 				PubKey: &btcec.PublicKey{},
 			},
@@ -409,13 +406,12 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "script key mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, randKey1, *randKey1),
+			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+				&randGroup1.Sig, *randKey1),
 		},
 		a: &asset.Asset{
-			Genesis: randGen1,
-			GroupKey: &asset.GroupKey{
-				GroupPubKey: *randKey1,
-			},
+			Genesis:  randGen1,
+			GroupKey: randGroup1,
 			ScriptKey: asset.ScriptKey{
 				PubKey: randKey2,
 			},
@@ -424,13 +420,12 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "all match",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, randKey1, *randKey2),
+			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+				&randGroup1.Sig, *randKey2),
 		},
 		a: &asset.Asset{
-			Genesis: randGen1,
-			GroupKey: &asset.GroupKey{
-				GroupPubKey: *randKey1,
-			},
+			Genesis:  randGen1,
+			GroupKey: randGroup1,
 			ScriptKey: asset.ScriptKey{
 				PubKey: randKey2,
 			},
