@@ -96,6 +96,8 @@ type Config struct {
 
 	UniverseFederation *universe.FederationEnvoy
 
+	UniverseStats universe.Telemetry
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
