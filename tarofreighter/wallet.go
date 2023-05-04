@@ -962,7 +962,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	//
 	// TODO(guggero): Support merging and anchoring multiple virtual
 	// transactions.
-	if len(params.VPkts) != 1 || len(params.InputCommitments) != 1 {
+	if len(params.VPkts) != 1 {
 		return nil, fmt.Errorf("only a single virtual transaction is " +
 			"supported for now")
 	}
