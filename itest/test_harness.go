@@ -214,7 +214,9 @@ func (h *harnessTest) syncUniverseState(target, syncer *tarodHarness,
 	})
 	require.NoError(h.t, err)
 
-	require.Len(h.t, syncDiff.SyncedUniverses, numExpectedAssets)
+	numAssets := len(syncDiff.SyncedUniverses)
+
+	require.Equal(h.t, numExpectedAssets, numAssets)
 }
 
 // nextAvailablePort returns the first port that is available for listening by

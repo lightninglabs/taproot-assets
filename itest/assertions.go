@@ -502,8 +502,13 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 
 // assertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
-func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
+func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 	amt uint64) {
+
+	t.Helper()
+
+	groupKey, err := hex.DecodeString(hexGroupKey)
+	require.NoError(t, err)
 
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
@@ -516,8 +521,7 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
 	)
 	require.NoError(t, err)
 
-	encodedGroupKey := hex.EncodeToString(groupKey)
-	balance, ok := balancesResp.AssetGroupBalances[encodedGroupKey]
+	balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
 	require.True(t, ok)
 	require.Equal(t, amt, balance.Balance)
 }
