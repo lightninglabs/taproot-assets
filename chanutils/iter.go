@@ -17,3 +17,23 @@ func ForEachErr[T any](s []T, f func(T) error) error {
 
 	return nil
 }
+
+// ForEach is a generic implementation of a for-each (map with side effects).
+// This can be used to ensure that any normal for-loop don't run into bugs due
+// to loop variable scoping.
+func ForEach[T any](items []T, f func(T)) {
+	for _, item := range items {
+		item := item
+		f(item)
+	}
+}
+
+// Enumerate is a generic enumeration function. The closure will be called for
+// each item in the passed slice, receiving both the index number as well as
+// the item itself.
+func Enumerate[T any](items []T, f func(int, T)) {
+	for i := 0; i < len(items)-1; i++ {
+		item := items[i]
+		f(i, item)
+	}
+}

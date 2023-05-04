@@ -2778,3 +2778,78 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 		ValidProof: true,
 	}, nil
 }
+
+// UniverseStats returns a set of aggregrate statistics for the current state
+// of the Universe.
+func (r *rpcServer) UniverseStats(ctx context.Context,
+	req *unirpc.StatsRequest) (*unirpc.StatsResponse, error) {
+
+	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.StatsResponse{
+		NumTotalAssets: int64(universeStats.NumTotalAssets),
+		NumTotalSyncs:  int64(universeStats.NumTotalSyncs),
+		NumTotalProofs: int64(universeStats.NumTotalProofs),
+	}, nil
+}
+
+// marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
+// counterpart.
+func marshalAssetSyncSnapshot(a universe.AssetSyncSnapshot,
+) *unirpc.AssetStatsSnapshot {
+
+	return &unirpc.AssetStatsSnapshot{
+		AssetId:       a.AssetID[:],
+		AssetName:     a.AssetName,
+		AssetType:     tarorpc.AssetType(a.AssetType),
+		TotalSupply:   int64(a.TotalSupply),
+		GenesisHeight: int32(a.GenesisHeight),
+		TotalSyncs:    int64(a.TotalSyncs),
+		TotalProofs:   int64(a.TotalProofs),
+	}
+}
+
+// QueryAssetStats returns a set of statistics for a given set of assets.
+// Stats can be queried for all assets, or based on the: asset ID, name, or
+// asset type. Pagination is supported via the offset and limit params.
+// Results can also be sorted based on any of the main query params.
+func (r *rpcServer) QueryAssetStats(ctx context.Context,
+	req *unirpc.AssetStatsQuery) (*unirpc.UniverseAssetStats, error) {
+
+	assetStats, err := r.cfg.UniverseStats.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			AssetNameFilter: req.AssetNameFilter,
+			AssetTypeFilter: func() *asset.Type {
+				switch req.AssetTypeFilter {
+				case unirpc.AssetTypeFilter_FILTER_ASSET_NORMAL:
+					return chanutils.Ptr(asset.Normal)
+
+				case unirpc.AssetTypeFilter_FILTER_ASSET_COLLECTIBLE:
+					return chanutils.Ptr(asset.Collectible)
+
+				default:
+					return nil
+				}
+			}(),
+			AssetIDFilter: chanutils.ToArray[asset.ID](
+				req.AssetIdFilter,
+			),
+			SortBy: universe.SyncStatsSort(req.SortBy),
+			Offset: int(req.Offset),
+			Limit:  int(req.Limit),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots := assetStats.SyncStats
+	resp := &unirpc.UniverseAssetStats{
+		AssetStats: chanutils.Map(snapshots, marshalAssetSyncSnapshot),
+	}
+
+	return resp, nil
+}
