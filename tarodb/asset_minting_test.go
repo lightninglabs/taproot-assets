@@ -841,6 +841,10 @@ func TestGroupStore(t *testing.T) {
 			t, anchorGroup.GroupKey.GroupPubKey,
 			reissueGroup.GroupKey.GroupPubKey,
 		)
+		require.NotEqual(
+			t, anchorGroup.GroupKey.Sig,
+			reissueGroup.GroupKey.Sig,
+		)
 
 		return nil
 	}

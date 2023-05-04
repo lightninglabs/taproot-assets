@@ -428,6 +428,10 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				return nil, err
 			}
 
+			// Clear the group signature, which is for the group
+			// anchor and not this seedling.
+			seedlingGroup.Sig = schnorr.Signature{}
+
 			seedling.GroupInfo = seedlingGroup
 		}
 

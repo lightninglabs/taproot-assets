@@ -303,7 +303,8 @@ SELECT
     key_group_info_view.gen_asset_id AS gen_asset_id,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = @group_key
@@ -317,7 +318,8 @@ SELECT
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = @genesis_id

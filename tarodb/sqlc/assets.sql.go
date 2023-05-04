@@ -932,7 +932,8 @@ SELECT
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = $1
@@ -944,6 +945,7 @@ type FetchGroupByGenesisRow struct {
 	RawKey          []byte
 	KeyIndex        int32
 	KeyFamily       int32
+	GenesisSig      []byte
 }
 
 func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (FetchGroupByGenesisRow, error) {
@@ -954,6 +956,7 @@ func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (Fet
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
+		&i.GenesisSig,
 	)
 	return i, err
 }
@@ -963,7 +966,8 @@ SELECT
     key_group_info_view.gen_asset_id AS gen_asset_id,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = $1
@@ -977,6 +981,7 @@ type FetchGroupByGroupKeyRow struct {
 	RawKey     []byte
 	KeyIndex   int32
 	KeyFamily  int32
+	GenesisSig []byte
 }
 
 // Sort and limit to return the genesis ID for initial genesis of the group.
@@ -988,6 +993,7 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
+		&i.GenesisSig,
 	)
 	return i, err
 }
