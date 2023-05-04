@@ -118,28 +118,26 @@ type SplitCommitment struct {
 	tree mssmt.Tree
 }
 
-// NewSplitCommitment computes a new SplitCommitment based on the given asset
-// input creating a set of asset splits uniquely identified by their `locators`.
-// The resulting asset splits are committed to within a MS-SMT and its root is
-// placed within the root asset, which should have a signature over the split
+// NewSplitCommitment computes a new SplitCommitment based on the given input
+// assets. It creates a set of asset splits uniquely identified by their
+// `locators`. The resulting asset splits are committed to a MS-SMT and its root
+// is placed within the root asset, which should have a signature over the split
 // state transition to authenticate the transfer. This signature on the root
 // asset needs to be provided after the fact. The rootLocator field is
 // considered to be the "change" output in the transfer: this is the location
 // where all the other splits (elsewhere in the transaction are committed to).
-//
-// TODO: Is it allowed to merge several assets to create a split within a single
-// state transition? Imagine 3 separate UTXOs containing 5 USD each and merged
-// to create a split payment of 7 USD in one UTXO for the recipient and a change
-// UTXO of 8 USD.
-func NewSplitCommitment(ctx context.Context, input *asset.Asset,
+func NewSplitCommitment(ctx context.Context, inputs []*asset.Asset,
 	outPoint wire.OutPoint, rootLocator *SplitLocator,
 	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
 
-	prevID := &asset.PrevID{
-		OutPoint:  outPoint,
-		ID:        input.Genesis.ID(),
-		ScriptKey: asset.ToSerialized(input.ScriptKey.PubKey),
+	// Calculate sum total input amounts.
+	totalInputAmount := uint64(0)
+	for idx := range inputs {
+		inputAsset := inputs[idx]
+		totalInputAmount += inputAsset.Amount
 	}
+
+	assetType := inputs[0].Type
 
 	// The assets need to go somewhere, they can be fully spent, but we
 	// still require this external locator to denote where the new value
@@ -150,7 +148,7 @@ func NewSplitCommitment(ctx context.Context, input *asset.Asset,
 
 	// To transfer a collectible with a split, the split root must be
 	// un-spendable, and there can only be one external locator.
-	if input.Type == asset.Collectible {
+	if assetType == asset.Collectible {
 		if rootLocator.Amount != 0 {
 			return nil, ErrNonZeroSplitAmount
 		}
@@ -180,10 +178,10 @@ func NewSplitCommitment(ctx context.Context, input *asset.Asset,
 	locators := append(externalLocators, rootLocator)
 	splitAssets := make(SplitSet, len(locators))
 	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-	remainingAmount := input.Amount
+	remainingAmount := totalInputAmount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
-		assetSplit := input.Copy()
+		assetSplit := inputs[0].Copy()
 		assetSplit.Amount = locator.Amount
 
 		scriptKey, err := btcec.ParsePubKey(locator.ScriptKey[:])
@@ -244,7 +242,23 @@ func NewSplitCommitment(ctx context.Context, input *asset.Asset,
 	// state transition.
 	var err error
 	rootAsset := splitAssets[*rootLocator].Copy()
-	rootAsset.PrevWitnesses[0].PrevID = prevID
+
+	// Construct input set and set root asset previous witnesses.
+	inputSet := make(InputSet)
+	rootAsset.PrevWitnesses = make([]asset.Witness, len(inputs))
+
+	for idx := range inputs {
+		input := inputs[idx]
+		prevID := &asset.PrevID{
+			OutPoint:  outPoint,
+			ID:        input.Genesis.ID(),
+			ScriptKey: asset.ToSerialized(input.ScriptKey.PubKey),
+		}
+		inputSet[*prevID] = input
+
+		rootAsset.PrevWitnesses[idx].PrevID = prevID
+	}
+
 	rootAsset.SplitCommitmentRoot, err = splitTree.Root(context.TODO())
 	if err != nil {
 		return nil, err
@@ -267,7 +281,7 @@ func NewSplitCommitment(ctx context.Context, input *asset.Asset,
 	}
 
 	return &SplitCommitment{
-		PrevAssets:  InputSet{*prevID: input},
+		PrevAssets:  inputSet,
 		RootAsset:   rootAsset,
 		SplitAssets: splitAssets,
 		tree:        splitTree,

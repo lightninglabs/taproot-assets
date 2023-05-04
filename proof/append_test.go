@@ -225,8 +225,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		Amount:      20,
 	}
 	splitCommitment, err := commitment.NewSplitCommitment(
-		context.Background(), &newAsset, transitionOutpoint,
-		rootLocator, split2Locator, split3Locator,
+		context.Background(), []*asset.Asset{&newAsset},
+		transitionOutpoint, rootLocator, split2Locator, split3Locator,
 	)
 	require.NoError(t, err)
 	split1Asset := splitCommitment.RootAsset

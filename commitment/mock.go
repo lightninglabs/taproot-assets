@@ -30,7 +30,8 @@ func RandSplitCommit(t testing.TB, a asset.Asset) *asset.SplitCommitment {
 	}
 
 	split, err := NewSplitCommitment(
-		context.Background(), &a, test.RandOp(t), &rootLoc, &splitLoc,
+		context.Background(), []*asset.Asset{&a}, test.RandOp(t),
+		&rootLoc, &splitLoc,
 	)
 	require.NoError(t, err)
 
