@@ -28,6 +28,10 @@ type MintingArchiveConfig struct {
 	// universe trees, and also obtain associated metadata and statistics.
 	UniverseForest BaseForest
 
+	// UniverseStats is used to export statistics related to the set of
+	// external/internal queries to the base universe instance.
+	UniverseStats Telemetry
+
 	// TODO(roasbeef): query re genesis asset known?
 
 	// TODO(roasbeef): load all at once, or lazy load dynamic?
@@ -206,6 +210,17 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 			"issuance: %v", err)
 	}
 
+	// Log a sync event for the newly inserted leaf in the background as an
+	// async goroutine.
+	go func() {
+		err := a.cfg.UniverseStats.LogNewProofEvent(
+			context.Background(), id, key,
+		)
+		if err != nil {
+			log.Warnf("unable to log new proof event: %v", err)
+		}
+	}()
+
 	return issuanceProof, nil
 }
 
@@ -216,6 +231,19 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
 		id.String(), spew.Sdump(key))
+
+	// Log a sync event for the leaf query leaf in the background as an
+	// async goroutine.
+	defer func() {
+		go func() {
+			err := a.cfg.UniverseStats.LogSyncEvent(
+				context.Background(), id, key,
+			)
+			if err != nil {
+				log.Warnf("unable to log sync event: %v", err)
+			}
+		}()
+	}()
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
 		return baseUni.FetchIssuanceProof(ctx, key)
