@@ -679,25 +679,49 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
 }
 
 // CreateOutputCommitments creates the final set of TaroCommitments representing
-// the asset send. The input TaroCommitment must be set.
+// the asset send.
 func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
 	vPkt *taropsbt.VPacket,
 	passiveAssets []*taropsbt.VPacket) ([]*commitment.TaroCommitment,
 	error) {
 
-	// We currently only support a single input.
-	//
-	// TODO(guggero): Support multiple inputs.
-	if len(vPkt.Inputs) != 1 {
-		return nil, fmt.Errorf("only a single input is currently " +
-			"supported")
-	}
-	input := vPkt.Inputs[0]
+	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
-	inputAsset := input.Asset().Copy()
 
-	// TODO(ffranr): Remove this once we support multiple inputs.
+	// TODO(ffranr): Support multiple inputs with different asset IDs.
+	// Currently, every input asset must have the same asset ID. Ensure
+	// that's the case.
+	assetsTaroCommitmentKey := inputs[0].Asset().TaroCommitmentKey()
+	for idx := range inputs {
+		inputAsset := inputs[idx].Asset()
+		if inputAsset.TaroCommitmentKey() != assetsTaroCommitmentKey {
+			return nil, fmt.Errorf("inputs must have the same " +
+				"asset ID")
+		}
+
+		// For multi input, assert asset is not part of a group.
+		assetInGroup := inputs[0].Asset().Genesis.ID() !=
+			assetsTaroCommitmentKey
+		if len(inputs) > 1 && assetInGroup {
+			return nil, fmt.Errorf("multi input spend may not " +
+				"include input from asset group")
+		}
+	}
+
+	// Merge all input taro commitments into a single commitment.
+	//
+	// TODO(ffranr): Use `chanutils.ForEach` and `inputTaroCommitments[1:]`.
 	inputTaroCommitment := inputTaroCommitments[0]
+	for idx := range inputTaroCommitments {
+		if idx == 0 {
+			continue
+		}
+		err := inputTaroCommitment.Merge(inputTaroCommitments[idx])
+		if err != nil {
+			return nil, fmt.Errorf("failed to merge input taro "+
+				"commitments: %w", err)
+		}
+	}
 
 	// We require all outputs that reference the same anchor output to be
 	// identical, otherwise some assumptions in the code below don't hold.
@@ -714,21 +738,27 @@ func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
 	}
 
 	inputCommitments := inputTaroCommitmentCopy.Commitments()
-	inputCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
+	inputCommitment, ok := inputCommitments[assetsTaroCommitmentKey]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
 
-	// Just a sanity check that the asset we're spending really was in the
-	// list of input assets.
-	_, ok = inputCommitment.Asset(inputAsset.AssetCommitmentKey())
-	if !ok {
-		return nil, ErrMissingInputAsset
-	}
+	for idx := range inputs {
+		input := inputs[idx]
+		inputAsset := input.Asset()
 
-	// Remove the input asset from the asset commitment tree.
-	if err := inputCommitment.Delete(inputAsset); err != nil {
-		return nil, err
+		// Just a sanity check that the asset we're spending really was
+		// in the list of input assets.
+		_, ok = inputCommitment.Asset(inputAsset.AssetCommitmentKey())
+		if !ok {
+			return nil, ErrMissingInputAsset
+		}
+
+		// Remove all input assets from the asset commitment tree.
+		err := inputCommitment.Delete(inputAsset)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	outputCommitments := make([]*commitment.TaroCommitment, len(outputs))
