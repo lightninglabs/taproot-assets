@@ -93,6 +93,21 @@ service Universe {
     */
     rpc DeleteFederationServer (DeleteFederationServerRequest)
         returns (DeleteFederationServerResponse);
+
+    /* tarocli: `universe stats`
+    UniverseStats returns a set of aggregrate statistics for the current state
+    of the Universe. Stats returned include: total number of syncs, total
+    number of proofs, and total number of known assets.
+    */
+    rpc UniverseStats (StatsRequest) returns (StatsResponse);
+
+    /* tarocli `universe stats assets`
+    QueryAssetStats returns a set of statistics for a given set of assets.
+    Stats can be queried for all assets, or based on the: asset ID, name, or
+    asset type. Pagination is supported via the offset and limit params.
+    Results can also be sorted based on any of the main query params.
+    */
+    rpc QueryAssetStats (AssetStatsQuery) returns (UniverseAssetStats);
 }
 
 message AssetRootRequest {
@@ -273,6 +288,9 @@ message SyncedUniverse {
     repeated AssetLeaf new_asset_leaves = 3;
 }
 
+message StatsRequest {
+}
+
 message SyncResponse {
     // The set of synced asset Universes.
     repeated SyncedUniverse synced_universes = 1;
@@ -302,4 +320,62 @@ message DeleteFederationServerRequest {
 }
 
 message DeleteFederationServerResponse {
+}
+
+message StatsResponse {
+    int64 num_total_assets = 1;
+    int64 num_total_syncs = 2;
+    int64 num_total_proofs = 3;
+}
+
+enum AssetQuerySort {
+    SORT_BY_NONE = 0;
+
+    SORT_BY_ASSET_NAME = 1;
+
+    SORT_BY_ASSET_ID = 2;
+
+    SORT_BY_ASSET_TYPE = 3;
+}
+
+enum AssetTypeFilter {
+    FILTER_ASSET_NONE = 0;
+
+    FILTER_ASSET_NORMAL = 1;
+
+    FILTER_ASSET_COLLECTIBLE = 2;
+}
+
+message AssetStatsQuery {
+    string asset_name_filter = 1;
+
+    bytes asset_id_filter = 2;
+
+    AssetTypeFilter asset_type_filter = 3;
+
+    AssetQuerySort sort_by = 4;
+
+    int32 offset = 5;
+
+    int32 limit = 6;
+}
+
+message AssetStatsSnapshot {
+    bytes asset_id = 1;
+
+    int64 total_supply = 2;
+
+    string asset_name = 3;
+
+    tarorpc.AssetType asset_type = 4;
+
+    int32 genesis_height = 5;
+
+    int64 total_syncs = 6;
+
+    int64 total_proofs = 7;
+}
+
+message UniverseAssetStats {
+    repeated AssetStatsSnapshot asset_stats = 1;
 }

@@ -75,6 +75,17 @@ type UniverseClient interface {
 	//DeleteFederationServer removes a server from the federation of the local
 	//Universe server.
 	DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error)
+	// tarocli: `universe stats`
+	//UniverseStats returns a set of aggregrate statistics for the current state
+	//of the Universe. Stats returned include: total number of syncs, total
+	//number of proofs, and total number of known assets.
+	UniverseStats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
+	// tarocli `universe stats assets`
+	//QueryAssetStats returns a set of statistics for a given set of assets.
+	//Stats can be queried for all assets, or based on the: asset ID, name, or
+	//asset type. Pagination is supported via the offset and limit params.
+	//Results can also be sorted based on any of the main query params.
+	QueryAssetStats(ctx context.Context, in *AssetStatsQuery, opts ...grpc.CallOption) (*UniverseAssetStats, error)
 }
 
 type universeClient struct {
@@ -175,6 +186,24 @@ func (c *universeClient) DeleteFederationServer(ctx context.Context, in *DeleteF
 	return out, nil
 }
 
+func (c *universeClient) UniverseStats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error) {
+	out := new(StatsResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/UniverseStats", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) QueryAssetStats(ctx context.Context, in *AssetStatsQuery, opts ...grpc.CallOption) (*UniverseAssetStats, error) {
+	out := new(UniverseAssetStats)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/QueryAssetStats", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -236,6 +265,17 @@ type UniverseServer interface {
 	//DeleteFederationServer removes a server from the federation of the local
 	//Universe server.
 	DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error)
+	// tarocli: `universe stats`
+	//UniverseStats returns a set of aggregrate statistics for the current state
+	//of the Universe. Stats returned include: total number of syncs, total
+	//number of proofs, and total number of known assets.
+	UniverseStats(context.Context, *StatsRequest) (*StatsResponse, error)
+	// tarocli `universe stats assets`
+	//QueryAssetStats returns a set of statistics for a given set of assets.
+	//Stats can be queried for all assets, or based on the: asset ID, name, or
+	//asset type. Pagination is supported via the offset and limit params.
+	//Results can also be sorted based on any of the main query params.
+	QueryAssetStats(context.Context, *AssetStatsQuery) (*UniverseAssetStats, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -272,6 +312,12 @@ func (UnimplementedUniverseServer) AddFederationServer(context.Context, *AddFede
 }
 func (UnimplementedUniverseServer) DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteFederationServer not implemented")
+}
+func (UnimplementedUniverseServer) UniverseStats(context.Context, *StatsRequest) (*StatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UniverseStats not implemented")
+}
+func (UnimplementedUniverseServer) QueryAssetStats(context.Context, *AssetStatsQuery) (*UniverseAssetStats, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryAssetStats not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -466,6 +512,42 @@ func _Universe_DeleteFederationServer_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_UniverseStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).UniverseStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/UniverseStats",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).UniverseStats(ctx, req.(*StatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_QueryAssetStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssetStatsQuery)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).QueryAssetStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/QueryAssetStats",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).QueryAssetStats(ctx, req.(*AssetStatsQuery))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -512,6 +594,14 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteFederationServer",
 			Handler:    _Universe_DeleteFederationServer_Handler,
+		},
+		{
+			MethodName: "UniverseStats",
+			Handler:    _Universe_UniverseStats_Handler,
+		},
+		{
+			MethodName: "QueryAssetStats",
+			Handler:    _Universe_QueryAssetStats_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

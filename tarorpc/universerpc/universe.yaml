@@ -51,3 +51,9 @@ http:
         
     - selector: universerpc.Universe.DeleteFederationServer
       delete: "/v1/taro/universe/federation"
+
+    - selector: universerpc.Universe.UniverseStats
+      get: "/v1/taro/universe/stats"
+
+    - selector: universerpc.Universe.QueryAssetStats
+      get: "/v1/taro/universe/stats/assets"
