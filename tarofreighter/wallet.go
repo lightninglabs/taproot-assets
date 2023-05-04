@@ -1046,7 +1046,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// and remove the change output entirely.
 	adjustFundedPsbt(&anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
 
-	log.Infof("Received funded PSBT packet: %v", spew.Sdump(anchorPkt.Pkt))
+	log.Infof("Received funded PSBT packet")
+	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
 
 	// We need the PSBT output information in the unsigned packet later to
 	// create the exclusion proofs. So we continue on a copy of the PSBT
@@ -1081,12 +1082,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// With all the input and output information in the packet, we
 	// can now ask lnd to sign it, and then extract the final
 	// version ourselves.
-	log.Debugf("Signing PSBT: %s", spew.Sdump(signAnchorPkt))
+	log.Debugf("Signing PSBT")
+	log.Tracef("PSBT: %s", spew.Sdump(signAnchorPkt))
 	signedPsbt, err := f.cfg.Wallet.SignPsbt(ctx, signAnchorPkt)
 	if err != nil {
 		return nil, fmt.Errorf("unable to sign psbt: %w", err)
 	}
-	log.Debugf("Got signed PSBT: %s", spew.Sdump(signedPsbt))
+	log.Debugf("Got signed PSBT")
+	log.Tracef("PSBT: %s", spew.Sdump(signedPsbt))
 
 	// Before we finalize, we need to calculate the actual, final fees that
 	// we pay.

@@ -337,8 +337,8 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
 	}
 
-	log.Infof("BatchCaretaker(%x): creating skeleton PSBT: %v",
-		b.batchKey[:], spew.Sdump(genesisPkt))
+	log.Infof("BatchCaretaker(%x): creating skeleton PSBT", b.batchKey[:])
+	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
 
 	feeRate, err := b.cfg.ChainBridge.EstimateFee(
 		ctx, GenesisConfTarget,
@@ -354,8 +354,8 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
 
-	log.Infof("BatchCaretaker(%x): funded GenesisPacket obtained: %v",
-		b.batchKey[:], spew.Sdump(fundedGenesisPkt))
+	log.Infof("BatchCaretaker(%x): funded GenesisPacket", b.batchKey[:])
+	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
 	return &fundedGenesisPkt, nil
 }
@@ -609,8 +609,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 		b.cfg.Batch.GenesisPacket.ChainFees = chainFees
 
-		log.Infof("BatchCaretaker(%x): GenesisPacket finalized: %v",
-			b.batchKey[:], spew.Sdump(signedPkt))
+		log.Infof("BatchCaretaker(%x): GenesisPacket finalized",
+			b.batchKey[:])
+		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
 
 		// At this point we have a fully signed PSBT packet which'll
 		// create our set of assets once mined. We'll write this to
@@ -673,8 +674,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"signed tx: %w", err)
 		}
 
-		log.Infof("BatchCaretaker(%x): extracted finalized GenesisTx: %v",
-			b.batchKey[:], spew.Sdump(signedTx))
+		log.Infof("BatchCaretaker(%x): extracted finalized GenesisTx",
+			b.batchKey[:])
+		log.Tracef("GenesisTx: %v", spew.Sdump(signedTx))
 
 		// With the final transaction extracted, we'll broadcast the
 		// transaction, then request a confirmation notification.
