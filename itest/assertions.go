@@ -531,20 +531,22 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 	require.Equal(t, amt, balance.Balance)
 }
 
-// assertTransfers asserts that the value of each transfer initiated on the
+// assertTransfer asserts that the value of each transfer initiated on the
 // given daemon is correct.
-func assertTransfers(t *testing.T, tarod *tarodHarness, amts []uint64) {
+func assertTransfer(t *testing.T, tarod *tarodHarness, transferIdx,
+	numTransfers int, outputAmounts []uint64) {
+
 	ctxb := context.Background()
 	transferResp, err := tarod.ListTransfers(
 		ctxb, &tarorpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
-	require.Len(t, transferResp.Transfers, len(amts))
+	require.Len(t, transferResp.Transfers, numTransfers)
 
-	// TODO(jhb): Extend to support multi-asset transfers
-	for i, transfer := range transferResp.Transfers {
-		require.Len(t, transfer.Outputs, 2)
-		require.Equal(t, amts[i], transfer.Outputs[0].Amount)
+	transfer := transferResp.Transfers[transferIdx]
+	require.Len(t, transfer.Outputs, len(outputAmounts))
+	for i := range transfer.Outputs {
+		require.Equal(t, outputAmounts[i], transfer.Outputs[i].Amount)
 	}
 }
 

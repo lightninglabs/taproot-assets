@@ -14,12 +14,19 @@ func testFullValueSend(t *harnessTest) {
 	// First, we'll make an normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0], issuableAssets[0],
+		},
 	)
 
-	genInfo := rpcAssets[0].AssetGenesis
+	mintedAsset := rpcAssets[0]
+	mintedGroupAsset := rpcAssets[1]
+	genInfo := mintedAsset.AssetGenesis
+	groupGenInfo := mintedGroupAsset.AssetGenesis
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -34,13 +41,27 @@ func testFullValueSend(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
+	runFullValueSendTests(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset, 0, 1,
+	)
+	runFullValueSendTests(
+		ctxt, t, t.tarod, secondTarod, groupGenInfo, mintedGroupAsset,
+		1, 2,
+	)
+}
+
+// runFullValueSendTests runs the full value send tests for a single asset.
+func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
+	bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
+	mintedAsset *tarorpc.Asset, runIdx, numRuns int) {
+
 	// Next, we'll attempt to complete three transfers of the full value of
 	// the asset between our main node and Bob.
 	var (
 		numSends            = 3
-		senderTransferIdx   = 0
-		receiverTransferIdx = 0
-		fullAmount          = rpcAssets[0].Amount
+		senderTransferIdx   = runIdx * 2
+		receiverTransferIdx = runIdx * 1
+		fullAmount          = mintedAsset.Amount
 		receiverAddr        *tarorpc.Addr
 		err                 error
 	)
@@ -50,51 +71,43 @@ func testFullValueSend(t *harnessTest) {
 		// start with Bob receiving the asset, then sending it back
 		// to the main node, and so on.
 		if i%2 == 0 {
-			receiverAddr, err = secondTarod.NewAddr(
-				ctxb, &tarorpc.NewAddrRequest{
+			receiverAddr, err = bob.NewAddr(
+				ctxt, &tarorpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
 			)
 			require.NoError(t.t, err)
 
-			assertAddrCreated(
-				t.t, secondTarod, rpcAssets[0], receiverAddr,
-			)
-			sendResp := sendAssetsToAddr(t, t.tarod, receiverAddr)
+			assertAddrCreated(t.t, bob, mintedAsset, receiverAddr)
+			sendResp := sendAssetsToAddr(t, alice, receiverAddr)
 			confirmAndAssertOutboundTransfer(
-				t, t.tarod, sendResp, genInfo.AssetId,
+				t, alice, sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
 			)
 			_ = sendProof(
-				t, t.tarod, secondTarod, receiverAddr.ScriptKey,
-				genInfo,
+				t, alice, bob, receiverAddr.ScriptKey, genInfo,
 			)
 			senderTransferIdx++
 		} else {
-			receiverAddr, err = t.tarod.NewAddr(
-				ctxb, &tarorpc.NewAddrRequest{
+			receiverAddr, err = alice.NewAddr(
+				ctxt, &tarorpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
 			)
 			require.NoError(t.t, err)
 
-			assertAddrCreated(
-				t.t, t.tarod, rpcAssets[0], receiverAddr,
-			)
-			sendResp := sendAssetsToAddr(
-				t, secondTarod, receiverAddr,
-			)
+			assertAddrCreated(t.t, alice, mintedAsset, receiverAddr)
+			sendResp := sendAssetsToAddr(t, bob, receiverAddr)
 			confirmAndAssertOutboundTransfer(
-				t, secondTarod, sendResp, genInfo.AssetId,
+				t, bob, sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, receiverTransferIdx,
 				receiverTransferIdx+1,
 			)
 			_ = sendProof(
-				t, secondTarod, t.tarod, receiverAddr.ScriptKey,
-				genInfo,
+				t, bob, alice, receiverAddr.ScriptKey, genInfo,
 			)
 			receiverTransferIdx++
 		}
@@ -103,9 +116,10 @@ func testFullValueSend(t *harnessTest) {
 	// Check the final state of both nodes. The main node should list 2
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
-	assertTransfers(t.t, t.tarod, []uint64{0, 0})
-	assertBalanceByID(t.t, t.tarod, genInfo.AssetId, 0)
+	assertTransfer(t.t, alice, runIdx*2, numRuns*2, []uint64{0, fullAmount})
+	assertTransfer(t.t, alice, runIdx*2+1, numRuns*2, []uint64{0, fullAmount})
+	assertBalanceByID(t.t, alice, genInfo.AssetId, 0)
 
-	assertTransfers(t.t, secondTarod, []uint64{0})
-	assertBalanceByID(t.t, secondTarod, genInfo.AssetId, fullAmount)
+	assertTransfer(t.t, bob, runIdx, numRuns, []uint64{0, fullAmount})
+	assertBalanceByID(t.t, bob, genInfo.AssetId, fullAmount)
 }
