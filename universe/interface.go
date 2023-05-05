@@ -19,6 +19,10 @@ import (
 var (
 	// ErrNoUniverseRoot is returned when no universe root is found.
 	ErrNoUniverseRoot = fmt.Errorf("no universe root found")
+
+	// ErrNoUniverseServers is returned when no active Universe servers are
+	// found in the DB.
+	ErrNoUniverseServers = fmt.Errorf("no active federation servers")
 )
 
 // Identifier is the identifier for a root/base universe.
@@ -425,4 +429,22 @@ type Cannonical interface {
 	// UpdateChainCommitment takes in a series of chain commitments and
 	// updates the commitment on chain.
 	UpdateChainCommitment(chainCommits ...ChainCommiter) (*Commitment, error)
+}
+
+// FederationLog is used to keep track of the set Universe servers that
+// comprise our current federation. This'll be used by the AutoSyncer to
+// periodically push and sync new proof events against the federation.
+type FederationLog interface {
+	// UniverseServers returns the set of servers in the federation.
+	UniverseServers(ctx context.Context) ([]ServerAddr, error)
+
+	// AddServers adds a slice of servers to the federation.
+	AddServers(ctx context.Context, addrs ...ServerAddr) error
+
+	// RemoveServers removes a set of servers from the federation.
+	RemoveServers(ctx context.Context, addrs ...ServerAddr) error
+
+	// LogNewSyncs logs a new sync event for each server. This can be used
+	// to keep track of the last time we synced with a remote server.
+	LogNewSyncs(ctx context.Context, addrs ...ServerAddr) error
 }
