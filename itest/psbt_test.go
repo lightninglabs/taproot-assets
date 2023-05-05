@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -31,9 +32,12 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
+	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -49,8 +53,9 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	}()
 
 	var (
-		alice = t.tarod
-		bob   = secondTarod
+		alice    = t.tarod
+		bob      = secondTarod
+		numUnits = uint64(10)
 	)
 
 	// We need to derive two keys, one for the new script key and one for
@@ -67,43 +72,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	)
 	rootHash := tapscript.ControlBlock.RootHash(leaf1.Script)
 
-	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
-	require.NoError(t.t, err)
-
-	bobAssetScriptKey, err := tapscript.TaprootKey()
-	require.NoError(t.t, err)
-
-	t.Logf("Bob destination key %x (internal %x, root %x)",
-		bobAssetScriptKey.SerializeCompressed(),
-		bobScriptKey.PubKey.SerializeCompressed(), rootHash[:])
-
-	// Next, we'll attempt to complete a transfer with PSBTs from our main
-	// node to Bob.
-	const numUnits = 10
-	bobAddr, err := bob.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits,
-		ScriptKey: &tarorpc.ScriptKey{
-			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
-			TapTweak: rootHash[:],
-		},
-		InternalKey: lndKeyDescToTaro(bobInternalKey),
-	})
-	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bob, rpcAssets[0], bobAddr)
-
-	// Send the asset to Bob using the script key with an actual script
-	// tree.
-	sendResp := sendAssetsToAddr(t, alice, bobAddr)
-
-	changeUnits := rpcAssets[0].Amount - numUnits
-	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{changeUnits, numUnits}, 0, 1,
+	sendToTapscriptAddr(
+		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
-	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -124,6 +96,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// We don't need to sign anything as we're going to spend with a
 	// pre-image to the script lock.
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
 	senderOut := fundedPacket.Outputs[0].Asset
 	senderOut.PrevWitnesses[0].TxWitness = [][]byte{
 		preImage, leaf1.Script, controlBlockBytes,
@@ -146,7 +120,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Now we'll attempt to complete the transfer.
-	sendResp, err = bob.AnchorVirtualPsbts(
+	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{b.Bytes()},
 		},
@@ -179,9 +153,12 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
+	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -197,8 +174,9 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	}()
 
 	var (
-		alice = t.tarod
-		bob   = secondTarod
+		alice    = t.tarod
+		bob      = secondTarod
+		numUnits = uint64(10)
 	)
 
 	// We need to derive two keys, one for the new script key and one for
@@ -216,43 +194,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	)
 	rootHash := tapscript.ControlBlock.RootHash(leaf2.Script)
 
-	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
-	require.NoError(t.t, err)
-
-	bobAssetScriptKey, err := tapscript.TaprootKey()
-	require.NoError(t.t, err)
-
-	t.Logf("Bob destination key %x (internal %x, root %x)",
-		bobAssetScriptKey.SerializeCompressed(),
-		bobScriptKey.PubKey.SerializeCompressed(), rootHash[:])
-
-	// Next, we'll attempt to complete a transfer with PSBTs from our main
-	// node to Bob.
-	const numUnits = 10
-	bobAddr, err := bob.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits,
-		ScriptKey: &tarorpc.ScriptKey{
-			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
-			TapTweak: rootHash[:],
-		},
-		InternalKey: lndKeyDescToTaro(bobInternalKey),
-	})
-	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bob, rpcAssets[0], bobAddr)
-
-	// Send the asset to Bob using the script key with an actual script
-	// tree.
-	sendResp := sendAssetsToAddr(t, alice, bobAddr)
-
-	changeUnits := rpcAssets[0].Amount - numUnits
-	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{changeUnits, numUnits}, 0, 1,
+	sendToTapscriptAddr(
+		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
-	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -273,6 +218,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// We can now ask the wallet to sign the script path, since we only need
 	// a signature.
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
 	fundedPacket.Inputs[0].TaprootMerkleRoot = rootHash[:]
 	fundedPacket.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
 		{
@@ -297,7 +244,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	require.Contains(t.t, signedResp.SignedInputs, uint32(0))
 
 	// Now we'll attempt to complete the transfer.
-	sendResp, err = bob.AnchorVirtualPsbts(
+	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedResp.SignedPsbt},
 		},
@@ -975,4 +922,45 @@ func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,
 	require.NoError(t, err)
 
 	return *scriptKey, internalKeyLnd
+}
+
+func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
+	bob *tarodHarness, numUnits uint64, genInfo *tarorpc.GenesisInfo,
+	mintedAsset *tarorpc.Asset, bobScriptKey asset.ScriptKey,
+	bobInternalKey keychain.KeyDescriptor, tapscript *waddrmgr.Tapscript,
+	rootHash []byte) {
+
+	bobAssetScriptKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	t.Logf("Bob destination key %x (internal %x, root %x)",
+		bobAssetScriptKey.SerializeCompressed(),
+		bobScriptKey.PubKey.SerializeCompressed(), rootHash)
+
+	// Next, we'll attempt to complete a transfer with PSBTs from our main
+	// node to Bob.
+	bobAddr, err := bob.NewAddr(ctx, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
+		ScriptKey: &tarorpc.ScriptKey{
+			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
+			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
+			TapTweak: rootHash,
+		},
+		InternalKey: lndKeyDescToTaro(bobInternalKey),
+	})
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, bob, mintedAsset, bobAddr)
+
+	// Send the asset to Bob using the script key with an actual script
+	// tree.
+	sendResp := sendAssetsToAddr(t, alice, bobAddr)
+
+	changeUnits := mintedAsset.Amount - numUnits
+	confirmAndAssertOutboundTransfer(
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{changeUnits, numUnits}, 0, 1,
+	)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, bob, 1)
 }
