@@ -264,3 +264,9 @@ type UniverseRoot struct {
 	AssetID       []byte
 	GroupKey      []byte
 }
+
+type UniverseServer struct {
+	ID           int32
+	ServerHost   string
+	LastSyncTime time.Time
+}

@@ -25,6 +25,7 @@ type Querier interface {
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
+	DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
@@ -84,6 +85,9 @@ type Querier interface {
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeafParams) error
+	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
+	ListUniverseServers(ctx context.Context) ([]UniverseServer, error)
+	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset

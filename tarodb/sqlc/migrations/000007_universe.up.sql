@@ -32,3 +32,18 @@ CREATE TABLE IF NOT EXISTS universe_leaves (
 
     UNIQUE(minting_point, script_key_bytes)
 );
+
+CREATE TABLE IF NOT EXISTS universe_servers (
+    id INTEGER PRIMARY KEY,
+
+    server_host TEXT UNIQUE NOT NULL,
+
+    -- TODO(roasbeef): do host + port? then unique on that?
+
+    last_sync_time TIMESTAMP NOT NULL
+
+    -- TODO(roasbeef): can also add stuff like filters re which items to sync,
+    -- etc? also sync mode, ones that should get everything pushed, etc
+);
+
+CREATE INDEX IF NOT EXISTS universe_servers_host ON universe_servers(server_host);
