@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testAddresses tests the various RPC calls related to addresses.
 func testAddresses(t *harnessTest) {
 	// First, mint a few assets, so we have some to create addresses for.
 	// We mint all of them in individual batches to avoid needing to sign

@@ -6,7 +6,7 @@ package itest
 var testCases = []*testCase{
 	{
 		name: "mint assets",
-		test: mintAssets,
+		test: testMintAssets,
 	},
 	{
 		name: "asset name collision raises mint error",
@@ -32,7 +32,7 @@ var testCases = []*testCase{
 	},
 	{
 		name: "basic send passive asset",
-		test: testSendPassiveAsset,
+		test: testBasicSendPassiveAsset,
 	},
 	{
 		name: "multi input send non-interactive single ID",
@@ -51,7 +51,7 @@ var testCases = []*testCase{
 		test: testCollectibleSend,
 	},
 	{
-		name: "reissuance",
+		name: "re-issuance",
 		test: testReIssuance,
 	},
 	{
@@ -59,7 +59,7 @@ var testCases = []*testCase{
 		test: testMintMultiAssetGroups,
 	},
 	{
-		name: "re-issuance asset amount overflow",
+		name: "re-issuance amount overflow",
 		test: testReIssuanceAmountOverflow,
 	},
 	{
