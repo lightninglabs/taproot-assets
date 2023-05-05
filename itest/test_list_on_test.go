@@ -79,12 +79,20 @@ var testCases = []*testCase{
 		test: testPsbtScriptCheckSigSend,
 	},
 	{
-		name: "psbt interactive full value send",
-		test: testPsbtInteractiveFullValueSend,
+		name: "psbt normal interactive full value send",
+		test: testPsbtNormalInteractiveFullValueSend,
 	},
 	{
-		name: "psbt interactive split send",
-		test: testPsbtInteractiveSplitSend,
+		name: "psbt grouped interactive full value send",
+		test: testPsbtGroupedInteractiveFullValueSend,
+	},
+	{
+		name: "psbt normal interactive split send",
+		test: testPsbtNormalInteractiveSplitSend,
+	},
+	{
+		name: "psbt grouped interactive split send",
+		test: testPsbtGroupedInteractiveSplitSend,
 	},
 	{
 		name: "psbt interactive tapscript sibling",

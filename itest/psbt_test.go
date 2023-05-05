@@ -268,9 +268,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	t.Logf("Got alice assets: %s", assetsJSON)
 }
 
-// testPsbtInteractiveFullValueSend tests that we can properly send assets back
-// and forth, using the full amount, between nodes with the use of PSBTs.
-func testPsbtInteractiveFullValueSend(t *harnessTest) {
+// testPsbtNormalInteractiveFullValueSend tests that we can properly send normal
+// assets back and forth, using the full amount, between nodes with the use of
+// PSBTs.
+func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
@@ -291,7 +292,8 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		},
 	)
 
-	genInfo := rpcAssets[0].AssetGenesis
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -311,15 +313,66 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	}()
 
 	runPsbtInteractiveFullValueSendTest(
-		ctxt, t, t.tarod, secondTarod, genInfo, rpcAssets[0],
-		rpcAssets[1], 1, 0,
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
 	)
-
 }
 
+// testPsbtGroupedInteractiveFullValueSend tests that we can properly send
+// grouped assets back and forth, using the full amount, between nodes with the
+// use of PSBTs.
+func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			issuableAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	runPsbtInteractiveFullValueSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// runPsbtInteractiveFullValueSendTest runs a single test of sending an asset
+// back and forth between two nodes using PSBTs and the full amount.
 func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 	alice, bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
-	mintedAsset, passiveAsset *tarorpc.Asset, numRuns, runIdx int) {
+	mintedAsset, passiveAsset *tarorpc.Asset) {
 
 	var (
 		sender      = alice
@@ -418,9 +471,60 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 	)
 }
 
-// testPsbtInteractiveSplitSend tests that we can properly send assets back
-// and forth, using the full amount, between nodes with the use of PSBTs.
-func testPsbtInteractiveSplitSend(t *harnessTest) {
+// testPsbtNormalInteractiveSplitSend tests that we can properly send normal
+// assets back and forth, using the full amount, between nodes with the use of
+// PSBTs.
+func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := rpcAssets[0].AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	runPsbtInteractiveSplitSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// testPsbtGroupedInteractiveSplitSend tests that we can properly send grouped
+// assets back and forth, using the full amount, between nodes with the use of
+// PSBTs.
+func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
@@ -441,8 +545,8 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		},
 	)
 
+	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
-	chainParams := &address.RegressionNetTaro
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -461,12 +565,25 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
+	runPsbtInteractiveSplitSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// runPsbtInteractiveSplitSendTest runs a single test of sending an asset
+// back and forth between two nodes using PSBTs and a split amount.
+func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
+	alice, bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
+	mintedAsset, passiveAsset *tarorpc.Asset) {
+
 	var (
-		sender      = t.tarod
-		receiver    = secondTarod
-		senderSum   = rpcAssets[0].Amount
+		sender      = alice
+		receiver    = bob
+		senderSum   = mintedAsset.Amount
 		receiverSum = uint64(0)
 		id          [32]byte
+		chainParams = &address.RegressionNetTaro
 	)
 	copy(id[:], genInfo.AssetId)
 
@@ -565,10 +682,9 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 	}
 
 	// Finally, make sure we can still send out the passive asset.
-	passiveAsset := rpcAssets[1]
-	passiveGen := rpcAssets[1].AssetGenesis
+	passiveGen := passiveAsset.AssetGenesis
 	sendAssetAndAssert(
-		ctxt, t, t.tarod, secondTarod, passiveAsset.Amount, 0,
+		ctxt, t, alice, bob, passiveAsset.Amount, 0,
 		passiveGen, passiveAsset, 2, 3, 1,
 	)
 }
