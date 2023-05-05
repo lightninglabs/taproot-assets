@@ -56,11 +56,10 @@ make install
 
 ## Initialization:
 
-Run Taro with the command `tarod`. Specify how Taro can reach LND and what network to run Taro with by passing it additional flags.
+Run Taro with the command `tarod`. Specify how Taro can reach LND and what network to run Taro with by passing it additional flags. The Bitcoin backend and LND need to be running and synced before the Taro daemon can be started.
 
 
 ```shell
-# Ensure lnd and its bitcoind/btcd backend are running first.
 tarod --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.macaroonpath=~/.lnd/data/chain/bitcoin/testnet/admin.macaroon --lnd.tlspath=~/.lnd/tls.cert
 ```
 
