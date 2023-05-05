@@ -292,7 +292,6 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	chainParams := &address.RegressionNetTaro
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -311,11 +310,23 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
+	runPsbtInteractiveFullValueSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, rpcAssets[0],
+		rpcAssets[1], 1, 0,
+	)
+
+}
+
+func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
+	alice, bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
+	mintedAsset, passiveAsset *tarorpc.Asset, numRuns, runIdx int) {
+
 	var (
-		sender   = t.tarod
-		receiver = secondTarod
-		id       [32]byte
-		fullAmt  = rpcAssets[0].Amount
+		sender      = alice
+		receiver    = bob
+		id          [32]byte
+		fullAmt     = mintedAsset.Amount
+		chainParams = &address.RegressionNetTaro
 	)
 	copy(id[:], genInfo.AssetId)
 
@@ -382,7 +393,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		// has the passive asset left.
 		numSenderAssets := 1
 		numReceiverAssets := 1
-		if sender == secondTarod {
+		if sender == bob {
 			numSenderAssets = 0
 			numReceiverAssets = 2
 		}
@@ -400,10 +411,9 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	}
 
 	// Finally, make sure we can still send out the passive asset.
-	passiveAsset := rpcAssets[1]
-	passiveGen := rpcAssets[1].AssetGenesis
+	passiveGen := passiveAsset.AssetGenesis
 	sendAssetAndAssert(
-		ctxt, t, t.tarod, secondTarod, passiveAsset.Amount, 0,
+		ctxt, t, alice, bob, passiveAsset.Amount, 0,
 		passiveGen, passiveAsset, 2, 3, 1,
 	)
 }
