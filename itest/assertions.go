@@ -312,10 +312,10 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr,
 	require.NoError(t, err)
 }
 
-// assertAddrReceives makes sure the given number of events with the given
-// status were received.
-func assertAddrReceives(t *testing.T, tarod *tarodHarness, numEvents int,
-	expectedStatus tarorpc.AddrEventStatus) {
+// assertAddrEventByStatus makes sure the given number of events exist with the
+// given status.
+func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
+	filterStatus tarorpc.AddrEventStatus, numEvents int) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -323,15 +323,17 @@ func assertAddrReceives(t *testing.T, tarod *tarodHarness, numEvents int,
 
 	err := wait.NoError(func() error {
 		resp, err := tarod.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{},
+			ctxt, &tarorpc.AddrReceivesRequest{
+				FilterStatus: filterStatus,
+			},
 		)
 		require.NoError(t, err)
 		require.Len(t, resp.Events, numEvents)
 
 		for _, event := range resp.Events {
-			if event.Status != expectedStatus {
+			if event.Status != filterStatus {
 				return fmt.Errorf("got status %v, wanted %v",
-					resp.Events[0].Status, expectedStatus)
+					resp.Events[0].Status, filterStatus)
 			}
 		}
 
