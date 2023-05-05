@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestErrGroup(t *testing.T) {
+func TestParSlice(t *testing.T) {
 	t.Parallel()
 	errs := []error{errors.New("error #1"), errors.New("error #2")}
 
@@ -50,7 +50,7 @@ func TestErrGroup(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			e := ErrGroup(
+			e := ParSlice(
 				context.TODO(), test.values, returnErrFunc,
 			)
 			require.Contains(t, test.expectedErrors, e)
