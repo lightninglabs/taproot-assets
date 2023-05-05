@@ -276,7 +276,9 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 
 // assertAddrEvent makes sure the given address was detected by the given
 // daemon.
-func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr) {
+func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr,
+	numEvents int, expectedStatus tarorpc.AddrEventStatus) {
+
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
@@ -291,14 +293,14 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr) {
 			return err
 		}
 
-		if len(resp.Events) != 1 {
-			return fmt.Errorf("got %d events, wanted 1",
-				len(resp.Events))
+		if len(resp.Events) != numEvents {
+			return fmt.Errorf("got %d events, wanted %d",
+				len(resp.Events), numEvents)
 		}
 
-		if resp.Events[0].Status != statusDetected {
+		if resp.Events[0].Status != expectedStatus {
 			return fmt.Errorf("got status %v, wanted %v",
-				resp.Events[0].Status, statusDetected)
+				resp.Events[0].Status, expectedStatus)
 		}
 
 		eventJSON, err := formatProtoJSON(resp.Events[0])
