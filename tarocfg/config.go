@@ -92,6 +92,10 @@ const (
 	// defaultProofTransferReceiverAckTimeout is the default timeout we'll
 	// use for waiting for a receiver to acknowledge a proof transfer.
 	defaultProofTransferReceiverAckTimeout = 5 * time.Second
+
+	// defaultuniverseSyncInterval is the default interval that we'll use
+	// to sync Universe state with the federation.
+	defaultUniverseSyncInterval = time.Minute * 10
 )
 
 var (
@@ -247,6 +251,8 @@ type Config struct {
 	Sqlite          *tarodb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
 	Postgres        *tarodb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
+	UniverseSyncInterval time.Duration `long:"unisyncinterval" description:"Amount of time to wait between universe syncs"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -313,6 +319,7 @@ func DefaultConfig() Config {
 				MaxBackoff:       defaultProofTransferMaxBackoff,
 			},
 		},
+		UniverseSyncInterval: defaultUniverseSyncInterval,
 	}
 }
 

@@ -146,6 +146,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start chain porter: %v", err)
 	}
 
+	if err := s.cfg.UniverseFederation.Start(); err != nil {
+		return fmt.Errorf("unable to start universe "+
+			"federation: %v", err)
+	}
+
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	if err := s.rpcServer.Start(); err != nil {
@@ -508,6 +513,10 @@ func (s *Server) Stop() error {
 	}
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {
+		return err
+	}
+
+	if err := s.cfg.UniverseFederation.Start(); err != nil {
 		return err
 	}
 

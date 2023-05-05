@@ -125,6 +125,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseForest: uniForest,
 	}
 
+	federationStore := tarodb.NewTransactionExecutor(db,
+		func(tx *sql.Tx) tarodb.UniverseServerStore {
+			return db.WithTx(tx)
+		},
+	)
+	federationDB := tarodb.NewUniverseFederationDB(federationStore)
+
 	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open disk archive: %v", err)
@@ -162,6 +169,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		LocalRegistrar:      baseUni,
 	})
 
+	universeFederation := universe.NewFederationEnvoy(
+		universe.FederationConfig{
+			FederationDB:       federationDB,
+			UniverseSyncer:     universeSyncer,
+			LocalRegistrar:     baseUni,
+			SyncInterval:       cfg.UniverseSyncInterval,
+			NewRemoteRegistrar: taro.NewRpcUniverseRegistar,
+			ErrChan:            mainErrChan,
+		},
+	)
+
 	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tarofreighter.NewCoinSelect(assetStore)
 	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
@@ -188,7 +206,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 					lndServices,
 				),
 				ProofFiles: proofFileStore,
-				Universe:   baseUni,
+				Universe:   universeFederation,
 			},
 			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,
@@ -224,15 +242,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ErrChan:      mainErrChan,
 			},
 		),
-		BaseUniverse:   baseUni,
-		UniverseSyncer: universeSyncer,
-		LogWriter:      cfg.LogWriter,
+		BaseUniverse:       baseUni,
+		UniverseSyncer:     universeSyncer,
+		UniverseFederation: universeFederation,
+		LogWriter:          cfg.LogWriter,
 		DatabaseConfig: &taro.DatabaseConfig{
 			RootKeyStore:   tarodb.NewRootKeyStore(rksDB),
 			MintingStore:   assetMintingStore,
 			AssetStore:     assetStore,
 			TaroAddrBook:   tarodbAddrBook,
 			UniverseForest: uniForest,
+			FederationDB:   federationDB,
 		},
 	}, nil
 }

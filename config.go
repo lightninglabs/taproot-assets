@@ -63,6 +63,8 @@ type DatabaseConfig struct {
 	TaroAddrBook *tarodb.TaroAddressBook
 
 	UniverseForest *tarodb.BaseUniverseForest
+
+	FederationDB *tarodb.UniverseFederationDB
 }
 
 // Config is the main config of the Taro server.
@@ -91,6 +93,8 @@ type Config struct {
 	BaseUniverse *universe.MintingArchive
 
 	UniverseSyncer universe.Syncer
+
+	UniverseFederation *universe.FederationEnvoy
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
