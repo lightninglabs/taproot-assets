@@ -1,13 +1,14 @@
 # Taro
 
-The Taro Daemon `tarod` implements the [Taro protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taro leverages Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and kept off-chain.
+The Taro Daemon `tarod` implements the [Taro protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taro leverages Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
 
 ## Features:
 
 - Mint assets
+- Synchronize to universes
 - Send and receive assets
 - Export and import Taro proofs
-- Create and manage profiles
+- Create and manage CLI profiles
 
 ## How it works:
 
@@ -33,7 +34,7 @@ Custody of Taro assets is segmented across LND and Taro to maximize security. LN
 
 ## Prerequisites:
 
-Taro requires [LND](https://github.com/lightningnetwork/lnd/) (compiled on the latest `master` branch with the relevant tags, see below) to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
+Taro requires [LND](https://github.com/lightningnetwork/lnd/) version `v0.16.2-beta` or later to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
 
 ```shell
 git clone https://github.com/lightningnetwork/lnd.git
@@ -74,22 +75,36 @@ tarod --help
 Use `tarocli` to interact with `tarod`
 
 ```shell
-tarocli assets mint --type normal --name fantasycoin --supply 100 --meta "fantastic money"
-tarocli mint finalize
+tarocli assets mint --type normal --name fantasycoin --supply 100 --meta_bytes "fantastic money"
+tarocli assets mint finalize
 ```
 
 ```shell
 tarocli assets list
 ```
 
+Synchronize yourself with a universe, for example the one running as part of the issuer's `tarod`.
+
 ```shell
-tarocli addrs new --genesis_bootstrap_info bab08407[...]129bf6d0 --amt 21
+tarocli universe sync --universe_host 10.10.10.2:10029
 ```
+We can also use the universe to query existing assets and their metadata.
+
+```shell
+tarocli universe roots
+```
+
+Once we have obtained the necessary proofs and asset IDs, we can generate a taro address for a specific asset and amount.
+
+```shell
+tarocli addrs new --asset_id bab08407[...]129bf6d0 --amt 21
+```
+
+The sender can now fulfill the request by initiating the transfer.
 
 ```shell
 tarocli assets send --addr tarotb1q[...]tywpre3a
 ```
-
 ## Development
 
 ### API
