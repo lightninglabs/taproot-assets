@@ -1132,7 +1132,8 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 				addr.AssetID[:], err)
 		}
 
-		rpcsLog.Infof("group: %v", spew.Sdump(assetGroup))
+		rpcsLog.Tracef("Listing receives for group: %v",
+			spew.Sdump(assetGroup))
 
 		addr.AttachGenesis(*assetGroup.Genesis)
 

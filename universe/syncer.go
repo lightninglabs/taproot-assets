@@ -11,12 +11,12 @@ import (
 )
 
 var (
-	// ErrUnsupportedSync is returned when a syncer is asked to async in a way
-	// that it does not support.
+	// ErrUnsupportedSync is returned when a syncer is asked to async in a
+	// way that it does not support.
 	ErrUnsupportedSync = fmt.Errorf("unsupported sync type")
 )
 
-// SimplerSyncCfg contains all the configuration needed to create a new
+// SimpleSyncCfg contains all the configuration needed to create a new
 // SimpleSyncer.
 type SimpleSyncCfg struct {
 	// LocalDiffEngine is the diff engine tied to a local Universe
@@ -39,7 +39,7 @@ type SimpleSyncer struct {
 	cfg SimpleSyncCfg
 }
 
-// NewSimplerSyncer creates a new SimpleSyncer instance.
+// NewSimpleSyncer creates a new SimpleSyncer instance.
 func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
 	return &SimpleSyncer{
 		cfg: cfg,
@@ -60,7 +60,8 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// If we have a specific set of Universes to sync, then we'll fetch the
 	// roots for each of them.
 	case len(idsToSync) != 0:
-		log.Infof("Fetching %v roots for IDs: %v", len(idsToSync),
+		log.Infof("Fetching %v roots", len(idsToSync))
+		log.Tracef("Fetching %v roots for IDs: %v", len(idsToSync),
 			spew.Sdump(idsToSync))
 
 		// We'll use an error group to fetch each Universe root we need
@@ -97,7 +98,9 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 	targetRoots := chanutils.Collect(rootsToSync)
 
-	log.Infof("Obtained %v roots from remote Universe server: %v",
+	log.Infof("Obtained %v roots from remote Universe server",
+		len(targetRoots))
+	log.Tracef("Obtained %v roots from remote Universe server: %v",
 		len(targetRoots), spew.Sdump(targetRoots))
 
 	// Now that we know the set of Universes we need to sync, we'll execute
@@ -106,9 +109,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	err = chanutils.ParSlice(ctx, targetRoots, func(ctx context.Context, remoteRoot BaseRoot) error {
 		// First, we'll compare the remote root against the local root.
 		uniID := remoteRoot.ID
-		localRoot, err := s.cfg.LocalDiffEngine.RootNode(
-			ctx, uniID,
-		)
+		localRoot, err := s.cfg.LocalDiffEngine.RootNode(ctx, uniID)
 		switch {
 		// If we don't have this root, then we don't have anything to
 		// compare to so we'll proceed as normal.
@@ -148,8 +149,11 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		// keys that need to be synced.
 		keysToFetch := chanutils.SetDiff(remoteUnikeys, localUnikeys)
 
-		log.Infof("UniverseRoot(%v): diff_size=%v, diff=%v",
-			uniID.String(), len(keysToFetch), spew.Sdump(keysToFetch))
+		log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
+			len(keysToFetch))
+		log.Tracef("UniverseRoot(%v): diff_size=%v, diff=%v",
+			uniID.String(), len(keysToFetch),
+			spew.Sdump(keysToFetch))
 
 		// Now that we know where the divergence is, we can fetch the
 		// issuance proofs from the remote party.
@@ -173,8 +177,10 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 			// TODO(roasbeef): inclusion w/ root here, also that
 			// it's the expected asset ID
 
-			log.Infof("UniverseRoot(%v): inserting new leaf for key=%v",
-				uniID.String(), spew.Sdump(key))
+			log.Infof("UniverseRoot(%v): inserting new leaf",
+				uniID.String())
+			log.Tracef("UniverseRoot(%v): inserting new leaf for "+
+				"key=%v", uniID.String(), spew.Sdump(key))
 
 			// TODO(roasbeef): this is actually giving a lagging
 			// proof for each of them
@@ -193,7 +199,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 			return err
 		}
 
-		log.Infof("Universe sync for UniverseRoot(%v) complete, %v "+
+		log.Infof("Universe sync for UniverseRoot(%v) complete, %d "+
 			"new leaves inserted", uniID.String(), len(keysToFetch))
 
 		// TODO(roabseef): sanity check local and remote roots match
@@ -207,8 +213,10 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 			NewLeafProofs:   chanutils.Collect(newLeaves),
 		}
 
-		log.Infof("Sync for UniverseRoot(%v) complete! New "+
-			"universe_root=%v", uniID.String(), spew.Sdump(remoteRoot))
+		log.Infof("Sync for UniverseRoot(%v) complete!", uniID.String())
+		log.Tracef("Sync for UniverseRoot(%v) complete! New "+
+			"universe_root=%v", uniID.String(),
+			spew.Sdump(remoteRoot))
 
 		return nil
 	})
