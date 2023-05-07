@@ -70,6 +70,29 @@ service Universe {
     rpc SyncUniverse (SyncRequest) returns (SyncResponse);
 
     // TODO(roasebeef): streaming response, so can give feedback? ^
+
+    /* tarocli: `universe federation list`
+    ListFederationServers lists the set of servers that make up the federation
+    of the local Universe server. This servers are used to push out new proofs,
+    and also periodically call sync new proofs from the remote server.
+    */
+    rpc ListFederationServers (ListFederationServersRequest)
+        returns (ListFederationServersResponse);
+
+    /* tarocli: `universe federation add`
+    AddFederationServer adds a new server to the federation of the local
+    Universe server. Once a server is added, this call can also optionally be
+    used to trigger a sync of the remote server.
+    */
+    rpc AddFederationServer (AddFederationServerRequest)
+        returns (AddFederationServerResponse);
+
+    /* tarocli: `universe federation delete`
+    DeleteFederationServer removes a server from the federation of the local
+    Universe server.
+    */
+    rpc DeleteFederationServer (DeleteFederationServerRequest)
+        returns (DeleteFederationServerResponse);
 }
 
 message AssetRootRequest {
@@ -250,4 +273,30 @@ message SyncedUniverse {
 message SyncResponse {
     // The set of synced asset Universes.
     repeated SyncedUniverse synced_universes = 1;
+}
+
+message UniverseFederationServer {
+    string host = 1;
+    int32 id = 2;
+}
+
+message ListFederationServersRequest {
+}
+
+message ListFederationServersResponse {
+    repeated UniverseFederationServer servers = 1;
+}
+
+message AddFederationServerRequest {
+    repeated UniverseFederationServer servers = 1;
+}
+
+message AddFederationServerResponse {
+}
+
+message DeleteFederationServerRequest {
+    repeated UniverseFederationServer servers = 1;
+}
+
+message DeleteFederationServerResponse {
 }

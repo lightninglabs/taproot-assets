@@ -61,6 +61,20 @@ type UniverseClient interface {
 	//the latest known root for each asset, performing tree based reconciliation
 	//to arrive at a new shared root.
 	SyncUniverse(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
+	// tarocli: `universe federation list`
+	//ListFederationServers lists the set of servers that make up the federation
+	//of the local Universe server. This servers are used to push out new proofs,
+	//and also periodically call sync new proofs from the remote server.
+	ListFederationServers(ctx context.Context, in *ListFederationServersRequest, opts ...grpc.CallOption) (*ListFederationServersResponse, error)
+	// tarocli: `universe federation add`
+	//AddFederationServer adds a new server to the federation of the local
+	//Universe server. Once a server is added, this call can also optionally be
+	//used to trigger a sync of the remote server.
+	AddFederationServer(ctx context.Context, in *AddFederationServerRequest, opts ...grpc.CallOption) (*AddFederationServerResponse, error)
+	// tarocli: `universe federation delete`
+	//DeleteFederationServer removes a server from the federation of the local
+	//Universe server.
+	DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error)
 }
 
 type universeClient struct {
@@ -134,6 +148,33 @@ func (c *universeClient) SyncUniverse(ctx context.Context, in *SyncRequest, opts
 	return out, nil
 }
 
+func (c *universeClient) ListFederationServers(ctx context.Context, in *ListFederationServersRequest, opts ...grpc.CallOption) (*ListFederationServersResponse, error) {
+	out := new(ListFederationServersResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/ListFederationServers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) AddFederationServer(ctx context.Context, in *AddFederationServerRequest, opts ...grpc.CallOption) (*AddFederationServerResponse, error) {
+	out := new(AddFederationServerResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/AddFederationServer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error) {
+	out := new(DeleteFederationServerResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/DeleteFederationServer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -181,6 +222,20 @@ type UniverseServer interface {
 	//the latest known root for each asset, performing tree based reconciliation
 	//to arrive at a new shared root.
 	SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error)
+	// tarocli: `universe federation list`
+	//ListFederationServers lists the set of servers that make up the federation
+	//of the local Universe server. This servers are used to push out new proofs,
+	//and also periodically call sync new proofs from the remote server.
+	ListFederationServers(context.Context, *ListFederationServersRequest) (*ListFederationServersResponse, error)
+	// tarocli: `universe federation add`
+	//AddFederationServer adds a new server to the federation of the local
+	//Universe server. Once a server is added, this call can also optionally be
+	//used to trigger a sync of the remote server.
+	AddFederationServer(context.Context, *AddFederationServerRequest) (*AddFederationServerResponse, error)
+	// tarocli: `universe federation delete`
+	//DeleteFederationServer removes a server from the federation of the local
+	//Universe server.
+	DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -208,6 +263,15 @@ func (UnimplementedUniverseServer) InsertIssuanceProof(context.Context, *Issuanc
 }
 func (UnimplementedUniverseServer) SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncUniverse not implemented")
+}
+func (UnimplementedUniverseServer) ListFederationServers(context.Context, *ListFederationServersRequest) (*ListFederationServersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListFederationServers not implemented")
+}
+func (UnimplementedUniverseServer) AddFederationServer(context.Context, *AddFederationServerRequest) (*AddFederationServerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddFederationServer not implemented")
+}
+func (UnimplementedUniverseServer) DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteFederationServer not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -348,6 +412,60 @@ func _Universe_SyncUniverse_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_ListFederationServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFederationServersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).ListFederationServers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/ListFederationServers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).ListFederationServers(ctx, req.(*ListFederationServersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_AddFederationServer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddFederationServerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).AddFederationServer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/AddFederationServer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).AddFederationServer(ctx, req.(*AddFederationServerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_DeleteFederationServer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteFederationServerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).DeleteFederationServer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/DeleteFederationServer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).DeleteFederationServer(ctx, req.(*DeleteFederationServerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -382,6 +500,18 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncUniverse",
 			Handler:    _Universe_SyncUniverse_Handler,
+		},
+		{
+			MethodName: "ListFederationServers",
+			Handler:    _Universe_ListFederationServers_Handler,
+		},
+		{
+			MethodName: "AddFederationServer",
+			Handler:    _Universe_AddFederationServer_Handler,
+		},
+		{
+			MethodName: "DeleteFederationServer",
+			Handler:    _Universe_DeleteFederationServer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

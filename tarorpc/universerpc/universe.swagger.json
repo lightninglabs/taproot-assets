@@ -16,6 +16,81 @@
     "application/json"
   ],
   "paths": {
+    "/v1/taro/universe/federation": {
+      "get": {
+        "summary": "tarocli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
+        "operationId": "Universe_ListFederationServers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcListFederationServersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      },
+      "delete": {
+        "summary": "tarocli: `universe federation delete`\nDeleteFederationServer removes a server from the federation of the local\nUniverse server.",
+        "operationId": "Universe_DeleteFederationServer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcDeleteFederationServerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      },
+      "post": {
+        "summary": "tarocli: `universe federation add`\nAddFederationServer adds a new server to the federation of the local\nUniverse server. Once a server is added, this call can also optionally be\nused to trigger a sync of the remote server.",
+        "operationId": "Universe_AddFederationServer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAddFederationServerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcAddFederationServerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taro/universe/keys/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
@@ -945,6 +1020,20 @@
         }
       }
     },
+    "universerpcAddFederationServerRequest": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcUniverseFederationServer"
+          }
+        }
+      }
+    },
+    "universerpcAddFederationServerResponse": {
+      "type": "object"
+    },
     "universerpcAssetKey": {
       "type": "object",
       "properties": {
@@ -1013,6 +1102,9 @@
         }
       }
     },
+    "universerpcDeleteFederationServerResponse": {
+      "type": "object"
+    },
     "universerpcID": {
       "type": "object",
       "properties": {
@@ -1068,6 +1160,17 @@
         "asset_leaf": {
           "$ref": "#/definitions/universerpcAssetLeaf",
           "description": "The asset leaf itself, which includes the asset and the issuance proof."
+        }
+      }
+    },
+    "universerpcListFederationServersResponse": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcUniverseFederationServer"
+          }
         }
       }
     },
@@ -1166,6 +1269,18 @@
             "$ref": "#/definitions/universerpcAssetLeaf"
           },
           "description": "The set of new asset leaves that were synced."
+        }
+      }
+    },
+    "universerpcUniverseFederationServer": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int32"
         }
       }
     },
