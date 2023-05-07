@@ -136,6 +136,18 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/ListFederationServers": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/AddFederationServer": {{
+			Entity: "universe",
+			Action: "write",
+		}},
+		"/universerpc.Universe/DeleteFederationServer": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 	}
 
 	// MacaroonWhitelist defines methods that we don't require macaroons to
