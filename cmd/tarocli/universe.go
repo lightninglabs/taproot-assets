@@ -39,6 +39,7 @@ var universeCommands = []cli.Command{
 			universeKeysCommand,
 			universeProofCommand,
 			universeSyncCommand,
+			universeFederationCommand,
 		},
 	},
 }
@@ -491,5 +492,147 @@ func universeSync(ctx *cli.Context) error {
 	}
 
 	printRespJSON(syncResp)
+	return nil
+}
+
+var universeFederationCommand = cli.Command{
+	Name:      "federation",
+	ShortName: "f",
+	Usage:     "manage the set of active servers in the Universe Federation",
+	Description: `
+	Manage the set of active Universe Federation servers. These servers
+	will be used to push out any new proof updates generated within the RPC
+	interface. These servers will also be used to periodically reconcile
+	Universe state roots for any active/known assets.
+	`,
+	Subcommands: []cli.Command{
+		universeFederationListCommand,
+		universeFederationAddCommand,
+		universeFederationDelCommand,
+	},
+}
+
+var universeFederationListCommand = cli.Command{
+	Name:        "list",
+	ShortName:   "l",
+	Description: "List the set of active servers in the Federation",
+	Flags:       []cli.Flag{},
+	Action:      universeFederationList,
+}
+
+func universeFederationList(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	servers, err := client.ListFederationServers(
+		ctxc, &universerpc.ListFederationServersRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(servers)
+	return nil
+}
+
+var universeFederationAddCommand = cli.Command{
+	Name:      "add",
+	ShortName: "a",
+	Description: `
+	Add a new server to the Federation. Newly added servers will be synced
+	automatically, will also be used to push out newly validated proofs.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: universeHostName,
+			Usage: "the address for the universe server, eg: " +
+				"testnet.mydomain.com:10029. The default port " +
+				"(10029) will be used if none is provided",
+		},
+	},
+	Action: universeFederationAdd,
+}
+
+func universeFederationAdd(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	switch {
+	case ctx.String(universeHostName) == "":
+
+		_ = cli.ShowCommandHelp(ctx, "add")
+		return nil
+	}
+
+	resp, err := client.AddFederationServer(
+		ctxc, &universerpc.AddFederationServerRequest{
+			Servers: []*universerpc.UniverseFederationServer{
+				{
+					Host: ctx.String(universeHostName),
+				},
+			},
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+const universeServerID = "server_id"
+
+var universeFederationDelCommand = cli.Command{
+	Name:      "del",
+	ShortName: "d",
+	Description: `
+	Remove a server from the Federation. Servers can be identified either
+	via their ID, or the server host.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: universeHostName,
+			Usage: "the host:port or just host of the remote " +
+				"universe",
+		},
+		cli.IntFlag{
+			Name:  universeServerID,
+			Usage: "the ID of the universe server to delete",
+		},
+	},
+	Action: universeFederationAdd,
+}
+
+func universeFederationDel(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	switch {
+	case ctx.String(universeHostName) == "" &&
+		ctx.Int(universeServerID) == 0:
+
+		_ = cli.ShowCommandHelp(ctx, "add")
+		return nil
+	}
+
+	resp, err := client.AddFederationServer(
+		ctxc, &universerpc.AddFederationServerRequest{
+			Servers: []*universerpc.UniverseFederationServer{
+				{
+					Id:   int32(ctx.Int(universeServerID)),
+					Host: ctx.String(universeHostName),
+				},
+			},
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
 	return nil
 }
