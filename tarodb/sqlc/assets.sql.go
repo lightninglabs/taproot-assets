@@ -932,7 +932,8 @@ SELECT
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = $1
@@ -944,6 +945,7 @@ type FetchGroupByGenesisRow struct {
 	RawKey          []byte
 	KeyIndex        int32
 	KeyFamily       int32
+	GenesisSig      []byte
 }
 
 func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (FetchGroupByGenesisRow, error) {
@@ -954,6 +956,7 @@ func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (Fet
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
+		&i.GenesisSig,
 	)
 	return i, err
 }
@@ -963,7 +966,8 @@ SELECT
     key_group_info_view.gen_asset_id AS gen_asset_id,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = $1
@@ -977,6 +981,7 @@ type FetchGroupByGroupKeyRow struct {
 	RawKey     []byte
 	KeyIndex   int32
 	KeyFamily  int32
+	GenesisSig []byte
 }
 
 // Sort and limit to return the genesis ID for initial genesis of the group.
@@ -988,6 +993,7 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
+		&i.GenesisSig,
 	)
 	return i, err
 }
@@ -1314,6 +1320,59 @@ func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScrip
 	return script_key_id, err
 }
 
+const fetchSeedlingByID = `-- name: FetchSeedlingByID :one
+SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id
+FROM asset_seedlings
+WHERE seedling_id = $1
+`
+
+func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int32) (AssetSeedling, error) {
+	row := q.db.QueryRowContext(ctx, fetchSeedlingByID, seedlingID)
+	var i AssetSeedling
+	err := row.Scan(
+		&i.SeedlingID,
+		&i.AssetName,
+		&i.AssetType,
+		&i.AssetSupply,
+		&i.AssetMetaID,
+		&i.EmissionEnabled,
+		&i.BatchID,
+		&i.GroupGenesisID,
+		&i.GroupAnchorID,
+	)
+	return i, err
+}
+
+const fetchSeedlingID = `-- name: FetchSeedlingID :one
+WITH target_key_id AS (
+    -- We use this CTE to fetch the key_id of the internal key that's
+    -- associated with a given batch. This can only return one value in
+    -- practice since raw_key is a unique field. We then use this value below
+    -- to select only from seedlings in the specified batch.
+    SELECT key_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = $2
+)
+SELECT seedling_id
+FROM asset_seedlings
+WHERE (
+    asset_seedlings.batch_id in (SELECT key_id FROM target_key_id) AND
+    asset_seedlings.asset_name = $1
+)
+`
+
+type FetchSeedlingIDParams struct {
+	SeedlingName string
+	BatchKey     []byte
+}
+
+func (q *Queries) FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, fetchSeedlingID, arg.SeedlingName, arg.BatchKey)
+	var seedling_id int32
+	err := row.Scan(&seedling_id)
+	return seedling_id, err
+}
+
 const fetchSeedlingsForBatch = `-- name: FetchSeedlingsForBatch :many
 WITH target_batch(batch_id) AS (
     SELECT batch_id
@@ -1325,7 +1384,7 @@ WITH target_batch(batch_id) AS (
 SELECT seedling_id, asset_name, asset_type, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
-    group_genesis_id
+    group_genesis_id, group_anchor_id
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
@@ -1343,6 +1402,7 @@ type FetchSeedlingsForBatchRow struct {
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
@@ -1365,6 +1425,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.EmissionEnabled,
 			&i.BatchID,
 			&i.GroupGenesisID,
+			&i.GroupAnchorID,
 		); err != nil {
 			return nil, err
 		}
@@ -1446,9 +1507,10 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6, $7
+   $1, $2, $3, $4, $5, $6,
+   $7, $8
 )
 `
 
@@ -1460,6 +1522,7 @@ type InsertAssetSeedlingParams struct {
 	EmissionEnabled bool
 	BatchID         int32
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -1471,6 +1534,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.EmissionEnabled,
 		arg.BatchID,
 		arg.GroupGenesisID,
+		arg.GroupAnchorID,
 	)
 	return err
 }
@@ -1488,10 +1552,11 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
     $2, $3, $4, $5, $6,
-    (SELECT key_id FROM target_key_id), $7
+    (SELECT key_id FROM target_key_id),
+    $7, $8
 )
 `
 
@@ -1503,6 +1568,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	AssetMetaID     int32
 	EmissionEnabled bool
 	GroupGenesisID  sql.NullInt32
+	GroupAnchorID   sql.NullInt32
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -1514,6 +1580,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.AssetMetaID,
 		arg.EmissionEnabled,
 		arg.GroupGenesisID,
+		arg.GroupAnchorID,
 	)
 	return err
 }

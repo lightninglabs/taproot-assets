@@ -16,12 +16,12 @@ WITH spent_asset AS (
     SELECT genesis_id, version, asset_group_sig_id, script_version, lock_time,
            relative_lock_time
     FROM assets
-    WHERE assets.asset_id = $6
+    WHERE assets.asset_id = $7
 )
 INSERT INTO assets (
     genesis_id, version, asset_group_sig_id, script_version, lock_time,
     relative_lock_time, script_key_id, anchor_utxo_id, amount,
-    split_commitment_root_hash, split_commitment_root_value
+    split_commitment_root_hash, split_commitment_root_value, spent
 ) VALUES (
     (SELECT genesis_id FROM spent_asset),
     (SELECT version FROM spent_asset),
@@ -30,7 +30,7 @@ INSERT INTO assets (
     (SELECT lock_time FROM spent_asset),
     (SELECT relative_lock_time FROM spent_asset),
     $1, $2, $3, $4,
-    $5
+    $5, $6
 )
 RETURNING asset_id
 `
@@ -41,6 +41,7 @@ type ApplyPendingOutputParams struct {
 	Amount                   int64
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
+	Spent                    bool
 	SpentAssetID             int32
 }
 
@@ -51,6 +52,7 @@ func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput
 		arg.Amount,
 		arg.SplitCommitmentRootHash,
 		arg.SplitCommitmentRootValue,
+		arg.Spent,
 		arg.SpentAssetID,
 	)
 	var asset_id int32

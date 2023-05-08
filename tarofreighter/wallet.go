@@ -827,6 +827,71 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 	// the commitment map, so we can remove things freely.
 	passiveCommitments := inputCommitment.Commitments()
 
+	// removeAsset is a helper function that removes the given asset from
+	// the passed asset commitment and updates the top level Taro commitment
+	// with the new asset commitment, if that still contains any assets.
+	removeAsset := func(assetCommitment *commitment.AssetCommitment,
+		toRemove *asset.Asset, taroKey [32]byte) error {
+
+		// We need to make a copy in order to not modify the original
+		// commitment, as the above call to get all commitments just
+		// creates a new slice, but we still have a pointer to the
+		// original asset commitment.
+		var err error
+		assetCommitment, err = assetCommitment.Copy()
+		if err != nil {
+			return fmt.Errorf("unable to copy asset commitment: %w",
+				err)
+		}
+
+		// Now we can remove the asset from the commitment.
+		err = assetCommitment.Delete(toRemove)
+		if err != nil {
+			return fmt.Errorf("unable to delete asset "+
+				"commitment: %w", err)
+		}
+
+		// Since we're not returning the root Taro commitment but a map
+		// of all asset commitments, we need to prune the asset
+		// commitment manually if it is empty now.
+		rootHash := assetCommitment.TreeRoot.NodeHash()
+		if rootHash == mssmt.EmptyTreeRootHash {
+			delete(passiveCommitments, taroKey)
+
+			return nil
+		}
+
+		// There are other leaves of this asset in our asset tree, let's
+		// now update our passive commitment map so these will be
+		// carried along.
+		passiveCommitments[taroKey] = assetCommitment
+
+		return nil
+	}
+
+	// First, we remove any tombstones that might be in the commitment. We
+	// needed to select them from the DB to arrive at the correct input
+	// Taro tree but can now remove them for good as they are no longer
+	// relevant and don't need to be carried over to the next tree.
+	for taroKey := range passiveCommitments {
+		assetCommitment := passiveCommitments[taroKey]
+		committedAssets := assetCommitment.Assets()
+
+		for assetKey := range committedAssets {
+			committedAsset := committedAssets[assetKey]
+			if committedAsset.IsUnSpendable() {
+				err := removeAsset(
+					assetCommitment, committedAsset,
+					taroKey,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("unable to "+
+						"delete asset: %w", err)
+				}
+			}
+		}
+	}
+
 	// Remove input assets (the assets being spent) from list of assets to
 	// re-sign.
 	for _, vIn := range vPkt.Inputs {
@@ -836,38 +901,11 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 			continue
 		}
 
-		// We need to make a copy in order to not modify the original
-		// commitment, as the above call to get all commitments just
-		// creates a new slice, but we still have a pointer to the
-		// original asset commitment.
-		var err error
-		assetCommitment, err = assetCommitment.Copy()
+		err := removeAsset(assetCommitment, vIn.Asset(), key)
 		if err != nil {
-			return nil, fmt.Errorf("unable to copy asset "+
-				"commitment: %w", err)
+			return nil, fmt.Errorf("unable to "+
+				"delete asset: %w", err)
 		}
-
-		// Now we can remove the asset from the commitment.
-		err = assetCommitment.Delete(vIn.Asset())
-		if err != nil {
-			return nil, fmt.Errorf("unable to delete asset "+
-				"commitment: %w", err)
-		}
-
-		// Since we're not returning the root Taro commitment but a map
-		// of all asset commitments, we need to prune the asset
-		// commitment manually if it is empty now.
-		rootHash := assetCommitment.TreeRoot.NodeHash()
-		if rootHash == mssmt.EmptyTreeRootHash {
-			delete(passiveCommitments, key)
-
-			continue
-		}
-
-		// There are other leaves of this asset in our asset tree, let's
-		// now update our passive commitment map so these will be
-		// carried along.
-		passiveCommitments[key] = assetCommitment
 	}
 
 	return passiveCommitments, nil
@@ -932,7 +970,8 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *taropsbt.VPacket,
 	}
 
 	// Sign all the passive assets virtual packets.
-	for _, passiveAsset := range passiveAssets {
+	for idx := range passiveAssets {
+		passiveAsset := passiveAssets[idx]
 		_, err := f.SignVirtualPacket(
 			passiveAsset.VPacket, SkipInputProofVerify(),
 		)
@@ -1007,7 +1046,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// and remove the change output entirely.
 	adjustFundedPsbt(&anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
 
-	log.Infof("Received funded PSBT packet: %v", spew.Sdump(anchorPkt.Pkt))
+	log.Infof("Received funded PSBT packet")
+	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
 
 	// We need the PSBT output information in the unsigned packet later to
 	// create the exclusion proofs. So we continue on a copy of the PSBT
@@ -1042,12 +1082,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// With all the input and output information in the packet, we
 	// can now ask lnd to sign it, and then extract the final
 	// version ourselves.
-	log.Debugf("Signing PSBT: %s", spew.Sdump(signAnchorPkt))
+	log.Debugf("Signing PSBT")
+	log.Tracef("PSBT: %s", spew.Sdump(signAnchorPkt))
 	signedPsbt, err := f.cfg.Wallet.SignPsbt(ctx, signAnchorPkt)
 	if err != nil {
 		return nil, fmt.Errorf("unable to sign psbt: %w", err)
 	}
-	log.Debugf("Got signed PSBT: %s", spew.Sdump(signedPsbt))
+	log.Debugf("Got signed PSBT")
+	log.Tracef("PSBT: %s", spew.Sdump(signedPsbt))
 
 	// Before we finalize, we need to calculate the actual, final fees that
 	// we pay.

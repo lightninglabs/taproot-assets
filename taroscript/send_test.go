@@ -125,8 +125,8 @@ func initSpendScenario(t *testing.T) spendData {
 	// Addresses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
 	address1, err := address.New(
-		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
-		state.normalAmt1, nil, &address.MainNetTaro,
+		state.genesis1, nil, nil, state.receiverPubKey,
+		state.receiverPubKey, state.normalAmt1, nil, &address.MainNetTaro,
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
@@ -134,8 +134,8 @@ func initSpendScenario(t *testing.T) spendData {
 
 	address1CollectGroup, err := address.New(
 		state.genesis1collect, &state.groupKey.GroupPubKey,
-		state.receiverPubKey, state.receiverPubKey, state.collectAmt,
-		nil, &address.TestNet3Taro,
+		&state.groupKey.Sig, state.receiverPubKey, state.receiverPubKey,
+		state.collectAmt, nil, &address.TestNet3Taro,
 	)
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
@@ -143,8 +143,8 @@ func initSpendScenario(t *testing.T) spendData {
 		AssetCommitmentKey()
 
 	address2, err := address.New(
-		state.genesis1, nil, state.receiverPubKey, state.receiverPubKey,
-		state.normalAmt2, nil, &address.MainNetTaro,
+		state.genesis1, nil, nil, state.receiverPubKey,
+		state.receiverPubKey, state.normalAmt2, nil, &address.MainNetTaro,
 	)
 	require.NoError(t, err)
 	state.address2 = *address2
@@ -1982,7 +1982,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 
 		address1testnet, err := address.New(
-			state.genesis1, nil, state.receiverPubKey,
+			state.genesis1, nil, nil, state.receiverPubKey,
 			state.receiverPubKey, state.normalAmt1, nil,
 			&address.TestNet3Taro,
 		)
@@ -2054,8 +2054,8 @@ func TestPayToAddrScript(t *testing.T) {
 	// Create an address for receiving the 2 units and make sure it matches
 	// the script above.
 	addr1, err := address.New(
-		gen, nil, *recipientScriptKey.PubKey, *internalKey, sendAmt,
-		nil, &address.RegressionNetTaro,
+		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
+		sendAmt, nil, &address.RegressionNetTaro,
 	)
 	require.NoError(t, err)
 
@@ -2070,8 +2070,8 @@ func TestPayToAddrScript(t *testing.T) {
 		[]byte("not a valid script"),
 	))
 	addr2, err := address.New(
-		gen, nil, *recipientScriptKey.PubKey, *internalKey, sendAmt,
-		sibling, &address.RegressionNetTaro,
+		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
+		sendAmt, sibling, &address.RegressionNetTaro,
 	)
 	require.NoError(t, err)
 

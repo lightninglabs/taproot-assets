@@ -226,6 +226,10 @@
           "type": "string",
           "format": "byte",
           "description": "The specific group key this asset should be minted with."
+        },
+        "group_anchor": {
+          "type": "string",
+          "description": "The name of the asset in the batch that will anchor a new asset group.\nThis asset will be minted with the same group key as the anchor asset."
         }
       }
     },

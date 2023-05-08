@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
@@ -502,8 +503,13 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 
 // assertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
-func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
+func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 	amt uint64) {
+
+	t.Helper()
+
+	groupKey, err := hex.DecodeString(hexGroupKey)
+	require.NoError(t, err)
 
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
@@ -516,8 +522,7 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, groupKey []byte,
 	)
 	require.NoError(t, err)
 
-	encodedGroupKey := hex.EncodeToString(groupKey)
-	balance, ok := balancesResp.AssetGroupBalances[encodedGroupKey]
+	balance, ok := balancesResp.AssetGroupBalances[hexGroupKey]
 	require.True(t, ok)
 	require.Equal(t, amt, balance.Balance)
 }
@@ -584,6 +589,24 @@ func assertNumGroups(t *testing.T, tarod *tarodHarness, num int) {
 	require.Equal(t, num, len(groupResp.Groups))
 }
 
+// assertGroupSizes asserts that a set of groups the daemon is aware of contain
+// the expected number of assets.
+func assertGroupSizes(t *testing.T, tarod *tarodHarness, hexGroupKeys []string,
+	sizes []int) {
+
+	ctxb := context.Background()
+	groupResp, err := tarod.ListGroups(
+		ctxb, &tarorpc.ListGroupsRequest{},
+	)
+	require.NoError(t, err)
+
+	for i, key := range hexGroupKeys {
+		groupAssets, ok := groupResp.Groups[key]
+		require.True(t, ok)
+		require.Equal(t, sizes[i], len(groupAssets.Assets))
+	}
+}
+
 // assertGroup asserts that an asset returned from the ListGroups call matches
 // a specific asset and has the same group key.
 func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
@@ -597,6 +620,20 @@ func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
 	require.Equal(t, a.AssetGenesis.MetaHash, b.MetaHash)
 	require.Equal(t, a.AssetType, b.Type)
 	require.Equal(t, a.AssetGroup.TweakedGroupKey, groupKey)
+}
+
+// assertGroupAnchor asserts that a specific asset genesis was used to create
+// a tweaked group key.
+func assertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
+	internalKey, tweakedKey []byte) {
+
+	internalPubKey, err := btcec.ParsePubKey(internalKey)
+	require.NoError(t, err)
+	computedGroupPubKey := txscript.ComputeTaprootOutputKey(
+		internalPubKey, anchorGen.GroupKeyTweak(),
+	)
+	computedGroupKey := computedGroupPubKey.SerializeCompressed()
+	require.Equal(t, tweakedKey, computedGroupKey)
 }
 
 // MatchRpcAsset is a function that returns true if the given RPC asset is a

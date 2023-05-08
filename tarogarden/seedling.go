@@ -91,6 +91,11 @@ type Seedling struct {
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
 
+	// GroupAnchor is the name of another seedling in the pending batch that
+	// will anchor an asset group. This seedling will be minted with the
+	// same group key as the anchor asset.
+	GroupAnchor *string
+
 	// update is used to send updates w.r.t the state of the batch.
 	updates SeedlingUpdates
 }

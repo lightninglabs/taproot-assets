@@ -57,6 +57,8 @@ type BaseUniverseStore interface {
 
 	FetchGenesisStore
 
+	GroupStore
+
 	// QueryUniverseLeaves is used to query for the set of leaves that
 	// reside in a universe tree.
 	QueryUniverseLeaves(ctx context.Context,
@@ -475,8 +477,16 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 				},
 			}
 			if b.id.GroupKey != nil {
+				leafAssetGroup, err := fetchGroupByGenesis(
+					ctx, db, leaf.GenAssetID,
+				)
+				if err != nil {
+					return err
+				}
+
 				proof.Leaf.GroupKey = &asset.GroupKey{
 					GroupPubKey: *b.id.GroupKey,
+					Sig:         leafAssetGroup.Sig,
 				}
 			}
 

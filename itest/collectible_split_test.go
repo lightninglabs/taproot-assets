@@ -16,7 +16,20 @@ import (
 func testCollectibleSend(t *harnessTest) {
 	// First, we'll make a collectible with emission enabled.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{issuableAssets[1]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			issuableAssets[1],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
 	)
 
 	groupKey := rpcAssets[0].AssetGroup.TweakedGroupKey
@@ -146,4 +159,34 @@ func testCollectibleSend(t *harnessTest) {
 
 	// Only compare the spendable asset.
 	assertGroup(t.t, allAssets[0], groupedAssets[0], rpcGroupKey)
+
+	aliceAssetsResp, err := t.tarod.ListAssets(
+		ctxb, &tarorpc.ListAssetRequest{IncludeSpent: true},
+	)
+	require.NoError(t.t, err)
+
+	assetsJSON, err := formatProtoJSON(aliceAssetsResp)
+	require.NoError(t.t, err)
+	t.Logf("Got alice assets: %s", assetsJSON)
+
+	// Finally, make sure we can still send out the passive asset.
+	passiveGen := rpcAssets[1].AssetGenesis
+	bobAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+		AssetId: passiveGen.AssetId,
+		Amt:     rpcAssets[1].Amount,
+	})
+	require.NoError(t.t, err)
+
+	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
+	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+	confirmAndAssertOutboundTransfer(
+		t, t.tarod, sendResp, passiveGen.AssetId,
+		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
+	)
+	_ = sendProof(
+		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
+	)
+
+	// There's only one non-interactive receive event.
+	assertNonInteractiveRecvComplete(t, secondTarod, 3)
 }

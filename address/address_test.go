@@ -38,11 +38,6 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 		amount = rand.Uint64()
 	}
 
-	var groupKey *btcec.PublicKey
-	if groupPubKey {
-		groupKey = pubKey
-	}
-
 	var tapscriptSibling *commitment.TapscriptPreimage
 	if sibling {
 		tapscriptSibling = commitment.NewPreimageFromLeaf(
@@ -54,8 +49,20 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	pubKeyCopy2 := *pubKey
 
 	genesis := asset.RandGenesis(t, assetType)
+
+	var (
+		groupKey *btcec.PublicKey
+		groupSig *schnorr.Signature
+	)
+
+	if groupPubKey {
+		groupInfo := asset.RandGroupKey(t, genesis)
+		groupKey = &groupInfo.GroupPubKey
+		groupSig = &groupInfo.Sig
+	}
+
 	return New(
-		genesis, groupKey, pubKeyCopy1, pubKeyCopy2, amount,
+		genesis, groupKey, groupSig, pubKeyCopy1, pubKeyCopy2, amount,
 		tapscriptSibling, net,
 	)
 }

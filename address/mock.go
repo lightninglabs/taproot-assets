@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
@@ -15,7 +16,7 @@ import (
 
 // RandAddr creates a random address for testing.
 func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
-	*asset.Genesis) {
+	*asset.Genesis, *asset.GroupKey) {
 
 	scriptKeyPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -30,14 +31,15 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	}
 
 	var (
+		groupInfo        *asset.GroupKey
 		groupPubKey      *btcec.PublicKey
+		groupSig         *schnorr.Signature
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
 	if rand.Int31()%2 == 0 {
-		groupKeyPriv, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		groupPubKey = groupKeyPriv.PubKey()
+		groupInfo = asset.RandGroupKey(t, genesis)
+		groupPubKey = &groupInfo.GroupPubKey
+		groupSig = &groupInfo.Sig
 
 		tapscriptSibling = commitment.NewPreimageFromLeaf(
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
@@ -53,8 +55,8 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	})
 
 	taro, err := New(
-		genesis, groupPubKey, *scriptKey.PubKey, *internalKey.PubKey(),
-		amount, tapscriptSibling, params,
+		genesis, groupPubKey, groupSig, *scriptKey.PubKey,
+		*internalKey.PubKey(), amount, tapscriptSibling, params,
 	)
 	require.NoError(t, err)
 
@@ -73,5 +75,5 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		},
 		TaprootOutputKey: *taprootOutputKey,
 		CreationTime:     time.Now(),
-	}, &genesis
+	}, &genesis, groupInfo
 }

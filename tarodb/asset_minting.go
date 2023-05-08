@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/keychain"
+	"golang.org/x/exp/maps"
 )
 
 type (
@@ -49,6 +50,9 @@ type (
 
 	// AssetSeedling is an asset seedling.
 	AssetSeedling = sqlc.AssetSeedling
+
+	// AssetSeedlingTuple is used to look up the ID of a seedling.
+	AssetSeedlingTuple = sqlc.FetchSeedlingIDParams
 
 	// MintingBatchTuple is used to update a batch state based on the raw
 	// key.
@@ -161,6 +165,15 @@ type PendingAssetStore interface {
 	FetchSeedlingsForBatch(ctx context.Context,
 		rawKey []byte) ([]sqlc.FetchSeedlingsForBatchRow, error)
 
+	// FetchSeedlingID is used to look up the ID of a specific seedling
+	// in a batch.
+	FetchSeedlingID(ctx context.Context, arg AssetSeedlingTuple) (int32,
+		error)
+
+	// FetchSeedlingByID is used to look up a specific seedling.
+	FetchSeedlingByID(ctx context.Context,
+		seedlingID int32) (AssetSeedling, error)
+
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
 	BindMintingBatchWithTx(ctx context.Context, arg BatchChainUpdate) error
@@ -260,12 +273,14 @@ func NewAssetMintingStore(db BatchedPendingAssetStore) *AssetMintingStore {
 func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 	newBatch *tarogarden.MintingBatch) error {
 
+	rawBatchKey := newBatch.BatchKey.PubKey.SerializeCompressed()
+
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll need to insert a new internal key which'll act
 		// as the foreign key our batch references.
 		batchID, err := q.UpsertInternalKey(ctx, InternalKey{
-			RawKey:    newBatch.BatchKey.PubKey.SerializeCompressed(),
+			RawKey:    rawBatchKey,
 			KeyFamily: int32(newBatch.BatchKey.Family),
 			KeyIndex:  int32(newBatch.BatchKey.Index),
 		})
@@ -287,8 +302,14 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 		// Now that our minting batch is in place, which references the
 		// internal key inserted above, we can create the set of new
-		// seedlings.
-		for _, seedling := range newBatch.Seedlings {
+		// seedlings. We insert group anchors before other assets.
+		orderedSeedlings := tarogarden.SortSeedlings(
+			maps.Values(newBatch.Seedlings),
+		)
+
+		for _, seedlingName := range orderedSeedlings {
+			seedling := newBatch.Seedlings[seedlingName]
+
 			// If the seedling has a metadata field, we'll need to
 			// insert that first so we can obtain meta primary key.
 			assetMetaID, err := maybeUpsertAssetMeta(
@@ -321,6 +342,21 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
 			}
 
+			// If this seedling is being issued to a group being
+			// created in this batch, we need to reference the
+			// anchor seedling for the group.
+			if seedling.GroupAnchor != nil {
+				anchorID, err := fetchSeedlingID(
+					ctx, q, rawBatchKey,
+					*seedling.GroupAnchor,
+				)
+				if err != nil {
+					return err
+				}
+
+				dbSeedling.GroupAnchorID = sqlInt32(anchorID)
+			}
+
 			err = q.InsertAssetSeedling(ctx, dbSeedling)
 			if err != nil {
 				return err
@@ -337,7 +373,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 	batchKey *btcec.PublicKey, seedlings ...*tarogarden.Seedling) error {
 
-	rawKey := batchKey.SerializeCompressed()
+	rawBatchKey := batchKey.SerializeCompressed()
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
@@ -357,7 +393,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 			}
 
 			dbSeedling := AssetSeedlingItem{
-				RawKey:          rawKey,
+				RawKey:          rawBatchKey,
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
@@ -379,6 +415,21 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
 			}
 
+			// If this seedling is being issued to a group being
+			// created in this batch, we need to reference the
+			// anchor seedling for the group.
+			if seedling.GroupAnchor != nil {
+				anchorID, err := fetchSeedlingID(
+					ctx, q, rawBatchKey,
+					*seedling.GroupAnchor,
+				)
+				if err != nil {
+					return err
+				}
+
+				dbSeedling.GroupAnchorID = sqlInt32(anchorID)
+			}
+
 			err = q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
 				return fmt.Errorf("unable to insert "+
@@ -390,15 +441,28 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 	})
 }
 
+// fetchSeedlingID attempts to fetch the ID for a seedling from a specific
+// batch. This is performed within the context of a greater DB transaction.
+func fetchSeedlingID(ctx context.Context, q PendingAssetStore,
+	batchKey []byte, seedlingName string) (int32, error) {
+
+	seedlingParams := AssetSeedlingTuple{
+		SeedlingName: seedlingName,
+		BatchKey:     batchKey,
+	}
+
+	return q.FetchSeedlingID(ctx, seedlingParams)
+}
+
 // fetchAssetSeedlings attempts to fetch a set of asset seedlings for a given
 // batch. This is performed within the context of a greater DB transaction.
 func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
-	rawKey []byte) (map[string]*tarogarden.Seedling, error) {
+	rawBatchKey []byte) (map[string]*tarogarden.Seedling, error) {
 
 	// Now that we have the main pieces of the batch, we'll fetch all the
 	// seedlings for this batch and map them to the proper struct.
 	dbSeedlings, err := q.FetchSeedlingsForBatch(
-		ctx, rawKey,
+		ctx, rawBatchKey,
 	)
 	if err != nil {
 		return nil, err
@@ -428,7 +492,24 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				return nil, err
 			}
 
+			// Clear the group signature, which is for the group
+			// anchor and not this seedling.
+			seedlingGroup.Sig = schnorr.Signature{}
+
 			seedling.GroupInfo = seedlingGroup
+		}
+
+		// Fetch the group anchor for seedlings with a group anchor set.
+		if dbSeedling.GroupAnchorID.Valid {
+			anchorID := extractSqlInt32[int32](
+				dbSeedling.GroupAnchorID,
+			)
+			seedlingAnchor, err := q.FetchSeedlingByID(ctx, anchorID)
+			if err != nil {
+				return nil, err
+			}
+
+			seedling.GroupAnchor = &seedlingAnchor.AssetName
 		}
 
 		if len(dbSeedling.MetaDataBlob) != 0 {
@@ -455,9 +536,9 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 // generation, the GroupKeyFamily and GroupKeyIndex fields of the
 // FetchAssetsForBatchRow need to be manually modified to be sql.NullInt32.
 func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
-	rawKey []byte) (*commitment.TaroCommitment, error) {
+	rawBatchKey []byte) (*commitment.TaroCommitment, error) {
 
-	dbSprout, err := q.FetchAssetsForBatch(ctx, rawKey)
+	dbSprout, err := q.FetchAssetsForBatch(ctx, rawBatchKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch batch assets: %w", err)
 	}

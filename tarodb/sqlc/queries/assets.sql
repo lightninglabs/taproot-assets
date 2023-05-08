@@ -57,10 +57,33 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 -- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6, sqlc.narg('group_genesis_id')
+   $1, $2, $3, $4, $5, $6,
+   sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
 );
+
+-- name: FetchSeedlingID :one
+WITH target_key_id AS (
+    -- We use this CTE to fetch the key_id of the internal key that's
+    -- associated with a given batch. This can only return one value in
+    -- practice since raw_key is a unique field. We then use this value below
+    -- to select only from seedlings in the specified batch.
+    SELECT key_id
+    FROM internal_keys keys
+    WHERE keys.raw_key = @batch_key
+)
+SELECT seedling_id
+FROM asset_seedlings
+WHERE (
+    asset_seedlings.batch_id in (SELECT key_id FROM target_key_id) AND
+    asset_seedlings.asset_name = @seedling_name
+);
+
+-- name: FetchSeedlingByID :one
+SELECT *
+FROM asset_seedlings
+WHERE seedling_id = @seedling_id;
 
 -- name: AllInternalKeys :many
 SELECT * 
@@ -85,10 +108,11 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
     $2, $3, $4, $5, $6,
-    (SELECT key_id FROM target_key_id), sqlc.narg('group_genesis_id')
+    (SELECT key_id FROM target_key_id),
+    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -102,7 +126,7 @@ WITH target_batch(batch_id) AS (
 SELECT seedling_id, asset_name, asset_type, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
-    group_genesis_id
+    group_genesis_id, group_anchor_id
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
@@ -303,7 +327,8 @@ SELECT
     key_group_info_view.gen_asset_id AS gen_asset_id,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = @group_key
@@ -317,7 +342,8 @@ SELECT
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
-    key_group_info_view.key_family AS key_family
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.genesis_sig AS genesis_sig
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = @genesis_id

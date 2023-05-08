@@ -213,8 +213,9 @@ func (h *harnessTest) syncUniverseState(target, syncer *tarodHarness,
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
 	require.NoError(h.t, err)
+	numAssets := len(syncDiff.SyncedUniverses)
 
-	require.Len(h.t, syncDiff.SyncedUniverses, numExpectedAssets)
+	require.Equal(h.t, numExpectedAssets, numAssets)
 }
 
 // nextAvailablePort returns the first port that is available for listening by

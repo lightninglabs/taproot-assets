@@ -82,7 +82,7 @@ func TestNewFromPsbt(t *testing.T) {
 func TestMinimalContent(t *testing.T) {
 	t.Parallel()
 
-	addr, _ := address.RandAddr(t, testParams)
+	addr, _, _ := address.RandAddr(t, testParams)
 
 	pkg, err := FromAddresses([]*address.Taro{addr.Taro}, 1)
 	require.NoError(t, err)

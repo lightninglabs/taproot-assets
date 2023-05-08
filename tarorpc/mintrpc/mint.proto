@@ -53,6 +53,12 @@ message MintAsset {
     The specific group key this asset should be minted with.
     */
     bytes group_key = 5;
+
+    /*
+    The name of the asset in the batch that will anchor a new asset group.
+    This asset will be minted with the same group key as the anchor asset.
+    */
+    string group_anchor = 6;
 }
 
 message MintAssetRequest {

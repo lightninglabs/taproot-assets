@@ -260,6 +260,11 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 func (r *rpcServer) MintAsset(ctx context.Context,
 	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
 
+	// An asset name is mandatory, and cannot be the empty string.
+	if len(req.Asset.Name) == 0 {
+		return nil, fmt.Errorf("asset name cannot be empty")
+	}
+
 	// Using a specific group key implies disabling emission.
 	if req.EnableEmission && len(req.Asset.GroupKey) != 0 {
 		return nil, fmt.Errorf("must disable emission")
@@ -280,6 +285,14 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, fmt.Errorf("invalid group key: %w", err)
 		}
 
+		err = r.checkBalanceOverflow(
+			ctx, nil, groupTweakedKey,
+			req.Asset.Amount,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		seedling.GroupInfo = &asset.AssetGroup{
 			GroupKey: &asset.GroupKey{
 				GroupPubKey: *groupTweakedKey,
@@ -287,14 +300,14 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	if !req.EnableEmission && seedling.GroupInfo != nil {
-		err := r.checkBalanceOverflow(
-			ctx, nil, &seedling.GroupInfo.GroupPubKey,
-			req.Asset.Amount,
-		)
-		if err != nil {
-			return nil, err
+	// If a group anchor is provided, ensure that emission is disabled.
+	// We cannot do any further validation from outside the minter.
+	if len(req.Asset.GroupAnchor) != 0 {
+		if req.EnableEmission {
+			return nil, fmt.Errorf("cannot emit with group anchor")
 		}
+
+		seedling.GroupAnchor = &req.Asset.GroupAnchor
 	}
 
 	if req.Asset.AssetMeta != nil {
@@ -1126,6 +1139,10 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 
 		addr.AttachGenesis(*assetGroup.Genesis)
 
+		if assetGroup.GroupKey != nil {
+			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+		}
+
 		taprootOutputKey, err := addr.TaprootOutputKey()
 		if err != nil {
 			return nil, fmt.Errorf("error deriving Taproot key: %w",
@@ -1414,6 +1431,10 @@ func marshalAddr(addr *address.Taro,
 	)
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
+
+		if assetGroup.GroupKey != nil {
+			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+		}
 
 		outputKey, err := addr.TaprootOutputKey()
 		if err != nil {

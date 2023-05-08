@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/proof"
@@ -417,7 +418,7 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 
 	groupKey, err := parseGroupKeyInfo(
 		groupInfo.TweakedGroupKey, groupInfo.RawKey,
-		groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.GenesisSig, groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -450,7 +451,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	}
 
 	groupKey, err := parseGroupKeyInfo(
-		groupKeyQuery, groupInfo.RawKey,
+		groupKeyQuery, groupInfo.RawKey, groupInfo.GenesisSig,
 		groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
@@ -464,7 +465,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 }
 
 // parseGroupKeyInfo maps information on a group key into a GroupKey.
-func parseGroupKeyInfo(tweakedKey, rawKey []byte,
+func parseGroupKeyInfo(tweakedKey, rawKey, genesisSig []byte,
 	keyFamily, keyIndex int32) (*asset.GroupKey, error) {
 
 	tweakedGroupKey, err := btcec.ParsePubKey(tweakedKey)
@@ -485,9 +486,15 @@ func parseGroupKeyInfo(tweakedKey, rawKey []byte,
 		PubKey: untweakedKey,
 	}
 
+	groupSig, err := schnorr.ParseSignature(genesisSig)
+	if err != nil {
+		return nil, err
+	}
+
 	return &asset.GroupKey{
 		RawKey:      groupRawKey,
 		GroupPubKey: *tweakedGroupKey,
+		Sig:         *groupSig,
 	}, nil
 }
 

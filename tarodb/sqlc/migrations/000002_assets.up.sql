@@ -281,7 +281,9 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id),
 
-    group_genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id)
+    group_genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id),
+
+    group_anchor_id INTEGER REFERENCES asset_seedlings(seedling_id)
 );
 
 -- TODO(roasbeef): need on delete cascade for all these?

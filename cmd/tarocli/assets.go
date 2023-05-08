@@ -41,6 +41,7 @@ var (
 	assetShowWitnessName  = "show_witness"
 	assetShowSpentName    = "show_spent"
 	assetGroupKeyName     = "group_key"
+	assetGroupAnchorName  = "group_anchor"
 	batchKeyName          = "batch_key"
 	groupByGroupName      = "by_group"
 	assetIDName           = "asset_id"
@@ -85,6 +86,10 @@ var mintAssetCommand = cli.Command{
 		cli.StringFlag{
 			Name:  assetGroupKeyName,
 			Usage: "the specific group key to use to mint the asset",
+		},
+		cli.StringFlag{
+			Name:  assetGroupAnchorName,
+			Usage: "the other asset in this batch that the new asset be grouped with",
 		},
 	},
 	Action: mintAsset,
@@ -160,11 +165,12 @@ func mintAsset(ctx *cli.Context) error {
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType: parseAssetType(ctx),
-			Name:      ctx.String(assetTagName),
-			AssetMeta: assetMeta,
-			Amount:    ctx.Uint64(assetSupplyName),
-			GroupKey:  groupKey,
+			AssetType:   parseAssetType(ctx),
+			Name:        ctx.String(assetTagName),
+			AssetMeta:   assetMeta,
+			Amount:      ctx.Uint64(assetSupplyName),
+			GroupKey:    groupKey,
+			GroupAnchor: ctx.String(assetGroupAnchorName),
 		},
 		EnableEmission: ctx.Bool(assetEmissionName),
 	})

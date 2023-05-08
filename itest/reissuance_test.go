@@ -86,7 +86,7 @@ func testReIssuance(t *harnessTest) {
 
 	// The second node should show a balance of 1 for exactly one group.
 	assertBalanceByID(t.t, secondTarod, collectGenInfo.AssetId, 1)
-	assertBalanceByGroup(t.t, secondTarod, collectGroupKey, 1)
+	assertBalanceByGroup(t.t, secondTarod, encodedCollectGroupKey, 1)
 
 	// Send half of the normal asset to the second node before reissuance.
 	normalGroupAddr, err := secondTarod.NewAddr(
@@ -154,9 +154,12 @@ func testReIssuance(t *harnessTest) {
 	// equal the original mint amount. The collectible group balance should
 	// be back at 1.
 	assertBalanceByGroup(
-		t.t, t.tarod, normalGroupKey, normalGroupGen[0].Amount,
+		t.t, t.tarod, hex.EncodeToString(normalGroupKey),
+		normalGroupGen[0].Amount,
 	)
-	assertBalanceByGroup(t.t, t.tarod, collectGroupKey, 1)
+	assertBalanceByGroup(
+		t.t, t.tarod, hex.EncodeToString(collectGroupKey), 1,
+	)
 
 	// We'll send the new collectible to the second node to ensure that
 	// non-local groups are also handled properly.
@@ -190,7 +193,9 @@ func testReIssuance(t *harnessTest) {
 	collectGroupSecondNode := groupsSecondNode.Groups[encodedCollectGroupKey]
 	require.Equal(t.t, 2, len(collectGroupSecondNode.Assets))
 
-	assertBalanceByGroup(t.t, secondTarod, collectGroupKey, 2)
+	assertBalanceByGroup(
+		t.t, secondTarod, hex.EncodeToString(collectGroupKey), 2,
+	)
 
 	// We should also be able to send a collectible back to the minting node.
 	collectGenAddr, err := t.tarod.NewAddr(
@@ -213,7 +218,9 @@ func testReIssuance(t *harnessTest) {
 
 	// The collectible balance on the minting node should be 1, and there
 	// should still be only two groups.
-	assertBalanceByGroup(t.t, t.tarod, collectGroupKey, 1)
+	assertBalanceByGroup(
+		t.t, t.tarod, hex.EncodeToString(collectGroupKey), 1,
+	)
 	assertNumGroups(t.t, t.tarod, groupCount)
 }
 

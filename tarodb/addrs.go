@@ -332,11 +332,28 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			}
 
 			var groupKey *btcec.PublicKey
+			var groupSig *schnorr.Signature
 			if addr.GroupKey != nil {
 				groupKey, err = btcec.ParsePubKey(addr.GroupKey)
 				if err != nil {
 					return fmt.Errorf("unable to decode "+
 						"group key: %w", err)
+				}
+
+				group, err := db.FetchGroupByGenesis(
+					ctx, addr.GenesisAssetID,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to locate"+
+						"group sig: %w", err)
+				}
+
+				groupSig, err = schnorr.ParseSignature(
+					group.GenesisSig,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to decode"+
+						"group sig: %w", err)
 				}
 			}
 
@@ -394,7 +411,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			}
 
 			taroAddr, err := address.New(
-				assetGenesis, groupKey, *scriptKey,
+				assetGenesis, groupKey, groupSig, *scriptKey,
 				*internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params,
 			)
@@ -468,10 +485,23 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	}
 
 	var groupKey *btcec.PublicKey
+	var groupSig *schnorr.Signature
 	if dbAddr.GroupKey != nil {
 		groupKey, err = btcec.ParsePubKey(dbAddr.GroupKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode group key: %w",
+				err)
+		}
+
+		group, err := db.FetchGroupByGenesis(ctx, dbAddr.GenesisAssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to locate group sig: %w",
+				err)
+		}
+
+		groupSig, err = schnorr.ParseSignature(group.GenesisSig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode group sig: %w",
 				err)
 		}
 	}
@@ -518,7 +548,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	}
 
 	taroAddr, err := address.New(
-		genesis, groupKey, *scriptKey, *internalKey,
+		genesis, groupKey, groupSig, *scriptKey, *internalKey,
 		uint64(dbAddr.Amount), tapscriptSibling, params,
 	)
 	if err != nil {
@@ -889,7 +919,8 @@ func (a *TaroAddressBook) QueryAssetGroup(ctx context.Context,
 
 		assetGroup.GroupKey, err = parseGroupKeyInfo(
 			groupInfo.TweakedGroupKey, groupInfo.RawKey,
-			groupInfo.KeyFamily, groupInfo.KeyIndex,
+			groupInfo.GenesisSig, groupInfo.KeyFamily,
+			groupInfo.KeyIndex,
 		)
 
 		return err
@@ -905,10 +936,10 @@ func (a *TaroAddressBook) QueryAssetGroup(ctx context.Context,
 	return &assetGroup, nil
 }
 
-// insertFullAssetGen inserts a new asset genesis into the database. A place
-// holder for the asset meta inserted as well.
+// insertFullAssetGen inserts a new asset genesis and optional asset group
+// into the database. A place holder for the asset meta inserted as well.
 func insertFullAssetGen(ctx context.Context,
-	gen *asset.Genesis) func(AddrBook) error {
+	gen *asset.Genesis, group *asset.GroupKey) func(AddrBook) error {
 
 	return func(db AddrBook) error {
 		_, err := maybeUpsertAssetMeta(
@@ -926,11 +957,18 @@ func insertFullAssetGen(ctx context.Context,
 				"point: %w", err)
 		}
 
-		_, err = upsertGenesis(
+		genAssetID, err := upsertGenesis(
 			ctx, db, genesisPointID, *gen,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to upsert genesis: %w", err)
+		}
+
+		_, err = upsertGroupKey(
+			ctx, group, db, genesisPointID, genAssetID,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert group: %w", err)
 		}
 
 		return nil
@@ -941,11 +979,11 @@ func insertFullAssetGen(ctx context.Context,
 // exported primarily for external tests so a genesis can be in place before
 // addr insertion.
 func (t *TaroAddressBook) InsertAssetGen(ctx context.Context,
-	gen *asset.Genesis) error {
+	gen *asset.Genesis, group *asset.GroupKey) error {
 
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
-		return insertFullAssetGen(ctx, gen)(db)
+		return insertFullAssetGen(ctx, gen, group)(db)
 	})
 }
 

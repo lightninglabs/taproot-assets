@@ -59,6 +59,8 @@ type Querier interface {
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
 	FetchScriptKeyByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (FetchScriptKeyByTweakedKeyRow, error)
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error)
+	FetchSeedlingByID(ctx context.Context, seedlingID int32) (AssetSeedling, error)
+	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int32, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int32) ([]FetchTransferInputsRow, error)
 	FetchTransferOutputs(ctx context.Context, transferID int32) ([]FetchTransferOutputsRow, error)

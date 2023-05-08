@@ -703,6 +703,20 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		req.GroupInfo = groupInfo
 	}
 
+	// If a group anchor is specified, we need to ensure that the anchor
+	// seedling is already in the batch and has emission enabled.
+	if req.GroupAnchor != nil {
+		if c.pendingBatch == nil {
+			return fmt.Errorf("batch empty, group anchor %v "+
+				"invalid", *req.GroupAnchor)
+		}
+
+		err := c.pendingBatch.validateGroupAnchor(req)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Now that we know the field are valid, we'll check to see if a batch
 	// already exists.
 	switch {
