@@ -841,7 +841,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt.Inputs[0].Asset().Genesis = state.genesis1collect
 		return taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 	},
 	err: vm.Error{Kind: vm.ErrIDMismatch},
@@ -862,7 +862,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		firstPrevID.OutPoint.Index = 1337
 
 		return taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 	},
 	err: vm.ErrNoInputs,
@@ -882,7 +882,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -907,7 +907,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -931,7 +931,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -954,7 +954,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -979,7 +979,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -1047,7 +1047,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -1061,7 +1061,9 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		_, err = taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		return err
 	},
@@ -1079,7 +1081,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
@@ -1096,7 +1098,9 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		_, err = taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		return err
 	},
@@ -1115,13 +1119,15 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1141,13 +1147,15 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1167,13 +1175,15 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1194,13 +1204,15 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1222,13 +1234,15 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1267,13 +1281,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1301,13 +1317,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1335,13 +1353,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1372,13 +1392,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1409,13 +1431,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1447,13 +1471,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1486,13 +1512,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = taroscript.SignVirtualTransaction(
-			pkt, 0, state.signer, state.validator,
+			pkt, state.signer, state.validator,
 		)
 		require.NoError(t, err)
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			inputCommitment, pkt, nil,
+			taropsbt.InputCommitments{
+				0: inputCommitment,
+			}, pkt, nil,
 		)
 		require.NoError(t, err)
 
@@ -1537,13 +1565,15 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	err := taroscript.PrepareOutputAssets(context.Background(), pkt)
 	require.NoError(t, err)
 	err = taroscript.SignVirtualTransaction(
-		pkt, 0, state.signer, state.validator,
+		pkt, state.signer, state.validator,
 	)
 	require.NoError(t, err)
 
 	inputCommitment := &state.asset2TaroTree
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		inputCommitment, pkt, nil,
+		taropsbt.InputCommitments{
+			0: inputCommitment,
+		}, pkt, nil,
 	)
 	require.NoError(t, err)
 
@@ -1861,7 +1891,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1888,7 +1919,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1CollectGroupTaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1914,7 +1946,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset2TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1940,7 +1973,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1966,7 +2000,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2000,7 +2035,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := taroscript.ValidateInputs(
 			taropsbt.InputCommitments{
 				0: &state.asset1TaroTree,
-			}, &state.spenderScriptKey, inputAsset.Type, fundDesc,
+			}, []*btcec.PublicKey{&state.spenderScriptKey},
+			inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err

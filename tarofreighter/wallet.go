@@ -402,12 +402,6 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	assetType := selectedCommitments[0].Asset.Type
 
-	// We'll take just the first commitment here as we need enough
-	// to complete the send w/o merging inputs.
-	//
-	// TODO(ffranr): Remove selected commitment truncation.
-	selectedCommitments = selectedCommitments[:1]
-
 	totalInputAmt := uint64(0)
 	for _, anchorAsset := range selectedCommitments {
 		totalInputAmt += anchorAsset.Asset.Amount
@@ -428,9 +422,14 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		)
 	}
 
-	senderScriptKey := vPkt.Inputs[0].Asset().ScriptKey.PubKey
+	inputsScriptKeys := chanutils.Map(
+		vPkt.Inputs, func(vInput *taropsbt.VInput) *btcec.PublicKey {
+			return vInput.Asset().ScriptKey.PubKey
+		},
+	)
+
 	fullValue, err := taroscript.ValidateInputs(
-		inputCommitments, senderScriptKey, assetType, fundDesc,
+		inputCommitments, inputsScriptKeys, assetType, fundDesc,
 	)
 	if err != nil {
 		return nil, err
@@ -731,9 +730,6 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket,
 		optFunc(opts)
 	}
 
-	// Now we'll use the signer to sign all the inputs for the new taro
-	// leaves. The witness data for each input will be assigned for us.
-	signedInputs := make([]uint32, len(vPkt.Inputs))
 	for idx := range vPkt.Inputs {
 		// Conditionally skip the inclusion proof verification. We may
 		// not need to verify the input proof if we're only using the
@@ -749,15 +745,21 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *taropsbt.VPacket,
 					"inclusion proof: %w", err)
 			}
 		}
+	}
 
-		err := taroscript.SignVirtualTransaction(
-			vPkt, idx, f.cfg.Signer, f.cfg.TxValidator,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to generate taro "+
-				"witness data: %w", err)
-		}
+	// Now we'll use the signer to sign all the inputs for the new taro
+	// leaves. The witness data for each input will be assigned for us.
+	err := taroscript.SignVirtualTransaction(
+		vPkt, f.cfg.Signer, f.cfg.TxValidator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate taro "+
+			"witness data: %w", err)
+	}
 
+	// Mark all inputs as signed.
+	signedInputs := make([]uint32, len(vPkt.Inputs))
+	for idx := range vPkt.Inputs {
 		signedInputs[idx] = uint32(idx)
 	}
 
@@ -999,22 +1001,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	//
 	// TODO(guggero): Support merging and anchoring multiple virtual
 	// transactions.
-	if len(params.VPkts) != 1 || len(params.InputCommitments) != 1 {
+	if len(params.VPkts) != 1 {
 		return nil, fmt.Errorf("only a single virtual transaction is " +
 			"supported for now")
 	}
 	vPacket := params.VPkts[0]
 
-	// Select input commitment which corresponds to the single virtual
-	// input.
-	var inputCommitment *commitment.TaroCommitment
-	for idx := range params.InputCommitments {
-		inputCommitment = params.InputCommitments[idx]
-		break
-	}
-
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		inputCommitment, vPacket, params.PassiveAssetsVPkts,
+		params.InputCommitments, vPacket, params.PassiveAssetsVPkts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
@@ -1068,9 +1062,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 
 	// Now that all the real outputs are in the PSBT, we'll also
-	// add our anchor input as well, since the wallet can sign for
+	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	err = addAnchorPsbtInput(
+	err = addAnchorPsbtInputs(
 		signAnchorPkt, vPacket, params.FeeRate,
 		f.cfg.ChainParams.Params,
 	)
@@ -1248,33 +1242,35 @@ func adjustFundedPsbt(fPkt *tarogarden.FundedPsbt, anchorInputValue int64) {
 	fPkt.ChangeOutputIndex = int32(maxOutputIndex)
 }
 
-// addAnchorPsbtInput adds the input anchor information to the PSBT packet.
-// This is called after the PSBT has been funded, but before signing.
-func addAnchorPsbtInput(btcPkt *psbt.Packet, vPkt *taropsbt.VPacket,
+// addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
+// packet. This is called after the PSBT has been funded, but before signing.
+func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *taropsbt.VPacket,
 	feeRate chainfee.SatPerKWeight, params *chaincfg.Params) error {
 
-	// With the BIP-0032 information completed, we'll now add the
-	// information as a partial input and also add the input to the unsigned
-	// transaction.
-	vIn := vPkt.Inputs[0]
-	btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
-		WitnessUtxo: &wire.TxOut{
-			Value:    int64(vIn.Anchor.Value),
-			PkScript: vIn.Anchor.PkScript,
-		},
-		SighashType:            vIn.Anchor.SigHashType,
-		Bip32Derivation:        vIn.Anchor.Bip32Derivation,
-		TaprootBip32Derivation: vIn.Anchor.TrBip32Derivation,
-		TaprootInternalKey: schnorr.SerializePubKey(
-			vIn.Anchor.InternalKey,
-		),
-		TaprootMerkleRoot: vIn.Anchor.MerkleRoot,
-	})
-	btcPkt.UnsignedTx.TxIn = append(
-		btcPkt.UnsignedTx.TxIn, &wire.TxIn{
-			PreviousOutPoint: vIn.PrevID.OutPoint,
-		},
-	)
+	for idx := range vPkt.Inputs {
+		// With the BIP-0032 information completed, we'll now add the
+		// information as a partial input and also add the input to the
+		// unsigned transaction.
+		vIn := vPkt.Inputs[idx]
+		btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				Value:    int64(vIn.Anchor.Value),
+				PkScript: vIn.Anchor.PkScript,
+			},
+			SighashType:            vIn.Anchor.SigHashType,
+			Bip32Derivation:        vIn.Anchor.Bip32Derivation,
+			TaprootBip32Derivation: vIn.Anchor.TrBip32Derivation,
+			TaprootInternalKey: schnorr.SerializePubKey(
+				vIn.Anchor.InternalKey,
+			),
+			TaprootMerkleRoot: vIn.Anchor.MerkleRoot,
+		})
+		btcPkt.UnsignedTx.TxIn = append(
+			btcPkt.UnsignedTx.TxIn, &wire.TxIn{
+				PreviousOutPoint: vIn.PrevID.OutPoint,
+			},
+		)
+	}
 
 	// Now that we've added an extra input, we'll want to re-calculate the
 	// total weight of the transaction, so we can ensure we're paying

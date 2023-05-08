@@ -35,6 +35,10 @@ var testCases = []*testCase{
 		test: testSendPassiveAsset,
 	},
 	{
+		name: "multi input send non-interactive single ID",
+		test: testMultiInputSendNonInteractiveSingleID,
+	},
+	{
 		name: "round trip send",
 		test: testRoundTripSend,
 	},

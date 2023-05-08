@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,8 @@ func RandSplitCommit(t testing.TB, a asset.Asset) *asset.SplitCommitment {
 	}
 
 	split, err := NewSplitCommitment(
-		context.Background(), &a, test.RandOp(t), &rootLoc, &splitLoc,
+		context.Background(), []*asset.Asset{&a},
+		[]wire.OutPoint{test.RandOp(t)}, &rootLoc, &splitLoc,
 	)
 	require.NoError(t, err)
 

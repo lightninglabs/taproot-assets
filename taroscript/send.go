@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"reflect"
 	"sort"
 
@@ -228,13 +229,14 @@ func AssetFromTaroCommitment(taroCommitment *commitment.TaroCommitment,
 // ValidateInputs validates a set of inputs against a funding request. It
 // returns true if the inputs would be spent fully, otherwise false.
 func ValidateInputs(inputCommitments taropsbt.InputCommitments,
-	senderScriptKey *btcec.PublicKey, expectedAssetType asset.Type,
+	inputsScriptKeys []*btcec.PublicKey, expectedAssetType asset.Type,
 	desc *FundingDescriptor) (bool, error) {
 
 	// Extract the input assets from the input commitments.
-	inputAssets := make([]*asset.Asset, 0)
+	inputAssets := make([]*asset.Asset, len(inputsScriptKeys))
 	for inputIndex := range inputCommitments {
 		taroCommitment := inputCommitments[inputIndex]
+		senderScriptKey := inputsScriptKeys[inputIndex]
 
 		// Gain the asset that we'll use as an input and in the process
 		// validate the selected input and commitment.
@@ -250,7 +252,7 @@ func ValidateInputs(inputCommitments taropsbt.InputCommitments,
 			return false, fmt.Errorf("unexpected input asset type")
 		}
 
-		inputAssets = append(inputAssets, inputAsset)
+		inputAssets[inputIndex] = inputAsset
 	}
 
 	// Validate total amount of input assets and determine full value spend
@@ -286,21 +288,63 @@ func ValidateInputs(inputCommitments taropsbt.InputCommitments,
 // and spend information. The inputs MUST be checked as valid beforehand and the
 // change output is expected to be declared as such (and be at index 0).
 func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
-	// We currently only support a single input.
-	//
-	// TODO(guggero): Support multiple inputs.
-	if len(vPkt.Inputs) != 1 {
-		return fmt.Errorf("only a single input is currently supported")
-	}
-	input := vPkt.Inputs[0]
+	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
-	// This should be caught way earlier but just to make sure that we never
-	// overflow when converting the input amount to int64 we check this
-	// again.
-	inputAsset := input.Asset()
-	if inputAsset.Amount > math.MaxInt64 {
-		return fmt.Errorf("amount int64 overflow")
+	if len(inputs) == 0 {
+		return fmt.Errorf("no inputs specified in virtual packet")
+	}
+
+	var (
+		totalInputAmount uint64
+
+		// Inspect first asset to determine all input asset IDs.
+		//
+		// TODO(ffranr): Add support for multiple different input asset
+		// IDs.
+		assetID = inputs[0].Asset().ID()
+
+		// Inspect first asset to determine all input asset types.
+		inputAssetType = inputs[0].Asset().Type
+
+		inputAssets    = make([]*asset.Asset, len(inputs))
+		inputOutPoints = make([]wire.OutPoint, len(inputs))
+	)
+	for idx := range inputs {
+		vIn := inputs[idx]
+		inputAsset := vIn.Asset()
+
+		// This should be caught way earlier but just to make sure that
+		// we never overflow when converting the input amount to int64
+		// we check this again.
+		if inputAsset.Amount > math.MaxInt64 {
+			return fmt.Errorf("amount int64 overflow")
+		}
+
+		// Calculate sum total input amounts with overflow check.
+		newTotalInputAmount, carry := bits.Add64(
+			totalInputAmount, inputAsset.Amount, 0,
+		)
+		overflow := carry != 0
+		if overflow {
+			return fmt.Errorf("total input amount uint64 overflow")
+		}
+		totalInputAmount = newTotalInputAmount
+
+		// Gather input assets.
+		inputAssets[idx] = inputAsset
+
+		// Gather input outpoints.
+		inputOutPoints[idx] = inputs[idx].PrevID.OutPoint
+
+		// TODO(ffranr): Right now, we only support a single input or
+		// multiple inputs with the same asset ID. We need to support
+		// multiple input assets from the same group but do not
+		// necessarily share the same asset ID.
+		if idx > 0 && inputs[idx].Asset().ID() != assetID {
+			return fmt.Errorf("multiple input assets " +
+				"must have the same asset ID")
+		}
 	}
 
 	// Do some general sanity checks on the outputs, these should be
@@ -358,7 +402,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 			return fmt.Errorf("single output must be interactive")
 		}
 
-		if vOut.Amount != inputAsset.Amount {
+		if vOut.Amount != totalInputAmount {
 			return ErrInvalidSplitAmounts
 		}
 
@@ -369,7 +413,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		// a two output transaction to be a valid collectible send, it
 		// needs to be a non-interactive send where we expect there to
 		// be a tombstone output for the split root.
-		if inputAsset.Type == asset.Collectible {
+		if inputAssetType == asset.Collectible {
 			if !vPkt.HasSplitRootOutput() {
 				return ErrInvalidCollectibleSplit
 			}
@@ -410,7 +454,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	default:
 	}
 
-	var residualAmount = inputAsset.Amount
+	var residualAmount = totalInputAmount
 	for idx := range outputs {
 		residualAmount -= outputs[idx].Amount
 	}
@@ -422,15 +466,24 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 
 	// If we have an interactive full value send, we don't need a tomb stone
 	// at all.
-	inputIDCopy := input.PrevID
 	recipientIndex, isFullValueInteractiveSend := interactiveFullValueSend(
-		input, outputs,
+		totalInputAmount, outputs,
 	)
+
 	if isFullValueInteractiveSend {
+		if len(inputs) != 1 {
+			return fmt.Errorf("full value interactive send " +
+				"must have exactly one input")
+		}
+
+		// TODO(ffranr): Add support for interactive full value multiple
+		// input spend.
+		input := inputs[0]
+
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		outputs[recipientIndex].Asset = inputAsset.Copy()
+		outputs[recipientIndex].Asset = input.Asset().Copy()
 		outputs[recipientIndex].Asset.ScriptKey = outputs[0].ScriptKey
 
 		// Record the PrevID of the input asset in a Witness for the new
@@ -438,7 +491,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		// asset to be valid.
 		outputs[recipientIndex].Asset.PrevWitnesses = []asset.Witness{
 			{
-				PrevID:          &inputIDCopy,
+				PrevID:          &input.PrevID,
 				TxWitness:       nil,
 				SplitCommitment: nil,
 			},
@@ -458,7 +511,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	for idx := range outputs {
 		vOut := outputs[idx]
 
-		locator := outputs[idx].SplitLocator(input.Asset().ID())
+		locator := outputs[idx].SplitLocator(assetID)
 		if vOut.IsSplitRoot {
 			rootLocator = &locator
 			continue
@@ -468,8 +521,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
-		ctx, inputAsset, input.PrevID.OutPoint, rootLocator,
-		splitLocators...,
+		ctx, inputAssets, inputOutPoints, rootLocator, splitLocators...,
 	)
 	if err != nil {
 		return err
@@ -478,7 +530,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	// Assign each of the split assets to their respective outputs.
 	for idx := range outputs {
 		vOut := outputs[idx]
-		locator := outputs[idx].SplitLocator(input.Asset().ID())
+		locator := outputs[idx].SplitLocator(assetID)
 
 		splitAsset, ok := splitCommitment.SplitAssets[locator]
 		if !ok {
@@ -508,16 +560,10 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 // full asset in case of an interactive full amount send) by creating a
 // signature over the asset transfer, verifying the transfer with the Taro VM,
 // and attaching that signature to the new Asset.
-func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
-	signer Signer, validator TxValidator) error {
+func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
+	validator TxValidator) error {
 
-	// We currently only support a single input.
-	//
-	// TODO(guggero): Support multiple inputs.
-	if len(vPkt.Inputs) != 1 || inputIdx != 0 {
-		return fmt.Errorf("only a single input is currently supported")
-	}
-	input := vPkt.Inputs[0]
+	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
 	// If this is a split transfer, it means that the asset to be signed is
@@ -527,13 +573,9 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 		return err
 	}
 
-	prevAssets := commitment.InputSet{
-		input.PrevID: input.Asset(),
-	}
+	// Identify new output asset. For splits, the new asset that receives
+	// the signature is the one with the split root set to true.
 	newAsset := outputs[0].Asset
-
-	// For splits, the new asset that receives the signature is the one with
-	// the split root set to true.
 	if isSplit {
 		splitOut, err := vPkt.SplitRootOutput()
 		if err != nil {
@@ -543,29 +585,42 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 		newAsset = splitOut.Asset
 	}
 
+	// Construct input set from all input assets.
+	prevAssets := make(commitment.InputSet, len(inputs))
+	for idx := range vPkt.Inputs {
+		input := vPkt.Inputs[idx]
+		prevAssets[input.PrevID] = input.Asset()
+	}
+
 	// Create a Taro virtual transaction representing the asset transfer.
 	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
 	if err != nil {
 		return err
 	}
 
-	// For each input asset leaf, we need to produce a witness. Update the
-	// input of the virtual TX, generate a witness, and attach it to the
-	// copy of the new Asset.
-	virtualTxCopy := VirtualTxWithInput(
-		virtualTx, input.Asset(), uint32(inputIdx), nil,
-	)
+	for idx := range inputs {
+		input := inputs[idx]
 
-	// Sign the virtual transaction based on the input script information
-	// (key spend or script spend).
-	newWitness, err := CreateTaprootSignature(
-		input, virtualTxCopy, inputIdx, signer,
-	)
-	if err != nil {
-		return fmt.Errorf("error creating taproot signature: %w", err)
+		// For each input asset leaf, we need to produce a witness.
+		// Update the input of the virtual TX, generate a witness, and
+		// attach it to the copy of the new Asset.
+		virtualTxCopy := virtualTx.Copy()
+		inputSpecificVirtualTx := VirtualTxWithInput(
+			virtualTxCopy, input.Asset(), uint32(idx), nil,
+		)
+
+		// Sign the virtual transaction based on the input script
+		// information (key spend or script spend).
+		newWitness, err := CreateTaprootSignature(
+			input, inputSpecificVirtualTx, 0, signer,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating taproot "+
+				"signature: %w", err)
+		}
+
+		newAsset.PrevWitnesses[idx].TxWitness = newWitness
 	}
-
-	newAsset.PrevWitnesses[inputIdx].TxWitness = newWitness
 
 	// Create an instance of the Taro VM and validate the transfer.
 	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
@@ -624,22 +679,49 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, inputIdx int,
 }
 
 // CreateOutputCommitments creates the final set of TaroCommitments representing
-// the asset send. The input TaroCommitment must be set.
-func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
+// the asset send.
+func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
 	vPkt *taropsbt.VPacket,
 	passiveAssets []*taropsbt.VPacket) ([]*commitment.TaroCommitment,
 	error) {
 
-	// We currently only support a single input.
-	//
-	// TODO(guggero): Support multiple inputs.
-	if len(vPkt.Inputs) != 1 {
-		return nil, fmt.Errorf("only a single input is currently " +
-			"supported")
-	}
-	input := vPkt.Inputs[0]
+	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
-	inputAsset := input.Asset().Copy()
+
+	// TODO(ffranr): Support multiple inputs with different asset IDs.
+	// Currently, every input asset must have the same asset ID. Ensure
+	// that's the case.
+	assetsTaroCommitmentKey := inputs[0].Asset().TaroCommitmentKey()
+	for idx := range inputs {
+		inputAsset := inputs[idx].Asset()
+		if inputAsset.TaroCommitmentKey() != assetsTaroCommitmentKey {
+			return nil, fmt.Errorf("inputs must have the same " +
+				"asset ID")
+		}
+
+		// For multi input, assert asset is not part of a group.
+		assetInGroup := inputs[0].Asset().Genesis.ID() !=
+			assetsTaroCommitmentKey
+		if len(inputs) > 1 && assetInGroup {
+			return nil, fmt.Errorf("multi input spend may not " +
+				"include input from asset group")
+		}
+	}
+
+	// Merge all input taro commitments into a single commitment.
+	//
+	// TODO(ffranr): Use `chanutils.ForEach` and `inputTaroCommitments[1:]`.
+	inputTaroCommitment := inputTaroCommitments[0]
+	for idx := range inputTaroCommitments {
+		if idx == 0 {
+			continue
+		}
+		err := inputTaroCommitment.Merge(inputTaroCommitments[idx])
+		if err != nil {
+			return nil, fmt.Errorf("failed to merge input taro "+
+				"commitments: %w", err)
+		}
+	}
 
 	// We require all outputs that reference the same anchor output to be
 	// identical, otherwise some assumptions in the code below don't hold.
@@ -656,21 +738,27 @@ func CreateOutputCommitments(inputTaroCommitment *commitment.TaroCommitment,
 	}
 
 	inputCommitments := inputTaroCommitmentCopy.Commitments()
-	inputCommitment, ok := inputCommitments[inputAsset.TaroCommitmentKey()]
+	inputCommitment, ok := inputCommitments[assetsTaroCommitmentKey]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
 
-	// Just a sanity check that the asset we're spending really was in the
-	// list of input assets.
-	_, ok = inputCommitment.Asset(inputAsset.AssetCommitmentKey())
-	if !ok {
-		return nil, ErrMissingInputAsset
-	}
+	for idx := range inputs {
+		input := inputs[idx]
+		inputAsset := input.Asset()
 
-	// Remove the input asset from the asset commitment tree.
-	if err := inputCommitment.Delete(inputAsset); err != nil {
-		return nil, err
+		// Just a sanity check that the asset we're spending really was
+		// in the list of input assets.
+		_, ok = inputCommitment.Asset(inputAsset.AssetCommitmentKey())
+		if !ok {
+			return nil, ErrMissingInputAsset
+		}
+
+		// Remove all input assets from the asset commitment tree.
+		err := inputCommitment.Delete(inputAsset)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	outputCommitments := make([]*commitment.TaroCommitment, len(outputs))
@@ -979,7 +1067,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 // interactiveFullValueSend returns true (and the index of the recipient output)
 // if there is exactly one output that spends the input fully and interactively
 // (when discarding any potential passive asset anchor outputs).
-func interactiveFullValueSend(input *taropsbt.VInput,
+func interactiveFullValueSend(totalInputAmount uint64,
 	outputs []*taropsbt.VOutput) (int, bool) {
 
 	var (
@@ -999,7 +1087,7 @@ func interactiveFullValueSend(input *taropsbt.VInput,
 	}
 
 	fullValueInteractiveSend := numRecipientOutputs == 1 &&
-		outputs[recipientIndex].Amount == input.Asset().Amount &&
+		outputs[recipientIndex].Amount == totalInputAmount &&
 		outputs[recipientIndex].Interactive
 
 	return recipientIndex, fullValueInteractiveSend
