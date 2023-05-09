@@ -41,3 +41,13 @@ http:
     - selector: universerpc.Universe.SyncUniverse
       post: "/v1/taro/universe/sync"
       body: "*"
+
+    - selector: universerpc.Universe.ListFederationServers
+      get: "/v1/taro/universe/federation"
+
+    - selector: universerpc.Universe.AddFederationServer
+      post: "/v1/taro/universe/federation"
+      body: "*"
+        
+    - selector: universerpc.Universe.DeleteFederationServer
+      delete: "/v1/taro/universe/federation"

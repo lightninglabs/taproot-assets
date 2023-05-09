@@ -7,7 +7,23 @@ package sqlc
 
 import (
 	"context"
+	"time"
 )
+
+const deleteUniverseServer = `-- name: DeleteUniverseServer :exec
+DELETE FROM universe_servers
+WHERE server_host = $1 OR id = $2
+`
+
+type DeleteUniverseServerParams struct {
+	TargetServer string
+	TargetID     int32
+}
+
+func (q *Queries) DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error {
+	_, err := q.db.ExecContext(ctx, deleteUniverseServer, arg.TargetServer, arg.TargetID)
+	return err
+}
 
 const fetchUniverseKeys = `-- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes
@@ -102,6 +118,67 @@ func (q *Queries) InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeaf
 		arg.LeafNodeNamespace,
 		arg.MintingPoint,
 	)
+	return err
+}
+
+const insertUniverseServer = `-- name: InsertUniverseServer :exec
+INSERT INTO universe_servers(
+    server_host, last_sync_time
+) VALUES (
+    $1, $2
+)
+`
+
+type InsertUniverseServerParams struct {
+	ServerHost   string
+	LastSyncTime time.Time
+}
+
+func (q *Queries) InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error {
+	_, err := q.db.ExecContext(ctx, insertUniverseServer, arg.ServerHost, arg.LastSyncTime)
+	return err
+}
+
+const listUniverseServers = `-- name: ListUniverseServers :many
+SELECT id, server_host, last_sync_time FROM universe_servers
+`
+
+func (q *Queries) ListUniverseServers(ctx context.Context) ([]UniverseServer, error) {
+	rows, err := q.db.QueryContext(ctx, listUniverseServers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UniverseServer
+	for rows.Next() {
+		var i UniverseServer
+		if err := rows.Scan(&i.ID, &i.ServerHost, &i.LastSyncTime); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logServerSync = `-- name: LogServerSync :exec
+UPDATE universe_servers
+SET last_sync_time = $1
+WHERE server_host = $2
+`
+
+type LogServerSyncParams struct {
+	NewSyncTime  time.Time
+	TargetServer string
+}
+
+func (q *Queries) LogServerSync(ctx context.Context, arg LogServerSyncParams) error {
+	_, err := q.db.ExecContext(ctx, logServerSync, arg.NewSyncTime, arg.TargetServer)
 	return err
 }
 

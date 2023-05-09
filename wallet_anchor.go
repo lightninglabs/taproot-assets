@@ -34,6 +34,12 @@ func NewLndRpcWalletAnchor(lnd *lndclient.LndServices) *LndRpcWalletAnchor {
 	}
 }
 
+const (
+	// defaultChangeType is the default change type we'll use when using the
+	// PSBT APIs.
+	defaultChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+)
+
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
 func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
@@ -54,7 +60,8 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 			Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 				SatPerVbyte: uint64(feeRate.FeePerKVByte()) / 1000,
 			},
-			MinConfs: int32(minConfs),
+			MinConfs:   int32(minConfs),
+			ChangeType: defaultChangeType,
 		},
 	)
 	if err != nil {

@@ -593,7 +593,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		err := chanutils.ErrGroup(ctx, pkg.OutboundPkg.Outputs, deliver)
+		err := chanutils.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
 		if err != nil {
 			return fmt.Errorf("error delivering proof(s): %w", err)
 		}

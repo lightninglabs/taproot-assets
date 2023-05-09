@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,8 +48,6 @@ const (
 	// poolMacaroonLocation is the value we use for the taro macaroons'
 	// "Location" field when baking them.
 	taroMacaroonLocation = "taro"
-
-	defaultRPCPort = 10029
 )
 
 // rpcServer is the main RPC server for the Taro daemon that handles
@@ -1789,20 +1786,25 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		metaHash := seedling.Meta.MetaHash()
+		var seedlingMeta *tarorpc.AssetMeta
+		if seedling.Meta != nil {
+			seedlingMeta = &tarorpc.AssetMeta{
+				MetaHash: chanutils.ByteSlice(
+					seedling.Meta.MetaHash(),
+				),
+				Data: seedling.Meta.Data,
+				Type: tarorpc.AssetMetaType(
+					seedling.Meta.Type,
+				),
+			}
+		}
 
 		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType: tarorpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
-			AssetMeta: &tarorpc.AssetMeta{
-				MetaHash: metaHash[:],
-				Data:     seedling.Meta.Data,
-				Type: tarorpc.AssetMetaType(
-					seedling.Meta.Type,
-				),
-			},
-			Amount:   seedling.Amount,
-			GroupKey: groupKeyBytes,
+			AssetMeta: seedlingMeta,
+			Amount:    seedling.Amount,
+			GroupKey:  groupKeyBytes,
 		})
 	}
 
@@ -2126,6 +2128,8 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		return nil, err
 	}
 
+	rpcsLog.Debugf("Querying for asset root for %v", spew.Sdump(universeID))
+
 	assetRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
 	if err != nil {
 		return nil, err
@@ -2186,8 +2190,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	return resp, nil
 }
 
-// marshalAssetLeaf marshals an asset leaf into the RPC form.
-func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
+func marshalAssetLeaf(ctx context.Context, keys KeyLookup,
 	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
 
 	// In order to display the full asset, we'll parse the genesis
@@ -2200,7 +2203,7 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 	}
 
 	rpcAsset, err := MarshalAsset(
-		ctx, &assetProof.Asset, false, true, r.cfg.AddrBook,
+		ctx, &assetProof.Asset, false, true, keys,
 	)
 	if err != nil {
 		return nil, err
@@ -2210,6 +2213,13 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 		Asset:         rpcAsset,
 		IssuanceProof: assetLeaf.GenesisProof[:],
 	}, nil
+}
+
+// marshalAssetLeaf marshals an asset leaf into the RPC form.
+func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
+	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+
+	return marshalAssetLeaf(ctx, r.cfg.AddrBook, assetLeaf)
 }
 
 // AssetLeaves queries for the set of asset leaves (the values in the Universe
@@ -2483,47 +2493,6 @@ func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
 	}
 }
 
-// unmarshalUniverseHost maps an RPC universe host (of the form 'host' or
-// 'host:port') into a net.Addr.
-func unmarshalUniverseHost(uniAddr string) (universe.ServerAddr, error) {
-	var (
-		host      string
-		port      int
-		uniServer universe.ServerAddr
-	)
-
-	if len(uniAddr) == 0 {
-		return uniServer, fmt.Errorf("universe host cannot be empty")
-	}
-
-	// Split the address into its host and port components.
-	h, p, err := net.SplitHostPort(uniAddr)
-	if err != nil {
-		// If a port wasn't specified, we'll assume the address only
-		// contains the host so we'll use the default port.
-		host = uniAddr
-		port = defaultRPCPort
-	} else {
-		// Otherwise, we'll note both the host and ports.
-		host = h
-		portNum, err := strconv.Atoi(p)
-		if err != nil {
-			return uniServer, err
-		}
-		port = portNum
-	}
-
-	// TODO(roasbeef): add tor support
-
-	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	uniServer.Addr, err = net.ResolveTCPAddr("tcp", hostPort)
-	if err != nil {
-		return uniServer, err
-	}
-
-	return uniServer, nil
-}
-
 // unmarshalSyncTargets maps an RPC sync target into a concrete type.
 func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
 	uniIDs := make([]universe.Identifier, 0, len(targets))
@@ -2593,14 +2562,12 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse sync type: %w", err)
 	}
-	uniAddr, err := unmarshalUniverseHost(req.UniverseHost)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse universe host: %w", err)
-	}
 	syncTargets, err := unmarshalSyncTargets(req.SyncTargets)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse sync targets: %w", err)
 	}
+
+	uniAddr := universe.NewServerAddrFromStr(req.UniverseHost)
 
 	// TODO(roasbeef): add layer of indirection in front of?
 	//  * just interface interaction
@@ -2612,4 +2579,69 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 	}
 
 	return r.marshalUniverseDiff(ctx, universeDiff)
+}
+
+func marshalUniverseServer(server universe.ServerAddr,
+) *unirpc.UniverseFederationServer {
+
+	return &unirpc.UniverseFederationServer{
+		Host: server.HostStr(),
+		Id:   int32(server.ID),
+	}
+}
+
+// ListFederationServers lists the set of servers that make up the federation
+// of the local Universe server. This servers are used to push out new proofs,
+// and also periodically call sync new proofs from the remote server.
+func (r *rpcServer) ListFederationServers(ctx context.Context,
+	in *unirpc.ListFederationServersRequest,
+) (*unirpc.ListFederationServersResponse, error) {
+
+	uniServers, err := r.cfg.FederationDB.UniverseServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.ListFederationServersResponse{
+		Servers: chanutils.Map(uniServers, marshalUniverseServer),
+	}, nil
+}
+
+func unmarshalUniverseServer(server *unirpc.UniverseFederationServer,
+) universe.ServerAddr {
+
+	return universe.NewServerAddr(uint32(server.Id), server.Host)
+}
+
+// AddFederationServer adds a new server to the federation of the local
+// Universe server. Once a server is added, this call can also optionally be
+// used to trigger a sync of the remote server.
+func (r *rpcServer) AddFederationServer(ctx context.Context,
+	in *unirpc.AddFederationServerRequest,
+) (*unirpc.AddFederationServerResponse, error) {
+
+	serversToAdd := chanutils.Map(in.Servers, unmarshalUniverseServer)
+
+	err := r.cfg.UniverseFederation.AddServer(serversToAdd...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.AddFederationServerResponse{}, nil
+}
+
+// DeleteFederationServer removes a server from the federation of the local
+// Universe server.
+func (r *rpcServer) DeleteFederationServer(ctx context.Context,
+	in *unirpc.DeleteFederationServerRequest,
+) (*unirpc.DeleteFederationServerResponse, error) {
+
+	serversToDel := chanutils.Map(in.Servers, unmarshalUniverseServer)
+
+	err := r.cfg.FederationDB.RemoveServers(ctx, serversToDel...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.DeleteFederationServerResponse{}, nil
 }

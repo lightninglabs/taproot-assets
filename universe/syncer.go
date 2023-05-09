@@ -67,7 +67,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		// as a series of parallel requests backed by a worker pool.
 		//
 		// TODO(roasbeef): can actually make non-blocking..
-		err = chanutils.ErrGroup(ctx, idsToSync, func(ctx context.Context, id Identifier) error {
+		err = chanutils.ParSlice(ctx, idsToSync, func(ctx context.Context, id Identifier) error {
 			root, err := diffEngine.RootNode(ctx, id)
 			if err != nil {
 				return err
@@ -103,7 +103,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// Now that we know the set of Universes we need to sync, we'll execute
 	// the diff operation for each of them.
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
-	err = chanutils.ErrGroup(ctx, targetRoots, func(ctx context.Context, remoteRoot BaseRoot) error {
+	err = chanutils.ParSlice(ctx, targetRoots, func(ctx context.Context, remoteRoot BaseRoot) error {
 		// First, we'll compare the remote root against the local root.
 		uniID := remoteRoot.ID
 		localRoot, err := s.cfg.LocalDiffEngine.RootNode(
@@ -154,7 +154,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		// Now that we know where the divergence is, we can fetch the
 		// issuance proofs from the remote party.
 		newLeaves := make(chan *MintingLeaf, len(keysToFetch))
-		err = chanutils.ErrGroup(ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
+		err = chanutils.ParSlice(ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
 			newProof, err := diffEngine.FetchIssuanceProof(ctx, uniID, key)
 			if err != nil {
 				return err
@@ -240,7 +240,7 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 	}
 
 	log.Infof("Attempting to sync universe: host=%v, sync_type=%v, ids=%v",
-		host, syncType, spew.Sdump(idsToSync))
+		host.HostStr(), syncType, spew.Sdump(idsToSync))
 
 	// Next, we'll attempt to create a new diff engine for the remote
 	// Universe.

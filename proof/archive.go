@@ -366,7 +366,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 		return nil
 	}
 
-	if err := chanutils.ErrGroup(ctx, proofs, f); err != nil {
+	if err := chanutils.ParSlice(ctx, proofs, f); err != nil {
 		return err
 	}
 

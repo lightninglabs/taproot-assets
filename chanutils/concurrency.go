@@ -13,14 +13,13 @@ import (
 // values.
 type ErrFunc[V any] func(context.Context, V) error
 
-// ErrGroup is iterating through values and calls func then waiting for all
-// goroutines to report back.  Active goroutines limited with number of CPU.
-// Context will be passed in executable func and canceled the first time a
-// function passed returns a non-nil error.  Returns the first non-nil error
-// (if any).
-//
-// TODO(roasbeef): rename Par?
-func ErrGroup[V any](ctx context.Context, s []V, f ErrFunc[V]) error {
+// ParSlice can be used to execute a function on each element of a slice in
+// parallel. This function is fully blocking and will wait for all goroutines
+// to either succeed, or for the first to error out.  Active goroutines limited
+// with number of CPU.  Context will be passed in executable func and canceled
+// the first time a function passed returns a non-nil error.  Returns the first
+// non-nil error (if any).
+func ParSlice[V any](ctx context.Context, s []V, f ErrFunc[V]) error {
 	errGroup, ctx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(runtime.NumCPU())
 

@@ -60,3 +60,22 @@ JOIN mssmt_roots
 JOIN mssmt_nodes
     ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
        mssmt_nodes.namespace = mssmt_roots.namespace;
+
+-- name: InsertUniverseServer :exec
+INSERT INTO universe_servers(
+    server_host, last_sync_time
+) VALUES (
+    @server_host, @last_sync_time
+);
+
+-- name: DeleteUniverseServer :exec
+DELETE FROM universe_servers
+WHERE server_host = @target_server OR id = @target_id;
+
+-- name: LogServerSync :exec
+UPDATE universe_servers
+SET last_sync_time = @new_sync_time
+WHERE server_host = @target_server;
+
+-- name: ListUniverseServers :many
+SELECT * FROM universe_servers;
