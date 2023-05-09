@@ -118,6 +118,16 @@ type SplitCommitment struct {
 	tree mssmt.Tree
 }
 
+// SplitCommitmentInput holds input asset specific data used in constructing a
+// new split commitment.
+type SplitCommitmentInput struct {
+	// Asset is the input asset.
+	Asset *asset.Asset
+
+	// OutPoint is the input asset's on-chain outpoint.
+	OutPoint wire.OutPoint
+}
+
 // NewSplitCommitment computes a new SplitCommitment based on the given input
 // assets. It creates a set of asset splits uniquely identified by their
 // `locators`. The resulting asset splits are committed to a MS-SMT and its root
@@ -126,18 +136,18 @@ type SplitCommitment struct {
 // asset needs to be provided after the fact. The rootLocator field is
 // considered to be the "change" output in the transfer: this is the location
 // where all the other splits (elsewhere in the transaction are committed to).
-func NewSplitCommitment(ctx context.Context, inputs []*asset.Asset,
-	outPoints []wire.OutPoint, rootLocator *SplitLocator,
+func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
+	rootLocator *SplitLocator,
 	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
 
 	// Calculate sum total input amounts.
 	totalInputAmount := uint64(0)
 	for idx := range inputs {
-		inputAsset := inputs[idx]
-		totalInputAmount += inputAsset.Amount
+		input := inputs[idx]
+		totalInputAmount += input.Asset.Amount
 	}
 
-	assetType := inputs[0].Type
+	assetType := inputs[0].Asset.Type
 
 	// The assets need to go somewhere, they can be fully spent, but we
 	// still require this external locator to denote where the new value
@@ -181,7 +191,7 @@ func NewSplitCommitment(ctx context.Context, inputs []*asset.Asset,
 	remainingAmount := totalInputAmount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
-		assetSplit := inputs[0].Copy()
+		assetSplit := inputs[0].Asset.Copy()
 		assetSplit.Amount = locator.Amount
 
 		scriptKey, err := btcec.ParsePubKey(locator.ScriptKey[:])
@@ -249,13 +259,13 @@ func NewSplitCommitment(ctx context.Context, inputs []*asset.Asset,
 
 	for idx := range inputs {
 		input := inputs[idx]
-		outPoint := outPoints[idx]
+		inAsset := input.Asset
 		prevID := &asset.PrevID{
-			OutPoint:  outPoint,
-			ID:        input.Genesis.ID(),
-			ScriptKey: asset.ToSerialized(input.ScriptKey.PubKey),
+			OutPoint:  input.OutPoint,
+			ID:        inAsset.Genesis.ID(),
+			ScriptKey: asset.ToSerialized(inAsset.ScriptKey.PubKey),
 		}
-		inputSet[*prevID] = input
+		inputSet[*prevID] = inAsset
 
 		rootAsset.PrevWitnesses[idx].PrevID = prevID
 	}

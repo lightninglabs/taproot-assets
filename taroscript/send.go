@@ -307,8 +307,9 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		// Inspect first asset to determine all input asset types.
 		inputAssetType = inputs[0].Asset().Type
 
-		inputAssets    = make([]*asset.Asset, len(inputs))
-		inputOutPoints = make([]wire.OutPoint, len(inputs))
+		splitCommitmentInputs = make(
+			[]commitment.SplitCommitmentInput, len(inputs),
+		)
 	)
 	for idx := range inputs {
 		vIn := inputs[idx]
@@ -331,11 +332,11 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		}
 		totalInputAmount = newTotalInputAmount
 
-		// Gather input assets.
-		inputAssets[idx] = inputAsset
-
-		// Gather input outpoints.
-		inputOutPoints[idx] = inputs[idx].PrevID.OutPoint
+		// Gather split commitment inputs.
+		splitCommitmentInputs[idx] = commitment.SplitCommitmentInput{
+			Asset:    inputAsset,
+			OutPoint: vIn.PrevID.OutPoint,
+		}
 
 		// TODO(ffranr): Right now, we only support a single input or
 		// multiple inputs with the same asset ID. We need to support
@@ -521,7 +522,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
-		ctx, inputAssets, inputOutPoints, rootLocator, splitLocators...,
+		ctx, splitCommitmentInputs, rootLocator, splitLocators...,
 	)
 	if err != nil {
 		return err
