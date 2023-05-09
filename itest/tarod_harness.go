@@ -35,6 +35,12 @@ var (
 		"backend to use when starting a taro daemon.")
 )
 
+const (
+	// proofTransferReceiverAckTimeout is the itest specific timeout we'll
+	// use for waiting for a receiver to acknowledge a proof transfer.
+	proofTransferReceiverAckTimeout = 5 * time.Second
+)
+
 // tarodHarness is a test harness that holds everything that is needed to
 // start an instance of the tarod server.
 type tarodHarness struct {
@@ -130,7 +136,7 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
 			Addr:               ht.apertureHarness.ListenAddr,
 			TlsCertPath:        ht.apertureHarness.TlsCertPath,
-			ReceiverAckTimeout: 5 * time.Second,
+			ReceiverAckTimeout: proofTransferReceiverAckTimeout,
 
 			// Use minimal wait times for asset proof transfer
 			// backoff procedure.
