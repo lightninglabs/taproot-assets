@@ -449,25 +449,27 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context, recipient Recipient,
 					"to asset transfer receiver: %w", err)
 			}
 
+			// Wait to receive the ACK from the remote party over
+			// their stream.
+			log.Infof("Waiting (%v) for receiver ACK via sid=%x",
+				h.cfg.ReceiverAckTimeout, receiverStreamID)
+
+			ctxTimeout, cancel := context.WithTimeout(
+				ctx, h.cfg.ReceiverAckTimeout,
+			)
+			defer cancel()
+			err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
+			if err != nil {
+				return fmt.Errorf("failed to receive ACK "+
+					"from receiver within timeout: %w", err)
+			}
+
 			return nil
 		},
 	)
 	if err != nil {
 		return fmt.Errorf("proof backoff delivery attempt has "+
 			"failed: %w", err)
-	}
-
-	// Wait to receive the ACK from the remote party over their
-	// stream.
-	log.Infof("Waiting (%v) for receiver ACK via sid=%x",
-		h.cfg.ReceiverAckTimeout, receiverStreamID)
-
-	ctxTimeout, cancel := context.WithTimeout(ctx, h.cfg.ReceiverAckTimeout)
-	defer cancel()
-	err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
-	if err != nil {
-		return fmt.Errorf("failed to receive ACK from receiver within "+
-			"timeout: %w", err)
 	}
 
 	log.Infof("Received ACK from receiver! Cleaning up mailboxes...")
