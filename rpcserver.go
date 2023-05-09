@@ -1788,20 +1788,25 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		metaHash := seedling.Meta.MetaHash()
+		var seedlingMeta *tarorpc.AssetMeta
+		if seedling.Meta != nil {
+			seedlingMeta = &tarorpc.AssetMeta{
+				MetaHash: chanutils.ByteSlice(
+					seedling.Meta.MetaHash(),
+				),
+				Data: seedling.Meta.Data,
+				Type: tarorpc.AssetMetaType(
+					seedling.Meta.Type,
+				),
+			}
+		}
 
 		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType: tarorpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
-			AssetMeta: &tarorpc.AssetMeta{
-				MetaHash: metaHash[:],
-				Data:     seedling.Meta.Data,
-				Type: tarorpc.AssetMetaType(
-					seedling.Meta.Type,
-				),
-			},
-			Amount:   seedling.Amount,
-			GroupKey: groupKeyBytes,
+			AssetMeta: seedlingMeta,
+			Amount:    seedling.Amount,
+			GroupKey:  groupKeyBytes,
 		})
 	}
 
