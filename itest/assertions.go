@@ -700,6 +700,18 @@ func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
 	}
 }
 
+func assertUniverseStateEqual(t *testing.T, a, b *tarodHarness) {
+	ctxb := context.Background()
+
+	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
+	require.NoError(t, err)
+
+	rootsB, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
+	require.NoError(t, err)
+
+	assertUniverseRootsEqual(t, rootsA, rootsB)
+}
+
 func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
 	a, b *tarodHarness) {
 

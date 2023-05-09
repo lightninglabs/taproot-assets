@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/chanutils"
 	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -203,4 +204,89 @@ func getJSON[T any](url string) (*T, error) {
 	}
 
 	return jsonResp, nil
+}
+
+func testUniverseFederation(t *harnessTest) {
+	// We'll kick off the test by making a new node, without hooking it up to
+	// any existing Universe server.
+	bob := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, nil,
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(true))
+	}()
+
+	ctx := context.Background()
+
+	// Now that Bob is active, we'll make a set of assets with the main node.
+	_ = mintAssetsConfirmBatch(t, t.tarod, simpleAssets[:1])
+
+	// We'll now add the main node, as a member of Bob's Universe
+	// federation. We expect that their state is synchronized shortly after
+	// the call returns.
+	_, err := bob.AddFederationServer(
+		ctx, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{
+				{
+					Host: t.tarod.rpcHost(),
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// If we fetch the set of federation nodes, then the main node should
+	// be shown as beign a part of that set.
+	fedNodes, err := bob.ListFederationServers(
+		ctx, &unirpc.ListFederationServersRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, 1, len(fedNodes.Servers))
+	require.Equal(t.t, t.tarod.rpcHost(), fedNodes.Servers[0].Host)
+
+	// At this point, both nodes should have the same Universe roots.
+	assertUniverseStateEqual(t.t, bob, t.tarod)
+
+	// We'll now make a new asset with Bob, and ensure that the state is
+	// properly pushed to the main node which is a part of the federation.
+	newAsset := mintAssetsConfirmBatch(t, bob, simpleAssets[1:])
+
+	// Bob should have a new asset in its local Universe tree.
+	assetID := newAsset[0].AssetGenesis.AssetId
+	waitErr := wait.NoError(func() error {
+		_, err := bob.QueryAssetRoots(ctx, &unirpc.AssetRootQuery{
+			Id: &unirpc.ID{
+				Id: &unirpc.ID_AssetId{
+					AssetId: assetID,
+				},
+			},
+		})
+		return err
+	}, defaultTimeout)
+	require.NoError(t.t, waitErr)
+
+	// At this point, both nodes should have the same Universe roots as Bob
+	// should have optimistically pushed the update to its federation
+	// members.
+	assertUniverseStateEqual(t.t, bob, t.tarod)
+
+	// Next, we'll try to delete the main node from the federation.
+	_, err = bob.DeleteFederationServer(
+		ctx, &unirpc.DeleteFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{
+				{
+					Host: t.tarod.rpcHost(),
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// If we fetch the set of federation nodes, then the main node should
+	// no longer be present.
+	fedNodes, err = bob.ListFederationServers(
+		ctx, &unirpc.ListFederationServersRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, 0, len(fedNodes.Servers))
 }
