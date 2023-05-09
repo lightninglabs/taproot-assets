@@ -48,8 +48,6 @@ const (
 	// poolMacaroonLocation is the value we use for the taro macaroons'
 	// "Location" field when baking them.
 	taroMacaroonLocation = "taro"
-
-	defaultRPCPort = 10029
 )
 
 // rpcServer is the main RPC server for the Taro daemon that handles

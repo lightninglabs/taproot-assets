@@ -603,7 +603,7 @@ var universeFederationDelCommand = cli.Command{
 			Usage: "the ID of the universe server to delete",
 		},
 	},
-	Action: universeFederationAdd,
+	Action: universeFederationDel,
 }
 
 func universeFederationDel(ctx *cli.Context) error {

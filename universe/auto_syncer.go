@@ -163,7 +163,10 @@ func (f *FederationEnvoy) syncUniverseState(ctx context.Context,
 		ctx, cancel := f.WithCtxQuit()
 		defer cancel()
 
-		f.cfg.FederationDB.LogNewSyncs(ctx, addr)
+		err := f.cfg.FederationDB.LogNewSyncs(ctx, addr)
+		if err != nil {
+			log.Warnf("unable to log new sync: %v", err)
+		}
 	}()
 
 	return nil
@@ -204,7 +207,7 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
 		remoteUniverseServer, err := f.cfg.NewRemoteRegistrar(addr)
 		if err != nil {
 			return fmt.Errorf("unable to connect to remote "+
-				"server(%v): %v", addr.Addr, err)
+				"server(%v): %v", addr.HostStr(), err)
 		}
 
 		_, err = remoteUniverseServer.RegisterIssuance(
@@ -217,11 +220,10 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
 	// servers in parallel.
 	err = chanutils.ParSlice(ctx, fedServers, pushNewProof)
 	if err != nil {
+		// TODO(roasbeef): retry in the background until successful?
 		log.Errorf("unable to push proof to federation: %w", err)
 		return
 	}
-
-	// TODO(roasbeef): retry in the background until successful?
 }
 
 // syncer is the main goroutine that's responsible for interacting with the
@@ -238,7 +240,6 @@ func (f *FederationEnvoy) syncer() {
 	defer syncTicker.Stop()
 
 	for {
-
 		select {
 		// A new sync event has just been triggered, so we'll attempt
 		// to synchronize state with all the active universe servers in
@@ -362,7 +363,10 @@ func (f *FederationEnvoy) AddServer(addrs ...ServerAddr) error {
 		ctx, cancel = f.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		chanutils.ParSlice(ctx, addrs, f.syncUniverseState)
+		err := chanutils.ParSlice(ctx, addrs, f.syncUniverseState)
+		if err != nil {
+			log.Warnf("unable to sync universe state: %w", err)
+		}
 	}()
 
 	return nil

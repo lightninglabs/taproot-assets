@@ -212,7 +212,6 @@ const (
 // resolveUniverseAddr maps an RPC universe host (of the form 'host' or
 // 'host:port') into a net.Addr.
 func resolverUniverseAddr(uniAddr string) (net.Addr, error) {
-
 	var (
 		host string
 		port int

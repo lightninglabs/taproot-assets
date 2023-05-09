@@ -13,7 +13,6 @@ import (
 )
 
 func newTestFederationDb(t *testing.T) (*UniverseFederationDB, sqlc.Querier) {
-
 	db := NewTestDB(t)
 
 	dbTxer := NewTransactionExecutor(db,
