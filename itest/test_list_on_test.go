@@ -6,7 +6,7 @@ package itest
 var testCases = []*testCase{
 	{
 		name: "mint assets",
-		test: mintAssets,
+		test: testMintAssets,
 	},
 	{
 		name: "asset name collision raises mint error",
@@ -32,7 +32,7 @@ var testCases = []*testCase{
 	},
 	{
 		name: "basic send passive asset",
-		test: testSendPassiveAsset,
+		test: testBasicSendPassiveAsset,
 	},
 	{
 		name: "multi input send non-interactive single ID",
@@ -51,7 +51,7 @@ var testCases = []*testCase{
 		test: testCollectibleSend,
 	},
 	{
-		name: "reissuance",
+		name: "re-issuance",
 		test: testReIssuance,
 	},
 	{
@@ -59,7 +59,7 @@ var testCases = []*testCase{
 		test: testMintMultiAssetGroups,
 	},
 	{
-		name: "re-issuance asset amount overflow",
+		name: "re-issuance amount overflow",
 		test: testReIssuanceAmountOverflow,
 	},
 	{
@@ -79,12 +79,20 @@ var testCases = []*testCase{
 		test: testPsbtScriptCheckSigSend,
 	},
 	{
-		name: "psbt interactive full value send",
-		test: testPsbtInteractiveFullValueSend,
+		name: "psbt normal interactive full value send",
+		test: testPsbtNormalInteractiveFullValueSend,
 	},
 	{
-		name: "psbt interactive split send",
-		test: testPsbtInteractiveSplitSend,
+		name: "psbt grouped interactive full value send",
+		test: testPsbtGroupedInteractiveFullValueSend,
+	},
+	{
+		name: "psbt normal interactive split send",
+		test: testPsbtNormalInteractiveSplitSend,
+	},
+	{
+		name: "psbt grouped interactive split send",
+		test: testPsbtGroupedInteractiveSplitSend,
 	},
 	{
 		name: "psbt interactive tapscript sibling",

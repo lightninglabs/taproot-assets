@@ -375,8 +375,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	taroOutputIndex uint32) (*commitment.TaroCommitment, error) {
 
 	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
-		"with genesis_point=%v", b.batchKey[:], len(b.cfg.Batch.Seedlings),
-		genesisPoint)
+		"with genesis_point=%v", b.batchKey[:],
+		len(b.cfg.Batch.Seedlings), genesisPoint)
 
 	newAssets := make([]*asset.Asset, 0, len(b.cfg.Batch.Seedlings))
 
@@ -550,7 +550,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// First, we'll turn all the seedlings into actual taro assets.
 		taroCommitment, err := b.seedlingsToAssetSprouts(
-			ctx, genesisPoint, uint32(b.anchorOutputIndex),
+			ctx, genesisPoint, b.anchorOutputIndex,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to map seedlings to "+

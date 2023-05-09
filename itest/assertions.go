@@ -276,7 +276,9 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 
 // assertAddrEvent makes sure the given address was detected by the given
 // daemon.
-func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr) {
+func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr,
+	numEvents int, expectedStatus tarorpc.AddrEventStatus) {
+
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
@@ -291,14 +293,14 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr) {
 			return err
 		}
 
-		if len(resp.Events) != 1 {
-			return fmt.Errorf("got %d events, wanted 1",
-				len(resp.Events))
+		if len(resp.Events) != numEvents {
+			return fmt.Errorf("got %d events, wanted %d",
+				len(resp.Events), numEvents)
 		}
 
-		if resp.Events[0].Status != statusDetected {
+		if resp.Events[0].Status != expectedStatus {
 			return fmt.Errorf("got status %v, wanted %v",
-				resp.Events[0].Status, statusDetected)
+				resp.Events[0].Status, expectedStatus)
 		}
 
 		eventJSON, err := formatProtoJSON(resp.Events[0])
@@ -310,10 +312,10 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr) {
 	require.NoError(t, err)
 }
 
-// assertAddrReceives makes sure the given number of events with the given
-// status were received.
-func assertAddrReceives(t *testing.T, tarod *tarodHarness, numEvents int,
-	expectedStatus tarorpc.AddrEventStatus) {
+// assertAddrEventByStatus makes sure the given number of events exist with the
+// given status.
+func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
+	filterStatus tarorpc.AddrEventStatus, numEvents int) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -321,15 +323,17 @@ func assertAddrReceives(t *testing.T, tarod *tarodHarness, numEvents int,
 
 	err := wait.NoError(func() error {
 		resp, err := tarod.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{},
+			ctxt, &tarorpc.AddrReceivesRequest{
+				FilterStatus: filterStatus,
+			},
 		)
 		require.NoError(t, err)
 		require.Len(t, resp.Events, numEvents)
 
 		for _, event := range resp.Events {
-			if event.Status != expectedStatus {
+			if event.Status != filterStatus {
 				return fmt.Errorf("got status %v, wanted %v",
-					resp.Events[0].Status, expectedStatus)
+					resp.Events[0].Status, filterStatus)
 			}
 		}
 
@@ -527,20 +531,22 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 	require.Equal(t, amt, balance.Balance)
 }
 
-// assertTransfers asserts that the value of each transfer initiated on the
+// assertTransfer asserts that the value of each transfer initiated on the
 // given daemon is correct.
-func assertTransfers(t *testing.T, tarod *tarodHarness, amts []uint64) {
+func assertTransfer(t *testing.T, tarod *tarodHarness, transferIdx,
+	numTransfers int, outputAmounts []uint64) {
+
 	ctxb := context.Background()
 	transferResp, err := tarod.ListTransfers(
 		ctxb, &tarorpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
-	require.Len(t, transferResp.Transfers, len(amts))
+	require.Len(t, transferResp.Transfers, numTransfers)
 
-	// TODO(jhb): Extend to support multi-asset transfers
-	for i, transfer := range transferResp.Transfers {
-		require.Len(t, transfer.Outputs, 2)
-		require.Equal(t, amts[i], transfer.Outputs[0].Amount)
+	transfer := transferResp.Transfers[transferIdx]
+	require.Len(t, transfer.Outputs, len(outputAmounts))
+	for i := range transfer.Outputs {
+		require.Equal(t, outputAmounts[i], transfer.Outputs[i].Amount)
 	}
 }
 

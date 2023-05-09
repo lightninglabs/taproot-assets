@@ -103,7 +103,9 @@ func copyRequests(reqs []*mintrpc.MintAssetRequest) []*mintrpc.MintAssetRequest 
 	return copied
 }
 
-func mintAssets(t *harnessTest) {
+// testMintAssets tests that we're able to mint assets, retrieve their proofs
+// and that we're able to import the proofs into a new node.
+func testMintAssets(t *harnessTest) {
 	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
 	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
 

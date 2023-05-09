@@ -15,6 +15,8 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// testUniverseSync tests that we're able to properly sync the universe state
+// between two nodes.
 func testUniverseSync(t *harnessTest) {
 	// First, we'll create out usual set of simple and also issuable
 	// assets.
@@ -121,6 +123,8 @@ func testUniverseSync(t *harnessTest) {
 	assertUniverseLeavesEqual(t.t, uniIDs, t.tarod, bob)
 }
 
+// testUniverseREST tests that we're able to properly query the universe state
+// via the REST interface.
 func testUniverseREST(t *harnessTest) {
 	// Mint a few assets that we then want to inspect in the universe.
 	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)

@@ -127,9 +127,9 @@ func testBasicSend(t *harnessTest) {
 	wg.Wait()
 }
 
-// testSendPassiveAsset tests that we can properly send assets which were
+// testBasicSendPassiveAsset tests that we can properly send assets which were
 // passive assets during a previous send.
-func testSendPassiveAsset(t *harnessTest) {
+func testBasicSendPassiveAsset(t *harnessTest) {
 	ctxb := context.Background()
 
 	// Mint two different assets.

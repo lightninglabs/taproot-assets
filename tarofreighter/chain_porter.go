@@ -208,7 +208,7 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcel) {
 	err := p.advanceState(&restartSendPkg)
 	if err != nil {
 		// TODO(roasbef): no req to send the error back to here
-		log.Warnf("unable to advance state machine: %v", err)
+		log.Warnf("Unable to advance state machine: %v", err)
 		return
 	}
 }
@@ -230,7 +230,7 @@ func (p *ChainPorter) taroPorter() {
 			// possible.
 			err := p.advanceState(sendPkg)
 			if err != nil {
-				log.Warnf("unable to advance state machine: %v",
+				log.Warnf("Unable to advance state machine: %v",
 					err)
 				req.kit().errChan <- err
 				continue
@@ -284,8 +284,8 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	}
 
 	if confEvent == nil {
-		return fmt.Errorf("got empty package tx confirmation event in " +
-			"batch")
+		return fmt.Errorf("got empty package tx confirmation event " +
+			"in batch")
 	}
 
 	return nil

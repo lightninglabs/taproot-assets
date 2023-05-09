@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
@@ -31,9 +32,12 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
+	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -49,8 +53,9 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	}()
 
 	var (
-		alice = t.tarod
-		bob   = secondTarod
+		alice    = t.tarod
+		bob      = secondTarod
+		numUnits = uint64(10)
 	)
 
 	// We need to derive two keys, one for the new script key and one for
@@ -67,43 +72,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	)
 	rootHash := tapscript.ControlBlock.RootHash(leaf1.Script)
 
-	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
-	require.NoError(t.t, err)
-
-	bobAssetScriptKey, err := tapscript.TaprootKey()
-	require.NoError(t.t, err)
-
-	t.Logf("Bob destination key %x (internal %x, root %x)",
-		bobAssetScriptKey.SerializeCompressed(),
-		bobScriptKey.PubKey.SerializeCompressed(), rootHash[:])
-
-	// Next, we'll attempt to complete a transfer with PSBTs from our main
-	// node to Bob.
-	const numUnits = 10
-	bobAddr, err := bob.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits,
-		ScriptKey: &tarorpc.ScriptKey{
-			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
-			TapTweak: rootHash[:],
-		},
-		InternalKey: lndKeyDescToTaro(bobInternalKey),
-	})
-	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bob, rpcAssets[0], bobAddr)
-
-	// Send the asset to Bob using the script key with an actual script
-	// tree.
-	sendResp := sendAssetsToAddr(t, alice, bobAddr)
-
-	changeUnits := rpcAssets[0].Amount - numUnits
-	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{changeUnits, numUnits}, 0, 1,
+	sendToTapscriptAddr(
+		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
-	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -124,6 +96,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// We don't need to sign anything as we're going to spend with a
 	// pre-image to the script lock.
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
 	senderOut := fundedPacket.Outputs[0].Asset
 	senderOut.PrevWitnesses[0].TxWitness = [][]byte{
 		preImage, leaf1.Script, controlBlockBytes,
@@ -146,7 +120,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Now we'll attempt to complete the transfer.
-	sendResp, err = bob.AnchorVirtualPsbts(
+	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{b.Bytes()},
 		},
@@ -176,12 +150,15 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
+	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -197,8 +174,9 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	}()
 
 	var (
-		alice = t.tarod
-		bob   = secondTarod
+		alice    = t.tarod
+		bob      = secondTarod
+		numUnits = uint64(10)
 	)
 
 	// We need to derive two keys, one for the new script key and one for
@@ -216,43 +194,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	)
 	rootHash := tapscript.ControlBlock.RootHash(leaf2.Script)
 
-	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
-	require.NoError(t.t, err)
-
-	bobAssetScriptKey, err := tapscript.TaprootKey()
-	require.NoError(t.t, err)
-
-	t.Logf("Bob destination key %x (internal %x, root %x)",
-		bobAssetScriptKey.SerializeCompressed(),
-		bobScriptKey.PubKey.SerializeCompressed(), rootHash[:])
-
-	// Next, we'll attempt to complete a transfer with PSBTs from our main
-	// node to Bob.
-	const numUnits = 10
-	bobAddr, err := bob.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits,
-		ScriptKey: &tarorpc.ScriptKey{
-			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
-			TapTweak: rootHash[:],
-		},
-		InternalKey: lndKeyDescToTaro(bobInternalKey),
-	})
-	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bob, rpcAssets[0], bobAddr)
-
-	// Send the asset to Bob using the script key with an actual script
-	// tree.
-	sendResp := sendAssetsToAddr(t, alice, bobAddr)
-
-	changeUnits := rpcAssets[0].Amount - numUnits
-	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{changeUnits, numUnits}, 0, 1,
+	sendToTapscriptAddr(
+		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		bobScriptKey, bobInternalKey, tapscript, rootHash,
 	)
-	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bob, 1)
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
@@ -273,6 +218,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// We can now ask the wallet to sign the script path, since we only need
 	// a signature.
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
 	fundedPacket.Inputs[0].TaprootMerkleRoot = rootHash[:]
 	fundedPacket.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
 		{
@@ -297,7 +244,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	require.Contains(t.t, signedResp.SignedInputs, uint32(0))
 
 	// Now we'll attempt to complete the transfer.
-	sendResp, err = bob.AnchorVirtualPsbts(
+	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signedResp.SignedPsbt},
 		},
@@ -321,9 +268,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	t.Logf("Got alice assets: %s", assetsJSON)
 }
 
-// testPsbtInteractiveFullValueSend tests that we can properly send assets back
-// and forth, using the full amount, between nodes with the use of PSBTs.
-func testPsbtInteractiveFullValueSend(t *harnessTest) {
+// testPsbtNormalInteractiveFullValueSend tests that we can properly send normal
+// assets back and forth, using the full amount, between nodes with the use of
+// PSBTs.
+func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
@@ -344,10 +292,12 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		},
 	)
 
-	genInfo := rpcAssets[0].AssetGenesis
-	chainParams := &address.RegressionNetTaro
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -362,11 +312,74 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
+	runPsbtInteractiveFullValueSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// testPsbtGroupedInteractiveFullValueSend tests that we can properly send
+// grouped assets back and forth, using the full amount, between nodes with the
+// use of PSBTs.
+func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			issuableAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	runPsbtInteractiveFullValueSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// runPsbtInteractiveFullValueSendTest runs a single test of sending an asset
+// back and forth between two nodes using PSBTs and the full amount.
+func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
+	alice, bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
+	mintedAsset, passiveAsset *tarorpc.Asset) {
+
 	var (
-		sender   = t.tarod
-		receiver = secondTarod
-		id       [32]byte
-		fullAmt  = rpcAssets[0].Amount
+		sender      = alice
+		receiver    = bob
+		id          [32]byte
+		fullAmt     = mintedAsset.Amount
+		chainParams = &address.RegressionNetTaro
 	)
 	copy(id[:], genInfo.AssetId)
 
@@ -393,7 +406,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		// our sender node to our receiver, using the full amount.
 		fundResp := fundPacket(t, sender, vPkt)
 		signResp, err := sender.SignVirtualPsbt(
-			ctxb, &wrpc.SignVirtualPsbtRequest{
+			ctxt, &wrpc.SignVirtualPsbtRequest{
 				FundedPsbt: fundResp.FundedPsbt,
 			},
 		)
@@ -401,7 +414,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 
 		// Now we'll attempt to complete the transfer.
 		sendResp, err := sender.AnchorVirtualPsbts(
-			ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			ctxt, &wrpc.AnchorVirtualPsbtsRequest{
 				VirtualPsbts: [][]byte{signResp.SignedPsbt},
 			},
 		)
@@ -424,7 +437,7 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		)
 
 		senderAssets, err := sender.ListAssets(
-			ctxb, &tarorpc.ListAssetRequest{},
+			ctxt, &tarorpc.ListAssetRequest{},
 		)
 		require.NoError(t.t, err)
 
@@ -433,14 +446,14 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 		// has the passive asset left.
 		numSenderAssets := 1
 		numReceiverAssets := 1
-		if sender == secondTarod {
+		if sender == bob {
 			numSenderAssets = 0
 			numReceiverAssets = 2
 		}
 		require.Len(t.t, senderAssets.Assets, numSenderAssets)
 
 		receiverAssets, err := receiver.ListAssets(
-			ctxb, &tarorpc.ListAssetRequest{},
+			ctxt, &tarorpc.ListAssetRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
@@ -451,32 +464,67 @@ func testPsbtInteractiveFullValueSend(t *harnessTest) {
 	}
 
 	// Finally, make sure we can still send out the passive asset.
-	passiveGen := rpcAssets[1].AssetGenesis
-	bobAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
-			AssetId: passiveGen.AssetId,
-			Amt:     rpcAssets[1].Amount,
-		},
+	passiveGen := passiveAsset.AssetGenesis
+	sendAssetAndAssert(
+		ctxt, t, alice, bob, passiveAsset.Amount, 0,
+		passiveGen, passiveAsset, 2, 3, 1,
 	)
-	require.NoError(t.t, err)
-
-	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, passiveGen.AssetId,
-		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
-	)
-	_ = sendProof(
-		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
-	)
-
-	// There's only one non-interactive receive event.
-	assertNonInteractiveRecvComplete(t, secondTarod, 1)
 }
 
-// testPsbtInteractiveSplitSend tests that we can properly send assets back
-// and forth, using the full amount, between nodes with the use of PSBTs.
-func testPsbtInteractiveSplitSend(t *harnessTest) {
+// testPsbtNormalInteractiveSplitSend tests that we can properly send normal
+// assets back and forth, using the full amount, between nodes with the use of
+// PSBTs.
+func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: tarorpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &tarorpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := rpcAssets[0].AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.startupSyncNode = t.tarod
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTarod.stop(true))
+	}()
+
+	runPsbtInteractiveSplitSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// testPsbtGroupedInteractiveSplitSend tests that we can properly send grouped
+// assets back and forth, using the full amount, between nodes with the use of
+// PSBTs.
+func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
@@ -497,10 +545,12 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		},
 	)
 
+	mintedAsset := rpcAssets[0]
 	genInfo := rpcAssets[0].AssetGenesis
-	chainParams := &address.RegressionNetTaro
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -515,12 +565,25 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
+	runPsbtInteractiveSplitSendTest(
+		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset,
+		rpcAssets[1],
+	)
+}
+
+// runPsbtInteractiveSplitSendTest runs a single test of sending an asset
+// back and forth between two nodes using PSBTs and a split amount.
+func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
+	alice, bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
+	mintedAsset, passiveAsset *tarorpc.Asset) {
+
 	var (
-		sender      = t.tarod
-		receiver    = secondTarod
-		senderSum   = rpcAssets[0].Amount
+		sender      = alice
+		receiver    = bob
+		senderSum   = mintedAsset.Amount
 		receiverSum = uint64(0)
 		id          [32]byte
+		chainParams = &address.RegressionNetTaro
 	)
 	copy(id[:], genInfo.AssetId)
 
@@ -562,7 +625,7 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		// our sender node to our receiver, using the partial amount.
 		fundResp := fundPacket(t, sender, vPkt)
 		signResp, err := sender.SignVirtualPsbt(
-			ctxb, &wrpc.SignVirtualPsbtRequest{
+			ctxt, &wrpc.SignVirtualPsbtRequest{
 				FundedPsbt: fundResp.FundedPsbt,
 			},
 		)
@@ -570,7 +633,7 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 
 		// Now we'll attempt to complete the transfer.
 		sendResp, err := sender.AnchorVirtualPsbts(
-			ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			ctxt, &wrpc.AnchorVirtualPsbtsRequest{
 				VirtualPsbts: [][]byte{signResp.SignedPsbt},
 			},
 		)
@@ -588,7 +651,7 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		)
 
 		senderAssets, err := sender.ListAssets(
-			ctxb, &tarorpc.ListAssetRequest{},
+			ctxt, &tarorpc.ListAssetRequest{},
 		)
 		require.NoError(t.t, err)
 
@@ -612,34 +675,18 @@ func testPsbtInteractiveSplitSend(t *harnessTest) {
 		require.Len(t.t, senderAssets.Assets, numSenderAssets)
 
 		receiverAssets, err := receiver.ListAssets(
-			ctxb, &tarorpc.ListAssetRequest{},
+			ctxt, &tarorpc.ListAssetRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
 	}
 
 	// Finally, make sure we can still send out the passive asset.
-	passiveGen := rpcAssets[1].AssetGenesis
-	bobAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
-			AssetId: passiveGen.AssetId,
-			Amt:     rpcAssets[1].Amount,
-		},
+	passiveGen := passiveAsset.AssetGenesis
+	sendAssetAndAssert(
+		ctxt, t, alice, bob, passiveAsset.Amount, 0,
+		passiveGen, passiveAsset, 2, 3, 1,
 	)
-	require.NoError(t.t, err)
-
-	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, passiveGen.AssetId,
-		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
-	)
-	_ = sendProof(
-		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
-	)
-
-	// There's only one non-interactive receive event.
-	assertNonInteractiveRecvComplete(t, secondTarod, 1)
 }
 
 // testPsbtInteractiveTapscriptSibling tests that we can send assets to an
@@ -655,6 +702,8 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	chainParams := &address.RegressionNetTaro
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -700,7 +749,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	// bob, using the partial amount.
 	fundResp := fundPacket(t, alice, vPkt)
 	signResp, err := alice.SignVirtualPsbt(
-		ctxb, &wrpc.SignVirtualPsbtRequest{
+		ctxt, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
 		},
 	)
@@ -708,7 +757,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := alice.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signResp.SignedPsbt},
 		},
 	)
@@ -724,13 +773,13 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 
 	senderAssets, err := alice.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{},
+		ctxt, &tarorpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, senderAssets.Assets, 1)
 
 	receiverAssets, err := bob.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{},
+		ctxt, &tarorpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, receiverAssets.Assets, 1)
@@ -744,23 +793,10 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	t.Logf("Got bob assets: %s", assetsJSON)
 
 	// And finally, make sure we can spend the asset again.
-	aliceAddr, err := alice.NewAddr(ctxb, &tarorpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     sendAmt / 2,
-	})
-	require.NoError(t.t, err)
-
-	assertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
-	sendResp = sendAssetsToAddr(t, bob, aliceAddr)
-	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId,
-		[]uint64{sendAmt / 2, sendAmt / 2}, 0, 1,
+	sendAssetAndAssert(
+		ctxt, t, bob, alice, sendAmt/2, sendAmt/2, genInfo,
+		rpcAssets[0], 0, 1, 1,
 	)
-	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
-
-	// There's only one receive event (since only non-interactive sends
-	// appear in that RPC output).
-	assertNonInteractiveRecvComplete(t, alice, 1)
 }
 
 // testPsbtMultiSend tests that we can properly send assets to multiple
@@ -790,6 +826,8 @@ func testPsbtMultiSend(t *harnessTest) {
 	chainParams := &address.RegressionNetTaro
 
 	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
@@ -853,7 +891,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// our sender node to our receiver, using the partial amount.
 	fundResp := fundPacket(t, sender, vPkt)
 	signResp, err := sender.SignVirtualPsbt(
-		ctxb, &wrpc.SignVirtualPsbtRequest{
+		ctxt, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
 		},
 	)
@@ -861,7 +899,7 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := sender.AnchorVirtualPsbts(
-		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
 			VirtualPsbts: [][]byte{signResp.SignedPsbt},
 		},
 	)
@@ -886,65 +924,32 @@ func testPsbtMultiSend(t *harnessTest) {
 	)
 
 	senderAssets, err := sender.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{},
+		ctxt, &tarorpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, senderAssets.Assets, 4)
 
 	receiverAssets, err := receiver.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{},
+		ctxt, &tarorpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, receiverAssets.Assets, 2)
 
 	// Next, we make sure we can still send out the passive asset.
+	passiveAsset := rpcAssets[1]
 	passiveGen := rpcAssets[1].AssetGenesis
-	bobAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
-			AssetId: passiveGen.AssetId,
-			Amt:     rpcAssets[1].Amount,
-		},
+	sendAssetAndAssert(
+		ctxt, t, t.tarod, secondTarod, passiveAsset.Amount, 0,
+		passiveGen, passiveAsset, 1, 2, 1,
 	)
-	require.NoError(t.t, err)
-
-	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
-	sendResp = sendAssetsToAddr(t, t.tarod, bobAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, passiveGen.AssetId,
-		[]uint64{0, rpcAssets[1].Amount}, 1, 2,
-	)
-	_ = sendProof(
-		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
-	)
-
-	// There's only one receive event (since only non-interactive sends
-	// appear in that RPC output).
-	assertNonInteractiveRecvComplete(t, secondTarod, 1)
 
 	// And finally, we make sure that we can send out one of the asset UTXOs
 	// that shared the anchor output and the other one is treated as a
 	// passive asset.
-	bobAddr, err = secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     outputAmounts[2],
-		},
+	sendAssetAndAssert(
+		ctxt, t, t.tarod, secondTarod, outputAmounts[2], 0,
+		genInfo, rpcAssets[0], 2, 3, 2,
 	)
-	require.NoError(t.t, err)
-
-	assertAddrCreated(t.t, secondTarod, rpcAssets[0], bobAddr)
-	sendResp = sendAssetsToAddr(t, t.tarod, bobAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId,
-		[]uint64{0, outputAmounts[2]}, 2, 3,
-	)
-	_ = sendProof(
-		t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo,
-	)
-
-	// There are now two receive events (since only non-interactive sends
-	// appear in that RPC output).
-	assertNonInteractiveRecvComplete(t, secondTarod, 2)
 }
 
 func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,
@@ -975,4 +980,72 @@ func deriveKeys(t *testing.T, tarod *tarodHarness) (asset.ScriptKey,
 	require.NoError(t, err)
 
 	return *scriptKey, internalKeyLnd
+}
+
+func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
+	bob *tarodHarness, numUnits uint64, genInfo *tarorpc.GenesisInfo,
+	mintedAsset *tarorpc.Asset, bobScriptKey asset.ScriptKey,
+	bobInternalKey keychain.KeyDescriptor, tapscript *waddrmgr.Tapscript,
+	rootHash []byte) {
+
+	bobAssetScriptKey, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	t.Logf("Bob destination key %x (internal %x, root %x)",
+		bobAssetScriptKey.SerializeCompressed(),
+		bobScriptKey.PubKey.SerializeCompressed(), rootHash)
+
+	// Next, we'll attempt to complete a transfer with PSBTs from our main
+	// node to Bob.
+	bobAddr, err := bob.NewAddr(ctx, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
+		ScriptKey: &tarorpc.ScriptKey{
+			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
+			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
+			TapTweak: rootHash,
+		},
+		InternalKey: lndKeyDescToTaro(bobInternalKey),
+	})
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, bob, mintedAsset, bobAddr)
+
+	// Send the asset to Bob using the script key with an actual script
+	// tree.
+	sendResp := sendAssetsToAddr(t, alice, bobAddr)
+
+	changeUnits := mintedAsset.Amount - numUnits
+	confirmAndAssertOutboundTransfer(
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{changeUnits, numUnits}, 0, 1,
+	)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, bob, 1)
+}
+
+func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
+	bob *tarodHarness, numUnits, change uint64,
+	genInfo *tarorpc.GenesisInfo, mintedAsset *tarorpc.Asset,
+	outTransferIdx, numOutTransfers, numInTransfers int) {
+
+	// And finally, we make sure that we can send out one of the asset UTXOs
+	// that shared the anchor output and the other one is treated as a
+	// passive asset.
+	bobAddr, err := bob.NewAddr(ctx, &tarorpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
+	})
+	require.NoError(t.t, err)
+
+	assertAddrCreated(t.t, bob, mintedAsset, bobAddr)
+	sendResp := sendAssetsToAddr(t, alice, bobAddr)
+	confirmAndAssertOutboundTransfer(
+		t, alice, sendResp, genInfo.AssetId,
+		[]uint64{change, numUnits}, outTransferIdx, numOutTransfers,
+	)
+	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
+
+	// There are now two receive events (since only non-interactive sends
+	// appear in that RPC output).
+	assertNonInteractiveRecvComplete(t, bob, numInTransfers)
 }

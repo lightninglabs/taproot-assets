@@ -3,7 +3,6 @@ package itest
 import (
 	"bytes"
 	"context"
-	"fmt"
 
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
@@ -13,13 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testAddresses tests the various RPC calls related to addresses.
 func testAddresses(t *harnessTest) {
 	// First, mint a few assets, so we have some to create addresses for.
 	// We mint all of them in individual batches to avoid needing to sign
 	// for multiple internal asset transfers when only sending one of them
 	// to an external address.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0], issuableAssets[0],
+		},
 	)
 
 	ctxb := context.Background()
@@ -39,8 +41,7 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
-	var addresses []*tarorpc.Addr
-	for _, a := range rpcAssets {
+	for idx, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
 		// asset.
 		addr, err := secondTarod.NewAddr(ctxt, &tarorpc.NewAddrRequest{
@@ -48,7 +49,6 @@ func testAddresses(t *harnessTest) {
 			Amt:     a.Amount - 1,
 		})
 		require.NoError(t.t, err)
-		addresses = append(addresses, addr)
 
 		assertAddrCreated(t.t, secondTarod, a, addr)
 
@@ -60,49 +60,26 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure that eventually we see a single event for the
 		// address.
-		assertAddrEvent(t.t, secondTarod, addr)
-	}
+		assertAddrEvent(t.t, secondTarod, addr, 1, statusDetected)
 
-	// Mine a block to make sure the events are marked as confirmed.
-	_ = mineBlocks(t, t.lndHarness, 1, len(rpcAssets))[0]
+		// Mine a block to make sure the events are marked as confirmed.
+		mineBlocks(t, t.lndHarness, 1, 1)
 
-	// Eventually the events should be marked as confirmed.
-	err := wait.NoError(func() error {
-		resp, err := secondTarod.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{},
-		)
-		require.NoError(t.t, err)
-		require.Len(t.t, resp.Events, len(rpcAssets))
+		// Eventually the event should be marked as confirmed.
+		assertAddrEvent(t.t, secondTarod, addr, 1, statusConfirmed)
 
-		for _, event := range resp.Events {
-			if event.Status != statusConfirmed {
-				return fmt.Errorf("got status %v, wanted %v",
-					resp.Events[0].Status, statusConfirmed)
-			}
-		}
-
-		return nil
-	}, defaultWaitTimeout/2)
-	require.NoError(t.t, err)
-
-	// To complete the transfer, we'll export the proof from the sender and
-	// import it into the receiver for each asset set.
-	for i, rpcAsset := range rpcAssets {
-		receiverAddr := addresses[i]
-
-		assetGen := rpcAsset.AssetGenesis
-
+		// To complete the transfer, we'll export the proof from the
+		// sender and import it into the receiver for each asset set.
 		sendProof(
-			t, t.tarod, secondTarod, receiverAddr.ScriptKey,
-			assetGen,
+			t, t.tarod, secondTarod, addr.ScriptKey, a.AssetGenesis,
 		)
-	}
 
-	// Make sure we have imported and finalized all proofs.
-	assertNonInteractiveRecvComplete(t, secondTarod, len(rpcAssets))
+		// Make sure we have imported and finalized all proofs.
+		assertNonInteractiveRecvComplete(t, secondTarod, idx+1)
+	}
 
 	// Now sanity check that we can actually list the transfer.
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
 		resp, err := t.tarod.ListTransfers(
 			ctxt, &tarorpc.ListTransfersRequest{},
 		)
@@ -126,10 +103,14 @@ func testAddresses(t *harnessTest) {
 func testMultiAddress(t *harnessTest) {
 	// First, mint an asset, so we have one to create addresses for.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tarod, []*mintrpc.MintAssetRequest{
+			simpleAssets[0], issuableAssets[0],
+		},
 	)
 	mintedAsset := rpcAssets[0]
+	mintedGroupAsset := rpcAssets[1]
 	genInfo := mintedAsset.AssetGenesis
+	groupGenInfo := mintedGroupAsset.AssetGenesis
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -148,6 +129,18 @@ func testMultiAddress(t *harnessTest) {
 	defer func() {
 		require.NoError(t.t, bob.stop(true))
 	}()
+
+	runMultiSendTest(ctxt, t, alice, bob, genInfo, mintedAsset, 0, 1)
+	runMultiSendTest(
+		ctxt, t, alice, bob, groupGenInfo, mintedGroupAsset, 1, 2,
+	)
+}
+
+// runMultiSendTest runs a test that sends assets to multiple addresses at the
+// same time.
+func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
+	bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
+	mintedAsset *tarorpc.Asset, runIdx, numRuns int) {
 
 	// In order to force a split, we don't try to send the full asset.
 	const sendAmt = 100
@@ -192,20 +185,20 @@ func testMultiAddress(t *harnessTest) {
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	// Make sure that eventually we see a single event for the address.
-	assertAddrEvent(t.t, bob, bobAddr1)
-	assertAddrEvent(t.t, bob, bobAddr2)
-	assertAddrEvent(t.t, alice, aliceAddr1)
-	assertAddrEvent(t.t, alice, aliceAddr2)
+	assertAddrEvent(t.t, bob, bobAddr1, 1, statusDetected)
+	assertAddrEvent(t.t, bob, bobAddr2, 1, statusDetected)
+	assertAddrEvent(t.t, alice, aliceAddr1, 1, statusDetected)
+	assertAddrEvent(t.t, alice, aliceAddr2, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
 	_ = mineBlocks(t, t.lndHarness, 1, 1)[0]
 
 	// Eventually the events should be marked as confirmed.
-	assertAddrReceives(t.t, bob, 2, statusConfirmed)
+	assertAddrEventByStatus(t.t, bob, statusConfirmed, 2)
 
 	// For local addresses, we should already have the proof in the DB at
 	// this point, so the status should go to completed directly.
-	assertAddrReceives(t.t, alice, 2, statusCompleted)
+	assertAddrEventByStatus(t.t, alice, statusCompleted, numRuns*2)
 
 	// To complete the transfer, we'll export the proof from the sender and
 	// import it into the receiver for each asset set. This should not be
@@ -216,8 +209,8 @@ func testMultiAddress(t *harnessTest) {
 	}
 
 	// Make sure we have imported and finalized all proofs.
-	assertNonInteractiveRecvComplete(t, bob, 2)
-	assertNonInteractiveRecvComplete(t, alice, 2)
+	assertNonInteractiveRecvComplete(t, bob, numRuns*2)
+	assertNonInteractiveRecvComplete(t, alice, numRuns*2)
 
 	// Now sanity check that we can actually list the transfer.
 	const (
@@ -230,14 +223,14 @@ func testMultiAddress(t *harnessTest) {
 			ctxt, &tarorpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
-		require.Len(t.t, resp.Transfers, len(rpcAssets))
-		require.Len(t.t, resp.Transfers[0].Outputs, numOutputs)
-		firstOut := resp.Transfers[0].Outputs[0]
+		require.Len(t.t, resp.Transfers, numRuns)
+
+		transfer := resp.Transfers[runIdx]
+		require.Len(t.t, transfer.Outputs, numOutputs)
+		firstOut := transfer.Outputs[0]
 		require.EqualValues(t.t, changeAmt, firstOut.Amount)
-		firstIn := resp.Transfers[0].Inputs[0]
-		require.Equal(
-			t.t, rpcAssets[0].AssetGenesis.AssetId, firstIn.AssetId,
-		)
+		firstIn := transfer.Inputs[0]
+		require.Equal(t.t, genInfo.AssetId, firstIn.AssetId)
 
 		return nil
 	}, defaultTimeout/2)
