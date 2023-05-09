@@ -224,9 +224,12 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		ScriptKey:   asset.ToSerialized(split3PrivKey.PubKey()),
 		Amount:      20,
 	}
+	inputs := []commitment.SplitCommitmentInput{{
+		Asset:    &newAsset,
+		OutPoint: transitionOutpoint,
+	}}
 	splitCommitment, err := commitment.NewSplitCommitment(
-		context.Background(), []*asset.Asset{&newAsset},
-		[]wire.OutPoint{transitionOutpoint}, rootLocator, split2Locator,
+		context.Background(), inputs, rootLocator, split2Locator,
 		split3Locator,
 	)
 	require.NoError(t, err)

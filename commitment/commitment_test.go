@@ -724,9 +724,12 @@ func TestSplitCommitment(t *testing.T) {
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			input, root, external := testCase.f()
+			inputs := []SplitCommitmentInput{{
+				Asset:    input,
+				OutPoint: outPoint,
+			}}
 			split, err := NewSplitCommitment(
-				context.Background(), []*asset.Asset{input},
-				[]wire.OutPoint{outPoint}, root, external...,
+				context.Background(), inputs, root, external...,
 			)
 			require.Equal(t, testCase.err, err)
 

@@ -249,9 +249,12 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		ScriptKey:   asset.RandSerializedKey(t),
 		Amount:      1,
 	}}
+	inputs := []commitment.SplitCommitmentInput{{
+		Asset:    genesisAsset,
+		OutPoint: genesisOutPoint,
+	}}
 	splitCommitment, err := commitment.NewSplitCommitment(
-		context.Background(), []*asset.Asset{genesisAsset},
-		[]wire.OutPoint{genesisOutPoint}, rootLocator,
+		context.Background(), inputs, rootLocator,
 		externalLocators...,
 	)
 	require.NoError(t, err)
@@ -296,9 +299,12 @@ func splitFullValueStateTransition(validRootLocator,
 			ScriptKey:   asset.RandSerializedKey(t),
 			Amount:      3,
 		}}
+		inputs := []commitment.SplitCommitmentInput{{
+			Asset:    genesisAsset,
+			OutPoint: genesisOutPoint,
+		}}
 		splitCommitment, err := commitment.NewSplitCommitment(
-			context.Background(), []*asset.Asset{genesisAsset},
-			[]wire.OutPoint{genesisOutPoint}, rootLocator,
+			context.Background(), inputs, rootLocator,
 			externalLocators...,
 		)
 		require.NoError(t, err)
@@ -351,9 +357,12 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 			ScriptKey:   asset.RandSerializedKey(t),
 			Amount:      genesisAsset.Amount,
 		}}
+		inputs := []commitment.SplitCommitmentInput{{
+			Asset:    genesisAsset,
+			OutPoint: genesisOutPoint,
+		}}
 		splitCommitment, err := commitment.NewSplitCommitment(
-			context.Background(), []*asset.Asset{genesisAsset},
-			[]wire.OutPoint{genesisOutPoint}, rootLocator,
+			context.Background(), inputs, rootLocator,
 			externalLocators...,
 		)
 		require.NoError(t, err)
@@ -451,9 +460,12 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet) {
 
+		inputs := []commitment.SplitCommitmentInput{{
+			Asset:    genesisAsset,
+			OutPoint: genesisOutPoint,
+		}}
 		splitCommitment, err := commitment.NewSplitCommitment(
-			context.Background(), []*asset.Asset{genesisAsset},
-			[]wire.OutPoint{genesisOutPoint}, rootLocator,
+			context.Background(), inputs, rootLocator,
 			externalLocators...,
 		)
 		require.NoError(t, err)
