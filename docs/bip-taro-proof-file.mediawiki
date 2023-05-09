@@ -133,7 +133,7 @@ where:
 ** where:
 *** <code>proof_node_count</code> is a <code>BigSize</code> integer specifying the number of nodes in the proof.
 *** <code>serialized_proof</code> is <code>proof_node_count*32</code> bytes for the proof path.
-*** <code>proof_direction_bits</code> is a bitfield of size <code>length_of_proof</code> with a value of <code>0</code indicating a left direction, and <code>1</code> indicating a right direction.
+*** <code>proof_direction_bits</code> is a bitfield of size <code>length_of_proof</code> with a value of <code>0</code> indicating a left direction, and <code>1</code> indicating a right direction.
 * <code>anchor_tx</code>: is the transaction spending the <code>previous_outpoint</code>. This transaction commits to at least a single Taro asset tree within one of its outputs.
 * <code>taro_taproot_proof</code>: is a nested TLV that can be used to prove either inclusion or a taro asset, or the lack of a taro commitment via the <code>taro_commitment_exclusion_proof</code>.
 * <code>taproot_exclusion_proofs</code>: is a series of _exclusion_ proofs that prove that the other outputs in a transaction don't commit to a valid taro asset. This re-uses the <code>taro_taproot_proof</code> structure, but will only contain an <code>taro_commitment_exclusion_proof</code> value and not also a <code>taro_taproot_proof</code> value.
@@ -174,11 +174,11 @@ Given a proof file for a given asset <code>f_proof</code>, genesis outpoint
 ## If this is the first proof to be verified:
 ### Store the <code>previous_outpoint</code> as the genesis outpoint.
 ## Otherwise, verify that the <code>anchor_transaction</code> has an inputs that spends the ''prior'' <code>previous_outpoint</code>
-## Given the <code>anchor_transaction</code> verify that the included <code>merkle_inclusion_proof</code> rooted at the merkle root of the <code>block_header</code is valid.
+## Given the <code>anchor_transaction</code> verify that the included <code>merkle_inclusion_proof</code> rooted at the merkle root of the <code>block_header</code> is valid.
 ## Parse the <code>tlv_proof_map</code>.
 ## If the <code>anchor_transaction</code> does not have ''at least'' <code>asset_output_pos</code> outputs, verification fails.
 ## Verify that the <code>asset_leaf_proof</code> embeds the <code>taro_asset_leaf</code> at the outpout rooted at the <code>asset_output_pos</code> using the specified <code>internal_key</code> to compute the taproot commitment.
-## Verify that the asset witness included at the <code>prev_asset_witness<code> field of the <code>taro_asset_leaf</code> is valid based on the specific <code>asset_script_version</code>
+## Verify that the asset witness included at the <code>prev_asset_witness</code> field of the <code>taro_asset_leaf</code> is valid based on the specific <code>asset_script_version</code>
 ## If a <code>split_commitment_opening</code> is present, verify that the included leaf is a valid opening rooted at the <code>taro_asset_leaf</code>'s <code>split_commitment_root</code> field.
 ## If a <code>split_commitment_opening</code> is present, verify that an inclusion proof for the <code>split_commitment_root</code>'s leaf is present in <code>split_root_proof</code>.
 ## If the asset is a genesis asset, and the <code>asset_meta</code> field is present, then verify that <code>sha256(asset_meta) == asset.asset_meta_hash</code>
