@@ -37,7 +37,12 @@ func NewRpcUniverseDiff(serverAddr universe.ServerAddr,
 		grpc.WithTransportCredentials(creds),
 	}
 
-	conn, err := grpc.Dial(serverAddr.Addr.String(), opts...)
+	uniAddr, err := serverAddr.Addr()
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := grpc.Dial(uniAddr.String(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to RPC "+
 			"server: %v", err)

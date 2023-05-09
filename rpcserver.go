@@ -2483,47 +2483,6 @@ func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
 	}
 }
 
-// unmarshalUniverseHost maps an RPC universe host (of the form 'host' or
-// 'host:port') into a net.Addr.
-func unmarshalUniverseHost(uniAddr string) (universe.ServerAddr, error) {
-	var (
-		host      string
-		port      int
-		uniServer universe.ServerAddr
-	)
-
-	if len(uniAddr) == 0 {
-		return uniServer, fmt.Errorf("universe host cannot be empty")
-	}
-
-	// Split the address into its host and port components.
-	h, p, err := net.SplitHostPort(uniAddr)
-	if err != nil {
-		// If a port wasn't specified, we'll assume the address only
-		// contains the host so we'll use the default port.
-		host = uniAddr
-		port = defaultRPCPort
-	} else {
-		// Otherwise, we'll note both the host and ports.
-		host = h
-		portNum, err := strconv.Atoi(p)
-		if err != nil {
-			return uniServer, err
-		}
-		port = portNum
-	}
-
-	// TODO(roasbeef): add tor support
-
-	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	uniServer.Addr, err = net.ResolveTCPAddr("tcp", hostPort)
-	if err != nil {
-		return uniServer, err
-	}
-
-	return uniServer, nil
-}
-
 // unmarshalSyncTargets maps an RPC sync target into a concrete type.
 func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
 	uniIDs := make([]universe.Identifier, 0, len(targets))
@@ -2593,14 +2552,12 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse sync type: %w", err)
 	}
-	uniAddr, err := unmarshalUniverseHost(req.UniverseHost)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse universe host: %w", err)
-	}
 	syncTargets, err := unmarshalSyncTargets(req.SyncTargets)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse sync targets: %w", err)
 	}
+
+	uniAddr := universe.NewServerAddrFromStr(req.UniverseHost)
 
 	// TODO(roasbeef): add layer of indirection in front of?
 	//  * just interface interaction

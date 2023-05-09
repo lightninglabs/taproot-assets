@@ -240,7 +240,7 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 	}
 
 	log.Infof("Attempting to sync universe: host=%v, sync_type=%v, ids=%v",
-		host, syncType, spew.Sdump(idsToSync))
+		host.HostStr(), syncType, spew.Sdump(idsToSync))
 
 	// Next, we'll attempt to create a new diff engine for the remote
 	// Universe.

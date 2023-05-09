@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"strconv"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -198,11 +199,101 @@ type Registrar interface {
 		leaf *MintingLeaf) (*IssuanceProof, error)
 }
 
+const (
+	// DefaultUniverseRPCPort is the default port that the universe RPC is
+	// hosted on.
+	DefaultUniverseRPCPort = 10029
+)
+
+// resolveUniverseAddr maps an RPC universe host (of the form 'host' or
+// 'host:port') into a net.Addr.
+func resolverUniverseAddr(uniAddr string) (net.Addr, error) {
+
+	var (
+		host string
+		port int
+	)
+
+	if len(uniAddr) == 0 {
+		return nil, fmt.Errorf("universe host cannot be empty")
+	}
+
+	// Split the address into its host and port components.
+	h, p, err := net.SplitHostPort(uniAddr)
+	if err != nil {
+		// If a port wasn't specified, we'll assume the address only
+		// contains the host so we'll use the default port.
+		host = uniAddr
+		port = DefaultUniverseRPCPort
+	} else {
+		// Otherwise, we'll note both the host and ports.
+		host = h
+		portNum, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, err
+		}
+		port = portNum
+	}
+
+	// TODO(roasbeef): add tor support
+
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	return net.ResolveTCPAddr("tcp", hostPort)
+}
+
 // ServerAddr wraps the reachable network address of a remote universe
 // server.
 type ServerAddr struct {
-	// Addr is the address the universe is hosted at.
-	Addr net.Addr
+	// ID is the unique identifier of the remote universe.
+	//
+	// TODO(roasbeef): break out into generic ID wrapper struct?
+	ID uint32
+
+	// addrStr is the pure string version of the address before any name
+	// resolution has taken place.
+	addrStr string
+
+	// addr is the resolved network address of the remote universe. This is
+	// cached the first time so resolution doesn't need to be hit
+	// repeatedly.
+	addr net.Addr
+}
+
+// NewServerAddrFromStr creates a new server address from a string that is the
+// host name of the remote universe server.
+func NewServerAddrFromStr(s string) ServerAddr {
+	return ServerAddr{
+		addrStr: s,
+	}
+}
+
+// NewServerAddr creates a new server address from both the universe addr ID
+// and the host name string.
+func NewServerAddr(i uint32, s string) ServerAddr {
+	return ServerAddr{
+		ID:      i,
+		addrStr: s,
+	}
+}
+
+// Addr returns the net.addr the universe is hosted at.
+func (s *ServerAddr) Addr() (net.Addr, error) {
+	if s.addr != nil {
+		return s.addr, nil
+	}
+
+	addr, err := resolverUniverseAddr(s.addrStr)
+	if err != nil {
+		return nil, err
+	}
+
+	s.addr = addr
+	return addr, err
+}
+
+// HostStr returns the host string of the remote universe server.
+func (s *ServerAddr) HostStr() string {
+	return s.addrStr
 }
 
 // SyncType is an enum that describes the type of sync that should be performed
