@@ -1,12 +1,14 @@
 -- name: FetchUniverseRoot :one
-SELECT asset_id, group_key, mssmt_nodes.hash_key root_hash, 
-       mssmt_nodes.sum root_sum
+SELECT universe_roots.asset_id, group_key, mssmt_nodes.hash_key root_hash, 
+       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots 
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes 
     ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
        mssmt_nodes.namespace = mssmt_roots.namespace
+JOIN genesis_assets
+     ON genesis_assets.asset_id = universe_roots.asset_id
 WHERE mssmt_nodes.namespace = @namespace;
 
 -- name: UpsertUniverseRoot :one
@@ -53,13 +55,16 @@ WHERE leaves.leaf_node_namespace = @namespace;
 SELECT * FROM universe_leaves;
 
 -- name: UniverseRoots :many
-SELECT asset_id, group_key, mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum
+SELECT universe_roots.asset_id, group_key, mssmt_roots.root_hash root_hash,
+       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes
     ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
-       mssmt_nodes.namespace = mssmt_roots.namespace;
+       mssmt_nodes.namespace = mssmt_roots.namespace
+JOIN genesis_assets
+    ON genesis_assets.asset_id = universe_roots.asset_id;
 
 -- name: InsertUniverseServer :exec
 INSERT INTO universe_servers(

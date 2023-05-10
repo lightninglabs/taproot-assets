@@ -134,6 +134,9 @@ message UniverseRoot {
     // The merkle sum sparse merkle tree root associated with the above
     // universe ID.
     MerkleSumNode mssmt_root = 3;
+
+    // The name of the asset.
+    string asset_name = 4;
 }
 
 message AssetRootResponse {

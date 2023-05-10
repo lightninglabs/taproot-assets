@@ -103,14 +103,15 @@ func (a *MintingArchive) RootNode(ctx context.Context,
 	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) (BaseRoot, error) {
-		smtNode, err := baseUni.RootNode(ctx)
+		smtNode, assetName, err := baseUni.RootNode(ctx)
 		if err != nil {
 			return BaseRoot{}, err
 		}
 
 		return BaseRoot{
-			ID:   id,
-			Node: smtNode,
+			ID:        id,
+			Node:      smtNode,
+			AssetName: assetName,
 		}, nil
 	})
 }

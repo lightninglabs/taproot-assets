@@ -145,7 +145,7 @@ func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) bool {
 // TODO(roasbeef): gRPC service to match this, think about the REST mapping
 type BaseBackend interface {
 	// RootNode returns the root node for a given base universe.
-	RootNode(context.Context) (mssmt.Node, error)
+	RootNode(context.Context) (mssmt.Node, string, error)
 
 	// RegisterIssuance inserts a new minting leaf within the universe
 	// tree, stored at the base key. The metaReveal type is purely
@@ -179,6 +179,10 @@ type BaseRoot struct {
 	ID Identifier
 
 	mssmt.Node
+
+	// AssetName is the name of the asset. This might not always be set for
+	// performance reasons.
+	AssetName string
 }
 
 // BaseForest is an interface used to keep track of the set of base universe
