@@ -2027,6 +2027,7 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 			RootHash: nodeHash[:],
 			RootSum:  int64(node.Node.NodeSum()),
 		},
+		AssetName: node.AssetName,
 	}, nil
 }
 

@@ -1306,6 +1306,10 @@
         "mssmt_root": {
           "$ref": "#/definitions/universerpcMerkleSumNode",
           "description": "The merkle sum sparse merkle tree root associated with the above\nuniverse ID."
+        },
+        "asset_name": {
+          "type": "string",
+          "description": "The name of the asset."
         }
       }
     },
