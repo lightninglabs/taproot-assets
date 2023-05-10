@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightninglabs/taro"
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -275,6 +276,14 @@ type tarodHarnessParams struct {
 	// enableHashMail enables hashmail in the taro daemon.
 	enableHashMail bool
 
+	// proofSendBackoffCfg is the backoff configuration that is used when
+	// sending proofs to the taro daemon.
+	proofSendBackoffCfg *proof.BackoffCfg
+
+	// proofReceiverAckTimeout is the timeout that is used when waiting for
+	// an ack from the proof receiver.
+	proofReceiverAckTimeout *time.Duration
+
 	// expectErrExit indicates whether tarod is expected to exit with an
 	// error.
 	expectErrExit bool
@@ -302,10 +311,13 @@ func setupTarodHarness(t *testing.T, ht *harnessTest,
 		opt(params)
 	}
 
-	tarodHarness, err := newTarodHarness(ht, tarodConfig{
-		NetParams: harnessNetParams,
-		LndNode:   node,
-	}, params.enableHashMail)
+	tarodHarness, err := newTarodHarness(
+		ht, tarodConfig{
+			NetParams: harnessNetParams,
+			LndNode:   node,
+		}, params.enableHashMail, params.proofSendBackoffCfg,
+		params.proofReceiverAckTimeout,
+	)
 	require.NoError(t, err)
 
 	// Start the tarod harness now.
