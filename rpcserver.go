@@ -1658,6 +1658,12 @@ func marshalOutboundParcel(
 				splitCommitRoot = hash[:]
 			}
 		}
+
+		rpcOutType, err := marshalOutputType(out.Type)
+		if err != nil {
+			return nil, err
+		}
+
 		rpcOutputs[idx] = &tarorpc.TransferOutput{
 			Anchor:              rpcAnchor,
 			ScriptKey:           scriptPubKey.SerializeCompressed(),
@@ -1665,6 +1671,7 @@ func marshalOutboundParcel(
 			Amount:              out.Amount,
 			NewProofBlob:        out.ProofSuffix,
 			SplitCommitRootHash: splitCommitRoot,
+			OutputType:          rpcOutType,
 		}
 	}
 
@@ -1677,6 +1684,28 @@ func marshalOutboundParcel(
 		Inputs:             rpcInputs,
 		Outputs:            rpcOutputs,
 	}, nil
+}
+
+// marshalOutputType turns the transfer output type into the RPC counterpart.
+func marshalOutputType(outputType taropsbt.VOutputType) (tarorpc.OutputType,
+	error) {
+
+	switch outputType {
+	case taropsbt.TypeSimple:
+		return tarorpc.OutputType_OUTPUT_TYPE_SIMPLE, nil
+
+	case taropsbt.TypeSplitRoot:
+		return tarorpc.OutputType_OUTPUT_TYPE_SPLIT_ROOT, nil
+
+	case taropsbt.TypePassiveAssetsOnly:
+		return tarorpc.OutputType_OUTPUT_TYPE_PASSIVE_ASSETS_ONLY, nil
+
+	case taropsbt.TypePassiveSplitRoot:
+		return tarorpc.OutputType_OUTPUT_TYPE_PASSIVE_SPLIT_ROOT, nil
+
+	default:
+		return 0, fmt.Errorf("unknown output type: %d", outputType)
+	}
 }
 
 // SubscribeSendAssetEventNtfns registers a subscription to the event
