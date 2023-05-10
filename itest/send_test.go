@@ -294,8 +294,11 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 		// (not waiting on first attempt).
 		expectedEventCount := 2
 
+		// Context timeout scales with expected number of events.
 		timeout := time.Duration(expectedEventCount) *
 			defaultProofTransferReceiverAckTimeout
+		// Add overhead buffer to context timeout.
+		timeout += 5 * time.Second
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
@@ -326,8 +329,9 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, t.tarod, rpcAssets[0], recvAddr)
 
-	// Stop aperture to simulate a failure.
-	require.NoError(t.t, t.apertureHarness.Service.Stop())
+	// Simulate a failed attempt at sending the asset proof by stopping
+	// the receiver node.
+	require.NoError(t.t, t.tarod.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
 	sendAssetsToAddr(t, sendTarod, recvAddr)
