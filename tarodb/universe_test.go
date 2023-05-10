@@ -72,7 +72,7 @@ func TestUniverseEmptyTree(t *testing.T) {
 	id := randUniverseID(t, false)
 	baseUniverse, _ := newTestUniverse(t, id)
 
-	_, err := baseUniverse.RootNode(ctx)
+	_, _, err := baseUniverse.RootNode(ctx)
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
@@ -158,9 +158,10 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		require.NoError(t, err)
 
 		// The root should now reflect a proper sum value.
-		rootNode, err := baseUniverse.RootNode(ctx)
+		rootNode, assetName, err := baseUniverse.RootNode(ctx)
 		require.NoError(t, err)
 		require.Equal(t, leafSum, rootNode.NodeSum())
+		require.Equal(t, testLeaf.Tag, assetName)
 
 		// The root returned in the proof should match the one we just
 		// fetched.
@@ -313,10 +314,10 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// We should be able to get the roots for both fo the trees.
-	groupRoot, err := groupUniverse.RootNode(ctx)
+	groupRoot, _, err := groupUniverse.RootNode(ctx)
 	require.NoError(t, err)
 
-	normalRoot, err := normalUniverse.RootNode(ctx)
+	normalRoot, _, err := normalUniverse.RootNode(ctx)
 	require.NoError(t, err)
 
 	// The sum of each root should match the value of the sole leaf we've

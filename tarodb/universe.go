@@ -146,7 +146,9 @@ func NewBaseUniverseTree(db BatchedUniverseTree,
 }
 
 // RootNode returns the root node of a universe tree.
-func (b *BaseUniverseTree) RootNode(ctx context.Context) (mssmt.Node, error) {
+func (b *BaseUniverseTree) RootNode(ctx context.Context) (mssmt.Node, string,
+	error) {
+
 	var universeRoot UniverseRoot
 
 	readTx := NewBaseUniverseReadTx()
@@ -162,9 +164,9 @@ func (b *BaseUniverseTree) RootNode(ctx context.Context) (mssmt.Node, error) {
 	})
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
-		return nil, universe.ErrNoUniverseRoot
+		return nil, "", universe.ErrNoUniverseRoot
 	case dbErr != nil:
-		return nil, dbErr
+		return nil, "", dbErr
 	}
 
 	var nodeHash mssmt.NodeHash
@@ -172,7 +174,7 @@ func (b *BaseUniverseTree) RootNode(ctx context.Context) (mssmt.Node, error) {
 
 	return mssmt.NewComputedNode(
 		nodeHash, uint64(universeRoot.RootSum),
-	), nil
+	), universeRoot.AssetName, nil
 }
 
 // treeStoreWrapperTx is a wrapper around the BaseUniverseStore that allows us

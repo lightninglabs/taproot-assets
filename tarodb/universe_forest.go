@@ -109,6 +109,7 @@ func (b *BaseUniverseForest) RootNodes(ctx context.Context) ([]universe.BaseRoot
 				Node: mssmt.NewComputedBranch(
 					nodeHash, uint64(dbRoot.RootSum),
 				),
+				AssetName: dbRoot.AssetName,
 			}
 
 			uniRoots = append(uniRoots, uniRoot)
