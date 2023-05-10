@@ -36,9 +36,10 @@ var (
 )
 
 const (
-	// proofTransferReceiverAckTimeout is the itest specific timeout we'll
-	// use for waiting for a receiver to acknowledge a proof transfer.
-	proofTransferReceiverAckTimeout = 5 * time.Second
+	// defaultProofTransferReceiverAckTimeout is the default itest specific
+	// timeout we'll use for waiting for a receiver to acknowledge a proof
+	// transfer.
+	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
 // tarodHarness is a test harness that holds everything that is needed to

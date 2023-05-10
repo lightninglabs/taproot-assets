@@ -58,7 +58,7 @@ func testBasicSend(t *harnessTest) {
 			return false
 		}
 
-		timeout := 2 * proofTransferReceiverAckTimeout
+		timeout := 2 * defaultProofTransferReceiverAckTimeout
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 		assertRecvNtfsEvent(
@@ -295,7 +295,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 		expectedEventCount := 2
 
 		timeout := time.Duration(expectedEventCount) *
-			proofTransferReceiverAckTimeout
+			defaultProofTransferReceiverAckTimeout
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
