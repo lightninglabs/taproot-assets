@@ -228,7 +228,7 @@ func testUniverseFederation(t *harnessTest) {
 	ctx := context.Background()
 
 	// Now that Bob is active, we'll make a set of assets with the main node.
-	_ = mintAssetsConfirmBatch(t, t.tarod, simpleAssets[:1])
+	firstAsset := mintAssetsConfirmBatch(t, t.tarod, simpleAssets[:1])
 
 	// We'll now add the main node, as a member of Bob's Universe
 	// federation. We expect that their state is synchronized shortly after
@@ -245,7 +245,7 @@ func testUniverseFederation(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// If we fetch the set of federation nodes, then the main node should
-	// be shown as beign a part of that set.
+	// be shown as being a part of that set.
 	fedNodes, err := bob.ListFederationServers(
 		ctx, &unirpc.ListFederationServersRequest{},
 	)
@@ -255,6 +255,10 @@ func testUniverseFederation(t *harnessTest) {
 
 	// At this point, both nodes should have the same Universe roots.
 	assertUniverseStateEqual(t.t, bob, t.tarod)
+
+	// Bob's Universe stats should show that he now has a single asset. We
+	// should also be able to query for stats specifically for the asset.
+	assertUniverseStats(t.t, bob, 1, 0, 1)
 
 	// We'll now make a new asset with Bob, and ensure that the state is
 	// properly pushed to the main node which is a part of the federation.
@@ -278,6 +282,19 @@ func testUniverseFederation(t *harnessTest) {
 	// should have optimistically pushed the update to its federation
 	// members.
 	assertUniverseStateEqual(t.t, bob, t.tarod)
+
+	// Bob's stats should also now show that there're two total asset as
+	// well as two proofs.
+	assertUniverseStats(t.t, bob, 2, 0, 2)
+
+	// We should be able to find both the new assets in the set of universe
+	// stats for an asset.
+	assertUniverseAssetStats(
+		t.t, bob, [][]byte{
+			firstAsset[0].AssetGenesis.AssetId,
+			newAsset[0].AssetGenesis.AssetId,
+		},
+	)
 
 	// Next, we'll try to delete the main node from the federation.
 	_, err = bob.DeleteFederationServer(

@@ -156,6 +156,14 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/UniverseStats": {{
+			Entity: "universe",
+			Action: "read",
+		}},
+		"/universerpc.Universe/QueryAssetStats": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 	}
 
 	// MacaroonWhitelist defines methods that we don't require macaroons to

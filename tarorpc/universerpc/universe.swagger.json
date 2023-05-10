@@ -744,6 +744,106 @@
         ]
       }
     },
+    "/v1/taro/universe/stats": {
+      "get": {
+        "summary": "tarocli: `universe stats`\nUniverseStats returns a set of aggregrate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
+        "operationId": "Universe_UniverseStats",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcStatsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taro/universe/stats/assets": {
+      "get": {
+        "summary": "tarocli `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
+        "operationId": "Universe_QueryAssetStats",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUniverseAssetStats"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_name_filter",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "asset_id_filter",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_type_filter",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "FILTER_ASSET_NONE",
+              "FILTER_ASSET_NORMAL",
+              "FILTER_ASSET_COLLECTIBLE"
+            ],
+            "default": "FILTER_ASSET_NONE"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_BY_NONE",
+              "SORT_BY_ASSET_NAME",
+              "SORT_BY_ASSET_ID",
+              "SORT_BY_ASSET_TYPE"
+            ],
+            "default": "SORT_BY_NONE"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taro/universe/sync": {
       "post": {
         "summary": "tarocli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
@@ -1090,6 +1190,16 @@
         }
       }
     },
+    "universerpcAssetQuerySort": {
+      "type": "string",
+      "enum": [
+        "SORT_BY_NONE",
+        "SORT_BY_ASSET_NAME",
+        "SORT_BY_ASSET_ID",
+        "SORT_BY_ASSET_TYPE"
+      ],
+      "default": "SORT_BY_NONE"
+    },
     "universerpcAssetRootResponse": {
       "type": "object",
       "properties": {
@@ -1101,6 +1211,46 @@
           "description": "A map of the set of known universe roots for each asset. The key in the\nmap is the 32-byte asset_id or group key hash."
         }
       }
+    },
+    "universerpcAssetStatsSnapshot": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "total_supply": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_name": {
+          "type": "string"
+        },
+        "asset_type": {
+          "$ref": "#/definitions/tarorpcAssetType"
+        },
+        "genesis_height": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_syncs": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_proofs": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "universerpcAssetTypeFilter": {
+      "type": "string",
+      "enum": [
+        "FILTER_ASSET_NONE",
+        "FILTER_ASSET_NORMAL",
+        "FILTER_ASSET_COLLECTIBLE"
+      ],
+      "default": "FILTER_ASSET_NONE"
     },
     "universerpcDeleteFederationServerResponse": {
       "type": "object"
@@ -1212,6 +1362,23 @@
         }
       }
     },
+    "universerpcStatsResponse": {
+      "type": "object",
+      "properties": {
+        "num_total_assets": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_total_syncs": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_total_proofs": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "universerpcSyncRequest": {
       "type": "object",
       "properties": {
@@ -1269,6 +1436,17 @@
             "$ref": "#/definitions/universerpcAssetLeaf"
           },
           "description": "The set of new asset leaves that were synced."
+        }
+      }
+    },
+    "universerpcUniverseAssetStats": {
+      "type": "object",
+      "properties": {
+        "asset_stats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetStatsSnapshot"
+          }
         }
       }
     },

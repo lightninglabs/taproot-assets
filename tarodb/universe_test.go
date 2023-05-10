@@ -277,13 +277,18 @@ func TestUniverseMetaBlob(t *testing.T) {
 	require.Equal(t, assetGen.ID(), uniProof.Leaf.Genesis.ID())
 }
 
-func insertRandLeaf(t *testing.T, ctx context.Context,
-	tree *BaseUniverseTree) (*universe.IssuanceProof, error) {
+func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
+	assetGen *asset.Genesis) (*universe.IssuanceProof, error) {
 
-	assetGen := asset.RandGenesis(t, asset.Normal)
+	var targetGen asset.Genesis
+	if assetGen != nil {
+		targetGen = *assetGen
+	} else {
+		targetGen = asset.RandGenesis(t, asset.Normal)
+	}
 
 	targetKey := randBaseKey(t)
-	leaf := randMintingLeaf(t, assetGen, tree.id.GroupKey)
+	leaf := randMintingLeaf(t, targetGen, tree.id.GroupKey)
 
 	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
 }
@@ -302,15 +307,15 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	idGroup := randUniverseID(t, true)
 	groupUniverse, _ := newTestUniverseWithDb(t, db.BaseDB, idGroup)
 
-	idNormal := randUniverseID(t, true)
+	idNormal := randUniverseID(t, false)
 	normalUniverse, _ := newTestUniverseWithDb(t, db.BaseDB, idNormal)
 
 	// For each of the Universes, we'll now insert a random leaf that
 	// should be inserted with the target ID.
-	groupLeaf, err := insertRandLeaf(t, ctx, groupUniverse)
+	groupLeaf, err := insertRandLeaf(t, ctx, groupUniverse, nil)
 	require.NoError(t, err)
 
-	normalLeaf, err := insertRandLeaf(t, ctx, normalUniverse)
+	normalLeaf, err := insertRandLeaf(t, ctx, normalUniverse, nil)
 	require.NoError(t, err)
 
 	// We should be able to get the roots for both fo the trees.

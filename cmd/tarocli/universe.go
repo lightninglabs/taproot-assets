@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc/universerpc"
+	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
@@ -40,6 +41,7 @@ var universeCommands = []cli.Command{
 			universeProofCommand,
 			universeSyncCommand,
 			universeFederationCommand,
+			universeStatsCommand,
 		},
 	},
 }
@@ -629,6 +631,150 @@ func universeFederationDel(ctx *cli.Context) error {
 			},
 		},
 	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var universeStatsCommand = cli.Command{
+	Name:      "stats",
+	ShortName: "s",
+	Usage:     "query for stats related to the active local Universe server",
+	Description: `
+	Query for a set of aggregate statistics related to the local Universe
+	server.  The 'universe stats asset' sub-command can be used to query
+	for stats for a given asset, asset name, or type.
+	`,
+	Action: universeStatsSummaryCommand,
+	Subcommands: []cli.Command{
+		universeAssetStatsCommand,
+	},
+}
+
+func universeStatsSummaryCommand(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.UniverseStats(ctxc, &universerpc.StatsRequest{})
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+const (
+	assetName = "asset_name"
+
+	assetType = "asset_type"
+
+	sortByName = "sort_by"
+)
+
+var universeAssetStatsCommand = cli.Command{
+	Name:      "assets",
+	ShortName: "a",
+	Usage:     "query Universe stats for a single asset",
+	Description: `
+	Query for stats related to a given asset or series of assets identified
+	by the set of available filters. This command support pagination (via
+	the offset+limit) commands, and also allows for sorting by a given
+	filter value.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  assetName,
+			Usage: "the name of the asset to query for",
+		},
+		cli.StringFlag{
+			Name:  assetType,
+			Usage: "the type of the asset to query for",
+		},
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "the asset ID of the asset to query for",
+		},
+		cli.StringFlag{
+			Name: sortByName,
+			Usage: "the name of the field to sort by, " +
+				"[--sort_by=asset_name|asset_type|asset_id]",
+		},
+		cli.Int64Flag{
+			Name:  limitName,
+			Usage: "the maximum number of results to return",
+		},
+		cli.Int64Flag{
+			Name:  offsetName,
+			Usage: "the offset to start returning results from",
+		},
+	},
+	Action: universeStatsQueryCommand,
+}
+
+func universeStatsQueryCommand(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	// Validate the user is attempting to sort by the correct value
+	switch ctx.String(sortByName) {
+	case "asset_name":
+	case "asset_type":
+	case "asset_id":
+	default:
+		return fmt.Errorf("invalid sort_by value: %v",
+			ctx.String(sortByName))
+	}
+
+	var (
+		assetID []byte
+		err     error
+	)
+	if ctx.String(assetIDName) != "" {
+		assetID, err = hex.DecodeString(ctx.String(assetIDName))
+		if err != nil {
+			return fmt.Errorf("unable to decode asset id: %w", err)
+		}
+	}
+
+	resp, err := client.QueryAssetStats(ctxc, &universerpc.AssetStatsQuery{
+		AssetNameFilter: ctx.String(assetName),
+		AssetIdFilter:   assetID,
+		AssetTypeFilter: func() universerpc.AssetTypeFilter {
+			switch {
+			case ctx.String(assetTypeName) == "normal":
+				return unirpc.AssetTypeFilter_FILTER_ASSET_NORMAL
+
+			case ctx.String(assetTypeName) == "collectible":
+				return unirpc.AssetTypeFilter_FILTER_ASSET_COLLECTIBLE
+
+			default:
+				return unirpc.AssetTypeFilter_FILTER_ASSET_NONE
+			}
+		}(),
+		SortBy: func() unirpc.AssetQuerySort {
+			switch {
+			case ctx.String(sortByName) == "asset_name":
+				return unirpc.AssetQuerySort_SORT_BY_ASSET_NAME
+
+			case ctx.String(sortByName) == "asset_id":
+				return unirpc.AssetQuerySort_SORT_BY_ASSET_ID
+
+			case ctx.String(sortByName) == "asset_type":
+				return unirpc.AssetQuerySort_SORT_BY_ASSET_TYPE
+
+			default:
+				return unirpc.AssetQuerySort_SORT_BY_NONE
+			}
+		}(),
+		Limit:  int32(ctx.Int64(limitName)),
+		Offset: int32(ctx.Int64(offsetName)),
+	})
 	if err != nil {
 		return err
 	}

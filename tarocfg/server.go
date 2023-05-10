@@ -112,6 +112,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	uniForest := tarodb.NewBaseUniverseForest(uniForestDB)
 
+	uniStatsDB := tarodb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tarodb.UniverseStatsStore {
+			return db.WithTx(tx)
+		},
+	)
+	universeStats := tarodb.NewUniverseStats(uniStatsDB)
+
 	headerVerifier := tarogarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
@@ -123,6 +130,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 		HeaderVerifier: headerVerifier,
 		UniverseForest: uniForest,
+		UniverseStats:  universeStats,
 	}
 
 	federationStore := tarodb.NewTransactionExecutor(db,
@@ -245,6 +253,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		BaseUniverse:       baseUni,
 		UniverseSyncer:     universeSyncer,
 		UniverseFederation: universeFederation,
+		UniverseStats:      universeStats,
 		LogWriter:          cfg.LogWriter,
 		DatabaseConfig: &taro.DatabaseConfig{
 			RootKeyStore:   tarodb.NewRootKeyStore(rksDB),
