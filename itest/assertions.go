@@ -765,3 +765,49 @@ func assertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 		}
 	}
 }
+
+func assertUniverseStats(t *testing.T, node *tarodHarness,
+	numProofs, numSyncs, numAssets int) {
+
+	err := wait.NoError(func() error {
+		uniStats, err := node.UniverseStats(
+			context.Background(), &unirpc.StatsRequest{},
+		)
+		if err != nil {
+			return err
+		}
+
+		if numProofs != int(uniStats.NumTotalProofs) {
+			return fmt.Errorf("expected %v, got %v",
+				numProofs, uniStats.NumTotalProofs)
+		}
+		if numSyncs != int(uniStats.NumTotalSyncs) {
+			return fmt.Errorf("expected %v, got %v",
+				numSyncs, uniStats.NumTotalSyncs)
+		}
+		if numAssets != int(uniStats.NumTotalAssets) {
+			return fmt.Errorf("expected %v, got %v",
+				numAssets, uniStats.NumTotalAssets)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
+}
+
+func assertUniverseAssetStats(t *testing.T, node *tarodHarness,
+	assetIDs [][]byte) {
+
+	assetStats, err := node.QueryAssetStats(
+		context.Background(), &unirpc.AssetStatsQuery{},
+	)
+	require.NoError(t, err)
+	require.Len(t, assetStats.AssetStats, len(assetIDs))
+
+	for _, assetStat := range assetStats.AssetStats {
+		found := chanutils.Any(assetIDs, func(id []byte) bool {
+			return bytes.Equal(assetStat.AssetId, id)
+		})
+		require.True(t, found)
+	}
+}
