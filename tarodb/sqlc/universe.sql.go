@@ -60,22 +60,25 @@ func (q *Queries) FetchUniverseKeys(ctx context.Context, namespace string) ([]Fe
 }
 
 const fetchUniverseRoot = `-- name: FetchUniverseRoot :one
-SELECT asset_id, group_key, mssmt_nodes.hash_key root_hash, 
-       mssmt_nodes.sum root_sum
+SELECT universe_roots.asset_id, group_key, mssmt_nodes.hash_key root_hash, 
+       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots 
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes 
     ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
        mssmt_nodes.namespace = mssmt_roots.namespace
+JOIN genesis_assets
+     ON genesis_assets.asset_id = universe_roots.asset_id
 WHERE mssmt_nodes.namespace = $1
 `
 
 type FetchUniverseRootRow struct {
-	AssetID  []byte
-	GroupKey []byte
-	RootHash []byte
-	RootSum  int64
+	AssetID   []byte
+	GroupKey  []byte
+	RootHash  []byte
+	RootSum   int64
+	AssetName string
 }
 
 func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error) {
@@ -86,6 +89,7 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 		&i.GroupKey,
 		&i.RootHash,
 		&i.RootSum,
+		&i.AssetName,
 	)
 	return i, err
 }
@@ -277,20 +281,24 @@ func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
 }
 
 const universeRoots = `-- name: UniverseRoots :many
-SELECT asset_id, group_key, mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum
+SELECT universe_roots.asset_id, group_key, mssmt_roots.root_hash root_hash,
+       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes
     ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
        mssmt_nodes.namespace = mssmt_roots.namespace
+JOIN genesis_assets
+    ON genesis_assets.asset_id = universe_roots.asset_id
 `
 
 type UniverseRootsRow struct {
-	AssetID  []byte
-	GroupKey []byte
-	RootHash []byte
-	RootSum  int64
+	AssetID   []byte
+	GroupKey  []byte
+	RootHash  []byte
+	RootSum   int64
+	AssetName string
 }
 
 func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error) {
@@ -307,6 +315,7 @@ func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 			&i.GroupKey,
 			&i.RootHash,
 			&i.RootSum,
+			&i.AssetName,
 		); err != nil {
 			return nil, err
 		}
