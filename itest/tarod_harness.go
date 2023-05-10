@@ -36,9 +36,10 @@ var (
 )
 
 const (
-	// proofTransferReceiverAckTimeout is the itest specific timeout we'll
-	// use for waiting for a receiver to acknowledge a proof transfer.
-	proofTransferReceiverAckTimeout = 5 * time.Second
+	// defaultProofTransferReceiverAckTimeout is the default itest specific
+	// timeout we'll use for waiting for a receiver to acknowledge a proof
+	// transfer.
+	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
 // tarodHarness is a test harness that holds everything that is needed to
@@ -68,7 +69,8 @@ type tarodConfig struct {
 // newTarodHarness creates a new tarod server harness with the given
 // configuration.
 func newTarodHarness(ht *harnessTest, cfg tarodConfig,
-	enableHashMail bool) (*tarodHarness, error) {
+	enableHashMail bool, proofSendBackoffCfg *proof.BackoffCfg,
+	proofReceiverAckTimeout *time.Duration) (*tarodHarness, error) {
 
 	if cfg.BaseDir == "" {
 		var err error
@@ -133,19 +135,28 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 	// Conditionally use the local hashmail service.
 	finalCfg.HashMailCourier = nil
 	if enableHashMail {
+		// Use passed in backoff config or default config.
+		backoffCfg := &proof.BackoffCfg{
+			BackoffResetWait: 20 * time.Second,
+			NumTries:         3,
+			InitialBackoff:   2 * time.Second,
+			MaxBackoff:       2 * time.Second,
+		}
+		if proofSendBackoffCfg != nil {
+			backoffCfg = proofSendBackoffCfg
+		}
+
+		// Used passed in proof receiver ack timeout or default.
+		receiverAckTimeout := defaultProofTransferReceiverAckTimeout
+		if proofReceiverAckTimeout != nil {
+			receiverAckTimeout = *proofReceiverAckTimeout
+		}
+
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
 			Addr:               ht.apertureHarness.ListenAddr,
 			TlsCertPath:        ht.apertureHarness.TlsCertPath,
-			ReceiverAckTimeout: proofTransferReceiverAckTimeout,
-
-			// Use minimal wait times for asset proof transfer
-			// backoff procedure.
-			BackoffCfg: &proof.BackoffCfg{
-				BackoffResetWait: 20 * time.Second,
-				NumTries:         3,
-				InitialBackoff:   2 * time.Second,
-				MaxBackoff:       2 * time.Second,
-			},
+			ReceiverAckTimeout: receiverAckTimeout,
+			BackoffCfg:         backoffCfg,
 		}
 	}
 

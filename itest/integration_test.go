@@ -40,6 +40,10 @@ func TestTaroDaemon(t *testing.T) {
 	lndHarness.SetupStandbyNodes()
 
 	// Start aperture service and attach to test harness.
+	//
+	// TODO(ffranr): Each test case should have access to its own
+	// 		 independent aperture service. Remove this global
+	//   	         instance.
 	apertureHarness := setupApertureHarness(ht.t)
 	ht.apertureHarness = &apertureHarness
 
