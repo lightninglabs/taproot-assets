@@ -94,7 +94,7 @@ WITH root_asset_id AS (
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    "SYNC", (SELECT id FROM root_asset_id), @event_time
+    'SYNC', (SELECT id FROM root_asset_id), @event_time
 );
 
 -- name: InsertNewProofEvent :exec
@@ -106,7 +106,7 @@ WITH root_asset_id AS (
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    "NEW_PROOF", (SELECT id FROM root_asset_id), @event_time
+    'NEW_PROOF', (SELECT id FROM root_asset_id), @event_time
 );
 
 -- name: QueryUniverseStats :one
@@ -152,7 +152,13 @@ JOIN universe_stats
 ORDER BY
     CASE
         WHEN sqlc.narg('sort_by') = 'asset_id' THEN asset_info.asset_id
+        ELSE NULL
+    END,
+    CASE
         WHEN sqlc.narg('sort_by') = 'asset_name' THEN asset_info.asset_name
+        ELSE NULL
+    END,
+    CASE
         WHEN sqlc.narg('sort_by') = 'asset_type' THEN asset_info.asset_type
         ELSE NULL
     END

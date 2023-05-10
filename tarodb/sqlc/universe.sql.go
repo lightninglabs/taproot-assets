@@ -104,7 +104,7 @@ WITH root_asset_id AS (
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    "NEW_PROOF", (SELECT id FROM root_asset_id), $1
+    'NEW_PROOF', (SELECT id FROM root_asset_id), $1
 )
 `
 
@@ -127,7 +127,7 @@ WITH root_asset_id AS (
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    "SYNC", (SELECT id FROM root_asset_id), $1
+    'SYNC', (SELECT id FROM root_asset_id), $1
 )
 `
 
@@ -264,7 +264,13 @@ JOIN universe_stats
 ORDER BY
     CASE
         WHEN $1 = 'asset_id' THEN asset_info.asset_id
+        ELSE NULL
+    END,
+    CASE
         WHEN $1 = 'asset_name' THEN asset_info.asset_name
+        ELSE NULL
+    END,
+    CASE
         WHEN $1 = 'asset_type' THEN asset_info.asset_type
         ELSE NULL
     END

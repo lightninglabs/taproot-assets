@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/lightninglabs/taro/asset"
@@ -135,17 +136,36 @@ func (u *UniverseStats) AggregateSyncStats(ctx context.Context,
 
 		stats.NumTotalAssets = uint64(uniStats.TotalNumAssets)
 
-		syncs, ok := uniStats.TotalSyncs.(int64)
-		if !ok {
-			return fmt.Errorf("failed to convert syncs to uint64")
-		}
-		stats.NumTotalSyncs = uint64(syncs)
+		// We'll need to do a type cast here as sqlite will give us a
+		// NULL value as an int, while postgres will give us a "0"
+		// string.
+		switch numSyncs := uniStats.TotalSyncs.(type) {
+		case int64:
+			stats.NumTotalSyncs = uint64(numSyncs)
 
-		proofs, ok := uniStats.TotalProofs.(int64)
-		if !ok {
-			return fmt.Errorf("failed to convert proofs to uint64")
+		case string:
+			numSyncsInt, err := strconv.ParseInt(numSyncs, 10, 64)
+			if err != nil {
+				return fmt.Errorf("unable to parse total "+
+					"syncs: %v", err)
+			}
+
+			stats.NumTotalSyncs = uint64(numSyncsInt)
 		}
-		stats.NumTotalProofs = uint64(proofs)
+
+		switch numProofs := uniStats.TotalProofs.(type) {
+		case int64:
+			stats.NumTotalProofs = uint64(numProofs)
+
+		case string:
+			numProofsInt, err := strconv.ParseInt(numProofs, 10, 64)
+			if err != nil {
+				return fmt.Errorf("unable to parse total "+
+					"proofs: %v", err)
+			}
+
+			stats.NumTotalProofs = uint64(numProofsInt)
+		}
 
 		return nil
 	})
