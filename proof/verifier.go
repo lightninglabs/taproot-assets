@@ -376,7 +376,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// provided as part of an ownership proof.
 	var splitAsset bool
 	switch {
-	case prev == nil && len(p.ChallengeWitness) == 1:
+	case prev == nil && p.ChallengeWitness != nil:
 		splitAsset, err = p.verifyChallengeWitness()
 
 	default:
