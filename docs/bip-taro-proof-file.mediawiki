@@ -45,7 +45,7 @@ in the past history of the asset:
 ** A valid merkle proof of a transaction which spends the outpoint referenced in the prior step.
 ** A valid MS-SMT opening proving the commitment of the new location of the asset.
 ** A valid asset witness state transition from the prior outpoint to the new location.
-** A valid cannonical Taro asset commitment exists for the given asset.
+** A valid canonical Taro asset commitment exists for the given asset.
 ** If the transaction anchoring the state transition has other outputs, then a valid tapscript exclusion proof to prove that the commitment isn't duplicated elsewhere.
 
 ===Specification===
@@ -124,6 +124,9 @@ blob with the following format:
 * type: 9 (<code>taro_input_splits</code>)
 ** value:
 *** [<code>...*byte</code>:<code>nested_proof_map</code>]
+* type: 10 (<code>challenge_witness</code>)
+** value:
+*** [<code>...*byte</code>:<code>challenge_witness</code>]
 
 where:
 * <code>prev_out</code>: is the 36-byte outpoint of the Taro-committed output being spent. If this is the very first proof, then this value will be the "genesis outpoint" for the given asset.
@@ -142,10 +145,11 @@ where:
 * <code>asset_meta_reveal</code>: is an mandatory field (for genesis assets) that reveals the pre-image of the <code>asset_meta_hash</code> contained in the asset TLV.
 ** The <code>meta_type</code> field can be used to indicate how to parse/render the meta data pre-image.
 *** The meta type currently defined are:
-**** <code>0</code>: no true type, just desginates an opaque data blob.
+**** <code>0</code>: no true type, just designates an opaque data blob.
 ** The <code>meta_data</code> is the raw meta data itself.
 *** If the contained asset is a genesis asset (has a valid genesis witness), then a verifier SHOULD verify that: `sha256(tlv_encode(meta_reveal)) == asset_meta_hash`.
 *** This field MUST only be present for genesis asset proofs.
+* <code>challenge_witness</code> is an optional asset witness over a well-defined asset state transition that proves ownership of the <code>script_key</code> the asset currently resides at.
 
 The final flat proof file has the following format:
 * [<code>u32</code>:<code>file_version</code>] version of proof file
@@ -183,7 +187,7 @@ Given a proof file for a given asset <code>f_proof</code>, genesis outpoint
 ## If a <code>split_commitment_opening</code> is present, verify that an inclusion proof for the <code>split_commitment_root</code>'s leaf is present in <code>split_root_proof</code>.
 ## If the asset is a genesis asset, and the <code>asset_meta</code> field is present, then verify that <code>sha256(asset_meta) == asset.asset_meta_hash</code>
 
-A psuedo-code routine for flat file verification follows:
+A pseudo-code routine for flat file verification follows:
 <source lang="python">
 verify_asset_file_proof(file_proof []byte, genesis_outpoint OutPoint, 
     assetID [32]byte) -> bool
@@ -223,6 +227,21 @@ verify_asset_file_proof(file_proof []byte, genesis_outpoint OutPoint,
 
         if !verify_taro_state_transition(proof_tlv_map.taro_asset_leaf):
             return false
+        
+        if proof_tlv_map.challenge_witness is not None:
+            new_leaf = clone_unique_leaf(proof_tlv_map.taro_asset_leaf)
+            new_leaf.script_key = NUMS_key
+            new_leaf.prev_witnesses = {{
+                prev_id: {
+                    asset_id:   proof_tlv_map.taro_asset_leaf.asset_id
+                    outpoint:   00000000...0000000:0
+                    script_key: proof_tlv_map.taro_asset_leaf.script_key
+                }
+                tx_witness: proof_tlv_map.challenge_witness
+            }}
+            
+            if !verify_taro_state_transition(new_leaf):
+                return false
 
         if proof_tlv_map.split_commitment_opening is not None:
             if !verify_split_commitment(
@@ -258,6 +277,22 @@ verify_asset_file_proof(file_proof []byte, genesis_outpoint OutPoint,
 
     return true
 </source>
+
+=====Ownership proof=====
+
+An optional ownership proof can be added to a proof through the
+<code>challenge_witness</code> field. That witness must be a valid asset
+<code>tx_witness</code> over a well-defined asset state transition that spends
+the full amount of the asset to the NUMS key.
+The state transition can be created with the following steps:
+
+# Create a deep copy of the asset to prove ownership of.
+# Truncate the <code>prev_witnesses</code> list to just a single element.
+# Set the <code>prev_witnesses[0].prev_id.out_point</code> to the empty outpoint (all zero hash and zero index).
+# Set the <code>prev_witnesses[0].prev_id.script_key</code> to the asset's script key.
+# Set the asset's <code>script_key</code> to the NUMS key.
+# Create a signature for the asset state transition, using the interactive flow (no split tomb stone).
+# Extract just the <code>prev_witnesses[0].tx_witness</code> from the signed state transition and append that to the proof as the <code>challenge_witness</code>.
 
 ==Test Vectors==
 
