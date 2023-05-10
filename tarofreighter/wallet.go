@@ -93,6 +93,11 @@ type Wallet interface {
 	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
 		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+
+	// SignOwnershipProof creates and signs an ownership proof for the given
+	// owned asset. The ownership proof consists of a valid witness of a
+	// signed virtual packet that spends the asset fully to the NUMS key.
+	SignOwnershipProof(ownedAsset *asset.Asset) (wire.TxWitness, error)
 }
 
 // AddrBook is an interface that provides access to the address book.
@@ -1118,6 +1123,29 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		ChainFees:         chainFees,
 		OutputCommitments: mergedCommitments,
 	}, nil
+}
+
+// SignOwnershipProof creates and signs an ownership proof for the given owned
+// asset. The ownership proof consists of a signed virtual packet that spends
+// the asset fully to the NUMS key.
+func (f *AssetWallet) SignOwnershipProof(
+	ownedAsset *asset.Asset) (wire.TxWitness, error) {
+
+	outputAsset := ownedAsset.Copy()
+	log.Infof("Generating ownership proof for asset %v", outputAsset.ID())
+
+	vPkt := taropsbt.OwnershipProofPacket(
+		ownedAsset.Copy(), f.cfg.ChainParams,
+	)
+	err := taroscript.SignVirtualTransaction(
+		vPkt, f.cfg.Signer, f.cfg.TxValidator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate taro witness data: "+
+			"%w", err)
+	}
+
+	return vPkt.Outputs[0].Asset.PrevWitnesses[0].TxWitness, nil
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input
