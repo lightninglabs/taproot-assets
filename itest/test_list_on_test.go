@@ -31,6 +31,11 @@ var testCases = []*testCase{
 		enableHashMail: true,
 	},
 	{
+		name:           "offline receiver eventually receives",
+		test:           testOfflineReceiverEventuallyReceives,
+		enableHashMail: true,
+	},
+	{
 		name: "basic send passive asset",
 		test: testBasicSendPassiveAsset,
 	},

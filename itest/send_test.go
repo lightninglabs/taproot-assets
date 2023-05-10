@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -336,6 +337,123 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	// Send asset and then mine to confirm the associated on-chain tx.
 	sendAssetsToAddr(t, sendTarod, recvAddr)
 	_ = mineBlocks(t, t.lndHarness, 1, 1)
+
+	wg.Wait()
+}
+
+// testOfflineReceiverEventuallyReceives tests that a receiver node will
+// eventually receive an asset even if it is offline whilst the sender node
+// makes multiple attempts to send the asset.
+func testOfflineReceiverEventuallyReceives(t *harnessTest) {
+	var (
+		ctxb = context.Background()
+		wg   sync.WaitGroup
+	)
+
+	// Make a new node which will send the asset to the primary taro node.
+	// We start a new node for sending so that we can customize the proof
+	// send backoff configuration.
+	sendTarod := setupTarodHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tarodHarnessParams) {
+			params.enableHashMail = true
+			params.expectErrExit = true
+			params.proofSendBackoffCfg = &proof.BackoffCfg{
+				BackoffResetWait: 1 * time.Microsecond,
+				NumTries:         200,
+				InitialBackoff:   1 * time.Microsecond,
+				MaxBackoff:       1 * time.Microsecond,
+			}
+			proofReceiverAckTimeout := 1 * time.Microsecond
+			params.proofReceiverAckTimeout = &proofReceiverAckTimeout
+		},
+	)
+
+	recvTarod := t.tarod
+
+	// Subscribe to receive asset send events from primary taro node.
+	eventNtfns, err := sendTarod.SubscribeSendAssetEventNtfns(
+		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Test to ensure that we receive the expected number of backoff wait
+	// event notifications.
+	// This test is executed in a goroutine to ensure that we can receive
+	// the event notification(s) from the taro node as the rest of the test
+	// proceeds.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Define a target event selector to match the backoff wait
+		// event. This function selects for a specific event type.
+		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+			switch eventTyped := event.Event.(type) {
+			case *tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+				ev := eventTyped.ReceiverProofBackoffWaitEvent
+				t.Logf("Found event ntfs: %v", ev)
+				return true
+			}
+
+			return false
+		}
+
+		// Lower bound number of proof delivery attempts.
+		expectedEventCount := 20
+
+		// Events must be received before a timeout.
+		timeout := 5 * time.Second
+		ctx, cancel := context.WithTimeout(ctxb, timeout)
+		defer cancel()
+
+		assertRecvNtfsEvent(
+			t, ctx, eventNtfns, targetEventSelector,
+			expectedEventCount,
+		)
+	}()
+
+	// Mint an asset for sending.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, sendTarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Synchronize the Universe state of the second node, with the main
+	// node.
+	t.syncUniverseState(sendTarod, recvTarod, len(rpcAssets))
+
+	// Create a new address for the receiver node.
+	recvAddr, err := recvTarod.NewAddr(
+		ctxb, &tarorpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     10,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, recvTarod, rpcAssets[0], recvAddr)
+
+	// Stop receiving taro node to simulate offline receiver.
+	t.Logf("Stopping receiving taro node")
+	require.NoError(t.t, recvTarod.stop(false))
+
+	// Send asset and then mine to confirm the associated on-chain tx.
+	sendAssetsToAddr(t, sendTarod, recvAddr)
+	_ = mineBlocks(t, t.lndHarness, 1, 1)
+
+	// Pause before restarting receiving taro node so that sender node has
+	// an opportunity to attempt to send the proof multiple times.
+	time.Sleep(1 * time.Second)
+
+	// Restart receiving taro node.
+	t.Logf("Re-starting receiving taro node")
+	require.NoError(t.t, recvTarod.start(false))
+
+	// Confirm that the receiver eventually receives the asset. Pause to
+	// give the receiver time to recognise the full send event.
+	t.Logf("Attempting to confirm asset received")
+	assertNonInteractiveRecvComplete(t, recvTarod, 1)
 
 	wg.Wait()
 }
