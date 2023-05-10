@@ -92,6 +92,14 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/ProveAssetOwnership": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/assetwalletrpc.AssetWallet/VerifyAssetOwnership": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/mintrpc.Mint/MintAsset": {{
 			Entity: "mint",
 			Action: "write",

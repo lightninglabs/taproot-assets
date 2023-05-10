@@ -47,6 +47,16 @@ type AssetWalletClient interface {
 	//key) and stores them both in the database to make sure they are identified
 	//as local keys later on when importing proofs.
 	NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error)
+	//
+	//ProveAssetOwnership creates an ownership proof embedded in an asset
+	//transition proof. That ownership proof is a signed virtual transaction
+	//spending the asset with a valid witness to prove the prover owns the keys
+	//that can spend the asset.
+	ProveAssetOwnership(ctx context.Context, in *ProveAssetOwnershipRequest, opts ...grpc.CallOption) (*ProveAssetOwnershipResponse, error)
+	//
+	//VerifyAssetOwnership verifies the asset ownership proof embedded in the
+	//given transition proof of an asset and returns true if the proof is valid.
+	VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error)
 }
 
 type assetWalletClient struct {
@@ -102,6 +112,24 @@ func (c *assetWalletClient) NextScriptKey(ctx context.Context, in *NextScriptKey
 	return out, nil
 }
 
+func (c *assetWalletClient) ProveAssetOwnership(ctx context.Context, in *ProveAssetOwnershipRequest, opts ...grpc.CallOption) (*ProveAssetOwnershipResponse, error) {
+	out := new(ProveAssetOwnershipResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/ProveAssetOwnership", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *assetWalletClient) VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error) {
+	out := new(VerifyAssetOwnershipResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/VerifyAssetOwnership", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AssetWalletServer is the server API for AssetWallet service.
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
@@ -134,6 +162,16 @@ type AssetWalletServer interface {
 	//key) and stores them both in the database to make sure they are identified
 	//as local keys later on when importing proofs.
 	NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error)
+	//
+	//ProveAssetOwnership creates an ownership proof embedded in an asset
+	//transition proof. That ownership proof is a signed virtual transaction
+	//spending the asset with a valid witness to prove the prover owns the keys
+	//that can spend the asset.
+	ProveAssetOwnership(context.Context, *ProveAssetOwnershipRequest) (*ProveAssetOwnershipResponse, error)
+	//
+	//VerifyAssetOwnership verifies the asset ownership proof embedded in the
+	//given transition proof of an asset and returns true if the proof is valid.
+	VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }
 
@@ -155,6 +193,12 @@ func (UnimplementedAssetWalletServer) NextInternalKey(context.Context, *NextInte
 }
 func (UnimplementedAssetWalletServer) NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextScriptKey not implemented")
+}
+func (UnimplementedAssetWalletServer) ProveAssetOwnership(context.Context, *ProveAssetOwnershipRequest) (*ProveAssetOwnershipResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProveAssetOwnership not implemented")
+}
+func (UnimplementedAssetWalletServer) VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyAssetOwnership not implemented")
 }
 func (UnimplementedAssetWalletServer) mustEmbedUnimplementedAssetWalletServer() {}
 
@@ -259,6 +303,42 @@ func _AssetWallet_NextScriptKey_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AssetWallet_ProveAssetOwnership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProveAssetOwnershipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).ProveAssetOwnership(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/ProveAssetOwnership",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).ProveAssetOwnership(ctx, req.(*ProveAssetOwnershipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AssetWallet_VerifyAssetOwnership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyAssetOwnershipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).VerifyAssetOwnership(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/VerifyAssetOwnership",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).VerifyAssetOwnership(ctx, req.(*VerifyAssetOwnershipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AssetWallet_ServiceDesc is the grpc.ServiceDesc for AssetWallet service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -285,6 +365,14 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NextScriptKey",
 			Handler:    _AssetWallet_NextScriptKey_Handler,
+		},
+		{
+			MethodName: "ProveAssetOwnership",
+			Handler:    _AssetWallet_ProveAssetOwnership_Handler,
+		},
+		{
+			MethodName: "VerifyAssetOwnership",
+			Handler:    _AssetWallet_VerifyAssetOwnership_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

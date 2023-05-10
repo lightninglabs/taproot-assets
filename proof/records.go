@@ -21,6 +21,7 @@ const (
 	SplitRootProofType   tlv.Type = 7
 	MetaRevealType       tlv.Type = 8
 	AdditionalInputsType tlv.Type = 9
+	ChallengeWitnessType tlv.Type = 10
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 1
@@ -148,6 +149,16 @@ func AdditionalInputsRecord(inputs *[]File) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		AdditionalInputsType, inputs, sizeFunc, AdditionalInputsEncoder,
 		AdditionalInputsDecoder,
+	)
+}
+
+func ChallengeWitnessRecord(challengeWitness *wire.TxWitness) tlv.Record {
+	sizeFunc := func() uint64 {
+		return uint64((*challengeWitness).SerializeSize())
+	}
+	return tlv.MakeDynamicRecord(
+		ChallengeWitnessType, challengeWitness, sizeFunc,
+		asset.TxWitnessEncoder, asset.TxWitnessDecoder,
 	)
 }
 

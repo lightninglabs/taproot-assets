@@ -87,6 +87,14 @@ type Proof struct {
 	// AdditionalInputs is a nested full proof for any additional inputs
 	// found within the resulting asset.
 	AdditionalInputs []File
+
+	// ChallengeWitness is an optional virtual transaction witness that
+	// serves as an ownership proof for the asset. If this is non-nil, then
+	// it is a valid transfer witness for a 1-input, 1-output virtual
+	// transaction that spends the asset in this proof and sends it to the
+	// NUMS key, to prove that the creator of the proof is able to produce
+	// a valid signature to spend the asset.
+	ChallengeWitness wire.TxWitness
 }
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
@@ -116,6 +124,11 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 			&p.AdditionalInputs,
 		))
 	}
+	if p.ChallengeWitness != nil {
+		records = append(records, ChallengeWitnessRecord(
+			&p.ChallengeWitness,
+		))
+	}
 	return records
 }
 
@@ -132,6 +145,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		SplitRootProofRecord(&p.SplitRootProof),
 		MetaRevealRecord(&p.MetaReveal),
 		AdditionalInputsRecord(&p.AdditionalInputs),
+		ChallengeWitnessRecord(&p.ChallengeWitness),
 	}
 }
 

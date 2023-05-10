@@ -38,6 +38,13 @@ var (
 	// proofHexFileName is the name of the file that contains the hex proof
 	// data. The proof is a random test proof from an integration test run.
 	proofHexFileName = filepath.Join(testDataFileName, "proof.hex")
+
+	// ownershipProofHexFileName is the name of the file that contains the
+	// hex proof data. The proof is a random test proof from an integration
+	// test run.
+	ownershipProofHexFileName = filepath.Join(
+		testDataFileName, "ownership-proof.hex",
+	)
 )
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
@@ -111,6 +118,8 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 			assertEqualProof(t, e, a)
 		}
 	}
+
+	require.Equal(t, expected.ChallengeWitness, actual.ChallengeWitness)
 }
 
 func TestProofEncoding(t *testing.T) {
@@ -222,6 +231,7 @@ func TestProofEncoding(t *testing.T) {
 			Type: MetaOpaque,
 		},
 		AdditionalInputs: []File{},
+		ChallengeWitness: wire.TxWitness{[]byte("foo"), []byte("bar")},
 	}
 	file, err := NewFile(V0, proof, proof)
 	require.NoError(t, err)
@@ -551,6 +561,26 @@ func TestProofVerification(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, p.Asset.Encode(&buf))
 	t.Logf("Proof asset encoded: %x", buf.Bytes())
+}
+
+// TestOwnershipProofVerification ensures that the ownership proof encoding and
+// decoding as well as the verification works as expected.
+func TestOwnershipProofVerification(t *testing.T) {
+	proofHex, err := os.ReadFile(ownershipProofHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	p := &Proof{}
+	err = p.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	snapshot, err := p.Verify(context.Background(), nil, MockHeaderVerifier)
+	require.NoError(t, err)
+	require.NotNil(t, snapshot)
 }
 
 func BenchmarkProofEncoding(b *testing.B) {

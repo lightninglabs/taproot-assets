@@ -41,6 +41,7 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
+	var addresses []*tarorpc.Addr
 	for idx, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
 		// asset.
@@ -49,6 +50,7 @@ func testAddresses(t *harnessTest) {
 			Amt:     a.Amount - 1,
 		})
 		require.NoError(t.t, err)
+		addresses = append(addresses, addr)
 
 		assertAddrCreated(t.t, secondTarod, a, addr)
 
@@ -96,6 +98,31 @@ func testAddresses(t *harnessTest) {
 		return nil
 	}, defaultTimeout/2)
 	require.NoError(t.t, err)
+
+	// We should now also be able to generate ownership proofs for the
+	// received assets.
+	for idx := range addresses {
+		receiverAddr := addresses[idx]
+
+		// Generate the ownership proof on the receiver node.
+		proveResp, err := secondTarod.ProveAssetOwnership(
+			ctxt, &wrpc.ProveAssetOwnershipRequest{
+				AssetId:   receiverAddr.AssetId,
+				ScriptKey: receiverAddr.ScriptKey,
+			},
+		)
+		require.NoError(t.t, err)
+
+		// Verify the ownership proof on the sender node.
+		t.Logf("Got ownership proof: %x", proveResp.ProofWithWitness)
+		verifyResp, err := t.tarod.VerifyAssetOwnership(
+			ctxt, &wrpc.VerifyAssetOwnershipRequest{
+				ProofWithWitness: proveResp.ProofWithWitness,
+			},
+		)
+		require.NoError(t.t, err)
+		require.True(t.t, verifyResp.ValidProof)
+	}
 }
 
 // testMultiAddress tests that we can send assets to multiple addresses at the

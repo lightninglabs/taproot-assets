@@ -3,6 +3,7 @@ package taropsbt
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -108,4 +109,53 @@ func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
 	vOut.SetAnchorInternalKey(anchorInternalKey, pkt.ChainParams.HDCoinType)
 
 	pkt.Outputs = append(pkt.Outputs, vOut)
+}
+
+// OwnershipProofPacket creates a virtual transaction packet that is used to
+// prove ownership of an asset. It creates a 1-in-1-out transaction that spends
+// the owned asset to the NUMS key. The witness is created over an empty
+// previous outpoint, so it can never be used in an actual state transition.
+func OwnershipProofPacket(ownedAsset *asset.Asset,
+	chainParams *address.ChainParams) *VPacket {
+
+	// We create the ownership proof by creating a virtual packet that
+	// spends the full asset into a NUMS key. But in order to prevent that
+	// witness to be used in an actual state transition by a malicious
+	// actor, we create the signature over an empty outpoint. This means the
+	// witness is fully valid, but a full transition proof can never be
+	// created, as the previous outpoint would not match the one that
+	// actually goes on chain.
+	//
+	// TODO(guggero): Revisit this proof once we support pocket universes.
+	emptyOutPoint := wire.OutPoint{}
+	prevId := asset.PrevID{
+		ID:       ownedAsset.ID(),
+		OutPoint: emptyOutPoint,
+		ScriptKey: asset.ToSerialized(
+			ownedAsset.ScriptKey.PubKey,
+		),
+	}
+
+	outputAsset := ownedAsset.Copy()
+	outputAsset.ScriptKey = asset.NUMSScriptKey
+	outputAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &prevId,
+	}}
+
+	vPkt := &VPacket{
+		Inputs: []*VInput{{
+			PrevID: prevId,
+		}},
+		Outputs: []*VOutput{{
+			Asset:             outputAsset,
+			Amount:            outputAsset.Amount,
+			Interactive:       true,
+			AnchorOutputIndex: 0,
+			ScriptKey:         asset.NUMSScriptKey,
+		}},
+		ChainParams: chainParams,
+	}
+	vPkt.SetInputAsset(0, ownedAsset, nil)
+
+	return vPkt
 }

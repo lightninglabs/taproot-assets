@@ -10,8 +10,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/vm"
 	"golang.org/x/sync/errgroup"
 )
@@ -161,8 +163,7 @@ func (p *Proof) verifyExclusionProofs() error {
 // state transition. This method returns the split asset information if this
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
-	prev *AssetSnapshot, headerVerifier HeaderVerifier) (
-	*commitment.SplitAsset, error) {
+	prev *AssetSnapshot, headerVerifier HeaderVerifier) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -226,7 +227,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		})
 	}
 	if err := errGroup.Wait(); err != nil {
-		return nil, fmt.Errorf("inputs invalid: %w", err)
+		return false, fmt.Errorf("inputs invalid: %w", err)
 	}
 
 	// Spawn a new VM instance to verify the asset's state transition.
@@ -236,9 +237,39 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	}
 	engine, err := vm.New(newAsset, splitAssets, prevAssets)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	return splitAsset, engine.Execute()
+	return splitAsset != nil, engine.Execute()
+}
+
+// verifyChallengeWitness verifies the challenge witness by constructing a
+// well-defined 1-in-1-out packet and verifying the witness is valid for that
+// virtual transaction.
+func (p *Proof) verifyChallengeWitness() (bool, error) {
+	// The challenge witness packet always has one input and one output,
+	// independent of how the asset was created. The chain params are only
+	// needed when encoding/decoding a vPkt, so it doesn't matter what
+	// network we choose as we only need the packet to get the witness.
+	vPkt := taropsbt.OwnershipProofPacket(
+		p.Asset.Copy(), &address.MainNetTaro,
+	)
+	vIn := vPkt.Inputs[0]
+	vOut := vPkt.Outputs[0]
+
+	// The 1-in-1-out packet for the challenge witness is well-defined, we
+	// don't have to do any extra checks, just set the witness and then
+	// validate it.
+	vOut.Asset.PrevWitnesses[0].TxWitness = p.ChallengeWitness
+
+	prevAssets := commitment.InputSet{
+		vIn.PrevID: vIn.Asset(),
+	}
+	engine, err := vm.New(vOut.Asset, nil, prevAssets)
+	if err != nil {
+		return false, err
+	}
+
+	return p.Asset.HasSplitCommitmentWitness(), engine.Execute()
 }
 
 // verifyMetaReveal verifies that the "meta hash" of the contained meta reveal
@@ -340,11 +371,19 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		}
 	}
 
-	// 5. A set of asset inputs with valid witnesses are included that
-	// satisfy the resulting state transition.
-	splitAsset, err := p.verifyAssetStateTransition(
-		ctx, prev, headerVerifier,
-	)
+	// 5. Either a set of asset inputs with valid witnesses is included that
+	// satisfy the resulting state transition or a challenge witness is
+	// provided as part of an ownership proof.
+	var splitAsset bool
+	switch {
+	case prev == nil && p.ChallengeWitness != nil:
+		splitAsset, err = p.verifyChallengeWitness()
+
+	default:
+		splitAsset, err = p.verifyAssetStateTransition(
+			ctx, prev, headerVerifier,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +407,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		InternalKey:      p.InclusionProof.InternalKey,
 		ScriptRoot:       taroCommitment,
 		TapscriptSibling: tapscriptPreimage,
-		SplitAsset:       splitAsset != nil,
+		SplitAsset:       splitAsset,
 		MetaReveal:       p.MetaReveal,
 	}, nil
 }

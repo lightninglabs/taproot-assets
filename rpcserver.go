@@ -2675,3 +2675,105 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 
 	return &unirpc.DeleteFederationServerResponse{}, nil
 }
+
+// ProveAssetOwnership creates an ownership proof embedded in an asset
+// transition proof. That ownership proof is a signed virtual transaction
+// spending the asset with a valid witness to prove the prover owns the keys
+// that can spend the asset.
+func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
+	in *wrpc.ProveAssetOwnershipRequest) (*wrpc.ProveAssetOwnershipResponse,
+	error) {
+
+	if len(in.ScriptKey) == 0 {
+		return nil, fmt.Errorf("a valid script key must be specified")
+	}
+
+	scriptKey, err := btcec.ParsePubKey(in.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid script key: %w", err)
+	}
+
+	if len(in.AssetId) != 32 {
+		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	}
+
+	assetID := chanutils.ToArray[asset.ID](in.AssetId)
+	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot fetch proof: %w", err)
+	}
+
+	proofFile := &proof.File{}
+	err = proofFile.Decode(bytes.NewReader(proofBlob))
+	if err != nil {
+		return nil, fmt.Errorf("cannot decode proof: %w", err)
+	}
+
+	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	lastSnapshot, err := proofFile.Verify(ctx, headerVerifier)
+	if err != nil {
+		return nil, fmt.Errorf("cannot verify proof: %w", err)
+	}
+
+	inputAsset := lastSnapshot.Asset
+	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
+		ctx, inputAsset.ID(), lastSnapshot.OutPoint,
+		inputAsset.GroupKey, &inputAsset.ScriptKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching commitment: %w", err)
+	}
+
+	challengeWitness, err := r.cfg.AssetWallet.SignOwnershipProof(
+		inputCommitment.Asset.Copy(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error signing ownership proof: %w", err)
+	}
+
+	lastProof, err := proofFile.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("error fetching last proof: %w", err)
+	}
+
+	lastProof.ChallengeWitness = challengeWitness
+
+	var buf bytes.Buffer
+	if err := lastProof.Encode(&buf); err != nil {
+		return nil, fmt.Errorf("error encoding proof file: %w", err)
+	}
+
+	return &wrpc.ProveAssetOwnershipResponse{
+		ProofWithWitness: buf.Bytes(),
+	}, nil
+}
+
+// VerifyAssetOwnership verifies the asset ownership proof embedded in the
+// given transition proof of an asset and returns true if the proof is valid.
+func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
+	in *wrpc.VerifyAssetOwnershipRequest) (*wrpc.VerifyAssetOwnershipResponse,
+	error) {
+
+	if len(in.ProofWithWitness) == 0 {
+		return nil, fmt.Errorf("a valid proof must be specified")
+	}
+
+	p := &proof.Proof{}
+	err := p.Decode(bytes.NewReader(in.ProofWithWitness))
+	if err != nil {
+		return nil, fmt.Errorf("cannot decode proof file: %w", err)
+	}
+
+	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	_, err = p.Verify(ctx, nil, headerVerifier)
+	if err != nil {
+		return nil, fmt.Errorf("error verifying proof: %w", err)
+	}
+
+	return &wrpc.VerifyAssetOwnershipResponse{
+		ValidProof: true,
+	}, nil
+}

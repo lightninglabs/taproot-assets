@@ -22,3 +22,11 @@ http:
     - selector: assetwalletrpc.AssetWallet.NextScriptKey
       post: "/v1/taro/wallet/script-key/next"
       body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.ProveAssetOwnership
+      post: "/v1/taro/wallet/ownership/prove"
+      body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.VerifyAssetOwnership
+      post: "/v1/taro/wallet/ownership/verify"
+      body: "*"

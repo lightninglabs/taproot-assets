@@ -48,6 +48,22 @@ service AssetWallet {
     as local keys later on when importing proofs.
     */
     rpc NextScriptKey (NextScriptKeyRequest) returns (NextScriptKeyResponse);
+
+    /*
+    ProveAssetOwnership creates an ownership proof embedded in an asset
+    transition proof. That ownership proof is a signed virtual transaction
+    spending the asset with a valid witness to prove the prover owns the keys
+    that can spend the asset.
+    */
+    rpc ProveAssetOwnership (ProveAssetOwnershipRequest)
+        returns (ProveAssetOwnershipResponse);
+
+    /*
+    VerifyAssetOwnership verifies the asset ownership proof embedded in the
+    given transition proof of an asset and returns true if the proof is valid.
+    */
+    rpc VerifyAssetOwnership (VerifyAssetOwnershipRequest)
+        returns (VerifyAssetOwnershipResponse);
 }
 
 message FundVirtualPsbtRequest {
@@ -171,4 +187,22 @@ message NextScriptKeyRequest {
 
 message NextScriptKeyResponse {
     tarorpc.ScriptKey script_key = 1;
+}
+
+message ProveAssetOwnershipRequest {
+    bytes asset_id = 1;
+
+    bytes script_key = 2;
+}
+
+message ProveAssetOwnershipResponse {
+    bytes proof_with_witness = 1;
+}
+
+message VerifyAssetOwnershipRequest {
+    bytes proof_with_witness = 1;
+}
+
+message VerifyAssetOwnershipResponse {
+    bool valid_proof = 1;
 }

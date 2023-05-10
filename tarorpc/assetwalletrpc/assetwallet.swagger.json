@@ -49,6 +49,72 @@
         ]
       }
     },
+    "/v1/taro/wallet/ownership/prove": {
+      "post": {
+        "summary": "ProveAssetOwnership creates an ownership proof embedded in an asset\ntransition proof. That ownership proof is a signed virtual transaction\nspending the asset with a valid witness to prove the prover owns the keys\nthat can spend the asset.",
+        "operationId": "AssetWallet_ProveAssetOwnership",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcProveAssetOwnershipResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcProveAssetOwnershipRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taro/wallet/ownership/verify": {
+      "post": {
+        "summary": "VerifyAssetOwnership verifies the asset ownership proof embedded in the\ngiven transition proof of an asset and returns true if the proof is valid.",
+        "operationId": "AssetWallet_VerifyAssetOwnership",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcVerifyAssetOwnershipResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcVerifyAssetOwnershipRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taro/wallet/script-key/next": {
       "post": {
         "summary": "NextScriptKey derives the next script key (and its corresponding internal\nkey) and stores them both in the database to make sure they are identified\nas local keys later on when importing proofs.",
@@ -294,6 +360,28 @@
         }
       }
     },
+    "assetwalletrpcProveAssetOwnershipRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "assetwalletrpcProveAssetOwnershipResponse": {
+      "type": "object",
+      "properties": {
+        "proof_with_witness": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
     "assetwalletrpcSignVirtualPsbtRequest": {
       "type": "object",
       "properties": {
@@ -339,6 +427,23 @@
             "format": "uint64"
           },
           "description": "A map of all Taro addresses mapped to the anchor transaction's output index\nthat should be sent to."
+        }
+      }
+    },
+    "assetwalletrpcVerifyAssetOwnershipRequest": {
+      "type": "object",
+      "properties": {
+        "proof_with_witness": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "assetwalletrpcVerifyAssetOwnershipResponse": {
+      "type": "object",
+      "properties": {
+        "valid_proof": {
+          "type": "boolean"
         }
       }
     },
