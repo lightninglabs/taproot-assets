@@ -49,7 +49,7 @@ func assertEqualPackets(t *testing.T, expected, actual *VPacket) {
 func TestNewFromRawBytes(t *testing.T) {
 	t.Parallel()
 
-	pkg := randomPacket(t)
+	pkg := RandPacket(t)
 	packet, err := pkg.EncodeAsPsbt()
 	require.NoError(t, err)
 
@@ -67,7 +67,7 @@ func TestNewFromRawBytes(t *testing.T) {
 func TestNewFromPsbt(t *testing.T) {
 	t.Parallel()
 
-	pkg := randomPacket(t)
+	pkg := RandPacket(t)
 	packet, err := pkg.EncodeAsPsbt()
 	require.NoError(t, err)
 
