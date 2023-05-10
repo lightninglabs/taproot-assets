@@ -161,8 +161,7 @@ func (p *Proof) verifyExclusionProofs() error {
 // state transition. This method returns the split asset information if this
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
-	prev *AssetSnapshot, headerVerifier HeaderVerifier) (
-	*commitment.SplitAsset, error) {
+	prev *AssetSnapshot, headerVerifier HeaderVerifier) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -226,7 +225,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		})
 	}
 	if err := errGroup.Wait(); err != nil {
-		return nil, fmt.Errorf("inputs invalid: %w", err)
+		return false, fmt.Errorf("inputs invalid: %w", err)
 	}
 
 	// Spawn a new VM instance to verify the asset's state transition.
@@ -236,9 +235,9 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	}
 	engine, err := vm.New(newAsset, splitAssets, prevAssets)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	return splitAsset, engine.Execute()
+	return splitAsset != nil, engine.Execute()
 }
 
 // verifyMetaReveal verifies that the "meta hash" of the contained meta reveal
@@ -368,7 +367,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		InternalKey:      p.InclusionProof.InternalKey,
 		ScriptRoot:       taroCommitment,
 		TapscriptSibling: tapscriptPreimage,
-		SplitAsset:       splitAsset != nil,
+		SplitAsset:       splitAsset,
 		MetaReveal:       p.MetaReveal,
 	}, nil
 }
