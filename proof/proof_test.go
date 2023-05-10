@@ -111,6 +111,8 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 			assertEqualProof(t, e, a)
 		}
 	}
+
+	require.Equal(t, expected.ChallengeWitness, actual.ChallengeWitness)
 }
 
 func TestProofEncoding(t *testing.T) {
@@ -222,6 +224,7 @@ func TestProofEncoding(t *testing.T) {
 			Type: MetaOpaque,
 		},
 		AdditionalInputs: []File{},
+		ChallengeWitness: wire.TxWitness{[]byte("foo"), []byte("bar")},
 	}
 	file, err := NewFile(V0, proof, proof)
 	require.NoError(t, err)
