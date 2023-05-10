@@ -145,6 +145,11 @@ func testUniverseREST(t *harnessTest) {
 		assetID := hex.EncodeToString(simpleAsset.AssetGenesis.AssetId)
 		require.Contains(t.t, roots.UniverseRoots, assetID)
 
+		require.Equal(
+			t.t, simpleAsset.AssetGenesis.Name,
+			roots.UniverseRoots[assetID].AssetName,
+		)
+
 		// Query the specific root to make sure we get the same result.
 		assetRoot, err := getJSON[unirpc.QueryRootResponse](
 			fmt.Sprintf("%s/roots/asset-id/%s", urlPrefix, assetID),
