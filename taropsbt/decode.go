@@ -231,8 +231,8 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
 	mapping := []decoderMapping{{
-		key:     PsbtKeyTypeOutputTaroIsSplitRoot,
-		decoder: booleanDecoder(&o.IsSplitRoot),
+		key:     PsbtKeyTypeOutputTaroType,
+		decoder: tlvDecoder(&o.Type, vOutputTypeDecoder),
 	}, {
 		key:     PsbtKeyTypeOutputTaroIsInteractive,
 		decoder: booleanDecoder(&o.Interactive),
@@ -409,4 +409,19 @@ func findCustomFieldsByKeyPrefix(customFields []*customPsbtField,
 
 	return nil, fmt.Errorf("%w: key %x not found in list of unkonwns",
 		ErrKeyNotFound, keyPrefix)
+}
+
+// vOutputTypeDecoder is a TLV decoder function that decodes from the given
+// reader into a VOutputType.
+func vOutputTypeDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*VOutputType); ok {
+		var num uint8
+		err := tlv.DUint8(r, &num, buf, l)
+		if err != nil {
+			return err
+		}
+		*typ = VOutputType(num)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "VOutputType", 8, l)
 }

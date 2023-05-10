@@ -452,6 +452,29 @@ message TransferOutputAnchor {
     uint32 num_passive_assets = 7;
 }
 
+enum OutputType {
+    // OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a
+    // split root and does not carry passive assets. In case of a split, the
+    // asset of this output has a split commitment.
+    OUTPUT_TYPE_SIMPLE = 0;
+
+    // OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change
+    // from a split or a tombstone from a non-interactive full value send
+    // output. In either case, the asset of this output has a tx witness.
+    OUTPUT_TYPE_SPLIT_ROOT = 1;
+
+    // OUTPUT_TYPE_PASSIVE_ASSETS_ONLY indicates that this output only carries
+    // passive assets and therefore the asset in this output is nil. The passive
+    // assets themselves are signed in their own virtual transactions and
+    // are not present in this packet.
+    OUTPUT_TYPE_PASSIVE_ASSETS_ONLY = 2;
+
+    // OUTPUT_TYPE_PASSIVE_SPLIT_ROOT is a split root output that carries the
+    // change from a split or a tombstone from a non-interactive full value send
+    // output, as well as passive assets.
+    OUTPUT_TYPE_PASSIVE_SPLIT_ROOT = 3;
+}
+
 message TransferOutput {
     TransferOutputAnchor anchor = 1;
 
@@ -464,6 +487,8 @@ message TransferOutput {
     bytes new_proof_blob = 5;
 
     bytes split_commit_root_hash = 6;
+
+    OutputType output_type = 7;
 }
 
 message StopRequest {

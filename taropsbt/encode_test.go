@@ -77,7 +77,7 @@ func randomPacket(t testing.TB) *VPacket {
 		}},
 		Outputs: []*VOutput{{
 			Amount:                             123,
-			IsSplitRoot:                        true,
+			Type:                               TypeSplitRoot,
 			Interactive:                        true,
 			AnchorOutputIndex:                  0,
 			AnchorOutputInternalKey:            testPubKey,
@@ -89,7 +89,7 @@ func randomPacket(t testing.TB) *VPacket {
 			AnchorOutputTapscriptPreimage:      testPreimage1,
 		}, {
 			Amount:                             345,
-			IsSplitRoot:                        false,
+			Type:                               TypeSplitRoot,
 			Interactive:                        false,
 			AnchorOutputIndex:                  1,
 			AnchorOutputInternalKey:            testPubKey,

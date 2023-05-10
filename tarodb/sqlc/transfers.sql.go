@@ -118,7 +118,7 @@ const fetchTransferOutputs = `-- name: FetchTransferOutputs :many
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    passive_assets_only,
+    output_type,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
@@ -156,7 +156,7 @@ type FetchTransferOutputsRow struct {
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 	NumPassiveAssets         int32
-	PassiveAssetsOnly        bool
+	OutputType               int16
 	AnchorUtxoID             int32
 	AnchorOutpoint           []byte
 	AnchorValue              int64
@@ -192,7 +192,7 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int32) ([
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
 			&i.NumPassiveAssets,
-			&i.PassiveAssetsOnly,
+			&i.OutputType,
 			&i.AnchorUtxoID,
 			&i.AnchorOutpoint,
 			&i.AnchorValue,
@@ -280,7 +280,7 @@ INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
-    passive_assets_only
+    output_type
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 )
@@ -297,7 +297,7 @@ type InsertAssetTransferOutputParams struct {
 	SplitCommitmentRootValue sql.NullInt64
 	ProofSuffix              []byte
 	NumPassiveAssets         int32
-	PassiveAssetsOnly        bool
+	OutputType               int16
 }
 
 func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error {
@@ -312,7 +312,7 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 		arg.SplitCommitmentRootValue,
 		arg.ProofSuffix,
 		arg.NumPassiveAssets,
-		arg.PassiveAssetsOnly,
+		arg.OutputType,
 	)
 	return err
 }

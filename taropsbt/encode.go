@@ -214,8 +214,8 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
 	mapping := []encoderMapping{{
-		key:     PsbtKeyTypeOutputTaroIsSplitRoot,
-		encoder: booleanEncoder(o.IsSplitRoot),
+		key:     PsbtKeyTypeOutputTaroType,
+		encoder: tlvEncoder(&o.Type, vOutputTypeEncoder),
 	}, {
 		key:     PsbtKeyTypeOutputTaroIsInteractive,
 		encoder: booleanEncoder(o.Interactive),
@@ -399,4 +399,14 @@ func payToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
 		AddOp(txscript.OP_1).
 		AddData(schnorr.SerializePubKey(taprootKey)).
 		Script()
+}
+
+// vOutputTypeEncoder is a TLV encoder that encodes the given VOutputType to the
+// given writer.
+func vOutputTypeEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*VOutputType); ok {
+		num := uint8(*t)
+		return tlv.EUint8T(w, num, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "VOutputType")
 }

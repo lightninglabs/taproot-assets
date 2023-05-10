@@ -107,7 +107,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		out := fundedPacket.Outputs[idx]
 		splitAsset := out.Asset
 
-		if out.IsSplitRoot {
+		if out.Type.IsSplitRoot() {
 			splitAsset = out.SplitAsset
 		}
 

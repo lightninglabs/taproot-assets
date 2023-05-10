@@ -40,7 +40,7 @@ func FromAddresses(receiverAddrs []*address.Taro,
 	// process.
 	pkt.Outputs = append(pkt.Outputs, &VOutput{
 		Amount:            0,
-		IsSplitRoot:       true,
+		Type:              TypeSplitRoot,
 		AnchorOutputIndex: 0,
 		ScriptKey:         asset.NUMSScriptKey,
 	})
@@ -99,6 +99,7 @@ func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
 	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor) {
 
 	vOut := &VOutput{
+		Type:              TypeSimple,
 		Amount:            amount,
 		Interactive:       true,
 		AnchorOutputIndex: outputIndex,

@@ -22,7 +22,7 @@ INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
-    passive_assets_only
+    output_type
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 );
@@ -54,7 +54,7 @@ ORDER BY input_id;
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    passive_assets_only,
+    output_type,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,

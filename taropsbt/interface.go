@@ -41,7 +41,7 @@ var (
 	PsbtKeyTypeInputTaroAsset                              = []byte{0x79}
 	PsbtKeyTypeInputTaroAssetProof                         = []byte{0x7a}
 
-	PsbtKeyTypeOutputTaroIsSplitRoot                        = []byte{0x70}
+	PsbtKeyTypeOutputTaroType                               = []byte{0x70}
 	PsbtKeyTypeOutputTaroIsInteractive                      = []byte{0x71}
 	PsbtKeyTypeOutputTaroAnchorOutputIndex                  = []byte{0x72}
 	PsbtKeyTypeOutputTaroAnchorOutputInternalKey            = []byte{0x73}
@@ -67,13 +67,13 @@ var (
 	// VOutIsSplitRoot is a predicate that returns true if the virtual
 	// output is a split root output.
 	VOutIsSplitRoot = func(o *VOutput) bool {
-		return o.IsSplitRoot
+		return o.Type.IsSplitRoot()
 	}
 
 	// VOutIsNotSplitRoot is a predicate that returns true if the virtual
 	// output is NOT a split root output.
 	VOutIsNotSplitRoot = func(o *VOutput) bool {
-		return !o.IsSplitRoot
+		return !o.Type.IsSplitRoot()
 	}
 
 	// VOutIsInteractive is a predicate that returns true if the virtual
@@ -162,7 +162,7 @@ func (p *VPacket) HasSplitCommitment() (bool, error) {
 		// We skip the split root output as it doesn't carry a split
 		// commitment. And since it might only carry passive assets, the
 		// nil check below would trigger, which is not what we want.
-		if vOut.IsSplitRoot {
+		if vOut.Type.IsSplitRoot() {
 			continue
 		}
 
@@ -342,6 +342,84 @@ func (i *VInput) deserializeScriptKey() error {
 	return nil
 }
 
+// VOutputType represents the type of virtual output.
+type VOutputType uint8
+
+const (
+	// TypeSimple is a plain full-value or split output that is not a split
+	// root and does not carry passive assets. In case of a split, the asset
+	// of this output has a split commitment.
+	TypeSimple VOutputType = 0
+
+	// TypeSplitRoot is a split root output that carries the change from a
+	// split or a tombstone from a non-interactive full value send output.
+	// In either case, the asset of this output has a tx witness.
+	TypeSplitRoot VOutputType = 1
+
+	// TypePassiveAssetsOnly indicates that this output only carries passive
+	// assets and therefore the asset in this output is nil. The passive
+	// assets themselves are signed in their own virtual transactions and
+	// are not present in this packet.
+	TypePassiveAssetsOnly VOutputType = 2
+
+	// TypePassiveSplitRoot is a split root output that carries the change
+	// from a split or a tombstone from a non-interactive full value send
+	// output, as well as passive assets.
+	TypePassiveSplitRoot VOutputType = 3
+)
+
+// IsSplitRoot returns true if the output type is a split root, indicating that
+// the asset has a tx witness instead of a split witness.
+func (t VOutputType) IsSplitRoot() bool {
+	return t == TypeSplitRoot || t == TypePassiveSplitRoot
+}
+
+// CanBeInteractive returns true if the output type is compatible with being an
+// interactive send.
+func (t VOutputType) CanBeInteractive() bool {
+	switch t {
+	case TypeSimple, TypeSplitRoot, TypePassiveAssetsOnly,
+		TypePassiveSplitRoot:
+
+		return true
+
+	default:
+		return false
+	}
+}
+
+// CanCarryPassive returns true if the output type is compatible with carrying
+// passive assets.
+func (t VOutputType) CanCarryPassive() bool {
+	switch t {
+	case TypePassiveAssetsOnly, TypePassiveSplitRoot:
+		return true
+
+	default:
+		return false
+	}
+}
+
+// String returns a human-readable string representation of the output type.
+func (t VOutputType) String() string {
+	switch t {
+	case TypeSimple:
+		return "simple"
+
+	case TypeSplitRoot:
+		return "split_root"
+
+	case TypePassiveAssetsOnly:
+		return "passive_assets_only"
+
+	case TypePassiveSplitRoot:
+		return "passive_split_root"
+
+	default:
+		return fmt.Sprintf("unknown <%d>", t)
+	}
+}
+
 // InputCommitments is a map from virtual package input index to its
 // associated taro commitment.
 type InputCommitments = map[int]*commitment.TaroCommitment
@@ -354,11 +432,10 @@ type VOutput struct {
 	// be stored as the value of the wire.TxOut of the PSBT's unsigned TX.
 	Amount uint64
 
-	// IsSplitRoot indicates if this output houses the root asset of a
-	// split. This is either the change of a partial amount send, going back
-	// to the sender, or a zero value tombstone in case of a non-interactive
-	// full value send.
-	IsSplitRoot bool
+	// Type indicates what type of output this is, which has an influence on
+	// whether the asset is set or what witness type is expected to be
+	// generated for the asset.
+	Type VOutputType
 
 	// Interactive, when set to true, indicates that the receiver of the
 	// output is aware of the asset transfer and can therefore receive a
