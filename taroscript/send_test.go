@@ -325,7 +325,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 			&state.spenderScriptKey,
 		),
 		AnchorOutputIndex:       0,
-		IsSplitRoot:             true,
+		Type:                    taropsbt.TypeSplitRoot,
 		AnchorOutputInternalKey: &state.spenderPubKey,
 	}, {
 		Amount:                  addr.Amount,

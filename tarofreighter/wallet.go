@@ -493,7 +493,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			lastOut := vPkt.Outputs[len(vPkt.Outputs)-1]
 			splitOutIndex := lastOut.AnchorOutputIndex + 1
 			changeOut = &taropsbt.VOutput{
-				IsSplitRoot:       true,
+				Type:              taropsbt.TypeSplitRoot,
 				Interactive:       lastOut.Interactive,
 				AnchorOutputIndex: splitOutIndex,
 
@@ -503,6 +503,12 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 			}
 
 			vPkt.Outputs = append(vPkt.Outputs, changeOut)
+		}
+
+		// Bump the output type from "just" split root to split root
+		// with passive assets if we have any.
+		if passiveAssetsPresent {
+			changeOut.Type = taropsbt.TypePassiveSplitRoot
 		}
 
 		// Since we know we're going to receive some change back, we

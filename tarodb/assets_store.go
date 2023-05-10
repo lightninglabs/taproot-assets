@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarodb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -1850,7 +1851,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		SerializedWitnesses: witnessBuf.Bytes(),
 		ProofSuffix:         output.ProofSuffix,
 		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
-		PassiveAssetsOnly:   output.PassiveAssetsOnly,
+		OutputType:          int16(output.Type),
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -1972,8 +1973,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				splitRootHash,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
 			),
-			ProofSuffix:       dbOut.ProofSuffix,
-			PassiveAssetsOnly: dbOut.PassiveAssetsOnly,
+			ProofSuffix: dbOut.ProofSuffix,
+			Type:        taropsbt.VOutputType(dbOut.OutputType),
 		}
 
 		err = readOutPoint(
@@ -2155,9 +2156,14 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		for idx := range outputs {
 			out := outputs[idx]
 
-			isTombstone := bytes.Equal(
+			isNumsKey := bytes.Equal(
 				out.ScriptKeyBytes, asset.NUMSBytes,
-			) && out.Amount == 0 && !out.PassiveAssetsOnly
+			)
+			isTombstone := isNumsKey &&
+				out.Amount == 0 &&
+				out.OutputType != int16(
+					taropsbt.TypePassiveAssetsOnly,
+				)
 
 			// If this is an outbound transfer (meaning that our
 			// node doesn't control the script key), we don't create

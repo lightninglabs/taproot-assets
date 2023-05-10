@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
     proof_suffix BLOB,
 
     num_passive_assets INTEGER NOT NULL,
-    
-    passive_assets_only BOOL NOT NULL
+
+    output_type SMALLINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS transfer_outputs_idx
     ON asset_transfer_outputs (transfer_id);

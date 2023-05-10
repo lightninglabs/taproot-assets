@@ -161,6 +161,11 @@ type TransferOutput struct {
 	// transfer output.
 	Anchor Anchor
 
+	// Type indicates what type of output this is, which has an influence on
+	// whether the asset is set or what witness type is expected to be
+	// generated for the asset.
+	Type taropsbt.VOutputType
+
 	// ScriptKey is the new script key.
 	ScriptKey asset.ScriptKey
 
@@ -184,13 +189,6 @@ type TransferOutput struct {
 	// includes all the proof information other than the final chain
 	// information.
 	ProofSuffix []byte
-
-	// PassiveAssetsOnly indicates whether this transfer output only exists
-	// to represent an anchor for the passive assets. If this is true, then
-	// no asset is created for this output and certain values such as the
-	// witness data, split commitment root and proof suffix is expected to
-	// be empty.
-	PassiveAssetsOnly bool
 }
 
 // OutboundParcel represents the database level delta of an outbound taro

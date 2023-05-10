@@ -122,7 +122,7 @@ type AssetTransferOutput struct {
 	SplitCommitmentRootValue sql.NullInt64
 	ProofSuffix              []byte
 	NumPassiveAssets         int32
-	PassiveAssetsOnly        bool
+	OutputType               int16
 }
 
 type AssetWitness struct {

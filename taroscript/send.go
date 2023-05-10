@@ -353,6 +353,14 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	for idx := range outputs {
 		vOut := outputs[idx]
 
+		// Depending on the output type, an output can be interactive or
+		// not.
+		if vOut.Interactive && !vOut.Type.CanBeInteractive() {
+			return fmt.Errorf("output %d is interactive but "+
+				"output type %v cannot be interactive", idx,
+				vOut.Type)
+		}
+
 		// This method returns an error if the script key's public key
 		// isn't set, which should be the case right now.
 		isUnSpendable, err := vOut.ScriptKey.IsUnSpendable()
@@ -363,24 +371,26 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 
 		switch {
 		// Only the split root can be un-spendable.
-		case !vOut.IsSplitRoot && isUnSpendable:
+		case !vOut.Type.IsSplitRoot() && isUnSpendable:
 			return commitment.ErrInvalidScriptKey
 
 		// Only the split root can have a zero amount.
-		case !vOut.IsSplitRoot && vOut.Amount == 0:
+		case !vOut.Type.IsSplitRoot() && vOut.Amount == 0:
 			return commitment.ErrZeroSplitAmount
 
 		// Interactive outputs can't be un-spendable, since there is no
 		// need for a tombstone output and burns work in a different
-		// way, unless they are carrying the passive assets (in which
-		// case they're also marked as a split root).
-		case vOut.Interactive && isUnSpendable && !vOut.IsSplitRoot:
+		// way, unless they are carrying the passive assets.
+		case vOut.Interactive && isUnSpendable &&
+			!vOut.Type.CanCarryPassive():
+
 			return commitment.ErrInvalidScriptKey
 
 		// Interactive outputs can't have a zero amount, unless they
-		// are carrying the passive assets (in which case they're also
-		// marked as a split root).
-		case vOut.Interactive && vOut.Amount == 0 && !vOut.IsSplitRoot:
+		// are carrying the passive assets.
+		case vOut.Interactive && vOut.Amount == 0 &&
+			!vOut.Type.CanCarryPassive():
+
 			return commitment.ErrZeroSplitAmount
 		}
 	}
@@ -396,7 +406,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 	case len(outputs) == 1:
 		vOut := outputs[0]
 
-		if vOut.IsSplitRoot {
+		if vOut.Type.IsSplitRoot() {
 			return fmt.Errorf("single output cannot be split root")
 		}
 		if !vOut.Interactive {
@@ -513,7 +523,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 		vOut := outputs[idx]
 
 		locator := outputs[idx].SplitLocator(assetID)
-		if vOut.IsSplitRoot {
+		if vOut.Type.IsSplitRoot() {
 			rootLocator = &locator
 			continue
 		}
@@ -541,7 +551,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 
 		// The change output should be marked as the split root, even if
 		// it's a zero value (tombstone) split output for the sender.
-		if vOut.IsSplitRoot {
+		if vOut.Type.IsSplitRoot() {
 			vOut.Asset = splitCommitment.RootAsset.Copy()
 			vOut.SplitAsset = &splitAsset.Asset
 			vOut.SplitAsset.ScriptKey = vOut.ScriptKey
@@ -650,7 +660,7 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
 		// the split commitment proof. We need to use that one for the
 		// validation, as the root asset is already validated as the
 		// newAsset.
-		if outputs[idx].IsSplitRoot {
+		if outputs[idx].Type.IsSplitRoot() {
 			splitAssets[idx].Asset = *outputs[idx].SplitAsset
 		}
 	}
@@ -668,7 +678,7 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
 		// needed (and isn't committed to anywhere), but in order for it
 		// to be validated externally, we still want to include it and
 		// therefore also want to update it with the signed root asset.
-		if outputs[idx].IsSplitRoot {
+		if outputs[idx].Type.IsSplitRoot() {
 			splitAsset = outputs[idx].SplitAsset
 		}
 
@@ -768,7 +778,7 @@ func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
 
 		// The output that houses the split root will carry along the
 		// existing Taro commitment of the sender.
-		if vOut.IsSplitRoot {
+		if vOut.Type.IsSplitRoot() {
 			// In the interactive case we might have a full value
 			// send without an actual split root output but just the
 			// anchor output for the passive assets. We can skip
@@ -1081,7 +1091,7 @@ func interactiveFullValueSend(totalInputAmount uint64,
 		// We identify a "recipient" output as one that is not a split
 		// root, as that has to go back to the sender (either to create
 		// a zero value tomb stone or to anchor passive assets).
-		if !out.IsSplitRoot {
+		if !out.Type.IsSplitRoot() {
 			numRecipientOutputs++
 			recipientIndex = idx
 		}

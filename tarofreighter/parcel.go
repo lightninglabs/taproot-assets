@@ -357,7 +357,6 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 
 		var (
 			numPassiveAssets    uint32
-			passiveAnchorOnly   bool
 			proofSuffixBuf      bytes.Buffer
 			witness             []asset.Witness
 			splitCommitmentRoot mssmt.Node
@@ -365,7 +364,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 
 		// If there are passive assets, they are always committed to the
 		// output that is marked as the split root.
-		if vOut.IsSplitRoot {
+		if vOut.Type.CanCarryPassive() {
 			numPassiveAssets = uint32(len(s.PassiveAssets))
 		}
 
@@ -376,8 +375,8 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// This is a "valid" output for just carrying passive assets
 		// (marked as interactive split root and not committing to an
 		// active asset transfer).
-		case vOut.Interactive && vOut.IsSplitRoot && vOut.Asset == nil:
-			passiveAnchorOnly = true
+		case vOut.Interactive && vOut.Type.IsSplitRoot() && vOut.Asset == nil:
+			vOut.Type = taropsbt.TypePassiveAssetsOnly
 
 		// In any other case we expect an active asset transfer to be
 		// committed to.
@@ -415,12 +414,12 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 				TapscriptSibling: preimageBytes,
 				NumPassiveAssets: numPassiveAssets,
 			},
+			Type:                vOut.Type,
 			ScriptKey:           vOut.ScriptKey,
 			Amount:              vOut.Amount,
 			WitnessData:         witness,
 			SplitCommitmentRoot: splitCommitmentRoot,
 			ProofSuffix:         proofSuffixBuf.Bytes(),
-			PassiveAssetsOnly:   passiveAnchorOnly,
 		}
 	}
 
@@ -513,7 +512,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 	// send case, where we also just commit to an asset that has a TX
 	// witness. We just need an inclusion proof and the exclusion proofs for
 	// any other outputs.
-	if vPkt.Outputs[outIndex].IsSplitRoot || !isSplit {
+	if vPkt.Outputs[outIndex].Type.IsSplitRoot() || !isSplit {
 		rootOut := vPkt.Outputs[outIndex]
 		rootIndex := rootOut.AnchorOutputIndex
 		rootTaroTree := outputCommitments[rootIndex]

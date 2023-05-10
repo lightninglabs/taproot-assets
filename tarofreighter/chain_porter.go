@@ -359,7 +359,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		// For outputs without assets (=anchor for passive assets), we
 		// don't need to store explicit proofs, they were created and
 		// imported above.
-		if out.PassiveAssetsOnly {
+		if out.Type == taropsbt.TypePassiveAssetsOnly {
 			continue
 		}
 
