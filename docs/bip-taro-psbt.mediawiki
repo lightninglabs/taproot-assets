@@ -283,16 +283,15 @@ bip-taro-proof-file File Serialization]].
 ! <tt><valuedata></tt>
 ! <tt><valuedata></tt> Description
 |-
-| Is Split Root
-| <tt>PSBT_OUT_TARO_IS_SPLIT_ROOT = 0x70</tt>
+| Type
+| <tt>PSBT_OUT_TARO_TYPE = 0x70</tt>
 | None
 | No key data
-| <tt><byte 0x00/0x01></tt>
-| A boolean value indicating whether the output is housing the split root of an
-asset split. This indicates that either an input asset amount was split into two
-or more pieces, or that the recipient of the asset is receiving in a
-non-interactive manner that requires the creation of split root output, even if
-the remaining amount is zero.
+| <tt><byte output_type></tt>
+| A <code>uint8</code> value indicating the type of the virtual output. Valid
+values are: 0x00 (<tt>Simple</tt>), 0x01 (<tt>SplitRoot</tt>),
+0x02 (<tt>PassiveAssetsOnly</tt>), 0x03 (<tt>PassiveSplitRoot</tt>), see
+description below.
 |-
 | Is Interactive
 | <tt>PSBT_OUT_TARO_IS_INTERACTIVE = 0x71</tt>
@@ -377,6 +376,32 @@ split asset is encoded in TLV format as defined in
 commitment that was committed to in the anchor. If this is not present, then the
 Taro commitment is the only script leaf in the tree.
 |}
+
+===Values for <tt>PSBT_OUT_TARO_TYPE</tt>===
+
+The <tt>PSBT_OUT_TARO_TYPE</tt> field describes the type of virtual output. This
+type has an influence on how an asset needs to be signed or whether there is an
+asset at all in an output.
+The following values are defined:
+<ul>
+<li><b>Simple</b> (<tt>0x00</tt>) is a plain full-value or split output that is
+not a split root and does not carry passive assets. In case of a split, the
+asset of this output has a split commitment.
+</li>
+<li><b>SplitRoot</b> (<tt>0x01</tt>) is a split root output that carries the
+change from a split or a tombstone from a non-interactive full value send
+output. In either case, the asset of this output has a tx witness.
+</li>
+<li><b>PassiveAssetsOnly</b> (<tt>0x02</tt>) indicates that this output only
+carries passive assets and therefore the asset in this output is nil. The
+passive assets themselves are signed in their own virtual transactions and
+are not present in this packet.
+</li>
+<li><b>PassiveSplitRoot</b> (<tt>0x03</tt>) is a split root output that carries
+the change from a split or a tombstone from a non-interactive full value send
+output, as well as passive assets.
+</li>
+</ul>
 
 ==Committing Taro virtual transactions into a BTC level anchor transaction==
 
