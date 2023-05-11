@@ -78,9 +78,6 @@ type Custodian struct {
 	// address events of inbound assets.
 	events map[wire.OutPoint]*address.Event
 
-	// newProof is used to deliver a new proof to the custodian.
-	newProof chan *proof.Proof
-
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*chanutils.ContextGuard
@@ -387,8 +384,6 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				log.Errorf("unable to import proofs: %v", err)
 				return
 			}
-
-			return
 		}()
 	}
 
@@ -471,13 +466,11 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	case err == nil:
 		log.Warnf("Taproot addr %v was already added to "+
 			"wallet before, skipping", p2trAddr.String())
-		break
 
 	// On restart, we'll get an error that the output has already
 	// been added to the wallet, so we'll catch this now and move
 	// along if so.
 	case strings.Contains(err.Error(), "already exists"):
-		break
 
 	case err != nil:
 		return err

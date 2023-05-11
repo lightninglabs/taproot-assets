@@ -10,7 +10,7 @@ RUN cd /tmp \
   && mkdir -p /tmp/build/.cache \
   && mkdir -p /tmp/build/.modcache \
   && cd /tmp/tools \
-  && go install -trimpath -tags=tools github.com/golangci/golangci-lint/cmd/golangci-lint \
+  && go install -trimpath github.com/golangci/golangci-lint/cmd/golangci-lint \
   && chmod -R 777 /tmp/build/ \
   && git config --global --add safe.directory /build
 

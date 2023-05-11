@@ -301,6 +301,8 @@ func TestReplace(t *testing.T) {
 	}
 
 	for storeName, makeStore := range genTestStores(t) {
+		makeStore := makeStore
+
 		t.Run(storeName, func(t *testing.T) {
 			t.Parallel()
 
@@ -317,6 +319,8 @@ func TestHistoryIndependence(t *testing.T) {
 	t.Parallel()
 
 	for storeName, makeStore := range genTestStores(t) {
+		makeStore := makeStore
+
 		t.Run(storeName, func(t *testing.T) {
 			t.Parallel()
 

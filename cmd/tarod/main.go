@@ -42,6 +42,7 @@ func main() {
 				http.StatusSeeOther)
 			http.Handle("/", profileRedirect)
 			cfgLogger.Infof("Pprof listening on %v", cfg.Profile)
+			//nolint:gosec
 			fmt.Println(http.ListenAndServe(cfg.Profile, nil))
 		}()
 	}

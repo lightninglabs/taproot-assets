@@ -160,11 +160,6 @@ func (p *AddressParcel) kit() *parcelKit {
 	return p.parcelKit
 }
 
-// dest returns the destination address for the parcel.
-func (p *AddressParcel) dest() []*address.Taro {
-	return p.destAddrs
-}
-
 // PreSignedParcel is a request to issue an asset transfer of a pre-signed
 // parcel. This packages a virtual transaction, the input commitment, and also
 // the response context.

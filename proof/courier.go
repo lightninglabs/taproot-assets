@@ -715,7 +715,6 @@ func (h *HashMailCourier) SetSubscribers(
 	defer h.subscriberMtx.Unlock()
 
 	h.subscribers = subscribers
-	return
 }
 
 // A compile-time assertion to ensure the HashMailCourier meets the

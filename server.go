@@ -481,7 +481,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
 			corsHandler := allowCORS(restHandler, cfg.RestCORS)
 
 			wg.Done()
-			err := http.Serve(lis, corsHandler)
+			err := http.Serve(lis, corsHandler) //nolint:gosec
 			if err != nil && !lnrpc.IsClosedConnError(err) {
 				rpcsLog.Error(err)
 			}
