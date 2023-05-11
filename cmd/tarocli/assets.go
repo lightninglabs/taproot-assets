@@ -19,7 +19,6 @@ var assetsCommands = []cli.Command{
 		Category:  "Assets",
 		Subcommands: []cli.Command{
 			mintAssetCommand,
-			listBatchesCommand,
 			listAssetsCommand,
 			listUtxosCommand,
 			listGroupsCommand,
@@ -94,6 +93,7 @@ var mintAssetCommand = cli.Command{
 	},
 	Action: mintAsset,
 	Subcommands: []cli.Command{
+		listBatchesCommand,
 		finalizeBatchCommand,
 		cancelBatchCommand,
 	},
@@ -227,6 +227,7 @@ func cancelBatch(ctx *cli.Context) error {
 
 var listBatchesCommand = cli.Command{
 	Name:        "batches",
+	ShortName:   "b",
 	Usage:       "list all batches",
 	Description: "List all batches",
 	Flags: []cli.Flag{
