@@ -44,7 +44,7 @@ DEV_LDFLAGS := -ldflags "$(call make_ldflags)"
 
 # For the release, we want to remove the symbol table and debug information (-s)
 # and omit the DWARF symbol table (-w). Also we clear the build ID.
-RELEASE_LDFLAGS := -ldflags "$(call make_ldflags, -s -w -buildid=)"
+RELEASE_LDFLAGS := $(call make_ldflags, -s -w -buildid=)
 
 # Linting uses a lot of memory, so keep it under control by limiting the number
 # of workers if requested.
@@ -97,8 +97,28 @@ build-itest:
 
 install:
 	@$(call print, "Installing tarod and tarocli.")
-	$(GOINSTALL) -tags="${tags}" $(RELEASE_LDFLAGS) $(PKG)/cmd/tarod
-	$(GOINSTALL) -tags="${tags}" $(RELEASE_LDFLAGS) $(PKG)/cmd/tarocli
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tarod
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tarocli
+
+release-install:
+	@$(call print, "Installing release tarod and tarocli.")
+	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tarod
+	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tarocli
+
+release:
+	@$(call print, "Releasing tarod and tarocli binaries.")
+	$(VERSION_CHECK)
+	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
+
+docker-release:
+	@$(call print, "Building release helper docker image.")
+	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
+
+	docker build -t taro-release-helper -f make/builder.Dockerfile make/
+
+	# Run the actual compilation inside the docker image. We pass in all flags
+	# that we might want to overwrite in manual tests.
+	$(DOCKER_RELEASE_HELPER) make release tag="$(tag)" sys="$(sys)" COMMIT="$(COMMIT)" 
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
