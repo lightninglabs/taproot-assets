@@ -27,6 +27,7 @@ type FundVirtualPsbtRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Template:
+	//
 	//	*FundVirtualPsbtRequest_Psbt
 	//	*FundVirtualPsbtRequest_Raw
 	Template isFundVirtualPsbtRequest_Template `protobuf_oneof:"template"`
@@ -90,18 +91,16 @@ type isFundVirtualPsbtRequest_Template interface {
 }
 
 type FundVirtualPsbtRequest_Psbt struct {
+	// Use an existing PSBT packet as the template for the funded PSBT.
 	//
-	//Use an existing PSBT packet as the template for the funded PSBT.
-	//
-	//TODO(guggero): Actually implement this. We can't use the "reserved"
-	//keyword here because we're in a oneof, so we add the field but implement
-	//it later.
+	// TODO(guggero): Actually implement this. We can't use the "reserved"
+	// keyword here because we're in a oneof, so we add the field but implement
+	// it later.
 	Psbt []byte `protobuf:"bytes,1,opt,name=psbt,proto3,oneof"`
 }
 
 type FundVirtualPsbtRequest_Raw struct {
-	//
-	//Use the asset outputs and optional asset inputs from this raw template.
+	// Use the asset outputs and optional asset inputs from this raw template.
 	Raw *TxTemplate `protobuf:"bytes,2,opt,name=raw,proto3,oneof"`
 }
 
@@ -114,11 +113,9 @@ type FundVirtualPsbtResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The funded but not yet signed PSBT packet.
+	// The funded but not yet signed PSBT packet.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
-	//
-	//The index of the added change output or -1 if no change was left over.
+	// The index of the added change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,2,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
 }
 
@@ -173,17 +170,15 @@ type TxTemplate struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// An optional list of inputs to use. Every input must be an asset UTXO known
+	// to the wallet. The sum of all inputs must be greater than or equal to the
+	// sum of all outputs.
 	//
-	//An optional list of inputs to use. Every input must be an asset UTXO known
-	//to the wallet. The sum of all inputs must be greater than or equal to the
-	//sum of all outputs.
-	//
-	//If no inputs are specified, asset coin selection will be performed instead
-	//and inputs of sufficient value will be added to the resulting PSBT.
+	// If no inputs are specified, asset coin selection will be performed instead
+	// and inputs of sufficient value will be added to the resulting PSBT.
 	Inputs []*PrevId `protobuf:"bytes,1,rep,name=inputs,proto3" json:"inputs,omitempty"`
-	//
-	//A map of all Taro addresses mapped to the anchor transaction's output index
-	//that should be sent to.
+	// A map of all Taro addresses mapped to the anchor transaction's output index
+	// that should be sent to.
 	Recipients map[string]uint64 `protobuf:"bytes,2,rep,name=recipients,proto3" json:"recipients,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
 }
 
@@ -238,15 +233,12 @@ type PrevId struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The bitcoin anchor output on chain that contains the input asset.
+	// The bitcoin anchor output on chain that contains the input asset.
 	Outpoint *OutPoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	//
-	//The asset ID of the previous asset tree.
+	// The asset ID of the previous asset tree.
 	Id []byte `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	//
-	//The tweaked Taproot output key committing to the possible spending
-	//conditions of the asset.
+	// The tweaked Taproot output key committing to the possible spending
+	// conditions of the asset.
 	ScriptKey []byte `protobuf:"bytes,3,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 }
 
@@ -308,11 +300,9 @@ type OutPoint struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//Raw bytes representing the transaction id.
+	// Raw bytes representing the transaction id.
 	Txid []byte `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
-	//
-	//The index of the output on the transaction.
+	// The index of the output on the transaction.
 	OutputIndex uint32 `protobuf:"varint,2,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
 }
 
@@ -367,10 +357,9 @@ type SignVirtualPsbtRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The PSBT of the virtual transaction that should be signed. The PSBT must
-	//contain all required inputs, outputs, UTXO data and custom fields required
-	//to identify the signing key.
+	// The PSBT of the virtual transaction that should be signed. The PSBT must
+	// contain all required inputs, outputs, UTXO data and custom fields required
+	// to identify the signing key.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
 }
 
@@ -418,11 +407,9 @@ type SignVirtualPsbtResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The signed virtual transaction in PSBT format.
+	// The signed virtual transaction in PSBT format.
 	SignedPsbt []byte `protobuf:"bytes,1,opt,name=signed_psbt,json=signedPsbt,proto3" json:"signed_psbt,omitempty"`
-	//
-	//The indices of signed inputs.
+	// The indices of signed inputs.
 	SignedInputs []uint32 `protobuf:"varint,2,rep,packed,name=signed_inputs,json=signedInputs,proto3" json:"signed_inputs,omitempty"`
 }
 
@@ -477,9 +464,8 @@ type AnchorVirtualPsbtsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The list of virtual transactions that should be merged and committed to in
-	//the BTC level anchor transaction.
+	// The list of virtual transactions that should be merged and committed to in
+	// the BTC level anchor transaction.
 	VirtualPsbts [][]byte `protobuf:"bytes,1,rep,name=virtual_psbts,json=virtualPsbts,proto3" json:"virtual_psbts,omitempty"`
 }
 

@@ -19,72 +19,70 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TaroClient interface {
 	// tarocli: `assets list`
-	//ListAssets lists the set of assets owned by the target daemon.
+	// ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error)
 	// tarocli: `assets utxos`
-	//ListUtxos lists the UTXOs managed by the target daemon, and the assets they
-	//hold.
+	// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
+	// hold.
 	ListUtxos(ctx context.Context, in *ListUtxosRequest, opts ...grpc.CallOption) (*ListUtxosResponse, error)
 	// tarocli: `assets groups`
-	//ListGroups lists the asset groups known to the target daemon, and the assets
-	//held in each group.
+	// ListGroups lists the asset groups known to the target daemon, and the assets
+	// held in each group.
 	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
 	// tarocli: `assets balance`
-	//ListBalances lists asset balances
+	// ListBalances lists asset balances
 	ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error)
 	// tarocli: `assets transfers`
-	//ListTransfers lists outbound asset transfers tracked by the target daemon.
+	// ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
 	// tarocli: `stop`
-	//StopDaemon will send a shutdown request to the interrupt handler, triggering
-	//a graceful shutdown of the daemon.
+	// StopDaemon will send a shutdown request to the interrupt handler, triggering
+	// a graceful shutdown of the daemon.
 	StopDaemon(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
 	// tarocli: `debuglevel`
-	//DebugLevel allows a caller to programmatically set the logging verbosity of
-	//tarod. The logging can be targeted according to a coarse daemon-wide logging
-	//level, or in a granular fashion to specify the logging for a target
-	//sub-system.
+	// DebugLevel allows a caller to programmatically set the logging verbosity of
+	// tarod. The logging can be targeted according to a coarse daemon-wide logging
+	// level, or in a granular fashion to specify the logging for a target
+	// sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
 	// tarocli: `addrs query`
-	//QueryTaroAddrs queries the set of Taro addresses stored in the database.
+	// QueryTaroAddrs queries the set of Taro addresses stored in the database.
 	QueryAddrs(ctx context.Context, in *QueryAddrRequest, opts ...grpc.CallOption) (*QueryAddrResponse, error)
 	// tarocli: `addrs new`
-	//NewAddr makes a new address from the set of request params.
+	// NewAddr makes a new address from the set of request params.
 	NewAddr(ctx context.Context, in *NewAddrRequest, opts ...grpc.CallOption) (*Addr, error)
 	// tarocli: `addrs decode`
-	//DecodeAddr decode a Taro address into a partial asset message that
-	//represents the asset it wants to receive.
+	// DecodeAddr decode a Taro address into a partial asset message that
+	// represents the asset it wants to receive.
 	DecodeAddr(ctx context.Context, in *DecodeAddrRequest, opts ...grpc.CallOption) (*Addr, error)
 	// tarocli: `addrs receives`
-	//List all receives for incoming asset transfers for addresses that were
-	//created previously.
+	// List all receives for incoming asset transfers for addresses that were
+	// created previously.
 	AddrReceives(ctx context.Context, in *AddrReceivesRequest, opts ...grpc.CallOption) (*AddrReceivesResponse, error)
 	// tarocli: `proofs verify`
-	//VerifyProof attempts to verify a given proof file that claims to be anchored
-	//at the specified genesis point.
+	// VerifyProof attempts to verify a given proof file that claims to be anchored
+	// at the specified genesis point.
 	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*ProofVerifyResponse, error)
 	// tarocli: `proofs export`
-	//ExportProof exports the latest raw proof file anchored at the specified
-	//script_key.
+	// ExportProof exports the latest raw proof file anchored at the specified
+	// script_key.
 	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
 	// tarocli: `proofs import`
-	//ImportProof attempts to import a proof file into the daemon. If successful,
-	//a new asset will be inserted on disk, spendable using the specified target
-	//script key, and internal key.
+	// ImportProof attempts to import a proof file into the daemon. If successful,
+	// a new asset will be inserted on disk, spendable using the specified target
+	// script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 	// tarocli: `assets send`
-	//SendAsset uses one or multiple passed taro address(es) to attempt to
-	//complete an asset send. The method returns information w.r.t the on chain
-	//send, as well as the proof file information the receiver needs to fully
-	//receive the asset.
+	// SendAsset uses one or multiple passed taro address(es) to attempt to
+	// complete an asset send. The method returns information w.r.t the on chain
+	// send, as well as the proof file information the receiver needs to fully
+	// receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
-	//
-	//SubscribeSendAssetEventNtfns registers a subscription to the event
-	//notification stream which relates to the asset sending process.
+	// SubscribeSendAssetEventNtfns registers a subscription to the event
+	// notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (Taro_SubscribeSendAssetEventNtfnsClient, error)
-	//
-	//FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
-	//either by the asset ID for that asset, or a meta hash.
+	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+	// either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error)
 }
 
@@ -277,72 +275,70 @@ func (c *taroClient) FetchAssetMeta(ctx context.Context, in *FetchAssetMetaReque
 // for forward compatibility
 type TaroServer interface {
 	// tarocli: `assets list`
-	//ListAssets lists the set of assets owned by the target daemon.
+	// ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error)
 	// tarocli: `assets utxos`
-	//ListUtxos lists the UTXOs managed by the target daemon, and the assets they
-	//hold.
+	// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
+	// hold.
 	ListUtxos(context.Context, *ListUtxosRequest) (*ListUtxosResponse, error)
 	// tarocli: `assets groups`
-	//ListGroups lists the asset groups known to the target daemon, and the assets
-	//held in each group.
+	// ListGroups lists the asset groups known to the target daemon, and the assets
+	// held in each group.
 	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
 	// tarocli: `assets balance`
-	//ListBalances lists asset balances
+	// ListBalances lists asset balances
 	ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error)
 	// tarocli: `assets transfers`
-	//ListTransfers lists outbound asset transfers tracked by the target daemon.
+	// ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
 	// tarocli: `stop`
-	//StopDaemon will send a shutdown request to the interrupt handler, triggering
-	//a graceful shutdown of the daemon.
+	// StopDaemon will send a shutdown request to the interrupt handler, triggering
+	// a graceful shutdown of the daemon.
 	StopDaemon(context.Context, *StopRequest) (*StopResponse, error)
 	// tarocli: `debuglevel`
-	//DebugLevel allows a caller to programmatically set the logging verbosity of
-	//tarod. The logging can be targeted according to a coarse daemon-wide logging
-	//level, or in a granular fashion to specify the logging for a target
-	//sub-system.
+	// DebugLevel allows a caller to programmatically set the logging verbosity of
+	// tarod. The logging can be targeted according to a coarse daemon-wide logging
+	// level, or in a granular fashion to specify the logging for a target
+	// sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)
 	// tarocli: `addrs query`
-	//QueryTaroAddrs queries the set of Taro addresses stored in the database.
+	// QueryTaroAddrs queries the set of Taro addresses stored in the database.
 	QueryAddrs(context.Context, *QueryAddrRequest) (*QueryAddrResponse, error)
 	// tarocli: `addrs new`
-	//NewAddr makes a new address from the set of request params.
+	// NewAddr makes a new address from the set of request params.
 	NewAddr(context.Context, *NewAddrRequest) (*Addr, error)
 	// tarocli: `addrs decode`
-	//DecodeAddr decode a Taro address into a partial asset message that
-	//represents the asset it wants to receive.
+	// DecodeAddr decode a Taro address into a partial asset message that
+	// represents the asset it wants to receive.
 	DecodeAddr(context.Context, *DecodeAddrRequest) (*Addr, error)
 	// tarocli: `addrs receives`
-	//List all receives for incoming asset transfers for addresses that were
-	//created previously.
+	// List all receives for incoming asset transfers for addresses that were
+	// created previously.
 	AddrReceives(context.Context, *AddrReceivesRequest) (*AddrReceivesResponse, error)
 	// tarocli: `proofs verify`
-	//VerifyProof attempts to verify a given proof file that claims to be anchored
-	//at the specified genesis point.
+	// VerifyProof attempts to verify a given proof file that claims to be anchored
+	// at the specified genesis point.
 	VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error)
 	// tarocli: `proofs export`
-	//ExportProof exports the latest raw proof file anchored at the specified
-	//script_key.
+	// ExportProof exports the latest raw proof file anchored at the specified
+	// script_key.
 	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
 	// tarocli: `proofs import`
-	//ImportProof attempts to import a proof file into the daemon. If successful,
-	//a new asset will be inserted on disk, spendable using the specified target
-	//script key, and internal key.
+	// ImportProof attempts to import a proof file into the daemon. If successful,
+	// a new asset will be inserted on disk, spendable using the specified target
+	// script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	// tarocli: `assets send`
-	//SendAsset uses one or multiple passed taro address(es) to attempt to
-	//complete an asset send. The method returns information w.r.t the on chain
-	//send, as well as the proof file information the receiver needs to fully
-	//receive the asset.
+	// SendAsset uses one or multiple passed taro address(es) to attempt to
+	// complete an asset send. The method returns information w.r.t the on chain
+	// send, as well as the proof file information the receiver needs to fully
+	// receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
-	//
-	//SubscribeSendAssetEventNtfns registers a subscription to the event
-	//notification stream which relates to the asset sending process.
+	// SubscribeSendAssetEventNtfns registers a subscription to the event
+	// notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, Taro_SubscribeSendAssetEventNtfnsServer) error
-	//
-	//FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
-	//either by the asset ID for that asset, or a meta hash.
+	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+	// either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error)
 	mustEmbedUnimplementedTaroServer()
 }
