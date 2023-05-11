@@ -97,20 +97,16 @@ type MintAsset struct {
 	AssetType tarorpc.AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=tarorpc.AssetType" json:"asset_type,omitempty"`
 	// The name, or "tag" of the asset. This will affect the final asset ID.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	//
-	//A blob that resents metadata related to the asset. This will affect the
-	//final asset ID.
+	// A blob that resents metadata related to the asset. This will affect the
+	// final asset ID.
 	AssetMeta *tarorpc.AssetMeta `protobuf:"bytes,3,opt,name=asset_meta,json=assetMeta,proto3" json:"asset_meta,omitempty"`
-	//
-	//The total amount of units of the new asset that should be created. If the
-	//AssetType is Collectible, then this field cannot be set.
+	// The total amount of units of the new asset that should be created. If the
+	// AssetType is Collectible, then this field cannot be set.
 	Amount uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	//
-	//The specific group key this asset should be minted with.
+	// The specific group key this asset should be minted with.
 	GroupKey []byte `protobuf:"bytes,5,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`
-	//
-	//The name of the asset in the batch that will anchor a new asset group.
-	//This asset will be minted with the same group key as the anchor asset.
+	// The name of the asset in the batch that will anchor a new asset group.
+	// This asset will be minted with the same group key as the anchor asset.
 	GroupAnchor string `protobuf:"bytes,6,opt,name=group_anchor,json=groupAnchor,proto3" json:"group_anchor,omitempty"`
 }
 
@@ -193,12 +189,10 @@ type MintAssetRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//The asset to be minted.
+	// The asset to be minted.
 	Asset *MintAsset `protobuf:"bytes,1,opt,name=asset,proto3" json:"asset,omitempty"`
-	//
-	//If true, then the asset will be created with a group key, which allows for
-	//future asset issuance.
+	// If true, then the asset will be created with a group key, which allows for
+	// future asset issuance.
 	EnableEmission bool `protobuf:"varint,2,opt,name=enable_emission,json=enableEmission,proto3" json:"enable_emission,omitempty"`
 }
 
@@ -253,10 +247,9 @@ type MintAssetResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//
-	//A public key serialized in compressed format that can be used to uniquely
-	//identify a pending minting batch. Responses that share the same key will be
-	//batched into the same minting transaction.
+	// A public key serialized in compressed format that can be used to uniquely
+	// identify a pending minting batch. Responses that share the same key will be
+	// batched into the same minting transaction.
 	BatchKey []byte `protobuf:"bytes,1,opt,name=batch_key,json=batchKey,proto3" json:"batch_key,omitempty"`
 }
 

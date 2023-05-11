@@ -77,13 +77,6 @@ var (
 //	    |
 //	    v
 type InterceptorChain struct {
-	// lastRequestID is the ID of the last gRPC request or stream that was
-	// intercepted by the middleware interceptor.
-	//
-	// NOTE: Must be used atomically!
-	lastRequestID uint64
-
-	started sync.Once
 	stopped sync.Once
 
 	// state is the current RPC state of our RPC server.

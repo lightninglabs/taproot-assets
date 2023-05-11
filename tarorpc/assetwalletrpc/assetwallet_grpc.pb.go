@@ -19,43 +19,36 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AssetWalletClient interface {
-	//
-	//FundVirtualPsbt selects inputs from the available asset commitments to fund
-	//a virtual transaction matching the template.
+	// FundVirtualPsbt selects inputs from the available asset commitments to fund
+	// a virtual transaction matching the template.
 	FundVirtualPsbt(ctx context.Context, in *FundVirtualPsbtRequest, opts ...grpc.CallOption) (*FundVirtualPsbtResponse, error)
-	//
-	//SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
-	//commitments of the inputs and outputs.
+	// SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
+	// commitments of the inputs and outputs.
 	SignVirtualPsbt(ctx context.Context, in *SignVirtualPsbtRequest, opts ...grpc.CallOption) (*SignVirtualPsbtResponse, error)
+	// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
+	// a single BTC level anchor transaction.
 	//
-	//AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-	//a single BTC level anchor transaction.
-	//
-	//TODO(guggero): Actually implement accepting and merging multiple
-	//transactions.
+	// TODO(guggero): Actually implement accepting and merging multiple
+	// transactions.
 	AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*tarorpc.SendAssetResponse, error)
-	//
-	//NextInternalKey derives the next internal key for the given key family and
-	//stores it as an internal key in the database to make sure it is identified
-	//as a local key later on when importing proofs. While an internal key can
-	//also be used as the internal key of a script key, it is recommended to use
-	//the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
-	//is also recognized as a local key.
+	// NextInternalKey derives the next internal key for the given key family and
+	// stores it as an internal key in the database to make sure it is identified
+	// as a local key later on when importing proofs. While an internal key can
+	// also be used as the internal key of a script key, it is recommended to use
+	// the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+	// is also recognized as a local key.
 	NextInternalKey(ctx context.Context, in *NextInternalKeyRequest, opts ...grpc.CallOption) (*NextInternalKeyResponse, error)
-	//
-	//NextScriptKey derives the next script key (and its corresponding internal
-	//key) and stores them both in the database to make sure they are identified
-	//as local keys later on when importing proofs.
+	// NextScriptKey derives the next script key (and its corresponding internal
+	// key) and stores them both in the database to make sure they are identified
+	// as local keys later on when importing proofs.
 	NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error)
-	//
-	//ProveAssetOwnership creates an ownership proof embedded in an asset
-	//transition proof. That ownership proof is a signed virtual transaction
-	//spending the asset with a valid witness to prove the prover owns the keys
-	//that can spend the asset.
+	// ProveAssetOwnership creates an ownership proof embedded in an asset
+	// transition proof. That ownership proof is a signed virtual transaction
+	// spending the asset with a valid witness to prove the prover owns the keys
+	// that can spend the asset.
 	ProveAssetOwnership(ctx context.Context, in *ProveAssetOwnershipRequest, opts ...grpc.CallOption) (*ProveAssetOwnershipResponse, error)
-	//
-	//VerifyAssetOwnership verifies the asset ownership proof embedded in the
-	//given transition proof of an asset and returns true if the proof is valid.
+	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
+	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error)
 }
 
@@ -134,43 +127,36 @@ func (c *assetWalletClient) VerifyAssetOwnership(ctx context.Context, in *Verify
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
 type AssetWalletServer interface {
-	//
-	//FundVirtualPsbt selects inputs from the available asset commitments to fund
-	//a virtual transaction matching the template.
+	// FundVirtualPsbt selects inputs from the available asset commitments to fund
+	// a virtual transaction matching the template.
 	FundVirtualPsbt(context.Context, *FundVirtualPsbtRequest) (*FundVirtualPsbtResponse, error)
-	//
-	//SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
-	//commitments of the inputs and outputs.
+	// SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
+	// commitments of the inputs and outputs.
 	SignVirtualPsbt(context.Context, *SignVirtualPsbtRequest) (*SignVirtualPsbtResponse, error)
+	// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
+	// a single BTC level anchor transaction.
 	//
-	//AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-	//a single BTC level anchor transaction.
-	//
-	//TODO(guggero): Actually implement accepting and merging multiple
-	//transactions.
+	// TODO(guggero): Actually implement accepting and merging multiple
+	// transactions.
 	AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse, error)
-	//
-	//NextInternalKey derives the next internal key for the given key family and
-	//stores it as an internal key in the database to make sure it is identified
-	//as a local key later on when importing proofs. While an internal key can
-	//also be used as the internal key of a script key, it is recommended to use
-	//the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
-	//is also recognized as a local key.
+	// NextInternalKey derives the next internal key for the given key family and
+	// stores it as an internal key in the database to make sure it is identified
+	// as a local key later on when importing proofs. While an internal key can
+	// also be used as the internal key of a script key, it is recommended to use
+	// the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+	// is also recognized as a local key.
 	NextInternalKey(context.Context, *NextInternalKeyRequest) (*NextInternalKeyResponse, error)
-	//
-	//NextScriptKey derives the next script key (and its corresponding internal
-	//key) and stores them both in the database to make sure they are identified
-	//as local keys later on when importing proofs.
+	// NextScriptKey derives the next script key (and its corresponding internal
+	// key) and stores them both in the database to make sure they are identified
+	// as local keys later on when importing proofs.
 	NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error)
-	//
-	//ProveAssetOwnership creates an ownership proof embedded in an asset
-	//transition proof. That ownership proof is a signed virtual transaction
-	//spending the asset with a valid witness to prove the prover owns the keys
-	//that can spend the asset.
+	// ProveAssetOwnership creates an ownership proof embedded in an asset
+	// transition proof. That ownership proof is a signed virtual transaction
+	// spending the asset with a valid witness to prove the prover owns the keys
+	// that can spend the asset.
 	ProveAssetOwnership(context.Context, *ProveAssetOwnershipRequest) (*ProveAssetOwnershipResponse, error)
-	//
-	//VerifyAssetOwnership verifies the asset ownership proof embedded in the
-	//given transition proof of an asset and returns true if the proof is valid.
+	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
+	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }

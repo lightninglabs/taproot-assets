@@ -11,18 +11,13 @@ import (
 )
 
 type MockVerifier struct {
-	t   *testing.T
-	loc Locator
+	t *testing.T
 }
 
 func NewMockVerifier(t *testing.T) *MockVerifier {
 	return &MockVerifier{
 		t: t,
 	}
-}
-
-func (m *MockVerifier) feedLocator(loc *Locator) {
-	m.loc = *loc
 }
 
 func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,

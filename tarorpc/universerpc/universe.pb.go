@@ -275,6 +275,7 @@ type ID struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Id:
+	//
 	//	*ID_AssetId
 	//	*ID_AssetIdStr
 	//	*ID_GroupKey
@@ -658,12 +659,14 @@ type AssetKey struct {
 	// an unrolled outpoint.
 	//
 	// Types that are assignable to Outpoint:
+	//
 	//	*AssetKey_OpStr
 	//	*AssetKey_Op
 	Outpoint isAssetKey_Outpoint `protobuf_oneof:"outpoint"`
 	// The script key of the asset.
 	//
 	// Types that are assignable to ScriptKey:
+	//
 	//	*AssetKey_ScriptKeyBytes
 	//	*AssetKey_ScriptKeyStr
 	ScriptKey isAssetKey_ScriptKey `protobuf_oneof:"script_key"`

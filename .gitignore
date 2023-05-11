@@ -9,9 +9,6 @@ tarod-debug
 cmd/tarocli/tarocli
 cmd/tarod/tarod
 
-tarocli-debug
-tarod-debug
-
 /itest/lnd-itest
 /itest/btcd-itest
 /itest/regtest/*
@@ -34,4 +31,7 @@ tarod-debug
 *.iml
 
 # Dependency directories (remove the comment below to include it)
-# vendor/
+vendor/
+
+# Release builds
+/taro-*

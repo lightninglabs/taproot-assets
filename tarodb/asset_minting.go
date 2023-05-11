@@ -810,37 +810,13 @@ func (a *AssetMintingStore) FetchMintingBatch(ctx context.Context,
 // convertMintingBatchI converts a batch fetched with FetchNonFinalBatches to
 // another type so it can be parsed.
 func convertMintingBatchI(batch MintingBatchI) MintingBatchF {
-	return MintingBatchF{
-		BatchID:           batch.BatchID,
-		BatchState:        batch.BatchState,
-		MintingTxPsbt:     batch.MintingTxPsbt,
-		ChangeOutputIndex: batch.ChangeOutputIndex,
-		GenesisID:         batch.GenesisID,
-		HeightHint:        batch.HeightHint,
-		CreationTimeUnix:  batch.CreationTimeUnix,
-		KeyID:             batch.KeyID,
-		RawKey:            batch.RawKey,
-		KeyFamily:         batch.KeyFamily,
-		KeyIndex:          batch.KeyIndex,
-	}
+	return MintingBatchF(batch)
 }
 
 // convertMintingBatchA converts a batch fetched with AllMintingBatches to
 // another type so it can be parsed.
 func convertMintingBatchA(batch MintingBatchA) MintingBatchF {
-	return MintingBatchF{
-		BatchID:           batch.BatchID,
-		BatchState:        batch.BatchState,
-		MintingTxPsbt:     batch.MintingTxPsbt,
-		ChangeOutputIndex: batch.ChangeOutputIndex,
-		GenesisID:         batch.GenesisID,
-		HeightHint:        batch.HeightHint,
-		CreationTimeUnix:  batch.CreationTimeUnix,
-		KeyID:             batch.KeyID,
-		RawKey:            batch.RawKey,
-		KeyFamily:         batch.KeyFamily,
-		KeyIndex:          batch.KeyIndex,
-	}
+	return MintingBatchF(batch)
 }
 
 // marshalMintingBatch marshals a minting batch into its native type,
