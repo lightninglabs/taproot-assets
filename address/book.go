@@ -217,8 +217,11 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 		return nil, err
 	}
 
-	var groupKey *btcec.PublicKey
-	var groupSig *schnorr.Signature
+	var (
+		groupKey *btcec.PublicKey
+		groupSig *schnorr.Signature
+	)
+
 	if assetGroup.GroupKey != nil {
 		groupKey = &assetGroup.GroupPubKey
 		groupSig = &assetGroup.Sig
