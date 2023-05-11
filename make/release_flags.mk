@@ -20,9 +20,7 @@ linux-armv7 \
 linux-arm64 \
 windows-amd64
 
-RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc monitoring peersrpc kvdb_postgres kvdb_etcd
-
-WASM_RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc monitoring peersrpc
+RELEASE_TAGS = 
 
 # One can either specify a git tag as the version suffix or one is generated
 # from the current date.
