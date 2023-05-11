@@ -363,15 +363,9 @@ var universeProofInsertInsert = cli.Command{
 }
 
 func universeProofInsert(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getUniverseClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(proofPathName) == "":
-
-		_ = cli.ShowCommandHelp(ctx, "insert")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	universeID, err := parseUniverseID(ctx, true)
@@ -388,6 +382,10 @@ func universeProofInsert(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to read proof file: %w", err)
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
 
 	// The input should be the raw state transition proof, so we'll
 	// partially parse the proof so we can hand the raw proof bytes
@@ -460,15 +458,9 @@ var universeSyncCommand = cli.Command{
 }
 
 func universeSync(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getUniverseClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(universeHostName) == "":
-
-		_ = cli.ShowCommandHelp(ctx, "sync")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	universeID, err := parseUniverseID(ctx, false)
@@ -482,6 +474,10 @@ func universeSync(ctx *cli.Context) error {
 			Id: universeID,
 		})
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
 
 	// TODO(roasbeef): add support for full sync
 
@@ -557,16 +553,14 @@ var universeFederationAddCommand = cli.Command{
 }
 
 func universeFederationAdd(ctx *cli.Context) error {
+	switch {
+	case ctx.String(universeHostName) == "":
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
 	ctxc := getContext()
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
-
-	switch {
-	case ctx.String(universeHostName) == "":
-
-		_ = cli.ShowCommandHelp(ctx, "add")
-		return nil
-	}
 
 	resp, err := client.AddFederationServer(
 		ctxc, &universerpc.AddFederationServerRequest{
@@ -609,17 +603,15 @@ var universeFederationDelCommand = cli.Command{
 }
 
 func universeFederationDel(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getUniverseClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(universeHostName) == "" &&
 		ctx.Int(universeServerID) == 0:
-
-		_ = cli.ShowCommandHelp(ctx, "add")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
 
 	resp, err := client.AddFederationServer(
 		ctxc, &universerpc.AddFederationServerRequest{

@@ -50,20 +50,19 @@ var newAddrCommand = cli.Command{
 }
 
 func newAddr(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(assetIDName) == "":
-		_ = cli.ShowCommandHelp(ctx, "new")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	assetID, err := hex.DecodeString(ctx.String(assetIDName))
 	if err != nil {
 		return fmt.Errorf("unable to decode assetID: %v", err)
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	addr, err := client.NewAddr(ctxc, &tarorpc.NewAddrRequest{
 		AssetId: assetID,
@@ -170,10 +169,6 @@ var decodeAddrCommand = cli.Command{
 }
 
 func decodeAddr(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
 	var addr string
 	switch {
 	case ctx.String(addrName) != "":
@@ -183,9 +178,12 @@ func decodeAddr(ctx *cli.Context) error {
 		addr = ctx.Args().First()
 
 	default:
-		_ = cli.ShowCommandHelp(ctx, "decode")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	resp, err := client.DecodeAddr(ctxc, &tarorpc.DecodeAddrRequest{
 		Addr: addr,
