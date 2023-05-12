@@ -81,7 +81,6 @@ func testBasicSend(t *harnessTest) {
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.enableHashMail = true
 			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
@@ -163,7 +162,6 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.enableHashMail = true
 			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
@@ -257,7 +255,6 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	sendTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.enableHashMail = true
 			params.expectErrExit = true
 		},
 	)
@@ -356,7 +353,6 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	sendTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.enableHashMail = true
 			params.expectErrExit = true
 			params.proofSendBackoffCfg = &proof.BackoffCfg{
 				BackoffResetWait: 1 * time.Microsecond,

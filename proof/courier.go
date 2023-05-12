@@ -19,6 +19,30 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// CourierType is an enum that represents the different types of proof courier
+// services.
+type CourierType int64
+
+const (
+	// DisabledCourier is the default courier type that is used when no
+	// courier is specified.
+	DisabledCourier CourierType = iota
+
+	// ApertureCourier is a courier that uses the hashmail protocol to
+	// deliver proofs.
+	ApertureCourier
+)
+
+// CourierHarness interface is an integration testing harness for a proof
+// courier service.
+type CourierHarness interface {
+	// Start starts the proof courier service.
+	Start(chan error) error
+
+	// Stop stops the proof courier service.
+	Stop() error
+}
+
 // Courier abstracts away from the final proof retrival/delivery process as
 // part of the non-interactive send flow. A sender can use this given the
 // abstracted Addr/source type to send a proof to the receiver. Conversely, a
@@ -198,7 +222,7 @@ func (h *HashMailBox) ReadProof(ctx context.Context,
 var ackMsg = []byte("ack")
 
 // AckProof sends an ACK from the receiver to the sender that a proof has been
-// recevied.
+// received.
 func (h *HashMailBox) AckProof(ctx context.Context, sid streamID) error {
 	writeStream, err := h.client.SendStream(ctx)
 	if err != nil {
