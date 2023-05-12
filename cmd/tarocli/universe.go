@@ -613,8 +613,8 @@ func universeFederationDel(ctx *cli.Context) error {
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.AddFederationServer(
-		ctxc, &universerpc.AddFederationServerRequest{
+	resp, err := client.DeleteFederationServer(
+		ctxc, &universerpc.DeleteFederationServerRequest{
 			Servers: []*universerpc.UniverseFederationServer{
 				{
 					Id:   int32(ctx.Int(universeServerID)),
