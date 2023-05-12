@@ -2,6 +2,8 @@ package tarodb
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lightninglabs/taro/chanutils"
@@ -106,7 +108,7 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 	addrs ...universe.ServerAddr) error {
 
 	var writeTx UniverseFederationOptions
-	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
+	err := u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
 		return chanutils.ForEachErr(addrs,
 			func(a universe.ServerAddr) error {
 				addr := NewUniverseServer{
@@ -116,6 +118,18 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 				return db.InsertUniverseServer(ctx, addr)
 			})
 	})
+	if err != nil {
+		// Add context to unique constraint errors.
+		var uniqueConstraintErr *ErrSqlUniqueConstraintViolation
+		if errors.As(err, &uniqueConstraintErr) {
+			return fmt.Errorf("universe name is already added: %w",
+				err)
+		}
+
+		return err
+	}
+
+	return nil
 }
 
 // RemoveServers removes a set of servers from the federation.
