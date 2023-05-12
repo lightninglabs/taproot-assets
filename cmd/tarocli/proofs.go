@@ -45,14 +45,9 @@ var verifyProofCommand = cli.Command{
 }
 
 func verifyProof(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(proofPathName) == "":
-		_ = cli.ShowCommandHelp(ctx, "verify")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
@@ -60,6 +55,10 @@ func verifyProof(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to read proof file: %w", err)
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	resp, err := client.VerifyProof(ctxc, &tarorpc.ProofFile{
 		RawProof: rawFile,
@@ -101,16 +100,10 @@ var exportProofCommand = cli.Command{
 }
 
 func exportProof(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(scriptKeyName) == "",
 		ctx.String(assetIDName) == "":
-
-		_ = cli.ShowCommandHelp(ctx, "export")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	scriptKeyBytes, err := hex.DecodeString(ctx.String(scriptKeyName))
@@ -122,6 +115,10 @@ func exportProof(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to asset ID: %v", err)
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	resp, err := client.ExportProof(ctxc, &tarorpc.ExportProofRequest{
 		AssetId:   assetID,
@@ -163,9 +160,7 @@ func importProof(ctx *cli.Context) error {
 
 	switch {
 	case ctx.String(proofPathName) == "":
-
-		_ = cli.ShowCommandHelp(ctx, "import")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))

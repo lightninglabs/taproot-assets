@@ -262,9 +262,15 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, fmt.Errorf("asset name cannot be empty")
 	}
 
-	// Using a specific group key implies disabling emission.
-	if req.EnableEmission && len(req.Asset.GroupKey) != 0 {
-		return nil, fmt.Errorf("must disable emission")
+	specificGroupKey := len(req.Asset.GroupKey) != 0
+	specificGroupAnchor := len(req.Asset.GroupAnchor) != 0
+
+	// Using a specific group key or anchor implies disabling emission.
+	if req.EnableEmission {
+		if specificGroupKey || specificGroupAnchor {
+			return nil, fmt.Errorf("must disable emission to " +
+				"specify a group")
+		}
 	}
 
 	seedling := &tarogarden.Seedling{
@@ -276,7 +282,12 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
-	if len(req.Asset.GroupKey) != 0 {
+	if specificGroupKey {
+		if specificGroupAnchor {
+			return nil, fmt.Errorf("cannot specify a group key " +
+				"and a group anchor")
+		}
+
 		groupTweakedKey, err := btcec.ParsePubKey(req.Asset.GroupKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid group key: %w", err)
@@ -297,13 +308,9 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	// If a group anchor is provided, ensure that emission is disabled.
-	// We cannot do any further validation from outside the minter.
-	if len(req.Asset.GroupAnchor) != 0 {
-		if req.EnableEmission {
-			return nil, fmt.Errorf("cannot emit with group anchor")
-		}
-
+	// If a group anchor is provided, propoate the name to the seedling.
+	// We cannot do any name validation from outside the minter.
+	if specificGroupAnchor {
 		seedling.GroupAnchor = &req.Asset.GroupAnchor
 	}
 

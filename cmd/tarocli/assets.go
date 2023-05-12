@@ -19,7 +19,6 @@ var assetsCommands = []cli.Command{
 		Category:  "Assets",
 		Subcommands: []cli.Command{
 			mintAssetCommand,
-			listBatchesCommand,
 			listAssetsCommand,
 			listUtxosCommand,
 			listGroupsCommand,
@@ -94,6 +93,7 @@ var mintAssetCommand = cli.Command{
 	},
 	Action: mintAsset,
 	Subcommands: []cli.Command{
+		listBatchesCommand,
 		finalizeBatchCommand,
 		cancelBatchCommand,
 	},
@@ -109,16 +109,11 @@ func parseAssetType(ctx *cli.Context) tarorpc.AssetType {
 }
 
 func mintAsset(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getMintClient(ctx)
-	defer cleanUp()
-
 	switch {
 	case ctx.String(assetTagName) == "":
 		fallthrough
 	case ctx.Int64(assetSupplyName) == 0:
-		_ = cli.ShowCommandHelp(ctx, "mint")
-		return nil
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	var (
@@ -162,6 +157,10 @@ func mintAsset(ctx *cli.Context) error {
 			Type: tarorpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
 		}
 	}
+
+	ctxc := getContext()
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
@@ -228,6 +227,7 @@ func cancelBatch(ctx *cli.Context) error {
 
 var listBatchesCommand = cli.Command{
 	Name:        "batches",
+	ShortName:   "b",
 	Usage:       "list all batches",
 	Description: "List all batches",
 	Flags: []cli.Flag{
@@ -434,15 +434,14 @@ var sendAssetsCommand = cli.Command{
 }
 
 func sendAssets(ctx *cli.Context) error {
+	addrs := ctx.StringSlice(addrName)
+	if ctx.NArg() != 0 || ctx.NumFlags() == 0 || len(addrs) == 0 {
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
-
-	addrs := ctx.StringSlice(addrName)
-	if ctx.NArg() != 0 || ctx.NumFlags() == 0 || len(addrs) == 0 {
-		_ = cli.ShowCommandHelp(ctx, "send")
-		return nil
-	}
 
 	resp, err := client.SendAsset(ctxc, &tarorpc.SendAssetRequest{
 		TaroAddrs: addrs,

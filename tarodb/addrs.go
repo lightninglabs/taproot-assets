@@ -331,8 +331,11 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					err)
 			}
 
-			var groupKey *btcec.PublicKey
-			var groupSig *schnorr.Signature
+			var (
+				groupKey *btcec.PublicKey
+				groupSig *schnorr.Signature
+			)
+
 			if addr.GroupKey != nil {
 				groupKey, err = btcec.ParsePubKey(addr.GroupKey)
 				if err != nil {

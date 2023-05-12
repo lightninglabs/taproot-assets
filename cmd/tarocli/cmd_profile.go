@@ -101,7 +101,7 @@ var profileAddCommand = cli.Command{
 
 func profileAdd(ctx *cli.Context) error {
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "add")
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	// Load the default profile file or create a new one if it doesn't exist
@@ -175,7 +175,7 @@ var profileRemoveCommand = cli.Command{
 
 func profileRemove(ctx *cli.Context) error {
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "remove")
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	// Load the default profile file.
@@ -250,7 +250,7 @@ var profileSetDefaultCommand = cli.Command{
 
 func profileSetDefault(ctx *cli.Context) error {
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "setdefault")
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	// Load the default profile file.
@@ -348,7 +348,7 @@ var profileAddMacaroonCommand = cli.Command{
 
 func profileAddMacaroon(ctx *cli.Context) error {
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "addmacaroon")
+		return cli.ShowSubcommandHelp(ctx)
 	}
 
 	// Load the default profile file or create a new one if it doesn't exist
