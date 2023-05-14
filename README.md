@@ -1,52 +1,52 @@
-# Taro
+# Taproot Assets
 
-The Taro Daemon `tapd` implements the [Taro protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taro leverages Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
+The Taproot Assets Daemon `tapd` implements the [Taproot Assets Protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taproot Assets leverage Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
 
 ## Features:
 
 - Mint assets
 - Synchronize to universes
 - Send and receive assets
-- Export and import Taro proofs
+- Export and import Taproot Asset proofs
 - Create and manage CLI profiles
 
 ## How it works:
 
-When minting a new asset, Taro will generate the relevant witness data, assign the asset to a key held by you and publish the corresponding bitcoin UTXO -- the minting transaction. 
+When minting a new asset, Taproot Assets will generate the relevant witness data, assign the asset to a key held by you and publish the corresponding bitcoin UTXO -- the minting transaction. 
 
 The outpoint this minting transaction consumes becomes the `genesis_point` of the newly minted asset, acting as its unique identifier. Assets can be spent to a new recipient, who provides the sender with the necessary information encoded in their Taproot Asset address.
 
-To transact assets, the witnesses in the prior Taro transaction are recommitted into one or multiple taproot outputs while the necessary witness data is passed to the recipient. Similar to bitcoin transactions, the remaining balance is spent back to the sender as a change output.
+To transact assets, the witnesses in the prior transaction are recommitted into one or multiple taproot outputs while the necessary witness data is passed to the recipient. Similar to bitcoin transactions, the remaining balance is spent back to the sender as a change output.
 
-[Learn more about the Taro protocol.](https://docs.lightning.engineering/the-lightning-network/taro)
+[Learn more about the Taproot Assets Protocol.](https://docs.lightning.engineering/the-lightning-network/taproot-assets)
 
 ## Architecture:
 
-Taro is implemented as the Taro Daemon `tapd` and the Taro Command Line Interface `tapcli`. Additionally, `tapd` exposes a GRPC interface to allow for a direct integration into applications.
+Taproot Assets are implemented as the Taproot Assets Daemon `tapd` and the Taproot Assets Command Line Interface `tapcli`. Additionally, `tapd` exposes a GRPC interface to allow for a direct integration into applications.
 
-Taro leverages several LND features including the Taproot wallet and signing capabilities. These facilities are accessed through LND’s GRPC.
+Taproot Assets leverage several LND features including the Taproot wallet and signing capabilities. These facilities are accessed through LND’s GRPC.
 
-### The Taro stack:
+### The Taproot Assets stack:
 
-`Bitcoin blockchain backend <-> LND <-> Taro`
+`Bitcoin blockchain backend <-> LND <-> Taproot Assets`
 
-Custody of Taro assets is segmented across LND and Taro to maximize security. LND holds the private key, which has had a taproot tweak applied to it, controlling the bitcoin UTXO holding the Taro asset. The taproot tweak on the other hand is held by Taro. This increases the requirements for asset recovery as both the internal key as well as the taproot tweak are necessary to spend the output. This prevents LND from accidentally burning Taro assets.
+Custody of Taproot Assets is segmented across LND and Tapd to maximize security. LND holds the private key, which has had a taproot tweak applied to it, controlling the bitcoin UTXO holding the Taproot Asset. The taproot tweak on the other hand is held by Tapd. This increases the requirements for asset recovery as both the internal key as well as the taproot tweak are necessary to spend the output. This prevents LND from accidentally burning Taproot assets.
 
 ## Prerequisites:
 
-Taro requires [LND](https://github.com/lightningnetwork/lnd/) version `v0.16.2-beta` or later to be synced and running on the same Bitcoin network as Taro (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
+Taproot Assets require [LND](https://github.com/lightningnetwork/lnd/) version `v0.16.2-beta` or later to be synced and running on the same Bitcoin network as Taproot Assets (e.g. regtest, simnet, testnet3). RPC connections need to be accepted and a [valid macaroon](https://docs.lightning.engineering/lightning-network-tools/lnd/macaroons) needs to be present.
 
 ```shell
 git clone https://github.com/lightningnetwork/lnd.git
 cd lnd 
 make install tags="signrpc walletrpc chainrpc invoicesrpc"
 ```
- 
+
 ## Installation:
 
 ### From source:
 
-Compile Taro from source by cloning this repository. [Go version 1.18](https://go.dev/dl/) or higher is required.
+Compile Taproot Assets from source by cloning this repository. [Go version 1.19](https://go.dev/dl/) or higher is required.
 
 ```shell
 git clone https://github.com/lightninglabs/taproot-assets.git
@@ -56,7 +56,7 @@ make install
 
 ## Initialization:
 
-Run Taro with the command `tapd`. Specify how Taro can reach LND and what network to run Taro with by passing it additional flags. The Bitcoin backend and LND need to be running and synced before the Taro daemon can be started.
+Run Taproot Assets with the command `tapd`. Specify how Taproot Assets can reach LND and what network to run Tapd with by passing it additional flags. The Bitcoin backend and LND need to be running and synced before the Taproot Assets daemon can be started.
 
 
 ```shell
@@ -85,15 +85,17 @@ tapcli assets list
 Synchronize yourself with a universe, for example the one running as part of the issuer's `tapd`.
 
 ```shell
-tapcli universe sync --universe_host 10.10.10.2:10029
+tapcli universe sync --universe_host testnet.universe.lightning.finance
 ```
-We can also use the universe to query existing assets and their metadata.
+
+Add multiple universes to your local federation to always stay up to date. You can also use the universe to query existing assets and their metadata. You may also configure your tapd instance to listen to incoming requests with `--rpclisten 0.0.0.0:10029` to run your own universe.
 
 ```shell
+tapcli universe federation add --universe_host testnet.universe.lightning.finance
 tapcli universe roots
 ```
 
-Once we have obtained the necessary proofs and asset IDs, we can generate a taro address for a specific asset and amount.
+Once you have obtained the necessary proofs and asset IDs, you can generate a Taproot Asset address for a specific asset and amount.
 
 ```shell
 tapcli addrs new --asset_id bab08407[...]129bf6d0 --amt 21
@@ -108,7 +110,7 @@ tapcli assets send --addr taptb1q[...]tywpre3a
 
 ### API
 
-Taro exposes a GRPC (port 10029) and a REST (port 8089) API. Connections are encrypted with TLS and authenticated using macaroons. [The API is documented here](https://lightning.engineering/api-docs/api/taro/). Further guides [can be found here](https://docs.lightning.engineering/lightning-network-tools/taro).
+Taproot Assets exposes a GRPC (port 10029) and a REST (port 8089) API. Connections are encrypted with TLS and authenticated using macaroons. [The API is documented here](https://lightning.engineering/api-docs/api/taproot-assets/). Further guides [can be found here](https://docs.lightning.engineering/lightning-network-tools/taproot-assets).
 
 ### Mainnet
 
@@ -120,5 +122,5 @@ The [GitHub issue tracker](https://github.com/lightninglabs/taproot-assets/issue
 
 ## Join us on Slack
 
-Join us in the [Lightning Labs Slack](https://lightning.engineering/slack.html) and join the `#taro` channel to ask questions and interact with the community.
+Join us in the [Lightning Labs Slack](https://lightning.engineering/slack.html) and join the `#taproot-assets` channel to ask questions and interact with the community.
 
