@@ -13,11 +13,11 @@ const (
 	AssetProofAssetIDType tlv.Type = 1
 	AssetProofType        tlv.Type = 2
 
-	TaroProofVersionType tlv.Type = 0
-	TaroProofType        tlv.Type = 1
+	TaprootAssetProofVersionType tlv.Type = 0
+	TaprootAssetProofType        tlv.Type = 1
 
-	ProofAssetProofType tlv.Type = 0
-	ProofTaroProofType  tlv.Type = 1
+	ProofAssetProofType        tlv.Type = 0
+	ProofTaprootAssetProofType tlv.Type = 1
 )
 
 func ProofAssetProofRecord(proof **AssetProof) tlv.Record {
@@ -35,18 +35,18 @@ func ProofAssetProofRecord(proof **AssetProof) tlv.Record {
 	)
 }
 
-func ProofTaroProofRecord(proof *TaprootAssetProof) tlv.Record {
+func ProofTaprootAssetProofRecord(proof *TaprootAssetProof) tlv.Record {
 	sizeFunc := func() uint64 {
 		var buf bytes.Buffer
-		err := TaroProofEncoder(&buf, proof, &[8]byte{})
+		err := TaprootAssetProofEncoder(&buf, proof, &[8]byte{})
 		if err != nil {
 			panic(err)
 		}
 		return uint64(len(buf.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
-		ProofTaroProofType, proof, sizeFunc, TaroProofEncoder,
-		TaroProofDecoder,
+		ProofTaprootAssetProofType, proof, sizeFunc, TaprootAssetProofEncoder,
+		TaprootAssetProofDecoder,
 	)
 }
 
@@ -75,14 +75,14 @@ func AssetProofRecord(proof *mssmt.Proof) tlv.Record {
 	)
 }
 
-func TaroProofVersionRecord(version *asset.Version) tlv.Record {
+func TaprootAssetProofVersionRecord(version *asset.Version) tlv.Record {
 	return tlv.MakeStaticRecord(
-		TaroProofVersionType, version, 1, asset.VersionEncoder,
+		TaprootAssetProofVersionType, version, 1, asset.VersionEncoder,
 		asset.VersionDecoder,
 	)
 }
 
-func TaroProofRecord(proof *mssmt.Proof) tlv.Record {
+func TaprootAssetProofRecord(proof *mssmt.Proof) tlv.Record {
 	sizeFunc := func() uint64 {
 		var buf bytes.Buffer
 		if err := proof.Compress().Encode(&buf); err != nil {
@@ -91,7 +91,7 @@ func TaroProofRecord(proof *mssmt.Proof) tlv.Record {
 		return uint64(len(buf.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
-		TaroProofType, proof, sizeFunc, TreeProofEncoder,
+		TaprootAssetProofType, proof, sizeFunc, TreeProofEncoder,
 		TreeProofDecoder,
 	)
 }

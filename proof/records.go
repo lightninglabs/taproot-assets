@@ -30,7 +30,7 @@ const (
 
 	// CommitmentProofTapSiblingPreimageType is the type of the TLV record
 	// for the CommitmentProof's SiblingPreimage field. It continues the
-	// count from where commitment.ProofTaroProofType left off.
+	// count from where commitment.ProofTaprootAssetProofType left off.
 	CommitmentProofTapSiblingPreimageType tlv.Type = 2
 
 	TapscriptProofTapPreimage1 tlv.Type = 0

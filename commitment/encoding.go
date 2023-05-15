@@ -72,11 +72,11 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "*commitment.AssetProof")
 }
 
-func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
+func TaprootAssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*TaprootAssetProof); ok {
 		records := []tlv.Record{
-			TaroProofVersionRecord(&(*t).Version),
-			TaroProofRecord(&(*t).Proof),
+			TaprootAssetProofVersionRecord(&(*t).Version),
+			TaprootAssetProofRecord(&(*t).Proof),
 		}
 		stream, err := tlv.NewStream(records...)
 		if err != nil {
@@ -87,7 +87,9 @@ func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "commitment.TaprootAssetProof")
 }
 
-func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func TaprootAssetProofDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
 	if typ, ok := val.(*TaprootAssetProof); ok {
 		var streamBytes []byte
 		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
@@ -95,8 +97,8 @@ func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		}
 		var proof TaprootAssetProof
 		records := []tlv.Record{
-			TaroProofVersionRecord(&proof.Version),
-			TaroProofRecord(&proof.Proof),
+			TaprootAssetProofVersionRecord(&proof.Version),
+			TaprootAssetProofRecord(&proof.Proof),
 		}
 		stream, err := tlv.NewStream(records...)
 		if err != nil {

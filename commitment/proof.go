@@ -64,7 +64,7 @@ func (p Proof) EncodeRecords() []tlv.Record {
 	if p.AssetProof != nil {
 		records = append(records, ProofAssetProofRecord(&p.AssetProof))
 	}
-	records = append(records, ProofTaroProofRecord(&p.TaprootAssetProof))
+	records = append(records, ProofTaprootAssetProofRecord(&p.TaprootAssetProof))
 	return records
 }
 
@@ -72,7 +72,7 @@ func (p Proof) EncodeRecords() []tlv.Record {
 func (p *Proof) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		ProofAssetProofRecord(&p.AssetProof),
-		ProofTaroProofRecord(&p.TaprootAssetProof),
+		ProofTaprootAssetProofRecord(&p.TaprootAssetProof),
 	}
 }
 
