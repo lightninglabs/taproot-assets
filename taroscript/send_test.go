@@ -1026,8 +1026,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 			},
 		)
 		pkt.Outputs = append(pkt.Outputs, &taropsbt.VOutput{
-			AnchorOutputIndex:             tpl.AnchorOutputIndex,
-			AnchorOutputTapscriptPreimage: testPreimage,
+			AnchorOutputIndex:            tpl.AnchorOutputIndex,
+			AnchorOutputTapscriptSibling: testPreimage,
 		})
 
 		_, err := taroscript.CreateOutputCommitments(nil, pkt, nil)

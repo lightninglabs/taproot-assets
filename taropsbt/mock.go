@@ -86,7 +86,7 @@ func RandPacket(t testing.TB) *VPacket {
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			SplitAsset:                         testOutputAsset,
-			AnchorOutputTapscriptPreimage:      testPreimage1,
+			AnchorOutputTapscriptSibling:       testPreimage1,
 		}, {
 			Amount: 345,
 			Type:   TypeSplitRoot,
@@ -98,7 +98,7 @@ func RandPacket(t testing.TB) *VPacket {
 			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
-			AnchorOutputTapscriptPreimage:      testPreimage2,
+			AnchorOutputTapscriptSibling:       testPreimage2,
 		}},
 		ChainParams: testParams,
 	}

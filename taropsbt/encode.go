@@ -240,9 +240,9 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 		key:     PsbtKeyTypeOutputTaroSplitAsset,
 		encoder: assetEncoder(o.SplitAsset),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorTapscriptPreimage,
+		key: PsbtKeyTypeOutputTaroAnchorTapscriptSibling,
 		encoder: tapscriptPreimageEncoder(
-			o.AnchorOutputTapscriptPreimage,
+			o.AnchorOutputTapscriptSibling,
 		),
 	}}
 

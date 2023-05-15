@@ -47,7 +47,7 @@ func (i *Identifier) String() string {
 }
 
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
-// group key it's assocaited with (if that exists).
+// group key it's associated with (if that exists).
 type GenesisWithGroup struct {
 	asset.Genesis
 
@@ -72,7 +72,7 @@ type MintingLeaf struct {
 
 // SmtLeafNode returns the SMT leaf node for the given minting leaf.
 func (m *MintingLeaf) SmtLeafNode() *mssmt.LeafNode {
-	return mssmt.NewLeafNode(m.GenesisProof[:], uint64(m.Amt))
+	return mssmt.NewLeafNode(m.GenesisProof[:], m.Amt)
 }
 
 // BaseKey is the top level key for a Base/Root universe. This will be used to
@@ -81,7 +81,7 @@ func (m *MintingLeaf) SmtLeafNode() *mssmt.LeafNode {
 // universe tree.
 type BaseKey struct {
 	// MintingOutpoint is the minting outpoint, or the outpoint where the
-	// nelwy created assets reside within.
+	// newly created assets reside within.
 	MintingOutpoint wire.OutPoint
 
 	// ScriptKey is the script key of the base asset. If this isn't
@@ -315,7 +315,7 @@ const (
 	SyncFull
 )
 
-// String returns a human readable string representation of the sync type.
+// String returns a human-readable string representation of the sync type.
 func (s SyncType) String() string {
 	switch s {
 	case SyncIssuance:
@@ -368,9 +368,8 @@ type DiffEngine interface {
 	// MintingKeys returns all the keys inserted in the universe.
 	MintingKeys(ctx context.Context, id Identifier) ([]BaseKey, error)
 
-	// FethcIssuanceProof attempts to fetch an issuance proof for the
-	// target base leaf based on the universe identifier
-	// (assetID/groupKey).
+	// FetchIssuanceProof attempts to fetch an issuance proof for the
+	// target base leaf based on the universe identifier (assetID/groupKey).
 	//
 	// TODO(roasbeef): actually add this somewhere else?  * rn kinda
 	// asymmetric, as just need this to complete final portion
@@ -409,18 +408,18 @@ type CommittedIssuanceProof struct {
 	TaroProof *IssuanceProof
 }
 
-// ChainCommiter is used to commit a Universe backend in the chain.
-type ChainCommiter interface {
+// ChainCommitter is used to commit a Universe backend in the chain.
+type ChainCommitter interface {
 	// CommitUniverse takes a Universe and returns a new commitment to that
 	// Universe in the main chain.
 	CommitUniverse(universe BaseBackend) (*Commitment, error)
 }
 
-// canonical is an interface that allows a caller to query for the latest
+// Canonical is an interface that allows a caller to query for the latest
 // canonical Universe information related to an asset.
 //
 // TODO(roasbeef): sync methods too, divide into read/write?
-type Cannonical interface {
+type Canonical interface {
 	BaseBackend
 
 	// Query returns a fully proved response for the target base key.
@@ -431,7 +430,7 @@ type Cannonical interface {
 
 	// UpdateChainCommitment takes in a series of chain commitments and
 	// updates the commitment on chain.
-	UpdateChainCommitment(chainCommits ...ChainCommiter) (*Commitment, error)
+	UpdateChainCommitment(chainCommits ...ChainCommitter) (*Commitment, error)
 }
 
 // FederationLog is used to keep track of the set Universe servers that
