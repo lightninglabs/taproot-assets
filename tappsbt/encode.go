@@ -392,7 +392,7 @@ func tapscriptPreimageEncoder(t *commitment.TapscriptPreimage) encoderFunc {
 }
 
 // payToTaprootScript creates a pk script for a pay-to-taproot output key. We
-// create a copy of the taroscript.PayToTaprootScript function here to avoid a
+// create a copy of the tapscript.PayToTaprootScript function here to avoid a
 // circular dependency.
 func payToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
 	return txscript.NewScriptBuilder().

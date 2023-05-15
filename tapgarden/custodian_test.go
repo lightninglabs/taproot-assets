@@ -19,7 +19,7 @@ import (
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/tapgarden"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -206,7 +206,7 @@ func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
 		// We've randomly chosen an index where we place our Taproot
 		// output key of the address.
 		if addr != nil && idx == taprootOutput {
-			out.PkScript, _ = taroscript.PayToTaprootScript(
+			out.PkScript, _ = tapscript.PayToTaprootScript(
 				&addr.TaprootOutputKey,
 			)
 			detail.OutputType = txTypeTaproot

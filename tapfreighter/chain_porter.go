@@ -18,7 +18,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/tappsbt"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -34,7 +34,7 @@ type ChainPorterConfig struct {
 
 	// TxValidator allows us to validate each Taro virtual transaction we
 	// create.
-	TxValidator taroscript.TxValidator
+	TxValidator tapscript.TxValidator
 
 	// ExportLog is used to log information about pending parcels to disk.
 	ExportLog ExportLog
@@ -726,7 +726,7 @@ func (p *ChainPorter) advanceState(pkg *sendPackage) error {
 func createDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output.
 	newOutput := wire.TxOut{
-		Value:    int64(taroscript.DummyAmtSats),
+		Value:    int64(tapscript.DummyAmtSats),
 		PkScript: make([]byte, 34),
 	}
 	return &newOutput
@@ -803,7 +803,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		//
 		// TODO(roasbeef): unlock the input UTXOs of things fail
 		feeRate, err := p.cfg.ChainBridge.EstimateFee(
-			ctx, taroscript.SendConfTarget,
+			ctx, tapscript.SendConfTarget,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to estimate fee: %w",

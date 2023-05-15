@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -130,5 +130,5 @@ func (m *MintingBatch) genesisScript() ([]byte, error) {
 		return nil, err
 	}
 
-	return taroscript.PayToTaprootScript(mintingOutputKey)
+	return tapscript.PayToTaprootScript(mintingOutputKey)
 }

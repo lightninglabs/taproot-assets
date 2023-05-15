@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/tappsbt"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -315,7 +315,7 @@ type WalletAnchor interface {
 type KeyRing = tapgarden.KeyRing
 
 // Signer aliases into the Signer interface of the taroscript package.
-type Signer = taroscript.Signer
+type Signer = tapscript.Signer
 
 // Porter is a high level interface that wraps the main caller execution point
 // to the ChainPorter.

@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,10 +23,10 @@ func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 
 	t.Helper()
 
-	virtualTxCopy := taroscript.VirtualTxWithInput(
+	virtualTxCopy := tapscript.VirtualTxWithInput(
 		virtualTx, input, idx, nil,
 	)
-	sigHash, err := taroscript.InputKeySpendSigHash(
+	sigHash, err := tapscript.InputKeySpendSigHash(
 		virtualTxCopy, input, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
@@ -495,7 +495,7 @@ func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 		*prevID: &prevProof.Asset,
 	}
 
-	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
+	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
 		t, *senderPrivKey, virtualTx, &prevProof.Asset, 0,

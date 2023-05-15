@@ -1,4 +1,4 @@
-package taroscript
+package tapscript
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"

@@ -23,7 +23,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/tappsbt"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -68,7 +68,7 @@ type Wallet interface {
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
 	// to the given virtual transaction.
-	FundPacket(ctx context.Context, fundDesc *taroscript.FundingDescriptor,
+	FundPacket(ctx context.Context, fundDesc *tapscript.FundingDescriptor,
 		vPkt *tappsbt.VPacket) (*FundedVPacket, error)
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
@@ -236,7 +236,7 @@ type WalletConfig struct {
 
 	// TxValidator allows us to validate each Taro virtual transaction we
 	// create.
-	TxValidator taroscript.TxValidator
+	TxValidator tapscript.TxValidator
 
 	// Wallet is used to fund+sign PSBTs for the transfer transaction.
 	Wallet WalletAnchor
@@ -290,7 +290,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 			"from addresses: %w", err)
 	}
 
-	fundDesc, err := taroscript.DescribeAddrs(receiverAddrs)
+	fundDesc, err := tapscript.DescribeAddrs(receiverAddrs)
 	if err != nil {
 		return nil, fmt.Errorf("unable to describe recipients: %w", err)
 	}
@@ -369,7 +369,7 @@ func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
 // pay the given recipient. The selected input is then added to the given
 // virtual transaction.
 func (f *AssetWallet) FundPacket(ctx context.Context,
-	fundDesc *taroscript.FundingDescriptor,
+	fundDesc *tapscript.FundingDescriptor,
 	vPkt *tappsbt.VPacket) (*FundedVPacket, error) {
 
 	// The input and address networks must match.
@@ -433,7 +433,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		},
 	)
 
-	fullValue, err := taroscript.ValidateInputs(
+	fullValue, err := tapscript.ValidateInputs(
 		inputCommitments, inputsScriptKeys, assetType, fundDesc,
 	)
 	if err != nil {
@@ -571,7 +571,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		)
 	}
 
-	if err := taroscript.PrepareOutputAssets(ctx, vPkt); err != nil {
+	if err := tapscript.PrepareOutputAssets(ctx, vPkt); err != nil {
 		return nil, fmt.Errorf("unable to create split commit: %w", err)
 	}
 
@@ -760,7 +760,7 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 
 	// Now we'll use the signer to sign all the inputs for the new taro
 	// leaves. The witness data for each input will be assigned for us.
-	err := taroscript.SignVirtualTransaction(
+	err := tapscript.SignVirtualTransaction(
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
 	if err != nil {
@@ -1018,7 +1018,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 	vPacket := params.VPkts[0]
 
-	outputCommitments, err := taroscript.CreateOutputCommitments(
+	outputCommitments, err := tapscript.CreateOutputCommitments(
 		params.InputCommitments, vPacket, params.PassiveAssetsVPkts,
 	)
 	if err != nil {
@@ -1028,7 +1028,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
-	sendPacket, err := taroscript.CreateAnchorTx(vPacket.Outputs)
+	sendPacket, err := tapscript.CreateAnchorTx(vPacket.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
@@ -1064,7 +1064,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// First, we'll update the PSBT packets to insert the _real_ outputs we
 	// need to commit to the asset transfer.
-	mergedCommitments, err := taroscript.UpdateTaprootOutputKeys(
+	mergedCommitments, err := tapscript.UpdateTaprootOutputKeys(
 		signAnchorPkt, vPacket, outputCommitments,
 	)
 	if err != nil {
@@ -1137,7 +1137,7 @@ func (f *AssetWallet) SignOwnershipProof(
 	vPkt := tappsbt.OwnershipProofPacket(
 		ownedAsset.Copy(), f.cfg.ChainParams,
 	)
-	err := taroscript.SignVirtualTransaction(
+	err := tapscript.SignVirtualTransaction(
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
 	if err != nil {
@@ -1178,7 +1178,7 @@ func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 		assetInput.InternalKey.PubKey, merkleRoot[:],
 	)
 
-	pkScript, err := taroscript.PayToTaprootScript(anchorPubKey)
+	pkScript, err := tapscript.PayToTaprootScript(anchorPubKey)
 	return pkScript, merkleRoot[:], err
 }
 

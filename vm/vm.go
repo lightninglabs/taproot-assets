@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 )
 
 // Engine is a virtual machine capable of executing and verifying Taro asset
@@ -204,13 +204,13 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 
 	// Update the virtual transaction input with details for the specific
 	// Taro input and proceed to validate its witness.
-	virtualTxCopy := taroscript.VirtualTxWithInput(
+	virtualTxCopy := tapscript.VirtualTxWithInput(
 		virtualTx, prevAsset, inputIdx, witness.TxWitness,
 	)
 
-	prevOutFetcher, err := taroscript.InputPrevOutFetcher(*prevAsset)
+	prevOutFetcher, err := tapscript.InputPrevOutFetcher(*prevAsset)
 	if err != nil {
-		if errors.Is(err, taroscript.ErrInvalidScriptVersion) {
+		if errors.Is(err, tapscript.ErrInvalidScriptVersion) {
 			return ErrInvalidScriptVersion
 		}
 		return err
@@ -302,14 +302,14 @@ func (vm *Engine) Execute() error {
 	// Now that we know we're not dealing with a genesis state transition,
 	// we'll map our set of asset inputs and outputs to the 1-input 1-output
 	// virtual transaction.
-	virtualTx, inputTree, err := taroscript.VirtualTx(
+	virtualTx, inputTree, err := tapscript.VirtualTx(
 		vm.newAsset, vm.prevAssets,
 	)
 	if err != nil {
-		if errors.Is(err, taroscript.ErrInputMismatch) {
+		if errors.Is(err, tapscript.ErrInputMismatch) {
 			return ErrInputMismatch
 		}
-		if errors.Is(err, taroscript.ErrNoInputs) {
+		if errors.Is(err, tapscript.ErrNoInputs) {
 			return ErrNoInputs
 		}
 		return err

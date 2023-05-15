@@ -3,11 +3,11 @@ package taro
 import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightninglabs/taro/vm"
 )
 
-// ValidatorV0 is an implementation of the taroscript.TxValidator interface
+// ValidatorV0 is an implementation of the tapscript.TxValidator interface
 // that supports Taro script version 0.
 type ValidatorV0 struct{}
 
@@ -29,5 +29,5 @@ func (v *ValidatorV0) Execute(newAsset *asset.Asset,
 }
 
 // A compile time assertion to ensure ValidatorV0 meets the
-// taroscript.TxValidator interface.
-var _ taroscript.TxValidator = (*ValidatorV0)(nil)
+// tapscript.TxValidator interface.
+var _ tapscript.TxValidator = (*ValidatorV0)(nil)

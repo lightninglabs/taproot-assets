@@ -35,7 +35,7 @@ import (
 	wrpc "github.com/lightninglabs/taro/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1210,7 +1210,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		// Extract the recipient information from the packet. This
 		// basically assembles the asset ID we want to send to and the
 		// sum of all output amounts.
-		desc, err := taroscript.DescribeRecipients(
+		desc, err := tapscript.DescribeRecipients(
 			ctx, vPkt, r.cfg.TaroAddrBook,
 		)
 		if err != nil {

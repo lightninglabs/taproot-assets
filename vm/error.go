@@ -3,7 +3,7 @@ package vm
 import (
 	"fmt"
 
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 )
 
 // ErrorKind uniquely identifies the kind of Error returned by the Taro VM.
@@ -68,15 +68,15 @@ const (
 var (
 	// ErrInvalidScriptVersion represents an error case where an asset input
 	// commits to an invalid script version.
-	ErrInvalidScriptVersion = taroscript.ErrInvalidScriptVersion
+	ErrInvalidScriptVersion = tapscript.ErrInvalidScriptVersion
 
 	// ErrInputMismatch represents an error case where an asset's set of
 	// inputs mismatch the set provided to the virtual machine.
-	ErrInputMismatch = taroscript.ErrInputMismatch
+	ErrInputMismatch = tapscript.ErrInputMismatch
 
 	// ErrNoInputs represents an error case where an asset undergoing a
 	// state transition does not have any or a specific input required.
-	ErrNoInputs = taroscript.ErrNoInputs
+	ErrNoInputs = tapscript.ErrNoInputs
 )
 
 func (k ErrorKind) String() string {

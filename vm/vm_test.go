@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taro/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -36,10 +36,10 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 
 	t.Helper()
 
-	virtualTxCopy := taroscript.VirtualTxWithInput(
+	virtualTxCopy := tapscript.VirtualTxWithInput(
 		virtualTx, input, idx, nil,
 	)
-	sigHash, err := taroscript.InputKeySpendSigHash(
+	sigHash, err := tapscript.InputKeySpendSigHash(
 		virtualTxCopy, input, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
@@ -62,10 +62,10 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	require.NoError(t, err)
 
 	if scriptWitness == nil {
-		virtualTxCopy := taroscript.VirtualTxWithInput(
+		virtualTxCopy := tapscript.VirtualTxWithInput(
 			virtualTx, input, idx, nil,
 		)
-		sigHash, err := taroscript.InputScriptSpendSigHash(
+		sigHash, err := tapscript.InputScriptSpendSigHash(
 			virtualTxCopy, input, idx, sigHashType, tapLeaf,
 		)
 		require.NoError(t, err)
@@ -135,7 +135,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	}}
 
 	inputs := commitment.InputSet{*prevID: genesisAsset}
-	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
+	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
 		t, *privKey, virtualTx, genesisAsset, 0,
@@ -201,7 +201,7 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		*prevID1: genesisAsset1,
 		*prevID2: genesisAsset2,
 	}
-	virtualTx, _, err := taroscript.VirtualTx(newAsset, inputs)
+	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
 		t, *privKey1, virtualTx, genesisAsset1, 0,
@@ -259,7 +259,7 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	)
 	require.NoError(t, err)
 
-	virtualTx, _, err := taroscript.VirtualTx(
+	virtualTx, _, err := tapscript.VirtualTx(
 		splitCommitment.RootAsset, splitCommitment.PrevAssets,
 	)
 	require.NoError(t, err)
@@ -319,7 +319,7 @@ func splitFullValueStateTransition(validRootLocator,
 				genesisAsset.ScriptKey
 		}
 
-		virtualTx, _, err := taroscript.VirtualTx(
+		virtualTx, _, err := tapscript.VirtualTx(
 			splitCommitment.RootAsset, splitCommitment.PrevAssets,
 		)
 		require.NoError(t, err)
@@ -367,7 +367,7 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 		)
 		require.NoError(t, err)
 
-		virtualTx, _, err := taroscript.VirtualTx(
+		virtualTx, _, err := tapscript.VirtualTx(
 			splitCommitment.RootAsset, splitCommitment.PrevAssets,
 		)
 		require.NoError(t, err)
@@ -401,13 +401,13 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 
 	var (
 		usedLeaf      *txscript.TapLeaf
-		tapscript     *waddrmgr.Tapscript
+		testTapScript *waddrmgr.Tapscript
 		scriptWitness []byte
 	)
 	if useHashLock {
 		usedLeaf = &leaf1
 		inclusionProof := leaf2.TapHash()
-		tapscript = input.TapscriptPartialReveal(
+		testTapScript = input.TapscriptPartialReveal(
 			scriptInternalKey, leaf1, inclusionProof[:],
 		)
 		scriptWitness = []byte("foobar")
@@ -418,7 +418,7 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	} else {
 		usedLeaf = &leaf2
 		inclusionProof := leaf1.TapHash()
-		tapscript = input.TapscriptPartialReveal(
+		testTapScript = input.TapscriptPartialReveal(
 			scriptInternalKey, leaf2, inclusionProof[:],
 		)
 
@@ -431,7 +431,7 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 		}
 	}
 
-	scriptKey, err := tapscript.TaprootKey()
+	scriptKey, err := testTapScript.TaprootKey()
 	require.NoError(t, err)
 
 	genesisOutPoint := wire.OutPoint{}
@@ -470,13 +470,13 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 		)
 		require.NoError(t, err)
 
-		virtualTx, _, err := taroscript.VirtualTx(
+		virtualTx, _, err := tapscript.VirtualTx(
 			splitCommitment.RootAsset, splitCommitment.PrevAssets,
 		)
 		require.NoError(t, err)
 		newWitness := genTaprootScriptSpend(
 			t, *scriptPrivKey, virtualTx, genesisAsset, 0,
-			sigHashType, tapscript.ControlBlock, usedLeaf,
+			sigHashType, testTapScript.ControlBlock, usedLeaf,
 			scriptWitness,
 		)
 		require.NoError(t, err)

@@ -1,4 +1,4 @@
-package taroscript
+package tapscript
 
 import (
 	"context"
