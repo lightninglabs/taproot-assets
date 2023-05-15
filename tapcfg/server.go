@@ -7,7 +7,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -33,7 +33,7 @@ type databaseBackend interface {
 // after genereting the server config.
 func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
-	mainErrChan chan<- error) (*taro.Config, error) {
+	mainErrChan chan<- error) (*tap.Config, error) {
 
 	var err error
 
@@ -82,20 +82,20 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
+	tapChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 	tapdbAddrBook := tapdb.NewTapAddressBook(
-		addrBookDB, &taroChainParams,
+		addrBookDB, &tapChainParams,
 	)
 
-	keyRing := taro.NewLndRpcKeyRing(lndServices)
-	walletAnchor := taro.NewLndRpcWalletAnchor(lndServices)
-	chainBridge := taro.NewLndRpcChainBridge(lndServices)
+	keyRing := tap.NewLndRpcKeyRing(lndServices)
+	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
+	chainBridge := tap.NewLndRpcChainBridge(lndServices)
 
 	addrBook := address.NewBook(address.BookConfig{
 		Store:        tapdbAddrBook,
 		StoreTimeout: tapdb.DefaultStoreTimeout,
 		KeyRing:      keyRing,
-		Chain:        taroChainParams,
+		Chain:        tapChainParams,
 	})
 
 	assetStore := tapdb.NewAssetStore(assetDB)
@@ -173,7 +173,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
 		LocalDiffEngine:     baseUni,
-		NewRemoteDiffEngine: taro.NewRpcUniverseDiff,
+		NewRemoteDiffEngine: tap.NewRpcUniverseDiff,
 		LocalRegistrar:      baseUni,
 	})
 
@@ -183,12 +183,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			UniverseSyncer:     universeSyncer,
 			LocalRegistrar:     baseUni,
 			SyncInterval:       cfg.UniverseSyncInterval,
-			NewRemoteRegistrar: taro.NewRpcUniverseRegistar,
+			NewRemoteRegistrar: tap.NewRpcUniverseRegistar,
 			ErrChan:            mainErrChan,
 		},
 	)
 
-	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
+	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
 		CoinSelector: coinSelect,
@@ -196,12 +196,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AddrBook:     tapdbAddrBook,
 		KeyRing:      keyRing,
 		Signer:       virtualTxSigner,
-		TxValidator:  &taro.ValidatorV0{},
+		TxValidator:  &tap.ValidatorV0{},
 		Wallet:       walletAnchor,
-		ChainParams:  &taroChainParams,
+		ChainParams:  &tapChainParams,
 	})
 
-	return &taro.Config{
+	return &tap.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
@@ -210,7 +210,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ChainBridge: chainBridge,
 				Log:         assetMintingStore,
 				KeyRing:     keyRing,
-				GenSigner: taro.NewLndRpcGenSigner(
+				GenSigner: tap.NewLndRpcGenSigner(
 					lndServices,
 				),
 				ProofFiles: proofFileStore,
@@ -221,7 +221,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}),
 		AssetCustodian: tapgarden.NewCustodian(
 			&tapgarden.CustodianConfig{
-				ChainParams:   &taroChainParams,
+				ChainParams:   &tapChainParams,
 				WalletAnchor:  walletAnchor,
 				ChainBridge:   chainBridge,
 				AddrBook:      addrBook,
@@ -239,7 +239,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			&tapfreighter.ChainPorterConfig{
 				CoinSelector: coinSelect,
 				Signer:       virtualTxSigner,
-				TxValidator:  &taro.ValidatorV0{},
+				TxValidator:  &tap.ValidatorV0{},
 				ExportLog:    assetStore,
 				ChainBridge:  chainBridge,
 				Wallet:       walletAnchor,
@@ -255,7 +255,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseFederation: universeFederation,
 		UniverseStats:      universeStats,
 		LogWriter:          cfg.LogWriter,
-		DatabaseConfig: &taro.DatabaseConfig{
+		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore:   tapdb.NewRootKeyStore(rksDB),
 			MintingStore:   assetMintingStore,
 			AssetStore:     assetStore,
@@ -269,7 +269,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 // CreateServerFromConfig creates a new Taro server from the given CLI config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	shutdownInterceptor signal.Interceptor,
-	mainErrChan chan<- error) (*taro.Server, error) {
+	mainErrChan chan<- error) (*tap.Server, error) {
 
 	// Given the config above, grab the TLS config which includes the set
 	// of dial options, and also the listeners we'll use to listen on the
@@ -303,7 +303,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	serverCfg.SignalInterceptor = shutdownInterceptor
 
-	serverCfg.RPCConfig = &taro.RPCConfig{
+	serverCfg.RPCConfig = &tap.RPCConfig{
 		LisCfg:            &lnd.ListenerCfg{},
 		RPCListeners:      cfg.rpcListeners,
 		RESTListeners:     cfg.restListeners,
@@ -321,13 +321,13 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		LetsEncryptDomain: cfg.RpcConf.LetsEncryptDomain,
 	}
 
-	return taro.NewServer(serverCfg), nil
+	return tap.NewServer(serverCfg), nil
 }
 
 // CreateServerFromConfig creates a new Taro server from the given CLI config.
 func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
-	mainErrChan chan<- error) (*taro.Server, error) {
+	mainErrChan chan<- error) (*tap.Server, error) {
 
 	serverCfg, err := genServerConfig(
 		cfg, cfgLogger, lndServices, mainErrChan,
@@ -337,10 +337,10 @@ func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 			err)
 	}
 
-	serverCfg.RPCConfig = &taro.RPCConfig{
+	serverCfg.RPCConfig = &tap.RPCConfig{
 		NoMacaroons:  cfg.RpcConf.NoMacaroons,
 		MacaroonPath: cfg.RpcConf.MacaroonPath,
 	}
 
-	return taro.NewServer(serverCfg), nil
+	return tap.NewServer(serverCfg), nil
 }

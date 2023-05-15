@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"github.com/lightninglabs/taproot-assets/asset"

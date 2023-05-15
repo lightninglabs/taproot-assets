@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"github.com/btcsuite/btclog"

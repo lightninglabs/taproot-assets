@@ -19,7 +19,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -183,7 +183,7 @@ func (h *harnessTest) setupLogging() {
 	h.interceptor, err = signal.Intercept()
 	require.NoError(h.t, err)
 
-	taro.SetupLoggers(h.logWriter, h.interceptor)
+	tap.SetupLoggers(h.logWriter, h.interceptor)
 	aperture.SetupLoggers(h.logWriter, h.interceptor)
 
 	h.logWriter.SetLogLevels(*logLevel)
@@ -272,11 +272,11 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 // tapdHarnessParams contains parameters that can be set when creating a new
 // tapdHarness.
 type tapdHarnessParams struct {
-	// enableHashMail enables hashmail in the taro daemon.
+	// enableHashMail enables hashmail in the tap daemon.
 	enableHashMail bool
 
 	// proofSendBackoffCfg is the backoff configuration that is used when
-	// sending proofs to the taro daemon.
+	// sending proofs to the tap daemon.
 	proofSendBackoffCfg *proof.BackoffCfg
 
 	// proofReceiverAckTimeout is the timeout that is used when waiting for
@@ -480,7 +480,7 @@ func formatProtoJSON(resp proto.Message) (string, error) {
 	return jsonStr, nil
 }
 
-// lndKeyDescToTaro converts an lnd key descriptor to a taro key descriptor.
+// lndKeyDescToTaro converts an lnd key descriptor to a tap key descriptor.
 func lndKeyDescToTaro(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
 	return &taprpc.KeyDescriptor{
 		RawKeyBytes: lnd.PubKey.SerializeCompressed(),

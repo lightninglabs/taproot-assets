@@ -15,7 +15,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -45,7 +45,7 @@ const (
 )
 
 var (
-	defaultTaroDir     = btcutil.AppDataDir("taro", false)
+	defaultTaroDir     = btcutil.AppDataDir("tap", false)
 	defaultTLSCertPath = filepath.Join(defaultTaroDir, defaultTLSCertFilename)
 
 	// maxMsgRecvSize is the largest message our client will receive. We
@@ -249,18 +249,18 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 func main() {
 	app := cli.NewApp()
 	app.Name = "tapcli"
-	app.Version = taro.Version()
+	app.Version = tap.Version()
 	app.Usage = "control plane for your Taproot Assets Daemon (tapd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "rpcserver",
 			Value: defaultRPCHostPort,
-			Usage: "The host:port of taro daemon.",
+			Usage: "The host:port of tap daemon.",
 		},
 		cli.StringFlag{
 			Name:      "tarodir",
 			Value:     defaultTaroDir,
-			Usage:     "The path to taro's base directory.",
+			Usage:     "The path to tap's base directory.",
 			TakesFile: true,
 		},
 		cli.StringFlag{

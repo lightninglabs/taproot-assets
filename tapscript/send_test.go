@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -157,7 +157,7 @@ func initSpendScenario(t *testing.T) spendData {
 	updateScenarioCommitments(t, &state)
 
 	// Validator instance needed to call the Taproot Asset VM.
-	state.validator = &taro.ValidatorV0{}
+	state.validator = &tap.ValidatorV0{}
 
 	// Signer needed to generate a witness for the spend.
 	state.signer = tapscript.NewMockSigner(&state.spenderPrivKey)

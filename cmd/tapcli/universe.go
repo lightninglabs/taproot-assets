@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -32,7 +32,7 @@ var universeCommands = []cli.Command{
 	{
 		Name:      "universe",
 		ShortName: "u",
-		Usage:     "Interact with a local or remote taro universe",
+		Usage:     "Interact with a local or remote tap universe",
 		Category:  "Universe",
 		Subcommands: []cli.Command{
 			universeRootsCommand,
@@ -241,7 +241,7 @@ var universeProofArgs = []cli.Flag{
 	},
 	cli.StringFlag{
 		Name:  outpointName,
-		Usage: "the target outpoint on chain to locate a taro proof within",
+		Usage: "the target outpoint on chain to locate a tap proof within",
 	},
 	cli.StringFlag{
 		Name:  scriptKeyName,
@@ -399,7 +399,7 @@ func universeProofInsert(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	rpcAsset, err := taro.MarshalAsset(
+	rpcAsset, err := tap.MarshalAsset(
 		ctxc, &assetProof.Asset, false, true, nil,
 	)
 	if err != nil {

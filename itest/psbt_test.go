@@ -9,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -965,7 +965,7 @@ func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
 		},
 	)
 	require.NoError(t, err)
-	scriptKey, err := taro.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
+	scriptKey, err := tap.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
 	require.NoError(t, err)
 
 	internalKeyDesc, err := tapd.NextInternalKey(
@@ -974,7 +974,7 @@ func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
 		},
 	)
 	require.NoError(t, err)
-	internalKeyLnd, err := taro.UnmarshalKeyDescriptor(
+	internalKeyLnd, err := tap.UnmarshalKeyDescriptor(
 		internalKeyDesc.InternalKey,
 	)
 	require.NoError(t, err)

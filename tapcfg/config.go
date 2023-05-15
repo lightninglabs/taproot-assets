@@ -20,7 +20,7 @@ import (
 	"github.com/caddyserver/certmagic"
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
@@ -344,7 +344,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
 	usageMessage := fmt.Sprintf("Use %s -h to show usage", appName)
 	if preCfg.ShowVersion {
-		fmt.Println(appName, "version", taro.Version())
+		fmt.Println(appName, "version", tap.Version())
 		os.Exit(0)
 	}
 
@@ -398,7 +398,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	}
 
 	// Initialize logging at the default logging level.
-	taro.SetupLoggers(cfg.LogWriter, interceptor)
+	tap.SetupLoggers(cfg.LogWriter, interceptor)
 	err = cfg.LogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,

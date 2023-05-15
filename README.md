@@ -50,7 +50,7 @@ Compile Taro from source by cloning this repository. [Go version 1.18](https://g
 
 ```shell
 git clone https://github.com/lightninglabs/taproot-assets.git
-cd taro
+cd taproot-assets
 make install
 ```
 

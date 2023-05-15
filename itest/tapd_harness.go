@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	taro "github.com/lightninglabs/taproot-assets"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -30,9 +30,9 @@ import (
 
 var (
 	// dbbackend is a command line flag for specifying the database backend
-	// to use when starting a taro daemon.
+	// to use when starting a tap daemon.
 	dbbackend = flag.String("dbbackend", "sqlite", "Set the database "+
-		"backend to use when starting a taro daemon.")
+		"backend to use when starting a tap daemon.")
 )
 
 const (
@@ -46,7 +46,7 @@ const (
 // start an instance of the tapd server.
 type tapdHarness struct {
 	cfg       *tapdConfig
-	server    *taro.Server
+	server    *tap.Server
 	clientCfg *tapcfg.Config
 
 	ht *harnessTest
