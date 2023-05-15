@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 
 	"github.com/lightninglabs/taro/tapcfg"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/urfave/cli"
 )
 
@@ -99,10 +99,10 @@ var mintAssetCommand = cli.Command{
 	},
 }
 
-func parseAssetType(ctx *cli.Context) tarorpc.AssetType {
-	assetType := tarorpc.AssetType_NORMAL
+func parseAssetType(ctx *cli.Context) taprpc.AssetType {
+	assetType := taprpc.AssetType_NORMAL
 	if ctx.String(assetTypeName) == "collectible" {
-		assetType = tarorpc.AssetType_COLLECTIBLE
+		assetType = taprpc.AssetType_COLLECTIBLE
 	}
 
 	return assetType
@@ -130,7 +130,7 @@ func mintAsset(ctx *cli.Context) error {
 	}
 
 	// Both the meta bytes and the meta path can be set.
-	var assetMeta *tarorpc.AssetMeta
+	var assetMeta *taprpc.AssetMeta
 	switch {
 	case ctx.String(assetMetaBytesName) != "" &&
 		ctx.String(assetMetaFilePathName) != "":
@@ -138,9 +138,9 @@ func mintAsset(ctx *cli.Context) error {
 			"be both set")
 
 	case ctx.String(assetMetaBytesName) != "":
-		assetMeta = &tarorpc.AssetMeta{
+		assetMeta = &taprpc.AssetMeta{
 			Data: []byte(ctx.String(assetMetaBytesName)),
-			Type: tarorpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
+			Type: taprpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
 		}
 
 	case ctx.String(assetMetaFilePathName) != "":
@@ -152,9 +152,9 @@ func mintAsset(ctx *cli.Context) error {
 			return fmt.Errorf("unable to read meta file: %w", err)
 		}
 
-		assetMeta = &tarorpc.AssetMeta{
+		assetMeta = &taprpc.AssetMeta{
 			Data: metaFileBytes,
-			Type: tarorpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
+			Type: taprpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
 		}
 	}
 
@@ -292,7 +292,7 @@ func listAssets(ctx *cli.Context) error {
 
 	// TODO(roasbeef): need to reverse txid
 
-	resp, err := client.ListAssets(ctxc, &tarorpc.ListAssetRequest{
+	resp, err := client.ListAssets(ctxc, &taprpc.ListAssetRequest{
 		WithWitness:  ctx.Bool(assetShowWitnessName),
 		IncludeSpent: ctx.Bool(assetShowSpentName),
 	})
@@ -316,7 +316,7 @@ func listUtxos(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.ListUtxos(ctxc, &tarorpc.ListUtxosRequest{})
+	resp, err := client.ListUtxos(ctxc, &taprpc.ListUtxosRequest{})
 	if err != nil {
 		return fmt.Errorf("unable to list utxos: %w", err)
 	}
@@ -337,7 +337,7 @@ func listGroups(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.ListGroups(ctxc, &tarorpc.ListGroupsRequest{})
+	resp, err := client.ListGroups(ctxc, &taprpc.ListGroupsRequest{})
 	if err != nil {
 		return fmt.Errorf("unable to list asset groups: %w", err)
 	}
@@ -377,10 +377,10 @@ func listAssetBalances(ctx *cli.Context) error {
 
 	var err error
 
-	req := &tarorpc.ListBalancesRequest{}
+	req := &taprpc.ListBalancesRequest{}
 
 	if !ctx.Bool(groupByGroupName) {
-		req.GroupBy = &tarorpc.ListBalancesRequest_AssetId{
+		req.GroupBy = &taprpc.ListBalancesRequest_AssetId{
 			AssetId: true,
 		}
 
@@ -396,7 +396,7 @@ func listAssetBalances(ctx *cli.Context) error {
 			}
 		}
 	} else {
-		req.GroupBy = &tarorpc.ListBalancesRequest_GroupKey{
+		req.GroupBy = &taprpc.ListBalancesRequest_GroupKey{
 			GroupKey: true,
 		}
 
@@ -443,7 +443,7 @@ func sendAssets(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.SendAsset(ctxc, &tarorpc.SendAssetRequest{
+	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
 		TaroAddrs: addrs,
 	})
 	if err != nil {
@@ -475,7 +475,7 @@ func listTransfers(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &tarorpc.ListTransfersRequest{}
+	req := &taprpc.ListTransfersRequest{}
 	resp, err := client.ListTransfers(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to list asset transfers: %w", err)

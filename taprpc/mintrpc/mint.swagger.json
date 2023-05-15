@@ -16,7 +16,7 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taro/assets": {
+    "/v1/taproot-assets/assets": {
       "post": {
         "summary": "tarocli: `assets mint`\nMintAsset will attempt to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
         "operationId": "Mint_MintAsset",
@@ -49,7 +49,7 @@
         ]
       }
     },
-    "/v1/taro/assets/mint/batches/{batch_key}": {
+    "/v1/taproot-assets/assets/mint/batches/{batch_key}": {
       "get": {
         "summary": "tarocli: `assets batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
         "operationId": "Mint_ListBatches",
@@ -82,7 +82,7 @@
         ]
       }
     },
-    "/v1/taro/assets/mint/cancel": {
+    "/v1/taproot-assets/assets/mint/cancel": {
       "post": {
         "summary": "tarocli: `assets mint cancel`\nCancelBatch will attempt to cancel the current pending batch.",
         "operationId": "Mint_CancelBatch",
@@ -115,7 +115,7 @@
         ]
       }
     },
-    "/v1/taro/assets/mint/finalize": {
+    "/v1/taproot-assets/assets/mint/finalize": {
       "post": {
         "summary": "tarocli: `assets mint finalize`\nFinalizeBatch will attempt to finalize the current pending batch.",
         "operationId": "Mint_FinalizeBatch",
@@ -206,7 +206,7 @@
       "type": "object",
       "properties": {
         "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType",
+          "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset to be created."
         },
         "name": {
@@ -214,7 +214,7 @@
           "description": "The name, or \"tag\" of the asset. This will affect the final asset ID."
         },
         "asset_meta": {
-          "$ref": "#/definitions/tarorpcAssetMeta",
+          "$ref": "#/definitions/taprpcAssetMeta",
           "description": "A blob that resents metadata related to the asset. This will affect the\nfinal asset ID."
         },
         "amount": {
@@ -307,7 +307,7 @@
         }
       }
     },
-    "tarorpcAssetMeta": {
+    "taprpcAssetMeta": {
       "type": "object",
       "properties": {
         "data": {
@@ -316,7 +316,7 @@
           "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF."
         },
         "type": {
-          "$ref": "#/definitions/tarorpcAssetMetaType",
+          "$ref": "#/definitions/taprpcAssetMetaType",
           "description": "The type of the asset meta data."
         },
         "meta_hash": {
@@ -326,7 +326,7 @@
         }
       }
     },
-    "tarorpcAssetMetaType": {
+    "taprpcAssetMetaType": {
       "type": "string",
       "enum": [
         "MTEA_TYPE_OPAQUE"
@@ -334,7 +334,7 @@
       "default": "MTEA_TYPE_OPAQUE",
       "description": " - MTEA_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
     },
-    "tarorpcAssetType": {
+    "taprpcAssetType": {
       "type": "string",
       "enum": [
         "NORMAL",

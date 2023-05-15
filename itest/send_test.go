@@ -9,8 +9,8 @@ import (
 
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +29,7 @@ func testBasicSend(t *harnessTest) {
 
 	// Subscribe to receive assent send events from primary taro node.
 	eventNtfns, err := t.tarod.SubscribeSendAssetEventNtfns(
-		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -42,9 +42,9 @@ func testBasicSend(t *harnessTest) {
 		defer wg.Done()
 
 		broadcastState := tapfreighter.SendStateBroadcast.String()
-		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *tarorpc.SendAssetEvent_ExecuteSendStateEvent:
+			case *taprpc.SendAssetEvent_ExecuteSendStateEvent:
 				ev := eventTyped.ExecuteSendStateEvent
 
 				// Log send state execution.
@@ -96,7 +96,7 @@ func testBasicSend(t *harnessTest) {
 
 	for i := 0; i < numSends; i++ {
 		bobAddr, err := secondTarod.NewAddr(
-			ctxb, &tarorpc.NewAddrRequest{
+			ctxb, &taprpc.NewAddrRequest{
 				AssetId: genInfo.AssetId,
 				Amt:     numUnits,
 			},
@@ -137,9 +137,9 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	assets := []*mintrpc.MintAssetRequest{
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_NORMAL,
+				AssetType: taprpc.AssetType_NORMAL,
 				Name:      "first-itestbuxx",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("itest-metadata"),
 				},
 				Amount: 1500,
@@ -147,9 +147,9 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		},
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_NORMAL,
+				AssetType: taprpc.AssetType_NORMAL,
 				Name:      "second-itestbuxx",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("itest-metadata"),
 				},
 				Amount: 2000,
@@ -180,7 +180,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// receiving node.
 	genInfo := firstAsset.AssetGenesis
 	recvAddr, err := recvTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     numUnitsSend,
 		},
@@ -203,11 +203,11 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Assert that the sending node returns the correct asset list via RPC.
 	assertListAssets(
 		t, ctxb, t.tarod, []MatchRpcAsset{
-			func(asset *tarorpc.Asset) bool {
+			func(asset *taprpc.Asset) bool {
 				return asset.Amount == 300 &&
 					asset.AssetGenesis.Name == "first-itestbuxx"
 			},
-			func(asset *tarorpc.Asset) bool {
+			func(asset *taprpc.Asset) bool {
 				return asset.Amount == 2000 &&
 					asset.AssetGenesis.Name == "second-itestbuxx"
 			},
@@ -222,7 +222,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 
 	// Send previously passive asset (the "second" asset).
 	recvAddr, err = recvTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     numUnitsSend,
 		},
@@ -264,7 +264,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 	// Subscribe to receive asset send events from primary taro node.
 	eventNtfns, err := sendTarod.SubscribeSendAssetEventNtfns(
-		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -279,9 +279,9 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
 				ev := eventTyped.ReceiverProofBackoffWaitEvent
 				t.Logf("Found event ntfs: %v", ev)
 				return true
@@ -322,7 +322,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 	// Create a new address for the receiver node.
 	recvAddr, err := t.tarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     10,
 		},
@@ -373,7 +373,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Subscribe to receive asset send events from primary taro node.
 	eventNtfns, err := sendTarod.SubscribeSendAssetEventNtfns(
-		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -388,9 +388,9 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
 				ev := eventTyped.ReceiverProofBackoffWaitEvent
 				t.Logf("Found event ntfs: %v", ev)
 				return true
@@ -426,7 +426,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Create a new address for the receiver node.
 	recvAddr, err := recvTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     10,
 		},
@@ -462,8 +462,8 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 // This function will block until the event is received or the event stream is
 // closed.
 func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
-	eventNtfns tarorpc.Taro_SubscribeSendAssetEventNtfnsClient,
-	targetEventSelector func(*tarorpc.SendAssetEvent) bool,
+	eventNtfns taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsClient,
+	targetEventSelector func(*taprpc.SendAssetEvent) bool,
 	expectedCount int) {
 
 	countFound := 0
@@ -536,7 +536,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	// First of two send events from minting node to secondary node.
 	genInfo := rpcAsset.AssetGenesis
 	addr, err := bobTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     1000,
 		},
@@ -557,7 +557,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 
 	// Second of two send events from minting node to the secondary node.
 	addr, err = bobTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     4000,
 		},
@@ -580,7 +580,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 
 	// Send back full amount from secondary node to the minting node.
 	addr, err = t.tarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     5000,
 		},

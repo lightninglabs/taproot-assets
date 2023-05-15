@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-import "taro.proto";
+import "taprootassets.proto";
 
 package assetwalletrpc;
 
-option go_package = "github.com/lightninglabs/tarorpc/assetwalletrpc";
+option go_package = "github.com/lightninglabs/taro/taprpc/assetwalletrpc";
 
 service AssetWallet {
     /*
@@ -29,7 +29,7 @@ service AssetWallet {
     transactions.
     */
     rpc AnchorVirtualPsbts (AnchorVirtualPsbtsRequest)
-        returns (tarorpc.SendAssetResponse);
+        returns (taprpc.SendAssetResponse);
 
     /*
     NextInternalKey derives the next internal key for the given key family and
@@ -178,7 +178,7 @@ message NextInternalKeyRequest {
 }
 
 message NextInternalKeyResponse {
-    tarorpc.KeyDescriptor internal_key = 1;
+    taprpc.KeyDescriptor internal_key = 1;
 }
 
 message NextScriptKeyRequest {
@@ -186,7 +186,7 @@ message NextScriptKeyRequest {
 }
 
 message NextScriptKeyResponse {
-    tarorpc.ScriptKey script_key = 1;
+    taprpc.ScriptKey script_key = 1;
 }
 
 message ProveAssetOwnershipRequest {

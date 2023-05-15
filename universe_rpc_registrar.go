@@ -8,7 +8,7 @@ import (
 
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/mssmt"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightninglabs/taro/universe"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

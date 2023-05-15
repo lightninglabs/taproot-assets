@@ -11,8 +11,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarorpc/universerpc"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	"github.com/lightninglabs/taro/taprpc/universerpc"
+	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )

@@ -6,8 +6,8 @@ import (
 	"math"
 
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,7 +62,7 @@ func testReIssuance(t *harnessTest) {
 	// Send the minted collectible to the second node so that it imports
 	// the asset group.
 	collectGroupAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: collectGenInfo.AssetId,
 			Amt:     1,
 		},
@@ -90,7 +90,7 @@ func testReIssuance(t *harnessTest) {
 
 	// Send half of the normal asset to the second node before reissuance.
 	normalGroupAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: normalGenInfo.AssetId,
 			Amt:     normalGroupMintHalf,
 		},
@@ -138,7 +138,7 @@ func testReIssuance(t *harnessTest) {
 	// should only hold one, since the zero-value tombstone is only visible
 	// in the transfers and is not re-created as an asset.
 	groupsAfterReissue, err := t.tarod.ListGroups(
-		ctxb, &tarorpc.ListGroupsRequest{},
+		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -165,7 +165,7 @@ func testReIssuance(t *harnessTest) {
 	// non-local groups are also handled properly.
 	collectReissueInfo := collectReissueGen[0].AssetGenesis
 	collectReissueAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: collectReissueInfo.AssetId,
 			Amt:     1,
 		},
@@ -186,7 +186,7 @@ func testReIssuance(t *harnessTest) {
 	// the collectible group and a total balance of 2 for that group.
 	assertNumGroups(t.t, secondTarod, groupCount)
 	groupsSecondNode, err := secondTarod.ListGroups(
-		ctxb, &tarorpc.ListGroupsRequest{},
+		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -199,7 +199,7 @@ func testReIssuance(t *harnessTest) {
 
 	// We should also be able to send a collectible back to the minting node.
 	collectGenAddr, err := t.tarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: collectGenInfo.AssetId,
 			Amt:     1,
 		},
@@ -330,7 +330,7 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// Send the minted collectible to the second node so that it imports
 	// the asset group.
 	collectGroupAddr, err := secondTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: collectGenInfo.AssetId,
 			Amt:     1,
 		},

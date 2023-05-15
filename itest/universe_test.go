@@ -9,7 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taro/chanutils"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -130,7 +130,7 @@ func testUniverseREST(t *harnessTest) {
 	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
 	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
 
-	urlPrefix := fmt.Sprintf("https://%s/v1/taro/universe",
+	urlPrefix := fmt.Sprintf("https://%s/v1/taproot-assets/universe",
 		t.tarod.clientCfg.RpcConf.RawRESTListeners[0])
 
 	// First of all, get all roots and make sure our assets are contained

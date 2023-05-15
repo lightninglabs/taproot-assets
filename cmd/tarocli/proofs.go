@@ -7,7 +7,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/taprpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
@@ -60,7 +60,7 @@ func verifyProof(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.VerifyProof(ctxc, &tarorpc.ProofFile{
+	resp, err := client.VerifyProof(ctxc, &taprpc.ProofFile{
 		RawProof: rawFile,
 	})
 	if err != nil {
@@ -120,7 +120,7 @@ func exportProof(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.ExportProof(ctxc, &tarorpc.ExportProofRequest{
+	resp, err := client.ExportProof(ctxc, &taprpc.ExportProofRequest{
 		AssetId:   assetID,
 		ScriptKey: scriptKeyBytes,
 	})
@@ -169,7 +169,7 @@ func importProof(ctx *cli.Context) error {
 		return fmt.Errorf("unable to read file: %v", err)
 	}
 
-	resp, err := client.ImportProof(ctxc, &tarorpc.ImportProofRequest{
+	resp, err := client.ImportProof(ctxc, &taprpc.ImportProofRequest{
 		ProofFile: proofFile,
 	})
 	if err != nil {

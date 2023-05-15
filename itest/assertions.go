@@ -14,8 +14,8 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarorpc"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	"github.com/lightninglabs/taro/taprpc"
+	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -23,17 +23,17 @@ import (
 )
 
 var (
-	statusDetected  = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED
-	statusConfirmed = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
-	statusCompleted = tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
+	statusDetected  = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED
+	statusConfirmed = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
+	statusCompleted = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
 )
 
 // assetCheck is a function type that checks an RPC asset's property.
-type assetCheck func(a *tarorpc.Asset) error
+type assetCheck func(a *taprpc.Asset) error
 
 // assetAmountCheck returns a check function that tests an asset's amount.
 func assetAmountCheck(amt uint64) assetCheck {
-	return func(a *tarorpc.Asset) error {
+	return func(a *taprpc.Asset) error {
 		if a.Amount != amt {
 			return fmt.Errorf("unexpected asset amount, got %d "+
 				"wanted %d", a.Amount, amt)
@@ -44,8 +44,8 @@ func assetAmountCheck(amt uint64) assetCheck {
 }
 
 // assetTypeCheck returns a check function that tests an asset's type.
-func assetTypeCheck(assetType tarorpc.AssetType) assetCheck {
-	return func(a *tarorpc.Asset) error {
+func assetTypeCheck(assetType taprpc.AssetType) assetCheck {
+	return func(a *taprpc.Asset) error {
 		if a.AssetType != assetType {
 			return fmt.Errorf("unexpected asset type, got %v "+
 				"wanted %v", a.AssetType, assetType)
@@ -57,7 +57,7 @@ func assetTypeCheck(assetType tarorpc.AssetType) assetCheck {
 
 // assetAnchorCheck returns a check function that tests an asset's anchor.
 func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
-	return func(a *tarorpc.Asset) error {
+	return func(a *taprpc.Asset) error {
 		if a.ChainAnchor == nil {
 			return fmt.Errorf("asset is missing chain anchor field")
 		}
@@ -81,7 +81,7 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 // assetScriptKeyIsLocalCheck returns a check function that tests an asset's
 // script key for being a local key.
 func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
-	return func(a *tarorpc.Asset) error {
+	return func(a *taprpc.Asset) error {
 		if a.ScriptKeyIsLocal != isLocal {
 			return fmt.Errorf("unexpected script key, wanted "+
 				"local=%v but is local=%v", isLocal,
@@ -96,19 +96,19 @@ func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
 func assertAssetState(t *harnessTest, tarod *tarodHarness, name string,
-	metaHash []byte, assetChecks ...assetCheck) *tarorpc.Asset {
+	metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
 
 	t.t.Helper()
 
 	ctxb := context.Background()
 
-	var a *tarorpc.Asset
+	var a *taprpc.Asset
 	err := wait.NoError(func() error {
 		ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 		defer cancel()
 
 		listResp, err := tarod.ListAssets(
-			ctxt, &tarorpc.ListAssetRequest{},
+			ctxt, &taprpc.ListAssetRequest{},
 		)
 		if err != nil {
 			return err
@@ -145,7 +145,7 @@ func assertAssetState(t *harnessTest, tarod *tarodHarness, name string,
 
 // commitmentKey returns the asset's commitment key given an RPC asset
 // representation.
-func commitmentKey(t *testing.T, rpcAsset *tarorpc.Asset) [32]byte {
+func commitmentKey(t *testing.T, rpcAsset *taprpc.Asset) [32]byte {
 	t.Helper()
 
 	var assetID asset.ID
@@ -170,7 +170,7 @@ func commitmentKey(t *testing.T, rpcAsset *tarorpc.Asset) [32]byte {
 // assertAssetProofs makes sure the proofs for the given asset can be retrieved
 // from the given daemon and can be fully validated.
 func assertAssetProofs(t *testing.T, tarod *tarodHarness,
-	a *tarorpc.Asset) []byte {
+	a *taprpc.Asset) []byte {
 
 	t.Helper()
 
@@ -178,7 +178,7 @@ func assertAssetProofs(t *testing.T, tarod *tarodHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	exportResp, err := tarod.ExportProof(ctxt, &tarorpc.ExportProofRequest{
+	exportResp, err := tarod.ExportProof(ctxt, &taprpc.ExportProofRequest{
 		AssetId:   a.AssetGenesis.AssetId,
 		ScriptKey: a.ScriptKey,
 	})
@@ -212,7 +212,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	// Also make sure that the RPC can verify the proof as well.
-	verifyResp, err := tarod.VerifyProof(ctxt, &tarorpc.ProofFile{
+	verifyResp, err := tarod.VerifyProof(ctxt, &taprpc.ProofFile{
 		RawProof: blob,
 	})
 	require.NoError(t, err)
@@ -235,7 +235,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 // assertAddrCreated makes sure an address was created correctly for the given
 // asset.
 func assertAddrCreated(t *testing.T, tarod *tarodHarness,
-	expected *tarorpc.Asset, actual *tarorpc.Addr) {
+	expected *taprpc.Asset, actual *taprpc.Addr) {
 
 	// Was the address created correctly?
 	assertAddr(t, expected, actual)
@@ -244,7 +244,7 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	decoded, err := tarod.DecodeAddr(ctxt, &tarorpc.DecodeAddrRequest{
+	decoded, err := tarod.DecodeAddr(ctxt, &taprpc.DecodeAddrRequest{
 		Addr: actual.Encoded,
 	})
 	require.NoError(t, err)
@@ -256,12 +256,12 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 	// Does the decoded address still show everything correctly?
 	assertAddr(t, expected, decoded)
 
-	allAddrs, err := tarod.QueryAddrs(ctxt, &tarorpc.QueryAddrRequest{})
+	allAddrs, err := tarod.QueryAddrs(ctxt, &taprpc.QueryAddrRequest{})
 	require.NoError(t, err)
 	require.NotEmpty(t, allAddrs.Addrs)
 
 	// Can we find the address in the list of all addresses?
-	var rpcAddr *tarorpc.Addr
+	var rpcAddr *taprpc.Addr
 	for idx := range allAddrs.Addrs {
 		if allAddrs.Addrs[idx].Encoded == actual.Encoded {
 			rpcAddr = allAddrs.Addrs[idx]
@@ -276,8 +276,8 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 
 // assertAddrEvent makes sure the given address was detected by the given
 // daemon.
-func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr,
-	numEvents int, expectedStatus tarorpc.AddrEventStatus) {
+func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *taprpc.Addr,
+	numEvents int, expectedStatus taprpc.AddrEventStatus) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -285,7 +285,7 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr,
 
 	err := wait.NoError(func() error {
 		resp, err := tarod.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{
+			ctxt, &taprpc.AddrReceivesRequest{
 				FilterAddr: addr.Encoded,
 			},
 		)
@@ -315,7 +315,7 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *tarorpc.Addr,
 // assertAddrEventByStatus makes sure the given number of events exist with the
 // given status.
 func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
-	filterStatus tarorpc.AddrEventStatus, numEvents int) {
+	filterStatus taprpc.AddrEventStatus, numEvents int) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -323,7 +323,7 @@ func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
 
 	err := wait.NoError(func() error {
 		resp, err := tarod.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{
+			ctxt, &taprpc.AddrReceivesRequest{
 				FilterStatus: filterStatus,
 			},
 		)
@@ -346,7 +346,7 @@ func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
 // the correct state before confirming it and then asserting the confirmed state
 // with the node.
 func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
-	sendResp *tarorpc.SendAssetResponse, assetID []byte,
+	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx, numTransfers int) {
 
 	confirmAndAssetOutboundTransferWithOutputs(
@@ -359,7 +359,7 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 // transfer has the correct state and number of outputs before confirming it and
 // then asserting the confirmed state with the node.
 func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
-	sender *tarodHarness, sendResp *tarorpc.SendAssetResponse,
+	sender *tarodHarness, sendResp *taprpc.SendAssetResponse,
 	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int) {
 
@@ -390,7 +390,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	// Confirm that we can externally view the transfer.
 	require.Eventually(t.t, func() bool {
 		resp, err := sender.ListTransfers(
-			ctxb, &tarorpc.ListTransfersRequest{},
+			ctxb, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Transfers, numTransfers)
@@ -413,7 +413,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	require.NoError(t.t, err)
 
 	transferResp, err := sender.ListTransfers(
-		ctxb, &tarorpc.ListTransfersRequest{},
+		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -436,7 +436,7 @@ func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tarodHarness,
 	// available.
 	err := wait.NoError(func() error {
 		resp, err := receiver.AddrReceives(
-			ctxt, &tarorpc.AddrReceivesRequest{},
+			ctxt, &taprpc.AddrReceivesRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Events, totalInboundTransfers)
@@ -459,7 +459,7 @@ func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tarodHarness,
 
 // assertAddr asserts that an address contains the correct information of an
 // asset.
-func assertAddr(t *testing.T, expected *tarorpc.Asset, actual *tarorpc.Addr) {
+func assertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
 	require.Equal(t, expected.AssetType, actual.AssetType)
 
@@ -486,8 +486,8 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
-		ctxb, &tarorpc.ListBalancesRequest{
-			GroupBy: &tarorpc.ListBalancesRequest_AssetId{
+		ctxb, &taprpc.ListBalancesRequest{
+			GroupBy: &taprpc.ListBalancesRequest_AssetId{
 				AssetId: true,
 			},
 			AssetFilter: id,
@@ -517,8 +517,8 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 
 	ctxb := context.Background()
 	balancesResp, err := tarod.ListBalances(
-		ctxb, &tarorpc.ListBalancesRequest{
-			GroupBy: &tarorpc.ListBalancesRequest_GroupKey{
+		ctxb, &taprpc.ListBalancesRequest{
+			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
 				GroupKey: true,
 			},
 			GroupKeyFilter: groupKey,
@@ -538,7 +538,7 @@ func assertTransfer(t *testing.T, tarod *tarodHarness, transferIdx,
 
 	ctxb := context.Background()
 	transferResp, err := tarod.ListTransfers(
-		ctxb, &tarorpc.ListTransfersRequest{},
+		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
 	require.Len(t, transferResp.Transfers, numTransfers)
@@ -557,7 +557,7 @@ func assertSplitTombstoneTransfer(t *testing.T, tarod *tarodHarness,
 
 	ctxb := context.Background()
 	transferResp, err := tarod.ListTransfers(
-		ctxb, &tarorpc.ListTransfersRequest{},
+		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, transferResp.Transfers)
@@ -589,7 +589,7 @@ func assertSplitTombstoneTransfer(t *testing.T, tarod *tarodHarness,
 func assertNumGroups(t *testing.T, tarod *tarodHarness, num int) {
 	ctxb := context.Background()
 	groupResp, err := tarod.ListGroups(
-		ctxb, &tarorpc.ListGroupsRequest{},
+		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
 	require.Equal(t, num, len(groupResp.Groups))
@@ -602,7 +602,7 @@ func assertGroupSizes(t *testing.T, tarod *tarodHarness, hexGroupKeys []string,
 
 	ctxb := context.Background()
 	groupResp, err := tarod.ListGroups(
-		ctxb, &tarorpc.ListGroupsRequest{},
+		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
 
@@ -615,7 +615,7 @@ func assertGroupSizes(t *testing.T, tarod *tarodHarness, hexGroupKeys []string,
 
 // assertGroup asserts that an asset returned from the ListGroups call matches
 // a specific asset and has the same group key.
-func assertGroup(t *testing.T, a *tarorpc.Asset, b *tarorpc.AssetHumanReadable,
+func assertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
 	groupKey []byte) {
 
 	require.Equal(t, a.AssetGenesis.AssetId, b.Id)
@@ -644,14 +644,14 @@ func assertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
 
 // MatchRpcAsset is a function that returns true if the given RPC asset is a
 // match.
-type MatchRpcAsset func(asset *tarorpc.Asset) bool
+type MatchRpcAsset func(asset *taprpc.Asset) bool
 
 // assertListAssets checks that the assets returned by ListAssets match the
 // expected assets.
 func assertListAssets(t *harnessTest, ctx context.Context, tarod *tarodHarness,
 	matchAssets []MatchRpcAsset) {
 
-	resp, err := tarod.ListAssets(ctx, &tarorpc.ListAssetRequest{})
+	resp, err := tarod.ListAssets(ctx, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 
 	// Ensure that the number of assets returned is correct.

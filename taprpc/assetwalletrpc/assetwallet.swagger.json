@@ -16,7 +16,7 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taro/wallet/internal-key/next": {
+    "/v1/taproot-assets/wallet/internal-key/next": {
       "post": {
         "summary": "NextInternalKey derives the next internal key for the given key family and\nstores it as an internal key in the database to make sure it is identified\nas a local key later on when importing proofs. While an internal key can\nalso be used as the internal key of a script key, it is recommended to use\nthe NextScriptKey RPC instead, to make sure the tweaked Taproot output key\nis also recognized as a local key.",
         "operationId": "AssetWallet_NextInternalKey",
@@ -49,7 +49,7 @@
         ]
       }
     },
-    "/v1/taro/wallet/ownership/prove": {
+    "/v1/taproot-assets/wallet/ownership/prove": {
       "post": {
         "summary": "ProveAssetOwnership creates an ownership proof embedded in an asset\ntransition proof. That ownership proof is a signed virtual transaction\nspending the asset with a valid witness to prove the prover owns the keys\nthat can spend the asset.",
         "operationId": "AssetWallet_ProveAssetOwnership",
@@ -82,7 +82,7 @@
         ]
       }
     },
-    "/v1/taro/wallet/ownership/verify": {
+    "/v1/taproot-assets/wallet/ownership/verify": {
       "post": {
         "summary": "VerifyAssetOwnership verifies the asset ownership proof embedded in the\ngiven transition proof of an asset and returns true if the proof is valid.",
         "operationId": "AssetWallet_VerifyAssetOwnership",
@@ -115,7 +115,7 @@
         ]
       }
     },
-    "/v1/taro/wallet/script-key/next": {
+    "/v1/taproot-assets/wallet/script-key/next": {
       "post": {
         "summary": "NextScriptKey derives the next script key (and its corresponding internal\nkey) and stores them both in the database to make sure they are identified\nas local keys later on when importing proofs.",
         "operationId": "AssetWallet_NextScriptKey",
@@ -148,7 +148,7 @@
         ]
       }
     },
-    "/v1/taro/wallet/virtual-psbt/anchor": {
+    "/v1/taproot-assets/wallet/virtual-psbt/anchor": {
       "post": {
         "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction.",
         "description": "TODO(guggero): Actually implement accepting and merging multiple\ntransactions.",
@@ -157,7 +157,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcSendAssetResponse"
+              "$ref": "#/definitions/taprpcSendAssetResponse"
             }
           },
           "default": {
@@ -182,7 +182,7 @@
         ]
       }
     },
-    "/v1/taro/wallet/virtual-psbt/fund": {
+    "/v1/taproot-assets/wallet/virtual-psbt/fund": {
       "post": {
         "summary": "FundVirtualPsbt selects inputs from the available asset commitments to fund\na virtual transaction matching the template.",
         "operationId": "AssetWallet_FundVirtualPsbt",
@@ -215,7 +215,7 @@
         ]
       }
     },
-    "/v1/taro/wallet/virtual-psbt/sign": {
+    "/v1/taproot-assets/wallet/virtual-psbt/sign": {
       "post": {
         "summary": "SignVirtualPsbt signs the inputs of a virtual transaction and prepares the\ncommitments of the inputs and outputs.",
         "operationId": "AssetWallet_SignVirtualPsbt",
@@ -305,7 +305,7 @@
       "type": "object",
       "properties": {
         "internal_key": {
-          "$ref": "#/definitions/tarorpcKeyDescriptor"
+          "$ref": "#/definitions/taprpcKeyDescriptor"
         }
       }
     },
@@ -322,7 +322,7 @@
       "type": "object",
       "properties": {
         "script_key": {
-          "$ref": "#/definitions/tarorpcScriptKey"
+          "$ref": "#/definitions/taprpcScriptKey"
         }
       }
     },
@@ -477,7 +477,7 @@
         }
       }
     },
-    "tarorpcAssetTransfer": {
+    "taprpcAssetTransfer": {
       "type": "object",
       "properties": {
         "transfer_timestamp": {
@@ -500,20 +500,20 @@
         "inputs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcTransferInput"
+            "$ref": "#/definitions/taprpcTransferInput"
           },
           "description": "Describes the set of spent assets."
         },
         "outputs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcTransferOutput"
+            "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
         }
       }
     },
-    "tarorpcKeyDescriptor": {
+    "taprpcKeyDescriptor": {
       "type": "object",
       "properties": {
         "raw_key_bytes": {
@@ -522,12 +522,12 @@
           "description": "The raw bytes of the key being identified."
         },
         "key_loc": {
-          "$ref": "#/definitions/tarorpcKeyLocator",
+          "$ref": "#/definitions/taprpcKeyLocator",
           "description": "The key locator that identifies which key to use for signing."
         }
       }
     },
-    "tarorpcKeyLocator": {
+    "taprpcKeyLocator": {
       "type": "object",
       "properties": {
         "key_family": {
@@ -542,7 +542,7 @@
         }
       }
     },
-    "tarorpcOutputType": {
+    "taprpcOutputType": {
       "type": "string",
       "enum": [
         "OUTPUT_TYPE_SIMPLE",
@@ -553,7 +553,7 @@
       "default": "OUTPUT_TYPE_SIMPLE",
       "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness.\n - OUTPUT_TYPE_PASSIVE_ASSETS_ONLY: OUTPUT_TYPE_PASSIVE_ASSETS_ONLY indicates that this output only carries\npassive assets and therefore the asset in this output is nil. The passive\nassets themselves are signed in their own virtual transactions and\nare not present in this packet.\n - OUTPUT_TYPE_PASSIVE_SPLIT_ROOT: OUTPUT_TYPE_PASSIVE_SPLIT_ROOT is a split root output that carries the\nchange from a split or a tombstone from a non-interactive full value send\noutput, as well as passive assets."
     },
-    "tarorpcScriptKey": {
+    "taprpcScriptKey": {
       "type": "object",
       "properties": {
         "pub_key": {
@@ -562,7 +562,7 @@
           "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
         },
         "key_desc": {
-          "$ref": "#/definitions/tarorpcKeyDescriptor",
+          "$ref": "#/definitions/taprpcKeyDescriptor",
           "description": "The key descriptor describing the internal key of the above Taproot key."
         },
         "tap_tweak": {
@@ -572,15 +572,15 @@
         }
       }
     },
-    "tarorpcSendAssetResponse": {
+    "taprpcSendAssetResponse": {
       "type": "object",
       "properties": {
         "transfer": {
-          "$ref": "#/definitions/tarorpcAssetTransfer"
+          "$ref": "#/definitions/taprpcAssetTransfer"
         }
       }
     },
-    "tarorpcTransferInput": {
+    "taprpcTransferInput": {
       "type": "object",
       "properties": {
         "anchor_point": {
@@ -604,11 +604,11 @@
         }
       }
     },
-    "tarorpcTransferOutput": {
+    "taprpcTransferOutput": {
       "type": "object",
       "properties": {
         "anchor": {
-          "$ref": "#/definitions/tarorpcTransferOutputAnchor"
+          "$ref": "#/definitions/taprpcTransferOutputAnchor"
         },
         "script_key": {
           "type": "string",
@@ -630,11 +630,11 @@
           "format": "byte"
         },
         "output_type": {
-          "$ref": "#/definitions/tarorpcOutputType"
+          "$ref": "#/definitions/taprpcOutputType"
         }
       }
     },
-    "tarorpcTransferOutputAnchor": {
+    "taprpcTransferOutputAnchor": {
       "type": "object",
       "properties": {
         "outpoint": {

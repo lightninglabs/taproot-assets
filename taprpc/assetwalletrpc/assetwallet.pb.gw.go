@@ -281,7 +281,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/FundVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taro/wallet/virtual-psbt/fund"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/FundVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/fund"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -304,7 +304,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/SignVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taro/wallet/virtual-psbt/sign"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/SignVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/sign"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -327,7 +327,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/AnchorVirtualPsbts", runtime.WithHTTPPathPattern("/v1/taro/wallet/virtual-psbt/anchor"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/AnchorVirtualPsbts", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/anchor"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -350,7 +350,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextInternalKey", runtime.WithHTTPPathPattern("/v1/taro/wallet/internal-key/next"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextInternalKey", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/internal-key/next"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -373,7 +373,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextScriptKey", runtime.WithHTTPPathPattern("/v1/taro/wallet/script-key/next"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextScriptKey", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/script-key/next"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -396,7 +396,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/ProveAssetOwnership", runtime.WithHTTPPathPattern("/v1/taro/wallet/ownership/prove"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/ProveAssetOwnership", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/ownership/prove"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -419,7 +419,7 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/VerifyAssetOwnership", runtime.WithHTTPPathPattern("/v1/taro/wallet/ownership/verify"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/VerifyAssetOwnership", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/ownership/verify"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -481,7 +481,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/FundVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taro/wallet/virtual-psbt/fund"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/FundVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/fund"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -501,7 +501,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/SignVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taro/wallet/virtual-psbt/sign"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/SignVirtualPsbt", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/sign"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -521,7 +521,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/AnchorVirtualPsbts", runtime.WithHTTPPathPattern("/v1/taro/wallet/virtual-psbt/anchor"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/AnchorVirtualPsbts", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/anchor"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -541,7 +541,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextInternalKey", runtime.WithHTTPPathPattern("/v1/taro/wallet/internal-key/next"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextInternalKey", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/internal-key/next"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -561,7 +561,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextScriptKey", runtime.WithHTTPPathPattern("/v1/taro/wallet/script-key/next"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/NextScriptKey", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/script-key/next"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -581,7 +581,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/ProveAssetOwnership", runtime.WithHTTPPathPattern("/v1/taro/wallet/ownership/prove"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/ProveAssetOwnership", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/ownership/prove"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -601,7 +601,7 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/VerifyAssetOwnership", runtime.WithHTTPPathPattern("/v1/taro/wallet/ownership/verify"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/VerifyAssetOwnership", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/ownership/verify"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -621,19 +621,19 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 }
 
 var (
-	pattern_AssetWallet_FundVirtualPsbt_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "virtual-psbt", "fund"}, ""))
+	pattern_AssetWallet_FundVirtualPsbt_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "virtual-psbt", "fund"}, ""))
 
-	pattern_AssetWallet_SignVirtualPsbt_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "virtual-psbt", "sign"}, ""))
+	pattern_AssetWallet_SignVirtualPsbt_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "virtual-psbt", "sign"}, ""))
 
-	pattern_AssetWallet_AnchorVirtualPsbts_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "virtual-psbt", "anchor"}, ""))
+	pattern_AssetWallet_AnchorVirtualPsbts_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "virtual-psbt", "anchor"}, ""))
 
-	pattern_AssetWallet_NextInternalKey_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "internal-key", "next"}, ""))
+	pattern_AssetWallet_NextInternalKey_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "internal-key", "next"}, ""))
 
-	pattern_AssetWallet_NextScriptKey_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "script-key", "next"}, ""))
+	pattern_AssetWallet_NextScriptKey_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "script-key", "next"}, ""))
 
-	pattern_AssetWallet_ProveAssetOwnership_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "ownership", "prove"}, ""))
+	pattern_AssetWallet_ProveAssetOwnership_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "ownership", "prove"}, ""))
 
-	pattern_AssetWallet_VerifyAssetOwnership_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "wallet", "ownership", "verify"}, ""))
+	pattern_AssetWallet_VerifyAssetOwnership_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "ownership", "verify"}, ""))
 )
 
 var (

@@ -6,7 +6,7 @@ set -e
 function generate() {
   echo "Generating root gRPC server protos"
 
-  PROTOS="taro.proto assetwalletrpc/assetwallet.proto mintrpc/mint.proto universerpc/universe.proto"
+  PROTOS="taprootassets.proto assetwalletrpc/assetwallet.proto mintrpc/mint.proto universerpc/universe.proto"
 
   # For each of the sub-servers, we then generate their protos, but a restricted
   # set as they don't yet require REST proxies, or swagger docs.
@@ -40,13 +40,13 @@ function generate() {
 
   # Generate the JSON/WASM client stubs.
   falafel=$(which falafel)
-  pkg="tarorpc"
+  pkg="taprpc"
   opts="package_name=$pkg,js_stubs=1,build_tags=// +build js"
   protoc -I/usr/local/include -I. -I.. \
     --plugin=protoc-gen-custom=$falafel\
     --custom_out=. \
     --custom_opt="$opts" \
-    taro.proto
+    taprootassets.proto
 
   PACKAGES="assetwalletrpc universerpc"
   for package in $PACKAGES; do
@@ -67,8 +67,8 @@ function format() {
   find . -name "*.proto" -print0 | xargs -0 clang-format --style=file -i
 }
 
-# Compile and format the tarorpc package.
-pushd tarorpc
+# Compile and format the taprpc package.
+pushd taprpc
 format
 generate
 popd

@@ -4,16 +4,16 @@ config_version: 3
 http:
   rules:
     - selector: mintrpc.Mint.MintAsset
-      post: "/v1/taro/assets"
+      post: "/v1/taproot-assets/assets"
       body: "*"
 
     - selector: mintrpc.Mint.FinalizeBatch
-      post: "/v1/taro/assets/mint/finalize"
+      post: "/v1/taproot-assets/assets/mint/finalize"
       body: "*"
 
     - selector: mintrpc.Mint.CancelBatch
-      post: "/v1/taro/assets/mint/cancel"
+      post: "/v1/taproot-assets/assets/mint/cancel"
       body: "*"
 
     - selector: mintrpc.Mint.ListBatches
-      get: "/v1/taro/assets/mint/batches/{batch_key}"
+      get: "/v1/taproot-assets/assets/mint/batches/{batch_key}"

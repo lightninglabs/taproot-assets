@@ -3,8 +3,8 @@ package itest
 import (
 	"context"
 
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,8 +52,8 @@ func testFullValueSend(t *harnessTest) {
 
 // runFullValueSendTests runs the full value send tests for a single asset.
 func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
-	bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
-	mintedAsset *tarorpc.Asset, runIdx, numRuns int) {
+	bob *tarodHarness, genInfo *taprpc.GenesisInfo,
+	mintedAsset *taprpc.Asset, runIdx, numRuns int) {
 
 	// Next, we'll attempt to complete three transfers of the full value of
 	// the asset between our main node and Bob.
@@ -62,7 +62,7 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 		senderTransferIdx   = runIdx * 2
 		receiverTransferIdx = runIdx * 1
 		fullAmount          = mintedAsset.Amount
-		receiverAddr        *tarorpc.Addr
+		receiverAddr        *taprpc.Addr
 		err                 error
 	)
 
@@ -72,7 +72,7 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 		// to the main node, and so on.
 		if i%2 == 0 {
 			receiverAddr, err = bob.NewAddr(
-				ctxt, &tarorpc.NewAddrRequest{
+				ctxt, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
@@ -92,7 +92,7 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			senderTransferIdx++
 		} else {
 			receiverAddr, err = alice.NewAddr(
-				ctxt, &tarorpc.NewAddrRequest{
+				ctxt, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},

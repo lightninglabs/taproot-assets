@@ -12,8 +12,8 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
@@ -27,9 +27,9 @@ var (
 	simpleAssets = []*mintrpc.MintAssetRequest{
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_NORMAL,
+				AssetType: taprpc.AssetType_NORMAL,
 				Name:      "itestbuxx",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
 				Amount: 5000,
@@ -37,9 +37,9 @@ var (
 		},
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_COLLECTIBLE,
+				AssetType: taprpc.AssetType_COLLECTIBLE,
 				Name:      "itestbuxx-collectible",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
 				Amount: 1,
@@ -49,9 +49,9 @@ var (
 	issuableAssets = []*mintrpc.MintAssetRequest{
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_NORMAL,
+				AssetType: taprpc.AssetType_NORMAL,
 				Name:      "itestbuxx-money-printer-brrr",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
 				Amount: 5000,
@@ -60,9 +60,9 @@ var (
 		},
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_COLLECTIBLE,
+				AssetType: taprpc.AssetType_COLLECTIBLE,
 				Name:      "itestbuxx-collectible-brrr",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
 				Amount: 1,
@@ -119,7 +119,7 @@ func testMintAssets(t *harnessTest) {
 
 	// Make sure the proof files for the freshly minted assets can be
 	// retrieved and are fully valid.
-	var allAssets []*tarorpc.Asset
+	var allAssets []*taprpc.Asset
 	allAssets = append(allAssets, rpcSimpleAssets...)
 	allAssets = append(allAssets, rpcIssuableAssets...)
 	for _, mintedAsset := range allAssets {
@@ -142,7 +142,7 @@ func testMintAssets(t *harnessTest) {
 // mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
 // batch and verifies all asset proofs of the minted assets.
 func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
-	assetRequests []*mintrpc.MintAssetRequest) []*tarorpc.Asset {
+	assetRequests []*mintrpc.MintAssetRequest) []*taprpc.Asset {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -192,7 +192,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 	// since they were all minted in the same batch.
 	var (
 		firstOutpoint string
-		assetList     []*tarorpc.Asset
+		assetList     []*taprpc.Asset
 	)
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
@@ -202,7 +202,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 			t, tarod, assetRequest.Asset.Name, metaHash[:],
 			assetAnchorCheck(*hashes[0], blockHash),
 			assetScriptKeyIsLocalCheck(true),
-			func(a *tarorpc.Asset) error {
+			func(a *taprpc.Asset) error {
 				anchor := a.ChainAnchor
 
 				if anchor.AnchorOutpoint == "" {
@@ -236,7 +236,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 // transferAssetProofs locates and exports the proof files for all given assets
 // from the source node and imports them into the destination node.
 func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
-	assets []*tarorpc.Asset, shouldShowUpAsLocal bool) {
+	assets []*taprpc.Asset, shouldShowUpAsLocal bool) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -251,7 +251,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
 	for _, existingAsset := range assets {
 		gen := existingAsset.AssetGenesis
 		proofFile := assertAssetProofs(t.t, src, existingAsset)
-		_, err := dst.ImportProof(ctxt, &tarorpc.ImportProofRequest{
+		_, err := dst.ImportProof(ctxt, &taprpc.ImportProofRequest{
 			ProofFile:    proofFile,
 			GenesisPoint: gen.GenesisPoint,
 		})
@@ -277,7 +277,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
 }
 
 func assertAssetBalances(t *harnessTest,
-	simpleAssets, issuableAssets []*tarorpc.Asset) {
+	simpleAssets, issuableAssets []*taprpc.Asset) {
 
 	t.t.Helper()
 
@@ -287,17 +287,17 @@ func assertAssetBalances(t *harnessTest,
 
 	// First, we'll ensure that we're able to get the balances of all the
 	// assets grouped by their asset IDs.
-	balanceReq := &tarorpc.ListBalancesRequest_AssetId{
+	balanceReq := &taprpc.ListBalancesRequest_AssetId{
 		AssetId: true,
 	}
 	assetIDBalances, err := t.tarod.ListBalances(
-		ctxt, &tarorpc.ListBalancesRequest{
+		ctxt, &taprpc.ListBalancesRequest{
 			GroupBy: balanceReq,
 		},
 	)
 	require.NoError(t.t, err)
 
-	var allAssets []*tarorpc.Asset
+	var allAssets []*taprpc.Asset
 	allAssets = append(allAssets, simpleAssets...)
 	allAssets = append(allAssets, issuableAssets...)
 
@@ -320,11 +320,11 @@ func assertAssetBalances(t *harnessTest,
 
 	// We'll also ensure that we're able to get the balance by key group
 	// for all the assets that have one specified.
-	groupBalanceReq := &tarorpc.ListBalancesRequest_GroupKey{
+	groupBalanceReq := &taprpc.ListBalancesRequest_GroupKey{
 		GroupKey: true,
 	}
 	assetGroupBalances, err := t.tarod.ListBalances(
-		ctxt, &tarorpc.ListBalancesRequest{
+		ctxt, &taprpc.ListBalancesRequest{
 			GroupBy: groupBalanceReq,
 		},
 	)
@@ -360,7 +360,7 @@ func assertGroups(t *harnessTest, issuableAssets []*mintrpc.MintAssetRequest) {
 
 	// We should be able to fetch two groups of one asset each.
 	assetGroups, err := t.tarod.ListGroups(
-		ctxt, &tarorpc.ListGroupsRequest{},
+		ctxt, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -381,7 +381,7 @@ func assertGroups(t *harnessTest, issuableAssets []*mintrpc.MintAssetRequest) {
 	})
 
 	equalityCheck := func(a *mintrpc.MintAsset,
-		b *tarorpc.AssetHumanReadable) {
+		b *taprpc.AssetHumanReadable) {
 
 		metaHash := (&proof.MetaReveal{
 			Data: a.AssetMeta.Data,
@@ -410,9 +410,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	// Define and mint a single asset.
 	assetMint := mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType: tarorpc.AssetType_NORMAL,
+			AssetType: taprpc.AssetType_NORMAL,
 			Name:      commonAssetName,
-			AssetMeta: &tarorpc.AssetMeta{
+			AssetMeta: &taprpc.AssetMeta{
 				Data: []byte("metadata-1"),
 			},
 			Amount: 5000,
@@ -430,9 +430,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	// existing minted asset. No other fields should collide.
 	assetCollide := mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType: tarorpc.AssetType_COLLECTIBLE,
+			AssetType: taprpc.AssetType_COLLECTIBLE,
 			Name:      commonAssetName,
-			AssetMeta: &tarorpc.AssetMeta{
+			AssetMeta: &taprpc.AssetMeta{
 				Data: []byte("metadata-2"),
 			},
 			Amount: 1,
@@ -475,7 +475,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 			return false
 		}
 
-		return batch.Assets[0].AssetType == tarorpc.AssetType_COLLECTIBLE
+		return batch.Assets[0].AssetType == taprpc.AssetType_COLLECTIBLE
 	}
 	batchCollide, err := chanutils.First(allBatches, isCollidingBatch)
 	require.NoError(t.t, err)

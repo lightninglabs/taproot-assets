@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/taprpc"
 	"github.com/urfave/cli"
 )
 
@@ -64,7 +64,7 @@ func newAddr(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	addr, err := client.NewAddr(ctxc, &tarorpc.NewAddrRequest{
+	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
 		AssetId: assetID,
 		Amt:     ctx.Uint64(amtName),
 	})
@@ -138,7 +138,7 @@ func queryAddr(ctx *cli.Context) error {
 		start = endTime.Unix()
 	}
 
-	addrs, err := client.QueryAddrs(ctxc, &tarorpc.QueryAddrRequest{
+	addrs, err := client.QueryAddrs(ctxc, &taprpc.QueryAddrRequest{
 		CreatedAfter:  start,
 		CreatedBefore: int64(end),
 		Limit:         int32(ctx.Int64(limitName)),
@@ -185,7 +185,7 @@ func decodeAddr(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.DecodeAddr(ctxc, &tarorpc.DecodeAddrRequest{
+	resp, err := client.DecodeAddr(ctxc, &taprpc.DecodeAddrRequest{
 		Addr: addr,
 	})
 	if err != nil {
@@ -224,7 +224,7 @@ func addrReceives(ctx *cli.Context) error {
 		addr = ctx.Args().First()
 	}
 
-	resp, err := client.AddrReceives(ctxc, &tarorpc.AddrReceivesRequest{
+	resp, err := client.AddrReceives(ctxc, &taprpc.AddrReceivesRequest{
 		FilterAddr: addr,
 	})
 	if err != nil {

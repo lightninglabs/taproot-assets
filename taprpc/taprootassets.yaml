@@ -1,0 +1,65 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: taprpc.TaprootAssets.ListAssets
+      get: "/v1/taproot-assets/assets"
+
+    - selector: taprpc.TaprootAssets.StopDaemon
+      post: "/v1/taproot-assets/stop"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.DebugLevel
+      post: "/v1/taproot-assets/debuglevel"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.QueryAddrs
+      get: "/v1/taproot-assets/addrs"
+
+    - selector: taprpc.TaprootAssets.NewAddr
+      post: "/v1/taproot-assets/addrs"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.DecodeAddr
+      post: "/v1/taproot-assets/addrs/decode"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.AddrReceives
+      post: "/v1/taproot-assets/addrs/receives"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.VerifyProof
+      post: "/v1/taproot-assets/proofs/verify"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.ExportProof
+      post: "/v1/taproot-assets/proofs/export"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.ImportProof
+      post: "/v1/taproot-assets/proofs/import"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.ListBalances
+      get: "/v1/taproot-assets/assets/balance"
+
+    - selector: taprpc.TaprootAssets.ListUtxos
+      get: "/v1/taproot-assets/assets/utxos"
+
+    - selector: taprpc.TaprootAssets.ListGroups
+      get: "/v1/taproot-assets/assets/groups"
+
+    - selector: taprpc.TaprootAssets.SendAsset
+      post: "/v1/taproot-assets/send"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns
+      post: "/v1/taproot-assets/send/ntfs"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.ListTransfers
+      get: "/v1/taproot-assets/assets/transfers"
+
+    - selector: taprpc.TaprootAssets.FetchAssetMeta
+      get: "/v1/taproot-assets/assets/meta"

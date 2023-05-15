@@ -16,8 +16,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taro"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -58,14 +58,14 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-func getClient(ctx *cli.Context) (tarorpc.TaroClient, func()) {
+func getClient(ctx *cli.Context) (taprpc.TaprootAssetsClient, func()) {
 	conn := getClientConn(ctx, false)
 
 	cleanUp := func() {
 		conn.Close()
 	}
 
-	return tarorpc.NewTaroClient(conn), cleanUp
+	return taprpc.NewTaprootAssetsClient(conn), cleanUp
 }
 
 func getMintClient(ctx *cli.Context) (mintrpc.MintClient, func()) {

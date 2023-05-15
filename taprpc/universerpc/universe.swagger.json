@@ -16,7 +16,7 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taro/universe/federation": {
+    "/v1/taproot-assets/universe/federation": {
       "get": {
         "summary": "tarocli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
         "operationId": "Universe_ListFederationServers",
@@ -91,7 +91,7 @@
         ]
       }
     },
-    "/v1/taro/universe/keys/asset-id/{asset_id_str}": {
+    "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
         "operationId": "Universe_AssetLeafKeys",
@@ -146,7 +146,7 @@
         ]
       }
     },
-    "/v1/taro/universe/keys/group-key/{group_key_str}": {
+    "/v1/taproot-assets/universe/keys/group-key/{group_key_str}": {
       "get": {
         "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
         "operationId": "Universe_AssetLeafKeys2",
@@ -201,7 +201,7 @@
         ]
       }
     },
-    "/v1/taro/universe/leaves/asset-id/{asset_id_str}": {
+    "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tarocli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
         "operationId": "Universe_AssetLeaves",
@@ -256,7 +256,7 @@
         ]
       }
     },
-    "/v1/taro/universe/leaves/group-key/{group_key_str}": {
+    "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}": {
       "get": {
         "summary": "tarocli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
         "operationId": "Universe_AssetLeaves2",
@@ -311,7 +311,7 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
+    "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
         "summary": "tarocli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof",
@@ -400,7 +400,7 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+    "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
         "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
         "operationId": "Universe_InsertIssuanceProof",
@@ -461,7 +461,7 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
+    "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
         "summary": "tarocli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof2",
@@ -550,7 +550,7 @@
         ]
       }
     },
-    "/v1/taro/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+    "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
         "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
         "operationId": "Universe_InsertIssuanceProof2",
@@ -611,7 +611,7 @@
         ]
       }
     },
-    "/v1/taro/universe/roots": {
+    "/v1/taproot-assets/universe/roots": {
       "get": {
         "summary": "tarocli: `universe roots`\nAssetRoots queries for the known Universe roots associated with each known\nasset. These roots represent the supply/audit state for each known asset.",
         "operationId": "Universe_AssetRoots",
@@ -634,7 +634,7 @@
         ]
       }
     },
-    "/v1/taro/universe/roots/asset-id/{id.asset_id_str}": {
+    "/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}": {
       "get": {
         "summary": "tarocli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
         "operationId": "Universe_QueryAssetRoots",
@@ -689,7 +689,7 @@
         ]
       }
     },
-    "/v1/taro/universe/roots/group-key/{id.group_key_str}": {
+    "/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}": {
       "get": {
         "summary": "tarocli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
         "operationId": "Universe_QueryAssetRoots2",
@@ -744,7 +744,7 @@
         ]
       }
     },
-    "/v1/taro/universe/stats": {
+    "/v1/taproot-assets/universe/stats": {
       "get": {
         "summary": "tarocli: `universe stats`\nUniverseStats returns a set of aggregrate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
         "operationId": "Universe_UniverseStats",
@@ -767,7 +767,7 @@
         ]
       }
     },
-    "/v1/taro/universe/stats/assets": {
+    "/v1/taproot-assets/universe/stats/assets": {
       "get": {
         "summary": "tarocli `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
         "operationId": "Universe_QueryAssetStats",
@@ -844,7 +844,7 @@
         ]
       }
     },
-    "/v1/taro/universe/sync": {
+    "/v1/taproot-assets/universe/sync": {
       "post": {
         "summary": "tarocli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
         "operationId": "Universe_SyncUniverse",
@@ -909,7 +909,7 @@
         }
       }
     },
-    "tarorpcAnchorInfo": {
+    "taprpcAnchorInfo": {
       "type": "object",
       "properties": {
         "anchor_tx": {
@@ -947,7 +947,7 @@
         }
       }
     },
-    "tarorpcAsset": {
+    "taprpcAsset": {
       "type": "object",
       "properties": {
         "version": {
@@ -956,11 +956,11 @@
           "description": "The version of the Taro asset."
         },
         "asset_genesis": {
-          "$ref": "#/definitions/tarorpcGenesisInfo",
+          "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
         },
         "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType",
+          "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
         },
         "amount": {
@@ -993,17 +993,17 @@
           "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taro daemon."
         },
         "asset_group": {
-          "$ref": "#/definitions/tarorpcAssetGroup",
+          "$ref": "#/definitions/taprpcAssetGroup",
           "description": "The information related to the key group of an asset (if it exists)."
         },
         "chain_anchor": {
-          "$ref": "#/definitions/tarorpcAnchorInfo",
+          "$ref": "#/definitions/taprpcAnchorInfo",
           "description": "Describes where in the chain the asset is currently anchored."
         },
         "prev_witnesses": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcPrevWitness"
+            "$ref": "#/definitions/taprpcPrevWitness"
           }
         },
         "is_spent": {
@@ -1012,7 +1012,7 @@
         }
       }
     },
-    "tarorpcAssetGroup": {
+    "taprpcAssetGroup": {
       "type": "object",
       "properties": {
         "raw_group_key": {
@@ -1032,7 +1032,7 @@
         }
       }
     },
-    "tarorpcAssetType": {
+    "taprpcAssetType": {
       "type": "string",
       "enum": [
         "NORMAL",
@@ -1041,7 +1041,7 @@
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
     },
-    "tarorpcGenesisInfo": {
+    "taprpcGenesisInfo": {
       "type": "object",
       "properties": {
         "genesis_point": {
@@ -1074,7 +1074,7 @@
         }
       }
     },
-    "tarorpcPrevInputAsset": {
+    "taprpcPrevInputAsset": {
       "type": "object",
       "properties": {
         "anchor_point": {
@@ -1094,11 +1094,11 @@
         }
       }
     },
-    "tarorpcPrevWitness": {
+    "taprpcPrevWitness": {
       "type": "object",
       "properties": {
         "prev_id": {
-          "$ref": "#/definitions/tarorpcPrevInputAsset"
+          "$ref": "#/definitions/taprpcPrevInputAsset"
         },
         "tx_witness": {
           "type": "array",
@@ -1108,15 +1108,15 @@
           }
         },
         "split_commitment": {
-          "$ref": "#/definitions/tarorpcSplitCommitment"
+          "$ref": "#/definitions/taprpcSplitCommitment"
         }
       }
     },
-    "tarorpcSplitCommitment": {
+    "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
         "root_asset": {
-          "$ref": "#/definitions/tarorpcAsset"
+          "$ref": "#/definitions/taprpcAsset"
         }
       }
     },
@@ -1156,7 +1156,7 @@
       "type": "object",
       "properties": {
         "asset": {
-          "$ref": "#/definitions/tarorpcAsset",
+          "$ref": "#/definitions/taprpcAsset",
           "description": "The asset included in the leaf."
         },
         "issuance_proof": {
@@ -1227,7 +1227,7 @@
           "type": "string"
         },
         "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType"
+          "$ref": "#/definitions/taprpcAssetType"
         },
         "genesis_height": {
           "type": "integer",

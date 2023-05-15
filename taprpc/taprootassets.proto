@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package tarorpc;
+package taprpc;
 
-option go_package = "github.com/lightninglabs/taro/tarorpc";
+option go_package = "github.com/lightninglabs/taro/taprpc";
 
-service Taro {
+service TaprootAssets {
     /* tarocli: `assets list`
     ListAssets lists the set of assets owned by the target daemon.
     */

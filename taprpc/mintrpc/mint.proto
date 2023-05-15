@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-import "taro.proto";
+import "taprootassets.proto";
 
 package mintrpc;
 
-option go_package = "github.com/lightninglabs/tarorpc/mintrpc";
+option go_package = "github.com/lightninglabs/taro/taprpc/mintrpc";
 
 service Mint {
     /* tarocli: `assets mint`
@@ -32,7 +32,7 @@ service Mint {
 
 message MintAsset {
     // The type of the asset to be created.
-    tarorpc.AssetType asset_type = 1;
+    taprpc.AssetType asset_type = 1;
 
     // The name, or "tag" of the asset. This will affect the final asset ID.
     string name = 2;
@@ -41,7 +41,7 @@ message MintAsset {
     A blob that resents metadata related to the asset. This will affect the
     final asset ID.
     */
-    tarorpc.AssetMeta asset_meta = 3;
+    taprpc.AssetMeta asset_meta = 3;
 
     /*
     The total amount of units of the new asset that should be created. If the

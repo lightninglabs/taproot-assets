@@ -219,15 +219,15 @@ sqlc-check: sqlc
 
 rpc:
 	@$(call print, "Compiling protos.")
-	cd ./tarorpc; ./gen_protos_docker.sh
+	cd ./taprpc; ./gen_protos_docker.sh
 
 rpc-format:
 	@$(call print, "Formatting protos.")
-	cd ./tarorpc; find . -name "*.proto" | xargs clang-format --style=file -i
+	cd ./taprpc; find . -name "*.proto" | xargs clang-format --style=file -i
 
 rpc-check: rpc
 	@$(call print, "Verifying protos.")
-	cd ./tarorpc; ../scripts/check-rest-annotations.sh
+	cd ./taprpc; ../scripts/check-rest-annotations.sh
 	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with correct version"; git status; git diff; exit 1; fi
 
 vendor:

@@ -1,12 +1,12 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "taro.proto",
+    "title": "taprootassets.proto",
     "version": "version not set"
   },
   "tags": [
     {
-      "name": "Taro"
+      "name": "TaprootAssets"
     }
   ],
   "consumes": [
@@ -16,15 +16,15 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taro/addrs": {
+    "/v1/taproot-assets/addrs": {
       "get": {
         "summary": "tarocli: `addrs query`\nQueryTaroAddrs queries the set of Taro addresses stored in the database.",
-        "operationId": "Taro_QueryAddrs",
+        "operationId": "TaprootAssets_QueryAddrs",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcQueryAddrResponse"
+              "$ref": "#/definitions/taprpcQueryAddrResponse"
             }
           },
           "default": {
@@ -69,17 +69,17 @@
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       },
       "post": {
         "summary": "tarocli: `addrs new`\nNewAddr makes a new address from the set of request params.",
-        "operationId": "Taro_NewAddr",
+        "operationId": "TaprootAssets_NewAddr",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcAddr"
+              "$ref": "#/definitions/taprpcAddr"
             }
           },
           "default": {
@@ -95,24 +95,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcNewAddrRequest"
+              "$ref": "#/definitions/taprpcNewAddrRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/addrs/decode": {
+    "/v1/taproot-assets/addrs/decode": {
       "post": {
         "summary": "tarocli: `addrs decode`\nDecodeAddr decode a Taro address into a partial asset message that\nrepresents the asset it wants to receive.",
-        "operationId": "Taro_DecodeAddr",
+        "operationId": "TaprootAssets_DecodeAddr",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcAddr"
+              "$ref": "#/definitions/taprpcAddr"
             }
           },
           "default": {
@@ -128,24 +128,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcDecodeAddrRequest"
+              "$ref": "#/definitions/taprpcDecodeAddrRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/addrs/receives": {
+    "/v1/taproot-assets/addrs/receives": {
       "post": {
         "summary": "tarocli: `addrs receives`\nList all receives for incoming asset transfers for addresses that were\ncreated previously.",
-        "operationId": "Taro_AddrReceives",
+        "operationId": "TaprootAssets_AddrReceives",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcAddrReceivesResponse"
+              "$ref": "#/definitions/taprpcAddrReceivesResponse"
             }
           },
           "default": {
@@ -161,24 +161,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcAddrReceivesRequest"
+              "$ref": "#/definitions/taprpcAddrReceivesRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/assets": {
+    "/v1/taproot-assets/assets": {
       "get": {
         "summary": "tarocli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
-        "operationId": "Taro_ListAssets",
+        "operationId": "TaprootAssets_ListAssets",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcListAssetResponse"
+              "$ref": "#/definitions/taprpcListAssetResponse"
             }
           },
           "default": {
@@ -203,19 +203,19 @@
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/assets/balance": {
+    "/v1/taproot-assets/assets/balance": {
       "get": {
         "summary": "tarocli: `assets balance`\nListBalances lists asset balances",
-        "operationId": "Taro_ListBalances",
+        "operationId": "TaprootAssets_ListBalances",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcListBalancesResponse"
+              "$ref": "#/definitions/taprpcListBalancesResponse"
             }
           },
           "default": {
@@ -258,19 +258,19 @@
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/assets/groups": {
+    "/v1/taproot-assets/assets/groups": {
       "get": {
         "summary": "tarocli: `assets groups`\nListGroups lists the asset groups known to the target daemon, and the assets\nheld in each group.",
-        "operationId": "Taro_ListGroups",
+        "operationId": "TaprootAssets_ListGroups",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcListGroupsResponse"
+              "$ref": "#/definitions/taprpcListGroupsResponse"
             }
           },
           "default": {
@@ -281,19 +281,19 @@
           }
         },
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/assets/meta": {
+    "/v1/taproot-assets/assets/meta": {
       "get": {
         "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
-        "operationId": "Taro_FetchAssetMeta",
+        "operationId": "TaprootAssets_FetchAssetMeta",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcAssetMeta"
+              "$ref": "#/definitions/taprpcAssetMeta"
             }
           },
           "default": {
@@ -322,19 +322,19 @@
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/assets/transfers": {
+    "/v1/taproot-assets/assets/transfers": {
       "get": {
         "summary": "tarocli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
-        "operationId": "Taro_ListTransfers",
+        "operationId": "TaprootAssets_ListTransfers",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcListTransfersResponse"
+              "$ref": "#/definitions/taprpcListTransfersResponse"
             }
           },
           "default": {
@@ -345,19 +345,19 @@
           }
         },
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/assets/utxos": {
+    "/v1/taproot-assets/assets/utxos": {
       "get": {
         "summary": "tarocli: `assets utxos`\nListUtxos lists the UTXOs managed by the target daemon, and the assets they\nhold.",
-        "operationId": "Taro_ListUtxos",
+        "operationId": "TaprootAssets_ListUtxos",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcListUtxosResponse"
+              "$ref": "#/definitions/taprpcListUtxosResponse"
             }
           },
           "default": {
@@ -368,19 +368,19 @@
           }
         },
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/debuglevel": {
+    "/v1/taproot-assets/debuglevel": {
       "post": {
         "summary": "tarocli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntarod. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
-        "operationId": "Taro_DebugLevel",
+        "operationId": "TaprootAssets_DebugLevel",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcDebugLevelResponse"
+              "$ref": "#/definitions/taprpcDebugLevelResponse"
             }
           },
           "default": {
@@ -396,24 +396,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcDebugLevelRequest"
+              "$ref": "#/definitions/taprpcDebugLevelRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/proofs/export": {
+    "/v1/taproot-assets/proofs/export": {
       "post": {
         "summary": "tarocli: `proofs export`\nExportProof exports the latest raw proof file anchored at the specified\nscript_key.",
-        "operationId": "Taro_ExportProof",
+        "operationId": "TaprootAssets_ExportProof",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcProofFile"
+              "$ref": "#/definitions/taprpcProofFile"
             }
           },
           "default": {
@@ -429,24 +429,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcExportProofRequest"
+              "$ref": "#/definitions/taprpcExportProofRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/proofs/import": {
+    "/v1/taproot-assets/proofs/import": {
       "post": {
         "summary": "tarocli: `proofs import`\nImportProof attempts to import a proof file into the daemon. If successful,\na new asset will be inserted on disk, spendable using the specified target\nscript key, and internal key.",
-        "operationId": "Taro_ImportProof",
+        "operationId": "TaprootAssets_ImportProof",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcImportProofResponse"
+              "$ref": "#/definitions/taprpcImportProofResponse"
             }
           },
           "default": {
@@ -462,24 +462,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcImportProofRequest"
+              "$ref": "#/definitions/taprpcImportProofRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/proofs/verify": {
+    "/v1/taproot-assets/proofs/verify": {
       "post": {
         "summary": "tarocli: `proofs verify`\nVerifyProof attempts to verify a given proof file that claims to be anchored\nat the specified genesis point.",
-        "operationId": "Taro_VerifyProof",
+        "operationId": "TaprootAssets_VerifyProof",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcProofVerifyResponse"
+              "$ref": "#/definitions/taprpcProofVerifyResponse"
             }
           },
           "default": {
@@ -495,24 +495,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcProofFile"
+              "$ref": "#/definitions/taprpcProofFile"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/send": {
+    "/v1/taproot-assets/send": {
       "post": {
         "summary": "tarocli: `assets send`\nSendAsset uses one or multiple passed taro address(es) to attempt to\ncomplete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
-        "operationId": "Taro_SendAsset",
+        "operationId": "TaprootAssets_SendAsset",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcSendAssetResponse"
+              "$ref": "#/definitions/taprpcSendAssetResponse"
             }
           },
           "default": {
@@ -528,19 +528,19 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcSendAssetRequest"
+              "$ref": "#/definitions/taprpcSendAssetRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/send/ntfs": {
+    "/v1/taproot-assets/send/ntfs": {
       "post": {
         "summary": "SubscribeSendAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset sending process.",
-        "operationId": "Taro_SubscribeSendAssetEventNtfns",
+        "operationId": "TaprootAssets_SubscribeSendAssetEventNtfns",
         "responses": {
           "200": {
             "description": "A successful response.(streaming responses)",
@@ -548,13 +548,13 @@
               "type": "object",
               "properties": {
                 "result": {
-                  "$ref": "#/definitions/tarorpcSendAssetEvent"
+                  "$ref": "#/definitions/taprpcSendAssetEvent"
                 },
                 "error": {
                   "$ref": "#/definitions/rpcStatus"
                 }
               },
-              "title": "Stream result of tarorpcSendAssetEvent"
+              "title": "Stream result of taprpcSendAssetEvent"
             }
           },
           "default": {
@@ -570,24 +570,24 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcSubscribeSendAssetEventNtfnsRequest"
+              "$ref": "#/definitions/taprpcSubscribeSendAssetEventNtfnsRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     },
-    "/v1/taro/stop": {
+    "/v1/taproot-assets/stop": {
       "post": {
         "summary": "tarocli: `stop`\nStopDaemon will send a shutdown request to the interrupt handler, triggering\na graceful shutdown of the daemon.",
-        "operationId": "Taro_StopDaemon",
+        "operationId": "TaprootAssets_StopDaemon",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/tarorpcStopResponse"
+              "$ref": "#/definitions/taprpcStopResponse"
             }
           },
           "default": {
@@ -603,12 +603,12 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/tarorpcStopRequest"
+              "$ref": "#/definitions/taprpcStopRequest"
             }
           }
         ],
         "tags": [
-          "Taro"
+          "TaprootAssets"
         ]
       }
     }
@@ -644,7 +644,7 @@
         }
       }
     },
-    "tarorpcAddr": {
+    "taprpcAddr": {
       "type": "object",
       "properties": {
         "encoded": {
@@ -657,7 +657,7 @@
           "description": "The asset ID that uniquely identifies the asset."
         },
         "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType",
+          "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
         },
         "amount": {
@@ -692,7 +692,7 @@
         }
       }
     },
-    "tarorpcAddrEvent": {
+    "taprpcAddrEvent": {
       "type": "object",
       "properties": {
         "creation_time_unix_seconds": {
@@ -701,11 +701,11 @@
           "description": "The time the event was created in unix timestamp seconds."
         },
         "addr": {
-          "$ref": "#/definitions/tarorpcAddr",
+          "$ref": "#/definitions/taprpcAddr",
           "description": "The address the event was created for."
         },
         "status": {
-          "$ref": "#/definitions/tarorpcAddrEventStatus",
+          "$ref": "#/definitions/taprpcAddrEventStatus",
           "description": "The current status of the event."
         },
         "outpoint": {
@@ -733,7 +733,7 @@
         }
       }
     },
-    "tarorpcAddrEventStatus": {
+    "taprpcAddrEventStatus": {
       "type": "string",
       "enum": [
         "ADDR_EVENT_STATUS_UNKNOWN",
@@ -744,7 +744,7 @@
       ],
       "default": "ADDR_EVENT_STATUS_UNKNOWN"
     },
-    "tarorpcAddrReceivesRequest": {
+    "taprpcAddrReceivesRequest": {
       "type": "object",
       "properties": {
         "filter_addr": {
@@ -752,24 +752,24 @@
           "description": "Filter receives by a specific address. Leave empty to get all receives."
         },
         "filter_status": {
-          "$ref": "#/definitions/tarorpcAddrEventStatus",
+          "$ref": "#/definitions/taprpcAddrEventStatus",
           "description": "Filter receives by a specific status. Leave empty to get all receives."
         }
       }
     },
-    "tarorpcAddrReceivesResponse": {
+    "taprpcAddrReceivesResponse": {
       "type": "object",
       "properties": {
         "events": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcAddrEvent"
+            "$ref": "#/definitions/taprpcAddrEvent"
           },
           "description": "The events that match the filter criteria."
         }
       }
     },
-    "tarorpcAnchorInfo": {
+    "taprpcAnchorInfo": {
       "type": "object",
       "properties": {
         "anchor_tx": {
@@ -807,7 +807,7 @@
         }
       }
     },
-    "tarorpcAsset": {
+    "taprpcAsset": {
       "type": "object",
       "properties": {
         "version": {
@@ -816,11 +816,11 @@
           "description": "The version of the Taro asset."
         },
         "asset_genesis": {
-          "$ref": "#/definitions/tarorpcGenesisInfo",
+          "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
         },
         "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType",
+          "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
         },
         "amount": {
@@ -853,17 +853,17 @@
           "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taro daemon."
         },
         "asset_group": {
-          "$ref": "#/definitions/tarorpcAssetGroup",
+          "$ref": "#/definitions/taprpcAssetGroup",
           "description": "The information related to the key group of an asset (if it exists)."
         },
         "chain_anchor": {
-          "$ref": "#/definitions/tarorpcAnchorInfo",
+          "$ref": "#/definitions/taprpcAnchorInfo",
           "description": "Describes where in the chain the asset is currently anchored."
         },
         "prev_witnesses": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcPrevWitness"
+            "$ref": "#/definitions/taprpcPrevWitness"
           }
         },
         "is_spent": {
@@ -872,15 +872,15 @@
         }
       }
     },
-    "tarorpcAssetBalance": {
+    "taprpcAssetBalance": {
       "type": "object",
       "properties": {
         "asset_genesis": {
-          "$ref": "#/definitions/tarorpcGenesisInfo",
+          "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
         },
         "asset_type": {
-          "$ref": "#/definitions/tarorpcAssetType",
+          "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
         },
         "balance": {
@@ -890,7 +890,7 @@
         }
       }
     },
-    "tarorpcAssetGroup": {
+    "taprpcAssetGroup": {
       "type": "object",
       "properties": {
         "raw_group_key": {
@@ -910,7 +910,7 @@
         }
       }
     },
-    "tarorpcAssetGroupBalance": {
+    "taprpcAssetGroupBalance": {
       "type": "object",
       "properties": {
         "group_key": {
@@ -925,7 +925,7 @@
         }
       }
     },
-    "tarorpcAssetHumanReadable": {
+    "taprpcAssetHumanReadable": {
       "type": "object",
       "properties": {
         "id": {
@@ -958,12 +958,12 @@
           "description": "The metadata hash of the asset."
         },
         "type": {
-          "$ref": "#/definitions/tarorpcAssetType",
+          "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
         }
       }
     },
-    "tarorpcAssetMeta": {
+    "taprpcAssetMeta": {
       "type": "object",
       "properties": {
         "data": {
@@ -972,7 +972,7 @@
           "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF."
         },
         "type": {
-          "$ref": "#/definitions/tarorpcAssetMetaType",
+          "$ref": "#/definitions/taprpcAssetMetaType",
           "description": "The type of the asset meta data."
         },
         "meta_hash": {
@@ -982,7 +982,7 @@
         }
       }
     },
-    "tarorpcAssetMetaType": {
+    "taprpcAssetMetaType": {
       "type": "string",
       "enum": [
         "MTEA_TYPE_OPAQUE"
@@ -990,7 +990,7 @@
       "default": "MTEA_TYPE_OPAQUE",
       "description": " - MTEA_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
     },
-    "tarorpcAssetTransfer": {
+    "taprpcAssetTransfer": {
       "type": "object",
       "properties": {
         "transfer_timestamp": {
@@ -1013,20 +1013,20 @@
         "inputs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcTransferInput"
+            "$ref": "#/definitions/taprpcTransferInput"
           },
           "description": "Describes the set of spent assets."
         },
         "outputs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcTransferOutput"
+            "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
         }
       }
     },
-    "tarorpcAssetType": {
+    "taprpcAssetType": {
       "type": "string",
       "enum": [
         "NORMAL",
@@ -1035,7 +1035,7 @@
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
     },
-    "tarorpcDebugLevelRequest": {
+    "taprpcDebugLevelRequest": {
       "type": "object",
       "properties": {
         "show": {
@@ -1047,7 +1047,7 @@
         }
       }
     },
-    "tarorpcDebugLevelResponse": {
+    "taprpcDebugLevelResponse": {
       "type": "object",
       "properties": {
         "sub_systems": {
@@ -1055,7 +1055,7 @@
         }
       }
     },
-    "tarorpcDecodeAddrRequest": {
+    "taprpcDecodeAddrRequest": {
       "type": "object",
       "properties": {
         "addr": {
@@ -1063,7 +1063,7 @@
         }
       }
     },
-    "tarorpcExecuteSendStateEvent": {
+    "taprpcExecuteSendStateEvent": {
       "type": "object",
       "properties": {
         "timestamp": {
@@ -1077,7 +1077,7 @@
         }
       }
     },
-    "tarorpcExportProofRequest": {
+    "taprpcExportProofRequest": {
       "type": "object",
       "properties": {
         "asset_id": {
@@ -1090,7 +1090,7 @@
         }
       }
     },
-    "tarorpcGenesisInfo": {
+    "taprpcGenesisInfo": {
       "type": "object",
       "properties": {
         "genesis_point": {
@@ -1123,19 +1123,19 @@
         }
       }
     },
-    "tarorpcGroupedAssets": {
+    "taprpcGroupedAssets": {
       "type": "object",
       "properties": {
         "assets": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcAssetHumanReadable"
+            "$ref": "#/definitions/taprpcAssetHumanReadable"
           },
           "description": "A list of assets with the same group key."
         }
       }
     },
-    "tarorpcImportProofRequest": {
+    "taprpcImportProofRequest": {
       "type": "object",
       "properties": {
         "proof_file": {
@@ -1147,10 +1147,10 @@
         }
       }
     },
-    "tarorpcImportProofResponse": {
+    "taprpcImportProofResponse": {
       "type": "object"
     },
-    "tarorpcKeyDescriptor": {
+    "taprpcKeyDescriptor": {
       "type": "object",
       "properties": {
         "raw_key_bytes": {
@@ -1159,12 +1159,12 @@
           "description": "The raw bytes of the key being identified."
         },
         "key_loc": {
-          "$ref": "#/definitions/tarorpcKeyLocator",
+          "$ref": "#/definitions/taprpcKeyLocator",
           "description": "The key locator that identifies which key to use for signing."
         }
       }
     },
-    "tarorpcKeyLocator": {
+    "taprpcKeyLocator": {
       "type": "object",
       "properties": {
         "key_family": {
@@ -1179,71 +1179,71 @@
         }
       }
     },
-    "tarorpcListAssetResponse": {
+    "taprpcListAssetResponse": {
       "type": "object",
       "properties": {
         "assets": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcAsset"
+            "$ref": "#/definitions/taprpcAsset"
           }
         }
       }
     },
-    "tarorpcListBalancesResponse": {
+    "taprpcListBalancesResponse": {
       "type": "object",
       "properties": {
         "asset_balances": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/tarorpcAssetBalance"
+            "$ref": "#/definitions/taprpcAssetBalance"
           }
         },
         "asset_group_balances": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/tarorpcAssetGroupBalance"
+            "$ref": "#/definitions/taprpcAssetGroupBalance"
           }
         }
       }
     },
-    "tarorpcListGroupsResponse": {
+    "taprpcListGroupsResponse": {
       "type": "object",
       "properties": {
         "groups": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/tarorpcGroupedAssets"
+            "$ref": "#/definitions/taprpcGroupedAssets"
           },
           "description": "The set of assets with a group key."
         }
       }
     },
-    "tarorpcListTransfersResponse": {
+    "taprpcListTransfersResponse": {
       "type": "object",
       "properties": {
         "transfers": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcAssetTransfer"
+            "$ref": "#/definitions/taprpcAssetTransfer"
           },
           "description": "The unordered list of outgoing asset transfers."
         }
       }
     },
-    "tarorpcListUtxosResponse": {
+    "taprpcListUtxosResponse": {
       "type": "object",
       "properties": {
         "managed_utxos": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/tarorpcManagedUtxo"
+            "$ref": "#/definitions/taprpcManagedUtxo"
           },
           "description": "The set of UTXOs managed by the daemon."
         }
       }
     },
-    "tarorpcManagedUtxo": {
+    "taprpcManagedUtxo": {
       "type": "object",
       "properties": {
         "out_point": {
@@ -1273,13 +1273,13 @@
         "assets": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcAsset"
+            "$ref": "#/definitions/taprpcAsset"
           },
           "description": "The assets held at this UTXO."
         }
       }
     },
-    "tarorpcNewAddrRequest": {
+    "taprpcNewAddrRequest": {
       "type": "object",
       "properties": {
         "asset_id": {
@@ -1291,11 +1291,11 @@
           "format": "uint64"
         },
         "script_key": {
-          "$ref": "#/definitions/tarorpcScriptKey",
+          "$ref": "#/definitions/taprpcScriptKey",
           "description": "The optional script key that the receiving asset should be locked to. If no\nscript key is provided, a normal BIP-86 key will be derived from the\nunderlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
         },
         "internal_key": {
-          "$ref": "#/definitions/tarorpcKeyDescriptor",
+          "$ref": "#/definitions/taprpcKeyDescriptor",
           "description": "The optional internal key of the receiving BTC level transaction output on\nwhich the receiving asset transfers will be committed to. If no internal key\nis provided, a key will be derived from the underlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
         },
         "tapscript_sibling": {
@@ -1305,7 +1305,7 @@
         }
       }
     },
-    "tarorpcOutputType": {
+    "taprpcOutputType": {
       "type": "string",
       "enum": [
         "OUTPUT_TYPE_SIMPLE",
@@ -1316,7 +1316,7 @@
       "default": "OUTPUT_TYPE_SIMPLE",
       "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness.\n - OUTPUT_TYPE_PASSIVE_ASSETS_ONLY: OUTPUT_TYPE_PASSIVE_ASSETS_ONLY indicates that this output only carries\npassive assets and therefore the asset in this output is nil. The passive\nassets themselves are signed in their own virtual transactions and\nare not present in this packet.\n - OUTPUT_TYPE_PASSIVE_SPLIT_ROOT: OUTPUT_TYPE_PASSIVE_SPLIT_ROOT is a split root output that carries the\nchange from a split or a tombstone from a non-interactive full value send\noutput, as well as passive assets."
     },
-    "tarorpcPrevInputAsset": {
+    "taprpcPrevInputAsset": {
       "type": "object",
       "properties": {
         "anchor_point": {
@@ -1336,11 +1336,11 @@
         }
       }
     },
-    "tarorpcPrevWitness": {
+    "taprpcPrevWitness": {
       "type": "object",
       "properties": {
         "prev_id": {
-          "$ref": "#/definitions/tarorpcPrevInputAsset"
+          "$ref": "#/definitions/taprpcPrevInputAsset"
         },
         "tx_witness": {
           "type": "array",
@@ -1350,11 +1350,11 @@
           }
         },
         "split_commitment": {
-          "$ref": "#/definitions/tarorpcSplitCommitment"
+          "$ref": "#/definitions/taprpcSplitCommitment"
         }
       }
     },
-    "tarorpcProofFile": {
+    "taprpcProofFile": {
       "type": "object",
       "properties": {
         "raw_proof": {
@@ -1366,7 +1366,7 @@
         }
       }
     },
-    "tarorpcProofVerifyResponse": {
+    "taprpcProofVerifyResponse": {
       "type": "object",
       "properties": {
         "valid": {
@@ -1374,18 +1374,18 @@
         }
       }
     },
-    "tarorpcQueryAddrResponse": {
+    "taprpcQueryAddrResponse": {
       "type": "object",
       "properties": {
         "addrs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/tarorpcAddr"
+            "$ref": "#/definitions/taprpcAddr"
           }
         }
       }
     },
-    "tarorpcReceiverProofBackoffWaitEvent": {
+    "taprpcReceiverProofBackoffWaitEvent": {
       "type": "object",
       "properties": {
         "timestamp": {
@@ -1405,7 +1405,7 @@
         }
       }
     },
-    "tarorpcScriptKey": {
+    "taprpcScriptKey": {
       "type": "object",
       "properties": {
         "pub_key": {
@@ -1414,7 +1414,7 @@
           "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
         },
         "key_desc": {
-          "$ref": "#/definitions/tarorpcKeyDescriptor",
+          "$ref": "#/definitions/taprpcKeyDescriptor",
           "description": "The key descriptor describing the internal key of the above Taproot key."
         },
         "tap_tweak": {
@@ -1424,20 +1424,20 @@
         }
       }
     },
-    "tarorpcSendAssetEvent": {
+    "taprpcSendAssetEvent": {
       "type": "object",
       "properties": {
         "execute_send_state_event": {
-          "$ref": "#/definitions/tarorpcExecuteSendStateEvent",
+          "$ref": "#/definitions/taprpcExecuteSendStateEvent",
           "description": "An event which indicates that a send state is about to be executed."
         },
         "receiver_proof_backoff_wait_event": {
-          "$ref": "#/definitions/tarorpcReceiverProofBackoffWaitEvent",
+          "$ref": "#/definitions/taprpcReceiverProofBackoffWaitEvent",
           "description": "An event which indicates that the proof send backoff wait period will\nstart imminently."
         }
       }
     },
-    "tarorpcSendAssetRequest": {
+    "taprpcSendAssetRequest": {
       "type": "object",
       "properties": {
         "taro_addrs": {
@@ -1448,32 +1448,32 @@
         }
       }
     },
-    "tarorpcSendAssetResponse": {
+    "taprpcSendAssetResponse": {
       "type": "object",
       "properties": {
         "transfer": {
-          "$ref": "#/definitions/tarorpcAssetTransfer"
+          "$ref": "#/definitions/taprpcAssetTransfer"
         }
       }
     },
-    "tarorpcSplitCommitment": {
+    "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
         "root_asset": {
-          "$ref": "#/definitions/tarorpcAsset"
+          "$ref": "#/definitions/taprpcAsset"
         }
       }
     },
-    "tarorpcStopRequest": {
+    "taprpcStopRequest": {
       "type": "object"
     },
-    "tarorpcStopResponse": {
+    "taprpcStopResponse": {
       "type": "object"
     },
-    "tarorpcSubscribeSendAssetEventNtfnsRequest": {
+    "taprpcSubscribeSendAssetEventNtfnsRequest": {
       "type": "object"
     },
-    "tarorpcTransferInput": {
+    "taprpcTransferInput": {
       "type": "object",
       "properties": {
         "anchor_point": {
@@ -1497,11 +1497,11 @@
         }
       }
     },
-    "tarorpcTransferOutput": {
+    "taprpcTransferOutput": {
       "type": "object",
       "properties": {
         "anchor": {
-          "$ref": "#/definitions/tarorpcTransferOutputAnchor"
+          "$ref": "#/definitions/taprpcTransferOutputAnchor"
         },
         "script_key": {
           "type": "string",
@@ -1523,11 +1523,11 @@
           "format": "byte"
         },
         "output_type": {
-          "$ref": "#/definitions/tarorpcOutputType"
+          "$ref": "#/definitions/taprpcOutputType"
         }
       }
     },
-    "tarorpcTransferOutputAnchor": {
+    "taprpcTransferOutputAnchor": {
       "type": "object",
       "properties": {
         "outpoint": {

@@ -4,7 +4,7 @@ package assetwalletrpc
 
 import (
 	context "context"
-	tarorpc "github.com/lightninglabs/taro/tarorpc"
+	taprpc "github.com/lightninglabs/taro/taprpc"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -30,7 +30,7 @@ type AssetWalletClient interface {
 	//
 	// TODO(guggero): Actually implement accepting and merging multiple
 	// transactions.
-	AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*tarorpc.SendAssetResponse, error)
+	AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error)
 	// NextInternalKey derives the next internal key for the given key family and
 	// stores it as an internal key in the database to make sure it is identified
 	// as a local key later on when importing proofs. While an internal key can
@@ -78,8 +78,8 @@ func (c *assetWalletClient) SignVirtualPsbt(ctx context.Context, in *SignVirtual
 	return out, nil
 }
 
-func (c *assetWalletClient) AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*tarorpc.SendAssetResponse, error) {
-	out := new(tarorpc.SendAssetResponse)
+func (c *assetWalletClient) AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error) {
+	out := new(taprpc.SendAssetResponse)
 	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/AnchorVirtualPsbts", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -138,7 +138,7 @@ type AssetWalletServer interface {
 	//
 	// TODO(guggero): Actually implement accepting and merging multiple
 	// transactions.
-	AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse, error)
+	AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse, error)
 	// NextInternalKey derives the next internal key for the given key family and
 	// stores it as an internal key in the database to make sure it is identified
 	// as a local key later on when importing proofs. While an internal key can
@@ -171,7 +171,7 @@ func (UnimplementedAssetWalletServer) FundVirtualPsbt(context.Context, *FundVirt
 func (UnimplementedAssetWalletServer) SignVirtualPsbt(context.Context, *SignVirtualPsbtRequest) (*SignVirtualPsbtResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SignVirtualPsbt not implemented")
 }
-func (UnimplementedAssetWalletServer) AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse, error) {
+func (UnimplementedAssetWalletServer) AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AnchorVirtualPsbts not implemented")
 }
 func (UnimplementedAssetWalletServer) NextInternalKey(context.Context, *NextInternalKeyRequest) (*NextInternalKeyResponse, error) {

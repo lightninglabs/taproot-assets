@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"sort"
 
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -21,9 +21,9 @@ func testCollectibleSend(t *harnessTest) {
 			// Our "passive" asset.
 			{
 				Asset: &mintrpc.MintAsset{
-					AssetType: tarorpc.AssetType_NORMAL,
+					AssetType: taprpc.AssetType_NORMAL,
 					Name:      "itestbuxx-passive",
-					AssetMeta: &tarorpc.AssetMeta{
+					AssetMeta: &taprpc.AssetMeta{
 						Data: []byte("some metadata"),
 					},
 					Amount: 123,
@@ -57,7 +57,7 @@ func testCollectibleSend(t *harnessTest) {
 		senderTransferIdx   = 0
 		receiverTransferIdx = 0
 		fullAmount          = rpcAssets[0].Amount
-		receiverAddr        *tarorpc.Addr
+		receiverAddr        *taprpc.Addr
 		err                 error
 	)
 
@@ -67,7 +67,7 @@ func testCollectibleSend(t *harnessTest) {
 		// to the main node, and so on.
 		if i%2 == 0 {
 			receiverAddr, err = secondTarod.NewAddr(
-				ctxb, &tarorpc.NewAddrRequest{
+				ctxb, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
@@ -90,7 +90,7 @@ func testCollectibleSend(t *harnessTest) {
 			senderTransferIdx++
 		} else {
 			receiverAddr, err = t.tarod.NewAddr(
-				ctxb, &tarorpc.NewAddrRequest{
+				ctxb, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
@@ -128,7 +128,7 @@ func testCollectibleSend(t *harnessTest) {
 
 	// The second daemon should list one group with one asset.
 	listGroupsResp, err := secondTarod.ListGroups(
-		ctxb, &tarorpc.ListGroupsRequest{},
+		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -148,7 +148,7 @@ func testCollectibleSend(t *harnessTest) {
 	})
 
 	listAssetsResp, err := secondTarod.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{},
+		ctxb, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -162,7 +162,7 @@ func testCollectibleSend(t *harnessTest) {
 	assertGroup(t.t, allAssets[0], groupedAssets[0], rpcGroupKey)
 
 	aliceAssetsResp, err := t.tarod.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{IncludeSpent: true},
+		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
 	)
 	require.NoError(t.t, err)
 
@@ -172,7 +172,7 @@ func testCollectibleSend(t *harnessTest) {
 
 	// Finally, make sure we can still send out the passive asset.
 	passiveGen := rpcAssets[1].AssetGenesis
-	bobAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	bobAddr, err := secondTarod.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId: passiveGen.AssetId,
 		Amt:     rpcAssets[1].Amount,
 	})

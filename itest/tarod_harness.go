@@ -14,10 +14,10 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapcfg"
 	"github.com/lightninglabs/taro/tapdb"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
-	"github.com/lightninglabs/taro/tarorpc/universerpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -52,7 +52,7 @@ type tarodHarness struct {
 	ht *harnessTest
 	wg sync.WaitGroup
 
-	tarorpc.TaroClient
+	taprpc.TaprootAssetsClient
 	assetwalletrpc.AssetWalletClient
 	mintrpc.MintClient
 	universerpc.UniverseClient
@@ -207,7 +207,7 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 		return fmt.Errorf("could not connect to %v: %v",
 			listenerAddr, err)
 	}
-	hs.TaroClient = tarorpc.NewTaroClient(rpcConn)
+	hs.TaprootAssetsClient = taprpc.NewTaprootAssetsClient(rpcConn)
 	hs.AssetWalletClient = assetwalletrpc.NewAssetWalletClient(rpcConn)
 	hs.MintClient = mintrpc.NewMintClient(rpcConn)
 	hs.UniverseClient = universerpc.NewUniverseClient(rpcConn)

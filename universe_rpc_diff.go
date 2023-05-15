@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tarorpc/universerpc"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	"github.com/lightninglabs/taro/taprpc/universerpc"
+	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightninglabs/taro/universe"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"

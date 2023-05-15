@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-import "taro.proto";
+import "taprootassets.proto";
 
 package universerpc;
 
-option go_package = "github.com/lightninglabs/tarorpc/universerpc";
+option go_package = "github.com/lightninglabs/taro/taprpc/universerpc";
 
 service Universe {
     /* tarocli: `universe roots`
@@ -202,7 +202,7 @@ message AssetLeafKeyResponse {
 
 message AssetLeaf {
     // The asset included in the leaf.
-    tarorpc.Asset asset = 1;
+    taprpc.Asset asset = 1;
 
     // TODO(roasbeef): only needed for display? can get from proof below ^
 
@@ -367,7 +367,7 @@ message AssetStatsSnapshot {
 
     string asset_name = 3;
 
-    tarorpc.AssetType asset_type = 4;
+    taprpc.AssetType asset_type = 4;
 
     int32 genesis_height = 5;
 

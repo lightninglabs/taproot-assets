@@ -197,7 +197,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/MintAsset", runtime.WithHTTPPathPattern("/v1/taro/assets"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/MintAsset", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -220,7 +220,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/FinalizeBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/finalize"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/FinalizeBatch", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/finalize"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -243,7 +243,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/CancelBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/cancel"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/CancelBatch", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/cancel"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -266,7 +266,7 @@ func RegisterMintHandlerServer(ctx context.Context, mux *runtime.ServeMux, serve
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/batches/{batch_key}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/batches/{batch_key}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -328,7 +328,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/MintAsset", runtime.WithHTTPPathPattern("/v1/taro/assets"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/MintAsset", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -348,7 +348,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/FinalizeBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/finalize"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/FinalizeBatch", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/finalize"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -368,7 +368,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/CancelBatch", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/cancel"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/CancelBatch", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/cancel"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -388,7 +388,7 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taro/assets/mint/batches/{batch_key}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/mintrpc.Mint/ListBatches", runtime.WithHTTPPathPattern("/v1/taproot-assets/assets/mint/batches/{batch_key}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -408,13 +408,13 @@ func RegisterMintHandlerClient(ctx context.Context, mux *runtime.ServeMux, clien
 }
 
 var (
-	pattern_Mint_MintAsset_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taro", "assets"}, ""))
+	pattern_Mint_MintAsset_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taproot-assets", "assets"}, ""))
 
-	pattern_Mint_FinalizeBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "assets", "mint", "finalize"}, ""))
+	pattern_Mint_FinalizeBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "assets", "mint", "finalize"}, ""))
 
-	pattern_Mint_CancelBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taro", "assets", "mint", "cancel"}, ""))
+	pattern_Mint_CancelBatch_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "assets", "mint", "cancel"}, ""))
 
-	pattern_Mint_ListBatches_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taro", "assets", "mint", "batches", "batch_key"}, ""))
+	pattern_Mint_ListBatches_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "assets", "mint", "batches", "batch_key"}, ""))
 )
 
 var (

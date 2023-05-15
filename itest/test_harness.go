@@ -21,8 +21,8 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarorpc"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
+	"github.com/lightninglabs/taro/taprpc"
+	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -481,10 +481,10 @@ func formatProtoJSON(resp proto.Message) (string, error) {
 }
 
 // lndKeyDescToTaro converts an lnd key descriptor to a taro key descriptor.
-func lndKeyDescToTaro(lnd keychain.KeyDescriptor) *tarorpc.KeyDescriptor {
-	return &tarorpc.KeyDescriptor{
+func lndKeyDescToTaro(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
+	return &taprpc.KeyDescriptor{
 		RawKeyBytes: lnd.PubKey.SerializeCompressed(),
-		KeyLoc: &tarorpc.KeyLocator{
+		KeyLoc: &taprpc.KeyLocator{
 			KeyFamily: int32(lnd.Family),
 			KeyIndex:  int32(lnd.Index),
 		},

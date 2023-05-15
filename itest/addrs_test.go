@@ -5,9 +5,9 @@ import (
 	"context"
 
 	"github.com/lightninglabs/taro/tappsbt"
-	"github.com/lightninglabs/taro/tarorpc"
-	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	wrpc "github.com/lightninglabs/taro/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -41,11 +41,11 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, secondTarod.stop(true))
 	}()
 
-	var addresses []*tarorpc.Addr
+	var addresses []*taprpc.Addr
 	for idx, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
 		// asset.
-		addr, err := secondTarod.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+		addr, err := secondTarod.NewAddr(ctxt, &taprpc.NewAddrRequest{
 			AssetId: a.AssetGenesis.AssetId,
 			Amt:     a.Amount - 1,
 		})
@@ -83,7 +83,7 @@ func testAddresses(t *harnessTest) {
 	// Now sanity check that we can actually list the transfer.
 	err := wait.NoError(func() error {
 		resp, err := t.tarod.ListTransfers(
-			ctxt, &tarorpc.ListTransfersRequest{},
+			ctxt, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Transfers, len(rpcAssets))
@@ -166,13 +166,13 @@ func testMultiAddress(t *harnessTest) {
 // runMultiSendTest runs a test that sends assets to multiple addresses at the
 // same time.
 func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
-	bob *tarodHarness, genInfo *tarorpc.GenesisInfo,
-	mintedAsset *tarorpc.Asset, runIdx, numRuns int) {
+	bob *tarodHarness, genInfo *taprpc.GenesisInfo,
+	mintedAsset *taprpc.Asset, runIdx, numRuns int) {
 
 	// In order to force a split, we don't try to send the full asset.
 	const sendAmt = 100
-	var bobAddresses []*tarorpc.Addr
-	bobAddr1, err := bob.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+	var bobAddresses []*taprpc.Addr
+	bobAddr1, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
@@ -180,7 +180,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	bobAddresses = append(bobAddresses, bobAddr1)
 	assertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
 
-	bobAddr2, err := bob.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+	bobAddr2, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
@@ -190,14 +190,14 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 
 	// To test that Alice can also receive to multiple addresses in a single
 	// transaction as well, we also add two addresses for her.
-	aliceAddr1, err := alice.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+	aliceAddr1, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
 
-	aliceAddr2, err := alice.NewAddr(ctxt, &tarorpc.NewAddrRequest{
+	aliceAddr2, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
@@ -247,7 +247,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	changeAmt := mintedAsset.Amount - (sendAmt * numAddrs)
 	err = wait.NoError(func() error {
 		resp, err := alice.ListTransfers(
-			ctxt, &tarorpc.ListTransfersRequest{},
+			ctxt, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, resp.Transfers, numRuns)
@@ -265,13 +265,13 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 }
 
 func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
-	genInfo *tarorpc.GenesisInfo) *tarorpc.ImportProofResponse {
+	genInfo *taprpc.GenesisInfo) *taprpc.ImportProofResponse {
 
 	ctxb := context.Background()
 
-	var proofResp *tarorpc.ProofFile
+	var proofResp *taprpc.ProofFile
 	waitErr := wait.NoError(func() error {
-		resp, err := src.ExportProof(ctxb, &tarorpc.ExportProofRequest{
+		resp, err := src.ExportProof(ctxb, &taprpc.ExportProofRequest{
 			AssetId:   genInfo.AssetId,
 			ScriptKey: scriptKey,
 		})
@@ -286,7 +286,7 @@ func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 
 	t.Logf("Importing proof %x", proofResp.RawProof)
 
-	importResp, err := dst.ImportProof(ctxb, &tarorpc.ImportProofRequest{
+	importResp, err := dst.ImportProof(ctxb, &taprpc.ImportProofRequest{
 		ProofFile:    proofResp.RawProof,
 		GenesisPoint: genInfo.GenesisPoint,
 	})
@@ -298,7 +298,7 @@ func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
 func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
-	receiverAddrs ...*tarorpc.Addr) *tarorpc.SendAssetResponse {
+	receiverAddrs ...*taprpc.Addr) *taprpc.SendAssetResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -309,7 +309,7 @@ func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
 		encodedAddrs[i] = addr.Encoded
 	}
 
-	resp, err := sender.SendAsset(ctxt, &tarorpc.SendAssetRequest{
+	resp, err := sender.SendAsset(ctxt, &taprpc.SendAssetRequest{
 		TaroAddrs: encodedAddrs,
 	})
 	require.NoError(t.t, err)
@@ -320,7 +320,7 @@ func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
 // fundAddressSendPacket asks the wallet to fund a new virtual packet with the
 // given address as the single receiver.
 func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
-	rpcAddr *tarorpc.Addr) *wrpc.FundVirtualPsbtResponse {
+	rpcAddr *taprpc.Addr) *wrpc.FundVirtualPsbtResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)

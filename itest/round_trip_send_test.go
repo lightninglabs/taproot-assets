@@ -16,8 +16,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taro/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -67,7 +67,7 @@ func testRoundTripSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// First, we'll send half of the units to Bob.
-	bobAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	bobAddr, err := secondTarod.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId:          genInfo.AssetId,
 		Amt:              bobAmt,
 		TapscriptSibling: siblingBytes,
@@ -87,7 +87,7 @@ func testRoundTripSend(t *harnessTest) {
 	_ = sendProof(t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo)
 
 	// Now, Alice will request half of the assets she sent to Bob.
-	aliceAddr, err := t.tarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	aliceAddr, err := t.tarod.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId:          genInfo.AssetId,
 		Amt:              aliceAmt,
 		TapscriptSibling: siblingBytes,
@@ -130,7 +130,7 @@ func testRoundTripSend(t *harnessTest) {
 	// output with the tapscript sibling with just the hash preimage,
 	// burning the assets in the process.
 	transferResp, err := secondTarod.ListTransfers(
-		ctxb, &tarorpc.ListTransfersRequest{},
+		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t.t, err)
 

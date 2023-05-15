@@ -1,0 +1,59 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: universerpc.Universe.AssetRoots
+      get: "/v1/taproot-assets/universe/roots"
+
+    - selector: universerpc.Universe.QueryAssetRoots
+      get: "/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}"
+
+    - selector: universerpc.Universe.QueryAssetRoots
+      get: "/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"
+
+    - selector: universerpc.Universe.AssetLeafKeys
+      get: "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}"
+
+    - selector: universerpc.Universe.AssetLeafKeys
+      get: "/v1/taproot-assets/universe/keys/group-key/{group_key_str}"
+
+    - selector: universerpc.Universe.AssetLeaves
+      get: "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"
+
+    - selector: universerpc.Universe.AssetLeaves
+      get: "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"
+
+    - selector: universerpc.Universe.QueryIssuanceProof
+      get: "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
+
+    - selector: universerpc.Universe.QueryIssuanceProof
+      get: "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
+
+    - selector: universerpc.Universe.InsertIssuanceProof
+      post: "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
+      body: "*"
+
+    - selector: universerpc.Universe.InsertIssuanceProof
+      post: "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
+      body: "*"
+
+    - selector: universerpc.Universe.SyncUniverse
+      post: "/v1/taproot-assets/universe/sync"
+      body: "*"
+
+    - selector: universerpc.Universe.ListFederationServers
+      get: "/v1/taproot-assets/universe/federation"
+
+    - selector: universerpc.Universe.AddFederationServer
+      post: "/v1/taproot-assets/universe/federation"
+      body: "*"
+        
+    - selector: universerpc.Universe.DeleteFederationServer
+      delete: "/v1/taproot-assets/universe/federation"
+
+    - selector: universerpc.Universe.UniverseStats
+      get: "/v1/taproot-assets/universe/stats"
+
+    - selector: universerpc.Universe.QueryAssetStats
+      get: "/v1/taproot-assets/universe/stats/assets"

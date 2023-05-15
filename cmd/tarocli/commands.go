@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/json"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
-	"github.com/lightninglabs/taro/tarorpc"
+	"github.com/lightninglabs/taro/taprpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 )
@@ -81,7 +81,7 @@ func debugLevel(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
-	req := &tarorpc.DebugLevelRequest{
+	req := &taprpc.DebugLevelRequest{
 		Show:      ctx.Bool("show"),
 		LevelSpec: ctx.String("level"),
 	}
@@ -109,7 +109,7 @@ func stopDaemon(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	_, err := client.StopDaemon(ctxc, &tarorpc.StopRequest{})
+	_, err := client.StopDaemon(ctxc, &taprpc.StopRequest{})
 	if err != nil {
 		return err
 	}
