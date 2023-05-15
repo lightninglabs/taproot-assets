@@ -1,4 +1,4 @@
-PKG := github.com/lightninglabs/taro
+PKG := github.com/lightninglabs/taproot-assets
 
 BTCD_PKG := github.com/btcsuite/btcd
 LND_PKG := github.com/lightningnetwork/lnd

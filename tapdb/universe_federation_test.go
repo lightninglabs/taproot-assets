@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/rand"
 )

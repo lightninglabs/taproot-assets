@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"math"
 
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/taprpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 

@@ -8,7 +8,7 @@ import (
 
 	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/lightninglabs/taro/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/stretchr/testify/require"
 )
 

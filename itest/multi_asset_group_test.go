@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/taprpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 

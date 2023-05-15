@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/lightninglabs/taro/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 )
 
 var (

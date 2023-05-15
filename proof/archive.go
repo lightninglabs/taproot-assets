@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
 )
 
 const (

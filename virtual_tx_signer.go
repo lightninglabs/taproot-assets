@@ -6,7 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
 // LndRpcVirtualTxSigner is an implementation of the tapscript.Signer

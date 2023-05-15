@@ -9,10 +9,10 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 

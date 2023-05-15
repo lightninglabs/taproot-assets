@@ -6,10 +6,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tapscript"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 

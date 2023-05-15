@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 )
 
 type (

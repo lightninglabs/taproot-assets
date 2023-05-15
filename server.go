@@ -10,9 +10,9 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/perms"
-	"github.com/lightninglabs/taro/rpcperms"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/perms"
+	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"

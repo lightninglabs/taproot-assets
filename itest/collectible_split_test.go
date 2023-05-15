@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"sort"
 
-	"github.com/lightninglabs/taro/taprpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )

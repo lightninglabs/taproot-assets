@@ -10,9 +10,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )

@@ -8,8 +8,8 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/lightninglabs/taro/chanutils"
-	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"

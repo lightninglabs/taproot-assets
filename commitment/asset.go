@@ -9,9 +9,9 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"golang.org/x/exp/maps"
 )
 

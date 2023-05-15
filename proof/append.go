@@ -7,8 +7,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 )
 
 // TransitionParams holds the set of chain level information needed to append a

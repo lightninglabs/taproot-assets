@@ -6,10 +6,10 @@ import (
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tapscript"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
 // Engine is a virtual machine capable of executing and verifying Taro asset

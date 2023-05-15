@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
 

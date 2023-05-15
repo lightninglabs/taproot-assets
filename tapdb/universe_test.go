@@ -8,13 +8,13 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
 )
 

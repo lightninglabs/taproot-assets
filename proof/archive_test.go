@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
 

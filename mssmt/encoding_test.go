@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/stretchr/testify/require"
 )
 

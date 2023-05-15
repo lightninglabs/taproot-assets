@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"io"
 
-	"github.com/lightninglabs/taro/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )

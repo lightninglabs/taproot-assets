@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 

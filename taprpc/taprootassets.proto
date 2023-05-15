@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package taprpc;
 
-option go_package = "github.com/lightninglabs/taro/taprpc";
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc";
 
 service TaprootAssets {
     /* tapcli: `assets list`

@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -320,7 +320,7 @@ type Witness struct {
 	// except upon the creation of an asset, where both should be nil.
 	//
 	// TODO: This still needs to be specified further in the BIPs, see
-	// https://github.com/lightninglabs/taro/issues/3.
+	// https://github.com/lightninglabs/taproot-assets/issues/3.
 	SplitCommitment *SplitCommitment
 }
 

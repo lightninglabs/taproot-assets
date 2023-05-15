@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 

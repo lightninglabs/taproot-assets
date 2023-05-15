@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightninglabs/taro"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taprpc/universerpc"
-	unirpc "github.com/lightninglabs/taro/taprpc/universerpc"
+	taro "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )

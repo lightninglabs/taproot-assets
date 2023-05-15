@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/urfave/cli"
 )
 

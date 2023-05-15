@@ -2,12 +2,12 @@ package taro
 
 import (
 	"github.com/btcsuite/btclog"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tapdb"
-	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/tapgarden"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 )

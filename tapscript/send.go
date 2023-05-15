@@ -15,10 +15,10 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/tappsbt"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"golang.org/x/exp/slices"
 )
 

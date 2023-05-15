@@ -7,7 +7,7 @@
 
 ## Building from Source
 ```
-git clone https://github.com/lightninglabs/taro
+git clone https://github.com/lightninglabs/taproot-assets
 cd taro
 docker build -f dev.Dockerfile -t taro .
 ```

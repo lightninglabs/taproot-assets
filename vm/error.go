@@ -3,7 +3,7 @@ package vm
 import (
 	"fmt"
 
-	"github.com/lightninglabs/taro/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
 // ErrorKind uniquely identifies the kind of Error returned by the Taro VM.

@@ -11,9 +11,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 var (

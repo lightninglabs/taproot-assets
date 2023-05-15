@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lightninglabs/taro/mssmt"
-	_ "github.com/lightninglabs/taro/tapdb"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	_ "github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/stretchr/testify/require"
 )
 

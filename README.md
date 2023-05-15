@@ -49,7 +49,7 @@ make install tags="signrpc walletrpc chainrpc invoicesrpc"
 Compile Taro from source by cloning this repository. [Go version 1.18](https://go.dev/dl/) or higher is required.
 
 ```shell
-git clone https://github.com/lightninglabs/taro.git
+git clone https://github.com/lightninglabs/taproot-assets.git
 cd taro
 make install
 ```
@@ -116,7 +116,7 @@ The current codebase does not support the Bitcoin `mainnet`. Patching the code t
 
 ## Submit feature requests
 
-The [GitHub issue tracker](https://github.com/lightninglabs/taro/issues) can be used to request specific improvements or report bugs.
+The [GitHub issue tracker](https://github.com/lightninglabs/taproot-assets/issues) can be used to request specific improvements or report bugs.
 
 ## Join us on Slack
 

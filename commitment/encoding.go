@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 

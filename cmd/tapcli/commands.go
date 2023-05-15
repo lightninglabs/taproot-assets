@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/json"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
-	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 )

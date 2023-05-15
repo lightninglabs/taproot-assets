@@ -4,7 +4,7 @@ import "taprootassets.proto";
 
 package mintrpc;
 
-option go_package = "github.com/lightninglabs/taro/taprpc/mintrpc";
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/mintrpc";
 
 service Mint {
     /* tapcli: `assets mint`

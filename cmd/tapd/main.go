@@ -7,8 +7,8 @@ import (
 	"runtime/pprof"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/tapcfg"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightningnetwork/lnd/signal"
 )
 

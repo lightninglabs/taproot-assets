@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/stretchr/testify/require"
 )
 

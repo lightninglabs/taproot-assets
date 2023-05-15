@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	"github.com/lightninglabs/taro/tapcfg"
-	"github.com/lightninglabs/taro/taprpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/tapcfg"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/urfave/cli"
 )
 

@@ -4,7 +4,7 @@ import "taprootassets.proto";
 
 package universerpc;
 
-option go_package = "github.com/lightninglabs/taro/taprpc/universerpc";
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/universerpc";
 
 service Universe {
     /* tapcli: `universe roots`

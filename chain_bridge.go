@@ -7,7 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )

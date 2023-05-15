@@ -5,10 +5,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 

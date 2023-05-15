@@ -5,7 +5,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/commitment"
 )
 
 // PayToAddrScript constructs a P2TR script that embeds a Taproot Asset

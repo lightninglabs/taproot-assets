@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/taprpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 

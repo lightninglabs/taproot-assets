@@ -10,7 +10,7 @@
 set -e
 
 TAPD_VERSION_REGEX="tapd version (.+) commit"
-PKG="github.com/lightninglabs/taro"
+PKG="github.com/lightninglabs/taproot-assets"
 PACKAGE=taro
 
 # Needed for setting file timestamps to get reproducible archives.

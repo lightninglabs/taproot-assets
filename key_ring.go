@@ -6,8 +6,8 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tapgarden"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 

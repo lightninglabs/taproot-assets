@@ -4,7 +4,7 @@ package assetwalletrpc
 
 import (
 	context "context"
-	taprpc "github.com/lightninglabs/taro/taprpc"
+	taprpc "github.com/lightninglabs/taproot-assets/taprpc"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"

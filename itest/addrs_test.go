@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/lightninglabs/taro/tappsbt"
-	"github.com/lightninglabs/taro/taprpc"
-	wrpc "github.com/lightninglabs/taro/taprpc/assetwalletrpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )

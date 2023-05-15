@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 )
 
 const hashSize = 32

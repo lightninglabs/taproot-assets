@@ -15,9 +15,9 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightninglabs/taro"
-	"github.com/lightninglabs/taro/taprpc"
-	"github.com/lightninglabs/taro/taprpc/mintrpc"
+	taro "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"

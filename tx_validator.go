@@ -1,10 +1,10 @@
 package taro
 
 import (
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/tapscript"
-	"github.com/lightninglabs/taro/vm"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/vm"
 )
 
 // ValidatorV0 is an implementation of the tapscript.TxValidator interface

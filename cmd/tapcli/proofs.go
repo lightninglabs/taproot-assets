@@ -7,7 +7,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/lightninglabs/taro/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/universe"
 )
 
 type (

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/stretchr/testify/require"
 )
 

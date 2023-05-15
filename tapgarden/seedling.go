@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 var (
