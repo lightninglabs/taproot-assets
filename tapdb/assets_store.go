@@ -367,9 +367,9 @@ type ManagedUTXO struct {
 	// in the outpoint.
 	InternalKey keychain.KeyDescriptor
 
-	// TaroRoot is the Taproot Asset commitment root hash committed to by
-	// this outpoint.
-	TaroRoot []byte
+	// TaprootAssetRoot is the Taproot Asset commitment root hash committed
+	// to by this outpoint.
+	TaprootAssetRoot []byte
 
 	// MerkleRoot is the Taproot merkle root hash committed to by this
 	// outpoint. If there is no Tapscript sibling, this is equal to
@@ -1042,7 +1042,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 					),
 				},
 			},
-			TaroRoot:         u.TaroRoot,
+			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
 			TapscriptSibling: u.TapscriptSibling,
 		}
@@ -1271,12 +1271,12 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	// Next, we'll insert the managed UTXO that points to the output in our
 	// control for the specified asset.
 	merkleRoot := proof.ScriptRoot.TapscriptRoot(siblingHash)
-	taroRoot := proof.ScriptRoot.TapscriptRoot(nil)
+	taprootAssetRoot := proof.ScriptRoot.TapscriptRoot(nil)
 	utxoID, err := db.UpsertManagedUTXO(ctx, RawManagedUTXO{
 		RawKey:           proof.InternalKey.SerializeCompressed(),
 		Outpoint:         anchorPoint,
 		AmtSats:          anchorOutput.Value,
-		TaroRoot:         taroRoot[:],
+		TaprootAssetRoot: taprootAssetRoot[:],
 		MerkleRoot:       merkleRoot[:],
 		TapscriptSibling: siblingBytes,
 		TxnID:            chainTXID,
@@ -1782,7 +1782,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		RawKey:           internalKeyBytes,
 		Outpoint:         anchorPointBytes,
 		AmtSats:          int64(anchor.Value),
-		TaroRoot:         anchor.TaroRoot,
+		TaprootAssetRoot: anchor.TaprootAssetRoot,
 		MerkleRoot:       anchor.MerkleRoot,
 		TapscriptSibling: anchor.TapscriptSibling,
 		TxnID:            txnID,
@@ -1949,7 +1949,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 						),
 					},
 				},
-				TaroRoot:         dbOut.AnchorTaroRoot,
+				TaprootAssetRoot: dbOut.AnchorTaprootAssetRoot,
 				MerkleRoot:       dbOut.AnchorMerkleRoot,
 				TapscriptSibling: dbOut.AnchorTapscriptSibling,
 				NumPassiveAssets: uint32(

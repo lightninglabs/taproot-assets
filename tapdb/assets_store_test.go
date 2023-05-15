@@ -866,8 +866,8 @@ func TestAssetExportLog(t *testing.T) {
 				},
 				// This can be anything since we assume the
 				// application sets it properly.
-				TaroRoot:   bytes.Repeat([]byte{0x01}, 32),
-				MerkleRoot: bytes.Repeat([]byte{0x01}, 32),
+				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
+				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
 			},
 			ScriptKey:      newScriptKey,
 			ScriptKeyLocal: true,
@@ -897,8 +897,8 @@ func TestAssetExportLog(t *testing.T) {
 				},
 				// This can be anything since we assume the
 				// application sets it properly.
-				TaroRoot:   bytes.Repeat([]byte{0x01}, 32),
-				MerkleRoot: bytes.Repeat([]byte{0x01}, 32),
+				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
+				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
 			},
 			ScriptKey:      newScriptKey2,
 			ScriptKeyLocal: true,
@@ -961,7 +961,9 @@ func TestAssetExportLog(t *testing.T) {
 		t, spendDelta.AnchorTx.TxOut[0].Value,
 		int64(newUtxo.OutputValue),
 	)
-	require.Equal(t, firstOutputAnchor.TaroRoot, newUtxo.TaroRoot)
+	require.Equal(
+		t, firstOutputAnchor.TaprootAssetRoot, newUtxo.TaprootAssetRoot,
+	)
 	require.Equal(t, firstOutputAnchor.MerkleRoot, newUtxo.MerkleRoot)
 	require.Equal(
 		t, firstOutputAnchor.TapscriptSibling, newUtxo.TapscriptSibling,

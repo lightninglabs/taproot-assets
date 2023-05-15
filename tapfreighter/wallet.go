@@ -620,8 +620,8 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 				"pk script: %w", err)
 		}
 
-		log.Tracef("Input commitment taro_root=%x, internal_key=%x, "+
-			"pk_script=%x, trimmed_merkle_root=%x",
+		log.Tracef("Input commitment taproot_asset_root=%x, "+
+			"internal_key=%x, pk_script=%x, trimmed_merkle_root=%x",
 			chanutils.ByteSlice(
 				assetInput.Commitment.TapscriptRoot(nil),
 			), internalKey.PubKey.SerializeCompressed(),

@@ -649,7 +649,7 @@
           "type": "string",
           "format": "byte"
         },
-        "taro_root": {
+        "taproot_asset_root": {
           "type": "string",
           "format": "byte"
         },

@@ -1260,10 +1260,10 @@
           "format": "byte",
           "description": "The internal key used for the on-chain output."
         },
-        "taro_root": {
+        "taproot_asset_root": {
           "type": "string",
           "format": "byte",
-          "description": "The Taro root commitment hash."
+          "description": "The Taproot Asset root commitment hash."
         },
         "merkle_root": {
           "type": "string",
@@ -1542,7 +1542,7 @@
           "type": "string",
           "format": "byte"
         },
-        "taro_root": {
+        "taproot_asset_root": {
           "type": "string",
           "format": "byte"
         },

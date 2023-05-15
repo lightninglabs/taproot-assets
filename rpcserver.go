@@ -721,11 +721,11 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 	utxos := make(map[string]*taprpc.ManagedUtxo)
 	for _, u := range managedUtxos {
 		utxos[u.OutPoint.String()] = &taprpc.ManagedUtxo{
-			OutPoint:    u.OutPoint.String(),
-			AmtSat:      int64(u.OutputValue),
-			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
-			TaroRoot:    u.TaroRoot,
-			MerkleRoot:  u.MerkleRoot,
+			OutPoint:         u.OutPoint.String(),
+			AmtSat:           int64(u.OutputValue),
+			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
+			TaprootAssetRoot: u.TaprootAssetRoot,
+			MerkleRoot:       u.MerkleRoot,
 		}
 	}
 
@@ -1651,7 +1651,7 @@ func marshalOutboundParcel(
 			Outpoint:         out.Anchor.OutPoint.String(),
 			Value:            int64(out.Anchor.Value),
 			InternalKey:      internalKeyBytes,
-			TaroRoot:         out.Anchor.TaroRoot[:],
+			TaprootAssetRoot: out.Anchor.TaprootAssetRoot[:],
 			MerkleRoot:       out.Anchor.MerkleRoot[:],
 			TapscriptSibling: out.Anchor.TapscriptSibling,
 			NumPassiveAssets: out.Anchor.NumPassiveAssets,

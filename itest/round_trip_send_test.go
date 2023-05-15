@@ -148,7 +148,7 @@ func testRoundTripSend(t *harnessTest) {
 	// can now create the tapscript struct that's used for assembling the
 	// control block and fee estimation.
 	tapscript := input.TapscriptPartialReveal(
-		internalKey, scriptLeaf, bobToAliceAnchor.TaroRoot,
+		internalKey, scriptLeaf, bobToAliceAnchor.TaprootAssetRoot,
 	)
 
 	// Spend the output again, this time back to a p2wkh address.

@@ -138,9 +138,9 @@ type Anchor struct {
 	// anchored at the new outpoint.
 	InternalKey keychain.KeyDescriptor
 
-	// TaroRoot is the Taproot Asset commitment root hash of the anchor
-	// output.
-	TaroRoot []byte
+	// TaprootAssetRoot is the Taproot Asset commitment root hash of the
+	// anchor output.
+	TaprootAssetRoot []byte
 
 	// MerkleRoot is the root of the tap script merkle tree that also
 	// contains the Taproot Asset commitment of the anchor output. If there

@@ -348,7 +348,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 
 		outCommitment := outputCommitments[vOut.AnchorOutputIndex]
 		merkleRoot := outCommitment.TapscriptRoot(siblingHash)
-		taroRoot := outCommitment.TapscriptRoot(nil)
+		taprootAssetRoot := outCommitment.TapscriptRoot(nil)
 
 		var (
 			numPassiveAssets    uint32
@@ -404,7 +404,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 				},
 				Value:            btcutil.Amount(txOut.Value),
 				InternalKey:      anchorInternalKey,
-				TaroRoot:         taroRoot[:],
+				TaprootAssetRoot: taprootAssetRoot[:],
 				MerkleRoot:       merkleRoot[:],
 				TapscriptSibling: preimageBytes,
 				NumPassiveAssets: numPassiveAssets,
@@ -622,8 +622,8 @@ func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 		}
 
 		log.Tracef("Generated exclusion proof for anchor output index "+
-			"%d with asset_id=%v, taro_root=%x, internal_key=%x",
-			outIndex, asset.ID(),
+			"%d with asset_id=%v, taproot_asset_root=%x, "+
+			"internal_key=%x", outIndex, asset.ID(),
 			chanutils.ByteSlice(tapTree.TapscriptRoot(nil)),
 			vOut.AnchorOutputInternalKey.SerializeCompressed())
 

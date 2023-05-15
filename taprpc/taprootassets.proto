@@ -297,8 +297,8 @@ message ManagedUtxo {
     // The internal key used for the on-chain output.
     bytes internal_key = 3;
 
-    // The Taro root commitment hash.
-    bytes taro_root = 4;
+    // The Taproot Asset root commitment hash.
+    bytes taproot_asset_root = 4;
 
     /*
     The Taproot merkle root hash committed to by the outpoint of this UTXO.
@@ -446,7 +446,7 @@ message TransferOutputAnchor {
 
     bytes internal_key = 3;
 
-    bytes taro_root = 4;
+    bytes taproot_asset_root = 4;
 
     bytes merkle_root = 5;
 

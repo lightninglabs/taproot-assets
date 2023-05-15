@@ -1061,10 +1061,11 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			Outpoint: anchorOutpoint,
 			AmtSats:  anchorOutput.Value,
 			// When minting, we never have a tapscript sibling, so
-			// the Taro root is always equal to the merkle root.
-			TaroRoot:   merkleRoot,
-			MerkleRoot: merkleRoot,
-			TxnID:      chainTXID,
+			// the TaprootAssetRoot root is always equal to the
+			// merkle root.
+			TaprootAssetRoot: merkleRoot,
+			MerkleRoot:       merkleRoot,
+			TxnID:            chainTXID,
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert managed utxo: %w", err)

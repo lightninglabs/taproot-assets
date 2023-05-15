@@ -130,15 +130,15 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
 
     internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
-    -- The Taro root commitment hash.
-    taro_root BLOB NOT NULL CHECK(length(taro_root) = 32),
+    -- The Taproot Asset root commitment hash.
+    taproot_asset_root BLOB NOT NULL CHECK(length(taproot_asset_root) = 32),
 
     -- The serialized tapscript sibling preimage. If this is empty then the
-    -- Taro root commitment is equal to the merkle_root below.
+    -- Taproot Asset root commitment is equal to the merkle_root below.
     tapscript_sibling BLOB,
 
     -- The Taproot merkle root hash. If there is no tapscript sibling then this
-    -- corresponds to the Taro root commitment hash.
+    -- corresponds to the Taproot Asset root commitment hash.
     --
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
     merkle_root BLOB NOT NULL CHECK(length(merkle_root) = 32),

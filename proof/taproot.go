@@ -287,7 +287,7 @@ func (p TaprootProof) DeriveByAssetInclusion(
 		return nil, nil, err
 	}
 
-	log.Tracef("Derived Taproot Asset commitment taro_root=%x, "+
+	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
 		"internal_key=%x, taproot_key=%x",
 		chanutils.ByteSlice(tapCommitment.TapscriptRoot(nil)),
 		p.InternalKey.SerializeCompressed(),
@@ -345,7 +345,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 		return nil, err
 	}
 
-	log.Tracef("Derived Taproot Asset commitment taro_root=%x, "+
+	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
 		"internal_key=%x",
 		chanutils.ByteSlice(commitment.TapscriptRoot(nil)),
 		p.InternalKey.SerializeCompressed())

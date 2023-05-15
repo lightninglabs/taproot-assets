@@ -375,7 +375,7 @@ SELECT
     utxos.outpoint AS anchor_outpoint,
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
-    utxos.taro_root AS anchor_taro_root,
+    utxos.taproot_asset_root AS anchor_taproot_asset_root,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
 FROM assets
@@ -484,7 +484,7 @@ WITH target_key(key_id) AS (
 )
 INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id,
-    taro_root
+    taproot_asset_root
 ) VALUES (
     $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7
 ) ON CONFLICT (outpoint)
