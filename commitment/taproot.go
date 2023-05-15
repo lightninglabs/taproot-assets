@@ -37,10 +37,10 @@ var (
 		"invalid tapscript preimage length",
 	)
 
-	// ErrPreimageIsTaroCommitment is an error returned when a tapscript
-	// preimage is a valid Taro commitment.
-	ErrPreimageIsTaroCommitment = errors.New(
-		"preimage is a taro commitment",
+	// ErrPreimageIsTapCommitment is an error returned when a tapscript
+	// preimage is a valid Taproot Asset commitment.
+	ErrPreimageIsTapCommitment = errors.New(
+		"preimage is a Taproot Asset commitment",
 	)
 )
 
@@ -130,8 +130,8 @@ func (t *TapscriptPreimage) TapHash() (*chainhash.Hash, error) {
 
 	switch t.SiblingType {
 	// The sibling is actually a leaf pre-image, so we'll verify that it
-	// isn't a Taro commitment, and then hash it with the commitment to
-	// obtain our root.
+	// isn't a Taproot Asset commitment, and then hash it with the
+	// commitment to obtain our root.
 	case LeafPreimage:
 		return TapLeafHash(t.SiblingPreimage)
 
@@ -147,10 +147,11 @@ func (t *TapscriptPreimage) TapHash() (*chainhash.Hash, error) {
 	}
 }
 
-// VerifyNoCommitment verifies that the preimage is not a Taro commitment.
+// VerifyNoCommitment verifies that the preimage is not a Taproot Asset
+// commitment.
 func (t *TapscriptPreimage) VerifyNoCommitment() error {
-	if IsTaroCommitmentScript(t.SiblingPreimage) {
-		return ErrPreimageIsTaroCommitment
+	if IsTaprootAssetCommitmentScript(t.SiblingPreimage) {
+		return ErrPreimageIsTapCommitment
 	}
 
 	return nil
@@ -247,8 +248,8 @@ func TapLeafHash(preimage []byte) (*chainhash.Hash, error) {
 		return nil, ErrInvalidEmptyTapscriptPreimage
 	}
 
-	// Enforce that it is not including another Taro commitment.
-	if bytes.Contains(preimage, TaroMarker[:]) {
+	// Enforce that it is not including another Taproot Asset commitment.
+	if bytes.Contains(preimage, TaprootAssetsMarker[:]) {
 		return nil, ErrInvalidTaprootProof
 	}
 

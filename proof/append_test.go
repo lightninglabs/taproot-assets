@@ -109,10 +109,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
 	require.NoError(t, err)
-	taroCommitment, err := commitment.NewTaroCommitment(assetCommitment)
+	tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
 	require.NoError(t, err)
 
-	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
+	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		recipientTaprootInternalKey, tapscriptRoot[:],
 	)
@@ -163,11 +163,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{chainTx},
 			},
-			Tx:          chainTx,
-			TxIndex:     0,
-			OutputIndex: 0,
-			InternalKey: recipientTaprootInternalKey,
-			TaroRoot:    taroCommitment,
+			Tx:               chainTx,
+			TxIndex:          0,
+			OutputIndex:      0,
+			InternalKey:      recipientTaprootInternalKey,
+			TaprootAssetRoot: tapCommitment,
 		},
 		NewAsset: &newAsset,
 	}
@@ -259,16 +259,16 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split3AssetNoSplitProof,
 	)
 	require.NoError(t, err)
-	taro1Commitment, err := commitment.NewTaroCommitment(split1Commitment)
+	tap1Commitment, err := commitment.NewTapCommitment(split1Commitment)
 	require.NoError(t, err)
-	taro2Commitment, err := commitment.NewTaroCommitment(split2Commitment)
+	tap2Commitment, err := commitment.NewTapCommitment(split2Commitment)
 	require.NoError(t, err)
-	taro3Commitment, err := commitment.NewTaroCommitment(split3Commitment)
+	tap3Commitment, err := commitment.NewTapCommitment(split3Commitment)
 	require.NoError(t, err)
 
-	tapscript1Root := taro1Commitment.TapscriptRoot(nil)
-	tapscript2Root := taro2Commitment.TapscriptRoot(nil)
-	tapscript3Root := taro3Commitment.TapscriptRoot(nil)
+	tapscript1Root := tap1Commitment.TapscriptRoot(nil)
+	tapscript2Root := tap2Commitment.TapscriptRoot(nil)
+	tapscript3Root := tap3Commitment.TapscriptRoot(nil)
 	internalKey1 := test.RandPubKey(t)
 	internalKey2 := test.RandPubKey(t)
 	internalKey3 := test.RandPubKey(t)
@@ -314,35 +314,35 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	splitTxMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{splitTx}, 0)
 	require.NoError(t, err)
 
-	_, split1In2ExclusionProof, err := taro2Commitment.Proof(
-		split1Asset.TaroCommitmentKey(),
+	_, split1In2ExclusionProof, err := tap2Commitment.Proof(
+		split1Asset.TapCommitmentKey(),
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
-	_, split1In3ExclusionProof, err := taro3Commitment.Proof(
-		split1Asset.TaroCommitmentKey(),
+	_, split1In3ExclusionProof, err := tap3Commitment.Proof(
+		split1Asset.TapCommitmentKey(),
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
-	_, split2In1ExclusionProof, err := taro1Commitment.Proof(
-		split2Asset.TaroCommitmentKey(),
+	_, split2In1ExclusionProof, err := tap1Commitment.Proof(
+		split2Asset.TapCommitmentKey(),
 		split2Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
-	_, split2In3ExclusionProof, err := taro3Commitment.Proof(
-		split2Asset.TaroCommitmentKey(),
+	_, split2In3ExclusionProof, err := tap3Commitment.Proof(
+		split2Asset.TapCommitmentKey(),
 		split2Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
-	_, split3In1ExclusionProof, err := taro1Commitment.Proof(
-		split3Asset.TaroCommitmentKey(),
+	_, split3In1ExclusionProof, err := tap1Commitment.Proof(
+		split3Asset.TapCommitmentKey(),
 		split3Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
-	_, split3In2ExclusionProof, err := taro2Commitment.Proof(
-		split3Asset.TaroCommitmentKey(),
+	_, split3In2ExclusionProof, err := tap2Commitment.Proof(
+		split3Asset.TapCommitmentKey(),
 		split3Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
@@ -355,11 +355,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				Header:       *splitBlockHeader,
 				Transactions: []*wire.MsgTx{splitTx},
 			},
-			Tx:          splitTx,
-			TxIndex:     0,
-			OutputIndex: 0,
-			InternalKey: internalKey1,
-			TaroRoot:    taro1Commitment,
+			Tx:               splitTx,
+			TxIndex:          0,
+			OutputIndex:      0,
+			InternalKey:      internalKey1,
+			TaprootAssetRoot: tap1Commitment,
 			ExclusionProofs: []TaprootProof{{
 				OutputIndex: 1,
 				InternalKey: internalKey2,
@@ -393,11 +393,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				Header:       *splitBlockHeader,
 				Transactions: []*wire.MsgTx{splitTx},
 			},
-			Tx:          splitTx,
-			TxIndex:     0,
-			OutputIndex: 1,
-			InternalKey: internalKey2,
-			TaroRoot:    taro2Commitment,
+			Tx:               splitTx,
+			TxIndex:          0,
+			OutputIndex:      1,
+			InternalKey:      internalKey2,
+			TaprootAssetRoot: tap2Commitment,
 			ExclusionProofs: []TaprootProof{{
 				OutputIndex: 0,
 				InternalKey: internalKey1,
@@ -412,10 +412,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				},
 			}},
 		},
-		NewAsset:        split2Asset,
-		RootInternalKey: internalKey1,
-		RootOutputIndex: 0,
-		RootTaroTree:    taro1Commitment,
+		NewAsset:             split2Asset,
+		RootInternalKey:      internalKey1,
+		RootOutputIndex:      0,
+		RootTaprootAssetTree: tap1Commitment,
 	}
 
 	split2Blob, split2Proof, err := AppendTransition(
@@ -435,11 +435,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				Header:       *splitBlockHeader,
 				Transactions: []*wire.MsgTx{splitTx},
 			},
-			Tx:          splitTx,
-			TxIndex:     0,
-			OutputIndex: 2,
-			InternalKey: internalKey3,
-			TaroRoot:    taro3Commitment,
+			Tx:               splitTx,
+			TxIndex:          0,
+			OutputIndex:      2,
+			InternalKey:      internalKey3,
+			TaprootAssetRoot: tap3Commitment,
 			ExclusionProofs: []TaprootProof{{
 				OutputIndex: 0,
 				InternalKey: internalKey1,
@@ -454,10 +454,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				},
 			}},
 		},
-		NewAsset:        split3Asset,
-		RootInternalKey: internalKey1,
-		RootOutputIndex: 0,
-		RootTaroTree:    taro1Commitment,
+		NewAsset:             split3Asset,
+		RootInternalKey:      internalKey1,
+		RootOutputIndex:      0,
+		RootTaprootAssetTree: tap1Commitment,
 	}
 
 	split3Blob, split3Proof, err := AppendTransition(

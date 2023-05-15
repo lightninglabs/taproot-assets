@@ -24,9 +24,10 @@ import (
 
 const (
 	// DummyAmtSats is the default amount of sats we'll use in Bitcoin
-	// outputs embedding Taro commitments. This value just needs to be
-	// greater than dust, and we assume that this value is updated to match
-	// the input asset bearing UTXOs before finalizing the transfer TX.
+	// outputs embedding Taproot Asset commitments. This value just needs to
+	// be greater than dust, and we assume that this value is updated to
+	// match the input asset bearing UTXOs before finalizing the transfer
+	// TX.
 	DummyAmtSats = btcutil.Amount(1_000)
 
 	// SendConfTarget is the confirmation target we'll use to query for
@@ -87,11 +88,11 @@ var (
 		"send: Asset commitment not found",
 	)
 
-	// ErrMissingTaroCommitment is an error returned when we attempt to
-	// look up a Taro commitment in a map and the specified commitment
+	// ErrMissingTapCommitment is an error returned when we attempt to look
+	// up a Taproot Asset commitment in a map and the specified commitment
 	// is not found.
-	ErrMissingTaroCommitment = errors.New(
-		"send: Taro commitment not found",
+	ErrMissingTapCommitment = errors.New(
+		"send: Taproot Asset commitment not found",
 	)
 
 	// ErrInvalidAnchorInfo is an error returned when the anchor output
@@ -102,7 +103,7 @@ var (
 )
 
 // createDummyOutput creates a new Bitcoin transaction output that is later
-// used to embed a Taro commitment.
+// used to embed a Taproot Asset commitment.
 func createDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output.
 	newOutput := wire.TxOut{
@@ -134,10 +135,10 @@ type FundingDescriptor struct {
 	Amount uint64
 }
 
-// TaroCommitmentKey is the key that maps to the root commitment for the asset
+// TapCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a recipient descriptor.
-func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
-	return asset.TaroCommitmentKey(r.ID, r.GroupKey)
+func (r *FundingDescriptor) TapCommitmentKey() [32]byte {
+	return asset.TapCommitmentKey(r.ID, r.GroupKey)
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
@@ -193,20 +194,20 @@ func DescribeAddrs(addrs []*address.Tap) (*FundingDescriptor, error) {
 	return desc, nil
 }
 
-// AssetFromTaroCommitment uses a script key to extract an asset from a given
-// taro commitment.
-func AssetFromTaroCommitment(taroCommitment *commitment.TaroCommitment,
-	desc *FundingDescriptor,
-	inputScriptKey btcec.PublicKey) (*asset.Asset, error) {
+// AssetFromTapCommitment uses a script key to extract an asset from a given
+// Taproot Asset commitment.
+func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
+	desc *FundingDescriptor, inputScriptKey btcec.PublicKey) (*asset.Asset,
+	error) {
 
-	// The top-level Taro tree must have a non-empty asset tree at the leaf
-	// specified by the funding descriptor's asset (group) specific
+	// The top-level Taproot ASset tree must have a non-empty asset tree at
+	// the leaf specified by the funding descriptor's asset (group) specific
 	// commitment locator.
-	assetCommitments := taroCommitment.Commitments()
-	assetCommitment, ok := assetCommitments[desc.TaroCommitmentKey()]
+	assetCommitments := tapCommitment.Commitments()
+	assetCommitment, ok := assetCommitments[desc.TapCommitmentKey()]
 	if !ok {
 		return nil, fmt.Errorf("input commitment does "+
-			"not contain asset_id=%x: %w", desc.TaroCommitmentKey(),
+			"not contain asset_id=%x: %w", desc.TapCommitmentKey(),
 			ErrMissingInputAsset)
 	}
 
@@ -235,13 +236,13 @@ func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 	// Extract the input assets from the input commitments.
 	inputAssets := make([]*asset.Asset, len(inputsScriptKeys))
 	for inputIndex := range inputCommitments {
-		taroCommitment := inputCommitments[inputIndex]
+		tapCommitment := inputCommitments[inputIndex]
 		senderScriptKey := inputsScriptKeys[inputIndex]
 
 		// Gain the asset that we'll use as an input and in the process
 		// validate the selected input and commitment.
-		inputAsset, err := AssetFromTaroCommitment(
-			taroCommitment, desc, *senderScriptKey,
+		inputAsset, err := AssetFromTapCommitment(
+			tapCommitment, desc, *senderScriptKey,
 		)
 		if err != nil {
 			return false, err
@@ -689,11 +690,11 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 	return nil
 }
 
-// CreateOutputCommitments creates the final set of TaroCommitments representing
-// the asset send.
-func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
+// CreateOutputCommitments creates the final set of Taproot asset commitments
+// representing the asset send.
+func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	vPkt *tappsbt.VPacket,
-	passiveAssets []*tappsbt.VPacket) ([]*commitment.TaroCommitment,
+	passiveAssets []*tappsbt.VPacket) ([]*commitment.TapCommitment,
 	error) {
 
 	inputs := vPkt.Inputs
@@ -702,32 +703,32 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 	// TODO(ffranr): Support multiple inputs with different asset IDs.
 	// Currently, every input asset must have the same asset ID. Ensure
 	// that's the case.
-	assetsTaroCommitmentKey := inputs[0].Asset().TaroCommitmentKey()
+	assetsTapCommitmentKey := inputs[0].Asset().TapCommitmentKey()
 	for idx := range inputs {
 		inputAsset := inputs[idx].Asset()
-		if inputAsset.TaroCommitmentKey() != assetsTaroCommitmentKey {
+		if inputAsset.TapCommitmentKey() != assetsTapCommitmentKey {
 			return nil, fmt.Errorf("inputs must have the same " +
 				"asset ID")
 		}
 
 		// For multi input, assert asset is not part of a group.
-		assetInGroup := inputs[0].Asset().Genesis.ID() !=
-			assetsTaroCommitmentKey
+		firstAssetGen := inputs[0].Asset().Genesis
+		assetInGroup := firstAssetGen.ID() != assetsTapCommitmentKey
 		if len(inputs) > 1 && assetInGroup {
 			return nil, fmt.Errorf("multi input spend may not " +
 				"include input from asset group")
 		}
 	}
 
-	// Merge all input taro commitments into a single commitment.
+	// Merge all input Taproot Asset commitments into a single commitment.
 	//
-	// TODO(ffranr): Use `chanutils.ForEach` and `inputTaroCommitments[1:]`.
-	inputTaroCommitment := inputTaroCommitments[0]
-	for idx := range inputTaroCommitments {
+	// TODO(ffranr): Use `chanutils.ForEach` and `inputTapCommitments[1:]`.
+	inputTapCommitment := inputTapCommitments[0]
+	for idx := range inputTapCommitments {
 		if idx == 0 {
 			continue
 		}
-		err := inputTaroCommitment.Merge(inputTaroCommitments[idx])
+		err := inputTapCommitment.Merge(inputTapCommitments[idx])
 		if err != nil {
 			return nil, fmt.Errorf("failed to merge input taro "+
 				"commitments: %w", err)
@@ -742,14 +743,14 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 
 	// Remove the spent Asset from the AssetCommitment of the sender. Fail
 	// if the input AssetCommitment or Asset were not in the input
-	// TaroCommitment.
-	inputTaroCommitmentCopy, err := inputTaroCommitment.Copy()
+	// TapCommitment.
+	inputTapCommitmentCopy, err := inputTapCommitment.Copy()
 	if err != nil {
 		return nil, err
 	}
 
-	inputCommitments := inputTaroCommitmentCopy.Commitments()
-	inputCommitment, ok := inputCommitments[assetsTaroCommitmentKey]
+	inputCommitments := inputTapCommitmentCopy.Commitments()
+	inputCommitment, ok := inputCommitments[assetsTapCommitmentKey]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
@@ -772,12 +773,12 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 		}
 	}
 
-	outputCommitments := make([]*commitment.TaroCommitment, len(outputs))
+	outputCommitments := make([]*commitment.TapCommitment, len(outputs))
 	for idx := range outputs {
 		vOut := outputs[idx]
 
 		// The output that houses the split root will carry along the
-		// existing Taro commitment of the sender.
+		// existing Taproot Asset commitment of the sender.
 		if vOut.Type.IsSplitRoot() {
 			// In the interactive case we might have a full value
 			// send without an actual split root output but just the
@@ -805,12 +806,12 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 					"output %d is missing asset", idx)
 			}
 
-			// Update the top-level TaroCommitment of the change
+			// Update the top-level TapCommitment of the change
 			// output (sender). This'll effectively commit to all
 			// the new spend details. If there is nothing contained
 			// in the input commitment, it is removed from the Taro
 			// tree automatically.
-			err = inputTaroCommitmentCopy.Upsert(inputCommitment)
+			err = inputTapCommitmentCopy.Upsert(inputCommitment)
 			if err != nil {
 				return nil, err
 			}
@@ -818,14 +819,14 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 			// Anchor passive assets to this output, since it's the
 			// split root (=change output).
 			err = AnchorPassiveAssets(
-				passiveAssets, inputTaroCommitmentCopy,
+				passiveAssets, inputTapCommitmentCopy,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to anchor "+
 					"passive assets: %w", err)
 			}
 
-			outputCommitments[idx] = inputTaroCommitmentCopy
+			outputCommitments[idx] = inputTapCommitmentCopy
 
 			continue
 		}
@@ -850,7 +851,7 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 		if err != nil {
 			return nil, err
 		}
-		outputCommitments[idx], err = commitment.NewTaroCommitment(
+		outputCommitments[idx], err = commitment.NewTapCommitment(
 			sendCommitment,
 		)
 		if err != nil {
@@ -864,14 +865,14 @@ func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
 // AnchorPassiveAssets anchors the passive assets within the given taro
 // commitment.
 func AnchorPassiveAssets(passiveAssets []*tappsbt.VPacket,
-	taroCommitment *commitment.TaroCommitment) error {
+	tapCommitment *commitment.TapCommitment) error {
 
 	for idx := range passiveAssets {
 		passiveAsset := passiveAssets[idx].Outputs[0].Asset
 		var err error
 
 		// Ensure that a commitment for this asset exists.
-		assetCommitment, ok := taroCommitment.Commitment(passiveAsset)
+		assetCommitment, ok := tapCommitment.Commitment(passiveAsset)
 		if ok {
 			err = assetCommitment.Upsert(passiveAsset)
 			if err != nil {
@@ -890,11 +891,11 @@ func AnchorPassiveAssets(passiveAssets []*tappsbt.VPacket,
 			}
 		}
 
-		err = taroCommitment.Upsert(assetCommitment)
+		err = tapCommitment.Upsert(assetCommitment)
 		if err != nil {
 			return fmt.Errorf("unable to upsert passive "+
-				"asset commitment into taro commitment: %w",
-				err)
+				"asset commitment into Taproot Asset "+
+				"commitment: %w", err)
 		}
 	}
 
@@ -913,8 +914,9 @@ func AreValidAnchorOutputIndexes(outputs []*tappsbt.VOutput) (bool, error) {
 	}
 
 	// If the indexes start from 0 and form a continuous range, then the
-	// resulting TX would be valid without any changes (Taro-only spend).
-	taroOnlySpend := true
+	// resulting TX would be valid without any changes (Taproot Asset only
+	// spend).
+	assetOnlySpend := true
 	sortedCopy := slices.Clone(outputs)
 	sort.Slice(sortedCopy, func(i, j int) bool {
 		return sortedCopy[i].AnchorOutputIndex <
@@ -922,19 +924,19 @@ func AreValidAnchorOutputIndexes(outputs []*tappsbt.VOutput) (bool, error) {
 	})
 	for i := 0; i < len(sortedCopy); i++ {
 		if sortedCopy[i].AnchorOutputIndex != uint32(i) {
-			taroOnlySpend = false
+			assetOnlySpend = false
 			break
 		}
 	}
 
-	return taroOnlySpend, nil
+	return assetOnlySpend, nil
 }
 
 // CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
 func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 	// Check if our outputs are valid, and if we will need to add extra
 	// outputs to fill in the gaps between outputs.
-	taroOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
+	assetOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
 	if err != nil {
 		return nil, err
 	}
@@ -944,7 +946,7 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 
 	// If there is a gap in our outputs, we need to find the
 	// largest output index to properly size our template TX.
-	if !taroOnlySpend {
+	if !assetOnlySpend {
 		maxOutputIndex = 0
 		for _, out := range outputs {
 			if out.AnchorOutputIndex > maxOutputIndex {
@@ -997,18 +999,18 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
-	outputCommitments []*commitment.TaroCommitment) (
-	map[uint32]*commitment.TaroCommitment, error) {
+	outputCommitments []*commitment.TapCommitment) (
+	map[uint32]*commitment.TapCommitment, error) {
 
 	// Add the commitment outputs to the BTC level PSBT now.
-	anchorCommitments := make(map[uint32]*commitment.TaroCommitment)
+	anchorCommitments := make(map[uint32]*commitment.TapCommitment)
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
 		vOutCommitment := outputCommitments[idx]
 
 		// The commitment must be defined at this point.
 		if vOutCommitment == nil {
-			return nil, ErrMissingTaroCommitment
+			return nil, ErrMissingTapCommitment
 		}
 
 		// It could be that we have multiple outputs that are being
@@ -1060,7 +1062,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 		}
 
 		// Create the scripts corresponding to the receiver's
-		// TaroCommitment.
+		// TapCommitment.
 		script, err := PayToAddrScript(
 			*internalKey, siblingHash, *anchorCommitment,
 		)

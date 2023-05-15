@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS universe_roots (
     asset_id BLOB,
 
     -- We use the 32 byte schnorr key here as this is what's used to derive the
-    -- top-level Taro commitment key.
+    -- top-level Taproot Asset commitment key.
     group_key BLOB CHECK(LENGTH(group_key) = 32)
 );
 

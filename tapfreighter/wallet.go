@@ -48,11 +48,11 @@ type AnchorTransaction struct {
 	// the anchor TX.
 	ChainFees int64
 
-	// OutputCommitments is a map of all the Taro level commitments each
-	// output of the anchor TX is committing to. This is the merged Taro
-	// tree of all the virtual asset transfer transactions that are within
-	// a single BTC level anchor output.
-	OutputCommitments map[uint32]*commitment.TaroCommitment
+	// OutputCommitments is a map of all the Taproot Asset level commitments
+	// each output of the anchor TX is committing to. This is the merged
+	// Taproot Asset tree of all the virtual asset transfer transactions
+	// that are within a single BTC level anchor output.
+	OutputCommitments map[uint32]*commitment.TapCommitment
 }
 
 // Wallet is an interface for funding and signing asset transfers.
@@ -122,7 +122,7 @@ type AnchorVTxnsParams struct {
 	VPkts []*tappsbt.VPacket
 
 	// InputCommitments is a map from virtual package input index to its
-	// associated taro commitment.
+	// associated Taproot Assets commitment.
 	InputCommitments tappsbt.InputCommitments
 
 	// PassiveAssetsVPkts is a list of all the virtual transactions which
@@ -267,7 +267,7 @@ type FundedVPacket struct {
 	VPacket *tappsbt.VPacket
 
 	// InputCommitments is a map from virtual package input index to its
-	// associated taro commitment.
+	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
 }
 
@@ -419,8 +419,8 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
-	// Gather Taro commitments from the selected anchored assets.
-	var selectedTapCommitments []*commitment.TaroCommitment
+	// Gather Taproot Asset commitments from the selected anchored assets.
+	var selectedTapCommitments []*commitment.TapCommitment
 	for _, selectedCommitment := range selectedCommitments {
 		selectedTapCommitments = append(
 			selectedTapCommitments, selectedCommitment.Commitment,
@@ -833,7 +833,7 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 
 // removeActiveCommitments removes all active commitments from the given input
 // commitment and only returns a tree of passive commitments.
-func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
+func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
 	vPkt *tappsbt.VPacket) (commitment.AssetCommitments, error) {
 
 	// Gather passive assets found in the commitment. This creates a copy of
@@ -841,8 +841,9 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 	passiveCommitments := inputCommitment.Commitments()
 
 	// removeAsset is a helper function that removes the given asset from
-	// the passed asset commitment and updates the top level Taro commitment
-	// with the new asset commitment, if that still contains any assets.
+	// the passed asset commitment and updates the top level Taproot Asset
+	// commitment with the new asset commitment, if that still contains any
+	// assets.
 	removeAsset := func(assetCommitment *commitment.AssetCommitment,
 		toRemove *asset.Asset, tapKey [32]byte) error {
 
@@ -864,9 +865,9 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 				"commitment: %w", err)
 		}
 
-		// Since we're not returning the root Taro commitment but a map
-		// of all asset commitments, we need to prune the asset
-		// commitment manually if it is empty now.
+		// Since we're not returning the root Taproot Asset commitment
+		// but a map of all asset commitments, we need to prune the
+		// asset commitment manually if it is empty now.
 		rootHash := assetCommitment.TreeRoot.NodeHash()
 		if rootHash == mssmt.EmptyTreeRootHash {
 			delete(passiveCommitments, tapKey)
@@ -907,7 +908,7 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 	// Remove input assets (the assets being spent) from list of assets to
 	// re-sign.
 	for _, vIn := range vPkt.Inputs {
-		key := vIn.Asset().TaroCommitmentKey()
+		key := vIn.Asset().TapCommitmentKey()
 		assetCommitment, ok := passiveCommitments[key]
 		if !ok {
 			continue
@@ -924,12 +925,12 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 }
 
 // SignPassiveAssets creates and signs the passive asset packets for the given
-// virtual packet and input taro commitments.
+// virtual packet and input Taproot Asset commitments.
 func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 	inputCommitments tappsbt.InputCommitments) ([]*PassiveAssetReAnchor,
 	error) {
 
-	// Gather passive assets found in each input taro commitment.
+	// Gather passive assets found in each input Taproot Asset commitment.
 	var passiveAssets []*PassiveAssetReAnchor
 	for inputIdx := range inputCommitments {
 		tapCommitment := inputCommitments[inputIdx]
@@ -1043,7 +1044,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// accounting, etc.
 
 	// Move the change output to the highest-index output, so that
-	// we don't overwrite it when embedding our Taro commitments.
+	// we don't overwrite it when embedding our Taproot Asset commitments.
 	//
 	// TODO(jhb): Do we need richer handling for the change output?
 	// We could reassign the change value to our Taro change output
@@ -1184,7 +1185,7 @@ func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 // trimSplitWitnesses returns a copy of the input commitment in which all assets
 // with a split commitment witness have their SplitCommitment field set to nil.
 func trimSplitWitnesses(
-	original *commitment.TaroCommitment) (*commitment.TaroCommitment,
+	original *commitment.TapCommitment) (*commitment.TapCommitment,
 	error) {
 
 	// If the input asset was received non-interactively, then the Taro tree
@@ -1213,7 +1214,7 @@ func trimSplitWitnesses(
 			// commitment tree with the new asset leaf, and then the
 			// top-level Taro tree.
 			inputCommitments := tapCommitmentCopy.Commitments()
-			inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
+			inputCommitmentKey := inputAssetCopy.TapCommitmentKey()
 			inputAssetTree := inputCommitments[inputCommitmentKey]
 			err = inputAssetTree.Upsert(inputAssetCopy)
 			if err != nil {

@@ -148,11 +148,12 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, ErrUnsupportedHRP
 	}
 
-	// We can only use a tapscript sibling that is not a Taro commitment.
+	// We can only use a tapscript sibling that is not a Taproot Asset
+	// commitment.
 	if tapscriptSibling != nil {
 		if err := tapscriptSibling.VerifyNoCommitment(); err != nil {
 			return nil, errors.New("address: tapscript sibling " +
-				"is a Taro commitment")
+				"is a Taproot Asset commitment")
 		}
 	}
 
@@ -212,10 +213,10 @@ func (a *Tap) AttachGroupSig(sig schnorr.Signature) {
 	a.groupSig = &sig
 }
 
-// TaroCommitmentKey is the key that maps to the root commitment for the asset
+// TapCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a Taproot Asset address.
-func (a *Tap) TaroCommitmentKey() [32]byte {
-	return asset.TaroCommitmentKey(a.AssetID, a.GroupKey)
+func (a *Tap) TapCommitmentKey() [32]byte {
+	return asset.TapCommitmentKey(a.AssetID, a.GroupKey)
 }
 
 // AssetCommitmentKey is the key that maps to the asset leaf for the asset
@@ -226,9 +227,9 @@ func (a *Tap) AssetCommitmentKey() [32]byte {
 	)
 }
 
-// TaroCommitment constructs the Taro commitment that is expected to appear on
-// chain when assets are being sent to this address.
-func (a *Tap) TaroCommitment() (*commitment.TaroCommitment, error) {
+// TapCommitment constructs the Taproot Asset commitment that is expected to
+// appear on chain when assets are being sent to this address.
+func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 	// If this genesis wasn't actually set, then we'll fail here as we need
 	// it in order to make the asset template.
 	var zeroOp wire.OutPoint
@@ -262,10 +263,10 @@ func (a *Tap) TaroCommitment() (*commitment.TaroCommitment, error) {
 
 // TaprootOutputKey returns the on-chain Taproot output key.
 func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
-	c, err := a.TaroCommitment()
+	c, err := a.TapCommitment()
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive taro commitment: %w",
-			err)
+		return nil, fmt.Errorf("unable to derive Taproot Asset "+
+			"commitment: %w", err)
 	}
 
 	var siblingHash *chainhash.Hash

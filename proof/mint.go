@@ -40,9 +40,9 @@ type BaseProofParams struct {
 	// key in the above transaction.
 	InternalKey *btcec.PublicKey
 
-	// TaroRoot is the asset root that commits to all assets created in the
-	// above transaction.
-	TaroRoot *commitment.TaroCommitment
+	// TaprootAssetRoot is the asset root that commits to all assets created
+	// in the above transaction.
+	TaprootAssetRoot *commitment.TapCommitment
 
 	// TapscriptSibling is the pre-image to the tapscript hash of the
 	// sibling to the Taro root. If this is nil then it means the Taro root
@@ -139,7 +139,7 @@ func NewMintingBlobs(params *MintParams,
 		return nil, err
 	}
 
-	proofs, err := committedProofs(base, params.TaroRoot, opts)
+	proofs, err := committedProofs(base, params.TaprootAssetRoot, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -206,13 +206,13 @@ func coreProof(params *BaseProofParams) (*Proof, error) {
 }
 
 // committedProofs creates a map of proofs, keyed by the script key of each of
-// the assets committed to in the Taro root of the given params.
-func committedProofs(baseProof *Proof, taroRoot *commitment.TaroCommitment,
+// the assets committed to in the Taproot Asset root of the given params.
+func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitment,
 	opts *mintingBlobOpts) (map[asset.SerializedKey]*Proof, error) {
 
 	// For each asset we'll construct the asset specific proof information,
 	// then encode that as a proof file blob in the blobs map.
-	assets := taroRoot.CommittedAssets()
+	assets := taprootAssetRoot.CommittedAssets()
 	proofs := make(map[asset.SerializedKey]*Proof, len(assets))
 	for _, newAsset := range assets {
 		// First, we'll copy over the base proof and also set the asset
@@ -223,8 +223,8 @@ func committedProofs(baseProof *Proof, taroRoot *commitment.TaroCommitment,
 		// With the base information contained, we'll now need to
 		// generate our series of MS-SMT inclusion proofs that prove
 		// the existence of the asset.
-		_, assetMerkleProof, err := taroRoot.Proof(
-			newAsset.TaroCommitmentKey(),
+		_, assetMerkleProof, err := taprootAssetRoot.Proof(
+			newAsset.TapCommitmentKey(),
 			newAsset.AssetCommitmentKey(),
 		)
 		if err != nil {

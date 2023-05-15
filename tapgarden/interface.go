@@ -170,7 +170,7 @@ type MintingStore interface {
 	// NOTE: The BatchState should transition to BatchStateCommitted upon a
 	// successful call.
 	AddSproutsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
-		genesisPacket *FundedPsbt, assets *commitment.TaroCommitment) error
+		genesisPacket *FundedPsbt, assets *commitment.TapCommitment) error
 
 	// CommitSignedGenesisTx adds a fully signed genesis transaction to the
 	// batch, along with the taro script root, which is the left/right
@@ -180,7 +180,7 @@ type MintingStore interface {
 	// state upon a successful call.
 	CommitSignedGenesisTx(ctx context.Context, batchKey *btcec.PublicKey,
 		genesisTx *FundedPsbt, anchorOutputIndex uint32,
-		taroScriptRoot []byte) error
+		tapRoot []byte) error
 
 	// MarkBatchConfirmed marks the batch as confirmed on chain. The passed
 	// block location information determines where exactly in the chain the
@@ -236,7 +236,7 @@ type FundedPsbt struct {
 
 	// ChangeOutputIndex denotes which output in the PSBT packet is the
 	// change output. We use this to figure out which output will store our
-	// Taro commitment (the non-change output).
+	// Taproot Asset commitment (the non-change output).
 	ChangeOutputIndex int32
 
 	// ChainFees is the amount in sats paid in on-chain fees for this

@@ -157,7 +157,8 @@ message ListAssetRequest {
 }
 
 message AnchorInfo {
-    // The transaction that anchors the Taro commitment where the asset resides.
+    // The transaction that anchors the Taproot Asset commitment where the asset
+    //  resides.
     bytes anchor_tx = 1;
 
     // The txid of the above transaction.
@@ -166,7 +167,7 @@ message AnchorInfo {
     // The block hash the contains the anchor transaction above.
     bytes anchor_block_hash = 3;
 
-    // The outpoint (txid:vout) that stores the Taro commitment.
+    // The outpoint (txid:vout) that stores the Taproot Asset commitment.
     string anchor_outpoint = 4;
 
     /*
@@ -203,12 +204,12 @@ message GenesisInfo {
     bytes asset_id = 4;
 
     /*
-    The index of the output that carries the unique Taro commitment in the
-    genesis transaction.
+    The index of the output that carries the unique Taproot Asset commitment in
+    the genesis transaction.
     */
     uint32 output_index = 5;
 
-    // The version of the Taro commitment that created this asset.
+    // The version of the Taproot Asset commitment that created this asset.
     int32 version = 6;
 }
 
@@ -422,8 +423,8 @@ message AssetTransfer {
 }
 
 message TransferInput {
-    // The old/current location of the Taro commitment that was spent as an
-    // input.
+    // The old/current location of the Taproot Asset commitment that was spent
+    // as an input.
     string anchor_point = 1;
 
     // The ID of the asset that was spent.
@@ -437,7 +438,8 @@ message TransferInput {
 }
 
 message TransferOutputAnchor {
-    // The new location of the Taro commitment that was created on chain.
+    // The new location of the Taproot Asset commitment that was created on
+    // chain.
     string outpoint = 1;
 
     int64 value = 2;
@@ -536,8 +538,8 @@ message Addr {
     /*
     The optional serialized tapscript sibling preimage to use for the receiving
     asset. This is usually empty as it is only needed when there should be an
-    additional script path in the Taproot tree alongside the Taro commitment of
-    the asset.
+    additional script path in the Taproot tree alongside the Taproot Asset
+    commitment of the asset.
     */
     bytes tapscript_sibling = 8;
 
@@ -601,8 +603,8 @@ message NewAddrRequest {
     /*
     The optional serialized tapscript sibling preimage to use for the receiving
     asset. This is usually empty as it is only needed when there should be an
-    additional script path in the Taproot tree alongside the Taro commitment of
-    the asset.
+    additional script path in the Taproot tree alongside the Taproot Asset
+    commitment of the asset.
     */
     bytes tapscript_sibling = 5;
 }

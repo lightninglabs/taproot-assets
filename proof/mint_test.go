@@ -39,7 +39,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	assetGenesis.MetaHash = metaReveal.MetaHash()
 
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
-	taroCommitment, _, err := commitment.Mint(
+	tapCommitment, _, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        test.PubToKeyDesc(genesisScriptKey),
@@ -51,7 +51,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	require.NoError(t, err)
 
 	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
-	tapscriptRoot := taroCommitment.TapscriptRoot(nil)
+	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)
@@ -84,7 +84,7 @@ func TestNewMintingBlobs(t *testing.T) {
 		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
 	)
 
-	newAsset := taroCommitment.CommittedAssets()[0]
+	newAsset := tapCommitment.CommittedAssets()[0]
 	assetScriptKey := newAsset.ScriptKey
 
 	metaReveals := map[asset.SerializedKey]*MetaReveal{
@@ -99,11 +99,11 @@ func TestNewMintingBlobs(t *testing.T) {
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{genesisTx},
 			},
-			Tx:          genesisTx,
-			TxIndex:     0,
-			OutputIndex: 0,
-			InternalKey: internalKey,
-			TaroRoot:    taroCommitment,
+			Tx:               genesisTx,
+			TxIndex:          0,
+			OutputIndex:      0,
+			InternalKey:      internalKey,
+			TaprootAssetRoot: tapCommitment,
 			ExclusionProofs: []TaprootProof{{
 				OutputIndex: 1,
 				InternalKey: changeInternalKey,

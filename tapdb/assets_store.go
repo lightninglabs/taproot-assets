@@ -367,8 +367,8 @@ type ManagedUTXO struct {
 	// in the outpoint.
 	InternalKey keychain.KeyDescriptor
 
-	// TaroRoot is the Taro commitment root hash committed to by this
-	// outpoint.
+	// TaroRoot is the Taproot Asset commitment root hash committed to by
+	// this outpoint.
 	TaroRoot []byte
 
 	// MerkleRoot is the Taproot merkle root hash committed to by this
@@ -1499,8 +1499,8 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 
 		// At this point, we have the set of assets that match our
 		// filter query, but we also need to be able to construct the
-		// full Taro commitment for each asset so it can be used as an
-		// input in a transaction.
+		// full Taproot Asset commitment for each asset, so it can be
+		// used as an input in a transaction.
 		//
 		// To obtain this, we'll first do another query to fetch all
 		// the _other_ assets that are anchored at the anchor point for
@@ -1545,19 +1545,19 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		return nil, dbErr
 	}
 
-	// Our final query wants the complete taro commitment for each of the
-	// managed UTXOs. Some of the assets that match our query might
-	// actually be in the same Taro commitment, so we'll collect this now
-	// to de-dup things early.
+	// Our final query wants the complete Taproot Asset commitment for each
+	// of the managed UTXOs. Some of the assets that match our query might
+	// actually be in the same Taproot Asset commitment, so we'll collect
+	// this now to de-dup things early.
 	anchorPointToCommitment := make(
-		map[wire.OutPoint]*commitment.TaroCommitment,
+		map[wire.OutPoint]*commitment.TapCommitment,
 	)
 	for anchorPoint := range chainAnchorToAssets {
 		anchorPoint := anchorPoint
 		anchoredAssets := chainAnchorToAssets[anchorPoint]
 
 		// Fetch the asset leaves from each chain asset, and then
-		// build a Taro commitment from this set of assets.
+		// build a Taproot Asset commitment from this set of assets.
 		fetchAsset := func(cAsset *ChainAsset) *asset.Asset {
 			return cAsset.Asset
 		}

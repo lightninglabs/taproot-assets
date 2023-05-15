@@ -322,7 +322,7 @@ func randKeyDesc(t *testing.T) (keychain.KeyDescriptor, *btcec.PrivateKey) {
 // TODO(roasbeef): same func in tarogarden can just re-use?
 func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	seedlings map[string]*tapgarden.Seedling,
-	groupKeys map[string]*btcec.PrivateKey) *commitment.TaroCommitment {
+	groupKeys map[string]*btcec.PrivateKey) *commitment.TapCommitment {
 
 	orderedSeedlings := tapgarden.SortSeedlings(maps.Values(seedlings))
 	assetRoots := make([]*commitment.AssetCommitment, 0, len(seedlings))
@@ -413,7 +413,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		assetRoots = append(assetRoots, assetRoot)
 	}
 
-	tapCommitment, err := commitment.NewTaroCommitment(assetRoots...)
+	tapCommitment, err := commitment.NewTapCommitment(assetRoots...)
 	require.NoError(t, err)
 
 	return tapCommitment
@@ -469,7 +469,7 @@ func assertPsbtEqual(t *testing.T, a, b *tapgarden.FundedPsbt) {
 	require.Equal(t, aBuf.Bytes(), bBuf.Bytes())
 }
 
-func assertAssetsEqual(t *testing.T, a, b *commitment.TaroCommitment) {
+func assertAssetsEqual(t *testing.T, a, b *commitment.TapCommitment) {
 	// The CommittedAssets() returns values from a map, which means that
 	// order isn't guaranteed. As a result, we can't just use require.Equal
 	// on the entire thing. To get around this, we use a good ol' double
@@ -555,7 +555,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 func addRandAssets(t *testing.T, ctx context.Context,
 	assetStore *AssetMintingStore,
 	numAssets int) (*btcec.PublicKey, *btcec.PublicKey, uint64,
-	*tapgarden.FundedPsbt, []byte, *commitment.TaroCommitment) {
+	*tapgarden.FundedPsbt, []byte, *commitment.TapCommitment) {
 
 	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numAssets)
 	genAmt, seedlingGroups, group := addRandGroupToBatch(

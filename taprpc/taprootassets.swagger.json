@@ -683,7 +683,7 @@
         "tapscript_sibling": {
           "type": "string",
           "format": "byte",
-          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taro commitment of\nthe asset."
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taproot Asset\ncommitment of the asset."
         },
         "taproot_output_key": {
           "type": "string",
@@ -775,7 +775,7 @@
         "anchor_tx": {
           "type": "string",
           "format": "byte",
-          "description": "The transaction that anchors the Taro commitment where the asset resides."
+          "description": "The transaction that anchors the Taproot Asset commitment where the asset\n resides."
         },
         "anchor_txid": {
           "type": "string",
@@ -788,7 +788,7 @@
         },
         "anchor_outpoint": {
           "type": "string",
-          "description": "The outpoint (txid:vout) that stores the Taro commitment."
+          "description": "The outpoint (txid:vout) that stores the Taproot Asset commitment."
         },
         "internal_key": {
           "type": "string",
@@ -1114,12 +1114,12 @@
         "output_index": {
           "type": "integer",
           "format": "int64",
-          "description": "The index of the output that carries the unique Taro commitment in the\ngenesis transaction."
+          "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
         },
         "version": {
           "type": "integer",
           "format": "int32",
-          "description": "The version of the Taro commitment that created this asset."
+          "description": "The version of the Taproot Asset commitment that created this asset."
         }
       }
     },
@@ -1301,7 +1301,7 @@
         "tapscript_sibling": {
           "type": "string",
           "format": "byte",
-          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taro commitment of\nthe asset."
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taproot Asset\ncommitment of the asset."
         }
       }
     },
@@ -1478,7 +1478,7 @@
       "properties": {
         "anchor_point": {
           "type": "string",
-          "description": "The old/current location of the Taro commitment that was spent as an\ninput."
+          "description": "The old/current location of the Taproot Asset commitment that was spent\nas an input."
         },
         "asset_id": {
           "type": "string",
@@ -1532,7 +1532,7 @@
       "properties": {
         "outpoint": {
           "type": "string",
-          "description": "The new location of the Taro commitment that was created on chain."
+          "description": "The new location of the Taproot Asset commitment that was created on\nchain."
         },
         "value": {
           "type": "string",

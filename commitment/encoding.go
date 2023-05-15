@@ -73,7 +73,7 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*TaroProof); ok {
+	if t, ok := val.(*TaprootAssetProof); ok {
 		records := []tlv.Record{
 			TaroProofVersionRecord(&(*t).Version),
 			TaroProofRecord(&(*t).Proof),
@@ -88,12 +88,12 @@ func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*TaroProof); ok {
+	if typ, ok := val.(*TaprootAssetProof); ok {
 		var streamBytes []byte
 		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
 			return err
 		}
-		var proof TaroProof
+		var proof TaprootAssetProof
 		records := []tlv.Record{
 			TaroProofVersionRecord(&proof.Version),
 			TaroProofRecord(&proof.Proof),

@@ -915,7 +915,7 @@
         "anchor_tx": {
           "type": "string",
           "format": "byte",
-          "description": "The transaction that anchors the Taro commitment where the asset resides."
+          "description": "The transaction that anchors the Taproot Asset commitment where the asset\n resides."
         },
         "anchor_txid": {
           "type": "string",
@@ -928,7 +928,7 @@
         },
         "anchor_outpoint": {
           "type": "string",
-          "description": "The outpoint (txid:vout) that stores the Taro commitment."
+          "description": "The outpoint (txid:vout) that stores the Taproot Asset commitment."
         },
         "internal_key": {
           "type": "string",
@@ -1065,12 +1065,12 @@
         "output_index": {
           "type": "integer",
           "format": "int64",
-          "description": "The index of the output that carries the unique Taro commitment in the\ngenesis transaction."
+          "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
         },
         "version": {
           "type": "integer",
           "format": "int32",
-          "description": "The version of the Taro commitment that created this asset."
+          "description": "The version of the Taproot Asset commitment that created this asset."
         }
       }
     },

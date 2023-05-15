@@ -94,7 +94,7 @@ type BatchCaretaker struct {
 	confInfo *chainntnfs.TxConfirmation
 
 	// anchorOutputIndex is the index in the anchor output that commits to
-	// the Taro commitment.
+	// the Taproot Asset commitment.
 	anchorOutputIndex uint32
 
 	// ContextGuard provides a wait group and main quit channel that can be
@@ -372,7 +372,7 @@ func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
 // transaction.
 func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	genesisPoint wire.OutPoint,
-	taroOutputIndex uint32) (*commitment.TaroCommitment, error) {
+	taroOutputIndex uint32) (*commitment.TapCommitment, error) {
 
 	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
 		"with genesis_point=%v", b.batchKey[:],
@@ -549,7 +549,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		// First, we'll turn all the seedlings into actual taro assets.
-		taroCommitment, err := b.seedlingsToAssetSprouts(
+		tapCommitment, err := b.seedlingsToAssetSprouts(
 			ctx, genesisPoint, b.anchorOutputIndex,
 		)
 		if err != nil {
@@ -557,7 +557,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"sprouts: %v", err)
 		}
 
-		b.cfg.Batch.RootAssetCommitment = taroCommitment
+		b.cfg.Batch.RootAssetCommitment = tapCommitment
 
 		// With the commitment Taro root SMT constructed, we'll map
 		// that into the tapscript root we'll insert into the genesis
@@ -590,7 +590,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// populate the asset metas map as we need that to create the
 		// asset proofs. On restart, we'll get these in the batch
 		// pre-populated.
-		for _, newAsset := range taroCommitment.CommittedAssets() {
+		for _, newAsset := range tapCommitment.CommittedAssets() {
 			seedling, ok := b.cfg.Batch.Seedlings[newAsset.Tag]
 			if !ok {
 				continue
@@ -647,14 +647,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		//
 		// TODO(roasbeef): re-run during the broadcast phase to ensure
 		// it's fully imported?
-		mintingOutputKey, taroRoot, err := b.cfg.Batch.MintingOutputKey()
+		mintingOutputKey, tapRoot, err := b.cfg.Batch.MintingOutputKey()
 		if err != nil {
 			return 0, err
 		}
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
 			b.cfg.Batch.GenesisPacket, b.anchorOutputIndex,
-			taroRoot,
+			tapRoot,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit genesis "+
@@ -811,12 +811,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// all other P2TR outputs, we just assume BIP-0086 here).
 		baseProof := &proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
-				Block:       confInfo.Block,
-				Tx:          confInfo.Tx,
-				TxIndex:     int(confInfo.TxIndex),
-				OutputIndex: int(b.anchorOutputIndex),
-				InternalKey: b.cfg.Batch.BatchKey.PubKey,
-				TaroRoot:    b.cfg.Batch.RootAssetCommitment,
+				Block:            confInfo.Block,
+				Tx:               confInfo.Tx,
+				TxIndex:          int(confInfo.TxIndex),
+				OutputIndex:      int(b.anchorOutputIndex),
+				InternalKey:      b.cfg.Batch.BatchKey.PubKey,
+				TaprootAssetRoot: b.cfg.Batch.RootAssetCommitment,
 			},
 			GenesisPoint: extractGenesisOutpoint(
 				b.cfg.Batch.GenesisPacket.Pkt.UnsignedTx,

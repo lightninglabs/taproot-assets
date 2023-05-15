@@ -536,7 +536,7 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 // generation, the GroupKeyFamily and GroupKeyIndex fields of the
 // FetchAssetsForBatchRow need to be manually modified to be sql.NullInt32.
 func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
-	rawBatchKey []byte) (*commitment.TaroCommitment, error) {
+	rawBatchKey []byte) (*commitment.TapCommitment, error) {
 
 	dbSprout, err := q.FetchAssetsForBatch(ctx, rawBatchKey)
 	if err != nil {
@@ -544,7 +544,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 	}
 
 	// For each sprout, we'll create a new asset commitment which will be a
-	// leaf at the top-level Taro commitment.
+	// leaf at the top-level Taproot Asset commitment.
 	assetCommitments := make([]*commitment.AssetCommitment, len(dbSprout))
 	for i, sprout := range dbSprout {
 		// First, we'll decode the script key which very asset must
@@ -659,7 +659,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetCommitments[i] = assetCommitment
 	}
 
-	tapCommitment, err := commitment.NewTaroCommitment(assetCommitments...)
+	tapCommitment, err := commitment.NewTapCommitment(assetCommitments...)
 	if err != nil {
 		return nil, err
 	}
@@ -820,7 +820,7 @@ func convertMintingBatchA(batch MintingBatchA) MintingBatchF {
 }
 
 // marshalMintingBatch marshals a minting batch into its native type,
-// and fetches the corresponding seedlings or root taro commitment.
+// and fetches the corresponding seedlings or root Taproot Asset commitment.
 func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 	dbBatch MintingBatchF) (*tapgarden.MintingBatch, error) {
 
@@ -932,7 +932,7 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	batchKey *btcec.PublicKey, genesisPacket *tapgarden.FundedPsbt,
-	assetRoot *commitment.TaroCommitment) error {
+	assetRoot *commitment.TapCommitment) error {
 
 	// Before we open the DB transaction below, we'll fetch the set of
 	// assets committed to within the root commitment specified.

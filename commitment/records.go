@@ -35,7 +35,7 @@ func ProofAssetProofRecord(proof **AssetProof) tlv.Record {
 	)
 }
 
-func ProofTaroProofRecord(proof *TaroProof) tlv.Record {
+func ProofTaroProofRecord(proof *TaprootAssetProof) tlv.Record {
 	sizeFunc := func() uint64 {
 		var buf bytes.Buffer
 		err := TaroProofEncoder(&buf, proof, &[8]byte{})

@@ -171,7 +171,7 @@ type PreSignedParcel struct {
 
 	// inputCommitment is the commitment for the input that is being spent
 	// in the virtual transaction.
-	inputCommitment *commitment.TaroCommitment
+	inputCommitment *commitment.TapCommitment
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -182,7 +182,7 @@ var _ Parcel = (*PreSignedParcel)(nil)
 //
 // TODO(ffranr): Add support for multiple inputs (commitments).
 func NewPreSignedParcel(vPkt *tappsbt.VPacket,
-	inputCommitment *commitment.TaroCommitment) *PreSignedParcel {
+	inputCommitment *commitment.TapCommitment) *PreSignedParcel {
 
 	return &PreSignedParcel{
 		parcelKit: &parcelKit{
@@ -226,7 +226,7 @@ type sendPackage struct {
 	VirtualPacket *tappsbt.VPacket
 
 	// InputCommitments is a map from virtual package input index to its
-	// associated taro commitment.
+	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
 
 	// PassiveAssets is the data used in re-anchoring passive assets.
@@ -469,7 +469,7 @@ func (s *sendPackage) createProofSuffix(outIndex int) (*proof.Proof, error) {
 // newParams is used to create a set of new params for the final state
 // transition.
 func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
-	internalKey *btcec.PublicKey, taprootAssetRoot *commitment.TaroCommitment,
+	internalKey *btcec.PublicKey, taprootAssetRoot *commitment.TapCommitment,
 	siblingPreimage *commitment.TapscriptPreimage) *proof.TransitionParams {
 
 	return &proof.TransitionParams{
@@ -483,7 +483,7 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 			TxIndex:          0,
 			OutputIndex:      outputIndex,
 			InternalKey:      internalKey,
-			TaroRoot:         taprootAssetRoot,
+			TaprootAssetRoot: taprootAssetRoot,
 			TapscriptSibling: siblingPreimage,
 		},
 		NewAsset: a,
@@ -549,7 +549,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 	splitTapTree := outputCommitments[splitIndex]
 
 	_, splitRootExclusionProof, err := splitRootTree.Proof(
-		splitOut.Asset.TaroCommitmentKey(),
+		splitOut.Asset.TapCommitmentKey(),
 		splitOut.Asset.AssetCommitmentKey(),
 	)
 	if err != nil {
@@ -564,7 +564,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 	)
 	splitParams.RootOutputIndex = splitRootIndex
 	splitParams.RootInternalKey = splitRootOut.AnchorOutputInternalKey
-	splitParams.RootTaroTree = splitRootTree
+	splitParams.RootTaprootAssetTree = splitRootTree
 	splitParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: splitRootIndex,
 		InternalKey: splitRootOut.AnchorOutputInternalKey,
@@ -599,7 +599,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 // return false for not yet processed outputs, otherwise they'll be skipped).
 func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 	asset *asset.Asset, params *proof.TransitionParams,
-	outputCommitments map[uint32]*commitment.TaroCommitment,
+	outputCommitments map[uint32]*commitment.TapCommitment,
 	skip func(int, *tappsbt.VOutput) bool) error {
 
 	for idx := range outputs {
@@ -614,7 +614,7 @@ func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 		tapTree := outputCommitments[outIndex]
 
 		_, splitExclusionProof, err := tapTree.Proof(
-			asset.TaroCommitmentKey(),
+			asset.TapCommitmentKey(),
 			asset.AssetCommitmentKey(),
 		)
 		if err != nil {

@@ -722,7 +722,7 @@ func (p *ChainPorter) advanceState(pkg *sendPackage) error {
 }
 
 // createDummyOutput creates a new Bitcoin transaction output that is later
-// used to embed a Taro commitment.
+// used to embed a Taproot Asset commitment.
 func createDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output.
 	newOutput := wire.TxOut{
@@ -817,8 +817,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"interactive output: %w", err)
 		}
 		receiverScriptKey := firstRecipient.ScriptKey.PubKey
-		log.Infof("Constructing new Taro commitments for send to: %x",
-			receiverScriptKey.SerializeCompressed())
+		log.Infof("Constructing new Taproot Asset commitments for "+
+			"send to: %x", receiverScriptKey.SerializeCompressed())
 
 		// Gather passive assets virtual packets and sign them.
 		wallet := p.cfg.AssetWallet

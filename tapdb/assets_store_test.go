@@ -234,7 +234,7 @@ func TestImportAssetProof(t *testing.T) {
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
 	require.NoError(t, err)
 
-	taprootAssetRoot, err := commitment.NewTaroCommitment(assetRoot)
+	taprootAssetRoot, err := commitment.NewTapCommitment(assetRoot)
 	require.NoError(t, err)
 
 	// With our asset created, we can now create the AnnotatedProof we use
@@ -509,7 +509,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		// TODO(roasbeef): should actually group them all together?
 		assetCommitment, err := commitment.NewAssetCommitment(asset)
 		require.NoError(t, err)
-		tapCommitment, err := commitment.NewTaroCommitment(assetCommitment)
+		tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
 		require.NoError(t, err)
 
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]

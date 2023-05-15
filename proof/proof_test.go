@@ -49,7 +49,10 @@ var (
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
 	require.Equal(t, expected.Proof.AssetProof, actual.Proof.AssetProof)
-	require.Equal(t, expected.Proof.TaroProof, actual.Proof.TaroProof)
+	require.Equal(
+		t, expected.Proof.TaprootAssetProof,
+		actual.Proof.TaprootAssetProof,
+	)
 	require.Equal(t, expected.TapSiblingPreimage, actual.TapSiblingPreimage)
 }
 
@@ -158,7 +161,7 @@ func TestProofEncoding(t *testing.T) {
 	asset.ScriptKey.TweakedScriptKey = nil
 
 	_, commitmentProof, err := mintCommitment.Proof(
-		asset.TaroCommitmentKey(), asset.AssetCommitmentKey(),
+		asset.TapCommitmentKey(), asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
@@ -268,7 +271,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	}
 
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
-	taroCommitment, assets, err := commitment.Mint(
+	tapCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type: assetType,
 			ScriptKey: test.PubToKeyDesc(
@@ -281,8 +284,8 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	)
 	require.NoError(t, err)
 	genesisAsset := assets[0]
-	_, commitmentProof, err := taroCommitment.Proof(
-		genesisAsset.TaroCommitmentKey(),
+	_, commitmentProof, err := tapCommitment.Proof(
+		genesisAsset.TapCommitmentKey(),
 		genesisAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
@@ -294,7 +297,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	}
 
 	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
-	tapscriptRoot := taroCommitment.TapscriptRoot(tapscriptSibling)
+	tapscriptRoot := tapCommitment.TapscriptRoot(tapscriptSibling)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		internalKey, tapscriptRoot[:],
 	)

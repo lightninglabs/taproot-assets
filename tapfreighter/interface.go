@@ -60,10 +60,10 @@ type AnchoredCommitment struct {
 	// This will usually be nil.
 	TapscriptSibling *commitment.TapscriptPreimage
 
-	// Commitment is the full Taro commitment anchored at the above
+	// Commitment is the full Taproot Asset commitment anchored at the above
 	// outpoint. This includes both the asset to be used as an input, along
 	// with any other assets that might be collocated in this commitment.
-	Commitment *commitment.TaroCommitment
+	Commitment *commitment.TapCommitment
 
 	// Asset is the asset that ratifies the above constraints, and should
 	// be used as an input to a transaction.
@@ -138,16 +138,17 @@ type Anchor struct {
 	// anchored at the new outpoint.
 	InternalKey keychain.KeyDescriptor
 
-	// TaroRoot is the Taro commitment root hash of the anchor output.
+	// TaroRoot is the Taproot Asset commitment root hash of the anchor
+	// output.
 	TaroRoot []byte
 
 	// MerkleRoot is the root of the tap script merkle tree that also
-	// contains the Taro commitment of the anchor output. If there is no
-	// tapscript sibling, then this is equal to the TaroRoot.
+	// contains the Taproot Asset commitment of the anchor output. If there
+	// is no tapscript sibling, then this is equal to the TaroRoot.
 	MerkleRoot []byte
 
 	// TapscriptSibling is the serialized preimage of the tapscript sibling
-	// of the Taro commitment.
+	// of the Taproot Asset commitment.
 	TapscriptSibling []byte
 
 	// NumPassiveAssets is the number of passive assets in the commitment
@@ -157,8 +158,8 @@ type Anchor struct {
 
 // TransferOutput represents the database level output to an asset transfer.
 type TransferOutput struct {
-	// Anchor is the new location of the Taro commitment referenced by this
-	// transfer output.
+	// Anchor is the new location of the Taproot Asset commitment referenced
+	// by this transfer output.
 	Anchor Anchor
 
 	// Type indicates what type of output this is, which has an influence on

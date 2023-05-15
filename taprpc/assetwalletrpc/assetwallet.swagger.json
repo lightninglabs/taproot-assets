@@ -585,7 +585,7 @@
       "properties": {
         "anchor_point": {
           "type": "string",
-          "description": "The old/current location of the Taro commitment that was spent as an\ninput."
+          "description": "The old/current location of the Taproot Asset commitment that was spent\nas an input."
         },
         "asset_id": {
           "type": "string",
@@ -639,7 +639,7 @@
       "properties": {
         "outpoint": {
           "type": "string",
-          "description": "The new location of the Taro commitment that was created on chain."
+          "description": "The new location of the Taproot Asset commitment that was created on\nchain."
         },
         "value": {
           "type": "string",

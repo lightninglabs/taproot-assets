@@ -30,7 +30,7 @@ type TransitionParams struct {
 
 	// RootTaroRoot is the commitment root that commitments to the inclusion
 	// of the root split asset at the RootOutputIndex.
-	RootTaroTree *commitment.TaroCommitment
+	RootTaprootAssetTree *commitment.TapCommitment
 }
 
 // AppendTransition appends a new proof for a state transition to the given
@@ -128,8 +128,8 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 	// With the base information contained, we'll now need to generate our
 	// series of MS-SMT inclusion proofs that prove the existence of the
 	// asset.
-	_, assetMerkleProof, err := params.TaroRoot.Proof(
-		proof.Asset.TaroCommitmentKey(),
+	_, assetMerkleProof, err := params.TaprootAssetRoot.Proof(
+		proof.Asset.TapCommitmentKey(),
 		proof.Asset.AssetCommitmentKey(),
 	)
 	if err != nil {
@@ -149,8 +149,9 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 		splitAsset := proof.Asset
 		rootAsset := &splitAsset.PrevWitnesses[0].SplitCommitment.RootAsset
 
-		committedRoot, rootMerkleProof, err := params.RootTaroTree.Proof(
-			rootAsset.TaroCommitmentKey(),
+		rootTree := params.RootTaprootAssetTree
+		committedRoot, rootMerkleProof, err := rootTree.Proof(
+			rootAsset.TapCommitmentKey(),
 			rootAsset.AssetCommitmentKey(),
 		)
 		if err != nil {

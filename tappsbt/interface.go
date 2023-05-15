@@ -256,10 +256,11 @@ type Anchor struct {
 	InternalKey *btcec.PublicKey
 
 	// MerkleRoot is the root of the tap script merkle tree that also
-	// contains the Taro commitment of the anchor output.
+	// contains the Taproot Asset commitment of the anchor output.
 	MerkleRoot []byte
 
-	// TapscriptSibling is the tapscript sibling of the Taro commitment.
+	// TapscriptSibling is the tapscript sibling of the Taproot Asset
+	// commitment.
 	TapscriptSibling []byte
 
 	// Bip32Derivation is the BIP-0032 derivation of the anchor output's
@@ -430,8 +431,8 @@ func (t VOutputType) String() string {
 }
 
 // InputCommitments is a map from virtual package input index to its
-// associated taro commitment.
-type InputCommitments = map[int]*commitment.TaroCommitment
+// associated Taproot Asset commitment.
+type InputCommitments = map[int]*commitment.TapCommitment
 
 // VOutput represents an output of a virtual asset state transition.
 type VOutput struct {
@@ -471,7 +472,7 @@ type VOutput struct {
 	AnchorOutputTaprootBip32Derivation []*psbt.TaprootBip32Derivation
 
 	// AnchorOutputTapscriptSibling is the preimage of the tapscript sibling
-	// of the Taro commitment.
+	// of the Taproot Asset commitment.
 	AnchorOutputTapscriptSibling *commitment.TapscriptPreimage
 
 	// Asset is the actual asset (including witness or split commitment

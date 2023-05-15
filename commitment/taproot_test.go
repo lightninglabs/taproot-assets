@@ -127,7 +127,7 @@ func TestTapscriptPreimage(t *testing.T) {
 			require.Equal(tt, tc.expectedHash, hash)
 
 			// Make sure that the preimage is detected as not being
-			// a Taro commitment.
+			// a Taproot Asset commitment.
 			require.NoError(tt, preimage.VerifyNoCommitment())
 		})
 	}

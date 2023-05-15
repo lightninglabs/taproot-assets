@@ -359,9 +359,9 @@ type AssetSnapshot struct {
 	// the AnchorTx.
 	InternalKey *btcec.PublicKey
 
-	// ScriptRoot is the Taro commitment root committed to using the above
-	// internal key in the Anchor transaction.
-	ScriptRoot *commitment.TaroCommitment
+	// ScriptRoot is the Taproot Asset commitment root committed to using
+	// the above internal key in the Anchor transaction.
+	ScriptRoot *commitment.TapCommitment
 
 	// TapscriptSibling is the pre-image to the tapscript hash of the
 	// sibling to the Taro root. If this is nil then it means the Taro root

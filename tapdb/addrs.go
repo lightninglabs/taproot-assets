@@ -698,12 +698,12 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 			return fmt.Errorf("error upserting chain TX: %w", err)
 		}
 
-		taroCommitment, err := addr.TapCommitment()
+		tapCommitment, err := addr.TapCommitment()
 		if err != nil {
 			return fmt.Errorf("error deriving commitment: %w", err)
 		}
-		merkleRoot := taroCommitment.TapscriptRoot(siblingHash)
-		taprootAssetRoot := taroCommitment.TapscriptRoot(nil)
+		merkleRoot := tapCommitment.TapscriptRoot(siblingHash)
+		taprootAssetRoot := tapCommitment.TapscriptRoot(nil)
 
 		utxoUpsert := RawManagedUTXO{
 			RawKey:           addr.InternalKey.SerializeCompressed(),

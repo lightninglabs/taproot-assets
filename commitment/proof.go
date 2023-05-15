@@ -12,7 +12,7 @@ import (
 
 var (
 	// ErrMissingAssetProof is an error returned when attempting to derive a
-	// TaroCommitment and an AssetProof is required but missing.
+	// TapCommitment and an AssetProof is required but missing.
 	ErrMissingAssetProof = errors.New("missing asset proof")
 )
 
@@ -31,31 +31,31 @@ type AssetProof struct {
 	AssetID [32]byte
 }
 
-// TaroProof is the proof used along with an asset commitment leaf to arrive at
-// the root of the TaroCommitment MS-SMT.
-type TaroProof struct {
+// TaprootAssetProof is the proof used along with an asset commitment leaf to
+// arrive at the root of the TapCommitment MS-SMT.
+type TaprootAssetProof struct {
 	mssmt.Proof
 
 	// Version is the max version committed of the AssetCommitment's
-	// included in the TaroCommitment.
+	// included in the TapCommitment.
 	Version asset.Version
 }
 
 // Proof represents a full commitment proof for a particular `Asset`. It proves
-// that an asset does or does not exist within a Taro commitment.
+// that an asset does or does not exist within a Taproot Asset commitment.
 type Proof struct {
 	// AssetProof is the proof used along with the asset to arrive at the
 	// root of the AssetCommitment MS-SMT.
 	//
 	// NOTE: This proof must be nil if the asset commitment for this
-	// particular asset is not found within the Taro commitment. In this
-	// case, the TaroProof below would be a non-inclusion proof of the asset
-	// commitment.
+	// particular asset is not found within the Taproot Asset commitment. In
+	// this case, the TaprootAssetProof below would be a non-inclusion proof
+	// of the asset commitment.
 	AssetProof *AssetProof
 
-	// TaroProof is the proof used along with the asset commitment to arrive
-	// at the root of the TaroCommitment MS-SMT.
-	TaroProof TaroProof
+	// TaprootAssetProof is the proof used along with the asset commitment
+	// to arrive at the root of the TapCommitment MS-SMT.
+	TaprootAssetProof TaprootAssetProof
 }
 
 // EncodeRecords returns the encoding records for the Proof.
@@ -64,7 +64,7 @@ func (p Proof) EncodeRecords() []tlv.Record {
 	if p.AssetProof != nil {
 		records = append(records, ProofAssetProofRecord(&p.AssetProof))
 	}
-	records = append(records, ProofTaroProofRecord(&p.TaroProof))
+	records = append(records, ProofTaroProofRecord(&p.TaprootAssetProof))
 	return records
 }
 
@@ -72,7 +72,7 @@ func (p Proof) EncodeRecords() []tlv.Record {
 func (p *Proof) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		ProofAssetProofRecord(&p.AssetProof),
-		ProofTaroProofRecord(&p.TaroProof),
+		ProofTaroProofRecord(&p.TaprootAssetProof),
 	}
 }
 
@@ -94,12 +94,12 @@ func (p *Proof) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
-// DeriveByAssetInclusion derives the Taro commitment containing the provided
-// asset. This consists of proving that an asset exists within the inner MS-SMT
-// with the AssetProof, also known as the AssetCommitment. With the
-// AssetCommitment obtained, the TaroProof is used to prove that it exists or
-// within the outer MS-SMT, also known as the TaroCommitment.
-func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TaroCommitment,
+// DeriveByAssetInclusion derives the Taproot Asset commitment containing the
+// provided asset. This consists of proving that an asset exists within the
+// inner MS-SMT with the AssetProof, also known as the AssetCommitment. With the
+// AssetCommitment obtained, the TaprootAssetProof is used to prove that it
+// exists or within the outer MS-SMT, also known as the TapCommitment.
+func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 	error) {
 
 	if p.AssetProof == nil {
@@ -107,7 +107,7 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TaroCommitment,
 	}
 
 	// Use the asset proof to arrive at the asset commitment included within
-	// the Taro commitment.
+	// the Taproot Asset commitment.
 	assetCommitmentLeaf, err := asset.Leaf()
 	if err != nil {
 		return nil, err
@@ -121,34 +121,37 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TaroCommitment,
 		TreeRoot: assetProofRoot,
 	}
 
-	// Use the Taro commitment proof to arrive at the Taro commitment.
-	taroProofRoot := p.TaroProof.Root(
-		assetCommitment.TaroCommitmentKey(),
-		assetCommitment.TaroCommitmentLeaf(),
+	// Use the Taproot Asset commitment proof to arrive at the Taproot Asset
+	// commitment.
+	tapProofRoot := p.TaprootAssetProof.Root(
+		assetCommitment.TapCommitmentKey(),
+		assetCommitment.TapCommitmentLeaf(),
 	)
 	log.Tracef("Derived asset inclusion proof for asset_id=%v, "+
 		"asset_commitment_key=%x, asset_commitment_leaf=%s",
 		asset.ID(), chanutils.ByteSlice(asset.AssetCommitmentKey()),
 		assetCommitmentLeaf.NodeHash())
 
-	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
+	return NewTapCommitmentWithRoot(
+		p.TaprootAssetProof.Version, tapProofRoot,
+	), nil
 }
 
-// DeriveByAssetExclusion derives the Taro commitment excluding the given asset
-// identified by its key within an AssetCommitment. This consists of proving
-// with the AssetProof that an asset does not exist within the inner MS-SMT,
-// also known as the AssetCommitment. With the AssetCommitment obtained, the
-// TaroProof is used to prove that the AssetCommitment exists within the outer
-// MS-SMT, also known as the TaroCommitment.
+// DeriveByAssetExclusion derives the Taproot Asset commitment excluding the
+// given asset identified by its key within an AssetCommitment. This consists of
+// proving with the AssetProof that an asset does not exist within the inner
+// MS-SMT, also known as the AssetCommitment. With the AssetCommitment obtained,
+// the TaprootAssetProof is used to prove that the AssetCommitment exists within
+// the outer MS-SMT, also known as the TapCommitment.
 func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
-	*TaroCommitment, error) {
+	*TapCommitment, error) {
 
 	if p.AssetProof == nil {
 		return nil, ErrMissingAssetProof
 	}
 
 	// Use the asset proof to arrive at the asset commitment included within
-	// the Taro commitment.
+	// the Taproot Asset commitment.
 	assetCommitmentLeaf := mssmt.EmptyLeafNode
 	assetProofRoot := p.AssetProof.Root(
 		assetCommitmentKey, assetCommitmentLeaf,
@@ -159,27 +162,36 @@ func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
 		TreeRoot: assetProofRoot,
 	}
 
-	// Use the Taro commitment proof to arrive at the Taro commitment.
-	taroProofRoot := p.TaroProof.Root(
-		assetCommitment.TaroCommitmentKey(),
-		assetCommitment.TaroCommitmentLeaf(),
+	// Use the Taproot Asset commitment proof to arrive at the Taproot Asset
+	// commitment.
+	tapProofRoot := p.TaprootAssetProof.Root(
+		assetCommitment.TapCommitmentKey(),
+		assetCommitment.TapCommitmentLeaf(),
 	)
-	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
+	return NewTapCommitmentWithRoot(
+		p.TaprootAssetProof.Version, tapProofRoot,
+	), nil
 }
 
-// DeriveByAssetCommitmentExclusion derives the Taro commitment excluding the
-// given asset commitment identified by its key within a TaroCommitment. This
-// consists of proving with the TaroProof that an AssetCommitment does not exist
-// within the outer MS-SMT, also known as the TaroCommitment.
-func (p Proof) DeriveByAssetCommitmentExclusion(taroCommitmentKey [32]byte) (
-	*TaroCommitment, error) {
+// DeriveByAssetCommitmentExclusion derives the Taproot Asset commitment
+// excluding the given asset commitment identified by its key within a
+// TapCommitment. This consists of proving with the TaprootAssetProof that an
+// AssetCommitment does not exist within the outer MS-SMT, also known as the
+// TapCommitment.
+func (p Proof) DeriveByAssetCommitmentExclusion(tapCommitmentKey [32]byte) (
+	*TapCommitment, error) {
 
 	if p.AssetProof != nil {
 		return nil, errors.New("attempting to prove an invalid asset " +
 			"commitment exclusion")
 	}
 
-	// Use the Taro commitment proof to arrive at the Taro commitment.
-	taroProofRoot := p.TaroProof.Root(taroCommitmentKey, mssmt.EmptyLeafNode)
-	return NewTaroCommitmentWithRoot(p.TaroProof.Version, taroProofRoot), nil
+	// Use the Taproot Asset commitment proof to arrive at the Taproot Asset
+	// commitment.
+	tapProofRoot := p.TaprootAssetProof.Root(
+		tapCommitmentKey, mssmt.EmptyLeafNode,
+	)
+	return NewTapCommitmentWithRoot(
+		p.TaprootAssetProof.Version, tapProofRoot,
+	), nil
 }

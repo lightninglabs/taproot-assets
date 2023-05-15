@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS addr_events (
     chain_txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id),
 
     -- chain_txn_output_index is the index of the on-chain output (of the
-    -- transaction referenced by chain_txn_id) that houses the Taro commitment.
+    -- transaction referenced by chain_txn_id) that houses the Taproot Asset
+    -- commitment.
     chain_txn_output_index INTEGER NOT NULL,
 
     -- managed_utxo_id is a reference to the managed UTXO the internal wallet

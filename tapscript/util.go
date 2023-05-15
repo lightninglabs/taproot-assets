@@ -8,12 +8,13 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 )
 
-// PayToAddrScript constructs a P2TR script that embeds a Taro commitment
-// by tweaking the receiver key by a Tapscript tree that contains the Taro
-// commitment root. The Taro commitment must be reconstructed by the receiver,
-// and they also need to Tapscript sibling hash used here if present.
+// PayToAddrScript constructs a P2TR script that embeds a Taproot Asset
+// commitment by tweaking the receiver key by a Tapscript tree that contains the
+// Taproot Asset commitment root. The Taproot Asset commitment must be
+// reconstructed by the receiver, and they also need to Tapscript sibling hash
+// used here if present.
 func PayToAddrScript(internalKey btcec.PublicKey, sibling *chainhash.Hash,
-	commitment commitment.TaroCommitment) ([]byte, error) {
+	commitment commitment.TapCommitment) ([]byte, error) {
 
 	tapscriptRoot := commitment.TapscriptRoot(sibling)
 	outputKey := txscript.ComputeTaprootOutputKey(

@@ -365,13 +365,15 @@ type AnchorInfo struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The transaction that anchors the Taro commitment where the asset resides.
+	// The transaction that anchors the Taproot Asset commitment where the asset
+	//
+	//	resides.
 	AnchorTx []byte `protobuf:"bytes,1,opt,name=anchor_tx,json=anchorTx,proto3" json:"anchor_tx,omitempty"`
 	// The txid of the above transaction.
 	AnchorTxid string `protobuf:"bytes,2,opt,name=anchor_txid,json=anchorTxid,proto3" json:"anchor_txid,omitempty"`
 	// The block hash the contains the anchor transaction above.
 	AnchorBlockHash []byte `protobuf:"bytes,3,opt,name=anchor_block_hash,json=anchorBlockHash,proto3" json:"anchor_block_hash,omitempty"`
-	// The outpoint (txid:vout) that stores the Taro commitment.
+	// The outpoint (txid:vout) that stores the Taproot Asset commitment.
 	AnchorOutpoint string `protobuf:"bytes,4,opt,name=anchor_outpoint,json=anchorOutpoint,proto3" json:"anchor_outpoint,omitempty"`
 	// The raw internal key that was used to create the anchor Taproot output key.
 	InternalKey []byte `protobuf:"bytes,5,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
@@ -479,10 +481,10 @@ type GenesisInfo struct {
 	MetaHash []byte `protobuf:"bytes,3,opt,name=meta_hash,json=metaHash,proto3" json:"meta_hash,omitempty"`
 	// The asset ID that uniquely identifies the asset.
 	AssetId []byte `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	// The index of the output that carries the unique Taro commitment in the
-	// genesis transaction.
+	// The index of the output that carries the unique Taproot Asset commitment in
+	// the genesis transaction.
 	OutputIndex uint32 `protobuf:"varint,5,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
-	// The version of the Taro commitment that created this asset.
+	// The version of the Taproot Asset commitment that created this asset.
 	Version int32 `protobuf:"varint,6,opt,name=version,proto3" json:"version,omitempty"`
 }
 
@@ -1821,8 +1823,8 @@ type TransferInput struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The old/current location of the Taro commitment that was spent as an
-	// input.
+	// The old/current location of the Taproot Asset commitment that was spent
+	// as an input.
 	AnchorPoint string `protobuf:"bytes,1,opt,name=anchor_point,json=anchorPoint,proto3" json:"anchor_point,omitempty"`
 	// The ID of the asset that was spent.
 	AssetId []byte `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
@@ -1897,7 +1899,8 @@ type TransferOutputAnchor struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The new location of the Taro commitment that was created on chain.
+	// The new location of the Taproot Asset commitment that was created on
+	// chain.
 	Outpoint         string `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	Value            int64  `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
 	InternalKey      []byte `protobuf:"bytes,3,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
@@ -2284,8 +2287,8 @@ type Addr struct {
 	InternalKey []byte `protobuf:"bytes,7,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
 	// The optional serialized tapscript sibling preimage to use for the receiving
 	// asset. This is usually empty as it is only needed when there should be an
-	// additional script path in the Taproot tree alongside the Taro commitment of
-	// the asset.
+	// additional script path in the Taproot tree alongside the Taproot Asset
+	// commitment of the asset.
 	TapscriptSibling []byte `protobuf:"bytes,8,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
 	// The tweaked internal key that commits to the asset and represents the
 	// on-chain output key the Bitcoin transaction must send to in order to
@@ -2535,8 +2538,8 @@ type NewAddrRequest struct {
 	InternalKey *KeyDescriptor `protobuf:"bytes,4,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
 	// The optional serialized tapscript sibling preimage to use for the receiving
 	// asset. This is usually empty as it is only needed when there should be an
-	// additional script path in the Taproot tree alongside the Taro commitment of
-	// the asset.
+	// additional script path in the Taproot tree alongside the Taproot Asset
+	// commitment of the asset.
 	TapscriptSibling []byte `protobuf:"bytes,5,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
 }
 

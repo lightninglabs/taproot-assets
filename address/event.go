@@ -79,8 +79,8 @@ type Event struct {
 	Amt btcutil.Amount
 
 	// InternalKey is the key used as the internal key for the on-chain
-	// Taproot output. The internal key tweaked with the Taro commitment
-	// (when NO tapscript sibling if present) is equal to the
+	// Taproot output. The internal key tweaked with the Taproot Asset
+	// commitment (when NO tapscript sibling if present) is equal to the
 	// TaprootOutputKey of the Addr.
 	InternalKey *btcec.PublicKey
 

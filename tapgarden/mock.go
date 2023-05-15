@@ -113,7 +113,7 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	packet.Outputs = append(packet.Outputs, psbt.POutput{})
 
 	// We always have the change output be the second output, so this means
-	// the taro commitment will live in the first output.
+	// the Taproot Asset commitment will live in the first output.
 	pkt := FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: 1,

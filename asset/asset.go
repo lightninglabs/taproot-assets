@@ -727,24 +727,24 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	}, nil
 }
 
-// TaroCommitmentKey is the key that maps to the root commitment for a specific
-// asset group within a TaroCommitment.
+// TapCommitmentKey is the key that maps to the root commitment for a specific
+// asset group within a TapCommitment.
 //
 // NOTE: This function is also used outside the asset package.
-func TaroCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
+func TapCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
 	if groupKey == nil {
 		return assetID
 	}
 	return sha256.Sum256(schnorr.SerializePubKey(groupKey))
 }
 
-// TaroCommitmentKey is the key that maps to the root commitment for a specific
-// asset group within a TaroCommitment.
-func (a *Asset) TaroCommitmentKey() [32]byte {
+// TapCommitmentKey is the key that maps to the root commitment for a specific
+// asset group within a TapCommitment.
+func (a *Asset) TapCommitmentKey() [32]byte {
 	if a.GroupKey == nil {
-		return TaroCommitmentKey(a.Genesis.ID(), nil)
+		return TapCommitmentKey(a.Genesis.ID(), nil)
 	}
-	return TaroCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
+	return TapCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
 }
 
 // AssetCommitmentKey returns a key which can be used to locate an

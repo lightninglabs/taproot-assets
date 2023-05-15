@@ -51,24 +51,24 @@ type MintingBatch struct {
 	// BatchStateCommitted.
 	GenesisPacket *FundedPsbt
 
-	// RootAssetCommitment is the root Taro commitment for all the assets
-	// contained in this batch.
+	// RootAssetCommitment is the root Taproot Asset commitment for all the
+	// assets contained in this batch.
 	//
 	// NOTE: This field is only set if the state is beyond
 	// BatchStateCommitted.
-	RootAssetCommitment *commitment.TaroCommitment
+	RootAssetCommitment *commitment.TapCommitment
 
 	// AssetMetas maps the serialized script key of an asset to the meta
 	// reveal for that asset, if it has one.
 	AssetMetas AssetMetas
 
 	// mintingPubKey is the top-level Taproot output key that will be
-	// used to commit to the Taro commitment above.
+	// used to commit to the Taproot Asset commitment above.
 	mintingPubKey *btcec.PublicKey
 
-	// taroScriptRoot is the root hash of the Taro commitment. If this is
-	// nil, then the mintingPubKey will be as well.
-	taroScriptRoot []byte
+	// taprootAssetScriptRoot is the root hash of the Taproot Asset
+	// commitment. If this is nil, then the mintingPubKey will be as well.
+	taprootAssetScriptRoot []byte
 }
 
 // TODO(roasbeef): add batch validate method re unique names?
@@ -105,21 +105,21 @@ func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
 // Taro asset root, thereby creating the set of included assets.
 func (m *MintingBatch) MintingOutputKey() (*btcec.PublicKey, []byte, error) {
 	if m.mintingPubKey != nil {
-		return m.mintingPubKey, m.taroScriptRoot, nil
+		return m.mintingPubKey, m.taprootAssetScriptRoot, nil
 	}
 
 	if m.RootAssetCommitment == nil {
 		return nil, nil, fmt.Errorf("no asset commitment present")
 	}
 
-	taroScriptRoot := m.RootAssetCommitment.TapscriptRoot(nil)
+	taprootAssetScriptRoot := m.RootAssetCommitment.TapscriptRoot(nil)
 
-	m.taroScriptRoot = taroScriptRoot[:]
+	m.taprootAssetScriptRoot = taprootAssetScriptRoot[:]
 	m.mintingPubKey = txscript.ComputeTaprootOutputKey(
-		m.BatchKey.PubKey, taroScriptRoot[:],
+		m.BatchKey.PubKey, taprootAssetScriptRoot[:],
 	)
 
-	return m.mintingPubKey, m.taroScriptRoot, nil
+	return m.mintingPubKey, m.taprootAssetScriptRoot, nil
 }
 
 // genesisScript returns the script that should be placed in the minting output

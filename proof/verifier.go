@@ -49,9 +49,9 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
 // exclusion of an asset. If the taproot proof was an inclusion proof, then the
-// TaroCommitment is returned as well.
+// TapCommitment is returned as well.
 func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
-	asset *asset.Asset, inclusion bool) (*commitment.TaroCommitment,
+	asset *asset.Asset, inclusion bool) (*commitment.TapCommitment,
 	error) {
 
 	// Extract the final taproot key from the output including/excluding the
@@ -66,8 +66,8 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// For each proof type, we'll map this to a single key based on the
 	// self-identified pre-image type in the specified proof.
 	var (
-		derivedKey     *btcec.PublicKey
-		taroCommitment *commitment.TaroCommitment
+		derivedKey    *btcec.PublicKey
+		tapCommitment *commitment.TapCommitment
 	)
 	switch {
 	// If this is an inclusion proof, then we'll derive the expected
@@ -77,7 +77,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// internal key to derive the expected output key.
 	case inclusion:
 		log.Tracef("Verifying inclusion proof for asset %v", asset.ID())
-		derivedKey, taroCommitment, err = proof.DeriveByAssetInclusion(
+		derivedKey, tapCommitment, err = proof.DeriveByAssetInclusion(
 			asset,
 		)
 
@@ -89,11 +89,11 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 		log.Tracef("Verifying exclusion proof for asset %v", asset.ID())
 		derivedKey, err = proof.DeriveByAssetExclusion(
 			asset.AssetCommitmentKey(),
-			asset.TaroCommitmentKey(),
+			asset.TapCommitmentKey(),
 		)
 
 	// If this is a tapscript proof, then we want to verify that the target
-	// output DOES NOT contain any sort of Taro commitment.
+	// output DOES NOT contain any sort of Taproot Asset commitment.
 	case proof.TapscriptProof != nil:
 		log.Tracef("Verifying tapscript proof")
 		derivedKey, err = proof.DeriveByTapscriptProof()
@@ -104,14 +104,14 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 
 	// The derive key should match the extracted key.
 	if derivedKey.IsEqual(expectedTaprootKey) {
-		return taroCommitment, nil
+		return tapCommitment, nil
 	}
 
 	return nil, commitment.ErrInvalidTaprootProof
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
-func (p *Proof) verifyInclusionProof() (*commitment.TaroCommitment, error) {
+func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 	return verifyTaprootProof(
 		&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
 	)
@@ -324,7 +324,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	}
 
 	// 2. A valid inclusion proof for the resulting asset is included.
-	taroCommitment, err := p.verifyInclusionProof()
+	tapCommitment, err := p.verifyInclusionProof()
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		AnchorTx:         &p.AnchorTx,
 		OutputIndex:      p.InclusionProof.OutputIndex,
 		InternalKey:      p.InclusionProof.InternalKey,
-		ScriptRoot:       taroCommitment,
+		ScriptRoot:       tapCommitment,
 		TapscriptSibling: tapscriptPreimage,
 		SplitAsset:       splitAsset,
 		MetaReveal:       p.MetaReveal,

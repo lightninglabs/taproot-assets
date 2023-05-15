@@ -412,8 +412,8 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		t, err, fmt.Errorf("unable to read pending batch: %v", err),
 	)
 
-	// The amount of assets committed to in the taro commitment should
-	// match up
+	// The amount of assets committed to in the Taproot Asset commitment
+	// should match up
 	dbAssets := pendingBatch.RootAssetCommitment.CommittedAssets()
 	require.Len(t, dbAssets, len(seedlings))
 
