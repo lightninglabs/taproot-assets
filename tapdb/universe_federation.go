@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/universe"
 )
 

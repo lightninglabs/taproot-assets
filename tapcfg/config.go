@@ -22,7 +22,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -247,9 +247,9 @@ type Config struct {
 
 	Lnd *LndConfig `group:"lnd" namespace:"lnd"`
 
-	DatabaseBackend string                 `long:"databasebackend" description:"The database backend to use for storing all asset related data." choice:"sqlite" choice:"postgres"`
-	Sqlite          *tarodb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
-	Postgres        *tarodb.PostgresConfig `group:"postgres" namespace:"postgres"`
+	DatabaseBackend string                `long:"databasebackend" description:"The database backend to use for storing all asset related data." choice:"sqlite" choice:"postgres"`
+	Sqlite          *tapdb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
+	Postgres        *tapdb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
 	UniverseSyncInterval time.Duration `long:"unisyncinterval" description:"Amount of time to wait between universe syncs"`
 
@@ -299,10 +299,10 @@ func DefaultConfig() Config {
 			MacaroonPath: defaultLndMacaroonPath,
 		},
 		DatabaseBackend: DatabaseBackendSqlite,
-		Sqlite: &tarodb.SqliteConfig{
+		Sqlite: &tapdb.SqliteConfig{
 			DatabaseFileName: defaultSqliteDatabasePath,
 		},
-		Postgres: &tarodb.PostgresConfig{
+		Postgres: &tapdb.PostgresConfig{
 			Host:               "localhost",
 			Port:               5432,
 			MaxOpenConnections: 10,

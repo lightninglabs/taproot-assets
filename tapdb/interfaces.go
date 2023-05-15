@@ -1,11 +1,11 @@
-package tarodb
+package tapdb
 
 import (
 	"context"
 	"database/sql"
 	"time"
 
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 )
 
 var (

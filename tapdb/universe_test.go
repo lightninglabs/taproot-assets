@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/stretchr/testify/require"
 )

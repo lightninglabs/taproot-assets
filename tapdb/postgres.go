@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"database/sql"
@@ -8,7 +8,7 @@ import (
 
 	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/stretchr/testify/require"
 )
 

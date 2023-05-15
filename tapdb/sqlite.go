@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"database/sql"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )

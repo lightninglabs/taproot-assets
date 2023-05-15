@@ -27,7 +27,7 @@ import (
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
-	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
@@ -514,7 +514,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 	return rpcAssets, nil
 }
 
-func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
+func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 	withWitness bool) (*tarorpc.Asset, error) {
 
 	rpcAsset, err := MarshalAsset(ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook)

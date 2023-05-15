@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 )
 
 type (

@@ -22,8 +22,8 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
-	_ "github.com/lightninglabs/taro/tarodb" // Register relevant drivers.
+	"github.com/lightninglabs/taro/tapdb"
+	_ "github.com/lightninglabs/taro/tapdb" // Register relevant drivers.
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -42,14 +42,14 @@ var (
 
 // newMintingStore creates a new instance of the TaroAddressBook book.
 func newMintingStore(t *testing.T) tarogarden.MintingStore {
-	db := tarodb.NewTestDB(t)
+	db := tapdb.NewTestDB(t)
 
-	txCreator := func(tx *sql.Tx) tarodb.PendingAssetStore {
+	txCreator := func(tx *sql.Tx) tapdb.PendingAssetStore {
 		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor(db, txCreator)
-	return tarodb.NewAssetMintingStore(assetDB)
+	assetDB := tapdb.NewTransactionExecutor(db, txCreator)
+	return tapdb.NewAssetMintingStore(assetDB)
 }
 
 // mintingTestHarness holds and manages all the set of deplanes needed to

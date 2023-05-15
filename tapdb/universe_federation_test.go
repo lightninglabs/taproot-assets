@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/rand"

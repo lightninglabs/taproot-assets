@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapcfg"
-	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -103,8 +103,8 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		// We use the default settings, nothing to change for SQLite.
 
 	case tapcfg.DatabaseBackendPostgres:
-		fixture := tarodb.NewTestPgFixture(
-			ht.t, tarodb.DefaultPostgresFixtureLifetime,
+		fixture := tapdb.NewTestPgFixture(
+			ht.t, tapdb.DefaultPostgresFixtureLifetime,
 		)
 		ht.t.Cleanup(func() {
 			fixture.TearDown(ht.t)

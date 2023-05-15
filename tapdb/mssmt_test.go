@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/stretchr/testify/require"
 )
 

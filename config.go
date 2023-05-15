@@ -7,7 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/universe"
@@ -54,17 +54,17 @@ type RPCConfig struct {
 // DatabaseConfig is the config that holds all the persistence related structs
 // and interfaces needed for tarod to function.
 type DatabaseConfig struct {
-	RootKeyStore *tarodb.RootKeyStore
+	RootKeyStore *tapdb.RootKeyStore
 
 	MintingStore tarogarden.MintingStore
 
-	AssetStore *tarodb.AssetStore
+	AssetStore *tapdb.AssetStore
 
-	TaroAddrBook *tarodb.TaroAddressBook
+	TaroAddrBook *tapdb.TaroAddressBook
 
-	UniverseForest *tarodb.BaseUniverseForest
+	UniverseForest *tapdb.BaseUniverseForest
 
-	FederationDB *tarodb.UniverseFederationDB
+	FederationDB *tapdb.UniverseFederationDB
 }
 
 // Config is the main config of the Taro server.

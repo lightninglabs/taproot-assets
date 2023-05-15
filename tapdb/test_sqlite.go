@@ -1,7 +1,7 @@
 //go:build !test_db_postgres
 // +build !test_db_postgres
 
-package tarodb
+package tapdb
 
 import (
 	"testing"

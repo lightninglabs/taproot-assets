@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 

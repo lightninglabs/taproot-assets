@@ -16,8 +16,8 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -34,40 +34,40 @@ var (
 
 // newAddrBook creates a new instance of the TaroAddressBook book.
 func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
-	*tarodb.TaroAddressBook, sqlc.Querier) {
+	*tapdb.TaroAddressBook, sqlc.Querier) {
 
-	db := tarodb.NewTestDB(t)
+	db := tapdb.NewTestDB(t)
 
-	txCreator := func(tx *sql.Tx) tarodb.AddrBook {
+	txCreator := func(tx *sql.Tx) tapdb.AddrBook {
 		return db.WithTx(tx)
 	}
 
-	addrTx := tarodb.NewTransactionExecutor(db, txCreator)
-	tarodbBook := tarodb.NewTaroAddressBook(addrTx, chainParams)
+	addrTx := tapdb.NewTransactionExecutor(db, txCreator)
+	tapdbBook := tapdb.NewTaroAddressBook(addrTx, chainParams)
 	book := address.NewBook(address.BookConfig{
-		Store:        tarodbBook,
+		Store:        tapdbBook,
 		StoreTimeout: testTimeout,
 		Chain:        *chainParams,
 		KeyRing:      keyRing,
 	})
-	return book, tarodbBook, db
+	return book, tapdbBook, db
 }
 
 // newProofArchive creates a new instance of the MultiArchiver.
-func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tarodb.AssetStore) {
-	db := tarodb.NewTestDB(t)
+func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tapdb.AssetStore) {
+	db := tapdb.NewTestDB(t)
 
-	txCreator := func(tx *sql.Tx) tarodb.ActiveAssetsStore {
+	txCreator := func(tx *sql.Tx) tapdb.ActiveAssetsStore {
 		return db.WithTx(tx)
 	}
 
-	assetDB := tarodb.NewTransactionExecutor(
+	assetDB := tapdb.NewTransactionExecutor(
 		db, txCreator,
 	)
-	assetStore := tarodb.NewAssetStore(assetDB)
+	assetStore := tapdb.NewAssetStore(assetDB)
 
 	proofArchive := proof.NewMultiArchiver(
-		proof.NewMockVerifier(t), tarodb.DefaultStoreTimeout,
+		proof.NewMockVerifier(t), tapdb.DefaultStoreTimeout,
 		assetStore,
 	)
 
@@ -81,9 +81,9 @@ type custodianHarness struct {
 	chainBridge  *tarogarden.MockChainBridge
 	walletAnchor *tarogarden.MockWalletAnchor
 	keyRing      *tarogarden.MockKeyRing
-	tarodbBook   *tarodb.TaroAddressBook
+	tapdbBook    *tapdb.TaroAddressBook
 	addrBook     *address.Book
-	assetDB      *tarodb.AssetStore
+	assetDB      *tapdb.AssetStore
 	proofArchive *proof.MultiArchiver
 }
 
@@ -131,12 +131,12 @@ func newHarness(t *testing.T,
 	chainBridge := tarogarden.NewMockChainBridge()
 	walletAnchor := tarogarden.NewMockWalletAnchor()
 	keyRing := tarogarden.NewMockKeyRing()
-	addrBook, tarodbBook, _ := newAddrBook(t, keyRing)
+	addrBook, tapdbBook, _ := newAddrBook(t, keyRing)
 	proofArchive, assetDB := newProofArchive(t)
 
 	ctxb := context.Background()
 	for _, initialAddr := range initialAddrs {
-		err := tarodbBook.InsertAddrs(ctxb, *initialAddr)
+		err := tapdbBook.InsertAddrs(ctxb, *initialAddr)
 		require.NoError(t, err)
 	}
 
@@ -156,7 +156,7 @@ func newHarness(t *testing.T,
 		chainBridge:  chainBridge,
 		walletAnchor: walletAnchor,
 		keyRing:      keyRing,
-		tarodbBook:   tarodbBook,
+		tapdbBook:    tapdbBook,
 		addrBook:     addrBook,
 		assetDB:      assetDB,
 		proofArchive: proofArchive,
@@ -166,7 +166,7 @@ func newHarness(t *testing.T,
 func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
 	addr, genesis, group := address.RandAddr(h.t, &address.RegressionNetTaro)
 
-	err := h.tarodbBook.InsertAssetGen(context.Background(), genesis, group)
+	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
 	require.NoError(h.t, err)
 
 	return addr
@@ -249,7 +249,7 @@ func TestCustodianNewAddr(t *testing.T) {
 	h.assertAddrsRegistered(dbAddr)
 
 	h.eventually(func() bool {
-		addrs, err := h.tarodbBook.QueryAddrs(
+		addrs, err := h.tapdbBook.QueryAddrs(
 			ctx, address.QueryParams{},
 		)
 		require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestTransactionHandling(t *testing.T) {
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
 		addrs[i] = randAddr(h)
-		err := h.tarodbBook.InsertAddrs(ctx, *addrs[i])
+		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
 
@@ -289,7 +289,7 @@ func TestTransactionHandling(t *testing.T) {
 	// Only one event should be registered though, as we've only created one
 	// transaction.
 	h.eventually(func() bool {
-		events, err := h.tarodbBook.QueryAddrEvents(
+		events, err := h.tapdbBook.QueryAddrEvents(
 			ctx, address.EventQueryParams{},
 		)
 		require.NoError(t, err)

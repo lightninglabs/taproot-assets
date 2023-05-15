@@ -4,7 +4,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
+	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/universe"
@@ -93,7 +93,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 		root, tarofreighter.Subsystem, interceptor, tarofreighter.UseLogger,
 	)
 	AddSubLogger(root, proof.Subsystem, interceptor, proof.UseLogger)
-	AddSubLogger(root, tarodb.Subsystem, interceptor, tarodb.UseLogger)
+	AddSubLogger(root, tapdb.Subsystem, interceptor, tapdb.UseLogger)
 	AddSubLogger(root, universe.Subsystem, interceptor, universe.UseLogger)
 	AddSubLogger(
 		root, commitment.Subsystem, interceptor, commitment.UseLogger,

@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taro/mssmt"
-	_ "github.com/lightninglabs/taro/tarodb"
+	_ "github.com/lightninglabs/taro/tapdb"
 	"github.com/stretchr/testify/require"
 )
 

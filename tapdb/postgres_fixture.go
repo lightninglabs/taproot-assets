@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"context"

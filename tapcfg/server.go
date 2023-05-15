@@ -10,8 +10,8 @@ import (
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/tarofreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/universe"
@@ -23,7 +23,7 @@ import (
 // databaseBackend is an interface that contains all methods our different
 // database backends implement.
 type databaseBackend interface {
-	tarodb.BatchedQuerier
+	tapdb.BatchedQuerier
 	WithTx(tx *sql.Tx) *sqlc.Queries
 }
 
@@ -44,12 +44,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	case DatabaseBackendSqlite:
 		cfgLogger.Infof("Opening sqlite3 database at: %v",
 			cfg.Sqlite.DatabaseFileName)
-		db, err = tarodb.NewSqliteStore(cfg.Sqlite)
+		db, err = tapdb.NewSqliteStore(cfg.Sqlite)
 
 	case DatabaseBackendPostgres:
 		cfgLogger.Infof("Opening postgres database at: %v",
 			cfg.Postgres.DSN(true))
-		db, err = tarodb.NewPostgresStore(cfg.Postgres)
+		db, err = tapdb.NewPostgresStore(cfg.Postgres)
 
 	default:
 		return nil, fmt.Errorf("unknown database backend: %s",
@@ -59,31 +59,31 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, fmt.Errorf("unable to open database: %v", err)
 	}
 
-	rksDB := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.KeyStore {
+	rksDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.KeyStore {
 			return db.WithTx(tx)
 		},
 	)
-	mintingStore := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.PendingAssetStore {
+	mintingStore := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.PendingAssetStore {
 			return db.WithTx(tx)
 		},
 	)
-	assetMintingStore := tarodb.NewAssetMintingStore(mintingStore)
+	assetMintingStore := tapdb.NewAssetMintingStore(mintingStore)
 
-	assetDB := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.ActiveAssetsStore {
+	assetDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.ActiveAssetsStore {
 			return db.WithTx(tx)
 		},
 	)
 
-	addrBookDB := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.AddrBook {
+	addrBookDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.AddrBook {
 			return db.WithTx(tx)
 		},
 	)
 	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
-	tarodbAddrBook := tarodb.NewTaroAddressBook(
+	tapdbAddrBook := tapdb.NewTaroAddressBook(
 		addrBookDB, &taroChainParams,
 	)
 
@@ -92,39 +92,39 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	chainBridge := taro.NewLndRpcChainBridge(lndServices)
 
 	addrBook := address.NewBook(address.BookConfig{
-		Store:        tarodbAddrBook,
-		StoreTimeout: tarodb.DefaultStoreTimeout,
+		Store:        tapdbAddrBook,
+		StoreTimeout: tapdb.DefaultStoreTimeout,
 		KeyRing:      keyRing,
 		Chain:        taroChainParams,
 	})
 
-	assetStore := tarodb.NewAssetStore(assetDB)
+	assetStore := tapdb.NewAssetStore(assetDB)
 
-	uniDB := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.BaseUniverseStore {
+	uniDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
 			return db.WithTx(tx)
 		},
 	)
-	uniForestDB := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.BaseUniverseForestStore {
+	uniForestDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.BaseUniverseForestStore {
 			return db.WithTx(tx)
 		},
 	)
-	uniForest := tarodb.NewBaseUniverseForest(uniForestDB)
+	uniForest := tapdb.NewBaseUniverseForest(uniForestDB)
 
-	uniStatsDB := tarodb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tarodb.UniverseStatsStore {
+	uniStatsDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.UniverseStatsStore {
 			return db.WithTx(tx)
 		},
 	)
-	universeStats := tarodb.NewUniverseStats(uniStatsDB)
+	universeStats := tapdb.NewUniverseStats(uniStatsDB)
 
 	headerVerifier := tarogarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
 	uniCfg := universe.MintingArchiveConfig{
 		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
-			return tarodb.NewBaseUniverseTree(
+			return tapdb.NewBaseUniverseTree(
 				uniDB, id,
 			)
 		},
@@ -133,19 +133,19 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseStats:  universeStats,
 	}
 
-	federationStore := tarodb.NewTransactionExecutor(db,
-		func(tx *sql.Tx) tarodb.UniverseServerStore {
+	federationStore := tapdb.NewTransactionExecutor(db,
+		func(tx *sql.Tx) tapdb.UniverseServerStore {
 			return db.WithTx(tx)
 		},
 	)
-	federationDB := tarodb.NewUniverseFederationDB(federationStore)
+	federationDB := tapdb.NewUniverseFederationDB(federationStore)
 
 	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open disk archive: %v", err)
 	}
 	proofArchive := proof.NewMultiArchiver(
-		&proof.BaseVerifier{}, tarodb.DefaultStoreTimeout,
+		&proof.BaseVerifier{}, tapdb.DefaultStoreTimeout,
 		assetStore, proofFileStore,
 	)
 
@@ -193,7 +193,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
 		CoinSelector: coinSelect,
 		AssetProofs:  proofArchive,
-		AddrBook:     tarodbAddrBook,
+		AddrBook:     tapdbAddrBook,
 		KeyRing:      keyRing,
 		Signer:       virtualTxSigner,
 		TxValidator:  &taro.ValidatorV0{},
@@ -256,10 +256,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseStats:      universeStats,
 		LogWriter:          cfg.LogWriter,
 		DatabaseConfig: &taro.DatabaseConfig{
-			RootKeyStore:   tarodb.NewRootKeyStore(rksDB),
+			RootKeyStore:   tapdb.NewRootKeyStore(rksDB),
 			MintingStore:   assetMintingStore,
 			AssetStore:     assetStore,
-			TaroAddrBook:   tarodbAddrBook,
+			TaroAddrBook:   tapdbAddrBook,
 			UniverseForest: uniForest,
 			FederationDB:   federationDB,
 		},

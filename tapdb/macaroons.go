@@ -1,4 +1,4 @@
-package tarodb
+package tapdb
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"io"
 
-	"github.com/lightninglabs/taro/tarodb/sqlc"
+	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
