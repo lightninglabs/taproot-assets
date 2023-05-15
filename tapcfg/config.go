@@ -362,7 +362,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		configFilePath == DefaultConfigFile:
 
 		configFilePath = filepath.Join(
-			configFileDir, lncfg.DefaultConfigFilename,
+			configFileDir, defaultConfigFileName,
 		)
 
 	// User did specify an explicit --configfile, so we check that it does
