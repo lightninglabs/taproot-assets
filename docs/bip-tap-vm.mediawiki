@@ -1,7 +1,7 @@
 <pre>
  BIP: ???
   Layer: Applications
-  Title: Taro Asset Script v1
+  Title: Taproot Asset Script v1
   Author: Olaoluwa Osuntokun <laolu32@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://git
@@ -14,10 +14,11 @@
 ==Abstract==
 
 This document describes the virtual machine execution environment used to
-validate Taro transfers that utilize an <code>asset_script_version</code> of
-1. The execution environment described in this document is a slight twist on
-the taproot validation rules defined in BIPs 341 and 342. Given a Taro asset
-one or more Taro asset leaves to be spent (inputs) and asset leaves to be
+validate Taproot Asset transfers that utilize an
+<code>asset_script_version</code> of 1.
+The execution environment described in this document is a slight twist on
+the taproot validation rules defined in BIPs 341 and 342. Given a Taproot Asset
+one or more Taproot Asset leaves to be spent (inputs) and asset leaves to be
 created, a "virtual" taproot Bitcoin transaction is created. This transaction
 is a 1-input-1-output transaction that commits to the inputs and output set
 using a merkle sum tree. With this mapping complete, validation takes place as
@@ -29,7 +30,7 @@ This document is licensed under the 2-clause BSD license.
 
 ==Motivation==
 
-The Taro asset overlay permits the usage of a nearly arbitrary virtual machine
+The Taproot Asset overlay permits the usage of a nearly arbitrary virtual machine
 for validation of transfers within the system. In order to reduce the scope of
 the initial version of the protocol, we describe a way to leverage the existing
 Bitcoin Script virtual machine, allowing us to inherit a baseline set of
@@ -38,10 +39,12 @@ libraries.
 
 ==Design==
 
-The Taro <code>asset_script_version</code> 1 maps a Taro input and output set
-to a "virtual" Bitcoin transaction. The input and output sets are committed to
-within a single 1-input-1-output transaction using a normal merkle sum tree
-(TODO(roasbeef): non-inclusion useful at all here??). Via the merkle-sum
+The Taproot Asset <code>asset_script_version</code> 1 maps a Taproot Asset input
+and output set to a "virtual" Bitcoin transaction.
+The input and output sets are committed to within a single 1-input-1-output
+transaction using a normal merkle sum tree
+(TODO(roasbeef): non-inclusion useful at all here??).
+Via the merkle-sum
 invariant of the augmented merkle tree, a validator is able to enforce
 non-inflation of assets by asserting that the committed input sum is ''equal''
 to the committed output sum. Once this invariant is verified, execution resumes
@@ -50,8 +53,8 @@ checks that may fail validation early.
 
 ===Specification===
 
-A single 1-input-1-output transaction is used to compress the Taro state
-transition state into a constant size transaction. Given a Taro asset
+A single 1-input-1-output transaction is used to compress the Taproot Asset
+state transition state into a constant size transaction. Given a Taproot Asset
 commitment (which lives in a taproot output), and its valid opening, the set
 the previous asset ID are compressed into a single input, and the present
 <code>split_commitment</code> is used to compress the output state.
@@ -60,7 +63,7 @@ State transition validation may take one or two asset leaves within a single
 transaction (with the leaves living in different outputs). When a single leaf
 is present, no splits occurred in the state transition, or the asset is a
 collectible. When two leaves are specified, then one of the leaves was a split
-resulting from a split event at the Taro layer. In this case, the split
+resulting from a split event at the Taproot Asset layer. In this case, the split
 commitment proof, as well as the validity of the state transition creating the
 splits are validated.
 
@@ -74,8 +77,8 @@ Given a set of inputs, each identified by a <code>prev_asset_id</code>, the
 input commitment (which is used as the previous output) is constructed as
 follows:
 
-# Initialize a new empty MS-SMT tree as specified in [[../master/bip-taro-ms-smt.mediawiki|bip-taro-ms-smt]].
-# For each Taro input ''c_i'', identified in the <code>prev_asset_witnesses</code> field:
+# Initialize a new empty MS-SMT tree as specified in [[./bip-tap-ms-smt.mediawiki|bip-tap-ms-smt]].
+# For each Taproot Asset input ''c_i'', identified in the <code>prev_asset_witnesses</code> field:
 ## Serialize the referenced previous asset leaf (identified by <code>prev_outpoint || asset_id || asset_script_hash</code>) in TLV format.
 ## Insert this leaf into the MS-SMT tree, with a key of the <code>prev_id_identifier</code>, a value of the serialized leaf, and sum value of the asset amount contained in the leaf.
 # Obtain the root hash <code>input_root</code> and sum value <code>input_asset_sum</code> resulting from the tree creation and root digest computation.
@@ -94,13 +97,13 @@ and absolute lock time.
 The following algorithm implements the input mapping required for full state
 transition verification:
 <source lang="python">
-make_virtual_input(prev_inputs: map[PrevOut]TaroLeaf) -> (MerkleSumRoot, TxIn):
+make_virtual_input(prev_inputs: map[PrevOut]TaprootAssetLeaf) -> (MerkleSumRoot, TxIn):
     input_smt = new_ms_smt()
 
-    for prev_out, taro_leaf in prev_inputs:
-        leaf_bytes = taro_leaf.serialize_tlv()
+    for prev_out, taproot_asset_leaf in prev_inputs:
+        leaf_bytes = taproot_asset_leaf.serialize_tlv()
 
-        input_smt.insert(key=prev_out, value=leaf_bytes, sum_value=taro_leaf.amt)
+        input_smt.insert(key=prev_out, value=leaf_bytes, sum_value=taproot_asset_leaf.amt)
 
     input_root = input_smt.root()
 
@@ -117,7 +120,7 @@ make_virtual_input(prev_inputs: map[PrevOut]TaroLeaf) -> (MerkleSumRoot, TxIn):
 Output mapping is only executed for state transitions that specify
 <code>prev_asset_witnesses</code>.
 
-Given a Taro output, and any associated outputs contained within its
+Given a Taproot Asset output, and any associated outputs contained within its
 <code>split_commitment_root</code>, the output commitment is constructed as
 follows:
 
@@ -133,7 +136,7 @@ follows:
 The following algorithm implements the output mapping required for full state
 transition verification:
 <source lang="python">
-make_virtual_txout(leaf: TaroLeaf) -> (MerkleSumRoot, TxOut):
+make_virtual_txout(leaf: TaprootAssetLeaf) -> (MerkleSumRoot, TxOut):
     match leaf.asset_type:
         case Normal:
             tx_out = NewTxOut(
@@ -171,16 +174,16 @@ modifications:
 
 # If the <code>input_asset_sum</code> is not exactly equal to the <code>output_asset_sum</code> validation MUST fail.
 # For each <code>prev_input</code> within the set of referenced <code>prev_asset_witnesses</code>:
-## If the <code>asset_type</code> of the referenced input leaf doesn't map the <code>asset_type</code> of the Taro leaf spending the input, validation MUST fail.
+## If the <code>asset_type</code> of the referenced input leaf doesn't map the <code>asset_type</code> of the Taproot Asset leaf spending the input, validation MUST fail.
 ## Construct a single-input-single-output Bitcoin transaction based on the input and output mapping above.
 ### The prev out input index should be the lexicographical index of the <code>prev_id_identifier</code> field for each input.
 ### The previous public key script should be the <code>asset_script_hash</code> for the current previous input, mapped to a v1 segwit witness program (taproot).
-### The input value for each included input is to be the <code>amt</code> field of the previous Taro output being spent.
+### The input value for each included input is to be the <code>amt</code> field of the previous Taproot Asset output being spent.
 ### Set the sequence number to the <code>relative_lock_time</code> field of the input, if it exists.
 ## Set the lock time of the transaction as the <code>lock_time</code> of the input TLV leaf being validated, if it exists.
 ## All signatures included in the witness MUST be exactly 64-bytes in length, which triggers <code>SIGHASH_DEFAULT</code> evaluation.
 ## If the <code>prev_asset_id</code> is blank, then ALL witnesses MUST be blank as well and the <code>prev_outpoint</code> values as well. In this case, verification succeeds as this is only a creation/minting transaction.
-## If the <code>asset_id</code> value is NOT the same for each Taro input and output, validation MUST fail.
+## If the <code>asset_id</code> value is NOT the same for each Taproot Asset input and output, validation MUST fail.
 ### Alternatively, assert that each input and output references the same <code>asset_family_key</code> field.
 ## Perform external lock time and relative lock time validation:
 ### If a <code>relative_lock_time</code> field exists, if the input age of the referenced TLV leaf is less than <code>relative_lock_time</code> validation MUST fail.
@@ -192,14 +195,14 @@ lock time fields in the context of Bitcoin itself are validated from the PoV of
 connecting a new block to the end of the main chain. 
 
 Otherwise, if a state transition only specifies a <code>split_commitment_proof</code>, then:
-# If the Taro output to be validated only specifies a <code>split_commitment_proof</code> and no explicit inputs, then a valid inclusion proof for the output MUST be presented and valid.
+# If the Taproot Asset output to be validated only specifies a <code>split_commitment_proof</code> and no explicit inputs, then a valid inclusion proof for the output MUST be presented and valid.
 ## If the proof is invalid, then validation MUST fail.
 # Given the "parent" split, execute the input+output mapping and verify the state transition using the logic above.
 
-The following algorithm implements verification for top level Taro leaves, as
-well leaves created via split commitments:
+The following algorithm implements verification for top level Taproot Asset
+leaves, as well leaves created via split commitments:
 <source lang="python">
-verify_taro_state_transition(leaf: TaroLeaf, leaf_split: TaroLeaf) -> bool
+verify_taproot_asset_state_transition(leaf: TaprootAssetLeaf, leaf_split: TaprootAssetLeaf) -> bool
     if is_valid_issuance_txn(leaf):
         return true
 
@@ -275,4 +278,4 @@ TBD
 
 ==Reference Implementation==
 
-github.com/lightninglabs/taro
+github.com/lightninglabs/taproot-assets

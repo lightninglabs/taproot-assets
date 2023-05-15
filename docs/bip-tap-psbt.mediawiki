@@ -83,13 +83,14 @@ transfer on chain. Therefore in a scenario where a leaf is sent completely (full
 value send), a "split tombstone" (see below) is not required.
 </li>
 <li>
-''Non-interactive'': The recipient has created a Taro address and is only
-watching that Taproot output key on chain. Assets must be committed to the tree
-as a split asset, with the split commitment pruned before serializing, to make
-the resulting Taro tree completely predictable for the receiver. The split
-commitment and root asset proof will be delivered in the proof file. A full
-value send must also be created as a split with the sender creating a zero value
-"split tombstone" output with the NUMS point as the script key (see below).
+''Non-interactive'': The recipient has created a Taproot Asset address and is
+only watching that Taproot output key on chain. Assets must be committed to the
+tree as a split asset, with the split commitment pruned before serializing, to
+make the resulting Taproot Asset tree completely predictable for the receiver.
+The split commitment and root asset proof will be delivered in the proof file.
+A full value send must also be created as a split with the sender creating a
+zero value "split tombstone" output with the NUMS point as the script key (see
+below).
 </li>
 </ul>
 
@@ -367,13 +368,13 @@ split asset is encoded in TLV format as defined in
 [[./bip-tap.mediawiki#asset-leaf-format|bip-tap asset leaf format]].
 |-
 | Anchor Output Tapscript Sibling
-| <tt>PSBT_OUT_TARO_ANCHOR_TAPSCRIPT_SIBLING = 0x78</tt>
+| <tt>PSBT_OUT_TAP_ANCHOR_TAPSCRIPT_SIBLING = 0x78</tt>
 | None
 | No key data
 | <tt><byte sibling_type><compact size num_bytes><bytes tapscript sibling preimage></tt>
-| The preimage of the tapscript sibling that is on the same level as the Taro
-commitment that was committed to in the anchor. If this is not present, then the
-Taro commitment is the only script leaf in the tree.
+| The preimage of the tapscript sibling that is on the same level as the Taproot
+Asset commitment that was committed to in the anchor. If this is not present,
+then the Taproot Asset commitment is the only script leaf in the tree.
 |}
 
 ===Values for <tt>PSBT_OUT_TAP_TYPE</tt>===
@@ -402,27 +403,27 @@ output, as well as passive assets.
 </li>
 </ul>
 
-==Committing Taro virtual transactions into a BTC level anchor transaction==
+==Committing Taproot Asset virtual transactions into a BTC level anchor transaction==
 
 The above section defined new fields for representing a virtual asset
 transaction. This section explains how one or multiple virtual asset
 transactions can be mapped to and be committed to in a single Bitcoin level
 on-chain "anchor" transaction.
 
-The following steps should be taken for committing one or more Taro virtual
-transactions onto a single BTC anchor transaction:
-# Sign the virtual transaction as described in [[../master/bip-taro.mediawiki|bip-taro]].
-# Validate that each input in each virtual transaction has the necessary anchor information set (<code>PSBT_IN_TARO_ANCHOR_*</code>).
-# Validate that each output in each virtual transaction has the necessary anchor information set (<code>PSBT_OUT_TARO_ANCHOR_*</code>).
-# Validate that each virtual input's anchor information referencing the same previous outpoint (<code>PSBT_IN_TARO_PREV_ID.prev_outpoint</code>) is the same as all fields should refer to the same on-chain unspent output.
-# Validate that each virtual output's anchor information referencing the same anchor output index (<code>PSBT_OUT_TARO_ANCHOR_OUTPUT_INDEX</code>) is the same as all fields should refer to the same on-chain output being created.
-# For each input, add the last transition proof of the input asset to the BTC anchor PSBT input (field <code>PSBT_IN_TARO_PROOF</code>).
+The following steps should be taken for committing one or more Taproot Asset
+virtual transactions onto a single BTC anchor transaction:
+# Sign the virtual transaction as described in [[./bip-tap.mediawiki|bip-tap]].
+# Validate that each input in each virtual transaction has the necessary anchor information set (<code>PSBT_IN_TAP_ANCHOR_*</code>).
+# Validate that each output in each virtual transaction has the necessary anchor information set (<code>PSBT_OUT_TAP_ANCHOR_*</code>).
+# Validate that each virtual input's anchor information referencing the same previous outpoint (<code>PSBT_IN_TAP_PREV_ID.prev_outpoint</code>) is the same as all fields should refer to the same on-chain unspent output.
+# Validate that each virtual output's anchor information referencing the same anchor output index (<code>PSBT_OUT_TAP_ANCHOR_OUTPUT_INDEX</code>) is the same as all fields should refer to the same on-chain output being created.
+# For each input, add the last transition proof of the input asset to the BTC anchor PSBT input (field <code>PSBT_IN_TAP_PROOF</code>).
 # For each unique anchor output index, create an output on the BTC anchor transaction:
-## Merge all assets into a single Taro tree.
-## If a Tapscript sibling is present for the BTC anchor output, verify it is not a Taro commitment.
-## Calculate the merkle root hash from the merged Taro tree and the optional Tapscript sibling.
+## Merge all assets into a single Taproot Asset tree.
+## If a Tapscript sibling is present for the BTC anchor output, verify it is not a Taproot Asset commitment.
+## Calculate the merkle root hash from the merged Taproot Asset tree and the optional Tapscript sibling.
 ## Calculate the Taproot output key from the internal key and the merkle root hash, update the <code>pkScript</code> of the BTC anchor output.
-# Create a single transition proof for each of the virtual transaction outputs and add them to the BTC anchor output, keyed by each asset's <code>script_key</code> (field <code>PSBT_OUT_TARO_PROOF</code>).
+# Create a single transition proof for each of the virtual transaction outputs and add them to the BTC anchor output, keyed by each asset's <code>script_key</code> (field <code>PSBT_OUT_TAP_PROOF</code>).
 
 Once the BTC level anchor transaction has the extra information attached, it can
 then be passed to all signers to produce the necessary signatures for getting it
@@ -440,14 +441,13 @@ finalized.
 ! <tt><valuedata></tt>
 ! <tt><valuedata></tt> Description
 |-
-| Taro Asset Proof
-| <tt>PSBT_IN_TARO_PROOF = 0x70</tt>
+| Taproot Asset Proof
+| <tt>PSBT_IN_TAP_PROOF = 0x70</tt>
 | <tt><32 byte xonlyscriptkey></tt>
 | The 32 byte X-only script key of the input asset being spent.
 | <tt><tlv_blob proof></tt>
 | The last proof of the input asset being spent, in TLV format as defined in 
-[[../master/bip-taro-proof-file.mediawiki#file-serialization|
-bip-taro-proof-file File Serialization]].
+[[./bip-tap-proof-file.mediawiki#file-serialization|bip-tap-proof-file File Serialization]].
 |}
 
 ===Output types===
@@ -460,8 +460,8 @@ bip-taro-proof-file File Serialization]].
 ! <tt><valuedata></tt>
 ! <tt><valuedata></tt> Description
 |-
-| Is Split Root
-| <tt>PSBT_OUT_TARO_PROOF = 0x70</tt>
+| Taproot Asset Proof
+| <tt>PSBT_OUT_TAP_PROOF = 0x70</tt>
 | <tt><32 byte xonlyscriptkey></tt>
 | The 32 byte X-only script key of the input asset being spent.
 | <tt><tlv_blob proof></tt>

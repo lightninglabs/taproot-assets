@@ -25,10 +25,10 @@ This document is licensed under the 2-clause BSD license.
 
 ==Motivation==
 
-Taro is a Taproot-native asset overlay protocol. Rather than post all asset
-related data on-chain in <code>OP_RETURN</code> outputs, the protocol instead
-uses a series of commitments anchored within the Taproot script tree.  When
-handling unique assets, it's important to be able to prove that the former
+Taproot Assets are a Taproot-native asset overlay protocol. Rather than post all
+asset related data on-chain in <code>OP_RETURN</code> outputs, the protocol
+instead uses a series of commitments anchored within the Taproot script tree.
+When handling unique assets, it's important to be able to prove that the former
 owner (or seller) of the asset is no longer committing to it within their tree.
 Additionally, when carrying out multi-asset swaps, verifiers need to be able to
 efficiently verify that no new assets are being created (inflation check). The
@@ -312,4 +312,4 @@ TBD
 
 ==Reference Implementation==
 
-github.com/lightninglabs/taro
+github.com/lightninglabs/taproot-assets

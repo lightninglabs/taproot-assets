@@ -1,7 +1,7 @@
 <pre>
  BIP: ???
   Layer: Applications
-  Title: Taro Asset Universes
+  Title: Taproot Asset Universes
   Author: Olaoluwa Osuntokun <laolu32@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://git
@@ -13,10 +13,10 @@
 
 ==Abstract==
 
-Taro asset provenance is defined by the lineage of an asset all the way back to
-the genesis point, which is the outpoint that the unique asset identifier is
-derived from. A Taro Universe is proposed as a way for users/holders of an
-asset to easily bootstrap their recognition of a given genesis point as the
+Taproot Asset provenance is defined by the lineage of an asset all the way back
+to the genesis point, which is the outpoint that the unique asset identifier is
+derived from. A Taproot Asset Universe is proposed as a way for users/holders of
+an asset to easily bootstrap their recognition of a given genesis point as the
 root of an asset. A Universe is an MS-SMT that indexes into the set of spent
 outpoints that track asset movement/transfer. A Universe can contain only the
 set of genesis outpoints for an asset, several assets, track individual
@@ -41,21 +41,21 @@ single transaction, thereby scaling on-chain transfers.
 
 ==Design==
 
-A Taro asset Universe MS-SMT differs from the normal MS-SMT in that the key
+A Taproot Asset Universe MS-SMT differs from the normal MS-SMT in that the key
 index of the lowest tree is an ''outpoint'' rather than an asset script key as
 given an outpoint where an asset ''was'' present, the asset Universe maps to
-the Taro transaction+spending meta data. Given this outpoint indexing
+the Taproot Asset transaction+spending meta data. Given this outpoint indexing
 structure, if we create a new "re genesis" outpoint, then we can construct a
-new virtual Taro transaction graph which provably tracks the movement of assets
-in an off-chain manner, relying on a single or federated party to handle
-updates.
+new virtual Taproot Asset transaction graph which provably tracks the movement
+of assets in an off-chain manner, relying on a single or federated party to
+handle updates.
 
 ===Specification===
 
 ====Asset Universes====
 
 An Asset Universe is a publicly audit able merkle-sum sparse merkle tree
-(MS-SMT) over one or several assets. Unlike the normal Taro asset tree, a
+(MS-SMT) over one or several assets. Unlike the normal Taproot Asset tree, a
 Universe doesn't itself live within a solely controlled output. Instead a
 Universe may exist on its own as a distinct output. A close analogue to a
 public Universe is a block explorer. A Universe can be used to:
@@ -66,7 +66,7 @@ public Universe is a block explorer. A Universe can be used to:
 
 Universes can also be used to essentially compress the history of a series of
 transfers into a single on-chain transaction. From this PoV, a Universe can be
-seen as a sort of Taro asset channel wherein one party (or a
+seen as a sort of Taproot Asset channel wherein one party (or a
 consortium/threshold of them) can batch update a tree to clear countless
 transfers in a single on-chain transaction. Such a Universe can also be created
 over multiple assets, effectively becoming a Universe of Universes, or a
@@ -91,7 +91,7 @@ to track any modifications.
 
 ====Primordial Universes & Genesis Asset Verification====
 
-Unlike a normal Taro asset tree, a base Universe for a given asset only commits
+Unlike a normal Taproot Asset tree, a base Universe for a given asset only commits
 to the set of ''genesis outpoints'' for an asset. As this type of Universe only
 commits to the set of constituent assets present at the Beginning, that all other
 transfers depend on, we call this a ''Primordial'' Universe.
@@ -105,7 +105,7 @@ audit the total amount of a given asset in existence.
 A Primordial Universe, is an MS-SMT with the following structure:
 * The MS-SMT root commits to the sum of the total set of issued assets for a given <code>genesisAssetID</code>
 * key: an outpoint, serialized in a <code>txid:vout</code> structure as we find in Bitcoin.
-* value: the initial Taro asset leaf ''created'' by that outpoint (which will always be a <code>genesisOutpoint</code>) along with a merkle-proof which proves the existence a transaction that ''spent'' that output.
+* value: the initial Taproot Asset leaf ''created'' by that outpoint (which will always be a <code>genesisOutpoint</code>) along with a merkle-proof which proves the existence a transaction that ''spent'' that output.
 * sum_value: the value of the leaf itself.
 
 As the Primordial Universe for a given asset can be known at the initial asset
@@ -153,14 +153,14 @@ Using the trait presented above, one can create a flat file that proves the
 provenance of an asset simply by extracting select branches from a Multiverse
 tree, and enumerating the set of keys one needs to assert for validation.
 
-====Pocket Universes: Off-Chain Taro Transfer Compression====
+====Pocket Universes: Off-Chain Taproot Asset Transfer Compression====
 
 All leaves within a Multiverse are themselves a commitment to an event that
-happened on chain: A Taro asset transfer. Proofs for unique assets have a nice
+happened on chain: A Taproot Asset transfer. Proofs for unique assets have a nice
 property that they scale linearly in the number of asset transfers (you can't
 split/merge so the same unit is being transferred to a differing set of
 owners).  Normal assets give a greater degree of flexibility, but scale worse
-as a single asset held might actually be the merging of several Taro asset
+as a single asset held might actually be the merging of several Taproot Asset
 UTXOs, thereby increasing proofs size as a function of the number of
 splits/merges in an asset's history. Pocket Universes are an off-chain transfer
 compression system that allows a consortium to stamp asset transfers that take
@@ -179,7 +179,7 @@ chain.  Pocket Universes may be useful in cases where a party has issued
 assets, that can only be used with the aide of the issuer, for example in-game
 assets.
 
-=====Taro Virtual Transaction Graphs=====
+=====Taproot Asset Virtual Transaction Graphs=====
 
 Assets can be moved into a pocket Universe which is another commitment in the
 main Tapscript tree by "sending" the set of outpoints to a special NUMs asset
@@ -192,9 +192,10 @@ Once the assets have been from the PoV of the base Universe, a new parallel
 pocket Universe commitment can be created, which uses the ''new'' outpoint
 created as a result of the above transfer transaction as the very first
 spending input. From here, new transfers can be created, refreezing the
-created outpoints of the virtual Taro VM validation transaction. The result is
-an effective ''freezing'' of assets anchored in the main chain, which then
-permits them to be batched and transferred in the maintained Pocket Universe.
+created outpoints of the virtual Taproot Asset VM validation transaction. The
+result is an effective ''freezing'' of assets anchored in the main chain, which
+then permits them to be batched and transferred in the maintained Pocket
+Universe.
 
 ====Asset Universe APIs & Federated Sync====
 
@@ -206,4 +207,4 @@ TBD
 
 ==Reference Implementation==
 
-github.com/lightninglabs/taro
+github.com/lightninglabs/taproot-assets
