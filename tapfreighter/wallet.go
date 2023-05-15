@@ -531,7 +531,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		}
 		if unSpendable && !fullValue {
 			changeScriptKey, err := f.cfg.KeyRing.DeriveNextKey(
-				ctx, asset.TaroKeyFamily,
+				ctx, asset.TaprootAssetsKeyFamily,
 			)
 			if err != nil {
 				return nil, err
@@ -561,7 +561,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		}
 
 		newInternalKey, err := f.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaroKeyFamily,
+			ctx, asset.TaprootAssetsKeyFamily,
 		)
 		if err != nil {
 			return nil, err

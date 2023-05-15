@@ -729,7 +729,7 @@ func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
 		// internal key, which'll be used in the output we create, and
 		// also will serve as the primary identifier for a batch.
 		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaroKeyFamily,
+			ctx, asset.TaprootAssetsKeyFamily,
 		)
 		if err != nil {
 			return err

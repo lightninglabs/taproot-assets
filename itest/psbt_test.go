@@ -961,7 +961,7 @@ func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
 
 	scriptKeyDesc, err := tapd.NextScriptKey(
 		ctxt, &wrpc.NextScriptKeyRequest{
-			KeyFamily: uint32(asset.TaroKeyFamily),
+			KeyFamily: uint32(asset.TaprootAssetsKeyFamily),
 		},
 	)
 	require.NoError(t, err)
@@ -970,7 +970,7 @@ func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
 
 	internalKeyDesc, err := tapd.NextInternalKey(
 		ctxt, &wrpc.NextInternalKeyRequest{
-			KeyFamily: uint32(asset.TaroKeyFamily),
+			KeyFamily: uint32(asset.TaprootAssetsKeyFamily),
 		},
 	)
 	require.NoError(t, err)

@@ -47,7 +47,7 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 func (l *LndRpcKeyRing) DeriveNextTaroKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
-	keyFam := int32(asset.TaroKeyFamily)
+	keyFam := int32(asset.TaprootAssetsKeyFamily)
 
 	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 

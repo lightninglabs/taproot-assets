@@ -404,7 +404,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaroKeyFamily,
+			ctx, asset.TaprootAssetsKeyFamily,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to obtain script "+
@@ -448,7 +448,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// along with the tweaked key group.
 		if seedling.EnableEmission {
 			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
-				ctx, asset.TaroKeyFamily,
+				ctx, asset.TaprootAssetsKeyFamily,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to"+

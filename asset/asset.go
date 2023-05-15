@@ -74,15 +74,15 @@ var (
 )
 
 const (
-	// TaroKeyFamily is the key family used to generate internal keys that
-	// taro will use creating internal taproot keys and also any other keys
-	// used for asset script keys.
-	// This was derived via: sum(map(lambda y: ord(y), 'taro')).
-	// In order words: take the word taro and return the integer
-	// representation of each character and sum those. We get 438, then
+	// TaprootAssetsKeyFamily is the key family used to generate internal
+	// keys that tapd will use creating internal taproot keys and also any
+	// other keys used for asset script keys.
+	// This was derived via: sum(map(lambda y: ord(y), 'tapd')).
+	// In order words: take the word tapd and return the integer
+	// representation of each character and sum those. We get 425, then
 	// divide that by 2, to allow us to fit this into just a 2-byte integer
 	// and to ensure compatibility with the remote signer.
-	TaroKeyFamily = 219
+	TaprootAssetsKeyFamily = 212
 
 	// V0 is the initial Taro protocol version.
 	V0 Version = 0
@@ -470,7 +470,7 @@ func (g *GroupKey) IsEqualGroup(otherGroupKey *GroupKey) bool {
 // is held by this daemon. A non-local group key is stored with the internal key
 // family and index set to their default values, 0.
 func (g *GroupKey) IsLocal() bool {
-	return g.RawKey.Family == TaroKeyFamily
+	return g.RawKey.Family == TaprootAssetsKeyFamily
 }
 
 // EqualKeyDescriptors returns true if the two key descriptors are equal.
