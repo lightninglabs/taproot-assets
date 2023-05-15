@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"sort"
 
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -16,14 +16,14 @@ import (
 func testCollectibleSend(t *harnessTest) {
 	// First, we'll make a collectible with emission enabled.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{
+		t, t.tapd, []*mintrpc.MintAssetRequest{
 			issuableAssets[1],
 			// Our "passive" asset.
 			{
 				Asset: &mintrpc.MintAsset{
-					AssetType: tarorpc.AssetType_NORMAL,
+					AssetType: taprpc.AssetType_NORMAL,
 					Name:      "itestbuxx-passive",
-					AssetMeta: &tarorpc.AssetMeta{
+					AssetMeta: &taprpc.AssetMeta{
 						Data: []byte("some metadata"),
 					},
 					Amount: 123,
@@ -39,15 +39,15 @@ func testCollectibleSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
-			params.startupSyncNode = t.tarod
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTarod.stop(true))
+		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
 	// Next, we'll attempt to complete three transfers of the full value of
@@ -57,7 +57,7 @@ func testCollectibleSend(t *harnessTest) {
 		senderTransferIdx   = 0
 		receiverTransferIdx = 0
 		fullAmount          = rpcAssets[0].Amount
-		receiverAddr        *tarorpc.Addr
+		receiverAddr        *taprpc.Addr
 		err                 error
 	)
 
@@ -66,8 +66,8 @@ func testCollectibleSend(t *harnessTest) {
 		// start with Bob receiving the asset, then sending it back
 		// to the main node, and so on.
 		if i%2 == 0 {
-			receiverAddr, err = secondTarod.NewAddr(
-				ctxb, &tarorpc.NewAddrRequest{
+			receiverAddr, err = secondTapd.NewAddr(
+				ctxb, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
@@ -75,22 +75,22 @@ func testCollectibleSend(t *harnessTest) {
 			require.NoError(t.t, err)
 
 			assertAddrCreated(
-				t.t, secondTarod, rpcAssets[0], receiverAddr,
+				t.t, secondTapd, rpcAssets[0], receiverAddr,
 			)
-			sendResp := sendAssetsToAddr(t, t.tarod, receiverAddr)
+			sendResp := sendAssetsToAddr(t, t.tapd, receiverAddr)
 			confirmAndAssertOutboundTransfer(
-				t, t.tarod, sendResp, genInfo.AssetId,
+				t, t.tapd, sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
 			)
 			_ = sendProof(
-				t, t.tarod, secondTarod, receiverAddr.ScriptKey,
+				t, t.tapd, secondTapd, receiverAddr.ScriptKey,
 				genInfo,
 			)
 			senderTransferIdx++
 		} else {
-			receiverAddr, err = t.tarod.NewAddr(
-				ctxb, &tarorpc.NewAddrRequest{
+			receiverAddr, err = t.tapd.NewAddr(
+				ctxb, &taprpc.NewAddrRequest{
 					AssetId: genInfo.AssetId,
 					Amt:     fullAmount,
 				},
@@ -98,18 +98,18 @@ func testCollectibleSend(t *harnessTest) {
 			require.NoError(t.t, err)
 
 			assertAddrCreated(
-				t.t, t.tarod, rpcAssets[0], receiverAddr,
+				t.t, t.tapd, rpcAssets[0], receiverAddr,
 			)
 			sendResp := sendAssetsToAddr(
-				t, secondTarod, receiverAddr,
+				t, secondTapd, receiverAddr,
 			)
 			confirmAndAssertOutboundTransfer(
-				t, secondTarod, sendResp, genInfo.AssetId,
+				t, secondTapd, sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, receiverTransferIdx,
 				receiverTransferIdx+1,
 			)
 			_ = sendProof(
-				t, secondTarod, t.tarod, receiverAddr.ScriptKey,
+				t, secondTapd, t.tapd, receiverAddr.ScriptKey,
 				genInfo,
 			)
 			receiverTransferIdx++
@@ -119,16 +119,16 @@ func testCollectibleSend(t *harnessTest) {
 	// Check the final state of both nodes. The main node should list 2
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
-	assertTransfer(t.t, t.tarod, 0, 2, []uint64{0, fullAmount})
-	assertTransfer(t.t, t.tarod, 1, 2, []uint64{0, fullAmount})
-	assertBalanceByID(t.t, t.tarod, genInfo.AssetId, 0)
+	assertTransfer(t.t, t.tapd, 0, 2, []uint64{0, fullAmount})
+	assertTransfer(t.t, t.tapd, 1, 2, []uint64{0, fullAmount})
+	assertBalanceByID(t.t, t.tapd, genInfo.AssetId, 0)
 
-	assertTransfer(t.t, secondTarod, 0, 1, []uint64{0, fullAmount})
-	assertBalanceByID(t.t, secondTarod, genInfo.AssetId, fullAmount)
+	assertTransfer(t.t, secondTapd, 0, 1, []uint64{0, fullAmount})
+	assertBalanceByID(t.t, secondTapd, genInfo.AssetId, fullAmount)
 
 	// The second daemon should list one group with one asset.
-	listGroupsResp, err := secondTarod.ListGroups(
-		ctxb, &tarorpc.ListGroupsRequest{},
+	listGroupsResp, err := secondTapd.ListGroups(
+		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -147,8 +147,8 @@ func testCollectibleSend(t *harnessTest) {
 		return groupedAssets[i].Amount > groupedAssets[j].Amount
 	})
 
-	listAssetsResp, err := secondTarod.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{},
+	listAssetsResp, err := secondTapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -161,8 +161,8 @@ func testCollectibleSend(t *harnessTest) {
 	// Only compare the spendable asset.
 	assertGroup(t.t, allAssets[0], groupedAssets[0], rpcGroupKey)
 
-	aliceAssetsResp, err := t.tarod.ListAssets(
-		ctxb, &tarorpc.ListAssetRequest{IncludeSpent: true},
+	aliceAssetsResp, err := t.tapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
 	)
 	require.NoError(t.t, err)
 
@@ -172,22 +172,22 @@ func testCollectibleSend(t *harnessTest) {
 
 	// Finally, make sure we can still send out the passive asset.
 	passiveGen := rpcAssets[1].AssetGenesis
-	bobAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId: passiveGen.AssetId,
 		Amt:     rpcAssets[1].Amount,
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, secondTarod, rpcAssets[1], bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+	assertAddrCreated(t.t, secondTapd, rpcAssets[1], bobAddr)
+	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, passiveGen.AssetId,
+		t, t.tapd, sendResp, passiveGen.AssetId,
 		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
 	)
 	_ = sendProof(
-		t, t.tarod, secondTarod, bobAddr.ScriptKey, passiveGen,
+		t, t.tapd, secondTapd, bobAddr.ScriptKey, passiveGen,
 	)
 
 	// There's only one non-interactive receive event.
-	assertNonInteractiveRecvComplete(t, secondTarod, 3)
+	assertNonInteractiveRecvComplete(t, secondTapd, 3)
 }

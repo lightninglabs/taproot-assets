@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Simple bash script to build basic taro tools for all the platforms
+# Simple bash script to build basic taproot assets tools for all the platforms
 # we support with the golang cross-compiler.
 #
 # Copyright (c) 2016 Company 0, LLC.
@@ -9,9 +9,9 @@
 
 set -e
 
-TARO_VERSION_REGEX="tarod version (.+) commit"
-PKG="github.com/lightninglabs/taro"
-PACKAGE=taro
+TAPD_VERSION_REGEX="tapd version (.+) commit"
+PKG="github.com/lightninglabs/taproot-assets"
+PACKAGE=taproot-assets
 
 # Needed for setting file timestamps to get reproducible archives.
 BUILD_DATE="2023-01-01 00:00:00"
@@ -97,32 +97,32 @@ function check_tag_correct() {
     exit 1
   fi
 
-  # Build tarod to extract version.
-  go build ${PKG}/cmd/tarod
+  # Build tapd to extract version.
+  go build ${PKG}/cmd/tapd
 
   # Extract version command output.
-  taro_version_output=$(./tarod --version)
+  tapd_version_output=$(./tapd --version)
 
   # Use a regex to isolate the version string.
-  if [[ $taro_version_output =~ $TARO_VERSION_REGEX ]]; then
+  if [[ $tapd_version_output =~ $TAPD_VERSION_REGEX ]]; then
     # Prepend 'v' to match git tag naming scheme.
-    taro_version="v${BASH_REMATCH[1]}"
-    green "version: $taro_version"
+    tapd_version="v${BASH_REMATCH[1]}"
+    green "version: $tapd_version"
 
     # If tag contains a release candidate suffix, append this suffix to the
-    # tarod reported version before we compare.
+    # tapd reported version before we compare.
     RC_REGEX="-rc[0-9]+$"
     if [[ $tag =~ $RC_REGEX ]]; then
-      taro_version+=${BASH_REMATCH[0]}
+      tapd_version+=${BASH_REMATCH[0]}
     fi
 
-    # Match git tag with taro version.
-    if [[ $tag != "${taro_version}" ]]; then
-      red "taro version $taro_version does not match tag $tag"
+    # Match git tag with tapd version.
+    if [[ $tag != "${tapd_version}" ]]; then
+      red "tapd version $tapd_version does not match tag $tag"
       exit 1
     fi
   else
-    red "malformed taro version output"
+    red "malformed tapd version output"
     exit 1
   fi
 }
@@ -178,8 +178,8 @@ function build_release() {
     pushd "${dir}"
 
     green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
-    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tarod
-    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tarocli
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapd
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapcli
     popd
 
     # Add the hashes for the individual binaries as well for easy verification
@@ -194,7 +194,7 @@ function build_release() {
   done
 
   # Add the hash of the packages too, then sort by the second column (name).
-  shasum -a 256 taro-* vendor* >> "manifest-$tag.txt"
+  shasum -a 256 $PACKAGE-* vendor* >> "manifest-$tag.txt"
   LC_ALL=C sort -k2 -o "manifest-$tag.txt" "manifest-$tag.txt"
   cat "manifest-$tag.txt"
 }

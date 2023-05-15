@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 // MintingArchiveConfig is the main config for the minting archive. This

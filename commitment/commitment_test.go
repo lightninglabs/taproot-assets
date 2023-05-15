@@ -10,17 +10,17 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	testTaroCommitmentScript, _ = hex.DecodeString(
-		"008ff52c91ed7d509440aa7fbf04ad60ad554e4a01f101e5222916e70f9f" +
-			"68fb451cfee543eac337024a6f13bb5f496e99209207a3792a74" +
+	testTapCommitmentScript, _ = hex.DecodeString(
+		"002dc2975396094e0c17f70abd43715ade3c9660f6fe22056e4f706941b8" +
+			"511c4c1cfee543eac337024a6f13bb5f496e99209207a3792a74" +
 			"89ccc21d4dbbe5ed180000000000001389",
 	)
 )
@@ -185,10 +185,10 @@ func TestNewAssetCommitment(t *testing.T) {
 			commitment, err := NewAssetCommitment(assets...)
 			require.ErrorIs(t, err, testCase.err)
 			if testCase.err == nil {
-				// Ensure that the Taro commitment was properly
-				// set: each asset is present and a proof can be
-				// generated for each asset.
-				require.NotZero(t, commitment.TaroCommitmentKey())
+				// Ensure that the Taproot Asset commitment was
+				// properly set: each asset is present and a
+				// proof can be generated for each asset.
+				require.NotZero(t, commitment.TapCommitmentKey())
 
 				for _, a := range assets {
 					committedAsset, proof, err := commitment.AssetProof(
@@ -206,8 +206,8 @@ func TestNewAssetCommitment(t *testing.T) {
 	}
 }
 
-// TestMintTaroCommitment tests edge cases around minting new commitments.
-func TestMintTaroCommitment(t *testing.T) {
+// TestMintTapCommitment tests edge cases around minting new commitments.
+func TestMintTapCommitment(t *testing.T) {
 	t.Parallel()
 
 	genesisNormal := asset.RandGenesis(t, asset.Normal)
@@ -343,11 +343,11 @@ func TestMintTaroCommitment(t *testing.T) {
 	}
 }
 
-// TestMintAndDeriveTaroCommitment tests that we can mint a new Taro commitment,
-// compute a proof for each asset minted, and use that proof to derive the same
-// Taro commitment. It also tests that assets existing outside of that
-// commitment have a proper non-inclusion proof.
-func TestMintAndDeriveTaroCommitment(t *testing.T) {
+// TestMintAndDeriveTapCommitment tests that we can mint a new Taproot Asset
+// commitment, compute a proof for each asset minted, and use that proof to
+// derive the same Taproot Asset commitment. It also tests that assets existing
+// outside of that commitment have a proper non-inclusion proof.
+func TestMintAndDeriveTapCommitment(t *testing.T) {
 	t.Parallel()
 
 	const assetType = asset.Normal
@@ -361,7 +361,7 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 		assetDetails = append(assetDetails, details)
 	}
 
-	// Mint a new Taro commitment with the included assets.
+	// Mint a new Taproot Asset commitment with the included assets.
 	commitment, assets, err := Mint(genesis1, groupKey1, assetDetails...)
 	require.NoError(t, err)
 
@@ -371,7 +371,7 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 		t.Helper()
 		for _, asset := range assets {
 			proofAsset, proof, err := commitment.Proof(
-				asset.TaroCommitmentKey(),
+				asset.TapCommitmentKey(),
 				asset.AssetCommitmentKey(),
 			)
 			require.NoError(t, err)
@@ -383,24 +383,24 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 				require.Nil(t, proof.AssetProof)
 			}
 
-			var taroCommitment *TaroCommitment
+			var tapCommitment *TapCommitment
 
 			if includesAsset && includesAssetGroup {
-				taroCommitment, err = proof.DeriveByAssetInclusion(
+				tapCommitment, err = proof.DeriveByAssetInclusion(
 					asset,
 				)
 			} else if includesAssetGroup {
-				taroCommitment, err = proof.DeriveByAssetExclusion(
+				tapCommitment, err = proof.DeriveByAssetExclusion(
 					asset.AssetCommitmentKey(),
 				)
 			} else {
-				taroCommitment, err = proof.DeriveByAssetCommitmentExclusion(
-					asset.TaroCommitmentKey(),
+				tapCommitment, err = proof.DeriveByAssetCommitmentExclusion(
+					asset.TapCommitmentKey(),
 				)
 			}
 			require.NoError(t, err)
 			require.Equal(
-				t, commitment.TapLeaf(), taroCommitment.TapLeaf(),
+				t, commitment.TapLeaf(), tapCommitment.TapLeaf(),
 			)
 		}
 	}
@@ -409,7 +409,8 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	proveAssets(assets, true, true)
 
 	// Now, we'll compute proofs for assets of the same group but not
-	// included in the above Taro commitment (non-inclusion proofs).
+	// included in the above Taproot Asset commitment (non-inclusion
+	// proofs).
 	_, nonExistentAssets, err := Mint(
 		genesis1, groupKey1, randAssetDetails(t, assetType),
 	)
@@ -417,9 +418,9 @@ func TestMintAndDeriveTaroCommitment(t *testing.T) {
 	proveAssets(nonExistentAssets, false, true)
 
 	// Finally, we'll compute proofs for assets with a different group and
-	// not included in the above Taro commitment (non-inclusion proofs).
-	// We'll reuse the same asset details, except we'll mint them with a
-	// distinct genesis and group key.
+	// not included in the above Taproot Asset commitment (non-inclusion
+	// proofs). We'll reuse the same asset details, except we'll mint them
+	// with a distinct genesis and group key.
 	genesis2 := asset.RandGenesis(t, assetType)
 	groupKey2 := asset.RandGroupKey(t, genesis2)
 	_, nonExistentAssetGroup, err := Mint(
@@ -811,9 +812,9 @@ func TestSplitCommitment(t *testing.T) {
 	}
 }
 
-// TestTaroCommitmentPopulation tests a series of invariants related to the
-// Taro commitment key.
-func TestTaroCommitmentKeyPopulation(t *testing.T) {
+// TestTapCommitmentPopulation tests a series of invariants related to the
+// Taproot Asset commitment key.
+func TestTapCommitmentKeyPopulation(t *testing.T) {
 	type assetDescription struct {
 		HasGroupKey   bool
 		IsCollectible bool
@@ -835,11 +836,12 @@ func TestTaroCommitmentKeyPopulation(t *testing.T) {
 		commitment, err := NewAssetCommitment(a)
 		require.NoError(t, err)
 
-		// The Taro commitment key value MUST always be set for the
-		// commitment to be well-formed.
+		// The Taproot Asset commitment key value MUST always be set for
+		// the commitment to be well-formed.
 		var zero [32]byte
-		if commitment.TaroCommitmentKey() == zero {
-			t.Log("commitment has blank taro commitment key!")
+		if commitment.TapCommitmentKey() == zero {
+			t.Log("commitment has blank Taproot Asset commitment " +
+				"key!")
 			return false
 		}
 
@@ -1003,9 +1005,9 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	}
 }
 
-// TestUpdateTaroCommitment asserts that we can properly insert and remove
-// assetCommitments from a TaroCommitment.
-func TestUpdateTaroCommitment(t *testing.T) {
+// TestUpdateTapCommitment asserts that we can properly insert and remove
+// assetCommitments from a TapCommitment.
+func TestUpdateTapCommitment(t *testing.T) {
 	t.Parallel()
 
 	// Create two assets with different geneses and groupKeys, to ensure
@@ -1019,15 +1021,16 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	asset2 := randAsset(t, genesis2, groupKey2)
 	assetCommitment1, err := NewAssetCommitment(asset1)
 	require.NoError(t, err)
-	commitmentKey1 := assetCommitment1.TaroCommitmentKey()
+	commitmentKey1 := assetCommitment1.TapCommitmentKey()
 	assetCommitment2, err := NewAssetCommitment(asset2)
 	require.NoError(t, err)
-	commitmentKey2 := assetCommitment2.TaroCommitmentKey()
+	commitmentKey2 := assetCommitment2.TapCommitmentKey()
 
-	// Mint a new Taro commitment with only the first assetCommitment.
-	commitment, err := NewTaroCommitment(assetCommitment1)
+	// Mint a new Taproot Asset commitment with only the first
+	// assetCommitment.
+	commitment, err := NewTapCommitment(assetCommitment1)
 	require.NoError(t, err)
-	copyOfCommitment, err := NewTaroCommitment(assetCommitment1)
+	copyOfCommitment, err := NewTapCommitment(assetCommitment1)
 	require.NoError(t, err)
 
 	// Check that the assetCommitment map has only the first assetCommitment.
@@ -1060,8 +1063,8 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	require.Equal(t, len(assetCommitments), 2)
 	require.Equal(t, assetCommitments[commitmentKey2], assetCommitment2)
 
-	// Make a new Taro commitment directly from the same assets, and check
-	// equality with the version made via upserts.
+	// Make a new Taproot Asset commitment directly from the same assets,
+	// and check equality with the version made via upserts.
 	commitmentFromAssets, err := FromAssets(asset1, asset2)
 	require.NoError(t, err)
 	require.Equal(
@@ -1070,7 +1073,7 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	)
 
 	// Make sure that when we upsert an empty asset commitment, the whole
-	// asset tree is pruned from the Taro tree.
+	// asset tree is pruned from the Taproot Asset tree.
 	err = assetCommitment2.Delete(asset2)
 	require.NoError(t, err)
 	require.Equal(
@@ -1083,7 +1086,7 @@ func TestUpdateTaroCommitment(t *testing.T) {
 	require.False(t, ok)
 
 	// And if we remove the second asset commitment, we arrive at an empty
-	// Taro tree.
+	// Taproot Asset tree.
 	err = assetCommitment1.Delete(asset1)
 	require.NoError(t, err)
 	require.Equal(
@@ -1127,13 +1130,13 @@ func TestAssetCommitmentDeepCopy(t *testing.T) {
 	)
 }
 
-// TestTaroCommitmentDeepCopy tests that we're able to properly perform a deep
-// copy of a given taro commitment.
-func TestTaroCommitmentDeepCopy(t *testing.T) {
+// TestTapCommitmentDeepCopy tests that we're able to properly perform a deep
+// copy of a given Taproot Asset commitment.
+func TestTapCommitmentDeepCopy(t *testing.T) {
 	t.Parallel()
 
 	// Fist, we'll make two asset commitments with a random asset, then
-	// make a taro commitment out of that.
+	// make a Taproot Asset commitment out of that.
 	genesis1 := asset.RandGenesis(t, asset.Normal)
 	groupKey1 := asset.RandGroupKey(t, genesis1)
 	asset1 := randAsset(t, genesis1, groupKey1)
@@ -1148,28 +1151,29 @@ func TestTaroCommitmentDeepCopy(t *testing.T) {
 	assetCommitment2, err := NewAssetCommitment(asset2)
 	require.NoError(t, err)
 
-	// With both commitments created, we'll now make a new taro commitment
-	// then copy it.
-	taroCommitment, err := NewTaroCommitment(
+	// With both commitments created, we'll now make a new Taproot Asset
+	// commitment then copy it.
+	tapCommitment, err := NewTapCommitment(
 		assetCommitment1, assetCommitment2,
 	)
 	require.NoError(t, err)
 
-	newCommitment, err := taroCommitment.Copy()
+	newCommitment, err := tapCommitment.Copy()
 	require.NoError(t, err)
 
-	// The new taro commitment should match the existing one exactly.
-	require.Equal(t, taroCommitment.Version, newCommitment.Version)
+	// The new Taproot Asset commitment should match the existing one
+	// exactly.
+	require.Equal(t, tapCommitment.Version, newCommitment.Version)
 	require.True(t, mssmt.IsEqualNode(
-		taroCommitment.TreeRoot, newCommitment.TreeRoot),
+		tapCommitment.TreeRoot, newCommitment.TreeRoot),
 	)
 }
 
-// TestTaroCommitmentScript tests that we're able to properly verify if a given
-// script is a valid taro commitment script or not.
-func TestIsTaroCommitmentScript(t *testing.T) {
+// TestTaprootAssetCommitmentScript tests that we're able to properly verify if
+// a given script is a valid Taproot Asset commitment script or not.
+func TestIsTaprootAssetCommitmentScript(t *testing.T) {
 	t.Parallel()
 
-	require.True(t, IsTaroCommitmentScript(testTaroCommitmentScript))
-	require.False(t, IsTaroCommitmentScript(TaroMarker[:]))
+	require.True(t, IsTaprootAssetCommitmentScript(testTapCommitmentScript))
+	require.False(t, IsTaprootAssetCommitmentScript(TaprootAssetsMarker[:]))
 }

@@ -1,17 +1,17 @@
-package taro
+package taprootassets
 
 import (
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/taroscript"
-	"github.com/lightninglabs/taro/vm"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/vm"
 )
 
-// ValidatorV0 is an implementation of the taroscript.TxValidator interface
-// that supports Taro script version 0.
+// ValidatorV0 is an implementation of the tapscript.TxValidator interface
+// that supports Taproot Asset script version 0.
 type ValidatorV0 struct{}
 
-// Execute creates and runs an instance of the Taro script V0 VM.
+// Execute creates and runs an instance of the Taproot Asset script V0 VM.
 func (v *ValidatorV0) Execute(newAsset *asset.Asset,
 	splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet) error {
@@ -29,5 +29,5 @@ func (v *ValidatorV0) Execute(newAsset *asset.Asset,
 }
 
 // A compile time assertion to ensure ValidatorV0 meets the
-// taroscript.TxValidator interface.
-var _ taroscript.TxValidator = (*ValidatorV0)(nil)
+// tapscript.TxValidator interface.
+var _ tapscript.TxValidator = (*ValidatorV0)(nil)

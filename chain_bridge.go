@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"context"
@@ -7,12 +7,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
-// LndRpcChainBridge is an implementation of the tarogarden.ChainBridge
+// LndRpcChainBridge is an implementation of the tapgarden.ChainBridge
 // interface backed by an active remote lnd node.
 type LndRpcChainBridge struct {
 	lnd *lndclient.LndServices
@@ -82,7 +82,7 @@ func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
 func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
 	tx *wire.MsgTx) error {
 
-	label := "tarod-asset-minting"
+	label := "tapd-asset-minting"
 	return l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
 }
 
@@ -94,5 +94,5 @@ func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
 }
 
 // A compile time assertion to ensure LndRpcChainBridge meets the
-// tarogarden.ChainBridge interface.
-var _ tarogarden.ChainBridge = (*LndRpcChainBridge)(nil)
+// tapgarden.ChainBridge interface.
+var _ tapgarden.ChainBridge = (*LndRpcChainBridge)(nil)

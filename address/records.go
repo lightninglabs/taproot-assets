@@ -2,8 +2,8 @@ package address
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -14,7 +14,7 @@ const (
 	// addrVersionType is the TLV type of the addr version.
 	addrVersionType addressTLVType = 0
 
-	// addrAssetIDType is the TLV type of the asset asset ID.
+	// addrAssetIDType is the TLV type of the asset ID.
 	addrAssetIDType addressTLVType = 2
 
 	// addrGroupKeyType is the TLV type of the group key of the asset.

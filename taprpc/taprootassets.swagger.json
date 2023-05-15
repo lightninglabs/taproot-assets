@@ -1,0 +1,1564 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "taprootassets.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "TaprootAssets"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taproot-assets/addrs": {
+      "get": {
+        "summary": "tapcli: `addrs query`\nQueryAddrs queries the set of Taproot Asset addresses stored in the\ndatabase.",
+        "operationId": "TaprootAssets_QueryAddrs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcQueryAddrResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "created_after",
+            "description": "If set, then only addresses created after this Unix timestamp will be\nreturned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "created_before",
+            "description": "If set, then only addresses created before this Unix timestamp will be\nreturned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "limit",
+            "description": "The max number of addresses that should be returned.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "offset",
+            "description": "The offset from the addresses that should be returned.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      },
+      "post": {
+        "summary": "tapcli: `addrs new`\nNewAddr makes a new address from the set of request params.",
+        "operationId": "TaprootAssets_NewAddr",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcAddr"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcNewAddrRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/addrs/decode": {
+      "post": {
+        "summary": "tapcli: `addrs decode`\nDecodeAddr decode a Taproot Asset address into a partial asset message that\nrepresents the asset it wants to receive.",
+        "operationId": "TaprootAssets_DecodeAddr",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcAddr"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcDecodeAddrRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/addrs/receives": {
+      "post": {
+        "summary": "tapcli: `addrs receives`\nList all receives for incoming asset transfers for addresses that were\ncreated previously.",
+        "operationId": "TaprootAssets_AddrReceives",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcAddrReceivesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcAddrReceivesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets": {
+      "get": {
+        "summary": "tapcli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
+        "operationId": "TaprootAssets_ListAssets",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "with_witness",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "include_spent",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/balance": {
+      "get": {
+        "summary": "tapcli: `assets balance`\nListBalances lists asset balances",
+        "operationId": "TaprootAssets_ListBalances",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListBalancesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id",
+            "description": "Group results by asset IDs.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "group_key",
+            "description": "Group results by group keys.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "asset_filter",
+            "description": "If the query results should grouped by asset ids, then an optional asset\nfilter may be provided to query balance of a specific asset.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key_filter",
+            "description": "If the query results should be grouped by group keys, then an optional\ngroup key filter may be provided to query the balance of a specific\nasset group.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/groups": {
+      "get": {
+        "summary": "tapcli: `assets groups`\nListGroups lists the asset groups known to the target daemon, and the assets\nheld in each group.",
+        "operationId": "TaprootAssets_ListGroups",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListGroupsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/meta": {
+      "get": {
+        "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
+        "operationId": "TaprootAssets_FetchAssetMeta",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcAssetMeta"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id",
+            "description": "The asset ID of the asset to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "meta_hash",
+            "description": "The 32-byte meta hash of the asset meta.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/transfers": {
+      "get": {
+        "summary": "tapcli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
+        "operationId": "TaprootAssets_ListTransfers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListTransfersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/utxos": {
+      "get": {
+        "summary": "tapcli: `assets utxos`\nListUtxos lists the UTXOs managed by the target daemon, and the assets they\nhold.",
+        "operationId": "TaprootAssets_ListUtxos",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListUtxosResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/debuglevel": {
+      "post": {
+        "summary": "tapcli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntapd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
+        "operationId": "TaprootAssets_DebugLevel",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcDebugLevelResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcDebugLevelRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/proofs/export": {
+      "post": {
+        "summary": "tapcli: `proofs export`\nExportProof exports the latest raw proof file anchored at the specified\nscript_key.",
+        "operationId": "TaprootAssets_ExportProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcProofFile"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcExportProofRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/proofs/import": {
+      "post": {
+        "summary": "tapcli: `proofs import`\nImportProof attempts to import a proof file into the daemon. If successful,\na new asset will be inserted on disk, spendable using the specified target\nscript key, and internal key.",
+        "operationId": "TaprootAssets_ImportProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcImportProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcImportProofRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/proofs/verify": {
+      "post": {
+        "summary": "tapcli: `proofs verify`\nVerifyProof attempts to verify a given proof file that claims to be anchored\nat the specified genesis point.",
+        "operationId": "TaprootAssets_VerifyProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcProofVerifyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcProofFile"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/send": {
+      "post": {
+        "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed Taproot Asset address(es) to attempt\nto complete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
+        "operationId": "TaprootAssets_SendAsset",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcSendAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSendAssetRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/send/ntfs": {
+      "post": {
+        "summary": "SubscribeSendAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset sending process.",
+        "operationId": "TaprootAssets_SubscribeSendAssetEventNtfns",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcSendAssetEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcSendAssetEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeSendAssetEventNtfnsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/stop": {
+      "post": {
+        "summary": "tapcli: `stop`\nStopDaemon will send a shutdown request to the interrupt handler, triggering\na graceful shutdown of the daemon.",
+        "operationId": "TaprootAssets_StopDaemon",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcStopResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcStopRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "taprpcAddr": {
+      "type": "object",
+      "properties": {
+        "encoded": {
+          "type": "string",
+          "description": "The bech32 encoded Taproot Asset address."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "title": "The group key of the asset (if it exists)"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The specific script key the asset must commit to in order to transfer\nownership to the creator of the address."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal key used for the on-chain output."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taproot Asset\ncommitment of the asset."
+        },
+        "taproot_output_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked internal key that commits to the asset and represents the\non-chain output key the Bitcoin transaction must send to in order to\ntransfer assets described in this address."
+        }
+      }
+    },
+    "taprpcAddrEvent": {
+      "type": "object",
+      "properties": {
+        "creation_time_unix_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The time the event was created in unix timestamp seconds."
+        },
+        "addr": {
+          "$ref": "#/definitions/taprpcAddr",
+          "description": "The address the event was created for."
+        },
+        "status": {
+          "$ref": "#/definitions/taprpcAddrEventStatus",
+          "description": "The current status of the event."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint that contains the inbound asset transfer."
+        },
+        "utxo_amt_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis that were transferred on chain along with the asset.\nThis amount is independent of the requested asset amount, which can be\nlooked up on the address."
+        },
+        "taproot_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The taproot sibling hash that was used to send to the Taproot output."
+        },
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height at which the on-chain output was confirmed. If this is zero, it\nmeans the output is unconfirmed."
+        },
+        "has_proof": {
+          "type": "boolean",
+          "description": "Indicates whether a proof file can be found for the address' asset ID and\nscript key."
+        }
+      }
+    },
+    "taprpcAddrEventStatus": {
+      "type": "string",
+      "enum": [
+        "ADDR_EVENT_STATUS_UNKNOWN",
+        "ADDR_EVENT_STATUS_TRANSACTION_DETECTED",
+        "ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED",
+        "ADDR_EVENT_STATUS_PROOF_RECEIVED",
+        "ADDR_EVENT_STATUS_COMPLETED"
+      ],
+      "default": "ADDR_EVENT_STATUS_UNKNOWN"
+    },
+    "taprpcAddrReceivesRequest": {
+      "type": "object",
+      "properties": {
+        "filter_addr": {
+          "type": "string",
+          "description": "Filter receives by a specific address. Leave empty to get all receives."
+        },
+        "filter_status": {
+          "$ref": "#/definitions/taprpcAddrEventStatus",
+          "description": "Filter receives by a specific status. Leave empty to get all receives."
+        }
+      }
+    },
+    "taprpcAddrReceivesResponse": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAddrEvent"
+          },
+          "description": "The events that match the filter criteria."
+        }
+      }
+    },
+    "taprpcAnchorInfo": {
+      "type": "object",
+      "properties": {
+        "anchor_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The transaction that anchors the Taproot Asset commitment where the asset\n resides."
+        },
+        "anchor_txid": {
+          "type": "string",
+          "description": "The txid of the above transaction."
+        },
+        "anchor_block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block hash the contains the anchor transaction above."
+        },
+        "anchor_outpoint": {
+          "type": "string",
+          "description": "The outpoint (txid:vout) that stores the Taproot Asset commitment."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw internal key that was used to create the anchor Taproot output key."
+        },
+        "merkle_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taproot Asset\nroot commitment hash."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The serialized preimage of a Tapscript sibling, if there was one. If this\nis empty, then the merkle_root hash is equal to the Taproot root hash of the\nanchor output."
+        }
+      }
+    },
+    "taprpcAsset": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taproot Asset."
+        },
+        "asset_genesis": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The base genesis information of an asset. This information never changes."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
+        },
+        "lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional locktime, as with Bitcoin transactions."
+        },
+        "relative_lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional relative lock time, same as Bitcoin transactions."
+        },
+        "script_version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the script, only version 0 is defined at present."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset, which can be spent under Taproot semantics."
+        },
+        "script_key_is_local": {
+          "type": "boolean",
+          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taproot Asset daemon."
+        },
+        "asset_group": {
+          "$ref": "#/definitions/taprpcAssetGroup",
+          "description": "The information related to the key group of an asset (if it exists)."
+        },
+        "chain_anchor": {
+          "$ref": "#/definitions/taprpcAnchorInfo",
+          "description": "Describes where in the chain the asset is currently anchored."
+        },
+        "prev_witnesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcPrevWitness"
+          }
+        },
+        "is_spent": {
+          "type": "boolean",
+          "description": "Indicates whether the asset has been spent."
+        }
+      }
+    },
+    "taprpcAssetBalance": {
+      "type": "object",
+      "properties": {
+        "asset_genesis": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The base genesis information of an asset. This information never changes."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
+        "balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The balance of the asset owned by the target daemon."
+        }
+      }
+    },
+    "taprpcAssetGroup": {
+      "type": "object",
+      "properties": {
+        "raw_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw group key which is a normal public key."
+        },
+        "tweaked_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked group key, which is derived based on the genesis point and also\nasset type."
+        },
+        "asset_id_sig": {
+          "type": "string",
+          "format": "byte",
+          "description": "A signature over the genesis point using the above key."
+        }
+      }
+    },
+    "taprpcAssetGroupBalance": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key or nil aggregating assets that don't have a group."
+        },
+        "balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total balance of the assets in the group."
+        }
+      }
+    },
+    "taprpcAssetHumanReadable": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the asset."
+        },
+        "lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional locktime, as with Bitcoin transactions."
+        },
+        "relative_lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional relative locktime, as with Bitcoin transactions."
+        },
+        "tag": {
+          "type": "string",
+          "description": "The name of the asset."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The metadata hash of the asset."
+        },
+        "type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        }
+      }
+    },
+    "taprpcAssetMeta": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF."
+        },
+        "type": {
+          "$ref": "#/definitions/taprpcAssetMetaType",
+          "description": "The type of the asset meta data."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the meta. This is the hash of the TLV serialization of the meta\nitself."
+        }
+      }
+    },
+    "taprpcAssetMetaType": {
+      "type": "string",
+      "enum": [
+        "MTEA_TYPE_OPAQUE"
+      ],
+      "default": "MTEA_TYPE_OPAQUE",
+      "description": " - MTEA_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
+    },
+    "taprpcAssetTransfer": {
+      "type": "object",
+      "properties": {
+        "transfer_timestamp": {
+          "type": "string",
+          "format": "int64"
+        },
+        "anchor_tx_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The new transaction that commits to the set of Taproot Assets found\nat the above new anchor point."
+        },
+        "anchor_tx_height_hint": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "anchor_tx_chain_fees": {
+          "type": "string",
+          "format": "int64"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcTransferInput"
+          },
+          "description": "Describes the set of spent assets."
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcTransferOutput"
+          },
+          "description": "Describes the set of newly created asset outputs."
+        }
+      }
+    },
+    "taprpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL",
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
+    "taprpcDebugLevelRequest": {
+      "type": "object",
+      "properties": {
+        "show": {
+          "type": "boolean",
+          "description": "If true, all the valid debug sub-systems will be returned."
+        },
+        "level_spec": {
+          "type": "string"
+        }
+      }
+    },
+    "taprpcDebugLevelResponse": {
+      "type": "object",
+      "properties": {
+        "sub_systems": {
+          "type": "string"
+        }
+      }
+    },
+    "taprpcDecodeAddrRequest": {
+      "type": "object",
+      "properties": {
+        "addr": {
+          "type": "string"
+        }
+      }
+    },
+    "taprpcExecuteSendStateEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Execute timestamp (microseconds)."
+        },
+        "send_state": {
+          "type": "string",
+          "description": "The send state that is about to be executed."
+        }
+      }
+    },
+    "taprpcExportProofRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "taprpcGenesisInfo": {
+      "type": "object",
+      "properties": {
+        "genesis_point": {
+          "type": "string",
+          "description": "The first outpoint of the transaction that created the asset (txid:vout)."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the asset."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the meta data for this genesis asset."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taproot Asset commitment that created this asset."
+        }
+      }
+    },
+    "taprpcGroupedAssets": {
+      "type": "object",
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAssetHumanReadable"
+          },
+          "description": "A list of assets with the same group key."
+        }
+      }
+    },
+    "taprpcImportProofRequest": {
+      "type": "object",
+      "properties": {
+        "proof_file": {
+          "type": "string",
+          "format": "byte"
+        },
+        "genesis_point": {
+          "type": "string"
+        }
+      }
+    },
+    "taprpcImportProofResponse": {
+      "type": "object"
+    },
+    "taprpcKeyDescriptor": {
+      "type": "object",
+      "properties": {
+        "raw_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the key being identified."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/taprpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        }
+      }
+    },
+    "taprpcKeyLocator": {
+      "type": "object",
+      "properties": {
+        "key_family": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The family of key being identified."
+        },
+        "key_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The precise index of the key being identified."
+        }
+      }
+    },
+    "taprpcListAssetResponse": {
+      "type": "object",
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAsset"
+          }
+        }
+      }
+    },
+    "taprpcListBalancesResponse": {
+      "type": "object",
+      "properties": {
+        "asset_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetBalance"
+          }
+        },
+        "asset_group_balances": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcAssetGroupBalance"
+          }
+        }
+      }
+    },
+    "taprpcListGroupsResponse": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcGroupedAssets"
+          },
+          "description": "The set of assets with a group key."
+        }
+      }
+    },
+    "taprpcListTransfersResponse": {
+      "type": "object",
+      "properties": {
+        "transfers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAssetTransfer"
+          },
+          "description": "The unordered list of outgoing asset transfers."
+        }
+      }
+    },
+    "taprpcListUtxosResponse": {
+      "type": "object",
+      "properties": {
+        "managed_utxos": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/taprpcManagedUtxo"
+          },
+          "description": "The set of UTXOs managed by the daemon."
+        }
+      }
+    },
+    "taprpcManagedUtxo": {
+      "type": "object",
+      "properties": {
+        "out_point": {
+          "type": "string",
+          "description": "The outpoint of the UTXO."
+        },
+        "amt_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The UTXO amount in satoshis."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal key used for the on-chain output."
+        },
+        "taproot_asset_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taproot Asset root commitment hash."
+        },
+        "merkle_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taproot merkle root hash committed to by the outpoint of this UTXO.\nIf there is no Tapscript sibling, this is equal to the Taproot Asset root\ncommitment hash."
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAsset"
+          },
+          "description": "The assets held at this UTXO."
+        }
+      }
+    },
+    "taprpcNewAddrRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amt": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "script_key": {
+          "$ref": "#/definitions/taprpcScriptKey",
+          "description": "The optional script key that the receiving asset should be locked to. If no\nscript key is provided, a normal BIP-86 key will be derived from the\nunderlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
+        },
+        "internal_key": {
+          "$ref": "#/definitions/taprpcKeyDescriptor",
+          "description": "The optional internal key of the receiving BTC level transaction output on\nwhich the receiving asset transfers will be committed to. If no internal key\nis provided, a key will be derived from the underlying wallet.\n\nNOTE: The script_key and internal_key fields should either both be set or\nboth be empty."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taproot Asset\ncommitment of the asset."
+        }
+      }
+    },
+    "taprpcOutputType": {
+      "type": "string",
+      "enum": [
+        "OUTPUT_TYPE_SIMPLE",
+        "OUTPUT_TYPE_SPLIT_ROOT",
+        "OUTPUT_TYPE_PASSIVE_ASSETS_ONLY",
+        "OUTPUT_TYPE_PASSIVE_SPLIT_ROOT"
+      ],
+      "default": "OUTPUT_TYPE_SIMPLE",
+      "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness.\n - OUTPUT_TYPE_PASSIVE_ASSETS_ONLY: OUTPUT_TYPE_PASSIVE_ASSETS_ONLY indicates that this output only carries\npassive assets and therefore the asset in this output is nil. The passive\nassets themselves are signed in their own virtual transactions and\nare not present in this packet.\n - OUTPUT_TYPE_PASSIVE_SPLIT_ROOT: OUTPUT_TYPE_PASSIVE_SPLIT_ROOT is a split root output that carries the\nchange from a split or a tombstone from a non-interactive full value send\noutput, as well as passive assets."
+    },
+    "taprpcPrevInputAsset": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "taprpcPrevWitness": {
+      "type": "object",
+      "properties": {
+        "prev_id": {
+          "$ref": "#/definitions/taprpcPrevInputAsset"
+        },
+        "tx_witness": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          }
+        },
+        "split_commitment": {
+          "$ref": "#/definitions/taprpcSplitCommitment"
+        }
+      }
+    },
+    "taprpcProofFile": {
+      "type": "object",
+      "properties": {
+        "raw_proof": {
+          "type": "string",
+          "format": "byte"
+        },
+        "genesis_point": {
+          "type": "string"
+        }
+      }
+    },
+    "taprpcProofVerifyResponse": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        }
+      }
+    },
+    "taprpcQueryAddrResponse": {
+      "type": "object",
+      "properties": {
+        "addrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAddr"
+          }
+        }
+      }
+    },
+    "taprpcReceiverProofBackoffWaitEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Transfer attempt timestamp (microseconds)."
+        },
+        "backoff": {
+          "type": "string",
+          "format": "int64",
+          "description": "Backoff is the active backoff wait duration."
+        },
+        "tries_counter": {
+          "type": "string",
+          "format": "int64",
+          "description": "Tries counter is the number of tries we've made so far during the\ncourse of the current backoff procedure to deliver the proof to the\nreceiver."
+        }
+      }
+    },
+    "taprpcScriptKey": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit."
+        },
+        "key_desc": {
+          "$ref": "#/definitions/taprpcKeyDescriptor",
+          "description": "The key descriptor describing the internal key of the above Taproot key."
+        },
+        "tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional Taproot tweak to apply to the above internal key. If this is\nempty then a BIP-86 style tweak is applied to the internal key."
+        }
+      }
+    },
+    "taprpcSendAssetEvent": {
+      "type": "object",
+      "properties": {
+        "execute_send_state_event": {
+          "$ref": "#/definitions/taprpcExecuteSendStateEvent",
+          "description": "An event which indicates that a send state is about to be executed."
+        },
+        "receiver_proof_backoff_wait_event": {
+          "$ref": "#/definitions/taprpcReceiverProofBackoffWaitEvent",
+          "description": "An event which indicates that the proof send backoff wait period will\nstart imminently."
+        }
+      }
+    },
+    "taprpcSendAssetRequest": {
+      "type": "object",
+      "properties": {
+        "tap_addrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "taprpcSendAssetResponse": {
+      "type": "object",
+      "properties": {
+        "transfer": {
+          "$ref": "#/definitions/taprpcAssetTransfer"
+        }
+      }
+    },
+    "taprpcSplitCommitment": {
+      "type": "object",
+      "properties": {
+        "root_asset": {
+          "$ref": "#/definitions/taprpcAsset"
+        }
+      }
+    },
+    "taprpcStopRequest": {
+      "type": "object"
+    },
+    "taprpcStopResponse": {
+      "type": "object"
+    },
+    "taprpcSubscribeSendAssetEventNtfnsRequest": {
+      "type": "object"
+    },
+    "taprpcTransferInput": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string",
+          "description": "The old/current location of the Taproot Asset commitment that was spent\nas an input."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the asset that was spent."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset that was spent."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the asset that was spent."
+        }
+      }
+    },
+    "taprpcTransferOutput": {
+      "type": "object",
+      "properties": {
+        "anchor": {
+          "$ref": "#/definitions/taprpcTransferOutputAnchor"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key_is_local": {
+          "type": "boolean"
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "new_proof_blob": {
+          "type": "string",
+          "format": "byte"
+        },
+        "split_commit_root_hash": {
+          "type": "string",
+          "format": "byte"
+        },
+        "output_type": {
+          "$ref": "#/definitions/taprpcOutputType"
+        }
+      }
+    },
+    "taprpcTransferOutputAnchor": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "type": "string",
+          "description": "The new location of the Taproot Asset commitment that was created on\nchain."
+        },
+        "value": {
+          "type": "string",
+          "format": "int64"
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "taproot_asset_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "merkle_root": {
+          "type": "string",
+          "format": "byte"
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte"
+        },
+        "num_passive_assets": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    }
+  }
+}

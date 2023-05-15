@@ -4,10 +4,10 @@
 *.dll
 *.so
 *.dylib
-tarocli-debug
-tarod-debug
-cmd/tarocli/tarocli
-cmd/tarod/tarod
+tapcli-debug
+tapd-debug
+cmd/tapcli/tapcli
+cmd/tapd/tapd
 
 /itest/lnd-itest
 /itest/btcd-itest
@@ -15,7 +15,7 @@ cmd/tarod/tarod
 /itest/*.log
 /itest/.backendlogs/*
 /itest/.minerlogs/*
-/itest/tarod-itest
+/itest/tapd-itest
 
 # Test binary, built with `go test -c`
 *.test
@@ -34,4 +34,4 @@ cmd/tarod/tarod
 vendor/
 
 # Release builds
-/taro-*
+/taproot-assets-*

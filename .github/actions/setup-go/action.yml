@@ -9,12 +9,12 @@ runs:
       uses: actions/cache@v3
       with:
         path: /home/runner/work/go
-        key: taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+        key: taproot-assets-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-          taro-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-          taro-${{ runner.os }}-go-
+          taproot-assets-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+          taproot-assets-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
+          taproot-assets-${{ runner.os }}-go-${{ env.GO_VERSION }}-
+          taproot-assets-${{ runner.os }}-go-
 
     - name: Setup go ${{ env.GO_VERSION }}
       uses: actions/setup-go@v3

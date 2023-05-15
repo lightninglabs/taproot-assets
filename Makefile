@@ -1,4 +1,4 @@
-PKG := github.com/lightninglabs/taro
+PKG := github.com/lightninglabs/taproot-assets
 
 BTCD_PKG := github.com/btcsuite/btcd
 LND_PKG := github.com/lightningnetwork/lnd
@@ -55,7 +55,7 @@ endif
 DOCKER_TOOLS = docker run \
   -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
-  -v $$(pwd):/build taro-tools
+  -v $$(pwd):/build taproot-assets-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -84,9 +84,9 @@ $(GOIMPORTS_BIN):
 # ============
 
 build:
-	@$(call print, "Building debug tarod and tarocli.")
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o tarod-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tarod
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o tarocli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tarocli
+	@$(call print, "Building debug tapd and tapcli.")
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapd
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapcli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapcli
 
 build-itest:
 	@$(call print, "Building itest btcd.")
@@ -96,17 +96,17 @@ build-itest:
 	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
 install:
-	@$(call print, "Installing tarod and tarocli.")
-	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tarod
-	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tarocli
+	@$(call print, "Installing tapd and tapcli.")
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tapd
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tapcli
 
 release-install:
-	@$(call print, "Installing release tarod and tarocli.")
-	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tarod
-	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tarocli
+	@$(call print, "Installing release tapd and tapcli.")
+	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tapd
+	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tapcli
 
 release:
-	@$(call print, "Releasing tarod and tarocli binaries.")
+	@$(call print, "Releasing tapd and tapcli binaries.")
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
@@ -114,7 +114,7 @@ docker-release:
 	@$(call print, "Building release helper docker image.")
 	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
 
-	docker build -t taro-release-helper -f make/builder.Dockerfile make/
+	docker build -t taproot-assets-release-helper -f make/builder.Dockerfile make/
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
@@ -122,7 +122,7 @@ docker-release:
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	docker build -q -t taro-tools $(TOOLS_DIR)
+	docker build -q -t taproot-assets-tools $(TOOLS_DIR)
 
 scratch: build
 
@@ -131,13 +131,13 @@ scratch: build
 # ===================
 
 migrate-up: $(MIGRATE_BIN)
-	migrate -path tarodb/sqlc/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose up
+	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose up
 
 migrate-down: $(MIGRATE_BIN)
-	migrate -path tarodb/sqlc/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose down 1
+	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose down 1
 
 migrate-create: $(MIGRATE_BIN)
-	migrate create -dir tarodb/sqlc/migrations -seq -ext sql $(patchname)
+	migrate create -dir tapdb/sqlc/migrations -seq -ext sql $(patchname)
 
 # =======
 # TESTING
@@ -219,15 +219,15 @@ sqlc-check: sqlc
 
 rpc:
 	@$(call print, "Compiling protos.")
-	cd ./tarorpc; ./gen_protos_docker.sh
+	cd ./taprpc; ./gen_protos_docker.sh
 
 rpc-format:
 	@$(call print, "Formatting protos.")
-	cd ./tarorpc; find . -name "*.proto" | xargs clang-format --style=file -i
+	cd ./taprpc; find . -name "*.proto" | xargs clang-format --style=file -i
 
 rpc-check: rpc
 	@$(call print, "Verifying protos.")
-	cd ./tarorpc; ../scripts/check-rest-annotations.sh
+	cd ./taprpc; ../scripts/check-rest-annotations.sh
 	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with correct version"; git status; git diff; exit 1; fi
 
 vendor:

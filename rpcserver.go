@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"bytes"
@@ -20,23 +20,23 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/rpcperms"
-	"github.com/lightninglabs/taro/tarodb"
-	"github.com/lightninglabs/taro/tarofreighter"
-	"github.com/lightninglabs/taro/tarogarden"
-	"github.com/lightninglabs/taro/taropsbt"
-	"github.com/lightninglabs/taro/tarorpc"
-	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
-	"github.com/lightninglabs/taro/taroscript"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -45,18 +45,18 @@ import (
 )
 
 const (
-	// poolMacaroonLocation is the value we use for the taro macaroons'
+	// tapdMacaroonLocation is the value we use for the tapd macaroons'
 	// "Location" field when baking them.
-	taroMacaroonLocation = "taro"
+	tapdMacaroonLocation = "tapd"
 )
 
-// rpcServer is the main RPC server for the Taro daemon that handles
+// rpcServer is the main RPC server for the Taproot Assets daemon that handles
 // gRPC/REST/Websockets incoming requests.
 type rpcServer struct {
 	started  int32
 	shutdown int32
 
-	tarorpc.UnimplementedTaroServer
+	taprpc.UnimplementedTaprootAssetsServer
 	wrpc.UnimplementedAssetWalletServer
 	mintrpc.UnimplementedMintServer
 	unirpc.UnimplementedUniverseServer
@@ -117,7 +117,7 @@ func (r *rpcServer) Stop() error {
 // server.
 func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	// Register the main RPC server.
-	tarorpc.RegisterTaroServer(grpcServer, r)
+	taprpc.RegisterTaprootAssetsServer(grpcServer, r)
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	mintrpc.RegisterMintServer(grpcServer, r)
 	unirpc.RegisterUniverseServer(grpcServer, r)
@@ -131,7 +131,7 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 
 	// With our custom REST proxy mux created, register our main RPC and
 	// give all subservers a chance to register as well.
-	err := tarorpc.RegisterTaroHandlerFromEndpoint(
+	err := taprpc.RegisterTaprootAssetsHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
@@ -217,23 +217,23 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
 func (r *rpcServer) StopDaemon(_ context.Context,
-	_ *tarorpc.StopRequest) (*tarorpc.StopResponse, error) {
+	_ *taprpc.StopRequest) (*taprpc.StopResponse, error) {
 
 	r.interceptor.RequestShutdown()
-	return &tarorpc.StopResponse{}, nil
+	return &taprpc.StopResponse{}, nil
 }
 
 // DebugLevel allows a caller to programmatically set the logging verbosity of
-// tarod. The logging can be targeted according to a coarse daemon-wide logging
+// tapd. The logging can be targeted according to a coarse daemon-wide logging
 // level, or in a granular fashion to specify the logging for a target
 // sub-system.
 func (r *rpcServer) DebugLevel(ctx context.Context,
-	req *tarorpc.DebugLevelRequest) (*tarorpc.DebugLevelResponse, error) {
+	req *taprpc.DebugLevelRequest) (*taprpc.DebugLevelResponse, error) {
 
 	// If show is set, then we simply print out the list of available
 	// sub-systems.
 	if req.Show {
-		return &tarorpc.DebugLevelResponse{
+		return &taprpc.DebugLevelResponse{
 			SubSystems: strings.Join(
 				r.cfg.LogWriter.SupportedSubsystems(), " ",
 			),
@@ -249,7 +249,7 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 		return nil, err
 	}
 
-	return &tarorpc.DebugLevelResponse{}, nil
+	return &taprpc.DebugLevelResponse{}, nil
 }
 
 // MintAsset attempts to mint the set of assets (async by default to ensure
@@ -273,7 +273,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	seedling := &tarogarden.Seedling{
+	seedling := &tapgarden.Seedling{
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
 		Amount:         uint64(req.Asset.Amount),
@@ -480,7 +480,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 
 // ListAssets lists the set of assets owned by the target daemon.
 func (r *rpcServer) ListAssets(ctx context.Context,
-	req *tarorpc.ListAssetRequest) (*tarorpc.ListAssetResponse, error) {
+	req *taprpc.ListAssetRequest) (*taprpc.ListAssetResponse, error) {
 
 	rpcAssets, err := r.fetchRpcAssets(
 		ctx, req.WithWitness, req.IncludeSpent,
@@ -489,20 +489,20 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		return nil, err
 	}
 
-	return &tarorpc.ListAssetResponse{
+	return &taprpc.ListAssetResponse{
 		Assets: rpcAssets,
 	}, nil
 }
 
 func (r *rpcServer) fetchRpcAssets(ctx context.Context,
-	withWitness, includeSpent bool) ([]*tarorpc.Asset, error) {
+	withWitness, includeSpent bool) ([]*taprpc.Asset, error) {
 
 	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, includeSpent, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
 	}
 
-	rpcAssets := make([]*tarorpc.Asset, len(assets))
+	rpcAssets := make([]*taprpc.Asset, len(assets))
 	for i, a := range assets {
 		rpcAssets[i], err = r.marshalChainAsset(ctx, a, withWitness)
 		if err != nil {
@@ -514,8 +514,8 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 	return rpcAssets, nil
 }
 
-func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
-	withWitness bool) (*tarorpc.Asset, error) {
+func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
+	withWitness bool) (*taprpc.Asset, error) {
 
 	rpcAsset, err := MarshalAsset(ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook)
 	if err != nil {
@@ -533,7 +533,7 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tarodb.ChainAsset,
 		anchorTxBytes = anchorTxBuf.Bytes()
 	}
 
-	rpcAsset.ChainAnchor = &tarorpc.AnchorInfo{
+	rpcAsset.ChainAnchor = &taprpc.AnchorInfo{
 		AnchorTx:         anchorTxBytes,
 		AnchorTxid:       a.AnchorTxid.String(),
 		AnchorBlockHash:  a.AnchorBlockHash[:],
@@ -556,7 +556,7 @@ type KeyLookup interface {
 
 func MarshalAsset(ctx context.Context, a *asset.Asset,
 	isSpent, withWitness bool,
-	keyRing KeyLookup) (*tarorpc.Asset, error) {
+	keyRing KeyLookup) (*taprpc.Asset, error) {
 
 	assetID := a.Genesis.ID()
 	scriptKeyIsLocal := false
@@ -566,16 +566,16 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		)
 	}
 
-	rpcAsset := &tarorpc.Asset{
+	rpcAsset := &taprpc.Asset{
 		Version: int32(a.Version),
-		AssetGenesis: &tarorpc.GenesisInfo{
+		AssetGenesis: &taprpc.GenesisInfo{
 			GenesisPoint: a.Genesis.FirstPrevOut.String(),
 			Name:         a.Genesis.Tag,
 			MetaHash:     a.Genesis.MetaHash[:],
 			AssetId:      assetID[:],
 			OutputIndex:  a.Genesis.OutputIndex,
 		},
-		AssetType:        tarorpc.AssetType(a.Type),
+		AssetType:        taprpc.AssetType(a.Type),
 		Amount:           a.Amount,
 		LockTime:         int32(a.LockTime),
 		RelativeLockTime: int32(a.RelativeLockTime),
@@ -590,7 +590,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		if a.GroupKey.RawKey.PubKey != nil {
 			rawKey = a.GroupKey.RawKey.PubKey.SerializeCompressed()
 		}
-		rpcAsset.AssetGroup = &tarorpc.AssetGroup{
+		rpcAsset.AssetGroup = &taprpc.AssetGroup{
 			RawGroupKey:     rawKey,
 			TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
 			AssetIdSig:      a.GroupKey.Sig.Serialize(),
@@ -602,13 +602,13 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 			witness := a.PrevWitnesses[idx]
 
 			prevID := witness.PrevID
-			rpcPrevID := &tarorpc.PrevInputAsset{
+			rpcPrevID := &taprpc.PrevInputAsset{
 				AnchorPoint: prevID.OutPoint.String(),
 				AssetId:     prevID.ID[:],
 				ScriptKey:   prevID.ScriptKey[:],
 			}
 
-			var rpcSplitCommitment *tarorpc.SplitCommitment
+			var rpcSplitCommitment *taprpc.SplitCommitment
 			if witness.SplitCommitment != nil {
 				rootAsset, err := MarshalAsset(
 					ctx, &witness.SplitCommitment.RootAsset,
@@ -618,13 +618,13 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 					return nil, err
 				}
 
-				rpcSplitCommitment = &tarorpc.SplitCommitment{
+				rpcSplitCommitment = &taprpc.SplitCommitment{
 					RootAsset: rootAsset,
 				}
 			}
 
 			rpcAsset.PrevWitnesses = append(
-				rpcAsset.PrevWitnesses, &tarorpc.PrevWitness{
+				rpcAsset.PrevWitnesses, &taprpc.PrevWitness{
 					PrevId:          rpcPrevID,
 					TxWitness:       witness.TxWitness,
 					SplitCommitment: rpcSplitCommitment,
@@ -637,15 +637,15 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
-	assetID *asset.ID) (*tarorpc.ListBalancesResponse, error) {
+	assetID *asset.ID) (*taprpc.ListBalancesResponse, error) {
 
 	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(ctx, assetID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
 	}
 
-	resp := &tarorpc.ListBalancesResponse{
-		AssetBalances: make(map[string]*tarorpc.AssetBalance, len(balances)),
+	resp := &taprpc.ListBalancesResponse{
+		AssetBalances: make(map[string]*taprpc.AssetBalance, len(balances)),
 	}
 
 	for _, balance := range balances {
@@ -653,15 +653,15 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 
 		assetIDStr := hex.EncodeToString(balance.ID[:])
 
-		resp.AssetBalances[assetIDStr] = &tarorpc.AssetBalance{
-			AssetGenesis: &tarorpc.GenesisInfo{
+		resp.AssetBalances[assetIDStr] = &taprpc.AssetBalance{
+			AssetGenesis: &taprpc.GenesisInfo{
 				Version:      int32(balance.Version),
 				GenesisPoint: balance.GenesisPoint.String(),
 				Name:         balance.Tag,
 				MetaHash:     balance.MetaHash[:],
 				AssetId:      balance.ID[:],
 			},
-			AssetType: tarorpc.AssetType(balance.Type),
+			AssetType: taprpc.AssetType(balance.Type),
 			Balance:   balance.Balance,
 		}
 	}
@@ -670,7 +670,7 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 }
 
 func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
-	groupKey *btcec.PublicKey) (*tarorpc.ListBalancesResponse, error) {
+	groupKey *btcec.PublicKey) (*taprpc.ListBalancesResponse, error) {
 
 	balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
 		ctx, groupKey,
@@ -679,9 +679,9 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 		return nil, fmt.Errorf("unable to list balances: %w", err)
 	}
 
-	resp := &tarorpc.ListBalancesResponse{
+	resp := &taprpc.ListBalancesResponse{
 		AssetGroupBalances: make(
-			map[string]*tarorpc.AssetGroupBalance, len(balances),
+			map[string]*taprpc.AssetGroupBalance, len(balances),
 		),
 	}
 
@@ -694,7 +694,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 		}
 
 		groupKeyString := hex.EncodeToString(groupKey)
-		resp.AssetGroupBalances[groupKeyString] = &tarorpc.AssetGroupBalance{
+		resp.AssetGroupBalances[groupKeyString] = &taprpc.AssetGroupBalance{
 			GroupKey: groupKey,
 			Balance:  balance.Balance,
 		}
@@ -706,7 +706,7 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 // ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 // hold.
 func (r *rpcServer) ListUtxos(ctx context.Context,
-	_ *tarorpc.ListUtxosRequest) (*tarorpc.ListUtxosResponse, error) {
+	_ *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
 	rpcAssets, err := r.fetchRpcAssets(ctx, false, false)
 	if err != nil {
@@ -718,14 +718,14 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 		return nil, err
 	}
 
-	utxos := make(map[string]*tarorpc.ManagedUtxo)
+	utxos := make(map[string]*taprpc.ManagedUtxo)
 	for _, u := range managedUtxos {
-		utxos[u.OutPoint.String()] = &tarorpc.ManagedUtxo{
-			OutPoint:    u.OutPoint.String(),
-			AmtSat:      int64(u.OutputValue),
-			InternalKey: u.InternalKey.PubKey.SerializeCompressed(),
-			TaroRoot:    u.TaroRoot,
-			MerkleRoot:  u.MerkleRoot,
+		utxos[u.OutPoint.String()] = &taprpc.ManagedUtxo{
+			OutPoint:         u.OutPoint.String(),
+			AmtSat:           int64(u.OutputValue),
+			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
+			TaprootAssetRoot: u.TaprootAssetRoot,
+			MerkleRoot:       u.MerkleRoot,
 		}
 	}
 
@@ -742,39 +742,39 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 		utxos[op] = utxo
 	}
 
-	return &tarorpc.ListUtxosResponse{
+	return &taprpc.ListUtxosResponse{
 		ManagedUtxos: utxos,
 	}, nil
 }
 
 // ListGroups lists known groups and the assets held in each group.
 func (r *rpcServer) ListGroups(ctx context.Context,
-	_ *tarorpc.ListGroupsRequest) (*tarorpc.ListGroupsResponse, error) {
+	_ *taprpc.ListGroupsRequest) (*taprpc.ListGroupsResponse, error) {
 
 	readableAssets, err := r.cfg.AssetStore.FetchGroupedAssets(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	groupsWithAssets := make(map[string]*tarorpc.GroupedAssets)
+	groupsWithAssets := make(map[string]*taprpc.GroupedAssets)
 
 	// Populate the map of group keys to assets in that group.
 	for _, a := range readableAssets {
 		groupKey := hex.EncodeToString(a.GroupKey.SerializeCompressed())
-		asset := &tarorpc.AssetHumanReadable{
+		asset := &taprpc.AssetHumanReadable{
 			Id:               a.ID[:],
 			Amount:           a.Amount,
 			LockTime:         int32(a.LockTime),
 			RelativeLockTime: int32(a.RelativeLockTime),
 			Tag:              a.Tag,
 			MetaHash:         a.MetaHash[:],
-			Type:             tarorpc.AssetType(a.Type),
+			Type:             taprpc.AssetType(a.Type),
 		}
 
 		_, ok := groupsWithAssets[groupKey]
 		if !ok {
-			groupsWithAssets[groupKey] = &tarorpc.GroupedAssets{
-				Assets: []*tarorpc.AssetHumanReadable{},
+			groupsWithAssets[groupKey] = &taprpc.GroupedAssets{
+				Assets: []*taprpc.AssetHumanReadable{},
 			}
 		}
 
@@ -783,15 +783,15 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 		)
 	}
 
-	return &tarorpc.ListGroupsResponse{Groups: groupsWithAssets}, nil
+	return &taprpc.ListGroupsResponse{Groups: groupsWithAssets}, nil
 }
 
 // ListBalances lists the asset balances owned by the daemon.
 func (r *rpcServer) ListBalances(ctx context.Context,
-	in *tarorpc.ListBalancesRequest) (*tarorpc.ListBalancesResponse, error) {
+	in *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
 
 	switch groupBy := in.GroupBy.(type) {
-	case *tarorpc.ListBalancesRequest_AssetId:
+	case *taprpc.ListBalancesRequest_AssetId:
 		if !groupBy.AssetId {
 			return nil, fmt.Errorf("invalid group_by")
 		}
@@ -808,7 +808,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 
 		return r.listBalancesByAsset(ctx, assetID)
 
-	case *tarorpc.ListBalancesRequest_GroupKey:
+	case *taprpc.ListBalancesRequest_GroupKey:
 		if !groupBy.GroupKey {
 			return nil, fmt.Errorf("invalid group_by")
 		}
@@ -832,7 +832,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 
 // ListTransfers lists all asset transfers managed by this deamon.
 func (r *rpcServer) ListTransfers(ctx context.Context,
-	in *tarorpc.ListTransfersRequest) (*tarorpc.ListTransfersResponse,
+	in *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
 	error) {
 
 	parcels, err := r.cfg.AssetStore.QueryParcels(ctx, false)
@@ -840,8 +840,8 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 		return nil, fmt.Errorf("failed to query parcels: %w", err)
 	}
 
-	resp := &tarorpc.ListTransfersResponse{
-		Transfers: make([]*tarorpc.AssetTransfer, len(parcels)),
+	resp := &taprpc.ListTransfersResponse{
+		Transfers: make([]*taprpc.AssetTransfer, len(parcels)),
 	}
 
 	for idx := range parcels {
@@ -855,9 +855,9 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 	return resp, nil
 }
 
-// QueryAddrs queries the set of Taro addresses stored in the database.
+// QueryAddrs queries the set of Taproot Asset addresses stored in the database.
 func (r *rpcServer) QueryAddrs(ctx context.Context,
-	in *tarorpc.QueryAddrRequest) (*tarorpc.QueryAddrResponse, error) {
+	in *taprpc.QueryAddrRequest) (*taprpc.QueryAddrResponse, error) {
 
 	query := address.QueryParams{
 		Limit:  in.Limit,
@@ -883,29 +883,29 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	}
 
 	// TODO(roasbeef): just stop storing the hrp in the addr?
-	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-	addrs := make([]*tarorpc.Addr, len(dbAddrs))
+	addrs := make([]*taprpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
-		dbAddr.ChainParams = &taroParams
+		dbAddr.ChainParams = &tapParams
 
-		addrs[i], err = marshalAddr(dbAddr.Taro, r.cfg.TaroAddrBook)
+		addrs[i], err = marshalAddr(dbAddr.Tap, r.cfg.TapAddrBook)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal addr: %w",
 				err)
 		}
 	}
 
-	rpcsLog.Debugf("[QueryTaroAddrs]: returning %v addrs", len(addrs))
+	rpcsLog.Debugf("[QueryAddrs]: returning %v addrs", len(addrs))
 
-	return &tarorpc.QueryAddrResponse{
+	return &taprpc.QueryAddrResponse{
 		Addrs: addrs,
 	}, nil
 }
 
 // NewAddr makes a new address from the set of request params.
 func (r *rpcServer) NewAddr(ctx context.Context,
-	in *tarorpc.NewAddrRequest) (*tarorpc.Addr, error) {
+	in *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
 
 	var err error
 
@@ -989,7 +989,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
 	// off the response.
-	rpcAddr, err := marshalAddr(addr.Taro, r.cfg.TaroAddrBook)
+	rpcAddr, err := marshalAddr(addr.Tap, r.cfg.TapAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -997,23 +997,23 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	return rpcAddr, nil
 }
 
-// DecodeAddr decode a Taro address into a partial asset message that
+// DecodeAddr decode a Taproot Asset address into a partial asset message that
 // represents the asset it wants to receive.
 func (r *rpcServer) DecodeAddr(_ context.Context,
-	in *tarorpc.DecodeAddrRequest) (*tarorpc.Addr, error) {
+	in *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
 
 	if len(in.Addr) == 0 {
 		return nil, fmt.Errorf("must specify an addr")
 	}
 
-	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-	addr, err := address.DecodeAddress(in.Addr, &taroParams)
+	addr, err := address.DecodeAddress(in.Addr, &tapParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
 
-	rpcAddr, err := marshalAddr(addr, r.cfg.TaroAddrBook)
+	rpcAddr, err := marshalAddr(addr, r.cfg.TapAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -1024,7 +1024,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 // VerifyProof attempts to verify a given proof file that claims to be anchored
 // at the specified genesis point.
 func (r *rpcServer) VerifyProof(ctx context.Context,
-	in *tarorpc.ProofFile) (*tarorpc.ProofVerifyResponse, error) {
+	in *taprpc.ProofFile) (*taprpc.ProofVerifyResponse, error) {
 
 	if len(in.RawProof) == 0 {
 		return nil, fmt.Errorf("proof file must be specified")
@@ -1036,7 +1036,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	_, err = proofFile.Verify(
 		ctx, headerVerifier,
 	)
@@ -1046,7 +1046,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	// information, etc?
 
 	// TODO(roasbeef): show the final resting place of the asset?
-	return &tarorpc.ProofVerifyResponse{
+	return &taprpc.ProofVerifyResponse{
 		Valid: valid,
 	}, nil
 }
@@ -1054,7 +1054,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 // ExportProof exports the latest raw proof file anchored at the specified
 // script_key.
 func (r *rpcServer) ExportProof(ctx context.Context,
-	in *tarorpc.ExportProofRequest) (*tarorpc.ProofFile, error) {
+	in *taprpc.ExportProofRequest) (*taprpc.ProofFile, error) {
 
 	if len(in.ScriptKey) == 0 {
 		return nil, fmt.Errorf("a valid script key must be specified")
@@ -1080,7 +1080,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 		return nil, err
 	}
 
-	return &tarorpc.ProofFile{
+	return &taprpc.ProofFile{
 		RawProof: proofBlob,
 	}, nil
 }
@@ -1089,14 +1089,14 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 // new asset will be inserted on disk, spendable using the specified target
 // script key, and internal key.
 func (r *rpcServer) ImportProof(ctx context.Context,
-	in *tarorpc.ImportProofRequest) (*tarorpc.ImportProofResponse, error) {
+	in *taprpc.ImportProofRequest) (*taprpc.ImportProofResponse, error) {
 
 	// We'll perform some basic input validation before we move forward.
 	if len(in.ProofFile) == 0 {
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
@@ -1107,21 +1107,21 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, err
 	}
 
-	return &tarorpc.ImportProofResponse{}, nil
+	return &taprpc.ImportProofResponse{}, nil
 }
 
 // AddrReceives lists all receives for incoming asset transfers for addresses
 // that were created previously.
 func (r *rpcServer) AddrReceives(ctx context.Context,
-	in *tarorpc.AddrReceivesRequest) (*tarorpc.AddrReceivesResponse,
+	in *taprpc.AddrReceivesRequest) (*taprpc.AddrReceivesResponse,
 	error) {
 
 	var sqlQuery address.EventQueryParams
 
 	if len(in.FilterAddr) > 0 {
-		taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+		tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-		addr, err := address.DecodeAddress(in.FilterAddr, &taroParams)
+		addr, err := address.DecodeAddress(in.FilterAddr, &tapParams)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
@@ -1131,7 +1131,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		// that means we don't know anything about what it should look
 		// like on chain (the genesis is required to derive the taproot
 		// output key).
-		assetGroup, err := r.cfg.TaroAddrBook.QueryAssetGroup(
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
 			ctx, addr.AssetID,
 		)
 		if err != nil {
@@ -1159,7 +1159,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		)
 	}
 
-	if in.FilterStatus != tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
+	if in.FilterStatus != taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
 		status, err := unmarshalAddrEventStatus(in.FilterStatus)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing status: %w", err)
@@ -1174,13 +1174,13 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		return nil, fmt.Errorf("error querying events: %w", err)
 	}
 
-	resp := &tarorpc.AddrReceivesResponse{
-		Events: make([]*tarorpc.AddrEvent, len(events)),
+	resp := &taprpc.AddrReceivesResponse{
+		Events: make([]*taprpc.AddrEvent, len(events)),
 	}
 
 	for idx, event := range events {
 		resp.Events[idx], err = marshalAddrEvent(
-			event, r.cfg.TaroAddrBook,
+			event, r.cfg.TapAddrBook,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling event: %w",
@@ -1197,10 +1197,10 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	in *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
-	var fundedVPkt *tarofreighter.FundedVPacket
+	var fundedVPkt *tapfreighter.FundedVPacket
 	switch {
 	case in.GetPsbt() != nil:
-		vPkt, err := taropsbt.NewFromRawBytes(
+		vPkt, err := tappsbt.NewFromRawBytes(
 			bytes.NewReader(in.GetPsbt()), false,
 		)
 		if err != nil {
@@ -1210,8 +1210,8 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		// Extract the recipient information from the packet. This
 		// basically assembles the asset ID we want to send to and the
 		// sum of all output amounts.
-		desc, err := taroscript.DescribeRecipients(
-			ctx, vPkt, r.cfg.TaroAddrBook,
+		desc, err := tapscript.DescribeRecipients(
+			ctx, vPkt, r.cfg.TapAddrBook,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to describe packet "+
@@ -1236,14 +1236,14 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		var (
-			taroParams = address.ParamsForChain(
+			tapParams = address.ParamsForChain(
 				r.cfg.ChainParams.Name,
 			)
-			addr *address.Taro
+			addr *address.Tap
 			err  error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &taroParams)
+			addr, err = address.DecodeAddress(a, &tapParams)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
@@ -1282,7 +1282,7 @@ func (r *rpcServer) SignVirtualPsbt(_ context.Context,
 	in *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
 	error) {
 
-	vPkt, err := taropsbt.NewFromRawBytes(
+	vPkt, err := tappsbt.NewFromRawBytes(
 		bytes.NewReader(in.FundedPsbt), false,
 	)
 	if err != nil {
@@ -1311,14 +1311,14 @@ func (r *rpcServer) SignVirtualPsbt(_ context.Context,
 // TODO(guggero): Actually implement accepting and merging multiple
 // transactions.
 func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
-	in *wrpc.AnchorVirtualPsbtsRequest) (*tarorpc.SendAssetResponse,
+	in *wrpc.AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse,
 	error) {
 
 	if len(in.VirtualPsbts) > 1 {
 		return nil, fmt.Errorf("only one virtual PSBT supported")
 	}
 
-	vPacket, err := taropsbt.NewFromRawBytes(
+	vPacket, err := tappsbt.NewFromRawBytes(
 		bytes.NewReader(in.VirtualPsbts[0]), false,
 	)
 	if err != nil {
@@ -1344,7 +1344,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		"delivery", inputCommitment.AnchorPoint)
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tarofreighter.NewPreSignedParcel(
+		tapfreighter.NewPreSignedParcel(
 			vPacket, inputCommitment.Commitment,
 		),
 	)
@@ -1358,7 +1358,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 			err)
 	}
 
-	return &tarorpc.SendAssetResponse{
+	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
 }
@@ -1419,8 +1419,8 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 }
 
 // marshalAddr turns an address into its RPC counterpart.
-func marshalAddr(addr *address.Taro,
-	db address.Storage) (*tarorpc.Addr, error) {
+func marshalAddr(addr *address.Tap,
+	db address.Storage) (*taprpc.Addr, error) {
 
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
@@ -1459,7 +1459,7 @@ func marshalAddr(addr *address.Taro,
 	}
 
 	id := addr.AssetID
-	rpcAddr := &tarorpc.Addr{
+	rpcAddr := &taprpc.Addr{
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		Amount:           addr.Amount,
@@ -1467,7 +1467,7 @@ func marshalAddr(addr *address.Taro,
 		InternalKey:      addr.InternalKey.SerializeCompressed(),
 		TapscriptSibling: siblingBytes,
 		TaprootOutputKey: taprootOutputKey,
-		AssetType:        tarorpc.AssetType(addr.AssetType()),
+		AssetType:        taprpc.AssetType(addr.AssetType()),
 	}
 
 	if addr.GroupKey != nil {
@@ -1479,9 +1479,9 @@ func marshalAddr(addr *address.Taro,
 
 // marshalAddrEvent turns an address event into its RPC counterpart.
 func marshalAddrEvent(event *address.Event,
-	db address.Storage) (*tarorpc.AddrEvent, error) {
+	db address.Storage) (*taprpc.AddrEvent, error) {
 
-	rpcAddr, err := marshalAddr(event.Addr.Taro, db)
+	rpcAddr, err := marshalAddr(event.Addr.Tap, db)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling addr: %w", err)
 	}
@@ -1491,7 +1491,7 @@ func marshalAddrEvent(event *address.Event,
 		return nil, fmt.Errorf("error marshaling status: %w", err)
 	}
 
-	return &tarorpc.AddrEvent{
+	return &taprpc.AddrEvent{
 		CreationTimeUnixSeconds: uint64(event.CreationTime.Unix()),
 		Addr:                    rpcAddr,
 		Status:                  rpcStatus,
@@ -1505,19 +1505,19 @@ func marshalAddrEvent(event *address.Event,
 // unmarshalAddrEventStatus parses the RPC address event status into the native
 // counterpart.
 func unmarshalAddrEventStatus(
-	rpcStatus tarorpc.AddrEventStatus) (address.Status, error) {
+	rpcStatus taprpc.AddrEventStatus) (address.Status, error) {
 
 	switch rpcStatus {
-	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED:
+	case taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED:
 		return address.StatusTransactionDetected, nil
 
-	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED:
+	case taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED:
 		return address.StatusTransactionConfirmed, nil
 
-	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED:
+	case taprpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED:
 		return address.StatusProofReceived, nil
 
-	case tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED:
+	case taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED:
 		return address.StatusCompleted, nil
 
 	default:
@@ -1528,24 +1528,24 @@ func unmarshalAddrEventStatus(
 
 // marshalAddrEventStatus turns the address event status into the RPC
 // counterpart.
-func marshalAddrEventStatus(status address.Status) (tarorpc.AddrEventStatus,
+func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 	error) {
 
 	switch status {
 	case address.StatusTransactionDetected:
-		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED,
 			nil
 
 	case address.StatusTransactionConfirmed:
-		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED,
 			nil
 
 	case address.StatusProofReceived:
-		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED,
 			nil
 
 	case address.StatusCompleted:
-		return tarorpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED, nil
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED, nil
 
 	default:
 		return 0, fmt.Errorf("unknown address event status <%d>",
@@ -1553,29 +1553,29 @@ func marshalAddrEventStatus(status address.Status) (tarorpc.AddrEventStatus,
 	}
 }
 
-// SendAsset uses one or multiple passed taro address(es) to attempt to complete
-// an asset send. The method returns information w.r.t the on chain send, as
-// well as the proof file information the receiver needs to fully receive the
-// asset.
+// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt to
+// complete an asset send. The method returns information w.r.t the on chain
+// send, as well as the proof file information the receiver needs to fully
+// receive the asset.
 func (r *rpcServer) SendAsset(_ context.Context,
-	in *tarorpc.SendAssetRequest) (*tarorpc.SendAssetResponse, error) {
+	in *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
-	if len(in.TaroAddrs) == 0 {
+	if len(in.TapAddrs) == 0 {
 		return nil, fmt.Errorf("at least one addr is required")
 	}
 
 	var (
-		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		taroAddrs  = make([]*address.Taro, len(in.TaroAddrs))
-		err        error
+		tapParams = address.ParamsForChain(r.cfg.ChainParams.Name)
+		tapAddrs  = make([]*address.Tap, len(in.TapAddrs))
+		err       error
 	)
-	for idx := range in.TaroAddrs {
-		if len(in.TaroAddrs[idx]) == 0 {
+	for idx := range in.TapAddrs {
+		if len(in.TapAddrs[idx]) == 0 {
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
-		taroAddrs[idx], err = address.DecodeAddress(
-			in.TaroAddrs[idx], &taroParams,
+		tapAddrs[idx], err = address.DecodeAddress(
+			in.TapAddrs[idx], &tapParams,
 		)
 		if err != nil {
 			return nil, err
@@ -1597,16 +1597,16 @@ func (r *rpcServer) SendAsset(_ context.Context,
 		// TODO(guggero): Revisit after we have a way to send fungible
 		// assets with different IDs to an address (non-interactive).
 		if idx > 0 {
-			if taroAddrs[idx].AssetID != taroAddrs[0].AssetID {
+			if tapAddrs[idx].AssetID != tapAddrs[0].AssetID {
 				return nil, fmt.Errorf("all addrs must be of "+
 					"the same asset ID %v",
-					taroAddrs[0].AssetID)
+					tapAddrs[0].AssetID)
 			}
 		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tarofreighter.NewAddressParcel(taroAddrs...),
+		tapfreighter.NewAddressParcel(tapAddrs...),
 	)
 	if err != nil {
 		return nil, err
@@ -1618,20 +1618,20 @@ func (r *rpcServer) SendAsset(_ context.Context,
 			err)
 	}
 
-	return &tarorpc.SendAssetResponse{
+	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
 }
 
 // marshalOutboundParcel turns a pending parcel into its RPC counterpart.
 func marshalOutboundParcel(
-	parcel *tarofreighter.OutboundParcel) (*tarorpc.AssetTransfer,
+	parcel *tapfreighter.OutboundParcel) (*taprpc.AssetTransfer,
 	error) {
 
-	rpcInputs := make([]*tarorpc.TransferInput, len(parcel.Inputs))
+	rpcInputs := make([]*taprpc.TransferInput, len(parcel.Inputs))
 	for idx := range parcel.Inputs {
 		in := parcel.Inputs[idx]
-		rpcInputs[idx] = &tarorpc.TransferInput{
+		rpcInputs[idx] = &taprpc.TransferInput{
 			AnchorPoint: in.OutPoint.String(),
 			AssetId:     in.ID[:],
 			ScriptKey:   in.ScriptKey[:],
@@ -1640,18 +1640,18 @@ func marshalOutboundParcel(
 	}
 
 	rpcOutputs := make(
-		[]*tarorpc.TransferOutput, len(parcel.Outputs),
+		[]*taprpc.TransferOutput, len(parcel.Outputs),
 	)
 	for idx := range parcel.Outputs {
 		out := parcel.Outputs[idx]
 
 		internalPubKey := out.Anchor.InternalKey.PubKey
 		internalKeyBytes := internalPubKey.SerializeCompressed()
-		rpcAnchor := &tarorpc.TransferOutputAnchor{
+		rpcAnchor := &taprpc.TransferOutputAnchor{
 			Outpoint:         out.Anchor.OutPoint.String(),
 			Value:            int64(out.Anchor.Value),
 			InternalKey:      internalKeyBytes,
-			TaroRoot:         out.Anchor.TaroRoot[:],
+			TaprootAssetRoot: out.Anchor.TaprootAssetRoot[:],
 			MerkleRoot:       out.Anchor.MerkleRoot[:],
 			TapscriptSibling: out.Anchor.TapscriptSibling,
 			NumPassiveAssets: out.Anchor.NumPassiveAssets,
@@ -1671,7 +1671,7 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
-		rpcOutputs[idx] = &tarorpc.TransferOutput{
+		rpcOutputs[idx] = &taprpc.TransferOutput{
 			Anchor:              rpcAnchor,
 			ScriptKey:           scriptPubKey.SerializeCompressed(),
 			ScriptKeyIsLocal:    out.ScriptKeyLocal,
@@ -1683,7 +1683,7 @@ func marshalOutboundParcel(
 	}
 
 	anchorTxHash := parcel.AnchorTx.TxHash()
-	return &tarorpc.AssetTransfer{
+	return &taprpc.AssetTransfer{
 		TransferTimestamp:  parcel.TransferTime.Unix(),
 		AnchorTxHash:       anchorTxHash[:],
 		AnchorTxHeightHint: parcel.AnchorTxHeightHint,
@@ -1694,21 +1694,21 @@ func marshalOutboundParcel(
 }
 
 // marshalOutputType turns the transfer output type into the RPC counterpart.
-func marshalOutputType(outputType taropsbt.VOutputType) (tarorpc.OutputType,
+func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 	error) {
 
 	switch outputType {
-	case taropsbt.TypeSimple:
-		return tarorpc.OutputType_OUTPUT_TYPE_SIMPLE, nil
+	case tappsbt.TypeSimple:
+		return taprpc.OutputType_OUTPUT_TYPE_SIMPLE, nil
 
-	case taropsbt.TypeSplitRoot:
-		return tarorpc.OutputType_OUTPUT_TYPE_SPLIT_ROOT, nil
+	case tappsbt.TypeSplitRoot:
+		return taprpc.OutputType_OUTPUT_TYPE_SPLIT_ROOT, nil
 
-	case taropsbt.TypePassiveAssetsOnly:
-		return tarorpc.OutputType_OUTPUT_TYPE_PASSIVE_ASSETS_ONLY, nil
+	case tappsbt.TypePassiveAssetsOnly:
+		return taprpc.OutputType_OUTPUT_TYPE_PASSIVE_ASSETS_ONLY, nil
 
-	case taropsbt.TypePassiveSplitRoot:
-		return tarorpc.OutputType_OUTPUT_TYPE_PASSIVE_SPLIT_ROOT, nil
+	case tappsbt.TypePassiveSplitRoot:
+		return taprpc.OutputType_OUTPUT_TYPE_PASSIVE_SPLIT_ROOT, nil
 
 	default:
 		return 0, fmt.Errorf("unknown output type: %d", outputType)
@@ -1718,8 +1718,8 @@ func marshalOutputType(outputType taropsbt.VOutputType) (tarorpc.OutputType,
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
-	in *tarorpc.SubscribeSendAssetEventNtfnsRequest,
-	ntfnStream tarorpc.Taro_SubscribeSendAssetEventNtfnsServer) error {
+	in *taprpc.SubscribeSendAssetEventNtfnsRequest,
+	ntfnStream taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsServer) error {
 
 	// Create a new event subscriber and pass a copy to the chain porter.
 	// We will then read events from the subscriber.
@@ -1779,29 +1779,29 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 // marshallSendAssetEvent maps a ChainPorter event to its RPC counterpart.
 func marshallSendAssetEvent(
-	eventInterface chanutils.Event) (*tarorpc.SendAssetEvent, error) {
+	eventInterface chanutils.Event) (*taprpc.SendAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
-	case *tarofreighter.ExecuteSendStateEvent:
-		eventRpc := &tarorpc.SendAssetEvent_ExecuteSendStateEvent{
-			ExecuteSendStateEvent: &tarorpc.ExecuteSendStateEvent{
+	case *tapfreighter.ExecuteSendStateEvent:
+		eventRpc := &taprpc.SendAssetEvent_ExecuteSendStateEvent{
+			ExecuteSendStateEvent: &taprpc.ExecuteSendStateEvent{
 				Timestamp: event.Timestamp().UnixMicro(),
 				SendState: event.SendState.String(),
 			},
 		}
-		return &tarorpc.SendAssetEvent{
+		return &taprpc.SendAssetEvent{
 			Event: eventRpc,
 		}, nil
 
 	case *proof.ReceiverProofBackoffWaitEvent:
-		eventRpc := tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent{
-			ReceiverProofBackoffWaitEvent: &tarorpc.ReceiverProofBackoffWaitEvent{
+		eventRpc := taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent{
+			ReceiverProofBackoffWaitEvent: &taprpc.ReceiverProofBackoffWaitEvent{
 				Timestamp:    event.Timestamp().UnixMicro(),
 				Backoff:      event.Backoff.Microseconds(),
 				TriesCounter: event.TriesCounter,
 			},
 		}
-		return &tarorpc.SendAssetEvent{
+		return &taprpc.SendAssetEvent{
 			Event: &eventRpc,
 		}, nil
 
@@ -1811,7 +1811,7 @@ func marshallSendAssetEvent(
 }
 
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
-func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
+func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
 	error) {
 
 	rpcAssets := make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
@@ -1823,21 +1823,21 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		var seedlingMeta *tarorpc.AssetMeta
+		var seedlingMeta *taprpc.AssetMeta
 		if seedling.Meta != nil {
-			seedlingMeta = &tarorpc.AssetMeta{
+			seedlingMeta = &taprpc.AssetMeta{
 				MetaHash: chanutils.ByteSlice(
 					seedling.Meta.MetaHash(),
 				),
 				Data: seedling.Meta.Data,
-				Type: tarorpc.AssetMetaType(
+				Type: taprpc.AssetMetaType(
 					seedling.Meta.Type,
 				),
 			}
 		}
 
 		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
-			AssetType: tarorpc.AssetType(seedling.AssetType),
+			AssetType: taprpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
 			AssetMeta: seedlingMeta,
 			Amount:    seedling.Amount,
@@ -1858,32 +1858,32 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
-func marshalBatchState(batch *tarogarden.MintingBatch) (mintrpc.BatchState,
+func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 	error) {
 
 	switch batch.BatchState {
-	case tarogarden.BatchStatePending:
+	case tapgarden.BatchStatePending:
 		return mintrpc.BatchState_BATCH_STATE_PEDNING, nil
 
-	case tarogarden.BatchStateFrozen:
+	case tapgarden.BatchStateFrozen:
 		return mintrpc.BatchState_BATCH_STATE_FROZEN, nil
 
-	case tarogarden.BatchStateCommitted:
+	case tapgarden.BatchStateCommitted:
 		return mintrpc.BatchState_BATCH_STATE_COMMITTED, nil
 
-	case tarogarden.BatchStateBroadcast:
+	case tapgarden.BatchStateBroadcast:
 		return mintrpc.BatchState_BATCH_STATE_BROADCAST, nil
 
-	case tarogarden.BatchStateConfirmed:
+	case tapgarden.BatchStateConfirmed:
 		return mintrpc.BatchState_BATCH_STATE_CONFIRMED, nil
 
-	case tarogarden.BatchStateFinalized:
+	case tapgarden.BatchStateFinalized:
 		return mintrpc.BatchState_BATCH_STATE_FINALIZED, nil
 
-	case tarogarden.BatchStateSeedlingCancelled:
+	case tapgarden.BatchStateSeedlingCancelled:
 		return mintrpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED, nil
 
-	case tarogarden.BatchStateSproutCancelled:
+	case tapgarden.BatchStateSproutCancelled:
 		return mintrpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
@@ -1893,7 +1893,7 @@ func marshalBatchState(batch *tarogarden.MintingBatch) (mintrpc.BatchState,
 }
 
 // UnmarshalScriptKey parses the RPC script key into the native counterpart.
-func UnmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
+func UnmarshalScriptKey(rpcKey *taprpc.ScriptKey) (*asset.ScriptKey, error) {
 	var (
 		scriptKey asset.ScriptKey
 		err       error
@@ -1925,8 +1925,8 @@ func UnmarshalScriptKey(rpcKey *tarorpc.ScriptKey) (*asset.ScriptKey, error) {
 }
 
 // marshalScriptKey marshals the native script key into the RPC counterpart.
-func marshalScriptKey(scriptKey asset.ScriptKey) *tarorpc.ScriptKey {
-	rpcScriptKey := &tarorpc.ScriptKey{
+func marshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
+	rpcScriptKey := &taprpc.ScriptKey{
 		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
 	}
 
@@ -1942,10 +1942,10 @@ func marshalScriptKey(scriptKey asset.ScriptKey) *tarorpc.ScriptKey {
 
 // marshalKeyDescriptor marshals the native key descriptor into the RPC
 // counterpart.
-func marshalKeyDescriptor(desc keychain.KeyDescriptor) *tarorpc.KeyDescriptor {
-	return &tarorpc.KeyDescriptor{
+func marshalKeyDescriptor(desc keychain.KeyDescriptor) *taprpc.KeyDescriptor {
+	return &taprpc.KeyDescriptor{
 		RawKeyBytes: desc.PubKey.SerializeCompressed(),
-		KeyLoc: &tarorpc.KeyLocator{
+		KeyLoc: &taprpc.KeyLocator{
 			KeyFamily: int32(desc.KeyLocator.Family),
 			KeyIndex:  int32(desc.KeyLocator.Index),
 		},
@@ -1955,7 +1955,7 @@ func marshalKeyDescriptor(desc keychain.KeyDescriptor) *tarorpc.KeyDescriptor {
 // UnmarshalKeyDescriptor parses the RPC key descriptor into the native
 // counterpart.
 func UnmarshalKeyDescriptor(
-	rpcDesc *tarorpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
+	rpcDesc *taprpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
 
 	var (
 		desc keychain.KeyDescriptor
@@ -1984,7 +1984,7 @@ func UnmarshalKeyDescriptor(
 // FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 // either by the asset ID for that asset, or a meta hash.
 func (r *rpcServer) FetchAssetMeta(ctx context.Context,
-	in *tarorpc.FetchAssetMetaRequest) (*tarorpc.AssetMeta, error) {
+	in *taprpc.FetchAssetMetaRequest) (*taprpc.AssetMeta, error) {
 
 	var (
 		assetMeta *proof.MetaReveal
@@ -2025,9 +2025,9 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 	}
 
 	metaHash := assetMeta.MetaHash()
-	return &tarorpc.AssetMeta{
+	return &taprpc.AssetMeta{
 		Data:     assetMeta.Data,
-		Type:     tarorpc.AssetMetaType(assetMeta.Type),
+		Type:     taprpc.AssetMetaType(assetMeta.Type),
 		MetaHash: metaHash[:],
 	}, nil
 }
@@ -2199,8 +2199,8 @@ func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
 // AssetLeafKeys queries for the set of Universe keys associated with a given
 // asset_id or group_key. Each key takes the form: (outpoint, script_key),
 // where outpoint is an outpoint in the Bitcoin blockchain that anchors a valid
-// Taro asset commitment, and script_key is the script_key of the asset within
-// the Taro asset commitment for the given asset_id or group_key.
+// Taproot Asset commitment, and script_key is the script_key of the asset
+// within the Taproot Asset commitment for the given asset_id or group_key.
 func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafKeyResponse, error) {
 
@@ -2263,7 +2263,7 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 // AssetLeaves queries for the set of asset leaves (the values in the Universe
 // MS-SMT tree) for a given asset_id or group_key. These represents either
 // asset issuance events (they have a genesis witness) or asset transfers that
-// took place on chain. The leaves contain a normal Taro asset proof, as well
+// took place on chain. The leaves contain a normal Taproot asset proof, as well
 // as details for the asset.
 func (r *rpcServer) AssetLeaves(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
@@ -2431,8 +2431,8 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 // based on its UniverseKey. A UniverseKey is composed of the Universe ID
 // (asset_id/group_key) and also a leaf key (outpoint || script_key). If found,
 // then the issuance proof is returned that includes an inclusion proof to the
-// known Universe root, as well as a Taro state transition or issuance proof
-// for the said asset.
+// known Universe root, as well as a Taproot Asset state transition or issuance
+// proof for the said asset.
 func (r *rpcServer) QueryIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.IssuanceProofResponse, error) {
 
@@ -2720,7 +2720,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot decode proof: %w", err)
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	lastSnapshot, err := proofFile.Verify(ctx, headerVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
@@ -2775,7 +2775,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot decode proof file: %w", err)
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	_, err = p.Verify(ctx, nil, headerVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
@@ -2811,7 +2811,7 @@ func marshalAssetSyncSnapshot(a universe.AssetSyncSnapshot,
 	return &unirpc.AssetStatsSnapshot{
 		AssetId:       a.AssetID[:],
 		AssetName:     a.AssetName,
-		AssetType:     tarorpc.AssetType(a.AssetType),
+		AssetType:     taprpc.AssetType(a.AssetType),
 		TotalSupply:   int64(a.TotalSupply),
 		GenesisHeight: int32(a.GenesisHeight),
 		TotalSyncs:    int64(a.TotalSyncs),

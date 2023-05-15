@@ -3,7 +3,7 @@
 // Heavily inspired by https://github.com/btcsuite/btcd/blob/master/version.go
 // Copyright (C) 2015-2022 The Lightning Network Developers
 
-package taro
+package taprootassets
 
 import (
 	"bytes"
@@ -53,17 +53,17 @@ const (
 
 	// defaultAgentName is the default name of the software that is added as
 	// the first part of the user agent string.
-	defaultAgentName = "tarod"
+	defaultAgentName = "tapd"
 )
 
 // agentName stores the name of the software that is added as the first part of
-// the user agent string. This defaults to the value "tarod" when being run as
-// a standalone component but can be overwritten by LiT for example when tarod
+// the user agent string. This defaults to the value "tapd" when being run as
+// a standalone component but can be overwritten by LiT for example when tapd
 // is integrated into the UI.
 var agentName = defaultAgentName
 
 // SetAgentName overwrites the default agent name which can be used to identify
-// the software Taro is bundled in (for example LiT). This function panics if
+// the software tapd is bundled in (for example LiT). This function panics if
 // the agent name contains characters outside of the allowed semantic alphabet.
 func SetAgentName(newAgentName string) {
 	for _, r := range newAgentName {

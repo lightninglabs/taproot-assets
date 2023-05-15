@@ -3,72 +3,72 @@ package perms
 import "gopkg.in/macaroon-bakery.v2/bakery"
 
 var (
-	// RequiredPermissions is a map of all taro RPC methods and their
-	// required macaroon permissions to access tarod.
+	// RequiredPermissions is a map of all tapd RPC methods and their
+	// required macaroon permissions to access tapd.
 	//
 	// TODO(roasbeef): re think these and go instead w/ the * approach?
 	RequiredPermissions = map[string][]bakery.Op{
-		"/tarorpc.Taro/StopDaemon": {{
+		"/taprpc.TaprootAssets/StopDaemon": {{
 			Entity: "daemon",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/DebugLevel": {{
+		"/taprpc.TaprootAssets/DebugLevel": {{
 			Entity: "daemon",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/ListAssets": {{
+		"/taprpc.TaprootAssets/ListAssets": {{
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/ListUtxos": {{
+		"/taprpc.TaprootAssets/ListUtxos": {{
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/ListGroups": {{
+		"/taprpc.TaprootAssets/ListGroups": {{
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/ListBalances": {{
+		"/taprpc.TaprootAssets/ListBalances": {{
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/ListTransfers": {{
+		"/taprpc.TaprootAssets/ListTransfers": {{
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/QueryAddrs": {{
+		"/taprpc.TaprootAssets/QueryAddrs": {{
 			Entity: "addresses",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/NewAddr": {{
+		"/taprpc.TaprootAssets/NewAddr": {{
 			Entity: "addresses",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/DecodeAddr": {{
+		"/taprpc.TaprootAssets/DecodeAddr": {{
 			Entity: "addresses",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/AddrReceives": {{
+		"/taprpc.TaprootAssets/AddrReceives": {{
 			Entity: "addresses",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/VerifyProof": {{
+		"/taprpc.TaprootAssets/VerifyProof": {{
 			Entity: "proofs",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/ExportProof": {{
+		"/taprpc.TaprootAssets/ExportProof": {{
 			Entity: "proofs",
 			Action: "read",
 		}},
-		"/tarorpc.Taro/ImportProof": {{
+		"/taprpc.TaprootAssets/ImportProof": {{
 			Entity: "proofs",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/SendAsset": {{
+		"/taprpc.TaprootAssets/SendAsset": {{
 			Entity: "assets",
 			Action: "write",
 		}},
-		"/tarorpc.Taro/SubscribeSendAssetEventNtfns": {{
+		"/taprpc.TaprootAssets/SubscribeSendAssetEventNtfns": {{
 			Entity: "assets",
 			Action: "write",
 		}},

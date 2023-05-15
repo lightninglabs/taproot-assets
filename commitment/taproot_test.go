@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,7 +127,7 @@ func TestTapscriptPreimage(t *testing.T) {
 			require.Equal(tt, tc.expectedHash, hash)
 
 			// Make sure that the preimage is detected as not being
-			// a Taro commitment.
+			// a Taproot Asset commitment.
 			require.NoError(tt, preimage.VerifyNoCommitment())
 		})
 	}

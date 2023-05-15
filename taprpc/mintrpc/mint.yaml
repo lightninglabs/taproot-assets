@@ -1,0 +1,19 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: mintrpc.Mint.MintAsset
+      post: "/v1/taproot-assets/assets"
+      body: "*"
+
+    - selector: mintrpc.Mint.FinalizeBatch
+      post: "/v1/taproot-assets/assets/mint/finalize"
+      body: "*"
+
+    - selector: mintrpc.Mint.CancelBatch
+      post: "/v1/taproot-assets/assets/mint/cancel"
+      body: "*"
+
+    - selector: mintrpc.Mint.ListBatches
+      get: "/v1/taproot-assets/assets/mint/batches/{batch_key}"

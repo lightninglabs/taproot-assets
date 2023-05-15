@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"bytes"
@@ -13,14 +13,14 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/tarofreighter"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
-// LndRpcWalletAnchor is an implementation of the tarogarden.WalletAnchor
+// LndRpcWalletAnchor is an implementation of the tapgarden.WalletAnchor
 // interfaced backed by an active remote lnd node.
 type LndRpcWalletAnchor struct {
 	lnd *lndclient.LndServices
@@ -43,12 +43,12 @@ const (
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
 func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
-	minConfs uint32, feeRate chainfee.SatPerKWeight) (tarogarden.FundedPsbt,
+	minConfs uint32, feeRate chainfee.SatPerKWeight) (tapgarden.FundedPsbt,
 	error) {
 
 	var psbtBuf bytes.Buffer
 	if err := packet.Serialize(&psbtBuf); err != nil {
-		return tarogarden.FundedPsbt{}, fmt.Errorf("unable to encode "+
+		return tapgarden.FundedPsbt{}, fmt.Errorf("unable to encode "+
 			"psbt: %w", err)
 	}
 
@@ -65,7 +65,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 		},
 	)
 	if err != nil {
-		return tarogarden.FundedPsbt{}, fmt.Errorf("unable to fund "+
+		return tapgarden.FundedPsbt{}, fmt.Errorf("unable to fund "+
 			"psbt: %w", err)
 	}
 
@@ -73,7 +73,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 	for i, utxo := range leasedUtxos {
 		txid, err := chainhash.NewHash(utxo.Outpoint.TxidBytes)
 		if err != nil {
-			return tarogarden.FundedPsbt{}, err
+			return tapgarden.FundedPsbt{}, err
 		}
 		lockedUtxos[i] = wire.OutPoint{
 			Hash:  *txid,
@@ -81,7 +81,7 @@ func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
 		}
 	}
 
-	return tarogarden.FundedPsbt{
+	return tapgarden.FundedPsbt{
 		Pkt:               pkt,
 		ChangeOutputIndex: changeIndex,
 		LockedUTXOs:       lockedUtxos,
@@ -170,7 +170,7 @@ func (l *LndRpcWalletAnchor) ListTransactions(ctx context.Context, startHeight,
 }
 
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
-// tarogarden.WalletAnchor interface.
-var _ tarogarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+// tapgarden.WalletAnchor interface.
+var _ tapgarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
 
-var _ tarofreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+var _ tapfreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)

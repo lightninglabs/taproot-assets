@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taproot-assets/chanutils"
 )
 
 const (

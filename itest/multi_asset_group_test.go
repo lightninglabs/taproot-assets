@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,16 +39,16 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// The minted batch should contain 7 assets total, and the daemon should
 	// now be aware of 3 asset groups. Each group should have a different
 	// number of assets, and a different total balance.
-	mintedBatch := mintAssetsConfirmBatch(t, t.tarod, complexBatch)
+	mintedBatch := mintAssetsConfirmBatch(t, t.tapd, complexBatch)
 
 	// Once the batch is minted, we can verify that all asset groups were
 	// created correctly. We begin by verifying the number of asset groups.
 	ctxb := context.Background()
 	groupCount := 3
-	assertNumGroups(t.t, t.tarod, groupCount)
-	balancesResp, err := t.tarod.ListBalances(
-		ctxb, &tarorpc.ListBalancesRequest{
-			GroupBy: &tarorpc.ListBalancesRequest_GroupKey{
+	assertNumGroups(t.t, t.tapd, groupCount)
+	balancesResp, err := t.tapd.ListBalances(
+		ctxb, &taprpc.ListBalancesRequest{
+			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
 				GroupKey: true,
 			},
 		},
@@ -80,19 +80,19 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	orderedGroupSizes := []int{
 		1, normalGroupMembers + 1, collectGroupMembers + 1,
 	}
-	assertGroupSizes(t.t, t.tarod, orderedGroupKeys, orderedGroupSizes)
+	assertGroupSizes(t.t, t.tapd, orderedGroupKeys, orderedGroupSizes)
 
 	// Now that we've verified the group count, size, and balance, we also
 	// need to check that the intended asset was used as the group anchor.
 	// We can do this by re-deriving the tweaked group key.
-	matchingName := func(asset *tarorpc.Asset, name string) bool {
+	matchingName := func(asset *taprpc.Asset, name string) bool {
 		return asset.AssetGenesis.Name == name
 	}
 
 	// We need to fetch the minted group anchor asset, which includes the
 	// genesis information used to compute the tweak for the group key.
 	normalAnchor, err := chanutils.First(
-		mintedBatch, func(asset *tarorpc.Asset) bool {
+		mintedBatch, func(asset *taprpc.Asset) bool {
 			return matchingName(asset, issuableAssets[0].Asset.Name)
 		},
 	)
@@ -105,7 +105,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	)
 
 	collectAnchor, err := chanutils.First(
-		mintedBatch, func(asset *tarorpc.Asset) bool {
+		mintedBatch, func(asset *taprpc.Asset) bool {
 			return matchingName(asset, issuableAssets[1].Asset.Name)
 		},
 	)
@@ -119,19 +119,19 @@ func testMintMultiAssetGroups(t *harnessTest) {
 
 	// Finally, we send some assets from the multi-asset group to Bob to
 	// ensure that they can be sent and received correctly.
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
-			params.startupSyncNode = t.tarod
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = 4
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTarod.stop(true))
+		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
 	normalMember, err := chanutils.First(
-		mintedBatch, func(asset *tarorpc.Asset) bool {
+		mintedBatch, func(asset *taprpc.Asset) bool {
 			return asset.Amount == normalAnchor.Amount/2
 		},
 	)
@@ -141,30 +141,30 @@ func testMintMultiAssetGroups(t *harnessTest) {
 
 	// The assets to send are selected; we now generate an address, send,
 	// and verify the transfer.
-	bobNormalAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	bobNormalAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId: normalMemberGenInfo.AssetId,
 		Amt:     normalMember.Amount,
 	})
 	require.NoError(t.t, err)
 
-	normalGroupSend := sendAssetsToAddr(t, t.tarod, bobNormalAddr)
+	normalGroupSend := sendAssetsToAddr(t, t.tapd, bobNormalAddr)
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, normalGroupSend, normalMember.AssetGenesis.AssetId,
+		t, t.tapd, normalGroupSend, normalMember.AssetGenesis.AssetId,
 		[]uint64{0, normalMember.Amount}, 0, 1,
 	)
 	_ = sendProof(
-		t, t.tarod, secondTarod, bobNormalAddr.ScriptKey,
+		t, t.tapd, secondTapd, bobNormalAddr.ScriptKey,
 		normalMemberGenInfo,
 	)
-	assertNonInteractiveRecvComplete(t, secondTarod, 1)
+	assertNonInteractiveRecvComplete(t, secondTapd, 1)
 
 	assertBalanceByGroup(
-		t.t, secondTarod, normalGroupKey, normalMember.Amount,
+		t.t, secondTapd, normalGroupKey, normalMember.Amount,
 	)
 
 	// We want to select the one collectible that is in the same group as
 	// the collectible group anchor, and is not the anchor itself.
-	isCollectGroupMember := func(asset *tarorpc.Asset) bool {
+	isCollectGroupMember := func(asset *taprpc.Asset) bool {
 		isNotAnchor := asset.AssetGenesis.Name != collectAnchorGen.Tag
 		if asset.AssetGroup == nil {
 			return false
@@ -179,25 +179,25 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	collectMemberGenInfo := collectMember.AssetGenesis
-	bobCollectAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	bobCollectAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId: collectMemberGenInfo.AssetId,
 		Amt:     collectMember.Amount,
 	})
 	require.NoError(t.t, err)
 
-	collectGroupSend := sendAssetsToAddr(t, t.tarod, bobCollectAddr)
+	collectGroupSend := sendAssetsToAddr(t, t.tapd, bobCollectAddr)
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, collectGroupSend, collectMember.AssetGenesis.AssetId,
+		t, t.tapd, collectGroupSend, collectMember.AssetGenesis.AssetId,
 		[]uint64{0, collectMember.Amount}, 1, 2,
 	)
 	sendProof(
-		t, t.tarod, secondTarod, bobCollectAddr.ScriptKey,
+		t, t.tapd, secondTapd, bobCollectAddr.ScriptKey,
 		collectMemberGenInfo,
 	)
-	assertNonInteractiveRecvComplete(t, secondTarod, 2)
+	assertNonInteractiveRecvComplete(t, secondTapd, 2)
 
 	assertBalanceByGroup(
-		t.t, secondTarod, collectGroupKey, collectMember.Amount,
+		t.t, secondTapd, collectGroupKey, collectMember.Amount,
 	)
 }
 
@@ -221,7 +221,7 @@ func createMultiAssetGroup(anchor *mintrpc.MintAssetRequest,
 		reqName := anchorName + nameModifier + strconv.FormatUint(i, 10)
 		assetReq.Asset.Name = reqName
 
-		if assetReq.Asset.AssetType == tarorpc.AssetType_NORMAL {
+		if assetReq.Asset.AssetType == taprpc.AssetType_NORMAL {
 			reqAmount := anchorAmount / (2 * i)
 			if reqAmount == 0 {
 				reqAmount = 1
@@ -248,15 +248,15 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	groupedAsset := copyRequest(simpleAssets[0])
 	groupedAsset.Asset.GroupAnchor = groupedAsset.Asset.Name
 
-	_, err := t.tarod.MintAsset(ctxb, groupedAsset)
+	_, err := t.tapd.MintAsset(ctxb, groupedAsset)
 	require.ErrorContains(t.t, err, "batch empty, group anchor")
 
 	// The current request references a group anchor that does not exist,
 	// which makes it invalid.
 	simpleAsset := copyRequest(simpleAssets[1])
-	_, err = t.tarod.MintAsset(ctxb, simpleAsset)
+	_, err = t.tapd.MintAsset(ctxb, simpleAsset)
 	require.NoError(t.t, err)
-	_, err = t.tarod.MintAsset(ctxb, groupedAsset)
+	_, err = t.tapd.MintAsset(ctxb, groupedAsset)
 	require.ErrorContains(t.t, err, "not present in batch")
 
 	// Now we'll construct an asset to use as an invalid group anchor;
@@ -264,34 +264,34 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	validAnchor := copyRequest(simpleAssets[0])
 	validAnchorName := validAnchor.Asset.Name + validAnchor.Asset.Name
 	validAnchor.Asset.Name = validAnchorName
-	_, err = t.tarod.MintAsset(ctxb, validAnchor)
+	_, err = t.tapd.MintAsset(ctxb, validAnchor)
 	require.NoError(t.t, err)
 
 	groupedAsset.Asset.GroupAnchor = validAnchorName
-	_, err = t.tarod.MintAsset(ctxb, groupedAsset)
+	_, err = t.tapd.MintAsset(ctxb, groupedAsset)
 	require.ErrorContains(t.t, err, "has emission disabled")
 
 	// Finally, we'll modify the assets to make the multi-asset group valid.
 	validAnchor.EnableEmission = true
-	validAnchor.Asset.AssetMeta = &tarorpc.AssetMeta{
+	validAnchor.Asset.AssetMeta = &taprpc.AssetMeta{
 		Data: []byte("metadata for itest group anchors"),
 	}
 
-	_, err = t.tarod.CancelBatch(ctxb, &mintrpc.CancelBatchRequest{})
+	_, err = t.tapd.CancelBatch(ctxb, &mintrpc.CancelBatchRequest{})
 	require.NoError(t.t, err)
 	multiAssetGroup := []*mintrpc.MintAssetRequest{validAnchor, groupedAsset}
 
 	// The assets should be minted into the same group.
-	rpcGroupedAssets := mintAssetsConfirmBatch(t, t.tarod, multiAssetGroup)
-	assertNumGroups(t.t, t.tarod, 1)
+	rpcGroupedAssets := mintAssetsConfirmBatch(t, t.tapd, multiAssetGroup)
+	assertNumGroups(t.t, t.tapd, 1)
 	groupKey := rpcGroupedAssets[0].AssetGroup.TweakedGroupKey
 	groupKeyHex := hex.EncodeToString(groupKey)
 	expectedGroupBalance := groupedAsset.Asset.Amount +
 		validAnchor.Asset.Amount
-	assertBalanceByGroup(t.t, t.tarod, groupKeyHex, expectedGroupBalance)
+	assertBalanceByGroup(t.t, t.tapd, groupKeyHex, expectedGroupBalance)
 }
 
-func parseGenInfo(t *testing.T, genInfo *tarorpc.GenesisInfo) *asset.Genesis {
+func parseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
 	genPoint, err := parseOutPoint(genInfo.GenesisPoint)
 	require.NoError(t, err)
 

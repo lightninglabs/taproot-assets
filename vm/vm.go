@@ -6,13 +6,13 @@ import (
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
-// Engine is a virtual machine capable of executing and verifying Taro asset
+// Engine is a virtual machine capable of executing and verifying Taproot asset
 // state transitions.
 type Engine struct {
 	// newAsset represents the final state of an asset undergoing a state
@@ -28,8 +28,8 @@ type Engine struct {
 	prevAssets commitment.InputSet
 }
 
-// New returns a new virtual machine capable of executing and verifying Taro
-// asset state transitions.
+// New returns a new virtual machine capable of executing and verifying Taproot
+// Asset state transitions.
 func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet) (*Engine, error) {
 
@@ -181,7 +181,7 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 }
 
 // validateWitnessV0 attempts to validate a new asset's witness based on the
-// initial Taro script version generated over the virtual transaction
+// initial Taproot Asset script version generated over the virtual transaction
 // represented by the state transition.
 func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	witness *asset.Witness, prevAsset *asset.Asset) error {
@@ -203,14 +203,14 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	}
 
 	// Update the virtual transaction input with details for the specific
-	// Taro input and proceed to validate its witness.
-	virtualTxCopy := taroscript.VirtualTxWithInput(
+	// Taproot Asset input and proceed to validate its witness.
+	virtualTxCopy := tapscript.VirtualTxWithInput(
 		virtualTx, prevAsset, inputIdx, witness.TxWitness,
 	)
 
-	prevOutFetcher, err := taroscript.InputPrevOutFetcher(*prevAsset)
+	prevOutFetcher, err := tapscript.InputPrevOutFetcher(*prevAsset)
 	if err != nil {
-		if errors.Is(err, taroscript.ErrInvalidScriptVersion) {
+		if errors.Is(err, tapscript.ErrInvalidScriptVersion) {
 			return ErrInvalidScriptVersion
 		}
 		return err
@@ -302,14 +302,14 @@ func (vm *Engine) Execute() error {
 	// Now that we know we're not dealing with a genesis state transition,
 	// we'll map our set of asset inputs and outputs to the 1-input 1-output
 	// virtual transaction.
-	virtualTx, inputTree, err := taroscript.VirtualTx(
+	virtualTx, inputTree, err := tapscript.VirtualTx(
 		vm.newAsset, vm.prevAssets,
 	)
 	if err != nil {
-		if errors.Is(err, taroscript.ErrInputMismatch) {
+		if errors.Is(err, tapscript.ErrInputMismatch) {
 			return ErrInputMismatch
 		}
-		if errors.Is(err, taroscript.ErrNoInputs) {
+		if errors.Is(err, tapscript.ErrNoInputs) {
 			return ErrNoInputs
 		}
 		return err

@@ -7,8 +7,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 )
 
 // TransitionParams holds the set of chain level information needed to append a
@@ -28,9 +28,9 @@ type TransitionParams struct {
 	// RootInternalKey is the internal key of the output at RootOutputIndex.
 	RootInternalKey *btcec.PublicKey
 
-	// RootTaroRoot is the commitment root that commitments to the inclusion
-	// of the root split asset at the RootOutputIndex.
-	RootTaroTree *commitment.TaroCommitment
+	// RootTaprootAssetTree is the commitment root that commitments to the
+	// inclusion of the root split asset at the RootOutputIndex.
+	RootTaprootAssetTree *commitment.TapCommitment
 }
 
 // AppendTransition appends a new proof for a state transition to the given
@@ -128,8 +128,8 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 	// With the base information contained, we'll now need to generate our
 	// series of MS-SMT inclusion proofs that prove the existence of the
 	// asset.
-	_, assetMerkleProof, err := params.TaroRoot.Proof(
-		proof.Asset.TaroCommitmentKey(),
+	_, assetMerkleProof, err := params.TaprootAssetRoot.Proof(
+		proof.Asset.TapCommitmentKey(),
 		proof.Asset.AssetCommitmentKey(),
 	)
 	if err != nil {
@@ -149,8 +149,9 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 		splitAsset := proof.Asset
 		rootAsset := &splitAsset.PrevWitnesses[0].SplitCommitment.RootAsset
 
-		committedRoot, rootMerkleProof, err := params.RootTaroTree.Proof(
-			rootAsset.TaroCommitmentKey(),
+		rootTree := params.RootTaprootAssetTree
+		committedRoot, rootMerkleProof, err := rootTree.Proof(
+			rootAsset.TapCommitmentKey(),
 			rootAsset.AssetCommitmentKey(),
 		)
 		if err != nil {

@@ -49,7 +49,7 @@ func (s *serverHarness) stop() {
 }
 
 func (s *serverHarness) start() error {
-	tempDirName, err := ioutil.TempDir("", "taroitest")
+	tempDirName, err := ioutil.TempDir("", "tapitest")
 	if err != nil {
 		return err
 	}

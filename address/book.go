@@ -10,23 +10,23 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
-	// ErrAssetGroupUnkown is returned when the asset genesis is not known.
+	// ErrAssetGroupUnknown is returned when the asset genesis is not known.
 	// This means an address can't be created until a Universe boostrap or
 	// manual issuance proof insertion.
 	ErrAssetGroupUnknown = fmt.Errorf("asset group is unknown")
 )
 
-// AddrWithKeyInfo wraps a normal Taro struct with key descriptor
+// AddrWithKeyInfo wraps a normal Taproot Asset struct with key descriptor
 // information.
 type AddrWithKeyInfo struct {
-	*Taro
+	*Tap
 
 	// ScriptKeyTweak houses the wallet specific information related to a
 	// tweak key. This includes the raw key desc information along with the
@@ -108,11 +108,13 @@ type Storage interface {
 	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey) error
 }
 
-// KeyRing is used to create script and internal keys for Taro addresses.
+// KeyRing is used to create script and internal keys for Taproot Asset
+// addresses.
 type KeyRing interface {
-	// DeriveNextTaroKey attempts to derive the *next* key within the Taro
-	// key family.
-	DeriveNextTaroKey(context.Context) (keychain.KeyDescriptor, error)
+	// DeriveNextTaprootAssetKey attempts to derive the *next* key within
+	// the TaprootAsset key family.
+	DeriveNextTaprootAssetKey(context.Context) (keychain.KeyDescriptor,
+		error)
 
 	// DeriveNextKey attempts to derive the *next* key within the key
 	// family (account in BIP43) specified. This method should return the
@@ -141,7 +143,8 @@ type BookConfig struct {
 	StoreTimeout time.Duration
 }
 
-// Book is used to create and also look up the set of created Taro addresses.
+// Book is used to create and also look up the set of created Taproot Asset
+// addresses.
 type Book struct {
 	cfg BookConfig
 
@@ -168,7 +171,7 @@ func NewBook(cfg BookConfig) *Book {
 	}
 }
 
-// NewAddress creates a new Taro address based on the input parameters.
+// NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage) (*AddrWithKeyInfo,
 	error) {
@@ -180,7 +183,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 			"asset %x: %w", assetID[:], err)
 	}
 
-	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
+	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaprootAssetKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
@@ -190,7 +193,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	// used with a plain key spend.
 	scriptKey := asset.NewScriptKeyBip86(rawScriptKeyDesc)
 
-	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
+	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaprootAssetKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
@@ -201,8 +204,8 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	)
 }
 
-// NewAddressWithKeys creates a new Taro address based on the input parameters
-// that include pre-derived script and internal keys.
+// NewAddressWithKeys creates a new Taproot Asset address based on the input
+// parameters that include pre-derived script and internal keys.
 func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
@@ -252,7 +255,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	}
 
 	addr := AddrWithKeyInfo{
-		Taro:             baseAddr,
+		Tap:              baseAddr,
 		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,

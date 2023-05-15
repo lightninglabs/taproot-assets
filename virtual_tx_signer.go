@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"context"
@@ -6,10 +6,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/taroscript"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
-// LndRpcVirtualTxSigner is an implementation of the taroscript.Signer
+// LndRpcVirtualTxSigner is an implementation of the tapscript.Signer
 // interface backed by an active lnd node.
 type LndRpcVirtualTxSigner struct {
 	lnd *lndclient.LndServices
@@ -47,5 +47,5 @@ func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor
 }
 
 // A compile time assertion to ensure LndRpcVirtualTxSigner meets the
-// taroscript.Signer interface.
-var _ taroscript.Signer = (*LndRpcVirtualTxSigner)(nil)
+// tapscript.Signer interface.
+var _ tapscript.Signer = (*LndRpcVirtualTxSigner)(nil)

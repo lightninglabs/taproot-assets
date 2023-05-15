@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 

@@ -13,14 +13,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
 )
 
 const (
-	// TaroFileSuffix is the main file suffix for the Taro proof files stored
-	// on disk.
-	TaroFileSuffix = ".taro"
+	// TaprootAssetsFileSuffix is the main file suffix for the Taproot Asset
+	// proof files stored on disk.
+	TaprootAssetsFileSuffix = ".assetproof"
 
 	// ProofDirName is the name of the directory we'll use to store our
 	// proofs.
@@ -41,9 +41,9 @@ var (
 	ErrInvalidLocatorKey = fmt.Errorf("invalid script key locator")
 )
 
-// Locator is able to uniquely identify a proof in the extended Taro Universe
-// by a combination of the: top-level asset ID, the group key, and also the
-// script key.
+// Locator is able to uniquely identify a proof in the extended Taproot Asset
+// Universe by a combination of the: top-level asset ID, the group key, and also
+// the script key.
 type Locator struct {
 	// AssetID the asset ID of the proof to fetch. This is an optional field.
 	AssetID *asset.ID
@@ -150,7 +150,7 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 }
 
 // genProofFilePath generates the full proof file path based on a rootPath and
-// a valid locator. The final path is: root/assetID/scriptKey.taro
+// a valid locator. The final path is: root/assetID/scriptKey.assetproof
 func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	var emptyKey btcec.PublicKey
 
@@ -165,7 +165,7 @@ func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	assetID := hex.EncodeToString(loc.AssetID[:])
 	scriptKey := hex.EncodeToString(loc.ScriptKey.SerializeCompressed())
 
-	return filepath.Join(rootPath, assetID, scriptKey+TaroFileSuffix), nil
+	return filepath.Join(rootPath, assetID, scriptKey+TaprootAssetsFileSuffix), nil
 }
 
 // FetchProof fetches a proof for an asset uniquely identified by the

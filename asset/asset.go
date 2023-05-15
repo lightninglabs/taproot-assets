@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -44,7 +44,8 @@ func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
 	return serialized
 }
 
-// Version denotes the version of the Taro protocol in effect for an asset.
+// Version denotes the version of the Taproot Asset protocol in effect for an
+// asset.
 type Version uint8
 
 var (
@@ -54,12 +55,12 @@ var (
 
 	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
-	// "taro" with SHA2-256. The code for the try-and-increment approach
-	// can be seen here:
+	// "taproot-assets" with SHA2-256. The code for the try-and-increment
+	// approach can be seen here:
 	// https://github.com/lightninglabs/lightning-node-connect/tree/master/mailbox/numsgen
 	NUMSBytes, _ = hex.DecodeString(
-		"0293bfe90658c79b480114ff6bbeda51b3ec6412deb367a4d41e1403e3cc" +
-			"6583ed",
+		"027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b" +
+			"3653fe",
 	)
 	NUMSPubKey, _     = btcec.ParsePubKey(NUMSBytes)
 	NUMSCompressedKey = ToSerialized(NUMSPubKey)
@@ -74,17 +75,17 @@ var (
 )
 
 const (
-	// TaroKeyFamily is the key family used to generate internal keys that
-	// taro will use creating internal taproot keys and also any other keys
-	// used for asset script keys.
-	// This was derived via: sum(map(lambda y: ord(y), 'taro')).
-	// In order words: take the word taro and return the integer
-	// representation of each character and sum those. We get 438, then
+	// TaprootAssetsKeyFamily is the key family used to generate internal
+	// keys that tapd will use creating internal taproot keys and also any
+	// other keys used for asset script keys.
+	// This was derived via: sum(map(lambda y: ord(y), 'tapd')).
+	// In order words: take the word tapd and return the integer
+	// representation of each character and sum those. We get 425, then
 	// divide that by 2, to allow us to fit this into just a 2-byte integer
 	// and to ensure compatibility with the remote signer.
-	TaroKeyFamily = 219
+	TaprootAssetsKeyFamily = 212
 
-	// V0 is the initial Taro protocol version.
+	// V0 is the initial Taproot Asset protocol version.
 	V0 Version = 0
 )
 
@@ -94,7 +95,7 @@ const (
 )
 
 // Genesis encodes an asset's genesis metadata which directly maps to its unique
-// ID within the Taro protocol.
+// ID within the Taproot Asset protocol.
 type Genesis struct {
 	// FirstPrevOut represents the outpoint of the transaction's first
 	// input that resulted in the creation of the asset.
@@ -117,11 +118,11 @@ type Genesis struct {
 	// NOTE: This is immutable for the lifetime of the asset.
 	MetaHash [MetaHashLen]byte
 
-	// OutputIndex is the index of the output that carries the unique Taro
-	// commitment in the genesis transaction.
+	// OutputIndex is the index of the output that carries the unique
+	// Taproot Asset commitment in the genesis transaction.
 	OutputIndex uint32
 
-	// Type uniquely identifies the type of Taro asset.
+	// Type uniquely identifies the type of Taproot asset.
 	Type Type
 }
 
@@ -192,7 +193,7 @@ func DecodeGenesis(r io.Reader) (Genesis, error) {
 	return gen, err
 }
 
-// Type denotes the asset types supported by the Taro protocol.
+// Type denotes the asset types supported by the Taproot Asset protocol.
 type Type uint8
 
 const (
@@ -320,7 +321,7 @@ type Witness struct {
 	// except upon the creation of an asset, where both should be nil.
 	//
 	// TODO: This still needs to be specified further in the BIPs, see
-	// https://github.com/lightninglabs/taro/issues/3.
+	// https://github.com/lightninglabs/taproot-assets/issues/3.
 	SplitCommitment *SplitCommitment
 }
 
@@ -393,9 +394,9 @@ func (w *Witness) DeepEqual(o *Witness) bool {
 type ScriptVersion uint16
 
 const (
-	// ScriptV0 represents the initial asset script version of the Taro
-	// protocol. In this version, assets commit to a tweaked Taproot output
-	// key, allowing the ability for an asset to indirectly commit to
+	// ScriptV0 represents the initial asset script version of the Taproot
+	// Asset protocol. In this version, assets commit to a tweaked Taproot
+	// output key, allowing the ability for an asset to indirectly commit to
 	// multiple spending conditions.
 	ScriptV0 ScriptVersion = 0
 )
@@ -470,7 +471,7 @@ func (g *GroupKey) IsEqualGroup(otherGroupKey *GroupKey) bool {
 // is held by this daemon. A non-local group key is stored with the internal key
 // family and index set to their default values, 0.
 func (g *GroupKey) IsLocal() bool {
-	return g.RawKey.Family == TaroKeyFamily
+	return g.RawKey.Family == TaprootAssetsKeyFamily
 }
 
 // EqualKeyDescriptors returns true if the two key descriptors are equal.
@@ -653,13 +654,13 @@ func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
 	}, nil
 }
 
-// Asset represents a Taro asset.
+// Asset represents a Taproot asset.
 type Asset struct {
-	// Version is the Taro version of the asset.
+	// Version is the Taproot Asset version of the asset.
 	Version Version
 
 	// Genesis encodes an asset's genesis metadata which directly maps to
-	// its unique ID within the Taro protocol.
+	// its unique ID within the Taproot Asset protocol.
 	Genesis
 
 	// Amount is the number of units represented by the asset.
@@ -727,24 +728,24 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	}, nil
 }
 
-// TaroCommitmentKey is the key that maps to the root commitment for a specific
-// asset group within a TaroCommitment.
+// TapCommitmentKey is the key that maps to the root commitment for a specific
+// asset group within a TapCommitment.
 //
 // NOTE: This function is also used outside the asset package.
-func TaroCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
+func TapCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
 	if groupKey == nil {
 		return assetID
 	}
 	return sha256.Sum256(schnorr.SerializePubKey(groupKey))
 }
 
-// TaroCommitmentKey is the key that maps to the root commitment for a specific
-// asset group within a TaroCommitment.
-func (a *Asset) TaroCommitmentKey() [32]byte {
+// TapCommitmentKey is the key that maps to the root commitment for a specific
+// asset group within a TapCommitment.
+func (a *Asset) TapCommitmentKey() [32]byte {
 	if a.GroupKey == nil {
-		return TaroCommitmentKey(a.Genesis.ID(), nil)
+		return TapCommitmentKey(a.Genesis.ID(), nil)
 	}
-	return TaroCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
+	return TapCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
 }
 
 // AssetCommitmentKey returns a key which can be used to locate an
@@ -766,7 +767,7 @@ func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
 }
 
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
-// within a Taro AssetCommitment.
+// within a Taproot AssetCommitment.
 func (a *Asset) AssetCommitmentKey() [32]byte {
 	issuanceDisabled := a.GroupKey == nil
 	return AssetCommitmentKey(

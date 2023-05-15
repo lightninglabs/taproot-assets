@@ -1,16 +1,16 @@
-package taro
+package taprootassets
 
 import (
 	"net"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/lightninglabs/taro/address"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
-	"github.com/lightninglabs/taro/tarofreighter"
-	"github.com/lightninglabs/taro/tarogarden"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
@@ -52,43 +52,43 @@ type RPCConfig struct {
 }
 
 // DatabaseConfig is the config that holds all the persistence related structs
-// and interfaces needed for tarod to function.
+// and interfaces needed for tapd to function.
 type DatabaseConfig struct {
-	RootKeyStore *tarodb.RootKeyStore
+	RootKeyStore *tapdb.RootKeyStore
 
-	MintingStore tarogarden.MintingStore
+	MintingStore tapgarden.MintingStore
 
-	AssetStore *tarodb.AssetStore
+	AssetStore *tapdb.AssetStore
 
-	TaroAddrBook *tarodb.TaroAddressBook
+	TapAddrBook *tapdb.TapAddressBook
 
-	UniverseForest *tarodb.BaseUniverseForest
+	UniverseForest *tapdb.BaseUniverseForest
 
-	FederationDB *tarodb.UniverseFederationDB
+	FederationDB *tapdb.UniverseFederationDB
 }
 
-// Config is the main config of the Taro server.
+// Config is the main config of the Taproot Assets server.
 type Config struct {
 	DebugLevel string
 
-	// TODO(roasbeef): use the taro chain param wrapper here?
+	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?
 	ChainParams chaincfg.Params
 
 	SignalInterceptor signal.Interceptor
 
-	AssetMinter tarogarden.Planter
+	AssetMinter tapgarden.Planter
 
-	AssetCustodian *tarogarden.Custodian
+	AssetCustodian *tapgarden.Custodian
 
-	ChainBridge tarogarden.ChainBridge
+	ChainBridge tapgarden.ChainBridge
 
 	AddrBook *address.Book
 
 	ProofArchive proof.Archiver
 
-	AssetWallet tarofreighter.Wallet
+	AssetWallet tapfreighter.Wallet
 
-	ChainPorter tarofreighter.Porter
+	ChainPorter tapfreighter.Porter
 
 	BaseUniverse *universe.MintingArchive
 

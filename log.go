@@ -1,13 +1,13 @@
-package taro
+package taprootassets
 
 import (
 	"github.com/btcsuite/btclog"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarodb"
-	"github.com/lightninglabs/taro/tarofreighter"
-	"github.com/lightninglabs/taro/tarogarden"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
 )
@@ -23,32 +23,33 @@ type replaceableLogger struct {
 // log file. This must be performed early during application startup by
 // calling InitLogRotator() on the main log writer instance in the config.
 var (
-	// taroPkgLoggers is a list of all taro package level loggers that are
-	// registered. They are tracked here so they can be replaced once the
-	// SetupLoggers function is called with the final root logger.
-	taroPkgLoggers []*replaceableLogger
+	// tapPkgLoggers is a list of all Taproot Asset package level loggers
+	// that are registered. They are tracked here, so they can be replaced
+	// once the SetupLoggers function is called with the final root logger.
+	tapPkgLoggers []*replaceableLogger
 
-	// addTaroPkgLogger is a helper function that creates a new replaceable
-	// main taro package level logger and adds it to the list of loggers
-	// that are replaced again later, once the final root logger is ready.
-	addTaroPkgLogger = func(subsystem string) *replaceableLogger {
+	// addTapPkgLogger is a helper function that creates a new replaceable
+	// main Taproot Asset package level logger and adds it to the list of
+	// loggers that are replaced again later, once the final root logger is
+	// ready.
+	addTapPkgLogger = func(subsystem string) *replaceableLogger {
 		l := &replaceableLogger{
 			Logger:    build.NewSubLogger(subsystem, nil),
 			subsystem: subsystem,
 		}
-		taroPkgLoggers = append(taroPkgLoggers, l)
+		tapPkgLoggers = append(tapPkgLoggers, l)
 		return l
 	}
 
-	// Loggers that need to be accessible from the taro package can be placed
-	// here. Loggers that are only used in sub modules can be added directly
-	// by using the addSubLogger method. We declare all loggers so we never
-	// run into a nil reference if they are used early. But the SetupLoggers
-	// function should always be called as soon as possible to finish
-	// setting them up properly with a root logger.
-	taroLog = addTaroPkgLogger("TARO")
-	srvrLog = addTaroPkgLogger("SRVR")
-	rpcsLog = addTaroPkgLogger("RPCS")
+	// Loggers that need to be accessible from the Taproot Asset package can
+	// be placed here. Loggers that are only used in submodules can be added
+	// directly by using the addSubLogger method. We declare all loggers, so
+	// we never run into a nil reference if they are used early. But the
+	// SetupLoggers function should always be called as soon as possible to
+	// finish setting them up properly with a root logger.
+	tapdLog = addTapPkgLogger("TAPD")
+	srvrLog = addTapPkgLogger("SRVR")
+	rpcsLog = addTapPkgLogger("RPCS")
 )
 
 // genSubLogger creates a logger for a subsystem. We provide an instance of a
@@ -78,22 +79,22 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	genLogger := genSubLogger(root, interceptor)
 
 	// Now that we have the proper root logger, we can replace the
-	// placeholder taro package loggers.
-	for _, l := range taroPkgLoggers {
+	// placeholder Taproot Asset package loggers.
+	for _, l := range tapPkgLoggers {
 		l.Logger = build.NewSubLogger(l.subsystem, genLogger)
 		SetSubLogger(root, l.subsystem, l.Logger)
 	}
 
-	// Some of the loggers declared in the main taro package are also used
-	// in sub packages.
-	signal.UseLogger(taroLog)
+	// Some of the loggers declared in the main taprootassets package are
+	// also used in sub packages.
+	signal.UseLogger(tapdLog)
 
-	AddSubLogger(root, tarogarden.Subsystem, interceptor, tarogarden.UseLogger)
+	AddSubLogger(root, tapgarden.Subsystem, interceptor, tapgarden.UseLogger)
 	AddSubLogger(
-		root, tarofreighter.Subsystem, interceptor, tarofreighter.UseLogger,
+		root, tapfreighter.Subsystem, interceptor, tapfreighter.UseLogger,
 	)
 	AddSubLogger(root, proof.Subsystem, interceptor, proof.UseLogger)
-	AddSubLogger(root, tarodb.Subsystem, interceptor, tarodb.UseLogger)
+	AddSubLogger(root, tapdb.Subsystem, interceptor, tapdb.UseLogger)
 	AddSubLogger(root, universe.Subsystem, interceptor, universe.UseLogger)
 	AddSubLogger(
 		root, commitment.Subsystem, interceptor, commitment.UseLogger,

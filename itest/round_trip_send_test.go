@@ -14,10 +14,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -34,7 +34,7 @@ func testRoundTripSend(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -43,15 +43,15 @@ func testRoundTripSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
-			params.startupSyncNode = t.tarod
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTarod.stop(true))
+		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
 	// We'll send half of the minted units to Bob, and then have Bob return
@@ -67,44 +67,44 @@ func testRoundTripSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// First, we'll send half of the units to Bob.
-	bobAddr, err := secondTarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId:          genInfo.AssetId,
 		Amt:              bobAmt,
 		TapscriptSibling: siblingBytes,
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, secondTarod, rpcAssets[0], bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+	assertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
+	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
 	sendRespJSON, err := formatProtoJSON(sendResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId,
+		t, t.tapd, sendResp, genInfo.AssetId,
 		[]uint64{bobAmt, bobAmt}, 0, 1,
 	)
-	_ = sendProof(t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo)
+	_ = sendProof(t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo)
 
 	// Now, Alice will request half of the assets she sent to Bob.
-	aliceAddr, err := t.tarod.NewAddr(ctxb, &tarorpc.NewAddrRequest{
+	aliceAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
 		AssetId:          genInfo.AssetId,
 		Amt:              aliceAmt,
 		TapscriptSibling: siblingBytes,
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, t.tarod, rpcAssets[0], aliceAddr)
-	sendResp = sendAssetsToAddr(t, secondTarod, aliceAddr)
+	assertAddrCreated(t.t, t.tapd, rpcAssets[0], aliceAddr)
+	sendResp = sendAssetsToAddr(t, secondTapd, aliceAddr)
 	sendRespJSON, err = formatProtoJSON(sendResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	confirmAndAssertOutboundTransfer(
-		t, secondTarod, sendResp, genInfo.AssetId,
+		t, secondTapd, sendResp, genInfo.AssetId,
 		[]uint64{aliceAmt, aliceAmt}, 0, 1,
 	)
-	_ = sendProof(t, secondTarod, t.tarod, aliceAddr.ScriptKey, genInfo)
+	_ = sendProof(t, secondTapd, t.tapd, aliceAddr.ScriptKey, genInfo)
 
 	// Give both nodes some time to process the final transfer.
 	time.Sleep(time.Second * 1)
@@ -112,15 +112,15 @@ func testRoundTripSend(t *harnessTest) {
 	// Check the final state of both nodes. Each node should list
 	// one transfer, and Alice should have 3/4 of the total units.
 	err = wait.NoError(func() error {
-		assertTransfer(t.t, t.tarod, 0, 1, []uint64{bobAmt, bobAmt})
+		assertTransfer(t.t, t.tapd, 0, 1, []uint64{bobAmt, bobAmt})
 		assertBalanceByID(
-			t.t, t.tarod, genInfo.AssetId, bobAmt+aliceAmt,
+			t.t, t.tapd, genInfo.AssetId, bobAmt+aliceAmt,
 		)
 
 		assertTransfer(
-			t.t, secondTarod, 0, 1, []uint64{aliceAmt, aliceAmt},
+			t.t, secondTapd, 0, 1, []uint64{aliceAmt, aliceAmt},
 		)
-		assertBalanceByID(t.t, secondTarod, genInfo.AssetId, aliceAmt)
+		assertBalanceByID(t.t, secondTapd, genInfo.AssetId, aliceAmt)
 
 		return nil
 	}, defaultTimeout/2)
@@ -129,8 +129,8 @@ func testRoundTripSend(t *harnessTest) {
 	// As a final test we make sure we can actually sweep the funds in the
 	// output with the tapscript sibling with just the hash preimage,
 	// burning the assets in the process.
-	transferResp, err := secondTarod.ListTransfers(
-		ctxb, &tarorpc.ListTransfersRequest{},
+	transferResp, err := secondTapd.ListTransfers(
+		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -148,7 +148,7 @@ func testRoundTripSend(t *harnessTest) {
 	// can now create the tapscript struct that's used for assembling the
 	// control block and fee estimation.
 	tapscript := input.TapscriptPartialReveal(
-		internalKey, scriptLeaf, bobToAliceAnchor.TaroRoot,
+		internalKey, scriptLeaf, bobToAliceAnchor.TaprootAssetRoot,
 	)
 
 	// Spend the output again, this time back to a p2wkh address.

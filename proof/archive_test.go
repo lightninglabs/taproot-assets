@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/internal/test"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,7 +33,7 @@ func TestFileArchiver(t *testing.T) {
 
 	// First, we'll make a temp directory we'll use as the root of our file
 	// system.
-	dir, err := ioutil.TempDir("", "taro-proofs-")
+	dir, err := ioutil.TempDir("", "tap-proofs-")
 	require.NoError(t, err)
 
 	defer os.RemoveAll(dir)

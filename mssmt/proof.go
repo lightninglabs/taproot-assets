@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taproot-assets/chanutils"
 )
 
 var (

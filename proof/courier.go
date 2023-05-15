@@ -11,8 +11,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -353,8 +353,8 @@ type HashMailCourier struct {
 }
 
 // NewHashMailCourier implements the Courier interface using the specified
-// ProofMailbox. This instance of the Courier relies on the taro address itself
-// as the parametrized address type.
+// ProofMailbox. This instance of the Courier relies on the Taproot Asset
+// address itself as the parametrized address type.
 func NewHashMailCourier(cfg *HashMailCourierCfg, mailbox ProofMailbox,
 	deliveryLog DeliveryLog) (*HashMailCourier, error) {
 

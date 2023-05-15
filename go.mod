@@ -1,4 +1,4 @@
-module github.com/lightninglabs/taro
+module github.com/lightninglabs/taproot-assets
 
 go 1.19
 

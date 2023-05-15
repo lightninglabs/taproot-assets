@@ -9,9 +9,9 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/mssmt"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"golang.org/x/exp/maps"
 )
 
@@ -60,7 +60,7 @@ var (
 // The map is keyed by the Asset's AssetCommitmentKey.
 type CommittedAssets map[[32]byte]*asset.Asset
 
-// AssetCommitment represents the inner MS-SMT within the Taro protocol
+// AssetCommitment represents the inner MS-SMT within the Taproot Asset protocol
 // committing to a set of assets under the same ID/group. Assets within this
 // tree, which are leaves represented as the serialized asset TLV payload, are
 // keyed by their `asset_script_key`.
@@ -135,9 +135,9 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	}
 
 	// The assetID here is what will be used to place this asset commitment
-	// into the top-level Taro commitment. For assets without a group key,
-	// then this will be the normal asset ID. Otherwise, this'll be the
-	// sha256 of the group key.
+	// into the top-level Taproot Asset commitment. For assets without a
+	// group key, then this will be the normal asset ID. Otherwise, this'll
+	// be the sha256 of the group key.
 	var assetID [32]byte
 	if assetGroupKey == nil {
 		assetID = assetGenesis
@@ -207,7 +207,7 @@ func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
-	if asset.TaroCommitmentKey() != c.AssetID {
+	if asset.TapCommitmentKey() != c.AssetID {
 		if asset.GroupKey != nil {
 			return ErrAssetGroupKeyMismatch
 		}
@@ -259,7 +259,7 @@ func (c *AssetCommitment) Delete(asset *asset.Asset) error {
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
-	if asset.TaroCommitmentKey() != c.AssetID {
+	if asset.TapCommitmentKey() != c.AssetID {
 		if asset.GroupKey != nil {
 			return ErrAssetGroupKeyMismatch
 		}
@@ -286,7 +286,8 @@ func (c *AssetCommitment) Delete(asset *asset.Asset) error {
 }
 
 // Root computes the root identifier required to commit to this specific asset
-// commitment within the outer commitment, also known as the Taro commitment.
+// commitment within the outer commitment, also known as the Taproot Asset
+// commitment.
 func (c *AssetCommitment) Root() [sha256.Size]byte {
 	left := c.TreeRoot.Left.NodeHash()
 	right := c.TreeRoot.Right.NodeHash()
@@ -299,15 +300,15 @@ func (c *AssetCommitment) Root() [sha256.Size]byte {
 	return *(*[sha256.Size]byte)(h.Sum(nil))
 }
 
-// TaroCommitmentKey computes the insertion key for this specific asset
-// commitment to include in the Taro commitment MS-SMT.
-func (c *AssetCommitment) TaroCommitmentKey() [32]byte {
+// TapCommitmentKey computes the insertion key for this specific asset
+// commitment to include in the Taproot Asset commitment MS-SMT.
+func (c *AssetCommitment) TapCommitmentKey() [32]byte {
 	return c.AssetID
 }
 
-// TaroCommitmentLeaf computes the leaf node for this specific asset commitment
-// to include in the Taro commitment MS-SMT.
-func (c *AssetCommitment) TaroCommitmentLeaf() *mssmt.LeafNode {
+// TapCommitmentLeaf computes the leaf node for this specific asset commitment
+// to include in the Taproot Asset commitment MS-SMT.
+func (c *AssetCommitment) TapCommitmentLeaf() *mssmt.LeafNode {
 	root := c.Root()
 	sum := c.TreeRoot.NodeSum()
 

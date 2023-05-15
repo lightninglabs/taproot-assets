@@ -9,8 +9,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +25,7 @@ var (
 )
 
 func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
-	amt *uint64, assetType asset.Type) (*Taro, error) {
+	amt *uint64, assetType asset.Type) (*Tap, error) {
 
 	t.Helper()
 
@@ -68,7 +68,7 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 }
 
 func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
-	sibling bool, assetType asset.Type) (*Taro, string, error) {
+	sibling bool, assetType asset.Type) (*Tap, string, error) {
 
 	t.Helper()
 
@@ -82,7 +82,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
 	return newAddr, encodedAddr, err
 }
 
-func assertAddressEqual(t *testing.T, a, b *Taro) {
+func assertAddressEqual(t *testing.T, a, b *Tap) {
 	t.Helper()
 
 	require.Equal(t, a.Version, b.Version)
@@ -99,14 +99,14 @@ func TestNewAddress(t *testing.T) {
 
 	testCases := []struct {
 		name string
-		f    func() (*Taro, error)
+		f    func() (*Tap, error)
 		err  error
 	}{
 		{
 			name: "normal address",
-			f: func() (*Taro, error) {
+			f: func() (*Tap, error) {
 				return randAddress(
-					t, &TestNet3Taro, false, false, nil,
+					t, &TestNet3Tap, false, false, nil,
 					asset.Normal,
 				)
 			},
@@ -114,9 +114,9 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "collectible address with group key",
-			f: func() (*Taro, error) {
+			f: func() (*Tap, error) {
 				return randAddress(
-					t, &MainNetTaro, true, false, nil,
+					t, &MainNetTap, true, false, nil,
 					asset.Collectible,
 				)
 			},
@@ -124,9 +124,9 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "collectible address with group key and sibling",
-			f: func() (*Taro, error) {
+			f: func() (*Tap, error) {
 				return randAddress(
-					t, &MainNetTaro, true, true, nil,
+					t, &MainNetTap, true, true, nil,
 					asset.Collectible,
 				)
 			},
@@ -134,10 +134,10 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid normal asset value",
-			f: func() (*Taro, error) {
+			f: func() (*Tap, error) {
 				zeroAmt := uint64(0)
 				return randAddress(
-					t, &TestNet3Taro, false, false,
+					t, &TestNet3Tap, false, false,
 					&zeroAmt, asset.Normal,
 				)
 			},
@@ -145,10 +145,10 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid collectible asset value",
-			f: func() (*Taro, error) {
+			f: func() (*Tap, error) {
 				badAmt := uint64(2)
 				return randAddress(
-					t, &TestNet3Taro, false, false, &badAmt,
+					t, &TestNet3Tap, false, false, &badAmt,
 					asset.Collectible,
 				)
 			},
@@ -156,7 +156,7 @@ func TestNewAddress(t *testing.T) {
 		},
 		{
 			name: "invalid hrp",
-			f: func() (*Taro, error) {
+			f: func() (*Tap, error) {
 				return randAddress(
 					t, &invalidNet, false, false, nil,
 					asset.Normal,
@@ -188,7 +188,7 @@ func TestNewAddress(t *testing.T) {
 func TestAddressEncoding(t *testing.T) {
 	t.Parallel()
 
-	assetAddressEncoding := func(a *Taro) {
+	assetAddressEncoding := func(a *Tap) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
@@ -203,14 +203,14 @@ func TestAddressEncoding(t *testing.T) {
 
 	testCases := []struct {
 		name string
-		f    func() (*Taro, string, error)
+		f    func() (*Tap, string, error)
 		err  error
 	}{
 		{
 			name: "valid address",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
-					t, &RegressionNetTaro, false, false,
+					t, &RegressionNetTap, false, false,
 					asset.Normal,
 				)
 			},
@@ -218,9 +218,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "group collectible",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
-					t, &SigNetTaro, true, false,
+					t, &SigNetTap, true, false,
 					asset.Collectible,
 				)
 			},
@@ -228,9 +228,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "simnet collectible",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTaro, false, false,
+					t, &SimNetTap, false, false,
 					asset.Collectible,
 				)
 			},
@@ -238,9 +238,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "simnet collectible with sibling",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTaro, false, true,
+					t, &SimNetTap, false, true,
 					asset.Collectible,
 				)
 			},
@@ -248,7 +248,7 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "unsupported hrp",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
 					t, &invalidNet, true, false,
 					asset.Collectible,
@@ -258,13 +258,13 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "mismatched hrp",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Taro, true, false,
+					t, &TestNet3Tap, true, false,
 					asset.Collectible,
 				)
 				_, err := DecodeAddress(
-					encodedAddr, &MainNetTaro,
+					encodedAddr, &MainNetTap,
 				)
 				return newAddr, "", err
 			},
@@ -272,14 +272,14 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "missing hrp",
-			f: func() (*Taro, string, error) {
+			f: func() (*Tap, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Taro, true, false,
+					t, &TestNet3Tap, true, false,
 					asset.Collectible,
 				)
 				encodedAddr = encodedAddr[4:]
 				_, err := DecodeAddress(
-					encodedAddr[4:], &TestNet3Taro,
+					encodedAddr[4:], &TestNet3Tap,
 				)
 				return newAddr, "", err
 			},

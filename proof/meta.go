@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"io"
 
-	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 

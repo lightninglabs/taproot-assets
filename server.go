@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/perms"
-	"github.com/lightninglabs/taro/rpcperms"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/perms"
+	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -23,9 +23,9 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
-// Server is the main daemon construct for the Taro server. It handles spinning
-// up the RPC sever, the database, and any other components that the taro
-// server needs to function.
+// Server is the main daemon construct for the Taproot Asset server. It handles
+// spinning up the RPC sever, the database, and any other components that the
+// Taproot Asset server needs to function.
 type Server struct {
 	started  int32
 	shutdown int32
@@ -81,7 +81,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		s.macaroonService, err = lndclient.NewMacaroonService(
 			&lndclient.MacaroonServiceConfig{
 				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
-				MacaroonLocation: taroMacaroonLocation,
+				MacaroonLocation: tapdMacaroonLocation,
 				MacaroonPath:     s.cfg.MacaroonPath,
 				Checkers: []macaroons.Checker{
 					macaroons.IPLockChecker,
@@ -170,8 +170,8 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	return nil
 }
 
-// RunUntilShutdown runs the main Taro server loop until a signal is received
-// to shut down the process.
+// RunUntilShutdown runs the main Taproot Asset server loop until a signal is
+// received to shut down the process.
 func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	if atomic.AddInt32(&s.started, 1) != 1 {
 		return nil
@@ -265,7 +265,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	}
 
 	// Now start the REST proxy for our gRPC server above. We'll ensure we
-	// direct tarod to connect to its loopback address rather than a
+	// direct tapd to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
 	stopProxy, err := startRestProxy(s.cfg, s.rpcServer)
@@ -287,7 +287,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// We transition the server state to Active, as the server is up.
 	interceptorChain.SetServerActive()
 
-	srvrLog.Infof("Taro Daemon fully active!")
+	srvrLog.Infof("Taproot Asset Daemon fully active!")
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
@@ -328,7 +328,7 @@ func (s *Server) StartAsSubserver(lndGrpc *lndclient.GrpcLndServices) error {
 // checks its signature, makes sure all specified permissions for the called
 // method are contained within and finally ensures all caveat conditions are
 // met. A non-nil error is returned if any of the checks fail. This method is
-// needed to enable tarod running as an external subserver in the same process
+// needed to enable tapd running as an external subserver in the same process
 // as lnd but still validate its own macaroons.
 func (s *Server) ValidateMacaroon(ctx context.Context,
 	requiredPermissions []bakery.Op, fullMethod string) error {
@@ -337,7 +337,7 @@ func (s *Server) ValidateMacaroon(ctx context.Context,
 		return fmt.Errorf("macaroon service has not been initialised")
 	}
 
-	// Delegate the call to taro's own macaroon validator service.
+	// Delegate the call to tapd's own macaroon validator service.
 	return s.macaroonService.ValidateMacaroon(
 		ctx, requiredPermissions, fullMethod,
 	)
@@ -494,7 +494,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
 	return shutdown, nil
 }
 
-// Stop signals that the main taro server should attempt a graceful shutdown.
+// Stop signals that the main tapd server should attempt a graceful shutdown.
 func (s *Server) Stop() error {
 	if atomic.AddInt32(&s.shutdown, 1) != 1 {
 		return nil

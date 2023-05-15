@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"bytes"
@@ -6,10 +6,10 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/tarorpc/universerpc"
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
-	"github.com/lightninglabs/taro/universe"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

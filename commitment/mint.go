@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightninglabs/taro/asset"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -79,10 +79,11 @@ func mintAssets(genesis asset.Genesis, groupKey *asset.GroupKey,
 	return assets, nil
 }
 
-// Mint mints a series of assets within a new Taro commitment. The distribution
-// and other parameters of these assets can be specified through `AssetDetails`.
+// Mint mints a series of assets within a new Taproot Asset commitment. The
+// distribution and other parameters of these assets can be specified through
+// `AssetDetails`.
 func Mint(genesis asset.Genesis, groupKey *asset.GroupKey,
-	details ...*AssetDetails) (*TaroCommitment, []*asset.Asset, error) {
+	details ...*AssetDetails) (*TapCommitment, []*asset.Asset, error) {
 
 	assets, err := mintAssets(genesis, groupKey, details...)
 	if err != nil {
@@ -92,10 +93,10 @@ func Mint(genesis asset.Genesis, groupKey *asset.GroupKey,
 	if err != nil {
 		return nil, nil, err
 	}
-	taroCommitment, err := NewTaroCommitment(assetCommitment)
+	tapCommitment, err := NewTapCommitment(assetCommitment)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return taroCommitment, assets, nil
+	return tapCommitment, assets, nil
 }

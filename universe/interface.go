@@ -11,9 +11,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/proof"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 )
 
 var (
@@ -404,8 +404,8 @@ type CommittedIssuanceProof struct {
 	// been stamped in the chain.
 	ChainProof *Commitment
 
-	// TaroProof is a proof of new asset issuance.
-	TaroProof *IssuanceProof
+	// TaprootAssetProof is a proof of new asset issuance.
+	TaprootAssetProof *IssuanceProof
 }
 
 // ChainCommitter is used to commit a Universe backend in the chain.

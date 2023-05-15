@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarofreighter"
-	"github.com/lightninglabs/taro/tarorpc"
-	"github.com/lightninglabs/taro/tarorpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,24 +27,24 @@ func testBasicSend(t *harnessTest) {
 		numSends = 2
 	)
 
-	// Subscribe to receive assent send events from primary taro node.
-	eventNtfns, err := t.tarod.SubscribeSendAssetEventNtfns(
-		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+	// Subscribe to receive assent send events from primary tapd node.
+	eventNtfns, err := t.tapd.SubscribeSendAssetEventNtfns(
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
 	// Test to ensure that we execute the transaction broadcast state.
 	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification from the taro node as the rest of the test
+	// the event notification from the tapd node as the rest of the test
 	// proceeds.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		broadcastState := tarofreighter.SendStateBroadcast.String()
-		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+		broadcastState := tapfreighter.SendStateBroadcast.String()
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *tarorpc.SendAssetEvent_ExecuteSendStateEvent:
+			case *taprpc.SendAssetEvent_ExecuteSendStateEvent:
 				ev := eventTyped.ExecuteSendStateEvent
 
 				// Log send state execution.
@@ -70,24 +70,24 @@ func testBasicSend(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
 
 	// Now that we have the asset created, we'll make a new node that'll
-	// serve as the node which'll receive the assets. The existing tarod
+	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
+		func(params *tapdHarnessParams) {
 			params.enableHashMail = true
-			params.startupSyncNode = t.tarod
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTarod.stop(true))
+		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
 	// Next, we'll attempt to complete two transfers with distinct
@@ -95,8 +95,8 @@ func testBasicSend(t *harnessTest) {
 	currentUnits := simpleAssets[0].Asset.Amount
 
 	for i := 0; i < numSends; i++ {
-		bobAddr, err := secondTarod.NewAddr(
-			ctxb, &tarorpc.NewAddrRequest{
+		bobAddr, err := secondTapd.NewAddr(
+			ctxb, &taprpc.NewAddrRequest{
 				AssetId: genInfo.AssetId,
 				Amt:     numUnits,
 			},
@@ -107,18 +107,18 @@ func testBasicSend(t *harnessTest) {
 		// units.
 		currentUnits -= numUnits
 
-		assertAddrCreated(t.t, secondTarod, rpcAssets[0], bobAddr)
+		assertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
 
-		sendResp := sendAssetsToAddr(t, t.tarod, bobAddr)
+		sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 		confirmAndAssertOutboundTransfer(
-			t, t.tarod, sendResp, genInfo.AssetId,
+			t, t.tapd, sendResp, genInfo.AssetId,
 			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
 		_ = sendProof(
-			t, t.tarod, secondTarod, bobAddr.ScriptKey, genInfo,
+			t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo,
 		)
-		assertNonInteractiveRecvComplete(t, secondTarod, i+1)
+		assertNonInteractiveRecvComplete(t, secondTapd, i+1)
 	}
 
 	// Close event stream.
@@ -137,9 +137,9 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	assets := []*mintrpc.MintAssetRequest{
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_NORMAL,
+				AssetType: taprpc.AssetType_NORMAL,
 				Name:      "first-itestbuxx",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("itest-metadata"),
 				},
 				Amount: 1500,
@@ -147,29 +147,29 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		},
 		{
 			Asset: &mintrpc.MintAsset{
-				AssetType: tarorpc.AssetType_NORMAL,
+				AssetType: taprpc.AssetType_NORMAL,
 				Name:      "second-itestbuxx",
-				AssetMeta: &tarorpc.AssetMeta{
+				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("itest-metadata"),
 				},
 				Amount: 2000,
 			},
 		},
 	}
-	rpcAssets := mintAssetsConfirmBatch(t, t.tarod, assets)
+	rpcAssets := mintAssetsConfirmBatch(t, t.tapd, assets)
 	firstAsset := rpcAssets[0]
 
 	// Set up a new node that will serve as the receiving node.
-	recvTarod := setupTarodHarness(
+	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
+		func(params *tapdHarnessParams) {
 			params.enableHashMail = true
-			params.startupSyncNode = t.tarod
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, recvTarod.stop(true))
+		require.NoError(t.t, recvTapd.stop(true))
 	}()
 
 	// Next, we'll attempt to transfer some amount of assets[0] to the
@@ -179,35 +179,35 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Get a new address (which accepts the first asset) from the
 	// receiving node.
 	genInfo := firstAsset.AssetGenesis
-	recvAddr, err := recvTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	recvAddr, err := recvTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     numUnitsSend,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTarod, firstAsset, recvAddr)
+	assertAddrCreated(t.t, recvTapd, firstAsset, recvAddr)
 
 	// Send the assets to the receiving node.
-	sendResp := sendAssetsToAddr(t, t.tarod, recvAddr)
+	sendResp := sendAssetsToAddr(t, t.tapd, recvAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := assets[0].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId,
+		t, t.tapd, sendResp, genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
-	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, recvTarod, 1)
+	_ = sendProof(t, t.tapd, recvTapd, recvAddr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, recvTapd, 1)
 
 	// Assert that the sending node returns the correct asset list via RPC.
 	assertListAssets(
-		t, ctxb, t.tarod, []MatchRpcAsset{
-			func(asset *tarorpc.Asset) bool {
+		t, ctxb, t.tapd, []MatchRpcAsset{
+			func(asset *taprpc.Asset) bool {
 				return asset.Amount == 300 &&
 					asset.AssetGenesis.Name == "first-itestbuxx"
 			},
-			func(asset *tarorpc.Asset) bool {
+			func(asset *taprpc.Asset) bool {
 				return asset.Amount == 2000 &&
 					asset.AssetGenesis.Name == "second-itestbuxx"
 			},
@@ -221,57 +221,57 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	genInfo = secondAsset.AssetGenesis
 
 	// Send previously passive asset (the "second" asset).
-	recvAddr, err = recvTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	recvAddr, err = recvTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     numUnitsSend,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTarod, secondAsset, recvAddr)
+	assertAddrCreated(t.t, recvTapd, secondAsset, recvAddr)
 
 	// Send the assets to the receiving node.
-	sendResp = sendAssetsToAddr(t, t.tarod, recvAddr)
+	sendResp = sendAssetsToAddr(t, t.tapd, recvAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId,
+		t, t.tapd, sendResp, genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
-	_ = sendProof(t, t.tarod, recvTarod, recvAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, recvTarod, 2)
+	_ = sendProof(t, t.tapd, recvTapd, recvAddr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, recvTapd, 2)
 }
 
 // testReattemptFailedAssetSend tests that a failed attempt at sending an asset
-// proof will be reattempted by the taro node.
+// proof will be reattempted by the tapd node.
 func testReattemptFailedAssetSend(t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		wg   sync.WaitGroup
 	)
 
-	// Make a new node which will send the asset to the primary taro node.
+	// Make a new node which will send the asset to the primary tapd node.
 	// We expect this node to fail because our send call will time out
 	// whilst the porter continues to attempt to send the asset.
-	sendTarod := setupTarodHarness(
+	sendTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
+		func(params *tapdHarnessParams) {
 			params.enableHashMail = true
 			params.expectErrExit = true
 		},
 	)
 
-	// Subscribe to receive asset send events from primary taro node.
-	eventNtfns, err := sendTarod.SubscribeSendAssetEventNtfns(
-		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+	// Subscribe to receive asset send events from primary tapd node.
+	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
 	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification(s) from the taro node as the rest of the test
+	// the event notification(s) from the tapd node as the rest of the test
 	// proceeds.
 	wg.Add(1)
 	go func() {
@@ -279,9 +279,9 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
 				ev := eventTyped.ReceiverProofBackoffWaitEvent
 				t.Logf("Found event ntfs: %v", ev)
 				return true
@@ -311,31 +311,31 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 	// Mint an asset for sending.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, sendTarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
 
 	// Synchronize the Universe state of the second node, with the main
 	// node.
-	t.syncUniverseState(sendTarod, t.tarod, len(rpcAssets))
+	t.syncUniverseState(sendTapd, t.tapd, len(rpcAssets))
 
 	// Create a new address for the receiver node.
-	recvAddr, err := t.tarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	recvAddr, err := t.tapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     10,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, t.tarod, rpcAssets[0], recvAddr)
+	assertAddrCreated(t.t, t.tapd, rpcAssets[0], recvAddr)
 
 	// Simulate a failed attempt at sending the asset proof by stopping
 	// the receiver node.
-	require.NoError(t.t, t.tarod.stop(false))
+	require.NoError(t.t, t.tapd.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
-	sendAssetsToAddr(t, sendTarod, recvAddr)
+	sendAssetsToAddr(t, sendTapd, recvAddr)
 	_ = mineBlocks(t, t.lndHarness, 1, 1)
 
 	wg.Wait()
@@ -350,12 +350,12 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		wg   sync.WaitGroup
 	)
 
-	// Make a new node which will send the asset to the primary taro node.
+	// Make a new node which will send the asset to the primary tapd node.
 	// We start a new node for sending so that we can customize the proof
 	// send backoff configuration.
-	sendTarod := setupTarodHarness(
+	sendTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
+		func(params *tapdHarnessParams) {
 			params.enableHashMail = true
 			params.expectErrExit = true
 			params.proofSendBackoffCfg = &proof.BackoffCfg{
@@ -369,18 +369,18 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		},
 	)
 
-	recvTarod := t.tarod
+	recvTapd := t.tapd
 
-	// Subscribe to receive asset send events from primary taro node.
-	eventNtfns, err := sendTarod.SubscribeSendAssetEventNtfns(
-		ctxb, &tarorpc.SubscribeSendAssetEventNtfnsRequest{},
+	// Subscribe to receive asset send events from primary tapd node.
+	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
 	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification(s) from the taro node as the rest of the test
+	// the event notification(s) from the tapd node as the rest of the test
 	// proceeds.
 	wg.Add(1)
 	go func() {
@@ -388,9 +388,9 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *tarorpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
 				ev := eventTyped.ReceiverProofBackoffWaitEvent
 				t.Logf("Found event ntfs: %v", ev)
 				return true
@@ -415,45 +415,45 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Mint an asset for sending.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, sendTarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
 
 	// Synchronize the Universe state of the second node, with the main
 	// node.
-	t.syncUniverseState(sendTarod, recvTarod, len(rpcAssets))
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
 
 	// Create a new address for the receiver node.
-	recvAddr, err := recvTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	recvAddr, err := recvTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     10,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTarod, rpcAssets[0], recvAddr)
+	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
-	// Stop receiving taro node to simulate offline receiver.
-	t.Logf("Stopping receiving taro node")
-	require.NoError(t.t, recvTarod.stop(false))
+	// Stop receiving tapd node to simulate offline receiver.
+	t.Logf("Stopping receiving taproot assets node")
+	require.NoError(t.t, recvTapd.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
-	sendAssetsToAddr(t, sendTarod, recvAddr)
+	sendAssetsToAddr(t, sendTapd, recvAddr)
 	_ = mineBlocks(t, t.lndHarness, 1, 1)
 
-	// Pause before restarting receiving taro node so that sender node has
+	// Pause before restarting receiving tapd node so that sender node has
 	// an opportunity to attempt to send the proof multiple times.
 	time.Sleep(1 * time.Second)
 
-	// Restart receiving taro node.
-	t.Logf("Re-starting receiving taro node")
-	require.NoError(t.t, recvTarod.start(false))
+	// Restart receiving tapd node.
+	t.Logf("Re-starting receiving taproot assets node")
+	require.NoError(t.t, recvTapd.start(false))
 
 	// Confirm that the receiver eventually receives the asset. Pause to
 	// give the receiver time to recognise the full send event.
 	t.Logf("Attempting to confirm asset received")
-	assertNonInteractiveRecvComplete(t, recvTarod, 1)
+	assertNonInteractiveRecvComplete(t, recvTapd, 1)
 
 	wg.Wait()
 }
@@ -462,8 +462,8 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 // This function will block until the event is received or the event stream is
 // closed.
 func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
-	eventNtfns tarorpc.Taro_SubscribeSendAssetEventNtfnsClient,
-	targetEventSelector func(*tarorpc.SendAssetEvent) bool,
+	eventNtfns taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsClient,
+	targetEventSelector func(*taprpc.SendAssetEvent) bool,
 	expectedCount int) {
 
 	countFound := 0
@@ -516,85 +516,85 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 
 	// Mint a single asset.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	rpcAsset := rpcAssets[0]
 
 	// Set up a node that will serve as the final multi input send origin
 	// node. Sync the new node with the primary node.
-	bobTarod := setupTarodHarness(
+	bobTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
-			params.startupSyncNode = t.tarod
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, bobTarod.stop(true))
+		require.NoError(t.t, bobTapd.stop(true))
 	}()
 
 	// First of two send events from minting node to secondary node.
 	genInfo := rpcAsset.AssetGenesis
-	addr, err := bobTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	addr, err := bobTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     1000,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bobTarod, rpcAsset, addr)
+	assertAddrCreated(t.t, bobTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp := sendAssetsToAddr(t, t.tarod, addr)
+	sendResp := sendAssetsToAddr(t, t.tapd, addr)
 
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId, []uint64{4000, 1000},
+		t, t.tapd, sendResp, genInfo.AssetId, []uint64{4000, 1000},
 		0, 1,
 	)
 
-	_ = sendProof(t, t.tarod, bobTarod, addr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bobTarod, 1)
+	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, bobTapd, 1)
 
 	// Second of two send events from minting node to the secondary node.
-	addr, err = bobTarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	addr, err = bobTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     4000,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bobTarod, rpcAsset, addr)
+	assertAddrCreated(t.t, bobTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp = sendAssetsToAddr(t, t.tarod, addr)
+	sendResp = sendAssetsToAddr(t, t.tapd, addr)
 
 	confirmAndAssertOutboundTransfer(
-		t, t.tarod, sendResp, genInfo.AssetId, []uint64{0, 4000}, 1, 2,
+		t, t.tapd, sendResp, genInfo.AssetId, []uint64{0, 4000}, 1, 2,
 	)
 
-	_ = sendProof(t, t.tarod, bobTarod, addr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bobTarod, 2)
+	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, bobTapd, 2)
 
 	t.Logf("Two separate send events complete, now attempting to send " +
 		"back the full amount in a single multi input send event")
 
 	// Send back full amount from secondary node to the minting node.
-	addr, err = t.tarod.NewAddr(
-		ctxb, &tarorpc.NewAddrRequest{
+	addr, err = t.tapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
 			Amt:     5000,
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, t.tarod, rpcAsset, addr)
+	assertAddrCreated(t.t, t.tapd, rpcAsset, addr)
 
 	// Send the assets to the minting node.
-	sendResp = sendAssetsToAddr(t, bobTarod, addr)
+	sendResp = sendAssetsToAddr(t, bobTapd, addr)
 
 	confirmAndAssertOutboundTransfer(
-		t, bobTarod, sendResp, genInfo.AssetId, []uint64{0, 5000}, 0, 1,
+		t, bobTapd, sendResp, genInfo.AssetId, []uint64{0, 5000}, 0, 1,
 	)
 
-	_ = sendProof(t, bobTarod, t.tarod, addr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, t.tarod, 1)
+	_ = sendProof(t, bobTapd, t.tapd, addr.ScriptKey, genInfo)
+	assertNonInteractiveRecvComplete(t, t.tapd, 1)
 }

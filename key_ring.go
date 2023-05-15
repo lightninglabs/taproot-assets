@@ -1,4 +1,4 @@
-package taro
+package taprootassets
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -31,7 +31,7 @@ func NewLndRpcKeyRing(lnd *lndclient.LndServices) *LndRpcKeyRing {
 func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
-	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 
 	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, int32(keyFam))
 	if err != nil {
@@ -42,14 +42,14 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	return *keyDesc, nil
 }
 
-// DeriveNextTaroKey attempts to derive the *next* key within the Taro key
-// family.
-func (l *LndRpcKeyRing) DeriveNextTaroKey(
+// DeriveNextTaprootAssetKey attempts to derive the *next* key within the
+// Taproot Asset key family.
+func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
-	keyFam := int32(asset.TaroKeyFamily)
+	keyFam := int32(asset.TaprootAssetsKeyFamily)
 
-	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 
 	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, keyFam)
 	if err != nil {
@@ -66,7 +66,7 @@ func (l *LndRpcKeyRing) DeriveNextTaroKey(
 func (l *LndRpcKeyRing) DeriveKey(ctx context.Context,
 	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
 
-	taroLog.Debugf("Deriving new key, key_loc=%v", spew.Sdump(keyLoc))
+	tapdLog.Debugf("Deriving new key, key_loc=%v", spew.Sdump(keyLoc))
 
 	keyDesc, err := l.lnd.WalletKit.DeriveKey(ctx, &keyLoc)
 	if err != nil {
@@ -88,10 +88,10 @@ func (l *LndRpcKeyRing) IsLocalKey(ctx context.Context,
 		return false
 	}
 
-	// An external software could use a key outside the Taro key family, so
-	// we can only be sure that it's definitely not a key known by the
-	// wallet if both family and index are 0. That should only be the case
-	// for keys that are imported from a proof for example.
+	// An external software could use a key outside the Taproot Asset key
+	// family, so we can only be sure that it's definitely not a key known
+	// by the wallet if both family and index are 0. That should only be the
+	// case for keys that are imported from a proof for example.
 	if desc.Family == 0 && desc.Index == 0 {
 		return false
 	}
@@ -107,5 +107,5 @@ func (l *LndRpcKeyRing) IsLocalKey(ctx context.Context,
 }
 
 // A compile time assertion to ensure LndRpcKeyRing meets the
-// tarogarden.KeyRing interface.
-var _ tarogarden.KeyRing = (*LndRpcKeyRing)(nil)
+// tapgarden.KeyRing interface.
+var _ tapgarden.KeyRing = (*LndRpcKeyRing)(nil)

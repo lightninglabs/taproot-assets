@@ -11,26 +11,29 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
 	// ErrInvalidCommitmentProof is an error returned upon attempting to
 	// prove a malformed CommitmentProof.
-	ErrInvalidCommitmentProof = errors.New("invalid taro commitment proof")
+	ErrInvalidCommitmentProof = errors.New(
+		"invalid Taproot Asset commitment proof",
+	)
 )
 
 // CommitmentProof represents a full commitment proof for an asset. It can
-// either prove inclusion or exclusion of an asset within a Taro commitment.
+// either prove inclusion or exclusion of an asset within a Taproot Asset
+// commitment.
 type CommitmentProof struct {
 	commitment.Proof
 
 	// TapSiblingPreimage is an optional preimage of a tap node used to
-	// hash together with the Taro commitment leaf node to arrive at the
-	// tapscript root of the expected output.
+	// hash together with the Taproot Asset commitment leaf node to arrive
+	// at the tapscript root of the expected output.
 	TapSiblingPreimage *commitment.TapscriptPreimage
 }
 
@@ -73,9 +76,10 @@ func (p *CommitmentProof) Decode(r io.Reader) error {
 }
 
 // TapscriptProof represents a proof of a Taproot output not including a
-// Taro commitment. Taro commitments must exist at a leaf with depth 0 or 1, so
-// we can guarantee that a Taro commitment doesn't exist by revealing the
-// preimage of one node at depth 0 or two nodes at depth 1.
+// Taproot Asset commitment. Taproot Asset commitments must exist at a leaf with
+// depth 0 or 1, so we can guarantee that a Taproot Asset commitment doesn't
+// exist by revealing the preimage of one node at depth 0 or two nodes at depth
+// 1.
 //
 // TODO(roasbeef): make *this* into the control block proof?
 type TapscriptProof struct {
@@ -87,7 +91,8 @@ type TapscriptProof struct {
 	TapPreimage2 *commitment.TapscriptPreimage
 
 	// Bip86 indicates this is a normal BIP-0086 wallet output (likely a
-	// change output) that does not commit to any script or Taro root.
+	// change output) that does not commit to any script or Taproot Asset
+	// root.
 	Bip86 bool
 }
 
@@ -136,9 +141,10 @@ func (p *TapscriptProof) Decode(r io.Reader) error {
 }
 
 // TaprootProof represents a proof that reveals the partial contents to a
-// tapscript tree within a taproot output. It can prove whether an asset is being
-// included/excluded from a Taro commitment through a CommitmentProof, or that
-// no Taro commitment exists at all through a TapscriptProof.
+// tapscript tree within a taproot output. It can prove whether an asset is
+// being included/excluded from a Taproot Asset commitment through a
+// CommitmentProof, or that no Taproot Asset commitment exists at all through a
+// TapscriptProof.
 type TaprootProof struct {
 	// OutputIndex is the index of the output for which the proof applies.
 	OutputIndex uint32
@@ -147,14 +153,14 @@ type TaprootProof struct {
 	InternalKey *btcec.PublicKey
 
 	// CommitmentProof represents a commitment proof for an asset, proving
-	// inclusion or exclusion of an asset within a Taro commitment.
+	// inclusion or exclusion of an asset within a Taproot Asset commitment.
 	CommitmentProof *CommitmentProof
 
 	// TapscriptProof represents a taproot control block to prove that a
-	// taproot output is not committing to a Taro commitment.
+	// taproot output is not committing to a Taproot Asset commitment.
 	//
 	// NOTE: This field will be set only if the output does NOT contain a
-	// valid Taro commitment.
+	// valid Taproot Asset commitment.
 	TapscriptProof *TapscriptProof
 }
 
@@ -199,8 +205,8 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
-// deriveTaprootKey derives the taproot key backing a Taro commitment.
-func deriveTaprootKeyFromTaroCommitment(commitment *commitment.TaroCommitment,
+// deriveTaprootKey derives the taproot key backing a Taproot Asset commitment.
+func deriveTaprootKeyFromTapCommitment(commitment *commitment.TapCommitment,
 	sibling *chainhash.Hash, internalKey *btcec.PublicKey) (
 	*btcec.PublicKey, error) {
 
@@ -213,19 +219,19 @@ func deriveTaprootKeyFromTaroCommitment(commitment *commitment.TaroCommitment,
 	))
 }
 
-// deriveTaprootKeys derives the possible taproot keys backing a Taro
+// deriveTaprootKeys derives the possible taproot keys backing a Taproot Asset
 // commitment.
 //
 // There are at most two possible keys to try if each leaf preimage matches the
 // length of a branch preimage, so we derive both to make sure we arrive at the
 // expected key.
-func deriveTaprootKeysFromTaroCommitment(commitment *commitment.TaroCommitment,
+func deriveTaprootKeysFromTapCommitment(commitment *commitment.TapCommitment,
 	internalKey *btcec.PublicKey,
 	siblingTapPreimage *commitment.TapscriptPreimage) (*btcec.PublicKey,
 	error) {
 
 	// If there's no actual sibling pre-image, meaning the only thing
-	// committed to is the Taro asset root, then this will remain nil.
+	// committed to is the Taproot asset root, then this will remain nil.
 	var siblingHash *chainhash.Hash
 
 	// If there is a sibling pre-image, it's either a leaf or a branch that
@@ -239,19 +245,20 @@ func deriveTaprootKeysFromTaroCommitment(commitment *commitment.TaroCommitment,
 		}
 	}
 
-	return deriveTaprootKeyFromTaroCommitment(
+	return deriveTaprootKeyFromTapCommitment(
 		commitment, siblingHash, internalKey,
 	)
 }
 
-// DeriveByAssetInclusion derives the unique taproot output key backing a Taro
-// commitment by interpreting the TaprootProof as an asset inclusion proof.
+// DeriveByAssetInclusion derives the unique taproot output key backing a
+// Taproot Asset commitment by interpreting the TaprootProof as an asset
+// inclusion proof.
 //
 // There are at most two _possible_ keys that exist if each leaf preimage
 // matches the length of a branch preimage. However, using the annotated type
 // information we only need to derive a single key.
 func (p TaprootProof) DeriveByAssetInclusion(
-	asset *asset.Asset) (*btcec.PublicKey, *commitment.TaroCommitment,
+	asset *asset.Asset) (*btcec.PublicKey, *commitment.TapCommitment,
 	error) {
 
 	if p.CommitmentProof == nil || p.TapscriptProof != nil {
@@ -267,55 +274,55 @@ func (p TaprootProof) DeriveByAssetInclusion(
 	}
 
 	// Use the commitment proof to go from the asset leaf all the way up to
-	// the Taro commitment root, which is then mapped to a TapLeaf and is
-	// hashed with a sibling node, if any, to derive the tapscript root and
-	// taproot output key.
-	taroCommitment, err := p.CommitmentProof.DeriveByAssetInclusion(asset)
+	// the Taproot Asset commitment root, which is then mapped to a TapLeaf
+	// and is hashed with a sibling node, if any, to derive the tapscript
+	// root and taproot output key.
+	tapCommitment, err := p.CommitmentProof.DeriveByAssetInclusion(asset)
 	if err != nil {
 		return nil, nil, err
 	}
-	pubKey, err := deriveTaprootKeysFromTaroCommitment(
-		taroCommitment, p.InternalKey,
+	pubKey, err := deriveTaprootKeysFromTapCommitment(
+		tapCommitment, p.InternalKey,
 		p.CommitmentProof.TapSiblingPreimage,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	log.Tracef("Derived Taro commitment taro_root=%x, internal_key=%x, "+
-		"taproot_key=%x",
-		chanutils.ByteSlice(taroCommitment.TapscriptRoot(nil)),
+	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
+		"internal_key=%x, taproot_key=%x",
+		chanutils.ByteSlice(tapCommitment.TapscriptRoot(nil)),
 		p.InternalKey.SerializeCompressed(),
 		schnorr.SerializePubKey(pubKey))
 
-	return pubKey, taroCommitment, nil
+	return pubKey, tapCommitment, nil
 }
 
-// DeriveByAssetExclusion derives the possible taproot keys backing a Taro
-// commitment by interpreting the TaprootProof as an asset exclusion proof.
-// Asset exclusion proofs can take two forms: one where an asset proof proves
-// that the asset no longer exists within its AssetCommitment, and another
-// where the AssetCommitment corresponding to the excluded asset no longer
-// exists within the TaroCommitment.
+// DeriveByAssetExclusion derives the possible taproot keys backing a Taproot
+// Asset commitment by interpreting the TaprootProof as an asset exclusion
+// proof. Asset exclusion proofs can take two forms: one where an asset proof
+// proves that the asset no longer exists within its AssetCommitment, and
+// another where the AssetCommitment corresponding to the excluded asset no
+// longer exists within the TapCommitment.
 //
 // There are at most two possible keys to try if each leaf preimage matches the
 // length of a branch preimage. However, based on the type of the sibling
 // pre-image we'll derive just a single version of it.
 func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
-	taroCommitmentKey [32]byte) (*btcec.PublicKey, error) {
+	tapCommitmentKey [32]byte) (*btcec.PublicKey, error) {
 
 	if p.CommitmentProof == nil || p.TapscriptProof != nil {
 		return nil, ErrInvalidCommitmentProof
 	}
 
 	// Use the commitment proof to go from the empty asset leaf or empty
-	// asset commitment leaf all the way up to the Taro commitment root,
-	// which is then mapped to a TapLeaf and is hashed with a sibling node,
-	// if any, to derive the tapscript root and taproot output key. We'll do
-	// this twice, one for the possible branch sibling and another for the
-	// possible leaf sibling.
+	// asset commitment leaf all the way up to the Taproot Asset commitment
+	// root, which is then mapped to a TapLeaf and is hashed with a sibling
+	// node, if any, to derive the tapscript root and taproot output key.
+	// We'll do this twice, one for the possible branch sibling and another
+	// for the possible leaf sibling.
 	var (
-		commitment *commitment.TaroCommitment
+		commitment *commitment.TapCommitment
 		err        error
 	)
 
@@ -326,7 +333,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	case p.CommitmentProof.AssetProof == nil:
 		log.Debugf("Deriving commitment by asset commitment exclusion")
 		commitment, err = p.CommitmentProof.
-			DeriveByAssetCommitmentExclusion(taroCommitmentKey)
+			DeriveByAssetCommitmentExclusion(tapCommitmentKey)
 
 	// Otherwise, we have an asset proof, which means the tree contains the
 	// asset ID, but we want to verify that the particular asset we care
@@ -340,17 +347,18 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 		return nil, err
 	}
 
-	log.Tracef("Derived Taro commitment taro_root=%x, internal_key=%x",
+	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
+		"internal_key=%x",
 		chanutils.ByteSlice(commitment.TapscriptRoot(nil)),
 		p.InternalKey.SerializeCompressed())
 
-	return deriveTaprootKeysFromTaroCommitment(
+	return deriveTaprootKeysFromTapCommitment(
 		commitment, p.InternalKey, p.CommitmentProof.TapSiblingPreimage,
 	)
 }
 
-// DeriveTaprootKeys derives the expected taproot key from a TapsscriptProof
-// backing a taproot output that does not include a Taro commitment.
+// DeriveTaprootKeys derives the expected taproot key from a TapscriptProof
+// backing a taproot output that does not include a Taproot Asset commitment.
 //
 // There are at most two possible keys to try if each leaf preimage matches the
 // length of a branch preimage. However, based on the annotated type
@@ -470,7 +478,7 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 }
 
 // DeriveByTapscriptProof derives the possible taproot keys from a
-// TapscriptProof backing a taproot output that does not include a Taro
+// TapscriptProof backing a taproot output that does not include a Taproot Asset
 // commitment.
 //
 // NOTE: There are at most two possible keys to try if each leaf preimage
@@ -500,7 +508,7 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 		}
 
 		// We only need to add exclusion proofs for P2TR outputs as only
-		// those could commit to a Taro tree.
+		// those could commit to a Taproot Asset tree.
 		if !txscript.IsPayToTaproot(txOut.PkScript) {
 			continue
 		}

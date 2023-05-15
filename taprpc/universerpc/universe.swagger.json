@@ -1,0 +1,1504 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "universerpc/universe.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Universe"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taproot-assets/universe/federation": {
+      "get": {
+        "summary": "tapcli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
+        "operationId": "Universe_ListFederationServers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcListFederationServersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      },
+      "delete": {
+        "summary": "tapcli: `universe federation delete`\nDeleteFederationServer removes a server from the federation of the local\nUniverse server.",
+        "operationId": "Universe_DeleteFederationServer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcDeleteFederationServerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      },
+      "post": {
+        "summary": "tapcli: `universe federation add`\nAddFederationServer adds a new server to the federation of the local\nUniverse server. Once a server is added, this call can also optionally be\nused to trigger a sync of the remote server.",
+        "operationId": "Universe_AddFederationServer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAddFederationServerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcAddFederationServerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}": {
+      "get": {
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
+        "operationId": "Universe_AssetLeafKeys",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAssetLeafKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/keys/group-key/{group_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
+        "operationId": "Universe_AssetLeafKeys2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAssetLeafKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}": {
+      "get": {
+        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
+        "operationId": "Universe_AssetLeaves",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAssetLeafResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
+        "operationId": "Universe_AssetLeaves2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAssetLeafResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
+        "operationId": "Universe_QueryIssuanceProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id.asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.op_str",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.script_key_bytes",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+      "post": {
+        "summary": "tapcli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "operationId": "Universe_InsertIssuanceProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "key.id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "key.leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProof"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
+        "operationId": "Universe_QueryIssuanceProof2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id.asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "id.group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "leaf_key.op_str",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "leaf_key.script_key_bytes",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+      "post": {
+        "summary": "tapcli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "operationId": "Universe_InsertIssuanceProof2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "key.id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "key.leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcIssuanceProof"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/roots": {
+      "get": {
+        "summary": "tapcli: `universe roots`\nAssetRoots queries for the known Universe roots associated with each known\nasset. These roots represent the supply/audit state for each known asset.",
+        "operationId": "Universe_AssetRoots",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcAssetRootResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}": {
+      "get": {
+        "summary": "tapcli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
+        "operationId": "Universe_QueryAssetRoots",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcQueryRootResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id.asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}": {
+      "get": {
+        "summary": "tapcli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
+        "operationId": "Universe_QueryAssetRoots2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcQueryRootResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id.asset_id",
+            "description": "The 32-byte asset ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "id.group_key",
+            "description": "The 32-byte asset group key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/stats": {
+      "get": {
+        "summary": "tapcli: `universe stats`\nUniverseStats returns a set of aggregrate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
+        "operationId": "Universe_UniverseStats",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcStatsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/stats/assets": {
+      "get": {
+        "summary": "tapcli `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
+        "operationId": "Universe_QueryAssetStats",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcUniverseAssetStats"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_name_filter",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "asset_id_filter",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_type_filter",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "FILTER_ASSET_NONE",
+              "FILTER_ASSET_NORMAL",
+              "FILTER_ASSET_COLLECTIBLE"
+            ],
+            "default": "FILTER_ASSET_NONE"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_BY_NONE",
+              "SORT_BY_ASSET_NAME",
+              "SORT_BY_ASSET_ID",
+              "SORT_BY_ASSET_TYPE"
+            ],
+            "default": "SORT_BY_NONE"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/sync": {
+      "post": {
+        "summary": "tapcli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
+        "operationId": "Universe_SyncUniverse",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcSyncResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcSyncRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "taprpcAnchorInfo": {
+      "type": "object",
+      "properties": {
+        "anchor_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The transaction that anchors the Taproot Asset commitment where the asset\n resides."
+        },
+        "anchor_txid": {
+          "type": "string",
+          "description": "The txid of the above transaction."
+        },
+        "anchor_block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block hash the contains the anchor transaction above."
+        },
+        "anchor_outpoint": {
+          "type": "string",
+          "description": "The outpoint (txid:vout) that stores the Taproot Asset commitment."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw internal key that was used to create the anchor Taproot output key."
+        },
+        "merkle_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taproot Asset\nroot commitment hash."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The serialized preimage of a Tapscript sibling, if there was one. If this\nis empty, then the merkle_root hash is equal to the Taproot root hash of the\nanchor output."
+        }
+      }
+    },
+    "taprpcAsset": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taproot Asset."
+        },
+        "asset_genesis": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The base genesis information of an asset. This information never changes."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
+        },
+        "lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional locktime, as with Bitcoin transactions."
+        },
+        "relative_lock_time": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional relative lock time, same as Bitcoin transactions."
+        },
+        "script_version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the script, only version 0 is defined at present."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset, which can be spent under Taproot semantics."
+        },
+        "script_key_is_local": {
+          "type": "boolean",
+          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taproot Asset daemon."
+        },
+        "asset_group": {
+          "$ref": "#/definitions/taprpcAssetGroup",
+          "description": "The information related to the key group of an asset (if it exists)."
+        },
+        "chain_anchor": {
+          "$ref": "#/definitions/taprpcAnchorInfo",
+          "description": "Describes where in the chain the asset is currently anchored."
+        },
+        "prev_witnesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcPrevWitness"
+          }
+        },
+        "is_spent": {
+          "type": "boolean",
+          "description": "Indicates whether the asset has been spent."
+        }
+      }
+    },
+    "taprpcAssetGroup": {
+      "type": "object",
+      "properties": {
+        "raw_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw group key which is a normal public key."
+        },
+        "tweaked_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked group key, which is derived based on the genesis point and also\nasset type."
+        },
+        "asset_id_sig": {
+          "type": "string",
+          "format": "byte",
+          "description": "A signature over the genesis point using the above key."
+        }
+      }
+    },
+    "taprpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL",
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
+    "taprpcGenesisInfo": {
+      "type": "object",
+      "properties": {
+        "genesis_point": {
+          "type": "string",
+          "description": "The first outpoint of the transaction that created the asset (txid:vout)."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the asset."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the meta data for this genesis asset."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The version of the Taproot Asset commitment that created this asset."
+        }
+      }
+    },
+    "taprpcPrevInputAsset": {
+      "type": "object",
+      "properties": {
+        "anchor_point": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "taprpcPrevWitness": {
+      "type": "object",
+      "properties": {
+        "prev_id": {
+          "$ref": "#/definitions/taprpcPrevInputAsset"
+        },
+        "tx_witness": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          }
+        },
+        "split_commitment": {
+          "$ref": "#/definitions/taprpcSplitCommitment"
+        }
+      }
+    },
+    "taprpcSplitCommitment": {
+      "type": "object",
+      "properties": {
+        "root_asset": {
+          "$ref": "#/definitions/taprpcAsset"
+        }
+      }
+    },
+    "universerpcAddFederationServerRequest": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcUniverseFederationServer"
+          }
+        }
+      }
+    },
+    "universerpcAddFederationServerResponse": {
+      "type": "object"
+    },
+    "universerpcAssetKey": {
+      "type": "object",
+      "properties": {
+        "op_str": {
+          "type": "string"
+        },
+        "op": {
+          "$ref": "#/definitions/universerpcOutpoint"
+        },
+        "script_key_bytes": {
+          "type": "string",
+          "format": "byte"
+        },
+        "script_key_str": {
+          "type": "string"
+        }
+      }
+    },
+    "universerpcAssetLeaf": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "$ref": "#/definitions/taprpcAsset",
+          "description": "The asset included in the leaf."
+        },
+        "issuance_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset issuance proof, which proves that the asset specified above\nwas issued properly."
+        }
+      }
+    },
+    "universerpcAssetLeafKeyResponse": {
+      "type": "object",
+      "properties": {
+        "asset_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetKey"
+          },
+          "description": "The set of asset leaf keys for the given asset ID or group key."
+        }
+      }
+    },
+    "universerpcAssetLeafResponse": {
+      "type": "object",
+      "properties": {
+        "leaves": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetLeaf"
+          },
+          "description": "The set of asset leaves for the given asset ID or group key."
+        }
+      }
+    },
+    "universerpcAssetQuerySort": {
+      "type": "string",
+      "enum": [
+        "SORT_BY_NONE",
+        "SORT_BY_ASSET_NAME",
+        "SORT_BY_ASSET_ID",
+        "SORT_BY_ASSET_TYPE"
+      ],
+      "default": "SORT_BY_NONE"
+    },
+    "universerpcAssetRootResponse": {
+      "type": "object",
+      "properties": {
+        "universe_roots": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/universerpcUniverseRoot"
+          },
+          "description": "A map of the set of known universe roots for each asset. The key in the\nmap is the 32-byte asset_id or group key hash."
+        }
+      }
+    },
+    "universerpcAssetStatsSnapshot": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "total_supply": {
+          "type": "string",
+          "format": "int64"
+        },
+        "asset_name": {
+          "type": "string"
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType"
+        },
+        "genesis_height": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total_syncs": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_proofs": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "universerpcAssetTypeFilter": {
+      "type": "string",
+      "enum": [
+        "FILTER_ASSET_NONE",
+        "FILTER_ASSET_NORMAL",
+        "FILTER_ASSET_COLLECTIBLE"
+      ],
+      "default": "FILTER_ASSET_NONE"
+    },
+    "universerpcDeleteFederationServerResponse": {
+      "type": "object"
+    },
+    "universerpcID": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key."
+        },
+        "group_key_str": {
+          "type": "string",
+          "description": "The 32-byte asset group key encoded as hex string."
+        }
+      }
+    },
+    "universerpcIssuanceProof": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/universerpcUniverseKey",
+          "description": "The ID of the asset to insert the proof for."
+        },
+        "asset_leaf": {
+          "$ref": "#/definitions/universerpcAssetLeaf",
+          "description": "The asset leaf to insert into the Universe tree."
+        }
+      }
+    },
+    "universerpcIssuanceProofResponse": {
+      "type": "object",
+      "properties": {
+        "req": {
+          "$ref": "#/definitions/universerpcUniverseKey",
+          "description": "The request original request for the issuance proof."
+        },
+        "universe_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The Universe root that includes this asset leaf."
+        },
+        "universe_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "An inclusion proof for the asset leaf included below. The value is that\nissuance proof itself, with a sum value of the amount of the asset."
+        },
+        "asset_leaf": {
+          "$ref": "#/definitions/universerpcAssetLeaf",
+          "description": "The asset leaf itself, which includes the asset and the issuance proof."
+        }
+      }
+    },
+    "universerpcListFederationServersResponse": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcUniverseFederationServer"
+          }
+        }
+      }
+    },
+    "universerpcMerkleSumNode": {
+      "type": "object",
+      "properties": {
+        "root_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The MS-SMT root hash for the branch node."
+        },
+        "root_sum": {
+          "type": "string",
+          "format": "int64",
+          "description": "The root sum of the branch node. This is hashed to create the root_hash\nalong with the left and right siblings. This value represents the total\nknown supply of the asset."
+        }
+      }
+    },
+    "universerpcOutpoint": {
+      "type": "object",
+      "properties": {
+        "hash_str": {
+          "type": "string",
+          "description": "The output as a hex encoded (and reversed!) string."
+        },
+        "index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the output."
+        }
+      }
+    },
+    "universerpcQueryRootResponse": {
+      "type": "object",
+      "properties": {
+        "asset_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The asset root for the given asset ID or group key."
+        }
+      }
+    },
+    "universerpcStatsResponse": {
+      "type": "object",
+      "properties": {
+        "num_total_assets": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_total_syncs": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_total_proofs": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "universerpcSyncRequest": {
+      "type": "object",
+      "properties": {
+        "universe_host": {
+          "type": "string",
+          "title": "TODO(roasbeef): accept connection type? so can pass along self-signed\ncert, also brontide based RPC handshake"
+        },
+        "sync_mode": {
+          "$ref": "#/definitions/universerpcUniverseSyncMode",
+          "description": "The sync mode. This determines what type of proofs are synced."
+        },
+        "sync_targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcSyncTarget"
+          },
+          "description": "The set of assets to sync. If none are specified, then all assets are\nsynced."
+        }
+      }
+    },
+    "universerpcSyncResponse": {
+      "type": "object",
+      "properties": {
+        "synced_universes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcSyncedUniverse"
+          },
+          "description": "The set of synced asset Universes."
+        }
+      }
+    },
+    "universerpcSyncTarget": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/universerpcID"
+        }
+      }
+    },
+    "universerpcSyncedUniverse": {
+      "type": "object",
+      "properties": {
+        "old_asset_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The old Universe root for the synced asset."
+        },
+        "new_asset_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The new Universe root for the synced asset."
+        },
+        "new_asset_leaves": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetLeaf"
+          },
+          "description": "The set of new asset leaves that were synced."
+        }
+      }
+    },
+    "universerpcUniverseAssetStats": {
+      "type": "object",
+      "properties": {
+        "asset_stats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetStatsSnapshot"
+          }
+        }
+      }
+    },
+    "universerpcUniverseFederationServer": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "universerpcUniverseKey": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/universerpcID",
+          "description": "The ID of the asset to query for."
+        },
+        "leaf_key": {
+          "$ref": "#/definitions/universerpcAssetKey",
+          "description": "The asset key to query for."
+        }
+      }
+    },
+    "universerpcUniverseRoot": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/universerpcID"
+        },
+        "mssmt_root": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The merkle sum sparse merkle tree root associated with the above\nuniverse ID."
+        },
+        "asset_name": {
+          "type": "string",
+          "description": "The name of the asset."
+        }
+      }
+    },
+    "universerpcUniverseSyncMode": {
+      "type": "string",
+      "enum": [
+        "SYNC_ISSUANCE_ONLY",
+        "SYNC_FULL"
+      ],
+      "default": "SYNC_ISSUANCE_ONLY",
+      "description": " - SYNC_ISSUANCE_ONLY: A sync node that indicates that only new asset creation (minting) proofs\nshould be synced.\n - SYNC_FULL: A syncing mode that indicates that all asset proofs should be synced.\nThis includes normal transfers as well."
+    }
+  }
+}

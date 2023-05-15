@@ -11,8 +11,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/commitment"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -338,7 +338,7 @@ type AssetSnapshot struct {
 	OutPoint wire.OutPoint
 
 	// AnchorBlockHash is the block hash that anchors the Bitcoin
-	// transaction for this Taro state transition.
+	// transaction for this Taproot Asset state transition.
 	AnchorBlockHash chainhash.Hash
 
 	// AnchorBlockHeight is the height of the block hash above.
@@ -359,13 +359,13 @@ type AssetSnapshot struct {
 	// the AnchorTx.
 	InternalKey *btcec.PublicKey
 
-	// ScriptRoot is the Taro commitment root committed to using the above
-	// internal key in the Anchor transaction.
-	ScriptRoot *commitment.TaroCommitment
+	// ScriptRoot is the Taproot Asset commitment root committed to using
+	// the above internal key in the Anchor transaction.
+	ScriptRoot *commitment.TapCommitment
 
 	// TapscriptSibling is the pre-image to the tapscript hash of the
-	// sibling to the Taro root. If this is nil then it means the Taro root
-	// is the only tapscript leaf in the tree.
+	// sibling to the Taproot Asset root. If this is nil then it means the
+	// Taproot Asset root is the only tapscript leaf in the tree.
 	TapscriptSibling *commitment.TapscriptPreimage
 
 	// SplitAsset is the optional indicator that the asset in the snapshot
