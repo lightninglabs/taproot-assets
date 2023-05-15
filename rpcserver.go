@@ -28,7 +28,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tapdb"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
@@ -1197,7 +1197,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	in *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
-	var fundedVPkt *tarofreighter.FundedVPacket
+	var fundedVPkt *tapfreighter.FundedVPacket
 	switch {
 	case in.GetPsbt() != nil:
 		vPkt, err := taropsbt.NewFromRawBytes(
@@ -1344,7 +1344,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		"delivery", inputCommitment.AnchorPoint)
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tarofreighter.NewPreSignedParcel(
+		tapfreighter.NewPreSignedParcel(
 			vPacket, inputCommitment.Commitment,
 		),
 	)
@@ -1606,7 +1606,7 @@ func (r *rpcServer) SendAsset(_ context.Context,
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tarofreighter.NewAddressParcel(taroAddrs...),
+		tapfreighter.NewAddressParcel(taroAddrs...),
 	)
 	if err != nil {
 		return nil, err
@@ -1625,7 +1625,7 @@ func (r *rpcServer) SendAsset(_ context.Context,
 
 // marshalOutboundParcel turns a pending parcel into its RPC counterpart.
 func marshalOutboundParcel(
-	parcel *tarofreighter.OutboundParcel) (*tarorpc.AssetTransfer,
+	parcel *tapfreighter.OutboundParcel) (*tarorpc.AssetTransfer,
 	error) {
 
 	rpcInputs := make([]*tarorpc.TransferInput, len(parcel.Inputs))
@@ -1782,7 +1782,7 @@ func marshallSendAssetEvent(
 	eventInterface chanutils.Event) (*tarorpc.SendAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
-	case *tarofreighter.ExecuteSendStateEvent:
+	case *tapfreighter.ExecuteSendStateEvent:
 		eventRpc := &tarorpc.SendAssetEvent_ExecuteSendStateEvent{
 			ExecuteSendStateEvent: &tarorpc.ExecuteSendStateEvent{
 				Timestamp: event.Timestamp().UnixMicro(),

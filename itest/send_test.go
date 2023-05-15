@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/stretchr/testify/require"
@@ -41,7 +41,7 @@ func testBasicSend(t *harnessTest) {
 	go func() {
 		defer wg.Done()
 
-		broadcastState := tarofreighter.SendStateBroadcast.String()
+		broadcastState := tapfreighter.SendStateBroadcast.String()
 		targetEventSelector := func(event *tarorpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
 			case *tarorpc.SendAssetEvent_ExecuteSendStateEvent:

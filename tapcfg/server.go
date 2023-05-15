@@ -12,7 +12,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd"
@@ -189,8 +189,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 
 	virtualTxSigner := taro.NewLndRpcVirtualTxSigner(lndServices)
-	coinSelect := tarofreighter.NewCoinSelect(assetStore)
-	assetWallet := tarofreighter.NewAssetWallet(&tarofreighter.WalletConfig{
+	coinSelect := tapfreighter.NewCoinSelect(assetStore)
+	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
 		CoinSelector: coinSelect,
 		AssetProofs:  proofArchive,
 		AddrBook:     tapdbAddrBook,
@@ -235,8 +235,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AddrBook:     addrBook,
 		ProofArchive: proofArchive,
 		AssetWallet:  assetWallet,
-		ChainPorter: tarofreighter.NewChainPorter(
-			&tarofreighter.ChainPorterConfig{
+		ChainPorter: tapfreighter.NewChainPorter(
+			&tapfreighter.ChainPorterConfig{
 				CoinSelector: coinSelect,
 				Signer:       virtualTxSigner,
 				TxValidator:  &taro.ValidatorV0{},

@@ -20,7 +20,7 @@ import (
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -804,7 +804,7 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 // AssetQueryFilters is a wrapper struct over the CommitmentConstraints struct
 // which lets us filter the results of the set of assets returned.
 type AssetQueryFilters struct {
-	tarofreighter.CommitmentConstraints
+	tapfreighter.CommitmentConstraints
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
@@ -1425,7 +1425,7 @@ func queryChainAssets(ctx context.Context, q ActiveAssetsStore,
 // parameters. If no commitment is found, ErrNoCommitment is returned.
 func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 	anchorPoint wire.OutPoint, groupKey *asset.GroupKey,
-	scriptKey *asset.ScriptKey) (*tarofreighter.AnchoredCommitment, error) {
+	scriptKey *asset.ScriptKey) (*tapfreighter.AnchoredCommitment, error) {
 
 	filter, err := specificAssetFilter(id, anchorPoint, groupKey, scriptKey)
 	if err != nil {
@@ -1450,10 +1450,10 @@ func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 
 // ListEligibleCoins lists eligible commitments given a set of constraints.
 //
-// NOTE: This implements the tarofreighter.CoinLister interface.
+// NOTE: This implements the tapfreighter.CoinLister interface.
 func (a *AssetStore) ListEligibleCoins(
-	ctx context.Context, constraints tarofreighter.CommitmentConstraints) (
-	[]*tarofreighter.AnchoredCommitment, error) {
+	ctx context.Context, constraints tapfreighter.CommitmentConstraints) (
+	[]*tapfreighter.AnchoredCommitment, error) {
 
 	if constraints.MinAmt > math.MaxInt64 {
 		return nil, fmt.Errorf("min amount overflow")
@@ -1474,7 +1474,7 @@ func (a *AssetStore) ListEligibleCoins(
 // queryCommitments queries the database for commitments matching the passed
 // filter.
 func (a *AssetStore) queryCommitments(ctx context.Context,
-	assetFilter QueryAssetFilters) ([]*tarofreighter.AnchoredCommitment,
+	assetFilter QueryAssetFilters) ([]*tapfreighter.AnchoredCommitment,
 	error) {
 
 	var (
@@ -1494,7 +1494,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		}
 
 		if len(matchingAssets) == 0 {
-			return tarofreighter.ErrMatchingAssetsNotFound
+			return tapfreighter.ErrMatchingAssetsNotFound
 		}
 
 		// At this point, we have the set of assets that match our
@@ -1577,7 +1577,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 	// assets that are committed in the same outpoint, we can construct our
 	// final response.
 	selectedAssets := make(
-		[]*tarofreighter.AnchoredCommitment, len(matchingAssets),
+		[]*tapfreighter.AnchoredCommitment, len(matchingAssets),
 	)
 	for i, matchingAsset := range matchingAssets {
 		// Using the anchor point of the matching asset, we can obtain
@@ -1598,7 +1598,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			return nil, err
 		}
 
-		selectedAssets[i] = &tarofreighter.AnchoredCommitment{
+		selectedAssets[i] = &tapfreighter.AnchoredCommitment{
 			AnchorPoint:       anchorPoint,
 			AnchorOutputValue: btcutil.Amount(anchorUTXO.AmtSats),
 			InternalKey: keychain.KeyDescriptor{
@@ -1623,7 +1623,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 // the set of changes to disk (the pending inputs and outputs) but doesn't mark
 // the batched spend as being finalized.
 func (a *AssetStore) LogPendingParcel(ctx context.Context,
-	spend *tarofreighter.OutboundParcel) error {
+	spend *tapfreighter.OutboundParcel) error {
 
 	// Before we enter the DB transaction below, we'll use this space to
 	// encode a few values outside the transaction closure.
@@ -1690,7 +1690,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 // insertAssetTransferInput inserts a new asset transfer input into the DB.
 func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
-	transferID int32, input tarofreighter.TransferInput) error {
+	transferID int32, input tapfreighter.TransferInput) error {
 
 	anchorPointBytes, err := encodeOutpoint(input.OutPoint)
 	if err != nil {
@@ -1713,7 +1713,7 @@ func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
 
 // fetchAssetTransferInputs fetches all the inputs for a given transfer ID.
 func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
-	transferID int32) ([]tarofreighter.TransferInput, error) {
+	transferID int32) ([]tapfreighter.TransferInput, error) {
 
 	dbInputs, err := q.FetchTransferInputs(ctx, transferID)
 	if err != nil {
@@ -1721,11 +1721,11 @@ func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
 			err)
 	}
 
-	inputs := make([]tarofreighter.TransferInput, len(dbInputs))
+	inputs := make([]tapfreighter.TransferInput, len(dbInputs))
 	for idx := range dbInputs {
 		dbInput := dbInputs[idx]
 
-		inputs[idx] = tarofreighter.TransferInput{
+		inputs[idx] = tapfreighter.TransferInput{
 			Amount: uint64(dbInput.Amount),
 		}
 		copy(inputs[idx].ID[:], dbInput.AssetID)
@@ -1753,8 +1753,8 @@ func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
 // insertAssetTransferOutput inserts a new asset transfer output into the DB
 // and returns its ID.
 func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
-	transferID, txnID int32, output tarofreighter.TransferOutput,
-	passiveAssets []*tarofreighter.PassiveAssetReAnchor) error {
+	transferID, txnID int32, output tapfreighter.TransferOutput,
+	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
 
 	anchor := output.Anchor
 	anchorPointBytes, err := encodeOutpoint(anchor.OutPoint)
@@ -1875,7 +1875,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 
 // fetchAssetTransferOutputs fetches all the outputs for a given transfer ID.
 func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
-	transferID int32) ([]tarofreighter.TransferOutput, error) {
+	transferID int32) ([]tapfreighter.TransferOutput, error) {
 
 	dbOutputs, err := q.FetchTransferOutputs(ctx, transferID)
 	if err != nil {
@@ -1884,7 +1884,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 	}
 
 	var scratch [8]byte
-	outputs := make([]tarofreighter.TransferOutput, len(dbOutputs))
+	outputs := make([]tapfreighter.TransferOutput, len(dbOutputs))
 	for idx := range dbOutputs {
 		dbOut := dbOutputs[idx]
 
@@ -1933,8 +1933,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				err)
 		}
 
-		outputs[idx] = tarofreighter.TransferOutput{
-			Anchor: tarofreighter.Anchor{
+		outputs[idx] = tapfreighter.TransferOutput{
+			Anchor: tapfreighter.Anchor{
 				Value: btcutil.Amount(
 					dbOut.AnchorValue,
 				),
@@ -1993,7 +1993,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 // logPendingPassiveAssets logs passive assets re-anchoring data to disk.
 func logPendingPassiveAssets(ctx context.Context,
 	q ActiveAssetsStore, transferID, newUtxoID int32,
-	passiveAssets []*tarofreighter.PassiveAssetReAnchor) error {
+	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
 
 	for _, passiveAsset := range passiveAssets {
 		// Encode new witness data.
@@ -2103,7 +2103,7 @@ func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
 // ConfirmParcelDelivery marks a spend event on disk as confirmed. This updates
 // the on-chain reference information on disk to point to this new spend.
 func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
-	conf *tarofreighter.AssetConfirmEvent) error {
+	conf *tapfreighter.AssetConfirmEvent) error {
 
 	var (
 		writeTxOpts    AssetStoreTxOptions
@@ -2382,16 +2382,16 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 // This can be used to query the set of unconfirmed
 // transactions for re-broadcast.
 func (a *AssetStore) PendingParcels(
-	ctx context.Context) ([]*tarofreighter.OutboundParcel, error) {
+	ctx context.Context) ([]*tapfreighter.OutboundParcel, error) {
 
 	return a.QueryParcels(ctx, true)
 }
 
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
-	pending bool) ([]*tarofreighter.OutboundParcel, error) {
+	pending bool) ([]*tapfreighter.OutboundParcel, error) {
 
-	var transfers []*tarofreighter.OutboundParcel
+	var transfers []*tapfreighter.OutboundParcel
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
@@ -2443,7 +2443,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 					"anchor tx: %w", err)
 			}
 
-			transfer := &tarofreighter.OutboundParcel{
+			transfer := &tapfreighter.OutboundParcel{
 				AnchorTx:           anchorTx,
 				AnchorTxHeightHint: uint32(dbT.HeightHint),
 				TransferTime:       dbT.TransferTimeUnix.UTC(),
@@ -2532,9 +2532,9 @@ func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
 var _ proof.NotifyArchiver = (*AssetStore)(nil)
 
 // A compile-time constraint to ensure that AssetStore meets the
-// tarofreighter.CoinLister interface.
-var _ tarofreighter.CoinLister = (*AssetStore)(nil)
+// tapfreighter.CoinLister interface.
+var _ tapfreighter.CoinLister = (*AssetStore)(nil)
 
 // A compile-time constraint to ensure that AssetStore meets the
-// tarofreighter.ExportLog interface.
-var _ tarofreighter.ExportLog = (*AssetStore)(nil)
+// tapfreighter.ExportLog interface.
+var _ tapfreighter.ExportLog = (*AssetStore)(nil)

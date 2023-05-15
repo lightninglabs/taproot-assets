@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -173,4 +173,4 @@ func (l *LndRpcWalletAnchor) ListTransactions(ctx context.Context, startHeight,
 // tarogarden.WalletAnchor interface.
 var _ tarogarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
 
-var _ tarofreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+var _ tapfreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)

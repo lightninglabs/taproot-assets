@@ -5,7 +5,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd/build"
@@ -90,7 +90,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 
 	AddSubLogger(root, tarogarden.Subsystem, interceptor, tarogarden.UseLogger)
 	AddSubLogger(
-		root, tarofreighter.Subsystem, interceptor, tarofreighter.UseLogger,
+		root, tapfreighter.Subsystem, interceptor, tapfreighter.UseLogger,
 	)
 	AddSubLogger(root, proof.Subsystem, interceptor, proof.UseLogger)
 	AddSubLogger(root, tapdb.Subsystem, interceptor, tapdb.UseLogger)

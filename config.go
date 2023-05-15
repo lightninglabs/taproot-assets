@@ -8,7 +8,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tarogarden"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd"
@@ -86,9 +86,9 @@ type Config struct {
 
 	ProofArchive proof.Archiver
 
-	AssetWallet tarofreighter.Wallet
+	AssetWallet tapfreighter.Wallet
 
-	ChainPorter tarofreighter.Porter
+	ChainPorter tapfreighter.Porter
 
 	BaseUniverse *universe.MintingArchive
 

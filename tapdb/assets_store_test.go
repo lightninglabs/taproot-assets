@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarofreighter"
+	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -352,7 +352,7 @@ func TestImportAssetProof(t *testing.T) {
 	// We should also be able to fetch the created asset above based on
 	// either the asset ID, or key group via the main coin selection
 	// routine.
-	var assetConstraints tarofreighter.CommitmentConstraints
+	var assetConstraints tapfreighter.CommitmentConstraints
 	if testAsset.GroupKey != nil {
 		assetConstraints.GroupKey = &testAsset.GroupKey.GroupPubKey
 	} else {
@@ -568,7 +568,7 @@ func TestSelectCommitment(t *testing.T) {
 
 		assets []assetDesc
 
-		constraints tarofreighter.CommitmentConstraints
+		constraints tapfreighter.CommitmentConstraints
 
 		numAssets int
 
@@ -586,7 +586,7 @@ func TestSelectCommitment(t *testing.T) {
 					anchorPoint: assetGen.anchorPoints[0],
 				},
 			},
-			constraints: tarofreighter.CommitmentConstraints{
+			constraints: tapfreighter.CommitmentConstraints{
 				AssetID: assetGen.bindAssetID(
 					0, assetGen.anchorPoints[0],
 				),
@@ -607,14 +607,14 @@ func TestSelectCommitment(t *testing.T) {
 					anchorPoint: assetGen.anchorPoints[0],
 				},
 			},
-			constraints: tarofreighter.CommitmentConstraints{
+			constraints: tapfreighter.CommitmentConstraints{
 				AssetID: assetGen.bindAssetID(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 10,
 			},
 			numAssets: 0,
-			err:       tarofreighter.ErrMatchingAssetsNotFound,
+			err:       tapfreighter.ErrMatchingAssetsNotFound,
 		},
 
 		// Asset ID not found on disk, no matches should be returned.
@@ -628,14 +628,14 @@ func TestSelectCommitment(t *testing.T) {
 					anchorPoint: assetGen.anchorPoints[0],
 				},
 			},
-			constraints: tarofreighter.CommitmentConstraints{
+			constraints: tapfreighter.CommitmentConstraints{
 				AssetID: assetGen.bindAssetID(
 					1, assetGen.anchorPoints[1],
 				),
 				MinAmt: 10,
 			},
 			numAssets: 0,
-			err:       tarofreighter.ErrMatchingAssetsNotFound,
+			err:       tapfreighter.ErrMatchingAssetsNotFound,
 		},
 
 		// Create two assets, one has a key group the other doesn't.
@@ -659,7 +659,7 @@ func TestSelectCommitment(t *testing.T) {
 					noGroupKey:  true,
 				},
 			},
-			constraints: tarofreighter.CommitmentConstraints{
+			constraints: tapfreighter.CommitmentConstraints{
 				GroupKey: assetGen.bindKeyGroup(
 					0, assetGen.anchorPoints[0],
 				),
@@ -721,7 +721,7 @@ func TestSelectCommitment(t *testing.T) {
 				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
 			)
 			require.ErrorIs(
-				t, err, tarofreighter.ErrMatchingAssetsNotFound,
+				t, err, tapfreighter.ErrMatchingAssetsNotFound,
 			)
 		})
 	}
@@ -827,13 +827,13 @@ func TestAssetExportLog(t *testing.T) {
 	// used to commit a new spend on disk.
 	inputAsset := allAssets[0]
 	anchorTxHash := newAnchorTx.TxHash()
-	spendDelta := &tarofreighter.OutboundParcel{
+	spendDelta := &tapfreighter.OutboundParcel{
 		AnchorTx:           newAnchorTx,
 		AnchorTxHeightHint: heightHint,
 		ChainFees:          chainFees,
 		// We'll actually modify only one of the assets. This simulates
 		// us create a split of the asset to send to another party.
-		Inputs: []tarofreighter.TransferInput{{
+		Inputs: []tapfreighter.TransferInput{{
 			PrevID: asset.PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  assetGen.anchorTxs[0].TxHash(),
@@ -846,8 +846,8 @@ func TestAssetExportLog(t *testing.T) {
 			},
 			Amount: inputAsset.Amount,
 		}},
-		Outputs: []tarofreighter.TransferOutput{{
-			Anchor: tarofreighter.Anchor{
+		Outputs: []tapfreighter.TransferOutput{{
+			Anchor: tapfreighter.Anchor{
 				Value: 1000,
 				OutPoint: wire.OutPoint{
 					Hash:  anchorTxHash,
@@ -878,7 +878,7 @@ func TestAssetExportLog(t *testing.T) {
 			),
 			ProofSuffix: receiverBlob,
 		}, {
-			Anchor: tarofreighter.Anchor{
+			Anchor: tapfreighter.Anchor{
 				Value: 1000,
 				OutPoint: wire.OutPoint{
 					Hash:  anchorTxHash,
@@ -988,7 +988,7 @@ func TestAssetExportLog(t *testing.T) {
 	blockHeight := int32(100)
 	txIndex := int32(10)
 	err = assetsStore.ConfirmParcelDelivery(
-		ctx, &tarofreighter.AssetConfirmEvent{
+		ctx, &tapfreighter.AssetConfirmEvent{
 			AnchorTXID:  firstOutputAnchor.OutPoint.Hash,
 			TxIndex:     txIndex,
 			BlockHeight: blockHeight,
