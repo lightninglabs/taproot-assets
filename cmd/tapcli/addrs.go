@@ -14,7 +14,7 @@ var addrCommands = []cli.Command{
 	{
 		Name:      "addrs",
 		ShortName: "ad",
-		Usage:     "Interact with Taro addresses.",
+		Usage:     "Interact with Taproot Asset addresses.",
 		Category:  "Addresses",
 		Subcommands: []cli.Command{
 			newAddrCommand,
@@ -32,10 +32,11 @@ const (
 )
 
 var newAddrCommand = cli.Command{
-	Name:        "new",
-	ShortName:   "n",
-	Usage:       "Create a Taro address",
-	Description: "Create a new Taro address to receive an asset on-chain",
+	Name:      "new",
+	ShortName: "n",
+	Usage:     "Create a Taproot Asset address",
+	Description: "Create a new Taproot Asset address to receive an asset " +
+		"on-chain",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  assetIDName,

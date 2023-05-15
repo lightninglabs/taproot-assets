@@ -102,10 +102,10 @@ one of the outputs (often being the change output going back to the sender of
 the asset) and marked with the `IsSplitRoot` flag.
 If the remaining change of a split is 0, the <code>script_key</code> of the
 split root asset output should be the well-known NUMS point (using the string
-"taro" and the traditional "hash and increment" approach to generating the point
-) to prove the output cannot be spent further.
+"taproot-assets" and the traditional "hash and increment" approach to generating
+the point) to prove the output cannot be spent further.
 This so-called "split tombstone" is required for non-interactive sends (send to
-Taro address) of the full value of a coin.
+Taproot Asset address) of the full value of a coin.
 These zero-value tombstone outputs can be pruned in an interactive scenario in
 which the recipient is a ware of the full root asset leaf (including the
 TX witness) and can construct the commitment tree root correctly.

@@ -160,9 +160,9 @@ func (c *Custodian) Stop() error {
 	return stopErr
 }
 
-// watchInboundAssets processes new Taro addresses being created and new
-// transactions being received and attempts to match the two things into inbound
-// asset events.
+// watchInboundAssets processes new Taproot Asset addresses being created and
+// new transactions being received and attempts to match the two things into
+// inbound asset events.
 func (c *Custodian) watchInboundAssets() {
 	defer c.Wg.Done()
 
@@ -292,7 +292,8 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 	// There is at least one Taproot output going to our wallet in that TX,
 	// let's now find out which one.
 	txHash := walletTx.Tx.TxHash()
-	log.Debugf("Inspecting tx %s for Taro address outputs", txHash.String())
+	log.Debugf("Inspecting tx %s for Taproot Asset address outputs",
+		txHash.String())
 	for idx, out := range walletTx.OutputDetails {
 		if !isWalletTaprootOutput(out) {
 			continue
@@ -328,7 +329,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 
 		// This is a new output, let's find out if it's for an address
 		// of ours.
-		addr, err := c.mapToTaroAddr(walletTx, uint32(idx), op)
+		addr, err := c.mapToTapAddr(walletTx, uint32(idx), op)
 		if err != nil {
 			return err
 		}
@@ -390,11 +391,11 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 	return nil
 }
 
-// mapToTaroAddr attempts to match a transaction output to a Taro address. If a
-// matching address is found, an event is created for it. If an event already
-// exists, it is updated with the current transaction information.
-func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
-	outputIdx uint32, op wire.OutPoint) (*address.Taro, error) {
+// mapToTapAddr attempts to match a transaction output to a Taproot Asset
+// address. If a matching address is found, an event is created for it. If an
+// event already exists, it is updated with the current transaction information.
+func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
+	outputIdx uint32, op wire.OutPoint) (*address.Tap, error) {
 
 	taprootKey, err := proof.ExtractTaprootKey(walletTx.Tx, outputIdx)
 	if err != nil {
@@ -405,8 +406,9 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 	addr, err := c.cfg.AddrBook.AddrByTaprootOutput(ctxt, taprootKey)
 	cancel()
 	switch {
-	// There is no Taro address that expects an asset for the given on-chain
-	// output. This probably wasn't a Taro transaction at all then.
+	// There is no Taproot Asset address that expects an asset for the given
+	// on-chain output. This probably wasn't a Taproot Asset transaction at
+	// all then.
 	case errors.Is(err, address.ErrNoAddr):
 		return nil, nil
 
@@ -422,9 +424,9 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 
 	// Make sure we have an event registered for the transaction, since it
 	// is now clear that it is an incoming asset that is being received with
-	// a Taro address.
-	log.Infof("Found inbound asset transfer (asset_id=%x) for Taro "+
-		"address %s in %s", addr.AssetID[:], addrStr, op.String())
+	// a Taproot Asset address.
+	log.Infof("Found inbound asset transfer (asset_id=%x) for Taproot "+
+		"Asset address %s in %s", addr.AssetID[:], addrStr, op.String())
 	status := address.StatusTransactionDetected
 	if walletTx.Confirmations > 0 {
 		status = address.StatusTransactionConfirmed
@@ -443,12 +445,12 @@ func (c *Custodian) mapToTaroAddr(walletTx *lndclient.Transaction,
 	// Let's update our cache of ongoing events.
 	c.events[op] = event
 
-	return addr.Taro, nil
+	return addr.Tap, nil
 }
 
-// importAddrToWallet imports the given Taro address into the lnd-internal
-// btcwallet instance by tracking the on-chain Taproot output key the assets
-// must be sent to in order to be received.
+// importAddrToWallet imports the given Taproot Asset address into the
+// lnd-internal btcwallet instance by tracking the on-chain Taproot output key
+// the assets must be sent to in order to be received.
 func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
@@ -476,8 +478,8 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 		return err
 	}
 
-	log.Infof("Imported Taro address %v into wallet, watching p2tr "+
-		"address %v on chain", addrStr, p2trAddr.String())
+	log.Infof("Imported Taproot Asset address %v into wallet, watching "+
+		"p2tr address %v on chain", addrStr, p2trAddr.String())
 
 	return c.cfg.AddrBook.SetAddrManaged(ctxt, addr, time.Now())
 }

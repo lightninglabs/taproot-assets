@@ -108,8 +108,8 @@ message TxTemplate {
     repeated PrevId inputs = 1;
 
     /*
-    A map of all Taro addresses mapped to the anchor transaction's output index
-    that should be sent to.
+    A map of all Taproot Asset addresses mapped to the anchor transaction's
+    output index that should be sent to.
     */
     map<string, uint64> recipients = 2;
 }

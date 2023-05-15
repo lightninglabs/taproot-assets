@@ -310,7 +310,7 @@ func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
 	}
 
 	resp, err := sender.SendAsset(ctxt, &taprpc.SendAssetRequest{
-		TaroAddrs: encodedAddrs,
+		TapAddrs: encodedAddrs,
 	})
 	require.NoError(t.t, err)
 

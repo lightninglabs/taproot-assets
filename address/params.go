@@ -27,7 +27,7 @@ const (
 
 // ChainParams defines a Taproot Asset supporting network by its parameters.
 // These parameters include those specified by chaincfg.Params, as well as a
-// Taproot Asset specific HRP used for Taproot ASset addresses. These parameters
+// Taproot Asset specific HRP used for Taproot Asset addresses. These parameters
 // may be used by Taproot Asset applications to differentiate networks as well
 // as addresses and keys for one network from those intended for use on another
 // network.

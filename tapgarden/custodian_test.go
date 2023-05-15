@@ -307,7 +307,7 @@ func TestTransactionHandling(t *testing.T) {
 
 func mustMakeAddr(t *testing.T,
 	gen asset.Genesis, groupKey *btcec.PublicKey,
-	groupSig *schnorr.Signature, scriptKey btcec.PublicKey) *address.Taro {
+	groupSig *schnorr.Signature, scriptKey btcec.PublicKey) *address.Tap {
 
 	var p btcec.PublicKey
 	addr, err := address.New(
@@ -340,7 +340,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}{{
 		name: "both group keys nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, nil, nil, blankKey),
+			Tap: mustMakeAddr(t, randGen1, nil, nil, blankKey),
 		},
 		a: &asset.Asset{
 			Genesis: randGen1,
@@ -352,7 +352,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "no group key nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
 				&randGroup1.Sig, blankKey),
 		},
 		a: &asset.Asset{
@@ -366,7 +366,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "no group key nil but mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{
+			Tap: &address.Tap{
 				GroupKey: &randGroup1.GroupPubKey,
 			},
 		},
@@ -380,7 +380,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "one group key nil",
 		addr: &address.AddrWithKeyInfo{
-			Taro: &address.Taro{},
+			Tap: &address.Tap{},
 		},
 		a: &asset.Asset{
 			GroupKey: randGroup1,
@@ -392,7 +392,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "id mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
 				&randGroup1.Sig, *randKey1),
 		},
 		a: &asset.Asset{
@@ -406,7 +406,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "script key mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
 				&randGroup1.Sig, *randKey1),
 		},
 		a: &asset.Asset{
@@ -420,7 +420,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "all match",
 		addr: &address.AddrWithKeyInfo{
-			Taro: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
+			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
 				&randGroup1.Sig, *randKey2),
 		},
 		a: &asset.Asset{

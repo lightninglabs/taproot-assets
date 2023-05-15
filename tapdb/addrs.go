@@ -168,8 +168,8 @@ type BatchedAddrBook interface {
 	BatchedTx[AddrBook]
 }
 
-// TapAddressBook represents a storage backend for all the Taro addresses a
-// daemon has created.
+// TapAddressBook represents a storage backend for all the Taproot Asset
+// addresses a daemon has created.
 type TapAddressBook struct {
 	db     BatchedAddrBook
 	params *address.ChainParams
@@ -424,7 +424,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 			tapAddr.Version = asset.Version(addr.Version)
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
-				Taro: tapAddr,
+				Tap: tapAddr,
 				ScriptKeyTweak: asset.TweakedScriptKey{
 					RawKey: rawScriptKeyDesc,
 					Tweak:  addr.ScriptKeyTweak,

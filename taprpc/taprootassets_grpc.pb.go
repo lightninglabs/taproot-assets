@@ -46,13 +46,14 @@ type TaprootAssetsClient interface {
 	// sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
 	// tapcli: `addrs query`
-	// QueryTaroAddrs queries the set of Taro addresses stored in the database.
+	// QueryAddrs queries the set of Taproot Asset addresses stored in the
+	// database.
 	QueryAddrs(ctx context.Context, in *QueryAddrRequest, opts ...grpc.CallOption) (*QueryAddrResponse, error)
 	// tapcli: `addrs new`
 	// NewAddr makes a new address from the set of request params.
 	NewAddr(ctx context.Context, in *NewAddrRequest, opts ...grpc.CallOption) (*Addr, error)
 	// tapcli: `addrs decode`
-	// DecodeAddr decode a Taro address into a partial asset message that
+	// DecodeAddr decode a Taproot Asset address into a partial asset message that
 	// represents the asset it wants to receive.
 	DecodeAddr(ctx context.Context, in *DecodeAddrRequest, opts ...grpc.CallOption) (*Addr, error)
 	// tapcli: `addrs receives`
@@ -302,13 +303,14 @@ type TaprootAssetsServer interface {
 	// sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)
 	// tapcli: `addrs query`
-	// QueryTaroAddrs queries the set of Taro addresses stored in the database.
+	// QueryAddrs queries the set of Taproot Asset addresses stored in the
+	// database.
 	QueryAddrs(context.Context, *QueryAddrRequest) (*QueryAddrResponse, error)
 	// tapcli: `addrs new`
 	// NewAddr makes a new address from the set of request params.
 	NewAddr(context.Context, *NewAddrRequest) (*Addr, error)
 	// tapcli: `addrs decode`
-	// DecodeAddr decode a Taro address into a partial asset message that
+	// DecodeAddr decode a Taproot Asset address into a partial asset message that
 	// represents the asset it wants to receive.
 	DecodeAddr(context.Context, *DecodeAddrRequest) (*Addr, error)
 	// tapcli: `addrs receives`

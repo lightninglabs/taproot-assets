@@ -855,7 +855,7 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 	return resp, nil
 }
 
-// QueryAddrs queries the set of Taro addresses stored in the database.
+// QueryAddrs queries the set of Taproot Asset addresses stored in the database.
 func (r *rpcServer) QueryAddrs(ctx context.Context,
 	in *taprpc.QueryAddrRequest) (*taprpc.QueryAddrResponse, error) {
 
@@ -889,7 +889,7 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	for i, dbAddr := range dbAddrs {
 		dbAddr.ChainParams = &taroParams
 
-		addrs[i], err = marshalAddr(dbAddr.Taro, r.cfg.TapAddrBook)
+		addrs[i], err = marshalAddr(dbAddr.Tap, r.cfg.TapAddrBook)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal addr: %w",
 				err)
@@ -989,7 +989,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
 	// off the response.
-	rpcAddr, err := marshalAddr(addr.Taro, r.cfg.TapAddrBook)
+	rpcAddr, err := marshalAddr(addr.Tap, r.cfg.TapAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -997,7 +997,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	return rpcAddr, nil
 }
 
-// DecodeAddr decode a Taro address into a partial asset message that
+// DecodeAddr decode a Taproot Asset address into a partial asset message that
 // represents the asset it wants to receive.
 func (r *rpcServer) DecodeAddr(_ context.Context,
 	in *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
@@ -1239,7 +1239,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			taroParams = address.ParamsForChain(
 				r.cfg.ChainParams.Name,
 			)
-			addr *address.Taro
+			addr *address.Tap
 			err  error
 		)
 		for a := range raw.Recipients {
@@ -1419,7 +1419,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 }
 
 // marshalAddr turns an address into its RPC counterpart.
-func marshalAddr(addr *address.Taro,
+func marshalAddr(addr *address.Tap,
 	db address.Storage) (*taprpc.Addr, error) {
 
 	addrStr, err := addr.EncodeAddress()
@@ -1481,7 +1481,7 @@ func marshalAddr(addr *address.Taro,
 func marshalAddrEvent(event *address.Event,
 	db address.Storage) (*taprpc.AddrEvent, error) {
 
-	rpcAddr, err := marshalAddr(event.Addr.Taro, db)
+	rpcAddr, err := marshalAddr(event.Addr.Tap, db)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling addr: %w", err)
 	}
@@ -1560,22 +1560,22 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 func (r *rpcServer) SendAsset(_ context.Context,
 	in *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
-	if len(in.TaroAddrs) == 0 {
+	if len(in.TapAddrs) == 0 {
 		return nil, fmt.Errorf("at least one addr is required")
 	}
 
 	var (
 		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		taroAddrs  = make([]*address.Taro, len(in.TaroAddrs))
+		taroAddrs  = make([]*address.Tap, len(in.TapAddrs))
 		err        error
 	)
-	for idx := range in.TaroAddrs {
-		if len(in.TaroAddrs[idx]) == 0 {
+	for idx := range in.TapAddrs {
+		if len(in.TapAddrs[idx]) == 0 {
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
 		taroAddrs[idx], err = address.DecodeAddress(
-			in.TaroAddrs[idx], &taroParams,
+			in.TapAddrs[idx], &taroParams,
 		)
 		if err != nil {
 			return nil, err

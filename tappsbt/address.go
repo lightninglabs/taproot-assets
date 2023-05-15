@@ -12,7 +12,7 @@ import (
 // FromAddresses creates an empty virtual transaction packet from the given
 // addresses. Because sending to an address is always non-interactive, a change
 // output is also added to the packet.
-func FromAddresses(receiverAddrs []*address.Taro,
+func FromAddresses(receiverAddrs []*address.Tap,
 	firstOutputIndex uint32) (*VPacket, error) {
 
 	// We need at least one address to send to. Any special cases or

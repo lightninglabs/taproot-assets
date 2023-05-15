@@ -63,7 +63,7 @@ type Wallet interface {
 	// asset re-anchors and the Taro level commitment of the selected
 	// assets.
 	FundAddressSend(ctx context.Context,
-		receiverAddrs ...*address.Taro) (*FundedVPacket, error)
+		receiverAddrs ...*address.Tap) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
@@ -278,7 +278,7 @@ type FundedVPacket struct {
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
-	receiverAddrs ...*address.Taro) (*FundedVPacket, error) {
+	receiverAddrs ...*address.Tap) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a

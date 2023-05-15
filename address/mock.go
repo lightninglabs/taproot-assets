@@ -54,17 +54,17 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		},
 	})
 
-	taro, err := New(
+	tapAddr, err := New(
 		genesis, groupPubKey, groupSig, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
 	)
 	require.NoError(t, err)
 
-	taprootOutputKey, err := taro.TaprootOutputKey()
+	taprootOutputKey, err := tapAddr.TaprootOutputKey()
 	require.NoError(t, err)
 
 	return &AddrWithKeyInfo{
-		Taro:           taro,
+		Tap:            tapAddr,
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{

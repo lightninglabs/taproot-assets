@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/addrs": {
       "get": {
-        "summary": "tapcli: `addrs query`\nQueryTaroAddrs queries the set of Taro addresses stored in the database.",
+        "summary": "tapcli: `addrs query`\nQueryAddrs queries the set of Taproot Asset addresses stored in the\ndatabase.",
         "operationId": "TaprootAssets_QueryAddrs",
         "responses": {
           "200": {
@@ -106,7 +106,7 @@
     },
     "/v1/taproot-assets/addrs/decode": {
       "post": {
-        "summary": "tapcli: `addrs decode`\nDecodeAddr decode a Taro address into a partial asset message that\nrepresents the asset it wants to receive.",
+        "summary": "tapcli: `addrs decode`\nDecodeAddr decode a Taproot Asset address into a partial asset message that\nrepresents the asset it wants to receive.",
         "operationId": "TaprootAssets_DecodeAddr",
         "responses": {
           "200": {
@@ -649,7 +649,7 @@
       "properties": {
         "encoded": {
           "type": "string",
-          "description": "The bech32 encoded Taro address."
+          "description": "The bech32 encoded Taproot Asset address."
         },
         "asset_id": {
           "type": "string",
@@ -1440,7 +1440,7 @@
     "taprpcSendAssetRequest": {
       "type": "object",
       "properties": {
-        "taro_addrs": {
+        "tap_addrs": {
           "type": "array",
           "items": {
             "type": "string"

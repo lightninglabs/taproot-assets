@@ -56,9 +56,9 @@ type spendData struct {
 	receiverPrivKey               btcec.PrivateKey
 	receiverPubKey                btcec.PublicKey
 	groupKey                      asset.GroupKey
-	address1                      address.Taro
-	address1CollectGroup          address.Taro
-	address2                      address.Taro
+	address1                      address.Tap
+	address1CollectGroup          address.Tap
+	address2                      address.Tap
 	address1StateKey              [32]byte
 	address1CollectGroupStateKey  [32]byte
 	address2StateKey              [32]byte
@@ -311,7 +311,7 @@ func createGenesisProof(t *testing.T, state *spendData) {
 	state.asset2GenesisProof = asset2GenesisProof
 }
 
-func createPacket(addr address.Taro, prevInput asset.PrevID,
+func createPacket(addr address.Tap, prevInput asset.PrevID,
 	state spendData, inputSet commitment.InputSet,
 	fullValueInteractive bool) *tappsbt.VPacket {
 
@@ -357,7 +357,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 }
 
 func checkPreparedOutputsNonInteractive(t *testing.T, packet *tappsbt.VPacket,
-	addr address.Taro, scriptKey btcec.PublicKey) {
+	addr address.Tap, scriptKey btcec.PublicKey) {
 
 	t.Helper()
 
@@ -379,7 +379,7 @@ func checkPreparedOutputsNonInteractive(t *testing.T, packet *tappsbt.VPacket,
 }
 
 func checkPreparedOutputsInteractive(t *testing.T, packet *tappsbt.VPacket,
-	addr address.Taro, prevInput asset.PrevID) {
+	addr address.Tap, prevInput asset.PrevID) {
 
 	t.Helper()
 
@@ -1861,7 +1861,7 @@ func TestAddressValidInput(t *testing.T) {
 	}
 }
 
-func addrToFundDesc(addr address.Taro) *tapscript.FundingDescriptor {
+func addrToFundDesc(addr address.Tap) *tapscript.FundingDescriptor {
 	return &tapscript.FundingDescriptor{
 		ID:       addr.AssetID,
 		GroupKey: addr.GroupKey,

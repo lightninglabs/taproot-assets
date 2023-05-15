@@ -444,7 +444,7 @@ func sendAssets(ctx *cli.Context) error {
 	defer cleanUp()
 
 	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
-		TaroAddrs: addrs,
+		TapAddrs: addrs,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)

@@ -84,7 +84,7 @@ func TestMinimalContent(t *testing.T) {
 
 	addr, _, _ := address.RandAddr(t, testParams)
 
-	pkg, err := FromAddresses([]*address.Taro{addr.Taro}, 1)
+	pkg, err := FromAddresses([]*address.Tap{addr.Tap}, 1)
 	require.NoError(t, err)
 	pkg.Outputs = append(pkg.Outputs, &VOutput{
 		ScriptKey: asset.RandScriptKey(t),

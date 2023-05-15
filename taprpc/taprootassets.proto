@@ -47,7 +47,8 @@ service TaprootAssets {
     rpc DebugLevel (DebugLevelRequest) returns (DebugLevelResponse);
 
     /* tapcli: `addrs query`
-    QueryTaroAddrs queries the set of Taro addresses stored in the database.
+    QueryAddrs queries the set of Taproot Asset addresses stored in the
+    database.
     */
     rpc QueryAddrs (QueryAddrRequest) returns (QueryAddrResponse);
 
@@ -57,7 +58,7 @@ service TaprootAssets {
     rpc NewAddr (NewAddrRequest) returns (Addr);
 
     /* tapcli: `addrs decode`
-    DecodeAddr decode a Taro address into a partial asset message that
+    DecodeAddr decode a Taproot Asset address into a partial asset message that
     represents the asset it wants to receive.
     */
     rpc DecodeAddr (DecodeAddrRequest) returns (Addr);
@@ -508,7 +509,7 @@ message DebugLevelResponse {
 }
 
 message Addr {
-    // The bech32 encoded Taro address.
+    // The bech32 encoded Taproot Asset address.
     string encoded = 1;
 
     // The asset ID that uniquely identifies the asset.
@@ -741,7 +742,7 @@ message AddrReceivesResponse {
 }
 
 message SendAssetRequest {
-    repeated string taro_addrs = 1;
+    repeated string tap_addrs = 1;
 
     // TODO(roasbeef): maybe in future add details re type of ProofCourier or
     // w/e

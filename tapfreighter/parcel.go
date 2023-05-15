@@ -126,7 +126,7 @@ type AddressParcel struct {
 
 	// destAddrs is the list of address that should be used to satisfy the
 	// transfer.
-	destAddrs []*address.Taro
+	destAddrs []*address.Tap
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -134,7 +134,7 @@ type AddressParcel struct {
 var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
-func NewAddressParcel(destAddrs ...*address.Taro) *AddressParcel {
+func NewAddressParcel(destAddrs ...*address.Tap) *AddressParcel {
 	return &AddressParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),

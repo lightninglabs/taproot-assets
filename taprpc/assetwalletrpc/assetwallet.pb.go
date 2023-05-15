@@ -177,8 +177,8 @@ type TxTemplate struct {
 	// If no inputs are specified, asset coin selection will be performed instead
 	// and inputs of sufficient value will be added to the resulting PSBT.
 	Inputs []*PrevId `protobuf:"bytes,1,rep,name=inputs,proto3" json:"inputs,omitempty"`
-	// A map of all Taro addresses mapped to the anchor transaction's output index
-	// that should be sent to.
+	// A map of all Taproot Asset addresses mapped to the anchor transaction's
+	// output index that should be sent to.
 	Recipients map[string]uint64 `protobuf:"bytes,2,rep,name=recipients,proto3" json:"recipients,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
 }
 

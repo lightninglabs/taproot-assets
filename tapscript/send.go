@@ -54,15 +54,15 @@ var (
 	)
 
 	// ErrMissingInputAsset is an error returned when we attempt to spend
-	// to a Taro address from an input that does not contain
+	// to a Taproot Asset address from an input that does not contain
 	// the matching asset.
 	ErrMissingInputAsset = errors.New(
 		"send: Input does not contain requested asset",
 	)
 
 	// ErrInsufficientInputAssets is an error returned when we attempt
-	// to spend to a Taro address from a set of inputs which contain an
-	// insufficient amount of total funds.
+	// to spend to a Taproot Asset address from a set of inputs which
+	// contain an insufficient amount of total funds.
 	ErrInsufficientInputAssets = errors.New(
 		"send: Input assets total funds is insufficient",
 	)
@@ -122,7 +122,7 @@ type AssetGroupQuerier interface {
 
 // FundingDescriptor describes the information that is needed to select and
 // verify input assets in order to send to a specific recipient. It is a subset
-// of the information contained in a Taro address.
+// of the information contained in a Taproot Asset address.
 type FundingDescriptor struct {
 	// ID is the asset ID of the asset being transferred.
 	ID asset.ID
@@ -176,7 +176,7 @@ func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 
 // DescribeAddrs extracts the recipient descriptors from a list of Taro
 // addresses.
-func DescribeAddrs(addrs []*address.Taro) (*FundingDescriptor, error) {
+func DescribeAddrs(addrs []*address.Tap) (*FundingDescriptor, error) {
 	if len(addrs) < 1 {
 		return nil, fmt.Errorf("at least one address must be specified")
 	}

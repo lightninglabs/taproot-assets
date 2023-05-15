@@ -62,7 +62,8 @@ type Event struct {
 	// CreationTime is the time the event was first created.
 	CreationTime time.Time
 
-	// Addr is the Taro address that was used to receive the assets.
+	// Addr is the Taproot Asset address that was used to receive the
+	// assets.
 	Addr *AddrWithKeyInfo
 
 	// Status represents the current status of the incoming assets.

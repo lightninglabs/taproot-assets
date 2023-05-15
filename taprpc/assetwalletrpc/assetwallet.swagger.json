@@ -426,7 +426,7 @@
             "type": "string",
             "format": "uint64"
           },
-          "description": "A map of all Taro addresses mapped to the anchor transaction's output index\nthat should be sent to."
+          "description": "A map of all Taproot Asset addresses mapped to the anchor transaction's\noutput index that should be sent to."
         }
       }
     },

@@ -20,38 +20,41 @@ import (
 
 var (
 	// ErrUnsupportedHRP is an error returned when we attempt to encode a
-	// Taro address with an HRP for a network without Taro support.
+	// Taproot Asset address with an HRP for a network without Taro support.
 	ErrUnsupportedHRP = errors.New(
 		"address: unsupported HRP value",
 	)
 
 	// ErrMismatchedHRP is an error returned when we attempt to decode a
-	// Taro address with an HRP that does not match the expected network.
+	// Taproot Asset address with an HRP that does not match the expected
+	// network.
 	ErrMismatchedHRP = errors.New(
 		"address: network mismatch",
 	)
 
 	// ErrInvalidBech32m is an error returned when we attempt to decode a
-	// Taro address from a string that is not a valid bech32m string.
+	// Taproot Asset address from a string that is not a valid bech32m
+	// string.
 	ErrInvalidBech32m = errors.New(
 		"address: invalid bech32m string",
 	)
 
 	// ErrInvalidAmountCollectible is an error returned when we attempt to
-	// create a Taro address for a Collectible asset with an amount not
-	// equal to one.
+	// create a Taproot Asset address for a Collectible asset with an amount
+	// not equal to one.
 	ErrInvalidAmountCollectible = errors.New(
 		"address: collectible asset amount not one",
 	)
 
 	// ErrInvalidAmountNormal is an error returned when we attempt to
-	// create a Taro address for a Normal asset with an amount of zero.
+	// create a Taproot Asset address for a Normal asset with an amount of
+	// zero.
 	ErrInvalidAmountNormal = errors.New(
 		"address: normal asset amount of zero",
 	)
 
 	// ErrUnsupportedAssetType is an error returned when we attempt to
-	// create a Taro address for a non-standard asset type.
+	// create a Taproot Asset address for a non-standard asset type.
 	ErrUnsupportedAssetType = errors.New(
 		"address: unsupported asset type",
 	)
@@ -69,15 +72,16 @@ var (
 )
 
 const (
-	// TaroScriptVersion is the highest version of Taro script supported.
-	TaroScriptVersion uint8 = 0
+	// TapScriptVersion is the highest version of Taproot Assets script
+	// supported.
+	TapScriptVersion uint8 = 0
 )
 
-// Taro represents a Taro address. Taro addresses specify an asset, pubkey, and
-// amount.
-type Taro struct {
+// Tap represents a Taproot Asset address. Taproot Asset addresses specify an
+// asset, pubkey, and amount.
+type Tap struct {
 	// ChainParams is the reference to the chain parameters that were used
-	// to encode the Taro addresses.
+	// to encode the Taproot Asset address.
 	ChainParams *ChainParams
 
 	// Version is the Taro version of the asset.
@@ -120,7 +124,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	net *ChainParams) (*Taro, error) {
+	net *ChainParams) (*Tap, error) {
 
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
@@ -156,7 +160,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, fmt.Errorf("address: missing group signature")
 	}
 
-	payload := Taro{
+	payload := Tap{
 		ChainParams:      net,
 		Version:          asset.V0,
 		AssetID:          genesis.ID(),
@@ -172,7 +176,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 }
 
 // Copy returns a deep copy of an Address.
-func (a *Taro) Copy() *Taro {
+func (a *Tap) Copy() *Tap {
 	addressCopy := *a
 
 	if a.GroupKey != nil {
@@ -187,35 +191,36 @@ func (a *Taro) Copy() *Taro {
 	return &addressCopy
 }
 
-// Net returns the ChainParams struct matching the Taro address network.
-func (a *Taro) Net() (*ChainParams, error) {
+// Net returns the ChainParams struct matching the Taproot Asset address
+// network.
+func (a *Tap) Net() (*ChainParams, error) {
 	return Net(a.ChainParams.TapHRP)
 }
 
 // AssetType returns the type of asset that this address was generated for.
-func (a *Taro) AssetType() asset.Type {
+func (a *Tap) AssetType() asset.Type {
 	return a.assetGen.Type
 }
 
 // AttachGenesis attaches the asset's genesis metadata to the address.
-func (a *Taro) AttachGenesis(gen asset.Genesis) {
+func (a *Tap) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
 }
 
 // AttachGroupSig attaches the asset's group signature to the address.
-func (a *Taro) AttachGroupSig(sig schnorr.Signature) {
+func (a *Tap) AttachGroupSig(sig schnorr.Signature) {
 	a.groupSig = &sig
 }
 
 // TaroCommitmentKey is the key that maps to the root commitment for the asset
-// group specified by a Taro address.
-func (a *Taro) TaroCommitmentKey() [32]byte {
+// group specified by a Taproot Asset address.
+func (a *Tap) TaroCommitmentKey() [32]byte {
 	return asset.TaroCommitmentKey(a.AssetID, a.GroupKey)
 }
 
 // AssetCommitmentKey is the key that maps to the asset leaf for the asset
-// specified by a Taro address.
-func (a *Taro) AssetCommitmentKey() [32]byte {
+// specified by a Taproot Asset address.
+func (a *Tap) AssetCommitmentKey() [32]byte {
 	return asset.AssetCommitmentKey(
 		a.AssetID, &a.ScriptKey, a.GroupKey == nil,
 	)
@@ -223,7 +228,7 @@ func (a *Taro) AssetCommitmentKey() [32]byte {
 
 // TaroCommitment constructs the Taro commitment that is expected to appear on
 // chain when assets are being sent to this address.
-func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
+func (a *Tap) TaroCommitment() (*commitment.TaroCommitment, error) {
 	// If this genesis wasn't actually set, then we'll fail here as we need
 	// it in order to make the asset template.
 	var zeroOp wire.OutPoint
@@ -256,7 +261,7 @@ func (a *Taro) TaroCommitment() (*commitment.TaroCommitment, error) {
 }
 
 // TaprootOutputKey returns the on-chain Taproot output key.
-func (a *Taro) TaprootOutputKey() (*btcec.PublicKey, error) {
+func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 	c, err := a.TaroCommitment()
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive taro commitment: %w",
@@ -287,7 +292,7 @@ func (a *Taro) TaprootOutputKey() (*btcec.PublicKey, error) {
 
 // EncodeRecords determines the non-nil records to include when encoding an
 // address at runtime.
-func (a *Taro) EncodeRecords() []tlv.Record {
+func (a *Tap) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 6)
 	records = append(records, newAddressVersionRecord(&a.Version))
 	records = append(records, newAddressAssetID(&a.AssetID))
@@ -310,7 +315,7 @@ func (a *Taro) EncodeRecords() []tlv.Record {
 
 // DecodeRecords provides all records known for an address for proper
 // decoding.
-func (a *Taro) DecodeRecords() []tlv.Record {
+func (a *Tap) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		newAddressVersionRecord(&a.Version),
 		newAddressAssetID(&a.AssetID),
@@ -323,7 +328,7 @@ func (a *Taro) DecodeRecords() []tlv.Record {
 }
 
 // Encode encodes an address into a TLV stream.
-func (a *Taro) Encode(w io.Writer) error {
+func (a *Tap) Encode(w io.Writer) error {
 	stream, err := tlv.NewStream(a.EncodeRecords()...)
 	if err != nil {
 		return err
@@ -332,7 +337,7 @@ func (a *Taro) Encode(w io.Writer) error {
 }
 
 // Decode decodes an address from a TLV stream.
-func (a *Taro) Decode(r io.Reader) error {
+func (a *Tap) Decode(r io.Reader) error {
 	stream, err := tlv.NewStream(a.DecodeRecords()...)
 	if err != nil {
 		return err
@@ -340,8 +345,8 @@ func (a *Taro) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
-// EncodeAddress returns a bech32m string encoding of a Taro address.
-func (a *Taro) EncodeAddress() (string, error) {
+// EncodeAddress returns a bech32m string encoding of a Taproot Asset address.
+func (a *Tap) EncodeAddress() (string, error) {
 	var buf bytes.Buffer
 	if err := a.Encode(&buf); err != nil {
 		return "", err
@@ -366,20 +371,20 @@ func (a *Taro) EncodeAddress() (string, error) {
 	return "", ErrUnsupportedHRP
 }
 
-// String returns the string representation of a Taro address.
-func (a *Taro) String() string {
+// String returns the string representation of a Taproot Asset address.
+func (a *Tap) String() string {
 	return fmt.Sprintf("TaroAddr{id=%s, amount=%d, script_key=%x}",
 		a.AssetID, a.Amount, a.ScriptKey.SerializeCompressed())
 }
 
-// DecodeAddress parses a bech32m encoded Taro address string and
+// DecodeAddress parses a bech32m encoded Taproot Asset address string and
 // returns the HRP and address TLV.
-func DecodeAddress(addr string, net *ChainParams) (*Taro, error) {
-	// Bech32m encoded Taro addresses start with a human-readable part
-	// (hrp) followed by '1'. For Bitcoin mainnet the hrp is "taro", and
-	// for testnet it is "tarot". If the address string has a prefix that
-	// matches one of the prefixes for the known networks, we try to decode
-	// it as a Taro address.
+func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
+	// Bech32m encoded Taproot Asset addresses start with a human-readable
+	// part (hrp) followed by '1'. For Bitcoin mainnet the hrp is "taro",
+	// and for testnet it is "tarot". If the address string has a prefix
+	// that matches one of the prefixes for the known networks, we try to
+	// decode it as a Taproot Asset address.
 	oneIndex := strings.LastIndexByte(addr, '1')
 	if oneIndex <= 0 {
 		return nil, ErrInvalidBech32m
@@ -414,7 +419,7 @@ func DecodeAddress(addr string, net *ChainParams) (*Taro, error) {
 		return nil, err
 	}
 
-	var a Taro
+	var a Tap
 	buf := bytes.NewBuffer(converted)
 	if err := a.Decode(buf); err != nil {
 		return nil, err

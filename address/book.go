@@ -26,7 +26,7 @@ var (
 // AddrWithKeyInfo wraps a normal Taro struct with key descriptor
 // information.
 type AddrWithKeyInfo struct {
-	*Taro
+	*Tap
 
 	// ScriptKeyTweak houses the wallet specific information related to a
 	// tweak key. This includes the raw key desc information along with the
@@ -108,7 +108,8 @@ type Storage interface {
 	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey) error
 }
 
-// KeyRing is used to create script and internal keys for Taro addresses.
+// KeyRing is used to create script and internal keys for Taproot Asset
+// addresses.
 type KeyRing interface {
 	// DeriveNextTaprootAssetKey attempts to derive the *next* key within
 	// the TaprootAsset key family.
@@ -142,7 +143,8 @@ type BookConfig struct {
 	StoreTimeout time.Duration
 }
 
-// Book is used to create and also look up the set of created Taro addresses.
+// Book is used to create and also look up the set of created Taproot Asset
+// addresses.
 type Book struct {
 	cfg BookConfig
 
@@ -169,7 +171,7 @@ func NewBook(cfg BookConfig) *Book {
 	}
 }
 
-// NewAddress creates a new Taro address based on the input parameters.
+// NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage) (*AddrWithKeyInfo,
 	error) {
@@ -202,8 +204,8 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	)
 }
 
-// NewAddressWithKeys creates a new Taro address based on the input parameters
-// that include pre-derived script and internal keys.
+// NewAddressWithKeys creates a new Taproot Asset address based on the input
+// parameters that include pre-derived script and internal keys.
 func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
@@ -253,7 +255,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	}
 
 	addr := AddrWithKeyInfo{
-		Taro:             baseAddr,
+		Tap:              baseAddr,
 		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,
