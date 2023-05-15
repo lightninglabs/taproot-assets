@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarocfg"
+	"github.com/lightninglabs/taro/tapcfg"
 	"github.com/lightninglabs/taro/tarodb"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
@@ -47,7 +47,7 @@ const (
 type tarodHarness struct {
 	cfg       *tarodConfig
 	server    *taro.Server
-	clientCfg *tarocfg.Config
+	clientCfg *tapcfg.Config
 
 	ht *harnessTest
 	wg sync.WaitGroup
@@ -88,7 +88,7 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		"admin.macaroon",
 	)
 
-	tarodCfg := tarocfg.DefaultConfig()
+	tarodCfg := tapcfg.DefaultConfig()
 	tarodCfg.LogDir = "."
 	tarodCfg.MaxLogFiles = 99
 	tarodCfg.MaxLogFileSize = 999
@@ -99,17 +99,17 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 
 	// Decide which DB backend to use.
 	switch *dbbackend {
-	case tarocfg.DatabaseBackendSqlite:
+	case tapcfg.DatabaseBackendSqlite:
 		// We use the default settings, nothing to change for SQLite.
 
-	case tarocfg.DatabaseBackendPostgres:
+	case tapcfg.DatabaseBackendPostgres:
 		fixture := tarodb.NewTestPgFixture(
 			ht.t, tarodb.DefaultPostgresFixtureLifetime,
 		)
 		ht.t.Cleanup(func() {
 			fixture.TearDown(ht.t)
 		})
-		tarodCfg.DatabaseBackend = tarocfg.DatabaseBackendPostgres
+		tarodCfg.DatabaseBackend = tapcfg.DatabaseBackendPostgres
 		tarodCfg.Postgres = fixture.GetConfig()
 	}
 
@@ -120,14 +120,14 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
 	}
 
-	tarodCfg.Lnd = &tarocfg.LndConfig{
+	tarodCfg.Lnd = &tapcfg.LndConfig{
 		Host:         cfg.LndNode.Cfg.RPCAddr(),
 		MacaroonPath: lndMacPath,
 		TLSPath:      cfg.LndNode.Cfg.TLSCertPath,
 	}
 
 	cfgLogger := tarodCfg.LogWriter.GenSubLogger("CONF", nil)
-	finalCfg, err := tarocfg.ValidateConfig(tarodCfg, cfgLogger)
+	finalCfg, err := tapcfg.ValidateConfig(tarodCfg, cfgLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 		err         error
 		mainErrChan = make(chan error, 10)
 	)
-	hs.server, err = tarocfg.CreateServerFromConfig(
+	hs.server, err = tapcfg.CreateServerFromConfig(
 		hs.clientCfg, cfgLogger, hs.ht.interceptor, mainErrChan,
 	)
 	if err != nil {

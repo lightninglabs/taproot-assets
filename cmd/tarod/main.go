@@ -8,7 +8,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taro/chanutils"
-	"github.com/lightninglabs/taro/tarocfg"
+	"github.com/lightninglabs/taro/tapcfg"
 	"github.com/lightningnetwork/lnd/signal"
 )
 
@@ -22,7 +22,7 @@ func main() {
 
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
-	cfg, cfgLogger, err := tarocfg.LoadConfig(shutdownInterceptor)
+	cfg, cfgLogger, err := tapcfg.LoadConfig(shutdownInterceptor)
 	if err != nil {
 		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
 			// Print error if not due to help request.
@@ -68,7 +68,7 @@ func main() {
 	errQueue.Start()
 	defer errQueue.Stop()
 
-	server, err := tarocfg.CreateServerFromConfig(
+	server, err := tapcfg.CreateServerFromConfig(
 		cfg, cfgLogger, shutdownInterceptor, errQueue.ChanIn(),
 	)
 	if err != nil {

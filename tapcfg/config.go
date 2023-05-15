@@ -1,4 +1,4 @@
-package tarocfg
+package tapcfg
 
 import (
 	"context"

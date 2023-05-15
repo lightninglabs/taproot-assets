@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	"github.com/lightninglabs/taro/tarocfg"
+	"github.com/lightninglabs/taro/tapcfg"
 	"github.com/lightninglabs/taro/tarorpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
 	"github.com/urfave/cli"
@@ -144,7 +144,7 @@ func mintAsset(ctx *cli.Context) error {
 		}
 
 	case ctx.String(assetMetaFilePathName) != "":
-		metaPath := tarocfg.CleanAndExpandPath(
+		metaPath := tapcfg.CleanAndExpandPath(
 			ctx.String(assetMetaFilePathName),
 		)
 		metaFileBytes, err := ioutil.ReadFile(metaPath)
