@@ -5,11 +5,11 @@ DOCKER_RELEASE_HELPER = docker run \
   -it \
   --rm \
   --user $(shell id -u):$(shell id -g) \
-  -v $(shell pwd):/tmp/build/taro \
+  -v $(shell pwd):/tmp/build/taproot-assets \
   -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
   -e SKIP_VERSION_CHECK \
-  taro-release-helper
+  taproot-assets-release-helper
 
 BUILD_SYSTEM = darwin-amd64 \
 darwin-arm64 \

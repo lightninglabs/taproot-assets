@@ -435,7 +435,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
 	// Stop receiving taro node to simulate offline receiver.
-	t.Logf("Stopping receiving taro node")
+	t.Logf("Stopping receiving taproot assets node")
 	require.NoError(t.t, recvTapd.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
@@ -447,7 +447,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	time.Sleep(1 * time.Second)
 
 	// Restart receiving taro node.
-	t.Logf("Re-starting receiving taro node")
+	t.Logf("Re-starting receiving taproot assets node")
 	require.NoError(t.t, recvTapd.start(false))
 
 	// Confirm that the receiver eventually receives the asset. Pause to

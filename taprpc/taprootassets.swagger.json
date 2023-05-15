@@ -506,7 +506,7 @@
     },
     "/v1/taproot-assets/send": {
       "post": {
-        "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed taro address(es) to attempt to\ncomplete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
+        "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed Taproot Asset address(es) to attempt\nto complete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
         "operationId": "TaprootAssets_SendAsset",
         "responses": {
           "200": {
@@ -663,7 +663,7 @@
         "amount": {
           "type": "string",
           "format": "uint64",
-          "description": "The total amount of the asset stored in this Taro UTXO."
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
         },
         "group_key": {
           "type": "string",
@@ -798,7 +798,7 @@
         "merkle_root": {
           "type": "string",
           "format": "byte",
-          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taro root\ncommitment hash."
+          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taproot Asset\nroot commitment hash."
         },
         "tapscript_sibling": {
           "type": "string",
@@ -813,7 +813,7 @@
         "version": {
           "type": "integer",
           "format": "int32",
-          "description": "The version of the Taro asset."
+          "description": "The version of the Taproot Asset asset."
         },
         "asset_genesis": {
           "$ref": "#/definitions/taprpcGenesisInfo",
@@ -826,7 +826,7 @@
         "amount": {
           "type": "string",
           "format": "uint64",
-          "description": "The total amount of the asset stored in this Taro UTXO."
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
         },
         "lock_time": {
           "type": "integer",
@@ -850,7 +850,7 @@
         },
         "script_key_is_local": {
           "type": "boolean",
-          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taro daemon."
+          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taproot Asset daemon."
         },
         "asset_group": {
           "$ref": "#/definitions/taprpcAssetGroup",
@@ -1000,7 +1000,7 @@
         "anchor_tx_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The new transaction that commits to the set of Taro assets found at the\nabove new anchor point."
+          "description": "The new transaction that commits to the set of Taproot Asset assets found\nat the above new anchor point."
         },
         "anchor_tx_height_hint": {
           "type": "integer",
@@ -1268,7 +1268,7 @@
         "merkle_root": {
           "type": "string",
           "format": "byte",
-          "description": "The Taproot merkle root hash committed to by the outpoint of this UTXO.\nIf there is no Tapscript sibling, this is equal to the Taro root commitment\nhash."
+          "description": "The Taproot merkle root hash committed to by the outpoint of this UTXO.\nIf there is no Tapscript sibling, this is equal to the Taproot Asset root\ncommitment hash."
         },
         "assets": {
           "type": "array",

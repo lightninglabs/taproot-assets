@@ -480,8 +480,8 @@ func formatProtoJSON(resp proto.Message) (string, error) {
 	return jsonStr, nil
 }
 
-// lndKeyDescToTaro converts an lnd key descriptor to a tap key descriptor.
-func lndKeyDescToTaro(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
+// lndKeyDescToTap converts an lnd key descriptor to a tap key descriptor.
+func lndKeyDescToTap(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
 	return &taprpc.KeyDescriptor{
 		RawKeyBytes: lnd.PubKey.SerializeCompressed(),
 		KeyLoc: &taprpc.KeyLocator{

@@ -89,8 +89,8 @@ service TaprootAssets {
     rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
 
     /* tapcli: `assets send`
-    SendAsset uses one or multiple passed taro address(es) to attempt to
-    complete an asset send. The method returns information w.r.t the on chain
+    SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
+    to complete an asset send. The method returns information w.r.t the on chain
     send, as well as the proof file information the receiver needs to fully
     receive the asset.
     */
@@ -177,8 +177,8 @@ message AnchorInfo {
 
     /*
     The Taproot merkle root hash of the anchor output the asset was committed
-    to. If there is no Tapscript sibling, this is equal to the Taro root
-    commitment hash.
+    to. If there is no Tapscript sibling, this is equal to the Taproot Asset
+    root commitment hash.
     */
     bytes merkle_root = 6;
 
@@ -228,7 +228,7 @@ message AssetGroup {
 }
 
 message Asset {
-    // The version of the Taro asset.
+    // The version of the Taproot Asset asset.
     int32 version = 1;
 
     // The base genesis information of an asset. This information never changes.
@@ -237,7 +237,7 @@ message Asset {
     // The type of the asset.
     AssetType asset_type = 3;
 
-    // The total amount of the asset stored in this Taro UTXO.
+    // The total amount of the asset stored in this Taproot Asset UTXO.
     uint64 amount = 4;
 
     // An optional locktime, as with Bitcoin transactions.
@@ -253,7 +253,7 @@ message Asset {
     bytes script_key = 9;
 
     // Indicates whether the script key is known to the wallet of the lnd node
-    // connected to the Taro daemon.
+    // connected to the Taproot Asset daemon.
     bool script_key_is_local = 10;
 
     // The information related to the key group of an asset (if it exists).
@@ -302,8 +302,8 @@ message ManagedUtxo {
 
     /*
     The Taproot merkle root hash committed to by the outpoint of this UTXO.
-    If there is no Tapscript sibling, this is equal to the Taro root commitment
-    hash.
+    If there is no Tapscript sibling, this is equal to the Taproot Asset root
+    commitment hash.
     */
     bytes merkle_root = 5;
 
@@ -407,8 +407,8 @@ message ListTransfersResponse {
 message AssetTransfer {
     int64 transfer_timestamp = 1;
 
-    // The new transaction that commits to the set of Taro assets found at the
-    // above new anchor point.
+    // The new transaction that commits to the set of Taproot Asset assets found
+    // at the above new anchor point.
     bytes anchor_tx_hash = 2;
 
     uint32 anchor_tx_height_hint = 3;
@@ -520,7 +520,7 @@ message Addr {
     // The type of the asset.
     AssetType asset_type = 3;
 
-    // The total amount of the asset stored in this Taro UTXO.
+    // The total amount of the asset stored in this Taproot Asset UTXO.
     uint64 amount = 4;
 
     // The group key of the asset (if it exists)

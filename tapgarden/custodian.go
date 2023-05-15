@@ -413,8 +413,8 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 		return nil, nil
 
 	case err != nil:
-		return nil, fmt.Errorf("error querying addresses by "+
-			"taro key: %w", err)
+		return nil, fmt.Errorf("error querying addresses by Taproot "+
+			"Asset key: %w", err)
 	}
 
 	addrStr, err := addr.EncodeAddress()

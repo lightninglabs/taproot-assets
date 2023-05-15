@@ -497,7 +497,7 @@ func (c *ChainPlanter) gardener() {
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
 			ctx, cancel := c.WithCtxQuit()
-			err := c.prepTaroSeedling(ctx, req)
+			err := c.prepAssetSeedling(ctx, req)
 			cancel()
 			if err != nil {
 				// Something went wrong, so then an error
@@ -671,10 +671,10 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return <-req.resp, <-req.err
 }
 
-// prepTaroSeedling performs some basic validation for the TaroSeedling, then
+// prepAssetSeedling performs some basic validation for the TaroSeedling, then
 // either adds it to an existing pending batch or creates a new batch for it. A
 // bool indicating if a new batch should immediately be created is returned.
-func (c *ChainPlanter) prepTaroSeedling(ctx context.Context,
+func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
 	// First, we'll perform some basic validation for the seedling.

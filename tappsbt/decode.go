@@ -21,7 +21,7 @@ import (
 var (
 	// ErrKeyNotFound is returned when a key is not found among the unknown
 	// fields of a packet.
-	ErrKeyNotFound = errors.New("taropsbt: key not found")
+	ErrKeyNotFound = errors.New("tappsbt: key not found")
 )
 
 // decoderFunc is a function type for decoding a virtual PSBT item from a byte
@@ -72,13 +72,13 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 		packet.Unknowns, PsbtKeyTypeGlobalTapChainParamsHRP,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error reading Taro chain params HRP: "+
-			"%w", err)
+		return nil, fmt.Errorf("error reading Taproot asset chain "+
+			"params HRP: %w", err)
 	}
 	chainParams, err := address.Net(string(hrp.Value))
 	if err != nil {
-		return nil, fmt.Errorf("error parsing Taro chain params HRP: "+
-			"%w", err)
+		return nil, fmt.Errorf("error parsing Taproot Asset chain "+
+			"params HRP: %w", err)
 	}
 
 	// The version is currently optional, as it's not used anywhere.

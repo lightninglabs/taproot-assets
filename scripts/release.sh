@@ -11,7 +11,7 @@ set -e
 
 TAPD_VERSION_REGEX="tapd version (.+) commit"
 PKG="github.com/lightninglabs/taproot-assets"
-PACKAGE=taro
+PACKAGE=taproot-assets
 
 # Needed for setting file timestamps to get reproducible archives.
 BUILD_DATE="2023-01-01 00:00:00"
@@ -118,7 +118,7 @@ function check_tag_correct() {
 
     # Match git tag with tapd version.
     if [[ $tag != "${tapd_version}" ]]; then
-      red "tapd version $tpd_version does not match tag $tag"
+      red "tapd version $tapd_version does not match tag $tag"
       exit 1
     fi
   else

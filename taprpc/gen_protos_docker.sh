@@ -9,7 +9,7 @@ PROTOBUF_VERSION=$(go list -f '{{.Version}}' -m google.golang.org/protobuf)
 GRPC_GATEWAY_VERSION=$(go list -f '{{.Version}}' -m github.com/grpc-ecosystem/grpc-gateway/v2)
 
 echo "Building protobuf compiler docker image..."
-docker build -t taro-protobuf-builder \
+docker build -t taproot-assets-protobuf-builder \
   --build-arg PROTOBUF_VERSION="$PROTOBUF_VERSION" \
   --build-arg GRPC_GATEWAY_VERSION="$GRPC_GATEWAY_VERSION" \
   .
@@ -22,4 +22,4 @@ docker run \
   -e COMPILE_MOBILE \
   -e SUBSERVER_PREFIX \
   -v "$DIR/../:/build" \
-  taro-protobuf-builder
+  taproot-assets-protobuf-builder

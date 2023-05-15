@@ -202,14 +202,14 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	// Before we start with any fields that need to go into the Unknowns
 	// slice, we add the information that we can stuff into the wire TX or
 	// existing PSBT fields.
-	taroPkScript, err := payToTaprootScript(o.ScriptKey.PubKey)
+	assetPkScript, err := payToTaprootScript(o.ScriptKey.PubKey)
 	if err != nil {
 		return pOut, nil, fmt.Errorf("error creating asset taproot "+
 			"script: %w", err)
 	}
 	txOut := &wire.TxOut{
 		Value:    int64(o.Amount),
-		PkScript: taroPkScript,
+		PkScript: assetPkScript,
 	}
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)

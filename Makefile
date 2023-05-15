@@ -55,7 +55,7 @@ endif
 DOCKER_TOOLS = docker run \
   -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
-  -v $$(pwd):/build taro-tools
+  -v $$(pwd):/build taproot-assets-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -114,7 +114,7 @@ docker-release:
 	@$(call print, "Building release helper docker image.")
 	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
 
-	docker build -t taro-release-helper -f make/builder.Dockerfile make/
+	docker build -t taproot-assets-release-helper -f make/builder.Dockerfile make/
 
 	# Run the actual compilation inside the docker image. We pass in all flags
 	# that we might want to overwrite in manual tests.
@@ -122,7 +122,7 @@ docker-release:
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	docker build -q -t taro-tools $(TOOLS_DIR)
+	docker build -q -t taproot-assets-tools $(TOOLS_DIR)
 
 scratch: build
 
@@ -131,10 +131,10 @@ scratch: build
 # ===================
 
 migrate-up: $(MIGRATE_BIN)
-	migrate -path tapdb/sqlc/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose up
+	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose up
 
 migrate-down: $(MIGRATE_BIN)
-	migrate -path tapdb/sqlc/migrations -database $(TARO_DB_CONNECTIONSTRING) -verbose down 1
+	migrate -path tapdb/sqlc/migrations -database $(TAP_DB_CONNECTIONSTRING) -verbose down 1
 
 migrate-create: $(MIGRATE_BIN)
 	migrate create -dir tapdb/sqlc/migrations -seq -ext sql $(patchname)

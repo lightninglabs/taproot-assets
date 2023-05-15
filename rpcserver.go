@@ -45,9 +45,9 @@ import (
 )
 
 const (
-	// poolMacaroonLocation is the value we use for the taro macaroons'
+	// tapdMacaroonLocation is the value we use for the tapd macaroons'
 	// "Location" field when baking them.
-	taroMacaroonLocation = "taro"
+	tapdMacaroonLocation = "tapd"
 )
 
 // rpcServer is the main RPC server for the Taro daemon that handles
@@ -883,11 +883,11 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	}
 
 	// TODO(roasbeef): just stop storing the hrp in the addr?
-	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
 	addrs := make([]*taprpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
-		dbAddr.ChainParams = &taroParams
+		dbAddr.ChainParams = &tapParams
 
 		addrs[i], err = marshalAddr(dbAddr.Tap, r.cfg.TapAddrBook)
 		if err != nil {
@@ -896,7 +896,7 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 		}
 	}
 
-	rpcsLog.Debugf("[QueryTaroAddrs]: returning %v addrs", len(addrs))
+	rpcsLog.Debugf("[QueryAddrs]: returning %v addrs", len(addrs))
 
 	return &taprpc.QueryAddrResponse{
 		Addrs: addrs,
@@ -1006,9 +1006,9 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 		return nil, fmt.Errorf("must specify an addr")
 	}
 
-	taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-	addr, err := address.DecodeAddress(in.Addr, &taroParams)
+	addr, err := address.DecodeAddress(in.Addr, &tapParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
@@ -1119,9 +1119,9 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	var sqlQuery address.EventQueryParams
 
 	if len(in.FilterAddr) > 0 {
-		taroParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+		tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-		addr, err := address.DecodeAddress(in.FilterAddr, &taroParams)
+		addr, err := address.DecodeAddress(in.FilterAddr, &tapParams)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
@@ -1236,14 +1236,14 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		var (
-			taroParams = address.ParamsForChain(
+			tapParams = address.ParamsForChain(
 				r.cfg.ChainParams.Name,
 			)
 			addr *address.Tap
 			err  error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &taroParams)
+			addr, err = address.DecodeAddress(a, &tapParams)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
@@ -1565,17 +1565,17 @@ func (r *rpcServer) SendAsset(_ context.Context,
 	}
 
 	var (
-		taroParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		taroAddrs  = make([]*address.Tap, len(in.TapAddrs))
-		err        error
+		tapParams = address.ParamsForChain(r.cfg.ChainParams.Name)
+		tapAddrs  = make([]*address.Tap, len(in.TapAddrs))
+		err       error
 	)
 	for idx := range in.TapAddrs {
 		if len(in.TapAddrs[idx]) == 0 {
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
-		taroAddrs[idx], err = address.DecodeAddress(
-			in.TapAddrs[idx], &taroParams,
+		tapAddrs[idx], err = address.DecodeAddress(
+			in.TapAddrs[idx], &tapParams,
 		)
 		if err != nil {
 			return nil, err
@@ -1597,16 +1597,16 @@ func (r *rpcServer) SendAsset(_ context.Context,
 		// TODO(guggero): Revisit after we have a way to send fungible
 		// assets with different IDs to an address (non-interactive).
 		if idx > 0 {
-			if taroAddrs[idx].AssetID != taroAddrs[0].AssetID {
+			if tapAddrs[idx].AssetID != tapAddrs[0].AssetID {
 				return nil, fmt.Errorf("all addrs must be of "+
 					"the same asset ID %v",
-					taroAddrs[0].AssetID)
+					tapAddrs[0].AssetID)
 			}
 		}
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewAddressParcel(taroAddrs...),
+		tapfreighter.NewAddressParcel(tapAddrs...),
 	)
 	if err != nil {
 		return nil, err

@@ -764,7 +764,7 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate taro "+
+		return nil, fmt.Errorf("unable to generate Taproot Asset "+
 			"witness data: %w", err)
 	}
 
@@ -1141,8 +1141,8 @@ func (f *AssetWallet) SignOwnershipProof(
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate taro witness data: "+
-			"%w", err)
+		return nil, fmt.Errorf("unable to generate Taproot Asset "+
+			"witness data: %w", err)
 	}
 
 	return vPkt.Outputs[0].Asset.PrevWitnesses[0].TxWitness, nil

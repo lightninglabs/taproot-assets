@@ -34,4 +34,4 @@ cmd/tapd/tapd
 vendor/
 
 # Release builds
-/taro-*
+/taproot-assets-*

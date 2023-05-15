@@ -33,7 +33,7 @@ func TestFileArchiver(t *testing.T) {
 
 	// First, we'll make a temp directory we'll use as the root of our file
 	// system.
-	dir, err := ioutil.TempDir("", "taro-proofs-")
+	dir, err := ioutil.TempDir("", "tap-proofs-")
 	require.NoError(t, err)
 
 	defer os.RemoveAll(dir)

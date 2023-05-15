@@ -266,7 +266,7 @@ func main() {
 		cli.StringFlag{
 			Name: "socksproxy",
 			Usage: "The host:port of a SOCKS proxy through " +
-				"which all connections to the Taro " +
+				"which all connections to the Taproot Asset " +
 				"daemon will be established over.",
 		},
 		cli.StringFlag{

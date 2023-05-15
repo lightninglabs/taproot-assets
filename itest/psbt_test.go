@@ -1002,10 +1002,10 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		Amt:     numUnits,
 		ScriptKey: &taprpc.ScriptKey{
 			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTaro(bobScriptKey.RawKey),
+			KeyDesc:  lndKeyDescToTap(bobScriptKey.RawKey),
 			TapTweak: rootHash,
 		},
-		InternalKey: lndKeyDescToTaro(bobInternalKey),
+		InternalKey: lndKeyDescToTap(bobInternalKey),
 	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, bob, mintedAsset, bobAddr)

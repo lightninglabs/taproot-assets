@@ -378,8 +378,8 @@ type AnchorInfo struct {
 	// The raw internal key that was used to create the anchor Taproot output key.
 	InternalKey []byte `protobuf:"bytes,5,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
 	// The Taproot merkle root hash of the anchor output the asset was committed
-	// to. If there is no Tapscript sibling, this is equal to the Taro root
-	// commitment hash.
+	// to. If there is no Tapscript sibling, this is equal to the Taproot Asset
+	// root commitment hash.
 	MerkleRoot []byte `protobuf:"bytes,6,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
 	// The serialized preimage of a Tapscript sibling, if there was one. If this
 	// is empty, then the merkle_root hash is equal to the Taproot root hash of the
@@ -634,13 +634,13 @@ type Asset struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The version of the Taro asset.
+	// The version of the Taproot Asset asset.
 	Version int32 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
 	// The base genesis information of an asset. This information never changes.
 	AssetGenesis *GenesisInfo `protobuf:"bytes,2,opt,name=asset_genesis,json=assetGenesis,proto3" json:"asset_genesis,omitempty"`
 	// The type of the asset.
 	AssetType AssetType `protobuf:"varint,3,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
-	// The total amount of the asset stored in this Taro UTXO.
+	// The total amount of the asset stored in this Taproot Asset UTXO.
 	Amount uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	// An optional locktime, as with Bitcoin transactions.
 	LockTime int32 `protobuf:"varint,5,opt,name=lock_time,json=lockTime,proto3" json:"lock_time,omitempty"`
@@ -651,7 +651,7 @@ type Asset struct {
 	// The script key of the asset, which can be spent under Taproot semantics.
 	ScriptKey []byte `protobuf:"bytes,9,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 	// Indicates whether the script key is known to the wallet of the lnd node
-	// connected to the Taro daemon.
+	// connected to the Taproot Asset daemon.
 	ScriptKeyIsLocal bool `protobuf:"varint,10,opt,name=script_key_is_local,json=scriptKeyIsLocal,proto3" json:"script_key_is_local,omitempty"`
 	// The information related to the key group of an asset (if it exists).
 	AssetGroup *AssetGroup `protobuf:"bytes,11,opt,name=asset_group,json=assetGroup,proto3" json:"asset_group,omitempty"`
@@ -994,8 +994,8 @@ type ManagedUtxo struct {
 	// The Taproot Asset root commitment hash.
 	TaprootAssetRoot []byte `protobuf:"bytes,4,opt,name=taproot_asset_root,json=taprootAssetRoot,proto3" json:"taproot_asset_root,omitempty"`
 	// The Taproot merkle root hash committed to by the outpoint of this UTXO.
-	// If there is no Tapscript sibling, this is equal to the Taro root commitment
-	// hash.
+	// If there is no Tapscript sibling, this is equal to the Taproot Asset root
+	// commitment hash.
 	MerkleRoot []byte `protobuf:"bytes,5,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
 	// The assets held at this UTXO.
 	Assets []*Asset `protobuf:"bytes,6,rep,name=assets,proto3" json:"assets,omitempty"`
@@ -1733,8 +1733,8 @@ type AssetTransfer struct {
 	unknownFields protoimpl.UnknownFields
 
 	TransferTimestamp int64 `protobuf:"varint,1,opt,name=transfer_timestamp,json=transferTimestamp,proto3" json:"transfer_timestamp,omitempty"`
-	// The new transaction that commits to the set of Taro assets found at the
-	// above new anchor point.
+	// The new transaction that commits to the set of Taproot Asset assets found
+	// at the above new anchor point.
 	AnchorTxHash       []byte `protobuf:"bytes,2,opt,name=anchor_tx_hash,json=anchorTxHash,proto3" json:"anchor_tx_hash,omitempty"`
 	AnchorTxHeightHint uint32 `protobuf:"varint,3,opt,name=anchor_tx_height_hint,json=anchorTxHeightHint,proto3" json:"anchor_tx_height_hint,omitempty"`
 	AnchorTxChainFees  int64  `protobuf:"varint,4,opt,name=anchor_tx_chain_fees,json=anchorTxChainFees,proto3" json:"anchor_tx_chain_fees,omitempty"`
@@ -2276,7 +2276,7 @@ type Addr struct {
 	AssetId []byte `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	// The type of the asset.
 	AssetType AssetType `protobuf:"varint,3,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
-	// The total amount of the asset stored in this Taro UTXO.
+	// The total amount of the asset stored in this Taproot Asset UTXO.
 	Amount uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	// The group key of the asset (if it exists)
 	GroupKey []byte `protobuf:"bytes,5,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`

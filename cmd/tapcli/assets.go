@@ -15,7 +15,7 @@ var assetsCommands = []cli.Command{
 	{
 		Name:      "assets",
 		ShortName: "a",
-		Usage:     "Interact with Taro assets.",
+		Usage:     "Interact with Taproot Assets.",
 		Category:  "Assets",
 		Subcommands: []cli.Command{
 			mintAssetCommand,
@@ -420,7 +420,7 @@ var sendAssetsCommand = cli.Command{
 	Name:        "send",
 	ShortName:   "s",
 	Usage:       "send an asset",
-	Description: "send asset w/ a taro addr",
+	Description: "send asset w/ a taproot asset addr",
 	Flags: []cli.Flag{
 		cli.StringSliceFlag{
 			Name: addrName,

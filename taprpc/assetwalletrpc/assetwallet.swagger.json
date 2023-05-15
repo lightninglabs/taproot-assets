@@ -487,7 +487,7 @@
         "anchor_tx_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The new transaction that commits to the set of Taro assets found at the\nabove new anchor point."
+          "description": "The new transaction that commits to the set of Taproot Asset assets found\nat the above new anchor point."
         },
         "anchor_tx_height_hint": {
           "type": "integer",

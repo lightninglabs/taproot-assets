@@ -730,8 +730,8 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		}
 		err := inputTapCommitment.Merge(inputTapCommitments[idx])
 		if err != nil {
-			return nil, fmt.Errorf("failed to merge input taro "+
-				"commitments: %w", err)
+			return nil, fmt.Errorf("failed to merge input Taproot "+
+				"Asset commitments: %w", err)
 		}
 	}
 

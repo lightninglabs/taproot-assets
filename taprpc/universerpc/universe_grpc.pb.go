@@ -30,23 +30,24 @@ type UniverseClient interface {
 	// AssetLeafKeys queries for the set of Universe keys associated with a given
 	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
 	// where outpoint is an outpoint in the Bitcoin blockcahin that anchors a
-	// valid Taro asset commitment, and script_key is the script_key of the asset
-	// within the Taro asset commitment for the given asset_id or group_key.
+	// valid Taproot Asset commitment, and script_key is the script_key of
+	// the asset within the Taproot Asset commitment for the given asset_id or
+	// group_key.
 	AssetLeafKeys(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error)
 	// tapcli: `universe leaves`
 	// AssetLeaves queries for the set of asset leaves (the values in the Universe
 	// MS-SMT tree) for a given asset_id or group_key. These represents either
 	// asset issuance events (they have a genesis witness) or asset transfers that
-	// took place on chain. The leaves contain a normal Taro asset proof, as well
-	// as details for the asset.
+	// took place on chain. The leaves contain a normal Taproot Asset proof, as
+	// well as details for the asset.
 	AssetLeaves(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
 	// QueryIssuanceProof attempts to query for an issuance proof for a given
 	// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 	// (asset_id/group_key) and also a leaf key (outpoint || script_key). If
 	// found, then the issuance proof is returned that includes an inclusion proof
-	// to the known Universe root, as well as a Taro state transition or issuance
-	// proof for the said asset.
+	// to the known Universe root, as well as a Taproot Asset state transition or
+	// issuance proof for the said asset.
 	QueryIssuanceProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*IssuanceProofResponse, error)
 	// tapcli: `universe proofs insert`
 	// InsertIssuanceProof attempts to insert a new issuance proof into the
@@ -220,23 +221,24 @@ type UniverseServer interface {
 	// AssetLeafKeys queries for the set of Universe keys associated with a given
 	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
 	// where outpoint is an outpoint in the Bitcoin blockcahin that anchors a
-	// valid Taro asset commitment, and script_key is the script_key of the asset
-	// within the Taro asset commitment for the given asset_id or group_key.
+	// valid Taproot Asset commitment, and script_key is the script_key of
+	// the asset within the Taproot Asset commitment for the given asset_id or
+	// group_key.
 	AssetLeafKeys(context.Context, *ID) (*AssetLeafKeyResponse, error)
 	// tapcli: `universe leaves`
 	// AssetLeaves queries for the set of asset leaves (the values in the Universe
 	// MS-SMT tree) for a given asset_id or group_key. These represents either
 	// asset issuance events (they have a genesis witness) or asset transfers that
-	// took place on chain. The leaves contain a normal Taro asset proof, as well
-	// as details for the asset.
+	// took place on chain. The leaves contain a normal Taproot Asset proof, as
+	// well as details for the asset.
 	AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
 	// QueryIssuanceProof attempts to query for an issuance proof for a given
 	// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 	// (asset_id/group_key) and also a leaf key (outpoint || script_key). If
 	// found, then the issuance proof is returned that includes an inclusion proof
-	// to the known Universe root, as well as a Taro state transition or issuance
-	// proof for the said asset.
+	// to the known Universe root, as well as a Taproot Asset state transition or
+	// issuance proof for the said asset.
 	QueryIssuanceProof(context.Context, *UniverseKey) (*IssuanceProofResponse, error)
 	// tapcli: `universe proofs insert`
 	// InsertIssuanceProof attempts to insert a new issuance proof into the

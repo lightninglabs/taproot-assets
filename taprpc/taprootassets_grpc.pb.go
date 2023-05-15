@@ -74,8 +74,8 @@ type TaprootAssetsClient interface {
 	// script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 	// tapcli: `assets send`
-	// SendAsset uses one or multiple passed taro address(es) to attempt to
-	// complete an asset send. The method returns information w.r.t the on chain
+	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
+	// to complete an asset send. The method returns information w.r.t the on chain
 	// send, as well as the proof file information the receiver needs to fully
 	// receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
@@ -331,8 +331,8 @@ type TaprootAssetsServer interface {
 	// script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	// tapcli: `assets send`
-	// SendAsset uses one or multiple passed taro address(es) to attempt to
-	// complete an asset send. The method returns information w.r.t the on chain
+	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
+	// to complete an asset send. The method returns information w.r.t the on chain
 	// send, as well as the proof file information the receiver needs to fully
 	// receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)

@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	// TaroFileSuffix is the main file suffix for the Taro proof files stored
-	// on disk.
-	TaroFileSuffix = ".taro"
+	// TaprootAssetsFileSuffix is the main file suffix for the Taproot Asset
+	// proof files stored on disk.
+	TaprootAssetsFileSuffix = ".assetproof"
 
 	// ProofDirName is the name of the directory we'll use to store our
 	// proofs.
@@ -165,7 +165,7 @@ func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	assetID := hex.EncodeToString(loc.AssetID[:])
 	scriptKey := hex.EncodeToString(loc.ScriptKey.SerializeCompressed())
 
-	return filepath.Join(rootPath, assetID, scriptKey+TaroFileSuffix), nil
+	return filepath.Join(rootPath, assetID, scriptKey+TaprootAssetsFileSuffix), nil
 }
 
 // FetchProof fetches a proof for an asset uniquely identified by the

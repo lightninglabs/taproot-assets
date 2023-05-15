@@ -122,7 +122,7 @@ func (b *BatchCaretaker) Start() error {
 	var startErr error
 	b.startOnce.Do(func() {
 		b.Wg.Add(1)
-		go b.taroCultivator()
+		go b.assetCultivator()
 	})
 	return startErr
 }
@@ -240,11 +240,11 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 	return currentState, nil
 }
 
-// taroCultivator is the main goroutine for the BatchCaretaker struct. This
+// assetCultivator is the main goroutine for the BatchCaretaker struct. This
 // goroutines handles progressing a batch all the way up to the point of
 // broadcast. Once the batch has been broadcast, we'll register for a
 // confirmation to progress the batch to the final terminal state.
-func (b *BatchCaretaker) taroCultivator() {
+func (b *BatchCaretaker) assetCultivator() {
 	defer b.Wg.Done()
 
 	// If the batch is already marked as confirmed, then we just need to
@@ -372,7 +372,7 @@ func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
 // transaction.
 func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	genesisPoint wire.OutPoint,
-	taroOutputIndex uint32) (*commitment.TapCommitment, error) {
+	assetOutputIndex uint32) (*commitment.TapCommitment, error) {
 
 	log.Infof("BatchCaretaker(%x): mapping %v seedlings to asset sprouts, "+
 		"with genesis_point=%v", b.batchKey[:],
@@ -392,7 +392,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
-			OutputIndex:  taroOutputIndex,
+			OutputIndex:  assetOutputIndex,
 			Type:         seedling.AssetType,
 		}
 

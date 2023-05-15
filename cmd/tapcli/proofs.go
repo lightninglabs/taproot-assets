@@ -16,7 +16,7 @@ var proofCommands = []cli.Command{
 	{
 		Name:      "proofs",
 		ShortName: "p",
-		Usage:     "Interact with Taro proofs.",
+		Usage:     "Interact with Taproot Asset proofs.",
 		Category:  "Proofs",
 		Subcommands: []cli.Command{
 			verifyProofCommand,
@@ -33,7 +33,7 @@ const (
 var verifyProofCommand = cli.Command{
 	Name:        "verify",
 	ShortName:   "v",
-	Description: "verify a taro proof",
+	Description: "verify a taproot asset proof",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: proofPathName,
@@ -78,7 +78,7 @@ const (
 var exportProofCommand = cli.Command{
 	Name:        "export",
 	ShortName:   "e",
-	Description: "export a taro proof",
+	Description: "export a taproot asset proof",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  assetIDName,
@@ -140,9 +140,10 @@ func exportProof(ctx *cli.Context) error {
 }
 
 var importProofCommand = cli.Command{
-	Name:        "import",
-	ShortName:   "i",
-	Description: "import a taro proof, resulting in a spendable asset",
+	Name:      "import",
+	ShortName: "i",
+	Description: "import a taproot asset proof, resulting in a spendable " +
+		"asset",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: proofPathName,

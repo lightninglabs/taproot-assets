@@ -374,7 +374,7 @@ func (a *Tap) EncodeAddress() (string, error) {
 
 // String returns the string representation of a Taproot Asset address.
 func (a *Tap) String() string {
-	return fmt.Sprintf("TaroAddr{id=%s, amount=%d, script_key=%x}",
+	return fmt.Sprintf("TapAddr{id=%s, amount=%d, script_key=%x}",
 		a.AssetID, a.Amount, a.ScriptKey.SerializeCompressed())
 }
 

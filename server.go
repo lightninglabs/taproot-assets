@@ -81,7 +81,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		s.macaroonService, err = lndclient.NewMacaroonService(
 			&lndclient.MacaroonServiceConfig{
 				RootKeyStore:     s.cfg.DatabaseConfig.RootKeyStore,
-				MacaroonLocation: taroMacaroonLocation,
+				MacaroonLocation: tapdMacaroonLocation,
 				MacaroonPath:     s.cfg.MacaroonPath,
 				Checkers: []macaroons.Checker{
 					macaroons.IPLockChecker,
@@ -287,7 +287,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// We transition the server state to Active, as the server is up.
 	interceptorChain.SetServerActive()
 
-	srvrLog.Infof("Taro Daemon fully active!")
+	srvrLog.Infof("Taproot Asset Daemon fully active!")
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.

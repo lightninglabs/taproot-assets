@@ -159,7 +159,7 @@ var decodeAddrCommand = cli.Command{
 	Name:      "decode",
 	ShortName: "d",
 	ArgsUsage: "[--addr | addr]",
-	Usage:     "Attempt to decode a taro addr",
+	Usage:     "Attempt to decode a taproot asset addr",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  addrName,

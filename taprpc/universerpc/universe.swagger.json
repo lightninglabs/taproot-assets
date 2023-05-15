@@ -93,7 +93,7 @@
     },
     "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}": {
       "get": {
-        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
         "operationId": "Universe_AssetLeafKeys",
         "responses": {
           "200": {
@@ -148,7 +148,7 @@
     },
     "/v1/taproot-assets/universe/keys/group-key/{group_key_str}": {
       "get": {
-        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
         "operationId": "Universe_AssetLeafKeys2",
         "responses": {
           "200": {
@@ -203,7 +203,7 @@
     },
     "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}": {
       "get": {
-        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
+        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
         "operationId": "Universe_AssetLeaves",
         "responses": {
           "200": {
@@ -258,7 +258,7 @@
     },
     "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}": {
       "get": {
-        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
+        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taproot Asset proof, as\nwell as details for the asset.",
         "operationId": "Universe_AssetLeaves2",
         "responses": {
           "200": {
@@ -313,7 +313,7 @@
     },
     "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
-        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
+        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof",
         "responses": {
           "200": {
@@ -463,7 +463,7 @@
     },
     "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
-        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
+        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof2",
         "responses": {
           "200": {
@@ -938,7 +938,7 @@
         "merkle_root": {
           "type": "string",
           "format": "byte",
-          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taro root\ncommitment hash."
+          "description": "The Taproot merkle root hash of the anchor output the asset was committed\nto. If there is no Tapscript sibling, this is equal to the Taproot Asset\nroot commitment hash."
         },
         "tapscript_sibling": {
           "type": "string",
@@ -953,7 +953,7 @@
         "version": {
           "type": "integer",
           "format": "int32",
-          "description": "The version of the Taro asset."
+          "description": "The version of the Taproot Asset asset."
         },
         "asset_genesis": {
           "$ref": "#/definitions/taprpcGenesisInfo",
@@ -966,7 +966,7 @@
         "amount": {
           "type": "string",
           "format": "uint64",
-          "description": "The total amount of the asset stored in this Taro UTXO."
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
         },
         "lock_time": {
           "type": "integer",
@@ -990,7 +990,7 @@
         },
         "script_key_is_local": {
           "type": "boolean",
-          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taro daemon."
+          "description": "Indicates whether the script key is known to the wallet of the lnd node\nconnected to the Taproot Asset daemon."
         },
         "asset_group": {
           "$ref": "#/definitions/taprpcAssetGroup",

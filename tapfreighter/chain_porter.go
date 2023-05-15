@@ -140,7 +140,7 @@ func (p *ChainPorter) Start() error {
 		}
 
 		p.Wg.Add(1)
-		go p.taroPorter()
+		go p.assetsPorter()
 	})
 
 	return startErr
@@ -213,10 +213,10 @@ func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcel) {
 	}
 }
 
-// taroPorter is the main goroutine of the ChainPorter. This takes in incoming
+// assetsPorter is the main goroutine of the ChainPorter. This takes in incoming
 // requests, and attempt to complete a transfer. A response is sent back to the
 // caller if a transfer can be completed. Otherwise, an error is returned.
-func (p *ChainPorter) taroPorter() {
+func (p *ChainPorter) assetsPorter() {
 	defer p.Wg.Done()
 
 	for {
@@ -776,7 +776,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	case SendStateVirtualSign:
 		vPacket := currentPkg.VirtualPacket
 		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
-		log.Infof("Generating Taro witnesses for send to: %x",
+		log.Infof("Generating Taproot Asset witnesses for send to: %x",
 			receiverScriptKey.SerializeCompressed())
 
 		// Now we'll use the signer to sign all the inputs for the new
