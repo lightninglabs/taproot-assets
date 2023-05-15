@@ -54,12 +54,12 @@ var (
 
 	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
-	// "taro" with SHA2-256. The code for the try-and-increment approach
-	// can be seen here:
+	// "taproot-assets" with SHA2-256. The code for the try-and-increment
+	// approach can be seen here:
 	// https://github.com/lightninglabs/lightning-node-connect/tree/master/mailbox/numsgen
 	NUMSBytes, _ = hex.DecodeString(
-		"0293bfe90658c79b480114ff6bbeda51b3ec6412deb367a4d41e1403e3cc" +
-			"6583ed",
+		"027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b" +
+			"3653fe",
 	)
 	NUMSPubKey, _     = btcec.ParsePubKey(NUMSBytes)
 	NUMSCompressedKey = ToSerialized(NUMSPubKey)
