@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/assets": {
       "post": {
-        "summary": "tarocli: `assets mint`\nMintAsset will attempt to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
+        "summary": "tapcli: `assets mint`\nMintAsset will attempt to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
         "operationId": "Mint_MintAsset",
         "responses": {
           "200": {
@@ -51,7 +51,7 @@
     },
     "/v1/taproot-assets/assets/mint/batches/{batch_key}": {
       "get": {
-        "summary": "tarocli: `assets batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
+        "summary": "tapcli: `assets batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
         "operationId": "Mint_ListBatches",
         "responses": {
           "200": {
@@ -84,7 +84,7 @@
     },
     "/v1/taproot-assets/assets/mint/cancel": {
       "post": {
-        "summary": "tarocli: `assets mint cancel`\nCancelBatch will attempt to cancel the current pending batch.",
+        "summary": "tapcli: `assets mint cancel`\nCancelBatch will attempt to cancel the current pending batch.",
         "operationId": "Mint_CancelBatch",
         "responses": {
           "200": {
@@ -117,7 +117,7 @@
     },
     "/v1/taproot-assets/assets/mint/finalize": {
       "post": {
-        "summary": "tarocli: `assets mint finalize`\nFinalizeBatch will attempt to finalize the current pending batch.",
+        "summary": "tapcli: `assets mint finalize`\nFinalizeBatch will attempt to finalize the current pending batch.",
         "operationId": "Mint_FinalizeBatch",
         "responses": {
           "200": {

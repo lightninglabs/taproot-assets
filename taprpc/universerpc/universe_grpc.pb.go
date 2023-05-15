@@ -18,29 +18,29 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type UniverseClient interface {
-	// tarocli: `universe roots`
+	// tapcli: `universe roots`
 	// AssetRoots queries for the known Universe roots associated with each known
 	// asset. These roots represent the supply/audit state for each known asset.
 	AssetRoots(ctx context.Context, in *AssetRootRequest, opts ...grpc.CallOption) (*AssetRootResponse, error)
-	// tarocli: `universe roots`
+	// tapcli: `universe roots`
 	// QueryAssetRoots attempts to locate the current Universe root for a specific
 	// asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(ctx context.Context, in *AssetRootQuery, opts ...grpc.CallOption) (*QueryRootResponse, error)
-	// tarocli: `universe keys`
+	// tapcli: `universe keys`
 	// AssetLeafKeys queries for the set of Universe keys associated with a given
 	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
 	// where outpoint is an outpoint in the Bitcoin blockcahin that anchors a
 	// valid Taro asset commitment, and script_key is the script_key of the asset
 	// within the Taro asset commitment for the given asset_id or group_key.
 	AssetLeafKeys(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error)
-	// tarocli: `universe leaves`
+	// tapcli: `universe leaves`
 	// AssetLeaves queries for the set of asset leaves (the values in the Universe
 	// MS-SMT tree) for a given asset_id or group_key. These represents either
 	// asset issuance events (they have a genesis witness) or asset transfers that
 	// took place on chain. The leaves contain a normal Taro asset proof, as well
 	// as details for the asset.
 	AssetLeaves(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafResponse, error)
-	// tarocli: `universe proofs query`
+	// tapcli: `universe proofs query`
 	// QueryIssuanceProof attempts to query for an issuance proof for a given
 	// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 	// (asset_id/group_key) and also a leaf key (outpoint || script_key). If
@@ -48,39 +48,39 @@ type UniverseClient interface {
 	// to the known Universe root, as well as a Taro state transition or issuance
 	// proof for the said asset.
 	QueryIssuanceProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*IssuanceProofResponse, error)
-	// tarocli: `universe proofs insert`
+	// tapcli: `universe proofs insert`
 	// InsertIssuanceProof attempts to insert a new issuance proof into the
 	// Universe tree specified by the UniverseKey. If valid, then the proof is
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
 	InsertIssuanceProof(ctx context.Context, in *IssuanceProof, opts ...grpc.CallOption) (*IssuanceProofResponse, error)
-	// tarocli: `universe sync`
+	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
 	// attempts to synchronize either only the set of specified asset_ids, or all
 	// assets if none are specified. The sync process will attempt to query for
 	// the latest known root for each asset, performing tree based reconciliation
 	// to arrive at a new shared root.
 	SyncUniverse(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
-	// tarocli: `universe federation list`
+	// tapcli: `universe federation list`
 	// ListFederationServers lists the set of servers that make up the federation
 	// of the local Universe server. This servers are used to push out new proofs,
 	// and also periodically call sync new proofs from the remote server.
 	ListFederationServers(ctx context.Context, in *ListFederationServersRequest, opts ...grpc.CallOption) (*ListFederationServersResponse, error)
-	// tarocli: `universe federation add`
+	// tapcli: `universe federation add`
 	// AddFederationServer adds a new server to the federation of the local
 	// Universe server. Once a server is added, this call can also optionally be
 	// used to trigger a sync of the remote server.
 	AddFederationServer(ctx context.Context, in *AddFederationServerRequest, opts ...grpc.CallOption) (*AddFederationServerResponse, error)
-	// tarocli: `universe federation delete`
+	// tapcli: `universe federation delete`
 	// DeleteFederationServer removes a server from the federation of the local
 	// Universe server.
 	DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error)
-	// tarocli: `universe stats`
+	// tapcli: `universe stats`
 	// UniverseStats returns a set of aggregrate statistics for the current state
 	// of the Universe. Stats returned include: total number of syncs, total
 	// number of proofs, and total number of known assets.
 	UniverseStats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
-	// tarocli `universe stats assets`
+	// tapcli `universe stats assets`
 	// QueryAssetStats returns a set of statistics for a given set of assets.
 	// Stats can be queried for all assets, or based on the: asset ID, name, or
 	// asset type. Pagination is supported via the offset and limit params.
@@ -208,29 +208,29 @@ func (c *universeClient) QueryAssetStats(ctx context.Context, in *AssetStatsQuer
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
 type UniverseServer interface {
-	// tarocli: `universe roots`
+	// tapcli: `universe roots`
 	// AssetRoots queries for the known Universe roots associated with each known
 	// asset. These roots represent the supply/audit state for each known asset.
 	AssetRoots(context.Context, *AssetRootRequest) (*AssetRootResponse, error)
-	// tarocli: `universe roots`
+	// tapcli: `universe roots`
 	// QueryAssetRoots attempts to locate the current Universe root for a specific
 	// asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(context.Context, *AssetRootQuery) (*QueryRootResponse, error)
-	// tarocli: `universe keys`
+	// tapcli: `universe keys`
 	// AssetLeafKeys queries for the set of Universe keys associated with a given
 	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
 	// where outpoint is an outpoint in the Bitcoin blockcahin that anchors a
 	// valid Taro asset commitment, and script_key is the script_key of the asset
 	// within the Taro asset commitment for the given asset_id or group_key.
 	AssetLeafKeys(context.Context, *ID) (*AssetLeafKeyResponse, error)
-	// tarocli: `universe leaves`
+	// tapcli: `universe leaves`
 	// AssetLeaves queries for the set of asset leaves (the values in the Universe
 	// MS-SMT tree) for a given asset_id or group_key. These represents either
 	// asset issuance events (they have a genesis witness) or asset transfers that
 	// took place on chain. The leaves contain a normal Taro asset proof, as well
 	// as details for the asset.
 	AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error)
-	// tarocli: `universe proofs query`
+	// tapcli: `universe proofs query`
 	// QueryIssuanceProof attempts to query for an issuance proof for a given
 	// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 	// (asset_id/group_key) and also a leaf key (outpoint || script_key). If
@@ -238,39 +238,39 @@ type UniverseServer interface {
 	// to the known Universe root, as well as a Taro state transition or issuance
 	// proof for the said asset.
 	QueryIssuanceProof(context.Context, *UniverseKey) (*IssuanceProofResponse, error)
-	// tarocli: `universe proofs insert`
+	// tapcli: `universe proofs insert`
 	// InsertIssuanceProof attempts to insert a new issuance proof into the
 	// Universe tree specified by the UniverseKey. If valid, then the proof is
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
 	InsertIssuanceProof(context.Context, *IssuanceProof) (*IssuanceProofResponse, error)
-	// tarocli: `universe sync`
+	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
 	// attempts to synchronize either only the set of specified asset_ids, or all
 	// assets if none are specified. The sync process will attempt to query for
 	// the latest known root for each asset, performing tree based reconciliation
 	// to arrive at a new shared root.
 	SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error)
-	// tarocli: `universe federation list`
+	// tapcli: `universe federation list`
 	// ListFederationServers lists the set of servers that make up the federation
 	// of the local Universe server. This servers are used to push out new proofs,
 	// and also periodically call sync new proofs from the remote server.
 	ListFederationServers(context.Context, *ListFederationServersRequest) (*ListFederationServersResponse, error)
-	// tarocli: `universe federation add`
+	// tapcli: `universe federation add`
 	// AddFederationServer adds a new server to the federation of the local
 	// Universe server. Once a server is added, this call can also optionally be
 	// used to trigger a sync of the remote server.
 	AddFederationServer(context.Context, *AddFederationServerRequest) (*AddFederationServerResponse, error)
-	// tarocli: `universe federation delete`
+	// tapcli: `universe federation delete`
 	// DeleteFederationServer removes a server from the federation of the local
 	// Universe server.
 	DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error)
-	// tarocli: `universe stats`
+	// tapcli: `universe stats`
 	// UniverseStats returns a set of aggregrate statistics for the current state
 	// of the Universe. Stats returned include: total number of syncs, total
 	// number of proofs, and total number of known assets.
 	UniverseStats(context.Context, *StatsRequest) (*StatsResponse, error)
-	// tarocli `universe stats assets`
+	// tapcli `universe stats assets`
 	// QueryAssetStats returns a set of statistics for a given set of assets.
 	// Stats can be queried for all assets, or based on the: asset ID, name, or
 	// asset type. Pagination is supported via the offset and limit params.

@@ -14,42 +14,42 @@ import (
 )
 
 var (
-	// defaultTarocliDir is the default directory to store the profile file
+	// defaultTapcliDir is the default directory to store the profile file
 	// in. This defaults to:
-	//   C:\Users\<username>\AppData\Local\Tarocli\ on Windows
-	//   ~/.tarocli/ on Linux
-	//   ~/Library/Application Support/tarocli/ on MacOS
-	defaultTarocliDir = btcutil.AppDataDir("tarocli", false)
+	//   C:\Users\<username>\AppData\Local\Tapcli\ on Windows
+	//   ~/.tapcli/ on Linux
+	//   ~/Library/Application Support/tapcli/ on MacOS
+	defaultTapcliDir = btcutil.AppDataDir("tapcli", false)
 
 	// defaultProfileFile is the full, absolute path of the profile file.
-	defaultProfileFile = path.Join(defaultTarocliDir, "profiles.json")
+	defaultProfileFile = path.Join(defaultTapcliDir, "profiles.json")
 )
 
 var profileSubCommand = cli.Command{
 	Name:     "profile",
 	Category: "Profiles",
-	Usage:    "Create and manage tarocli profiles.",
+	Usage:    "Create and manage tapcli profiles.",
 	Description: `
-	Profiles for tarocli are an easy and comfortable way to manage multiple
+	Profiles for tapcli are an easy and comfortable way to manage multiple
 	nodes from the command line by storing node specific parameters like RPC
 	host, network, TLS certificate path or macaroons in a named profile.
 
 	To use a predefined profile, just use the '--profile=myprofile' (or
-	short version '-p=myprofile') with any tarocli command.
+	short version '-p=myprofile') with any tapcli command.
 
-	A default profile can also be defined, tarocli will then always use the
+	A default profile can also be defined, tapcli will then always use the
 	connection/node parameters from that profile instead of the default
 	values.
 
 	WARNING: Setting a default profile changes the default behavior of
-	tarocli! To disable the use of the default profile for a single command,
+	tapcli! To disable the use of the default profile for a single command,
 	set '--profile= '.
 
 	The profiles are stored in a file called profiles.json in the user's
 	home directory, for example:
-		C:\Users\<username>\AppData\Local\Tarocli\profiles.json on Windows
-		~/.tarocli/profiles.json on Linux
-		~/Library/Application Support/Tarocli/profiles.json on MacOS
+		C:\Users\<username>\AppData\Local\Tapcli\profiles.json on Windows
+		~/.tapcli/profiles.json on Linux
+		~/Library/Application Support/Tapcli/profiles.json on MacOS
 	`,
 	Subcommands: []cli.Command{
 		profileListCommand,
@@ -63,7 +63,7 @@ var profileSubCommand = cli.Command{
 
 var profileListCommand = cli.Command{
 	Name:   "list",
-	Usage:  "Lists all tarocli profiles",
+	Usage:  "Lists all tapcli profiles",
 	Action: profileList,
 }
 
@@ -83,7 +83,7 @@ var profileAddCommand = cli.Command{
 	ArgsUsage: "name",
 	Description: `
 	Add a new named profile to the main profiles.json. All global options
-	(see 'tarocli --help') passed into this command are stored in that named
+	(see 'tapcli --help') passed into this command are stored in that named
 	profile.
 	`,
 	Flags: []cli.Flag{
@@ -236,7 +236,7 @@ var profileSetDefaultCommand = cli.Command{
 	Set a specified profile to be used as the default profile.
 
 	WARNING: Setting a default profile changes the default behavior of
-	tarocli! To disable the use of the default profile for a single command,
+	tapcli! To disable the use of the default profile for a single command,
 	set '--profile= '.
 	`,
 	Flags: []cli.Flag{
@@ -299,7 +299,7 @@ var profileUnsetDefaultCommand = cli.Command{
 	Name:  "unsetdefault",
 	Usage: "Unsets the default profile.",
 	Description: `
-	Disables the use of a default profile and restores tarocli to its original
+	Disables the use of a default profile and restores tapcli to its original
 	behavior.
 	`,
 	Action: profileUnsetDefault,

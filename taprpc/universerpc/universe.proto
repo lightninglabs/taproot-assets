@@ -7,19 +7,19 @@ package universerpc;
 option go_package = "github.com/lightninglabs/taro/taprpc/universerpc";
 
 service Universe {
-    /* tarocli: `universe roots`
+    /* tapcli: `universe roots`
     AssetRoots queries for the known Universe roots associated with each known
     asset. These roots represent the supply/audit state for each known asset.
     */
     rpc AssetRoots (AssetRootRequest) returns (AssetRootResponse);
 
-    /* tarocli: `universe roots`
+    /* tapcli: `universe roots`
     QueryAssetRoots attempts to locate the current Universe root for a specific
     asset. This asset can be identified by its asset ID or group key.
     */
     rpc QueryAssetRoots (AssetRootQuery) returns (QueryRootResponse);
 
-    /* tarocli: `universe keys`
+    /* tapcli: `universe keys`
     AssetLeafKeys queries for the set of Universe keys associated with a given
     asset_id or group_key. Each key takes the form: (outpoint, script_key),
     where outpoint is an outpoint in the Bitcoin blockcahin that anchors a
@@ -28,7 +28,7 @@ service Universe {
     */
     rpc AssetLeafKeys (ID) returns (AssetLeafKeyResponse);
 
-    /* tarocli: `universe leaves`
+    /* tapcli: `universe leaves`
     AssetLeaves queries for the set of asset leaves (the values in the Universe
     MS-SMT tree) for a given asset_id or group_key. These represents either
     asset issuance events (they have a genesis witness) or asset transfers that
@@ -37,7 +37,7 @@ service Universe {
     */
     rpc AssetLeaves (ID) returns (AssetLeafResponse);
 
-    /* tarocli: `universe proofs query`
+    /* tapcli: `universe proofs query`
     QueryIssuanceProof attempts to query for an issuance proof for a given
     asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
     (asset_id/group_key) and also a leaf key (outpoint || script_key). If
@@ -50,7 +50,7 @@ service Universe {
     // TODO(roasbeef): can make generic by being just AssetProof? ^
     //   * also want flag to give it in raw bytes so can sideload or import
 
-    /* tarocli: `universe proofs insert`
+    /* tapcli: `universe proofs insert`
     InsertIssuanceProof attempts to insert a new issuance proof into the
     Universe tree specified by the UniverseKey. If valid, then the proof is
     inserted into the database, with a new Universe root returned for the
@@ -60,7 +60,7 @@ service Universe {
 
     // TODO(roasbeef): rename resp to UniverseStateUpdate? ^
 
-    /* tarocli: `universe sync`
+    /* tapcli: `universe sync`
     SyncUniverse takes host information for a remote Universe server, then
     attempts to synchronize either only the set of specified asset_ids, or all
     assets if none are specified. The sync process will attempt to query for
@@ -71,7 +71,7 @@ service Universe {
 
     // TODO(roasebeef): streaming response, so can give feedback? ^
 
-    /* tarocli: `universe federation list`
+    /* tapcli: `universe federation list`
     ListFederationServers lists the set of servers that make up the federation
     of the local Universe server. This servers are used to push out new proofs,
     and also periodically call sync new proofs from the remote server.
@@ -79,7 +79,7 @@ service Universe {
     rpc ListFederationServers (ListFederationServersRequest)
         returns (ListFederationServersResponse);
 
-    /* tarocli: `universe federation add`
+    /* tapcli: `universe federation add`
     AddFederationServer adds a new server to the federation of the local
     Universe server. Once a server is added, this call can also optionally be
     used to trigger a sync of the remote server.
@@ -87,21 +87,21 @@ service Universe {
     rpc AddFederationServer (AddFederationServerRequest)
         returns (AddFederationServerResponse);
 
-    /* tarocli: `universe federation delete`
+    /* tapcli: `universe federation delete`
     DeleteFederationServer removes a server from the federation of the local
     Universe server.
     */
     rpc DeleteFederationServer (DeleteFederationServerRequest)
         returns (DeleteFederationServerResponse);
 
-    /* tarocli: `universe stats`
+    /* tapcli: `universe stats`
     UniverseStats returns a set of aggregrate statistics for the current state
     of the Universe. Stats returned include: total number of syncs, total
     number of proofs, and total number of known assets.
     */
     rpc UniverseStats (StatsRequest) returns (StatsResponse);
 
-    /* tarocli `universe stats assets`
+    /* tapcli `universe stats assets`
     QueryAssetStats returns a set of statistics for a given set of assets.
     Stats can be queried for all assets, or based on the: asset ID, name, or
     asset type. Pagination is supported via the offset and limit params.

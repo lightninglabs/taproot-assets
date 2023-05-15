@@ -13,7 +13,7 @@ RUN make install
 FROM alpine as final
 
 COPY --from=builder /go/bin/tapd /bin/
-COPY --from=builder /go/bin/tarocli /bin/
+COPY --from=builder /go/bin/tapcli /bin/
 
 EXPOSE 10029
 EXPOSE 8089

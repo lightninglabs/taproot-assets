@@ -4,9 +4,9 @@
 *.dll
 *.so
 *.dylib
-tarocli-debug
+tapcli-debug
 tapd-debug
-cmd/tarocli/tarocli
+cmd/tapcli/tapcli
 cmd/tapd/tapd
 
 /itest/lnd-itest

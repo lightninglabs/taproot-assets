@@ -54,7 +54,7 @@ var (
 )
 
 func fatal(err error) {
-	fmt.Fprintf(os.Stderr, "[tarocli] %v\n", err)
+	fmt.Fprintf(os.Stderr, "[tapcli] %v\n", err)
 	os.Exit(1)
 }
 
@@ -248,7 +248,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "tarocli"
+	app.Name = "tapcli"
 	app.Version = taro.Version()
 	app.Usage = "control plane for your Taproot Assets Daemon (tapd)"
 	app.Flags = []cli.Flag{

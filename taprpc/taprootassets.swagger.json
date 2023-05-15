@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/addrs": {
       "get": {
-        "summary": "tarocli: `addrs query`\nQueryTaroAddrs queries the set of Taro addresses stored in the database.",
+        "summary": "tapcli: `addrs query`\nQueryTaroAddrs queries the set of Taro addresses stored in the database.",
         "operationId": "TaprootAssets_QueryAddrs",
         "responses": {
           "200": {
@@ -73,7 +73,7 @@
         ]
       },
       "post": {
-        "summary": "tarocli: `addrs new`\nNewAddr makes a new address from the set of request params.",
+        "summary": "tapcli: `addrs new`\nNewAddr makes a new address from the set of request params.",
         "operationId": "TaprootAssets_NewAddr",
         "responses": {
           "200": {
@@ -106,7 +106,7 @@
     },
     "/v1/taproot-assets/addrs/decode": {
       "post": {
-        "summary": "tarocli: `addrs decode`\nDecodeAddr decode a Taro address into a partial asset message that\nrepresents the asset it wants to receive.",
+        "summary": "tapcli: `addrs decode`\nDecodeAddr decode a Taro address into a partial asset message that\nrepresents the asset it wants to receive.",
         "operationId": "TaprootAssets_DecodeAddr",
         "responses": {
           "200": {
@@ -139,7 +139,7 @@
     },
     "/v1/taproot-assets/addrs/receives": {
       "post": {
-        "summary": "tarocli: `addrs receives`\nList all receives for incoming asset transfers for addresses that were\ncreated previously.",
+        "summary": "tapcli: `addrs receives`\nList all receives for incoming asset transfers for addresses that were\ncreated previously.",
         "operationId": "TaprootAssets_AddrReceives",
         "responses": {
           "200": {
@@ -172,7 +172,7 @@
     },
     "/v1/taproot-assets/assets": {
       "get": {
-        "summary": "tarocli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
+        "summary": "tapcli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
         "operationId": "TaprootAssets_ListAssets",
         "responses": {
           "200": {
@@ -209,7 +209,7 @@
     },
     "/v1/taproot-assets/assets/balance": {
       "get": {
-        "summary": "tarocli: `assets balance`\nListBalances lists asset balances",
+        "summary": "tapcli: `assets balance`\nListBalances lists asset balances",
         "operationId": "TaprootAssets_ListBalances",
         "responses": {
           "200": {
@@ -264,7 +264,7 @@
     },
     "/v1/taproot-assets/assets/groups": {
       "get": {
-        "summary": "tarocli: `assets groups`\nListGroups lists the asset groups known to the target daemon, and the assets\nheld in each group.",
+        "summary": "tapcli: `assets groups`\nListGroups lists the asset groups known to the target daemon, and the assets\nheld in each group.",
         "operationId": "TaprootAssets_ListGroups",
         "responses": {
           "200": {
@@ -328,7 +328,7 @@
     },
     "/v1/taproot-assets/assets/transfers": {
       "get": {
-        "summary": "tarocli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
+        "summary": "tapcli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
         "operationId": "TaprootAssets_ListTransfers",
         "responses": {
           "200": {
@@ -351,7 +351,7 @@
     },
     "/v1/taproot-assets/assets/utxos": {
       "get": {
-        "summary": "tarocli: `assets utxos`\nListUtxos lists the UTXOs managed by the target daemon, and the assets they\nhold.",
+        "summary": "tapcli: `assets utxos`\nListUtxos lists the UTXOs managed by the target daemon, and the assets they\nhold.",
         "operationId": "TaprootAssets_ListUtxos",
         "responses": {
           "200": {
@@ -374,7 +374,7 @@
     },
     "/v1/taproot-assets/debuglevel": {
       "post": {
-        "summary": "tarocli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntapd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
+        "summary": "tapcli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntapd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
         "operationId": "TaprootAssets_DebugLevel",
         "responses": {
           "200": {
@@ -407,7 +407,7 @@
     },
     "/v1/taproot-assets/proofs/export": {
       "post": {
-        "summary": "tarocli: `proofs export`\nExportProof exports the latest raw proof file anchored at the specified\nscript_key.",
+        "summary": "tapcli: `proofs export`\nExportProof exports the latest raw proof file anchored at the specified\nscript_key.",
         "operationId": "TaprootAssets_ExportProof",
         "responses": {
           "200": {
@@ -440,7 +440,7 @@
     },
     "/v1/taproot-assets/proofs/import": {
       "post": {
-        "summary": "tarocli: `proofs import`\nImportProof attempts to import a proof file into the daemon. If successful,\na new asset will be inserted on disk, spendable using the specified target\nscript key, and internal key.",
+        "summary": "tapcli: `proofs import`\nImportProof attempts to import a proof file into the daemon. If successful,\na new asset will be inserted on disk, spendable using the specified target\nscript key, and internal key.",
         "operationId": "TaprootAssets_ImportProof",
         "responses": {
           "200": {
@@ -473,7 +473,7 @@
     },
     "/v1/taproot-assets/proofs/verify": {
       "post": {
-        "summary": "tarocli: `proofs verify`\nVerifyProof attempts to verify a given proof file that claims to be anchored\nat the specified genesis point.",
+        "summary": "tapcli: `proofs verify`\nVerifyProof attempts to verify a given proof file that claims to be anchored\nat the specified genesis point.",
         "operationId": "TaprootAssets_VerifyProof",
         "responses": {
           "200": {
@@ -506,7 +506,7 @@
     },
     "/v1/taproot-assets/send": {
       "post": {
-        "summary": "tarocli: `assets send`\nSendAsset uses one or multiple passed taro address(es) to attempt to\ncomplete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
+        "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed taro address(es) to attempt to\ncomplete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
         "operationId": "TaprootAssets_SendAsset",
         "responses": {
           "200": {
@@ -581,7 +581,7 @@
     },
     "/v1/taproot-assets/stop": {
       "post": {
-        "summary": "tarocli: `stop`\nStopDaemon will send a shutdown request to the interrupt handler, triggering\na graceful shutdown of the daemon.",
+        "summary": "tapcli: `stop`\nStopDaemon will send a shutdown request to the interrupt handler, triggering\na graceful shutdown of the daemon.",
         "operationId": "TaprootAssets_StopDaemon",
         "responses": {
           "200": {

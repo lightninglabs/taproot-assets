@@ -84,9 +84,9 @@ $(GOIMPORTS_BIN):
 # ============
 
 build:
-	@$(call print, "Building debug tapd and tarocli.")
+	@$(call print, "Building debug tapd and tapcli.")
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapd
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o tarocli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tarocli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapcli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapcli
 
 build-itest:
 	@$(call print, "Building itest btcd.")
@@ -96,17 +96,17 @@ build-itest:
 	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
 install:
-	@$(call print, "Installing tapd and tarocli.")
+	@$(call print, "Installing tapd and tapcli.")
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tapd
-	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tarocli
+	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tapcli
 
 release-install:
-	@$(call print, "Installing release tapd and tarocli.")
+	@$(call print, "Installing release tapd and tapcli.")
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tapd
-	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tarocli
+	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/tapcli
 
 release:
-	@$(call print, "Releasing tapd and tarocli binaries.")
+	@$(call print, "Releasing tapd and tapcli binaries.")
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 

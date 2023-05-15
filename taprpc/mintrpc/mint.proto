@@ -7,23 +7,23 @@ package mintrpc;
 option go_package = "github.com/lightninglabs/taro/taprpc/mintrpc";
 
 service Mint {
-    /* tarocli: `assets mint`
+    /* tapcli: `assets mint`
     MintAsset will attempt to mint the set of assets (async by default to
     ensure proper batching) specified in the request.
     */
     rpc MintAsset (MintAssetRequest) returns (MintAssetResponse);
 
-    /* tarocli: `assets mint finalize`
+    /* tapcli: `assets mint finalize`
     FinalizeBatch will attempt to finalize the current pending batch.
     */
     rpc FinalizeBatch (FinalizeBatchRequest) returns (FinalizeBatchResponse);
 
-    /* tarocli: `assets mint cancel`
+    /* tapcli: `assets mint cancel`
     CancelBatch will attempt to cancel the current pending batch.
     */
     rpc CancelBatch (CancelBatchRequest) returns (CancelBatchResponse);
 
-    /* tarocli: `assets batches`
+    /* tapcli: `assets batches`
     ListBatches lists the set of batches submitted to the daemon, including
     pending and cancelled batches.
     */

@@ -22,7 +22,7 @@ To transact assets, the witnesses in the prior Taro transaction are recommitted 
 
 ## Architecture:
 
-Taro is implemented as the Taro Daemon `tapd` and the Taro Command Line Interface `tarocli`. Additionally, `tapd` exposes a GRPC interface to allow for a direct integration into applications.
+Taro is implemented as the Taro Daemon `tapd` and the Taro Command Line Interface `tapcli`. Additionally, `tapd` exposes a GRPC interface to allow for a direct integration into applications.
 
 Taro leverages several LND features including the Taproot wallet and signing capabilities. These facilities are accessed through LND’s GRPC.
 
@@ -71,38 +71,38 @@ See a full list of options by executing:
 tapd --help
 ```
 
-Use `tarocli` to interact with `tapd`
+Use `tapcli` to interact with `tapd`
 
 ```shell
-tarocli assets mint --type normal --name fantasycoin --supply 100 --meta_bytes "fantastic money"
-tarocli assets mint finalize
+tapcli assets mint --type normal --name fantasycoin --supply 100 --meta_bytes "fantastic money"
+tapcli assets mint finalize
 ```
 
 ```shell
-tarocli assets list
+tapcli assets list
 ```
 
 Synchronize yourself with a universe, for example the one running as part of the issuer's `tapd`.
 
 ```shell
-tarocli universe sync --universe_host 10.10.10.2:10029
+tapcli universe sync --universe_host 10.10.10.2:10029
 ```
 We can also use the universe to query existing assets and their metadata.
 
 ```shell
-tarocli universe roots
+tapcli universe roots
 ```
 
 Once we have obtained the necessary proofs and asset IDs, we can generate a taro address for a specific asset and amount.
 
 ```shell
-tarocli addrs new --asset_id bab08407[...]129bf6d0 --amt 21
+tapcli addrs new --asset_id bab08407[...]129bf6d0 --amt 21
 ```
 
 The sender can now fulfill the request by initiating the transfer.
 
 ```shell
-tarocli assets send --addr tarotb1q[...]tywpre3a
+tapcli assets send --addr tarotb1q[...]tywpre3a
 ```
 ## Development
 

@@ -748,7 +748,7 @@ func getTLSConfig(cfg *Config,
 	// the max message size that we'll decode to allow clients to hit
 	// endpoints which return more data such as the DescribeGraph call.
 	// We set this to 200MiB atm. Should be the same value as maxMsgRecvSize
-	// in cmd/tarocli/main.go.
+	// in cmd/tapcli/main.go.
 	restDialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(restCreds),
 		grpc.WithDefaultCallOptions(

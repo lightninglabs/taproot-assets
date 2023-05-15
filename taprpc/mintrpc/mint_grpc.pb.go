@@ -18,17 +18,17 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MintClient interface {
-	// tarocli: `assets mint`
+	// tapcli: `assets mint`
 	// MintAsset will attempt to mint the set of assets (async by default to
 	// ensure proper batching) specified in the request.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
-	// tarocli: `assets mint finalize`
+	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(ctx context.Context, in *FinalizeBatchRequest, opts ...grpc.CallOption) (*FinalizeBatchResponse, error)
-	// tarocli: `assets mint cancel`
+	// tapcli: `assets mint cancel`
 	// CancelBatch will attempt to cancel the current pending batch.
 	CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error)
-	// tarocli: `assets batches`
+	// tapcli: `assets batches`
 	// ListBatches lists the set of batches submitted to the daemon, including
 	// pending and cancelled batches.
 	ListBatches(ctx context.Context, in *ListBatchRequest, opts ...grpc.CallOption) (*ListBatchResponse, error)
@@ -82,17 +82,17 @@ func (c *mintClient) ListBatches(ctx context.Context, in *ListBatchRequest, opts
 // All implementations must embed UnimplementedMintServer
 // for forward compatibility
 type MintServer interface {
-	// tarocli: `assets mint`
+	// tapcli: `assets mint`
 	// MintAsset will attempt to mint the set of assets (async by default to
 	// ensure proper batching) specified in the request.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
-	// tarocli: `assets mint finalize`
+	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error)
-	// tarocli: `assets mint cancel`
+	// tapcli: `assets mint cancel`
 	// CancelBatch will attempt to cancel the current pending batch.
 	CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error)
-	// tarocli: `assets batches`
+	// tapcli: `assets batches`
 	// ListBatches lists the set of batches submitted to the daemon, including
 	// pending and cancelled batches.
 	ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error)

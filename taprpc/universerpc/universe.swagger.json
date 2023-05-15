@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/universe/federation": {
       "get": {
-        "summary": "tarocli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
+        "summary": "tapcli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
         "operationId": "Universe_ListFederationServers",
         "responses": {
           "200": {
@@ -39,7 +39,7 @@
         ]
       },
       "delete": {
-        "summary": "tarocli: `universe federation delete`\nDeleteFederationServer removes a server from the federation of the local\nUniverse server.",
+        "summary": "tapcli: `universe federation delete`\nDeleteFederationServer removes a server from the federation of the local\nUniverse server.",
         "operationId": "Universe_DeleteFederationServer",
         "responses": {
           "200": {
@@ -60,7 +60,7 @@
         ]
       },
       "post": {
-        "summary": "tarocli: `universe federation add`\nAddFederationServer adds a new server to the federation of the local\nUniverse server. Once a server is added, this call can also optionally be\nused to trigger a sync of the remote server.",
+        "summary": "tapcli: `universe federation add`\nAddFederationServer adds a new server to the federation of the local\nUniverse server. Once a server is added, this call can also optionally be\nused to trigger a sync of the remote server.",
         "operationId": "Universe_AddFederationServer",
         "responses": {
           "200": {
@@ -93,7 +93,7 @@
     },
     "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}": {
       "get": {
-        "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
         "operationId": "Universe_AssetLeafKeys",
         "responses": {
           "200": {
@@ -148,7 +148,7 @@
     },
     "/v1/taproot-assets/universe/keys/group-key/{group_key_str}": {
       "get": {
-        "summary": "tarocli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taro asset commitment, and script_key is the script_key of the asset\nwithin the Taro asset commitment for the given asset_id or group_key.",
         "operationId": "Universe_AssetLeafKeys2",
         "responses": {
           "200": {
@@ -203,7 +203,7 @@
     },
     "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}": {
       "get": {
-        "summary": "tarocli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
+        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
         "operationId": "Universe_AssetLeaves",
         "responses": {
           "200": {
@@ -258,7 +258,7 @@
     },
     "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}": {
       "get": {
-        "summary": "tarocli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
+        "summary": "tapcli: `universe leaves`\nAssetLeaves queries for the set of asset leaves (the values in the Universe\nMS-SMT tree) for a given asset_id or group_key. These represents either\nasset issuance events (they have a genesis witness) or asset transfers that\ntook place on chain. The leaves contain a normal Taro asset proof, as well\nas details for the asset.",
         "operationId": "Universe_AssetLeaves2",
         "responses": {
           "200": {
@@ -313,7 +313,7 @@
     },
     "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
-        "summary": "tarocli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
+        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof",
         "responses": {
           "200": {
@@ -402,7 +402,7 @@
     },
     "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
-        "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "summary": "tapcli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
         "operationId": "Universe_InsertIssuanceProof",
         "responses": {
           "200": {
@@ -463,7 +463,7 @@
     },
     "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
-        "summary": "tarocli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
+        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taro state transition or issuance\nproof for the said asset.",
         "operationId": "Universe_QueryIssuanceProof2",
         "responses": {
           "200": {
@@ -552,7 +552,7 @@
     },
     "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
-        "summary": "tarocli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "summary": "tapcli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
         "operationId": "Universe_InsertIssuanceProof2",
         "responses": {
           "200": {
@@ -613,7 +613,7 @@
     },
     "/v1/taproot-assets/universe/roots": {
       "get": {
-        "summary": "tarocli: `universe roots`\nAssetRoots queries for the known Universe roots associated with each known\nasset. These roots represent the supply/audit state for each known asset.",
+        "summary": "tapcli: `universe roots`\nAssetRoots queries for the known Universe roots associated with each known\nasset. These roots represent the supply/audit state for each known asset.",
         "operationId": "Universe_AssetRoots",
         "responses": {
           "200": {
@@ -636,7 +636,7 @@
     },
     "/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}": {
       "get": {
-        "summary": "tarocli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
+        "summary": "tapcli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
         "operationId": "Universe_QueryAssetRoots",
         "responses": {
           "200": {
@@ -691,7 +691,7 @@
     },
     "/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}": {
       "get": {
-        "summary": "tarocli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
+        "summary": "tapcli: `universe roots`\nQueryAssetRoots attempts to locate the current Universe root for a specific\nasset. This asset can be identified by its asset ID or group key.",
         "operationId": "Universe_QueryAssetRoots2",
         "responses": {
           "200": {
@@ -746,7 +746,7 @@
     },
     "/v1/taproot-assets/universe/stats": {
       "get": {
-        "summary": "tarocli: `universe stats`\nUniverseStats returns a set of aggregrate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
+        "summary": "tapcli: `universe stats`\nUniverseStats returns a set of aggregrate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
         "operationId": "Universe_UniverseStats",
         "responses": {
           "200": {
@@ -769,7 +769,7 @@
     },
     "/v1/taproot-assets/universe/stats/assets": {
       "get": {
-        "summary": "tarocli `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
+        "summary": "tapcli `universe stats assets`\nQueryAssetStats returns a set of statistics for a given set of assets.\nStats can be queried for all assets, or based on the: asset ID, name, or\nasset type. Pagination is supported via the offset and limit params.\nResults can also be sorted based on any of the main query params.",
         "operationId": "Universe_QueryAssetStats",
         "responses": {
           "200": {
@@ -846,7 +846,7 @@
     },
     "/v1/taproot-assets/universe/sync": {
       "post": {
-        "summary": "tarocli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
+        "summary": "tapcli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
         "operationId": "Universe_SyncUniverse",
         "responses": {
           "200": {
