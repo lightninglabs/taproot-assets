@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taro"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tarorpc"
+	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -29,8 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
-
-	unirpc "github.com/lightninglabs/taro/tarorpc/universerpc"
 )
 
 var (

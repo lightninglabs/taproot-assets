@@ -1,10 +1,9 @@
 package tarodb
 
 import (
+	"context"
 	"math/rand"
 	"testing"
-
-	"context"
 
 	"github.com/lightninglabs/taro/proof"
 	"github.com/stretchr/testify/require"
