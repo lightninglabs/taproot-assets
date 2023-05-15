@@ -12,10 +12,10 @@ RUN make install
 # FINAL IMAGE
 FROM alpine as final
 
-COPY --from=builder /go/bin/tarod /bin/
+COPY --from=builder /go/bin/tapd /bin/
 COPY --from=builder /go/bin/tarocli /bin/
 
 EXPOSE 10029
 EXPOSE 8089
 
-ENTRYPOINT ["tarod"]
+ENTRYPOINT ["tapd"]

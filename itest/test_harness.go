@@ -43,10 +43,10 @@ var (
 	// lnd harness when creating a new node.
 	lndDefaultArgs []string
 
-	// noDelete is a command line flag for disabling deleting the tarod
+	// noDelete is a command line flag for disabling deleting the tapd
 	// data directories.
 	noDelete = flag.Bool("nodelete", false, "Set to true to keep all "+
-		"tarod data directories after completing the tests")
+		"tapd data directories after completing the tests")
 
 	// logLevel is a command line flag for setting the log level of the
 	// integration test output.
@@ -98,7 +98,7 @@ type harnessTest struct {
 
 	universeServer *serverHarness
 
-	tarod *tarodHarness
+	tapd *tapdHarness
 
 	logWriter *build.RotatingLogWriter
 
@@ -108,14 +108,14 @@ type harnessTest struct {
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
-	universeServer *serverHarness, tarod *tarodHarness) *harnessTest {
+	universeServer *serverHarness, tapd *tapdHarness) *harnessTest {
 
 	return &harnessTest{
 		t:               t,
 		apertureHarness: h.apertureHarness,
 		lndHarness:      net,
 		universeServer:  universeServer,
-		tarod:           tarod,
+		tapd:            tapd,
 		logWriter:       h.logWriter,
 		interceptor:     h.interceptor,
 	}
@@ -168,10 +168,10 @@ func (h *harnessTest) Log(args ...interface{}) {
 	h.t.Log(args...)
 }
 
-// shutdown stops both the mock universe and tarod server.
+// shutdown stops both the mock universe and tapd server.
 func (h *harnessTest) shutdown(t *testing.T) error {
 	h.universeServer.stop()
-	return h.tarod.stop(!*noDelete)
+	return h.tapd.stop(!*noDelete)
 }
 
 // setupLogging initializes the logging subsystem for the server and client
@@ -200,7 +200,7 @@ func (h *harnessTest) newLndClient(
 	})
 }
 
-func (h *harnessTest) syncUniverseState(target, syncer *tarodHarness,
+func (h *harnessTest) syncUniverseState(target, syncer *tapdHarness,
 	numExpectedAssets int) {
 
 	ctxt, cancel := context.WithTimeout(
@@ -250,7 +250,7 @@ func nextAvailablePort() int {
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest,
-	enableHashMail bool) (*tarodHarness, *serverHarness) {
+	enableHashMail bool) (*tapdHarness, *serverHarness) {
 
 	mockServerAddr := fmt.Sprintf(
 		node.ListenerFormat, node.NextAvailablePort(),
@@ -259,19 +259,19 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	err := universeServer.start()
 	require.NoError(t, err)
 
-	// Create a tarod that uses Bob and connect it to the universe server.
-	tarodHarness := setupTarodHarness(
+	// Create a tapd that uses Bob and connect it to the universe server.
+	tapdHarness := setupTapdHarness(
 		t, ht, lndHarness.Alice, universeServer,
-		func(params *tarodHarnessParams) {
+		func(params *tapdHarnessParams) {
 			params.enableHashMail = enableHashMail
 		},
 	)
-	return tarodHarness, universeServer
+	return tapdHarness, universeServer
 }
 
-// tarodHarnessParams contains parameters that can be set when creating a new
-// tarodHarness.
-type tarodHarnessParams struct {
+// tapdHarnessParams contains parameters that can be set when creating a new
+// tapdHarness.
+type tapdHarnessParams struct {
 	// enableHashMail enables hashmail in the taro daemon.
 	enableHashMail bool
 
@@ -283,35 +283,35 @@ type tarodHarnessParams struct {
 	// an ack from the proof receiver.
 	proofReceiverAckTimeout *time.Duration
 
-	// expectErrExit indicates whether tarod is expected to exit with an
+	// expectErrExit indicates whether tapd is expected to exit with an
 	// error.
 	expectErrExit bool
 
 	// startupSyncNode if present, then this node will be used to
 	// synchronize the Universe state of the newly created node.
-	startupSyncNode *tarodHarness
+	startupSyncNode *tapdHarness
 
 	// startupSyncNumAssets is the number of assets that are expected to be
 	// synced from the above node.
 	startupSyncNumAssets int
 }
 
-type Option func(*tarodHarnessParams)
+type Option func(*tapdHarnessParams)
 
-// setupTarodHarness creates a new tarod that connects to the given lnd node
+// setupTapdHarness creates a new tapd that connects to the given lnd node
 // and to the given universe server.
-func setupTarodHarness(t *testing.T, ht *harnessTest,
+func setupTapdHarness(t *testing.T, ht *harnessTest,
 	node *node.HarnessNode, universe *serverHarness,
-	opts ...Option) *tarodHarness {
+	opts ...Option) *tapdHarness {
 
 	// Set parameters by executing option functions.
-	params := &tarodHarnessParams{}
+	params := &tapdHarnessParams{}
 	for _, opt := range opts {
 		opt(params)
 	}
 
-	tarodHarness, err := newTarodHarness(
-		ht, tarodConfig{
+	tapdHarness, err := newTapdHarness(
+		ht, tapdConfig{
 			NetParams: harnessNetParams,
 			LndNode:   node,
 		}, params.enableHashMail, params.proofSendBackoffCfg,
@@ -319,20 +319,20 @@ func setupTarodHarness(t *testing.T, ht *harnessTest,
 	)
 	require.NoError(t, err)
 
-	// Start the tarod harness now.
-	err = tarodHarness.start(params.expectErrExit)
+	// Start the tapd harness now.
+	err = tapdHarness.start(params.expectErrExit)
 	require.NoError(t, err)
 
 	// Before we exit, we'll check to see if we need to sync the universe
 	// state.
 	if params.startupSyncNode != nil {
 		ht.syncUniverseState(
-			params.startupSyncNode, tarodHarness,
+			params.startupSyncNode, tapdHarness,
 			params.startupSyncNumAssets,
 		)
 	}
 
-	return tarodHarness
+	return tapdHarness
 }
 
 // isMempoolEmpty checks whether the mempool remains empty for the given
@@ -456,10 +456,10 @@ func mineBlocks(t *harnessTest, net *lntest.HarnessTest,
 // shutdownAndAssert shuts down the given node and asserts that no errors
 // occur.
 func shutdownAndAssert(t *harnessTest, node *node.HarnessNode,
-	tarod *tarodHarness) {
+	tapd *tapdHarness) {
 
-	if tarod != nil {
-		require.NoError(t.t, tarod.stop(!*noDelete))
+	if tapd != nil {
+		require.NoError(t.t, tapd.stop(!*noDelete))
 	}
 
 	t.lndHarness.Shutdown(node)

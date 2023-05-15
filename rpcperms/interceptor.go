@@ -29,7 +29,7 @@ const (
 	// rpcActive means that the RPC server is ready to accept calls.
 	rpcActive
 
-	// serverActive means that the tarod server is ready to accept calls.
+	// serverActive means that the tapd server is ready to accept calls.
 	serverActive
 )
 
@@ -99,7 +99,7 @@ type InterceptorChain struct {
 	// access. We also allow these methods to be called even if not all
 	// mandatory middlewares are registered yet. If the wallet is locked
 	// then a middleware cannot register itself, creating an impossible
-	// situation. Also, a middleware might want to check the state of tarod
+	// situation. Also, a middleware might want to check the state of tapd
 	// by calling the State service before it registers itself. So we also
 	// need to exclude those calls from the mandatory middleware check.
 	macaroonWhitelist map[string]struct{}
@@ -389,7 +389,7 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 	case waitingToStart:
 		return ErrWaitingToStart
 
-	// If the RPC server or tarod server is active, we allow all calls.
+	// If the RPC server or tapd server is active, we allow all calls.
 	case rpcActive, serverActive:
 
 	default:

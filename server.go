@@ -265,7 +265,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	}
 
 	// Now start the REST proxy for our gRPC server above. We'll ensure we
-	// direct tarod to connect to its loopback address rather than a
+	// direct tapd to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
 	stopProxy, err := startRestProxy(s.cfg, s.rpcServer)
@@ -328,7 +328,7 @@ func (s *Server) StartAsSubserver(lndGrpc *lndclient.GrpcLndServices) error {
 // checks its signature, makes sure all specified permissions for the called
 // method are contained within and finally ensures all caveat conditions are
 // met. A non-nil error is returned if any of the checks fail. This method is
-// needed to enable tarod running as an external subserver in the same process
+// needed to enable tapd running as an external subserver in the same process
 // as lnd but still validate its own macaroons.
 func (s *Server) ValidateMacaroon(ctx context.Context,
 	requiredPermissions []bakery.Op, fullMethod string) error {

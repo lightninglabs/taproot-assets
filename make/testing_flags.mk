@@ -27,7 +27,7 @@ endif
 
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
-TEST_FLAGS += -test.run="TestTaroDaemon/$(icase)"
+TEST_FLAGS += -test.run="TestTaprootAssetsDaemon/$(icase)"
 endif
 
 # Don't delete the data directories of nodes.

@@ -106,8 +106,8 @@ func copyRequests(reqs []*mintrpc.MintAssetRequest) []*mintrpc.MintAssetRequest 
 // testMintAssets tests that we're able to mint assets, retrieve their proofs
 // and that we're able to import the proofs into a new node.
 func testMintAssets(t *harnessTest) {
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
-	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
+	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tapd, simpleAssets)
+	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tapd, issuableAssets)
 
 	// Now that all our assets have been issued, we'll use the balance
 	// calls to ensure that we're able to retrieve the proper balance for
@@ -123,25 +123,25 @@ func testMintAssets(t *harnessTest) {
 	allAssets = append(allAssets, rpcSimpleAssets...)
 	allAssets = append(allAssets, rpcIssuableAssets...)
 	for _, mintedAsset := range allAssets {
-		assertAssetProofs(t.t, t.tarod, mintedAsset)
+		assertAssetProofs(t.t, t.tapd, mintedAsset)
 	}
 
 	// Let's now create a new node and import all assets into that new node.
 	charlie := t.lndHarness.NewNode("charlie", lndDefaultArgs)
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, charlie, t.universeServer,
 	)
-	defer shutdownAndAssert(t, charlie, secondTarod)
+	defer shutdownAndAssert(t, charlie, secondTapd)
 
 	// We import the assets into a node that doesn't have the keys to spend
 	// them, so we don't expect them to show up with script_key_is_local set
 	// to true in the list of assets.
-	transferAssetProofs(t, t.tarod, secondTarod, allAssets, false)
+	transferAssetProofs(t, t.tapd, secondTapd, allAssets, false)
 }
 
 // mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
 // batch and verifies all asset proofs of the minted assets.
-func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
+func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	assetRequests []*mintrpc.MintAssetRequest) []*taprpc.Asset {
 
 	ctxb := context.Background()
@@ -150,13 +150,13 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 
 	// Mint all the assets in the same batch.
 	for _, assetRequest := range assetRequests {
-		assetResp, err := tarod.MintAsset(ctxt, assetRequest)
+		assetResp, err := tapd.MintAsset(ctxt, assetRequest)
 		require.NoError(t.t, err)
 		require.NotEmpty(t.t, assetResp.BatchKey)
 	}
 
 	// Instruct the daemon to finalize the batch.
-	batchResp, err := tarod.FinalizeBatch(
+	batchResp, err := tapd.FinalizeBatch(
 		ctxt, &mintrpc.FinalizeBatchRequest{},
 	)
 	require.NoError(t.t, err)
@@ -174,7 +174,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		assertAssetState(
-			t, tarod, assetRequest.Asset.Name,
+			t, tapd, assetRequest.Asset.Name,
 			metaHash[:],
 			assetAmountCheck(assetRequest.Asset.Amount),
 			assetTypeCheck(assetRequest.Asset.AssetType),
@@ -199,7 +199,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		mintedAsset := assertAssetState(
-			t, tarod, assetRequest.Asset.Name, metaHash[:],
+			t, tapd, assetRequest.Asset.Name, metaHash[:],
 			assetAnchorCheck(*hashes[0], blockHash),
 			assetScriptKeyIsLocalCheck(true),
 			func(a *taprpc.Asset) error {
@@ -235,7 +235,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tarod *tarodHarness,
 
 // transferAssetProofs locates and exports the proof files for all given assets
 // from the source node and imports them into the destination node.
-func transferAssetProofs(t *harnessTest, src, dst *tarodHarness,
+func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	assets []*taprpc.Asset, shouldShowUpAsLocal bool) {
 
 	ctxb := context.Background()
@@ -290,7 +290,7 @@ func assertAssetBalances(t *harnessTest,
 	balanceReq := &taprpc.ListBalancesRequest_AssetId{
 		AssetId: true,
 	}
-	assetIDBalances, err := t.tarod.ListBalances(
+	assetIDBalances, err := t.tapd.ListBalances(
 		ctxt, &taprpc.ListBalancesRequest{
 			GroupBy: balanceReq,
 		},
@@ -323,7 +323,7 @@ func assertAssetBalances(t *harnessTest,
 	groupBalanceReq := &taprpc.ListBalancesRequest_GroupKey{
 		GroupKey: true,
 	}
-	assetGroupBalances, err := t.tarod.ListBalances(
+	assetGroupBalances, err := t.tapd.ListBalances(
 		ctxt, &taprpc.ListBalancesRequest{
 			GroupBy: groupBalanceReq,
 		},
@@ -359,7 +359,7 @@ func assertGroups(t *harnessTest, issuableAssets []*mintrpc.MintAssetRequest) {
 	defer cancel()
 
 	// We should be able to fetch two groups of one asset each.
-	assetGroups, err := t.tarod.ListGroups(
+	assetGroups, err := t.tapd.ListGroups(
 		ctxt, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t.t, err)
@@ -419,7 +419,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 		},
 	}
 	rpcSimpleAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{&assetMint},
+		t, t.tapd, []*mintrpc.MintAssetRequest{&assetMint},
 	)
 
 	// Ensure minted asset with requested name was successfully minted.
@@ -453,16 +453,16 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// If we attempt to add both assets to the same batch, the second mint
 	// call should fail.
-	collideBatchKey, err := t.tarod.MintAsset(ctxt, &assetCollide)
+	collideBatchKey, err := t.tapd.MintAsset(ctxt, &assetCollide)
 	require.NoError(t.t, err)
 	require.NotNil(t.t, collideBatchKey.BatchKey)
 
-	_, batchNameErr := t.tarod.MintAsset(ctxt, &assetMint)
+	_, batchNameErr := t.tapd.MintAsset(ctxt, &assetMint)
 	require.ErrorContains(t.t, batchNameErr, "already in batch")
 
 	// If we cancel the batch, we should still be able to fetch it from the
 	// daemon, and be able to refer to it by the batch key.
-	rpcBatches, err := t.tarod.ListBatches(
+	rpcBatches, err := t.tapd.ListBatches(
 		ctxt, &mintrpc.ListBatchRequest{},
 	)
 	require.NoError(t.t, err)
@@ -483,7 +483,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	require.Len(t.t, batchCollide.Assets, 1)
 	equalityCheck(assetCollide.Asset, batchCollide.Assets[0])
 
-	cancelBatchKey, err := t.tarod.CancelBatch(
+	cancelBatchKey, err := t.tapd.CancelBatch(
 		ctxt, &mintrpc.CancelBatchRequest{},
 	)
 	require.NoError(t.t, err)
@@ -491,7 +491,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// The only change in the returned batch after cancellation should be
 	// the batch state.
-	cancelBatch, err := t.tarod.ListBatches(
+	cancelBatch, err := t.tapd.ListBatches(
 		ctxt, &mintrpc.ListBatchRequest{
 			BatchKey: collideBatchKey.BatchKey,
 		})
@@ -510,7 +510,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	// Minting the asset with the name collision should work, even though
 	// it is also part of a cancelled batch.
 	rpcCollideAsset := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{&assetCollide},
+		t, t.tapd, []*mintrpc.MintAssetRequest{&assetCollide},
 	)
 
 	collideAssetName := rpcCollideAsset[0].AssetGenesis.Name

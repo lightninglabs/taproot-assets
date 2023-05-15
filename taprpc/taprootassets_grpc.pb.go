@@ -41,7 +41,7 @@ type TaprootAssetsClient interface {
 	StopDaemon(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
 	// tarocli: `debuglevel`
 	// DebugLevel allows a caller to programmatically set the logging verbosity of
-	// tarod. The logging can be targeted according to a coarse daemon-wide logging
+	// tapd. The logging can be targeted according to a coarse daemon-wide logging
 	// level, or in a granular fashion to specify the logging for a target
 	// sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
@@ -297,7 +297,7 @@ type TaprootAssetsServer interface {
 	StopDaemon(context.Context, *StopRequest) (*StopResponse, error)
 	// tarocli: `debuglevel`
 	// DebugLevel allows a caller to programmatically set the logging verbosity of
-	// tarod. The logging can be targeted according to a coarse daemon-wide logging
+	// tapd. The logging can be targeted according to a coarse daemon-wide logging
 	// level, or in a granular fashion to specify the logging for a target
 	// sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)

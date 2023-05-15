@@ -19,7 +19,7 @@ func testAddresses(t *harnessTest) {
 	// for multiple internal asset transfers when only sending one of them
 	// to an external address.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{
+		t, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
 	)
@@ -30,31 +30,31 @@ func testAddresses(t *harnessTest) {
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
-			params.startupSyncNode = t.tarod
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTarod.stop(true))
+		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
 	var addresses []*taprpc.Addr
 	for idx, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
 		// asset.
-		addr, err := secondTarod.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		addr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
 			AssetId: a.AssetGenesis.AssetId,
 			Amt:     a.Amount - 1,
 		})
 		require.NoError(t.t, err)
 		addresses = append(addresses, addr)
 
-		assertAddrCreated(t.t, secondTarod, a, addr)
+		assertAddrCreated(t.t, secondTapd, a, addr)
 
-		sendResp := sendAssetsToAddr(t, t.tarod, addr)
+		sendResp := sendAssetsToAddr(t, t.tapd, addr)
 		sendRespJSON, err := formatProtoJSON(sendResp)
 		require.NoError(t.t, err)
 
@@ -62,27 +62,27 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure that eventually we see a single event for the
 		// address.
-		assertAddrEvent(t.t, secondTarod, addr, 1, statusDetected)
+		assertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
 
 		// Mine a block to make sure the events are marked as confirmed.
 		mineBlocks(t, t.lndHarness, 1, 1)
 
 		// Eventually the event should be marked as confirmed.
-		assertAddrEvent(t.t, secondTarod, addr, 1, statusConfirmed)
+		assertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
 
 		// To complete the transfer, we'll export the proof from the
 		// sender and import it into the receiver for each asset set.
 		sendProof(
-			t, t.tarod, secondTarod, addr.ScriptKey, a.AssetGenesis,
+			t, t.tapd, secondTapd, addr.ScriptKey, a.AssetGenesis,
 		)
 
 		// Make sure we have imported and finalized all proofs.
-		assertNonInteractiveRecvComplete(t, secondTarod, idx+1)
+		assertNonInteractiveRecvComplete(t, secondTapd, idx+1)
 	}
 
 	// Now sanity check that we can actually list the transfer.
 	err := wait.NoError(func() error {
-		resp, err := t.tarod.ListTransfers(
+		resp, err := t.tapd.ListTransfers(
 			ctxt, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
@@ -105,7 +105,7 @@ func testAddresses(t *harnessTest) {
 		receiverAddr := addresses[idx]
 
 		// Generate the ownership proof on the receiver node.
-		proveResp, err := secondTarod.ProveAssetOwnership(
+		proveResp, err := secondTapd.ProveAssetOwnership(
 			ctxt, &wrpc.ProveAssetOwnershipRequest{
 				AssetId:   receiverAddr.AssetId,
 				ScriptKey: receiverAddr.ScriptKey,
@@ -115,7 +115,7 @@ func testAddresses(t *harnessTest) {
 
 		// Verify the ownership proof on the sender node.
 		t.Logf("Got ownership proof: %x", proveResp.ProofWithWitness)
-		verifyResp, err := t.tarod.VerifyAssetOwnership(
+		verifyResp, err := t.tapd.VerifyAssetOwnership(
 			ctxt, &wrpc.VerifyAssetOwnershipRequest{
 				ProofWithWitness: proveResp.ProofWithWitness,
 			},
@@ -130,7 +130,7 @@ func testAddresses(t *harnessTest) {
 func testMultiAddress(t *harnessTest) {
 	// First, mint an asset, so we have one to create addresses for.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{
+		t, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
 	)
@@ -145,10 +145,10 @@ func testMultiAddress(t *harnessTest) {
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
-	alice := t.tarod
-	bob := setupTarodHarness(
+	alice := t.tapd
+	bob := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
+		func(params *tapdHarnessParams) {
 			params.startupSyncNode = alice
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
@@ -166,7 +166,7 @@ func testMultiAddress(t *harnessTest) {
 // runMultiSendTest runs a test that sends assets to multiple addresses at the
 // same time.
 func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
-	bob *tarodHarness, genInfo *taprpc.GenesisInfo,
+	bob *tapdHarness, genInfo *taprpc.GenesisInfo,
 	mintedAsset *taprpc.Asset, runIdx, numRuns int) {
 
 	// In order to force a split, we don't try to send the full asset.
@@ -264,7 +264,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	require.NoError(t.t, err)
 }
 
-func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
+func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *taprpc.ImportProofResponse {
 
 	ctxb := context.Background()
@@ -297,7 +297,7 @@ func sendProof(t *harnessTest, src, dst *tarodHarness, scriptKey []byte,
 
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
-func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
+func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
 	receiverAddrs ...*taprpc.Addr) *taprpc.SendAssetResponse {
 
 	ctxb := context.Background()
@@ -319,14 +319,14 @@ func sendAssetsToAddr(t *harnessTest, sender *tarodHarness,
 
 // fundAddressSendPacket asks the wallet to fund a new virtual packet with the
 // given address as the single receiver.
-func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
+func fundAddressSendPacket(t *harnessTest, tapd *tapdHarness,
 	rpcAddr *taprpc.Addr) *wrpc.FundVirtualPsbtResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	resp, err := tarod.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
+	resp, err := tapd.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
 		Template: &wrpc.FundVirtualPsbtRequest_Raw{
 			Raw: &wrpc.TxTemplate{
 				Recipients: map[string]uint64{
@@ -341,7 +341,7 @@ func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
 }
 
 // fundPacket asks the wallet to fund the given virtual packet.
-func fundPacket(t *harnessTest, tarod *tarodHarness,
+func fundPacket(t *harnessTest, tapd *tapdHarness,
 	vPkg *tappsbt.VPacket) *wrpc.FundVirtualPsbtResponse {
 
 	var buf bytes.Buffer
@@ -352,7 +352,7 @@ func fundPacket(t *harnessTest, tarod *tarodHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	resp, err := tarod.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
+	resp, err := tapd.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
 		Template: &wrpc.FundVirtualPsbtRequest_Psbt{
 			Psbt: buf.Bytes(),
 		},

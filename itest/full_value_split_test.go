@@ -14,7 +14,7 @@ func testFullValueSend(t *harnessTest) {
 	// First, we'll make an normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tarod, []*mintrpc.MintAssetRequest{
+		t, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
 	)
@@ -30,29 +30,29 @@ func testFullValueSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTarod := setupTarodHarness(
+	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tarodHarnessParams) {
-			params.startupSyncNode = t.tarod
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
 			params.startupSyncNumAssets = len(rpcAssets)
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTarod.stop(true))
+		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
 	runFullValueSendTests(
-		ctxt, t, t.tarod, secondTarod, genInfo, mintedAsset, 0, 1,
+		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset, 0, 1,
 	)
 	runFullValueSendTests(
-		ctxt, t, t.tarod, secondTarod, groupGenInfo, mintedGroupAsset,
+		ctxt, t, t.tapd, secondTapd, groupGenInfo, mintedGroupAsset,
 		1, 2,
 	)
 }
 
 // runFullValueSendTests runs the full value send tests for a single asset.
 func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
-	bob *tarodHarness, genInfo *taprpc.GenesisInfo,
+	bob *tapdHarness, genInfo *taprpc.GenesisInfo,
 	mintedAsset *taprpc.Asset, runIdx, numRuns int) {
 
 	// Next, we'll attempt to complete three transfers of the full value of

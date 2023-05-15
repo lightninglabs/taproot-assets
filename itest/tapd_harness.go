@@ -42,10 +42,10 @@ const (
 	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
-// tarodHarness is a test harness that holds everything that is needed to
-// start an instance of the tarod server.
-type tarodHarness struct {
-	cfg       *tarodConfig
+// tapdHarness is a test harness that holds everything that is needed to
+// start an instance of the tapd server.
+type tapdHarness struct {
+	cfg       *tapdConfig
 	server    *taro.Server
 	clientCfg *tapcfg.Config
 
@@ -58,23 +58,23 @@ type tarodHarness struct {
 	universerpc.UniverseClient
 }
 
-// tarodConfig holds all configuration items that are required to start a tarod
+// tapdConfig holds all configuration items that are required to start a tapd
 // server.
-type tarodConfig struct {
+type tapdConfig struct {
 	LndNode   *node.HarnessNode
 	NetParams *chaincfg.Params
 	BaseDir   string
 }
 
-// newTarodHarness creates a new tarod server harness with the given
+// newTapdHarness creates a new tapd server harness with the given
 // configuration.
-func newTarodHarness(ht *harnessTest, cfg tarodConfig,
+func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 	enableHashMail bool, proofSendBackoffCfg *proof.BackoffCfg,
-	proofReceiverAckTimeout *time.Duration) (*tarodHarness, error) {
+	proofReceiverAckTimeout *time.Duration) (*tapdHarness, error) {
 
 	if cfg.BaseDir == "" {
 		var err error
-		cfg.BaseDir, err = os.MkdirTemp("", "itest-tarod")
+		cfg.BaseDir, err = os.MkdirTemp("", "itest-tapd")
 		if err != nil {
 			return nil, err
 		}
@@ -88,14 +88,14 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		"admin.macaroon",
 	)
 
-	tarodCfg := tapcfg.DefaultConfig()
-	tarodCfg.LogDir = "."
-	tarodCfg.MaxLogFiles = 99
-	tarodCfg.MaxLogFileSize = 999
+	tapCfg := tapcfg.DefaultConfig()
+	tapCfg.LogDir = "."
+	tapCfg.MaxLogFiles = 99
+	tapCfg.MaxLogFileSize = 999
 
-	tarodCfg.ChainConf.Network = cfg.NetParams.Name
-	tarodCfg.TaroDir = cfg.BaseDir
-	tarodCfg.DebugLevel = *logLevel
+	tapCfg.ChainConf.Network = cfg.NetParams.Name
+	tapCfg.TaroDir = cfg.BaseDir
+	tapCfg.DebugLevel = *logLevel
 
 	// Decide which DB backend to use.
 	switch *dbbackend {
@@ -109,25 +109,25 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		ht.t.Cleanup(func() {
 			fixture.TearDown(ht.t)
 		})
-		tarodCfg.DatabaseBackend = tapcfg.DatabaseBackendPostgres
-		tarodCfg.Postgres = fixture.GetConfig()
+		tapCfg.DatabaseBackend = tapcfg.DatabaseBackendPostgres
+		tapCfg.Postgres = fixture.GetConfig()
 	}
 
-	tarodCfg.RpcConf.RawRPCListeners = []string{
+	tapCfg.RpcConf.RawRPCListeners = []string{
 		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
 	}
-	tarodCfg.RpcConf.RawRESTListeners = []string{
+	tapCfg.RpcConf.RawRESTListeners = []string{
 		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
 	}
 
-	tarodCfg.Lnd = &tapcfg.LndConfig{
+	tapCfg.Lnd = &tapcfg.LndConfig{
 		Host:         cfg.LndNode.Cfg.RPCAddr(),
 		MacaroonPath: lndMacPath,
 		TLSPath:      cfg.LndNode.Cfg.TLSCertPath,
 	}
 
-	cfgLogger := tarodCfg.LogWriter.GenSubLogger("CONF", nil)
-	finalCfg, err := tapcfg.ValidateConfig(tarodCfg, cfgLogger)
+	cfgLogger := tapCfg.LogWriter.GenSubLogger("CONF", nil)
+	finalCfg, err := tapcfg.ValidateConfig(tapCfg, cfgLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -160,20 +160,20 @@ func newTarodHarness(ht *harnessTest, cfg tarodConfig,
 		}
 	}
 
-	return &tarodHarness{
+	return &tapdHarness{
 		cfg:       &cfg,
 		clientCfg: finalCfg,
 		ht:        ht,
 	}, nil
 }
 
-// rpcHost returns the RPC host for the tarod server.
-func (hs *tarodHarness) rpcHost() string {
+// rpcHost returns the RPC host for the tapd server.
+func (hs *tapdHarness) rpcHost() string {
 	return hs.clientCfg.RpcConf.RawRPCListeners[0]
 }
 
-// start spins up the tarod server listening for gRPC connections.
-func (hs *tarodHarness) start(expectErrExit bool) error {
+// start spins up the tapd server listening for gRPC connections.
+func (hs *tapdHarness) start(expectErrExit bool) error {
 	cfgLogger := hs.ht.logWriter.GenSubLogger("CONF", func() {})
 
 	var (
@@ -184,7 +184,7 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 		hs.clientCfg, cfgLogger, hs.ht.interceptor, mainErrChan,
 	)
 	if err != nil {
-		return fmt.Errorf("could not create tarod server: %v", err)
+		return fmt.Errorf("could not create tapd server: %v", err)
 	}
 
 	hs.wg.Add(1)
@@ -197,7 +197,7 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 
 	time.Sleep(1 * time.Second)
 
-	// Create our client to interact with the tarod RPC server directly.
+	// Create our client to interact with the tapd RPC server directly.
 	listenerAddr := hs.clientCfg.RpcConf.RawRPCListeners[0]
 	rpcConn, err := dialServer(
 		listenerAddr, hs.clientCfg.RpcConf.TLSCertPath,
@@ -215,8 +215,8 @@ func (hs *tarodHarness) start(expectErrExit bool) error {
 	return nil
 }
 
-// stop shuts down the tarod server and deletes its temporary data directory.
-func (hs *tarodHarness) stop(deleteData bool) error {
+// stop shuts down the tapd server and deletes its temporary data directory.
+func (hs *tapdHarness) stop(deleteData bool) error {
 	// Don't return the error immediately if stopping goes wrong, always
 	// remove the temp directory.
 	err := hs.server.Stop()

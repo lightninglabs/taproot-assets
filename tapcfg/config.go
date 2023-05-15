@@ -176,8 +176,8 @@ type RpcConfig struct {
 	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 
-	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for tarod's RPC and REST services"`
-	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for tarod's RPC and REST services"`
+	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for tapd's RPC and REST services"`
+	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for tapd's RPC and REST services"`
 	TLSExtraIPs        []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
 	TLSExtraDomains    []string      `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
 	TLSAutoRefresh     bool          `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
@@ -201,7 +201,7 @@ type RpcConfig struct {
 }
 
 // LndConfig is the main config we'll use to connect to the lnd node that backs
-// up tarod.
+// up tapd.
 type LndConfig struct {
 	Host string `long:"host" description:"lnd instance rpc address"`
 
@@ -219,7 +219,7 @@ type LndConfig struct {
 	TLSPath string `long:"tlspath" description:"Path to lnd tls certificate"`
 }
 
-// Config is the main config for the tarod cli command.
+// Config is the main config for the tapd cli command.
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
 
@@ -356,7 +356,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	configFilePath := CleanAndExpandPath(preCfg.ConfigFile)
 	switch {
 	// User specified --taroddir but no --configfile. Update the config
-	// file path to the tarod config directory, but don't require it to
+	// file path to the tapd config directory, but don't require it to
 	// exist.
 	case configFileDir != DefaultTaroDir &&
 		configFilePath == DefaultConfigFile:
@@ -448,7 +448,7 @@ func (u *usageError) Error() string {
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
 func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
-	// If the provided tarod directory is not the default, we'll modify the
+	// If the provided tapd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	taroDir := CleanAndExpandPath(cfg.TaroDir)
 	if taroDir != DefaultTaroDir {
@@ -480,7 +480,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 				}
 			}
 
-			str := "Failed to create tarod directory '%s': %v"
+			str := "Failed to create tapd directory '%s': %v"
 			return mkErr(str, dir, err)
 		}
 

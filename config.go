@@ -52,7 +52,7 @@ type RPCConfig struct {
 }
 
 // DatabaseConfig is the config that holds all the persistence related structs
-// and interfaces needed for tarod to function.
+// and interfaces needed for tapd to function.
 type DatabaseConfig struct {
 	RootKeyStore *tapdb.RootKeyStore
 

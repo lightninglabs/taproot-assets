@@ -4,7 +4,7 @@ import "gopkg.in/macaroon-bakery.v2/bakery"
 
 var (
 	// RequiredPermissions is a map of all taro RPC methods and their
-	// required macaroon permissions to access tarod.
+	// required macaroon permissions to access tapd.
 	//
 	// TODO(roasbeef): re think these and go instead w/ the * approach?
 	RequiredPermissions = map[string][]bakery.Op{

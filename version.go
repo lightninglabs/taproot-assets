@@ -53,12 +53,12 @@ const (
 
 	// defaultAgentName is the default name of the software that is added as
 	// the first part of the user agent string.
-	defaultAgentName = "tarod"
+	defaultAgentName = "tapd"
 )
 
 // agentName stores the name of the software that is added as the first part of
-// the user agent string. This defaults to the value "tarod" when being run as
-// a standalone component but can be overwritten by LiT for example when tarod
+// the user agent string. This defaults to the value "tapd" when being run as
+// a standalone component but can be overwritten by LiT for example when tapd
 // is integrated into the UI.
 var agentName = defaultAgentName
 

@@ -374,7 +374,7 @@
     },
     "/v1/taproot-assets/debuglevel": {
       "post": {
-        "summary": "tarocli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntarod. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
+        "summary": "tarocli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntapd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
         "operationId": "TaprootAssets_DebugLevel",
         "responses": {
           "200": {

@@ -82,7 +82,7 @@ func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
 func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
 	tx *wire.MsgTx) error {
 
-	label := "tarod-asset-minting"
+	label := "tapd-asset-minting"
 	return l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
 }
 

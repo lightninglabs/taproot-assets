@@ -1,6 +1,6 @@
 # Taro
 
-The Taro Daemon `tarod` implements the [Taro protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taro leverages Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
+The Taro Daemon `tapd` implements the [Taro protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taro leverages Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
 
 ## Features:
 
@@ -22,7 +22,7 @@ To transact assets, the witnesses in the prior Taro transaction are recommitted 
 
 ## Architecture:
 
-Taro is implemented as the Taro Daemon `tarod` and the Taro Command Line Interface `tarocli`. Additionally, `tarod` exposes a GRPC interface to allow for a direct integration into applications.
+Taro is implemented as the Taro Daemon `tapd` and the Taro Command Line Interface `tarocli`. Additionally, `tapd` exposes a GRPC interface to allow for a direct integration into applications.
 
 Taro leverages several LND features including the Taproot wallet and signing capabilities. These facilities are accessed through LND’s GRPC.
 
@@ -56,11 +56,11 @@ make install
 
 ## Initialization:
 
-Run Taro with the command `tarod`. Specify how Taro can reach LND and what network to run Taro with by passing it additional flags. The Bitcoin backend and LND need to be running and synced before the Taro daemon can be started.
+Run Taro with the command `tapd`. Specify how Taro can reach LND and what network to run Taro with by passing it additional flags. The Bitcoin backend and LND need to be running and synced before the Taro daemon can be started.
 
 
 ```shell
-tarod --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.macaroonpath=~/.lnd/data/chain/bitcoin/testnet/admin.macaroon --lnd.tlspath=~/.lnd/tls.cert
+tapd --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.macaroonpath=~/.lnd/data/chain/bitcoin/testnet/admin.macaroon --lnd.tlspath=~/.lnd/tls.cert
 ```
 
 ## Usage:
@@ -68,10 +68,10 @@ tarod --network=testnet --debuglevel=debug --lnd.host=localhost:10009 --lnd.maca
 See a full list of options by executing:
 
 ```shell
-tarod --help
+tapd --help
 ```
 
-Use `tarocli` to interact with `tarod`
+Use `tarocli` to interact with `tapd`
 
 ```shell
 tarocli assets mint --type normal --name fantasycoin --supply 100 --meta_bytes "fantastic money"
@@ -82,7 +82,7 @@ tarocli assets mint finalize
 tarocli assets list
 ```
 
-Synchronize yourself with a universe, for example the one running as part of the issuer's `tarod`.
+Synchronize yourself with a universe, for example the one running as part of the issuer's `tapd`.
 
 ```shell
 tarocli universe sync --universe_host 10.10.10.2:10029

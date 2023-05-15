@@ -1,4 +1,4 @@
--- chain_txns stores any transactions relevant to tarod. This includes
+-- chain_txns stores any transactions relevant to tapd. This includes
 -- transaction that mint, transfer and receive assets. Full transaction
 -- information, along with indexing information is stored.
 -- TODO(roasbeef): also store SPV proof?
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS asset_group_sigs (
     group_key_id INTEGER NOT NULL REFERENCES asset_groups(group_id)
 );
 
--- managed_utxos is the set of UTXOs managed by tarod. These UTXOs may commit
+-- managed_utxos is the set of UTXOs managed by tapd. These UTXOs may commit
 -- to several assets. These UTXOs are also always imported into the backing
 -- wallet, so the wallet is able to keep track of the amount of sats that are
 -- used to anchor Taro assets.

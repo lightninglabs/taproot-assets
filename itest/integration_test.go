@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTaroDaemon performs a series of integration tests amongst a
-// programmatically driven set of participants, namely a Taro daemon and a
-// universe server.
-func TestTaroDaemon(t *testing.T) {
+// TestTaprootAssetsDaemon performs a series of integration tests amongst a
+// programmatically driven set of participants, namely a Taproot Assets daemon
+// and a universe server.
+func TestTaprootAssetsDaemon(t *testing.T) {
 	// If no tests are registered, then we can exit early.
 	if len(testCases) == 0 {
 		t.Skip("integration tests not selected with flag 'itest'")
@@ -30,7 +30,7 @@ func TestTaroDaemon(t *testing.T) {
 	lndHarness := lntest.SetupHarness(t, "./lnd-itest", "bbolt", feeService)
 	defer func() {
 		// There is a timing issue in here somewhere. If we shut down
-		// lnd immediately after stopping the tarod server, sometimes
+		// lnd immediately after stopping the tapd server, sometimes
 		// we get a race in the TX notifier chan closes. The wait seems
 		// to fix it for now...
 		time.Sleep(100 * time.Millisecond)
@@ -53,10 +53,10 @@ func TestTaroDaemon(t *testing.T) {
 			testCase.name)
 
 		success := t.Run(testCase.name, func(t1 *testing.T) {
-			// The universe server and tarod client are both freshly
+			// The universe server and tapd client are both freshly
 			// created and later discarded for each test run to
 			// assure no state is taken over between runs.
-			tarodHarness, universeServer := setupHarnesses(
+			tapdHarness, universeServer := setupHarnesses(
 				t1, ht, lndHarness, testCase.enableHashMail,
 			)
 			lndHarness.EnsureConnected(
@@ -67,7 +67,7 @@ func TestTaroDaemon(t *testing.T) {
 			lndHarness.Bob.AddToLogf(logLine)
 
 			ht := ht.newHarnessTest(
-				t1, lndHarness, universeServer, tarodHarness,
+				t1, lndHarness, universeServer, tapdHarness,
 			)
 
 			// Now we have everything to run the test case.

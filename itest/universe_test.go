@@ -20,12 +20,12 @@ import (
 func testUniverseSync(t *harnessTest) {
 	// First, we'll create out usual set of simple and also issuable
 	// assets.
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
-	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
+	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tapd, simpleAssets)
+	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tapd, issuableAssets)
 
 	// With those assets created, we'll now create a new node that we'll
 	// use to exercise the Universe sync.
-	bob := setupTarodHarness(
+	bob := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
@@ -38,7 +38,7 @@ func testUniverseSync(t *harnessTest) {
 
 	// Before we start, we'll fetch the complete set of Universe roots from
 	// our primary node.
-	universeRoots, err := t.tarod.AssetRoots(
+	universeRoots, err := t.tapd.AssetRoots(
 		ctxt, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
@@ -49,7 +49,7 @@ func testUniverseSync(t *harnessTest) {
 	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 	syncDiff, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
-		UniverseHost: t.tarod.rpcHost(),
+		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 	})
 	require.NoError(t.t, err)
@@ -119,19 +119,19 @@ func testUniverseSync(t *harnessTest) {
 			return root.Id
 		},
 	)
-	assertUniverseKeysEqual(t.t, uniIDs, t.tarod, bob)
-	assertUniverseLeavesEqual(t.t, uniIDs, t.tarod, bob)
+	assertUniverseKeysEqual(t.t, uniIDs, t.tapd, bob)
+	assertUniverseLeavesEqual(t.t, uniIDs, t.tapd, bob)
 }
 
 // testUniverseREST tests that we're able to properly query the universe state
 // via the REST interface.
 func testUniverseREST(t *harnessTest) {
 	// Mint a few assets that we then want to inspect in the universe.
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tarod, simpleAssets)
-	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tarod, issuableAssets)
+	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tapd, simpleAssets)
+	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tapd, issuableAssets)
 
 	urlPrefix := fmt.Sprintf("https://%s/v1/taproot-assets/universe",
-		t.tarod.clientCfg.RpcConf.RawRESTListeners[0])
+		t.tapd.clientCfg.RpcConf.RawRESTListeners[0])
 
 	// First of all, get all roots and make sure our assets are contained
 	// in the returned list.
@@ -218,7 +218,7 @@ func getJSON[T any](url string) (*T, error) {
 func testUniverseFederation(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up to
 	// any existing Universe server.
-	bob := setupTarodHarness(
+	bob := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
@@ -228,7 +228,7 @@ func testUniverseFederation(t *harnessTest) {
 	ctx := context.Background()
 
 	// Now that Bob is active, we'll make a set of assets with the main node.
-	firstAsset := mintAssetsConfirmBatch(t, t.tarod, simpleAssets[:1])
+	firstAsset := mintAssetsConfirmBatch(t, t.tapd, simpleAssets[:1])
 
 	// We'll now add the main node, as a member of Bob's Universe
 	// federation. We expect that their state is synchronized shortly after
@@ -237,7 +237,7 @@ func testUniverseFederation(t *harnessTest) {
 		ctx, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
-					Host: t.tarod.rpcHost(),
+					Host: t.tapd.rpcHost(),
 				},
 			},
 		},
@@ -251,10 +251,10 @@ func testUniverseFederation(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 1, len(fedNodes.Servers))
-	require.Equal(t.t, t.tarod.rpcHost(), fedNodes.Servers[0].Host)
+	require.Equal(t.t, t.tapd.rpcHost(), fedNodes.Servers[0].Host)
 
 	// At this point, both nodes should have the same Universe roots.
-	assertUniverseStateEqual(t.t, bob, t.tarod)
+	assertUniverseStateEqual(t.t, bob, t.tapd)
 
 	// Bob's Universe stats should show that he now has a single asset. We
 	// should also be able to query for stats specifically for the asset.
@@ -281,7 +281,7 @@ func testUniverseFederation(t *harnessTest) {
 	// At this point, both nodes should have the same Universe roots as Bob
 	// should have optimistically pushed the update to its federation
 	// members.
-	assertUniverseStateEqual(t.t, bob, t.tarod)
+	assertUniverseStateEqual(t.t, bob, t.tapd)
 
 	// Bob's stats should also now show that there're two total asset as
 	// well as two proofs.
@@ -301,7 +301,7 @@ func testUniverseFederation(t *harnessTest) {
 		ctx, &unirpc.DeleteFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
-					Host: t.tarod.rpcHost(),
+					Host: t.tapd.rpcHost(),
 				},
 			},
 		},

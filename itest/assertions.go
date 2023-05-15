@@ -95,7 +95,7 @@ func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
 // assertAssetState makes sure that an asset with the given (possibly
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
-func assertAssetState(t *harnessTest, tarod *tarodHarness, name string,
+func assertAssetState(t *harnessTest, tapd *tapdHarness, name string,
 	metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
 
 	t.t.Helper()
@@ -107,7 +107,7 @@ func assertAssetState(t *harnessTest, tarod *tarodHarness, name string,
 		ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 		defer cancel()
 
-		listResp, err := tarod.ListAssets(
+		listResp, err := tapd.ListAssets(
 			ctxt, &taprpc.ListAssetRequest{},
 		)
 		if err != nil {
@@ -169,7 +169,7 @@ func commitmentKey(t *testing.T, rpcAsset *taprpc.Asset) [32]byte {
 
 // assertAssetProofs makes sure the proofs for the given asset can be retrieved
 // from the given daemon and can be fully validated.
-func assertAssetProofs(t *testing.T, tarod *tarodHarness,
+func assertAssetProofs(t *testing.T, tapd *tapdHarness,
 	a *taprpc.Asset) []byte {
 
 	t.Helper()
@@ -178,13 +178,13 @@ func assertAssetProofs(t *testing.T, tarod *tarodHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	exportResp, err := tarod.ExportProof(ctxt, &taprpc.ExportProofRequest{
+	exportResp, err := tapd.ExportProof(ctxt, &taprpc.ExportProofRequest{
 		AssetId:   a.AssetGenesis.AssetId,
 		ScriptKey: a.ScriptKey,
 	})
 	require.NoError(t, err)
 
-	file, snapshot := verifyProofBlob(t, tarod, exportResp.RawProof)
+	file, snapshot := verifyProofBlob(t, tapd, exportResp.RawProof)
 
 	assetJSON, err := formatProtoJSON(a)
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func assertAssetProofs(t *testing.T, tarod *tarodHarness,
 
 // verifyProofBlob parses the given proof blob into a file, verifies it and
 // returns the resulting last asset snapshot together with the parsed file.
-func verifyProofBlob(t *testing.T, tarod *tarodHarness,
+func verifyProofBlob(t *testing.T, tapd *tapdHarness,
 	blob proof.Blob) (*proof.File, *proof.AssetSnapshot) {
 
 	ctxb := context.Background()
@@ -212,7 +212,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	// Also make sure that the RPC can verify the proof as well.
-	verifyResp, err := tarod.VerifyProof(ctxt, &taprpc.ProofFile{
+	verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
 		RawProof: blob,
 	})
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 		req := &chainrpc.GetBlockRequest{
 			BlockHash: hash.CloneBytes(),
 		}
-		_, err := tarod.cfg.LndNode.RPC.ChainKit.GetBlock(ctxb, req)
+		_, err := tapd.cfg.LndNode.RPC.ChainKit.GetBlock(ctxb, req)
 		return err
 	}
 	snapshot, err := f.Verify(ctxt, headerVerifier)
@@ -234,7 +234,7 @@ func verifyProofBlob(t *testing.T, tarod *tarodHarness,
 
 // assertAddrCreated makes sure an address was created correctly for the given
 // asset.
-func assertAddrCreated(t *testing.T, tarod *tarodHarness,
+func assertAddrCreated(t *testing.T, tapd *tapdHarness,
 	expected *taprpc.Asset, actual *taprpc.Addr) {
 
 	// Was the address created correctly?
@@ -244,7 +244,7 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	decoded, err := tarod.DecodeAddr(ctxt, &taprpc.DecodeAddrRequest{
+	decoded, err := tapd.DecodeAddr(ctxt, &taprpc.DecodeAddrRequest{
 		Addr: actual.Encoded,
 	})
 	require.NoError(t, err)
@@ -256,7 +256,7 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 	// Does the decoded address still show everything correctly?
 	assertAddr(t, expected, decoded)
 
-	allAddrs, err := tarod.QueryAddrs(ctxt, &taprpc.QueryAddrRequest{})
+	allAddrs, err := tapd.QueryAddrs(ctxt, &taprpc.QueryAddrRequest{})
 	require.NoError(t, err)
 	require.NotEmpty(t, allAddrs.Addrs)
 
@@ -276,7 +276,7 @@ func assertAddrCreated(t *testing.T, tarod *tarodHarness,
 
 // assertAddrEvent makes sure the given address was detected by the given
 // daemon.
-func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *taprpc.Addr,
+func assertAddrEvent(t *testing.T, tapd *tapdHarness, addr *taprpc.Addr,
 	numEvents int, expectedStatus taprpc.AddrEventStatus) {
 
 	ctxb := context.Background()
@@ -284,7 +284,7 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *taprpc.Addr,
 	defer cancel()
 
 	err := wait.NoError(func() error {
-		resp, err := tarod.AddrReceives(
+		resp, err := tapd.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{
 				FilterAddr: addr.Encoded,
 			},
@@ -314,7 +314,7 @@ func assertAddrEvent(t *testing.T, tarod *tarodHarness, addr *taprpc.Addr,
 
 // assertAddrEventByStatus makes sure the given number of events exist with the
 // given status.
-func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
+func assertAddrEventByStatus(t *testing.T, tapd *tapdHarness,
 	filterStatus taprpc.AddrEventStatus, numEvents int) {
 
 	ctxb := context.Background()
@@ -322,7 +322,7 @@ func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
 	defer cancel()
 
 	err := wait.NoError(func() error {
-		resp, err := tarod.AddrReceives(
+		resp, err := tapd.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{
 				FilterStatus: filterStatus,
 			},
@@ -345,7 +345,7 @@ func assertAddrEventByStatus(t *testing.T, tarod *tarodHarness,
 // confirmAndAssertOutboundTransfer makes sure the given outbound transfer has
 // the correct state before confirming it and then asserting the confirmed state
 // with the node.
-func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
+func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tapdHarness,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx, numTransfers int) {
 
@@ -359,7 +359,7 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tarodHarness,
 // transfer has the correct state and number of outputs before confirming it and
 // then asserting the confirmed state with the node.
 func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
-	sender *tarodHarness, sendResp *taprpc.SendAssetResponse,
+	sender *tapdHarness, sendResp *taprpc.SendAssetResponse,
 	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int) {
 
@@ -425,7 +425,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 // assertNonInteractiveRecvComplete makes sure the given receiver has the
 // correct number of completed non-interactive inbound asset transfers in their
 // list of events.
-func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tarodHarness,
+func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tapdHarness,
 	totalInboundTransfers int) {
 
 	ctxb := context.Background()
@@ -481,11 +481,11 @@ func assertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 
 // assertBalanceByID asserts that the balance of a single asset,
 // specified by ID, on the given daemon is correct.
-func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
+func assertBalanceByID(t *testing.T, tapd *tapdHarness, id []byte,
 	amt uint64) {
 
 	ctxb := context.Background()
-	balancesResp, err := tarod.ListBalances(
+	balancesResp, err := tapd.ListBalances(
 		ctxb, &taprpc.ListBalancesRequest{
 			GroupBy: &taprpc.ListBalancesRequest_AssetId{
 				AssetId: true,
@@ -507,7 +507,7 @@ func assertBalanceByID(t *testing.T, tarod *tarodHarness, id []byte,
 
 // assertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
-func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
+func assertBalanceByGroup(t *testing.T, tapd *tapdHarness, hexGroupKey string,
 	amt uint64) {
 
 	t.Helper()
@@ -516,7 +516,7 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 	require.NoError(t, err)
 
 	ctxb := context.Background()
-	balancesResp, err := tarod.ListBalances(
+	balancesResp, err := tapd.ListBalances(
 		ctxb, &taprpc.ListBalancesRequest{
 			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
 				GroupKey: true,
@@ -533,11 +533,11 @@ func assertBalanceByGroup(t *testing.T, tarod *tarodHarness, hexGroupKey string,
 
 // assertTransfer asserts that the value of each transfer initiated on the
 // given daemon is correct.
-func assertTransfer(t *testing.T, tarod *tarodHarness, transferIdx,
+func assertTransfer(t *testing.T, tapd *tapdHarness, transferIdx,
 	numTransfers int, outputAmounts []uint64) {
 
 	ctxb := context.Background()
-	transferResp, err := tarod.ListTransfers(
+	transferResp, err := tapd.ListTransfers(
 		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
@@ -552,11 +552,11 @@ func assertTransfer(t *testing.T, tarod *tarodHarness, transferIdx,
 
 // assertSplitTombstoneTransfer asserts that there is a transfer for the given
 // asset ID that is a split that left over a tombstone output.
-func assertSplitTombstoneTransfer(t *testing.T, tarod *tarodHarness,
+func assertSplitTombstoneTransfer(t *testing.T, tapd *tapdHarness,
 	id []byte) {
 
 	ctxb := context.Background()
-	transferResp, err := tarod.ListTransfers(
+	transferResp, err := tapd.ListTransfers(
 		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
@@ -586,9 +586,9 @@ func assertSplitTombstoneTransfer(t *testing.T, tarod *tarodHarness,
 
 // assertNumGroups asserts that the number of groups the daemon is aware of
 // is correct.
-func assertNumGroups(t *testing.T, tarod *tarodHarness, num int) {
+func assertNumGroups(t *testing.T, tapd *tapdHarness, num int) {
 	ctxb := context.Background()
-	groupResp, err := tarod.ListGroups(
+	groupResp, err := tapd.ListGroups(
 		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
@@ -597,11 +597,11 @@ func assertNumGroups(t *testing.T, tarod *tarodHarness, num int) {
 
 // assertGroupSizes asserts that a set of groups the daemon is aware of contain
 // the expected number of assets.
-func assertGroupSizes(t *testing.T, tarod *tarodHarness, hexGroupKeys []string,
+func assertGroupSizes(t *testing.T, tapd *tapdHarness, hexGroupKeys []string,
 	sizes []int) {
 
 	ctxb := context.Background()
-	groupResp, err := tarod.ListGroups(
+	groupResp, err := tapd.ListGroups(
 		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
@@ -648,10 +648,10 @@ type MatchRpcAsset func(asset *taprpc.Asset) bool
 
 // assertListAssets checks that the assets returned by ListAssets match the
 // expected assets.
-func assertListAssets(t *harnessTest, ctx context.Context, tarod *tarodHarness,
+func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 	matchAssets []MatchRpcAsset) {
 
-	resp, err := tarod.ListAssets(ctx, &taprpc.ListAssetRequest{})
+	resp, err := tapd.ListAssets(ctx, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 
 	// Ensure that the number of assets returned is correct.
@@ -706,7 +706,7 @@ func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
 	}
 }
 
-func assertUniverseStateEqual(t *testing.T, a, b *tarodHarness) {
+func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
 	ctxb := context.Background()
 
 	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
@@ -719,7 +719,7 @@ func assertUniverseStateEqual(t *testing.T, a, b *tarodHarness) {
 }
 
 func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
-	a, b *tarodHarness) {
+	a, b *tapdHarness) {
 
 	for _, uniID := range uniIDs {
 		aLeaves, err := a.AssetLeaves(context.Background(), uniID)
@@ -745,7 +745,7 @@ func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
 }
 
 func assertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
-	a, b *tarodHarness) {
+	a, b *tapdHarness) {
 
 	for _, uniID := range uniIDs {
 		aUniKeys, err := a.AssetLeafKeys(context.Background(), uniID)
@@ -766,7 +766,7 @@ func assertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 	}
 }
 
-func assertUniverseStats(t *testing.T, node *tarodHarness,
+func assertUniverseStats(t *testing.T, node *tapdHarness,
 	numProofs, numSyncs, numAssets int) {
 
 	err := wait.NoError(func() error {
@@ -795,7 +795,7 @@ func assertUniverseStats(t *testing.T, node *tarodHarness,
 	require.NoError(t, err)
 }
 
-func assertUniverseAssetStats(t *testing.T, node *tarodHarness,
+func assertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	assetIDs [][]byte) {
 
 	assetStats, err := node.QueryAssetStats(

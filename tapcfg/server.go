@@ -27,7 +27,7 @@ type databaseBackend interface {
 	WithTx(tx *sql.Tx) *sqlc.Queries
 }
 
-// genServerConfig generates a server config from the given tarod config.
+// genServerConfig generates a server config from the given tapd config.
 //
 // NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
 // after genereting the server config.

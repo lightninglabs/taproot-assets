@@ -234,10 +234,10 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 
 	tlsCertPath := lncfg.CleanAndExpandPath(ctx.GlobalString("tlscertpath"))
 
-	// If a custom tarod directory was set, we'll also check if custom paths
+	// If a custom tapd directory was set, we'll also check if custom paths
 	// for the TLS cert and macaroon file were set as well. If not, we'll
-	// override their paths so they can be found within the custom tarod
-	// directory set. This allows us to set a custom tarod directory, along
+	// override their paths so they can be found within the custom tapd
+	// directory set. This allows us to set a custom tapd directory, along
 	// with custom paths to the TLS cert and macaroon file.
 	if taroDir != defaultTaroDir {
 		tlsCertPath = filepath.Join(taroDir, defaultTLSCertFilename)
@@ -250,7 +250,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "tarocli"
 	app.Version = taro.Version()
-	app.Usage = "control plane for your Taro Daemon (tarod)"
+	app.Usage = "control plane for your Taproot Assets Daemon (tapd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "rpcserver",
@@ -272,13 +272,13 @@ func main() {
 		cli.StringFlag{
 			Name:      "tlscertpath",
 			Value:     defaultTLSCertPath,
-			Usage:     "The path to tarod's TLS certificate.",
+			Usage:     "The path to tapd's TLS certificate.",
 			TakesFile: true,
 		},
 		cli.StringFlag{
 			Name: "network, n",
-			Usage: "The network tarod is running on, e.g. mainnet, " +
-				"testnet, etc.",
+			Usage: "The network tapd is running on, e.g. " +
+				"mainnet, testnet, etc.",
 			Value: "testnet",
 		},
 		cli.BoolFlag{
