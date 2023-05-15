@@ -31,7 +31,7 @@ func NewLndRpcKeyRing(lnd *lndclient.LndServices) *LndRpcKeyRing {
 func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
-	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 
 	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, int32(keyFam))
 	if err != nil {
@@ -49,7 +49,7 @@ func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(
 
 	keyFam := int32(asset.TaprootAssetsKeyFamily)
 
-	taroLog.Debugf("Deriving new key for fam_family=%v", keyFam)
+	tapdLog.Debugf("Deriving new key for fam_family=%v", keyFam)
 
 	keyDesc, err := l.lnd.WalletKit.DeriveNextKey(ctx, keyFam)
 	if err != nil {
@@ -66,7 +66,7 @@ func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(
 func (l *LndRpcKeyRing) DeriveKey(ctx context.Context,
 	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
 
-	taroLog.Debugf("Deriving new key, key_loc=%v", spew.Sdump(keyLoc))
+	tapdLog.Debugf("Deriving new key, key_loc=%v", spew.Sdump(keyLoc))
 
 	keyDesc, err := l.lnd.WalletKit.DeriveKey(ctx, &keyLoc)
 	if err != nil {

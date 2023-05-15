@@ -1564,13 +1564,13 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 
 		assets := chanutils.Map(anchoredAssets, fetchAsset)
 
-		taroCommitment, err := commitment.FromAssets(assets...)
+		tapCommitment, err := commitment.FromAssets(assets...)
 
 		if err != nil {
 			return nil, err
 		}
 
-		anchorPointToCommitment[anchorPoint] = taroCommitment
+		anchorPointToCommitment[anchorPoint] = tapCommitment
 	}
 
 	// Now that we have all the matching assets, along w/ all the other

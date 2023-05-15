@@ -234,7 +234,7 @@ func TestImportAssetProof(t *testing.T) {
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
 	require.NoError(t, err)
 
-	taroRoot, err := commitment.NewTaroCommitment(assetRoot)
+	taprootAssetRoot, err := commitment.NewTaroCommitment(assetRoot)
 	require.NoError(t, err)
 
 	// With our asset created, we can now create the AnnotatedProof we use
@@ -270,7 +270,7 @@ func TestImportAssetProof(t *testing.T) {
 			AnchorTx:          anchorTx,
 			OutputIndex:       0,
 			InternalKey:       test.RandPubKey(t),
-			ScriptRoot:        taroRoot,
+			ScriptRoot:        taprootAssetRoot,
 		},
 	}
 	if testAsset.GroupKey != nil {
@@ -509,7 +509,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		// TODO(roasbeef): should actually group them all together?
 		assetCommitment, err := commitment.NewAssetCommitment(asset)
 		require.NoError(t, err)
-		taroCommitment, err := commitment.NewTaroCommitment(assetCommitment)
+		tapCommitment, err := commitment.NewTaroCommitment(assetCommitment)
 		require.NoError(t, err)
 
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
@@ -520,7 +520,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 					AnchorTx:    anchorPoint,
 					InternalKey: test.RandPubKey(t),
 					Asset:       asset,
-					ScriptRoot:  taroCommitment,
+					ScriptRoot:  tapCommitment,
 				},
 				Blob: bytes.Repeat([]byte{1}, 100),
 			},

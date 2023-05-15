@@ -60,7 +60,7 @@ type DatabaseConfig struct {
 
 	AssetStore *tapdb.AssetStore
 
-	TaroAddrBook *tapdb.TaroAddressBook
+	TapAddrBook *tapdb.TapAddressBook
 
 	UniverseForest *tapdb.BaseUniverseForest
 

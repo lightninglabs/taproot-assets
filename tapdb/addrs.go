@@ -65,7 +65,7 @@ type (
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
-// the TaroAddressBook book. We need to be able to insert/fetch addresses, and
+// the TapAddressBook book. We need to be able to insert/fetch addresses, and
 // also make internal keys since each address has an internal key and a script
 // key (tho they can be the same).
 type AddrBook interface {
@@ -168,19 +168,19 @@ type BatchedAddrBook interface {
 	BatchedTx[AddrBook]
 }
 
-// TaroAddressBook represents a storage backend for all the Taro addresses a
+// TapAddressBook represents a storage backend for all the Taro addresses a
 // daemon has created.
-type TaroAddressBook struct {
+type TapAddressBook struct {
 	db     BatchedAddrBook
 	params *address.ChainParams
 }
 
-// NewTaroAddressBook creates a new TaroAddressBook instance given a open
+// NewTapAddressBook creates a new TapAddressBook instance given a open
 // BatchedAddrBook storage backend.
-func NewTaroAddressBook(db BatchedAddrBook,
-	params *address.ChainParams) *TaroAddressBook {
+func NewTapAddressBook(db BatchedAddrBook,
+	params *address.ChainParams) *TapAddressBook {
 
-	return &TaroAddressBook{
+	return &TapAddressBook{
 		db:     db,
 		params: params,
 	}
@@ -199,7 +199,7 @@ func insertInternalKey(ctx context.Context, a AddrBook,
 }
 
 // InsertAddrs inserts a new address into the database.
-func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
+func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 	addrs ...address.AddrWithKeyInfo) error {
 
 	var writeTxOpts AddrBookTxOptions
@@ -283,7 +283,7 @@ func (t *TaroAddressBook) InsertAddrs(ctx context.Context,
 
 // QueryAddrs attempts to query for the set of addresses on disk given the
 // passed set of query params.
-func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
+func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 	params address.QueryParams) ([]address.AddrWithKeyInfo, error) {
 
 	var addrs []address.AddrWithKeyInfo
@@ -413,7 +413,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 					"sibling: %w", err)
 			}
 
-			taroAddr, err := address.New(
+			tapAddr, err := address.New(
 				assetGenesis, groupKey, groupSig, *scriptKey,
 				*internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params,
@@ -421,10 +421,10 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
-			taroAddr.Version = asset.Version(addr.Version)
+			tapAddr.Version = asset.Version(addr.Version)
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
-				Taro: taroAddr,
+				Taro: tapAddr,
 				ScriptKeyTweak: asset.TweakedScriptKey{
 					RawKey: rawScriptKeyDesc,
 					Tweak:  addr.ScriptKeyTweak,
@@ -447,7 +447,7 @@ func (t *TaroAddressBook) QueryAddrs(ctx context.Context,
 
 // AddrByTaprootOutput returns a single address based on its Taproot output
 // key or a sql.ErrNoRows error if no such address exists.
-func (t *TaroAddressBook) AddrByTaprootOutput(ctx context.Context,
+func (t *TapAddressBook) AddrByTaprootOutput(ctx context.Context,
 	key *btcec.PublicKey) (*address.AddrWithKeyInfo, error) {
 
 	var (
@@ -550,17 +550,17 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 			err)
 	}
 
-	taroAddr, err := address.New(
+	tapAddr, err := address.New(
 		genesis, groupKey, groupSig, *scriptKey, *internalKey,
 		uint64(dbAddr.Amount), tapscriptSibling, params,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
 	}
-	taroAddr.Version = asset.Version(dbAddr.Version)
+	tapAddr.Version = asset.Version(dbAddr.Version)
 
 	return &address.AddrWithKeyInfo{
-		Taro: taroAddr,
+		Tap: tapAddr,
 		ScriptKeyTweak: asset.TweakedScriptKey{
 			RawKey: scriptKeyDesc,
 			Tweak:  dbAddr.ScriptKeyTweak,
@@ -573,7 +573,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 
 // SetAddrManaged sets an address as being managed by the internal
 // wallet.
-func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
+func (t *TapAddressBook) SetAddrManaged(ctx context.Context,
 	addr *address.AddrWithKeyInfo, managedFrom time.Time) error {
 
 	var writeTxOpts AddrBookTxOptions
@@ -594,7 +594,7 @@ func (t *TaroAddressBook) SetAddrManaged(ctx context.Context,
 // is identified as a local key later on when importing proofs. The key can be
 // an internal key for an asset script key or the internal key of an anchor
 // output.
-func (t *TaroAddressBook) InsertInternalKey(ctx context.Context,
+func (t *TapAddressBook) InsertInternalKey(ctx context.Context,
 	keyDesc keychain.KeyDescriptor) error {
 
 	var writeTxOpts AddrBookTxOptions
@@ -614,7 +614,7 @@ func (t *TaroAddressBook) InsertInternalKey(ctx context.Context,
 // InsertScriptKey inserts an address related script key into the database, so
 // it can be recognized as belonging to the wallet when a transfer comes in
 // later on.
-func (t *TaroAddressBook) InsertScriptKey(ctx context.Context,
+func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 	scriptKey asset.ScriptKey) error {
 
 	var writeTxOpts AddrBookTxOptions
@@ -638,7 +638,7 @@ func (t *TaroAddressBook) InsertScriptKey(ctx context.Context,
 // GetOrCreateEvent creates a new address event for the given status, address
 // and transaction. If an event for that address and transaction already exists,
 // then the status and transaction information is updated instead.
-func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
+func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 	status address.Status, addr *address.AddrWithKeyInfo,
 	walletTx *lndclient.Transaction, outputIdx uint32) (*address.Event,
 	error) {
@@ -698,12 +698,12 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 			return fmt.Errorf("error upserting chain TX: %w", err)
 		}
 
-		taroCommitment, err := addr.TaroCommitment()
+		taroCommitment, err := addr.TapCommitment()
 		if err != nil {
 			return fmt.Errorf("error deriving commitment: %w", err)
 		}
 		merkleRoot := taroCommitment.TapscriptRoot(siblingHash)
-		taroRoot := taroCommitment.TapscriptRoot(nil)
+		taprootAssetRoot := taroCommitment.TapscriptRoot(nil)
 
 		utxoUpsert := RawManagedUTXO{
 			RawKey:           addr.InternalKey.SerializeCompressed(),
@@ -746,7 +746,7 @@ func (t *TaroAddressBook) GetOrCreateEvent(ctx context.Context,
 
 // QueryAddrEvents returns a list of event that match the given query
 // parameters.
-func (t *TaroAddressBook) QueryAddrEvents(
+func (t *TapAddressBook) QueryAddrEvents(
 	ctx context.Context, params address.EventQueryParams) ([]*address.Event,
 	error) {
 
@@ -849,7 +849,7 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 
 // CompleteEvent updates an address event as being complete and links it with
 // the proof and asset that was imported/created for it.
-func (a *TaroAddressBook) CompleteEvent(ctx context.Context,
+func (a *TapAddressBook) CompleteEvent(ctx context.Context,
 	event *address.Event, status address.Status,
 	anchorPoint wire.OutPoint) error {
 
@@ -878,7 +878,7 @@ func (a *TaroAddressBook) CompleteEvent(ctx context.Context,
 
 // QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
 // asset group cannot be found, then ErrAssetGroupUnknown is returned.
-func (a *TaroAddressBook) QueryAssetGroup(ctx context.Context,
+func (a *TapAddressBook) QueryAssetGroup(ctx context.Context,
 	assetID asset.ID) (*asset.AssetGroup, error) {
 
 	var assetGroup asset.AssetGroup
@@ -981,7 +981,7 @@ func insertFullAssetGen(ctx context.Context,
 // InsertAssetGen inserts a new asset genesis into the database. This is
 // exported primarily for external tests so a genesis can be in place before
 // addr insertion.
-func (t *TaroAddressBook) InsertAssetGen(ctx context.Context,
+func (t *TapAddressBook) InsertAssetGen(ctx context.Context,
 	gen *asset.Genesis, group *asset.GroupKey) error {
 
 	var writeTxOpts AddrBookTxOptions
@@ -993,7 +993,7 @@ func (t *TaroAddressBook) InsertAssetGen(ctx context.Context,
 // FetchScriptKey attempts to fetch the full tweaked script key struct
 // (including the key descriptor) for the given tweaked script key. If the key
 // cannot be found, then ErrScriptKeyNotFound is returned.
-func (t *TaroAddressBook) FetchScriptKey(ctx context.Context,
+func (t *TapAddressBook) FetchScriptKey(ctx context.Context,
 	tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
 
 	var (
@@ -1039,7 +1039,7 @@ func (t *TaroAddressBook) FetchScriptKey(ctx context.Context,
 	return scriptKey, nil
 }
 
-// A set of compile-time assertions to ensure that TaroAddressBook meets the
+// A set of compile-time assertions to ensure that TapAddressBook meets the
 // address.Storage and address.EventStorage interface.
-var _ address.Storage = (*TaroAddressBook)(nil)
-var _ address.EventStorage = (*TaroAddressBook)(nil)
+var _ address.Storage = (*TapAddressBook)(nil)
+var _ address.EventStorage = (*TapAddressBook)(nil)

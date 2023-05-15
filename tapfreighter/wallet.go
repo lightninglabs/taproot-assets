@@ -420,10 +420,10 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	}
 
 	// Gather Taro commitments from the selected anchored assets.
-	var selectedTaroCommitments []*commitment.TaroCommitment
+	var selectedTapCommitments []*commitment.TaroCommitment
 	for _, selectedCommitment := range selectedCommitments {
-		selectedTaroCommitments = append(
-			selectedTaroCommitments, selectedCommitment.Commitment,
+		selectedTapCommitments = append(
+			selectedTapCommitments, selectedCommitment.Commitment,
 		)
 	}
 
@@ -473,10 +473,10 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// passive packets later.
 	passiveAssetsPresent := false
 	for idx := range inputCommitments {
-		taroCommitment := inputCommitments[idx]
+		tapCommitment := inputCommitments[idx]
 
 		passiveCommitments, err := removeActiveCommitments(
-			taroCommitment, vPkt,
+			tapCommitment, vPkt,
 		)
 		if err != nil {
 			return nil, err
@@ -844,7 +844,7 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 	// the passed asset commitment and updates the top level Taro commitment
 	// with the new asset commitment, if that still contains any assets.
 	removeAsset := func(assetCommitment *commitment.AssetCommitment,
-		toRemove *asset.Asset, taroKey [32]byte) error {
+		toRemove *asset.Asset, tapKey [32]byte) error {
 
 		// We need to make a copy in order to not modify the original
 		// commitment, as the above call to get all commitments just
@@ -869,7 +869,7 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 		// commitment manually if it is empty now.
 		rootHash := assetCommitment.TreeRoot.NodeHash()
 		if rootHash == mssmt.EmptyTreeRootHash {
-			delete(passiveCommitments, taroKey)
+			delete(passiveCommitments, tapKey)
 
 			return nil
 		}
@@ -877,7 +877,7 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 		// There are other leaves of this asset in our asset tree, let's
 		// now update our passive commitment map so these will be
 		// carried along.
-		passiveCommitments[taroKey] = assetCommitment
+		passiveCommitments[tapKey] = assetCommitment
 
 		return nil
 	}
@@ -886,16 +886,15 @@ func removeActiveCommitments(inputCommitment *commitment.TaroCommitment,
 	// needed to select them from the DB to arrive at the correct input
 	// Taro tree but can now remove them for good as they are no longer
 	// relevant and don't need to be carried over to the next tree.
-	for taroKey := range passiveCommitments {
-		assetCommitment := passiveCommitments[taroKey]
+	for tapKey := range passiveCommitments {
+		assetCommitment := passiveCommitments[tapKey]
 		committedAssets := assetCommitment.Assets()
 
 		for assetKey := range committedAssets {
 			committedAsset := committedAssets[assetKey]
 			if committedAsset.IsUnSpendable() {
 				err := removeAsset(
-					assetCommitment, committedAsset,
-					taroKey,
+					assetCommitment, committedAsset, tapKey,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("unable to "+
@@ -933,13 +932,13 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 	// Gather passive assets found in each input taro commitment.
 	var passiveAssets []*PassiveAssetReAnchor
 	for inputIdx := range inputCommitments {
-		taroCommitment := inputCommitments[inputIdx]
+		tapCommitment := inputCommitments[inputIdx]
 
 		// Each virtual input is associated with a distinct taro
 		// commitment. Therefore, each input may be associated with a
 		// distinct set of passive assets.
 		passiveCommitments, err := removeActiveCommitments(
-			taroCommitment, vPkt,
+			tapCommitment, vPkt,
 		)
 		if err != nil {
 			return nil, err
@@ -1194,12 +1193,12 @@ func trimSplitWitnesses(
 	// populated when the transfer of the input asset was verified.
 	// To recompute the correct output script, we need to build a Taro tree
 	// from the input asset without any SplitCommitment.
-	taroCommitmentCopy, err := original.Copy()
+	tapCommitmentCopy, err := original.Copy()
 	if err != nil {
 		return nil, err
 	}
 
-	allAssets := taroCommitmentCopy.CommittedAssets()
+	allAssets := tapCommitmentCopy.CommittedAssets()
 	for _, inputAsset := range allAssets {
 		inputAssetCopy := inputAsset.Copy()
 
@@ -1213,7 +1212,7 @@ func trimSplitWitnesses(
 			// Build the new Taro tree by first updating the asset
 			// commitment tree with the new asset leaf, and then the
 			// top-level Taro tree.
-			inputCommitments := taroCommitmentCopy.Commitments()
+			inputCommitments := tapCommitmentCopy.Commitments()
 			inputCommitmentKey := inputAssetCopy.TaroCommitmentKey()
 			inputAssetTree := inputCommitments[inputCommitmentKey]
 			err = inputAssetTree.Upsert(inputAssetCopy)
@@ -1221,14 +1220,14 @@ func trimSplitWitnesses(
 				return nil, err
 			}
 
-			err = taroCommitmentCopy.Upsert(inputAssetTree)
+			err = tapCommitmentCopy.Upsert(inputAssetTree)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	return taroCommitmentCopy, nil
+	return tapCommitmentCopy, nil
 }
 
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,

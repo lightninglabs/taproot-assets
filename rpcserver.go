@@ -889,7 +889,7 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	for i, dbAddr := range dbAddrs {
 		dbAddr.ChainParams = &taroParams
 
-		addrs[i], err = marshalAddr(dbAddr.Taro, r.cfg.TaroAddrBook)
+		addrs[i], err = marshalAddr(dbAddr.Taro, r.cfg.TapAddrBook)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal addr: %w",
 				err)
@@ -989,7 +989,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// With our addr obtained, we'll marshal it as an RPC message then send
 	// off the response.
-	rpcAddr, err := marshalAddr(addr.Taro, r.cfg.TaroAddrBook)
+	rpcAddr, err := marshalAddr(addr.Taro, r.cfg.TapAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -1013,7 +1013,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
 
-	rpcAddr, err := marshalAddr(addr, r.cfg.TaroAddrBook)
+	rpcAddr, err := marshalAddr(addr, r.cfg.TapAddrBook)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal addr: %w", err)
 	}
@@ -1131,7 +1131,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		// that means we don't know anything about what it should look
 		// like on chain (the genesis is required to derive the taproot
 		// output key).
-		assetGroup, err := r.cfg.TaroAddrBook.QueryAssetGroup(
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
 			ctx, addr.AssetID,
 		)
 		if err != nil {
@@ -1180,7 +1180,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 
 	for idx, event := range events {
 		resp.Events[idx], err = marshalAddrEvent(
-			event, r.cfg.TaroAddrBook,
+			event, r.cfg.TapAddrBook,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling event: %w",
@@ -1211,7 +1211,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		// basically assembles the asset ID we want to send to and the
 		// sum of all output amounts.
 		desc, err := tapscript.DescribeRecipients(
-			ctx, vPkt, r.cfg.TaroAddrBook,
+			ctx, vPkt, r.cfg.TapAddrBook,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to describe packet "+

@@ -32,9 +32,9 @@ var (
 	txTypeTaproot = lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V1_TAPROOT
 )
 
-// newAddrBook creates a new instance of the TaroAddressBook book.
+// newAddrBook creates a new instance of the TapAddressBook book.
 func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
-	*tapdb.TaroAddressBook, sqlc.Querier) {
+	*tapdb.TapAddressBook, sqlc.Querier) {
 
 	db := tapdb.NewTestDB(t)
 
@@ -43,7 +43,7 @@ func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
 	}
 
 	addrTx := tapdb.NewTransactionExecutor(db, txCreator)
-	tapdbBook := tapdb.NewTaroAddressBook(addrTx, chainParams)
+	tapdbBook := tapdb.NewTapAddressBook(addrTx, chainParams)
 	book := address.NewBook(address.BookConfig{
 		Store:        tapdbBook,
 		StoreTimeout: testTimeout,
@@ -81,7 +81,7 @@ type custodianHarness struct {
 	chainBridge  *tapgarden.MockChainBridge
 	walletAnchor *tapgarden.MockWalletAnchor
 	keyRing      *tapgarden.MockKeyRing
-	tapdbBook    *tapdb.TaroAddressBook
+	tapdbBook    *tapdb.TapAddressBook
 	addrBook     *address.Book
 	assetDB      *tapdb.AssetStore
 	proofArchive *proof.MultiArchiver

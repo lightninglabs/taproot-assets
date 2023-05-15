@@ -659,12 +659,12 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetCommitments[i] = assetCommitment
 	}
 
-	taroCommitment, err := commitment.NewTaroCommitment(assetCommitments...)
+	tapCommitment, err := commitment.NewTaroCommitment(assetCommitments...)
 	if err != nil {
 		return nil, err
 	}
 
-	return taroCommitment, nil
+	return tapCommitment, nil
 }
 
 // fetchAssetMetas attempts to fetch the asset meta reveal for each of the

@@ -84,7 +84,7 @@ func TaroProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 		}
 		return stream.Encode(w)
 	}
-	return tlv.NewTypeForEncodingErr(val, "commitment.TaroProof")
+	return tlv.NewTypeForEncodingErr(val, "commitment.TaprootAssetProof")
 }
 
 func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
@@ -108,7 +108,7 @@ func TaroProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		*typ = proof
 		return nil
 	}
-	return tlv.NewTypeForEncodingErr(val, "commitment.TaroProof")
+	return tlv.NewTypeForEncodingErr(val, "commitment.TaprootAssetProof")
 }
 
 func TreeProofEncoder(w io.Writer, val any, buf *[8]byte) error {

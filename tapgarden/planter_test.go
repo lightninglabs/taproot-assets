@@ -40,7 +40,7 @@ var (
 	minterInterval  = time.Millisecond * 250
 )
 
-// newMintingStore creates a new instance of the TaroAddressBook book.
+// newMintingStore creates a new instance of the TapAddressBook book.
 func newMintingStore(t *testing.T) tapgarden.MintingStore {
 	db := tapdb.NewTestDB(t)
 

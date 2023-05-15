@@ -83,7 +83,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 	taroChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
-	tapdbAddrBook := tapdb.NewTaroAddressBook(
+	tapdbAddrBook := tapdb.NewTapAddressBook(
 		addrBookDB, &taroChainParams,
 	)
 
@@ -259,7 +259,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			RootKeyStore:   tapdb.NewRootKeyStore(rksDB),
 			MintingStore:   assetMintingStore,
 			AssetStore:     assetStore,
-			TaroAddrBook:   tapdbAddrBook,
+			TapAddrBook:    tapdbAddrBook,
 			UniverseForest: uniForest,
 			FederationDB:   federationDB,
 		},

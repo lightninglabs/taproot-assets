@@ -404,8 +404,8 @@ type CommittedIssuanceProof struct {
 	// been stamped in the chain.
 	ChainProof *Commitment
 
-	// TaroProof is a proof of new asset issuance.
-	TaroProof *IssuanceProof
+	// TaprootAssetProof is a proof of new asset issuance.
+	TaprootAssetProof *IssuanceProof
 }
 
 // ChainCommitter is used to commit a Universe backend in the chain.

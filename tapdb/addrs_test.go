@@ -21,8 +21,8 @@ var (
 	chainParams = &address.RegressionNetTap
 )
 
-// newAddrBook makes a new instance of the TaroAddressBook book.
-func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
+// newAddrBook makes a new instance of the TapAddressBook book.
+func newAddrBook(t *testing.T) (*TapAddressBook, sqlc.Querier) {
 	db := NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) AddrBook {
@@ -30,7 +30,7 @@ func newAddrBook(t *testing.T) (*TaroAddressBook, sqlc.Querier) {
 	}
 
 	addrTx := NewTransactionExecutor(db, txCreator)
-	return NewTaroAddressBook(addrTx, chainParams), db
+	return NewTapAddressBook(addrTx, chainParams), db
 }
 
 func confirmTx(tx *lndclient.Transaction) {
