@@ -28,12 +28,12 @@ type ChainPorterConfig struct {
 	// for the transfer.
 	CoinSelector CoinSelector
 
-	// Signer implements the Taro level signing we need to sign a virtual
-	// transaction.
+	// Signer implements the Taproot Asset level signing we need to sign a
+	// virtual transaction.
 	Signer Signer
 
-	// TxValidator allows us to validate each Taro virtual transaction we
-	// create.
+	// TxValidator allows us to validate each Taproot Asset virtual
+	// transaction we create.
 	TxValidator tapscript.TxValidator
 
 	// ExportLog is used to log information about pending parcels to disk.
@@ -68,7 +68,7 @@ type ChainPorterConfig struct {
 	ErrChan chan<- error
 }
 
-// ChainPorter is the main sub-system of the tarofreighter package. The porter
+// ChainPorter is the main sub-system of the tapfreighter package. The porter
 // is responsible for transferring your bags (assets). This porter is
 // responsible for taking incoming delivery requests (parcels) and generating a
 // final transfer transaction along with all the proofs needed to complete the
@@ -732,8 +732,8 @@ func createDummyOutput() *wire.TxOut {
 	return &newOutput
 }
 
-// stateStep attempts to step through the state machine to complete a Taro
-// transfer.
+// stateStep attempts to step through the state machine to complete a Taproot
+// Asset transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Notify subscribers that the state machine is about to execute a
 	// state.
@@ -772,7 +772,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		return &currentPkg, nil
 
 	// At this point, we have everything we need to sign our _virtual_
-	// transaction on the Taro layer.
+	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
 		vPacket := currentPkg.VirtualPacket
 		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
@@ -780,7 +780,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			receiverScriptKey.SerializeCompressed())
 
 		// Now we'll use the signer to sign all the inputs for the new
-		// taro leaves. The witness data for each input will be
+		// Taproot Asset leaves. The witness data for each input will be
 		// assigned for us.
 		_, err := p.cfg.AssetWallet.SignVirtualPacket(vPacket)
 		if err != nil {
@@ -792,8 +792,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
-	// With all the internal Taro signing taken care of, we can now make
-	// our initial skeleton PSBT packet to send off to the wallet for
+	// With all the internal Taproot Asset signing taken care of, we can now
+	// make our initial skeleton PSBT packet to send off to the wallet for
 	// funding and signing.
 	case SendStateAnchorSign:
 		ctx, cancel := p.WithCtxQuitNoTimeout()

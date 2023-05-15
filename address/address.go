@@ -20,7 +20,8 @@ import (
 
 var (
 	// ErrUnsupportedHRP is an error returned when we attempt to encode a
-	// Taproot Asset address with an HRP for a network without Taro support.
+	// Taproot Asset address with an HRP for a network without Taproot Asset
+	// support.
 	ErrUnsupportedHRP = errors.New(
 		"address: unsupported HRP value",
 	)
@@ -84,7 +85,7 @@ type Tap struct {
 	// to encode the Taproot Asset address.
 	ChainParams *ChainParams
 
-	// Version is the Taro version of the asset.
+	// Version is the Taproot Asset version of the asset.
 	Version asset.Version
 
 	// AssetID is the asset ID of the asset.
@@ -115,11 +116,11 @@ type Tap struct {
 	Amount uint64
 
 	// assetGen is the receiving asset's genesis metadata which directly
-	// maps to its unique ID within the Taro protocol.
+	// maps to its unique ID within the Taproot Asset protocol.
 	assetGen asset.Genesis
 }
 
-// New creates an address for receiving a Taro asset.
+// New creates an address for receiving a Taproot asset.
 func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
@@ -382,8 +383,8 @@ func (a *Tap) String() string {
 // returns the HRP and address TLV.
 func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	// Bech32m encoded Taproot Asset addresses start with a human-readable
-	// part (hrp) followed by '1'. For Bitcoin mainnet the hrp is "taro",
-	// and for testnet it is "tarot". If the address string has a prefix
+	// part (hrp) followed by '1'. For Bitcoin mainnet the hrp is "tap",
+	// and for testnet it is "tapt". If the address string has a prefix
 	// that matches one of the prefixes for the known networks, we try to
 	// decode it as a Taproot Asset address.
 	oneIndex := strings.LastIndexByte(addr, '1')

@@ -8,10 +8,10 @@ import (
 )
 
 // ValidatorV0 is an implementation of the tapscript.TxValidator interface
-// that supports Taro script version 0.
+// that supports Taproot Asset script version 0.
 type ValidatorV0 struct{}
 
-// Execute creates and runs an instance of the Taro script V0 VM.
+// Execute creates and runs an instance of the Taproot Asset script V0 VM.
 func (v *ValidatorV0) Execute(newAsset *asset.Asset,
 	splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet) error {

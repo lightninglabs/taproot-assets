@@ -21,10 +21,10 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// CommitmentConstraints conveys the constraints on the type of Taro asset
-// commitments needed to satisfy a send request. Typically for Bitcoin we just
-// care about the amount. In the case of Taro, we also need to worry about the
-// asset ID, and also the type of asset we need.
+// CommitmentConstraints conveys the constraints on the type of Taproot asset
+// commitments needed to satisfy a send request. Typically, for Bitcoin we just
+// care about the amount. In the case of Taproot Asset, we also need to worry
+// about the asset ID, and also the type of asset we need.
 //
 // NOTE: Only the GroupKey or the AssetID should be set.
 type CommitmentConstraints struct {
@@ -79,11 +79,11 @@ var (
 )
 
 // CoinLister attracts over the coin selection process needed to be
-// able to execute moving taro assets on chain.
+// able to execute moving taproot assets on chain.
 type CoinLister interface {
 	// ListEligibleCoins takes the set of commitment constraints and returns
 	// an AnchoredCommitment that returns all the information needed to use
-	// the commitment as an input to an on chain taro transaction.
+	// the commitment as an input to an on chain Taproot Asset transaction.
 	//
 	// If coin selection cannot be completed, then ErrMatchingAssetsNotFound
 	// should be returned.
@@ -144,7 +144,7 @@ type Anchor struct {
 
 	// MerkleRoot is the root of the tap script merkle tree that also
 	// contains the Taproot Asset commitment of the anchor output. If there
-	// is no tapscript sibling, then this is equal to the TaroRoot.
+	// is no tapscript sibling, then this is equal to the TaprootAssetRoot.
 	MerkleRoot []byte
 
 	// TapscriptSibling is the serialized preimage of the tapscript sibling
@@ -192,14 +192,14 @@ type TransferOutput struct {
 	ProofSuffix []byte
 }
 
-// OutboundParcel represents the database level delta of an outbound taro
-// parcel (outbound spend). A spend will destroy a series of assets listed as
-// inputs, and re-create them as new outputs. Along the way some assets may have
-// been split or sent to others. This is reflected in the set of
+// OutboundParcel represents the database level delta of an outbound Taproot
+// Asset parcel (outbound spend). A spend will destroy a series of assets listed
+// as inputs, and re-create them as new outputs. Along the way some assets may
+// have been split or sent to others. This is reflected in the set of
 // TransferOutputs.
 type OutboundParcel struct {
-	// AnchorTx is the new transaction that commits to the set of Taro
-	// assets found at the above NewAnchorPoint.
+	// AnchorTx is the new transaction that commits to the set of Taproot
+	// Assets found at the above NewAnchorPoint.
 	AnchorTx *wire.MsgTx
 
 	// AnchorTxHeightHint is a block height recorded before the anchor tx is
@@ -279,10 +279,10 @@ type PassiveAssetReAnchor struct {
 	NewWitnessData []asset.Witness
 }
 
-// ExportLog is used to track the state of outbound taro parcels (batched
-// spends). This log is used by the ChainPorter to mark pending outbound
-// deliveries, and finally confirm the deliveries once they've been committed
-// to the main chain.
+// ExportLog is used to track the state of outbound Taproot Asset parcels
+// (batched spends). This log is used by the ChainPorter to mark pending
+// outbound deliveries, and finally confirm the deliveries once they've been
+// committed to the main chain.
 type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
 	// commits the set of changes to disk (the asset deltas) but doesn't
@@ -300,22 +300,22 @@ type ExportLog interface {
 	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
 }
 
-// ChainBridge aliases into the ChainBridge of the tarogarden package.
+// ChainBridge aliases into the ChainBridge of the tapgarden package.
 type ChainBridge = tapgarden.ChainBridge
 
-// WalletAnchor aliases into the WalletAnchor of the tarogarden package.
+// WalletAnchor aliases into the WalletAnchor of the taparden package.
 type WalletAnchor interface {
 	tapgarden.WalletAnchor
 
-	// SignPsbt signs all the inputs it can in the passed PSBT packet,
+	// SignPsbt signs all the inputs it can in the passed-in PSBT packet,
 	// returning a new one with updated signature/witness data.
 	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
 }
 
-// KeyRing aliases into the KeyRing of the tarogarden package.
+// KeyRing aliases into the KeyRing of the tapgarden package.
 type KeyRing = tapgarden.KeyRing
 
-// Signer aliases into the Signer interface of the taroscript package.
+// Signer aliases into the Signer interface of the tapscript package.
 type Signer = tapscript.Signer
 
 // Porter is a high level interface that wraps the main caller execution point

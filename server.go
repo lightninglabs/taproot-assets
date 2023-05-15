@@ -23,9 +23,9 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
-// Server is the main daemon construct for the Taro server. It handles spinning
-// up the RPC sever, the database, and any other components that the taro
-// server needs to function.
+// Server is the main daemon construct for the Taproot Asset server. It handles
+// spinning up the RPC sever, the database, and any other components that the
+// Taproot Asset server needs to function.
 type Server struct {
 	started  int32
 	shutdown int32
@@ -170,8 +170,8 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	return nil
 }
 
-// RunUntilShutdown runs the main Taro server loop until a signal is received
-// to shut down the process.
+// RunUntilShutdown runs the main Taproot Asset server loop until a signal is
+// received to shut down the process.
 func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	if atomic.AddInt32(&s.started, 1) != 1 {
 		return nil
@@ -337,7 +337,7 @@ func (s *Server) ValidateMacaroon(ctx context.Context,
 		return fmt.Errorf("macaroon service has not been initialised")
 	}
 
-	// Delegate the call to taro's own macaroon validator service.
+	// Delegate the call to tapd's own macaroon validator service.
 	return s.macaroonService.ValidateMacaroon(
 		ctx, requiredPermissions, fullMethod,
 	)
@@ -494,7 +494,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
 	return shutdown, nil
 }
 
-// Stop signals that the main taro server should attempt a graceful shutdown.
+// Stop signals that the main tapd server should attempt a graceful shutdown.
 func (s *Server) Stop() error {
 	if atomic.AddInt32(&s.shutdown, 1) != 1 {
 		return nil

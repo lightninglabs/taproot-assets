@@ -46,9 +46,9 @@ var (
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
-// BaseUniverseStore is the main interface for the Taro universe store. This is
-// a composite of the capabilities to insert new asset genesis, update the SMT
-// tree, and finally fetch a genesis. We then combine that with Universe
+// BaseUniverseStore is the main interface for the Taproot Asset universe store.
+// This is a composite of the capabilities to insert new asset genesis, update
+// the SMT tree, and finally fetch a genesis. We then combine that with Universe
 // specific information to implement all the required interaction.
 type BaseUniverseStore interface {
 	UpsertAssetStore

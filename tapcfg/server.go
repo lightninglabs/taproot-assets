@@ -266,7 +266,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}, nil
 }
 
-// CreateServerFromConfig creates a new Taro server from the given CLI config.
+// CreateServerFromConfig creates a new Taproot Asset server from the given CLI
+// config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	shutdownInterceptor signal.Interceptor,
 	mainErrChan chan<- error) (*tap.Server, error) {
@@ -324,7 +325,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	return tap.NewServer(serverCfg), nil
 }
 
-// CreateServerFromConfig creates a new Taro server from the given CLI config.
+// CreateServerFromConfig creates a new Taproot Asset server from the given CLI
+// config.
 func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
 	mainErrChan chan<- error) (*tap.Server, error) {

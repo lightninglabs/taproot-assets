@@ -107,7 +107,7 @@ var (
 	//   ~/Library/Application Support/Tapd on MacOS
 	DefaultTapdDir = btcutil.AppDataDir("tapd", false)
 
-	// DefaultConfigFile is the default full path of taro's configuration
+	// DefaultConfigFile is the default full path of tapd's configuration
 	// file.
 	DefaultConfigFile = filepath.Join(DefaultTapdDir, defaultConfigFileName)
 
@@ -145,7 +145,7 @@ var (
 	)
 
 	// minimalCompatibleVersion is the minimum version and build tags
-	// required in lnd to run taro.
+	// required in lnd to run tapd.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor: 0,
 		AppMinor: 15,
@@ -350,12 +350,12 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 
 	// If the config file path has not been modified by the user, then
 	// we'll use the default config file path. However, if the user has
-	// modified their taroddir, then we should assume they intend to use
+	// modified their tapddir, then we should assume they intend to use
 	// the config file within it.
 	configFileDir := CleanAndExpandPath(preCfg.TapdDir)
 	configFilePath := CleanAndExpandPath(preCfg.ConfigFile)
 	switch {
-	// User specified --taroddir but no --configfile. Update the config
+	// User specified --tapddir but no --configfile. Update the config
 	// file path to the tapd config directory, but don't require it to
 	// exist.
 	case configFileDir != DefaultTapdDir &&
@@ -620,9 +620,9 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		)
 	}
 
-	// Create the taro directory and all other sub-directories if they
+	// Create the tapd directory and all other sub-directories if they
 	// don't already exist. This makes sure that directory trees are also
-	// created for files that point to outside the taroddir.
+	// created for files that point to outside the tapddir.
 	dirs := []string{
 		tapdDir, cfg.DataDir, cfg.networkDir,
 		filepath.Dir(cfg.RpcConf.TLSCertPath),

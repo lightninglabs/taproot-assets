@@ -88,10 +88,10 @@ func (l *LndRpcKeyRing) IsLocalKey(ctx context.Context,
 		return false
 	}
 
-	// An external software could use a key outside the Taro key family, so
-	// we can only be sure that it's definitely not a key known by the
-	// wallet if both family and index are 0. That should only be the case
-	// for keys that are imported from a proof for example.
+	// An external software could use a key outside the Taproot Asset key
+	// family, so we can only be sure that it's definitely not a key known
+	// by the wallet if both family and index are 0. That should only be the
+	// case for keys that are imported from a proof for example.
 	if desc.Family == 0 && desc.Index == 0 {
 		return false
 	}

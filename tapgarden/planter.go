@@ -16,7 +16,7 @@ import (
 )
 
 // GardenKit holds the set of shared fundamental interfaces all sub-systems of
-// the tarogarden need to function.
+// the tapgarden need to function.
 type GardenKit struct {
 	// Wallet is an active on chain wallet for the target chain.
 	Wallet WalletAnchor
@@ -152,7 +152,7 @@ const (
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
-// taro assets. The planter will periodically batch those requests into a new
+// taproot assets. The planter will periodically batch those requests into a new
 // minting batch, which is handed off to a caretaker. While batches are
 // progressing through maturity the planter will be responsible for sending
 // notifications back to the relevant caller.
@@ -437,7 +437,7 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	return nil
 }
 
-// gardener is responsible for collecting new potential taro asset
+// gardener is responsible for collecting new potential taproot asset
 // seeds/seedlings into a batch to ultimately be anchored in a genesis output
 // creating the assets from seedlings into sprouts, and eventually fully grown
 // assets.
@@ -521,9 +521,9 @@ func (c *ChainPlanter) gardener() {
 				NewState: MintingStateSeed,
 			}
 
-		// A caretaker has finished processing their batch to full Taro
-		// asset maturity. We'll clean up our local state, and signal
-		// that it can exit.
+		// A caretaker has finished processing their batch to full
+		// Taproot Asset maturity. We'll clean up our local state, and
+		// signal that it can exit.
 		//
 		// TODO(roasbeef): also need a channel to send out additional
 		// notifications?
@@ -671,7 +671,7 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return <-req.resp, <-req.err
 }
 
-// prepAssetSeedling performs some basic validation for the TaroSeedling, then
+// prepAssetSeedling performs some basic validation for the Seedling, then
 // either adds it to an existing pending batch or creates a new batch for it. A
 // bool indicating if a new batch should immediately be created is returned.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
@@ -825,5 +825,5 @@ func (c *ChainPlanter) CancelSeedling() error {
 }
 
 // A compile-time assertion to make sure that ChainPlanter implements the
-// taronursery.Planter interface.
+// tapgarden.Planter interface.
 var _ Planter = (*ChainPlanter)(nil)

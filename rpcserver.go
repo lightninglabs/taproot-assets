@@ -50,7 +50,7 @@ const (
 	tapdMacaroonLocation = "tapd"
 )
 
-// rpcServer is the main RPC server for the Taro daemon that handles
+// rpcServer is the main RPC server for the Taproot Assets daemon that handles
 // gRPC/REST/Websockets incoming requests.
 type rpcServer struct {
 	started  int32
@@ -1553,10 +1553,10 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 	}
 }
 
-// SendAsset uses one or multiple passed taro address(es) to attempt to complete
-// an asset send. The method returns information w.r.t the on chain send, as
-// well as the proof file information the receiver needs to fully receive the
-// asset.
+// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt to
+// complete an asset send. The method returns information w.r.t the on chain
+// send, as well as the proof file information the receiver needs to fully
+// receive the asset.
 func (r *rpcServer) SendAsset(_ context.Context,
 	in *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
@@ -2199,8 +2199,8 @@ func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
 // AssetLeafKeys queries for the set of Universe keys associated with a given
 // asset_id or group_key. Each key takes the form: (outpoint, script_key),
 // where outpoint is an outpoint in the Bitcoin blockchain that anchors a valid
-// Taro asset commitment, and script_key is the script_key of the asset within
-// the Taro asset commitment for the given asset_id or group_key.
+// Taproot Asset commitment, and script_key is the script_key of the asset
+// within the Taproot Asset commitment for the given asset_id or group_key.
 func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafKeyResponse, error) {
 
@@ -2263,7 +2263,7 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 // AssetLeaves queries for the set of asset leaves (the values in the Universe
 // MS-SMT tree) for a given asset_id or group_key. These represents either
 // asset issuance events (they have a genesis witness) or asset transfers that
-// took place on chain. The leaves contain a normal Taro asset proof, as well
+// took place on chain. The leaves contain a normal Taproot asset proof, as well
 // as details for the asset.
 func (r *rpcServer) AssetLeaves(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
@@ -2431,8 +2431,8 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 // based on its UniverseKey. A UniverseKey is composed of the Universe ID
 // (asset_id/group_key) and also a leaf key (outpoint || script_key). If found,
 // then the issuance proof is returned that includes an inclusion proof to the
-// known Universe root, as well as a Taro state transition or issuance proof
-// for the said asset.
+// known Universe root, as well as a Taproot Asset state transition or issuance
+// proof for the said asset.
 func (r *rpcServer) QueryIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.IssuanceProofResponse, error) {
 

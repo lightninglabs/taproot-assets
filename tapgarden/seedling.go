@@ -68,7 +68,7 @@ type SeedlingUpdate struct {
 // seedling back to the caller.
 type SeedlingUpdates chan SeedlingUpdate
 
-// Seedling is an adolescent Taro asset that will one day bloom into a fully
+// Seedling is an adolescent Taproot asset that will one day bloom into a fully
 // grown plant.
 type Seedling struct {
 	// AssetType is the type of the asset.

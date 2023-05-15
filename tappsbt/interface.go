@@ -112,14 +112,14 @@ var (
 )
 
 // VPacket is a PSBT extension packet for a virtual transaction. It represents
-// the virtual asset state transition as it will be validated by the Taro VM.
-// Some elements within the virtual packet may refer to on-chain elements (such
-// as the anchor BTC transaction that was used to anchor the input that is
-// spent). But in general a virtual transaction does NOT directly map onto a BTC
-// transaction. It is entirely possible that multiple virtual transactions will
-// be merged into a single BTC transaction. Thus, each asset state transfer is
-// represented in a virtual TX and multiple asset state transfers can be
-// anchored within a single BTC transaction.
+// the virtual asset state transition as it will be validated by the Taproot
+// Asset VM. Some elements within the virtual packet may refer to on-chain
+// elements (such as the anchor BTC transaction that was used to anchor the
+// input that is spent). But in general a virtual transaction does NOT directly
+// map onto a BTC transaction. It is entirely possible that multiple virtual
+// transactions will be merged into a single BTC transaction. Thus, each asset
+// state transfer is represented in a virtual TX and multiple asset state
+// transfers can be anchored within a single BTC transaction.
 //
 // NOTE: A virtual transaction only carries the asset state transition for a
 // single asset ID. If multiple inputs are given, they must all belong to the
@@ -138,8 +138,8 @@ type VPacket struct {
 	// virtual transaction.
 	Outputs []*VOutput
 
-	// ChainParams are the Taro chain parameters that are used to encode and
-	// decode certain contents of the virtual packet.
+	// ChainParams are the Taproot Asset chain parameters that are used to
+	// encode and decode certain contents of the virtual packet.
 	ChainParams *address.ChainParams
 
 	// Version is the version of the virtual transaction. This is currently

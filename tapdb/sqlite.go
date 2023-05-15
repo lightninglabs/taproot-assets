@@ -46,7 +46,7 @@ type SqliteConfig struct {
 	DatabaseFileName string `long:"dbfile" description:"The full path to the database."`
 }
 
-// SqliteStore is a sqlite3 based database for the taro daemon.
+// SqliteStore is a sqlite3 based database for the Taproot Asset daemon.
 type SqliteStore struct {
 	cfg *SqliteConfig
 

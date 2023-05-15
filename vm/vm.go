@@ -12,7 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
-// Engine is a virtual machine capable of executing and verifying Taro asset
+// Engine is a virtual machine capable of executing and verifying Taproot asset
 // state transitions.
 type Engine struct {
 	// newAsset represents the final state of an asset undergoing a state
@@ -28,8 +28,8 @@ type Engine struct {
 	prevAssets commitment.InputSet
 }
 
-// New returns a new virtual machine capable of executing and verifying Taro
-// asset state transitions.
+// New returns a new virtual machine capable of executing and verifying Taproot
+// Asset state transitions.
 func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet) (*Engine, error) {
 
@@ -181,7 +181,7 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 }
 
 // validateWitnessV0 attempts to validate a new asset's witness based on the
-// initial Taro script version generated over the virtual transaction
+// initial Taproot Asset script version generated over the virtual transaction
 // represented by the state transition.
 func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	witness *asset.Witness, prevAsset *asset.Asset) error {
@@ -203,7 +203,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	}
 
 	// Update the virtual transaction input with details for the specific
-	// Taro input and proceed to validate its witness.
+	// Taproot Asset input and proceed to validate its witness.
 	virtualTxCopy := tapscript.VirtualTxWithInput(
 		virtualTx, prevAsset, inputIdx, witness.TxWitness,
 	)

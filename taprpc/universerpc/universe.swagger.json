@@ -953,7 +953,7 @@
         "version": {
           "type": "integer",
           "format": "int32",
-          "description": "The version of the Taproot Asset asset."
+          "description": "The version of the Taproot Asset."
         },
         "asset_genesis": {
           "$ref": "#/definitions/taprpcGenesisInfo",

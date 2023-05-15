@@ -67,7 +67,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 		return nil, fmt.Errorf("not a virtual transaction")
 	}
 
-	// We also want the HRP of the Taro chain params.
+	// We also want the HRP of the Taproot Asset chain params.
 	hrp, err := findCustomFieldsByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTapChainParamsHRP,
 	)

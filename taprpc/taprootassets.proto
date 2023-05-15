@@ -228,7 +228,7 @@ message AssetGroup {
 }
 
 message Asset {
-    // The version of the Taproot Asset asset.
+    // The version of the Taproot Asset.
     int32 version = 1;
 
     // The base genesis information of an asset. This information never changes.
@@ -407,7 +407,7 @@ message ListTransfersResponse {
 message AssetTransfer {
     int64 transfer_timestamp = 1;
 
-    // The new transaction that commits to the set of Taproot Asset assets found
+    // The new transaction that commits to the set of Taproot Assets found
     // at the above new anchor point.
     bytes anchor_tx_hash = 2;
 

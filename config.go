@@ -67,11 +67,11 @@ type DatabaseConfig struct {
 	FederationDB *tapdb.UniverseFederationDB
 }
 
-// Config is the main config of the Taro server.
+// Config is the main config of the Taproot Assets server.
 type Config struct {
 	DebugLevel string
 
-	// TODO(roasbeef): use the taro chain param wrapper here?
+	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?
 	ChainParams chaincfg.Params
 
 	SignalInterceptor signal.Interceptor

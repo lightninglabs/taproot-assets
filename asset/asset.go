@@ -44,7 +44,8 @@ func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
 	return serialized
 }
 
-// Version denotes the version of the Taro protocol in effect for an asset.
+// Version denotes the version of the Taproot Asset protocol in effect for an
+// asset.
 type Version uint8
 
 var (
@@ -84,7 +85,7 @@ const (
 	// and to ensure compatibility with the remote signer.
 	TaprootAssetsKeyFamily = 212
 
-	// V0 is the initial Taro protocol version.
+	// V0 is the initial Taproot Asset protocol version.
 	V0 Version = 0
 )
 
@@ -94,7 +95,7 @@ const (
 )
 
 // Genesis encodes an asset's genesis metadata which directly maps to its unique
-// ID within the Taro protocol.
+// ID within the Taproot Asset protocol.
 type Genesis struct {
 	// FirstPrevOut represents the outpoint of the transaction's first
 	// input that resulted in the creation of the asset.
@@ -117,11 +118,11 @@ type Genesis struct {
 	// NOTE: This is immutable for the lifetime of the asset.
 	MetaHash [MetaHashLen]byte
 
-	// OutputIndex is the index of the output that carries the unique Taro
-	// commitment in the genesis transaction.
+	// OutputIndex is the index of the output that carries the unique
+	// Taproot Asset commitment in the genesis transaction.
 	OutputIndex uint32
 
-	// Type uniquely identifies the type of Taro asset.
+	// Type uniquely identifies the type of Taproot asset.
 	Type Type
 }
 
@@ -192,7 +193,7 @@ func DecodeGenesis(r io.Reader) (Genesis, error) {
 	return gen, err
 }
 
-// Type denotes the asset types supported by the Taro protocol.
+// Type denotes the asset types supported by the Taproot Asset protocol.
 type Type uint8
 
 const (
@@ -393,9 +394,9 @@ func (w *Witness) DeepEqual(o *Witness) bool {
 type ScriptVersion uint16
 
 const (
-	// ScriptV0 represents the initial asset script version of the Taro
-	// protocol. In this version, assets commit to a tweaked Taproot output
-	// key, allowing the ability for an asset to indirectly commit to
+	// ScriptV0 represents the initial asset script version of the Taproot
+	// Asset protocol. In this version, assets commit to a tweaked Taproot
+	// output key, allowing the ability for an asset to indirectly commit to
 	// multiple spending conditions.
 	ScriptV0 ScriptVersion = 0
 )
@@ -653,13 +654,13 @@ func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
 	}, nil
 }
 
-// Asset represents a Taro asset.
+// Asset represents a Taproot asset.
 type Asset struct {
-	// Version is the Taro version of the asset.
+	// Version is the Taproot Asset version of the asset.
 	Version Version
 
 	// Genesis encodes an asset's genesis metadata which directly maps to
-	// its unique ID within the Taro protocol.
+	// its unique ID within the Taproot Asset protocol.
 	Genesis
 
 	// Amount is the number of units represented by the asset.
@@ -766,7 +767,7 @@ func AssetCommitmentKey(assetID ID, scriptKey *btcec.PublicKey,
 }
 
 // AssetCommitmentKey is the key that maps to a specific owner of an asset
-// within a Taro AssetCommitment.
+// within a Taproot AssetCommitment.
 func (a *Asset) AssetCommitmentKey() [32]byte {
 	issuanceDisabled := a.GroupKey == nil
 	return AssetCommitmentKey(

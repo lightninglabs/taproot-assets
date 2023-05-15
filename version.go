@@ -63,7 +63,7 @@ const (
 var agentName = defaultAgentName
 
 // SetAgentName overwrites the default agent name which can be used to identify
-// the software Taro is bundled in (for example LiT). This function panics if
+// the software tapd is bundled in (for example LiT). This function panics if
 // the agent name contains characters outside of the allowed semantic alphabet.
 func SetAgentName(newAgentName string) {
 	for _, r := range newAgentName {

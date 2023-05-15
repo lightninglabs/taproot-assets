@@ -24,12 +24,12 @@ import (
 type SendState uint8
 
 const (
-	// SendStateVirtualCommitmentSelect is the state for performing input coin
-	// selection to pick out which assets inputs should be spent.
+	// SendStateVirtualCommitmentSelect is the state for performing input
+	// coin selection to pick out which assets inputs should be spent.
 	SendStateVirtualCommitmentSelect SendState = iota
 
-	// SendStateVirtualSign is used to generate the Taro level witness data for
-	// any inputs being spent.
+	// SendStateVirtualSign is used to generate the Taproot Asset level
+	// witness data for any inputs being spent.
 	SendStateVirtualSign
 
 	// SendStateAnchorSign is the state we enter after the PSBT has been
@@ -423,8 +423,8 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 
 // createProofSuffix creates the new proof for the given output. This is the
 // final state transition that will be added to the proofs of the receiver. The
-// proof returned will have all the Taro level proof information, but contains
-// dummy data for the on-chain part.
+// proof returned will have all the Taproot Asset level proof information, but
+// contains dummy data for the on-chain part.
 func (s *sendPackage) createProofSuffix(outIndex int) (*proof.Proof, error) {
 	inputPrevID := s.VirtualPacket.Inputs[0].PrevID
 

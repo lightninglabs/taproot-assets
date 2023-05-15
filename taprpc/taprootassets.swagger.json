@@ -813,7 +813,7 @@
         "version": {
           "type": "integer",
           "format": "int32",
-          "description": "The version of the Taproot Asset asset."
+          "description": "The version of the Taproot Asset."
         },
         "asset_genesis": {
           "$ref": "#/definitions/taprpcGenesisInfo",
@@ -1000,7 +1000,7 @@
         "anchor_tx_hash": {
           "type": "string",
           "format": "byte",
-          "description": "The new transaction that commits to the set of Taproot Asset assets found\nat the above new anchor point."
+          "description": "The new transaction that commits to the set of Taproot Assets found\nat the above new anchor point."
         },
         "anchor_tx_height_hint": {
           "type": "integer",

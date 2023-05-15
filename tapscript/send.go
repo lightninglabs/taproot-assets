@@ -141,7 +141,8 @@ func (r *FundingDescriptor) TapCommitmentKey() [32]byte {
 	return asset.TapCommitmentKey(r.ID, r.GroupKey)
 }
 
-// DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
+// DescribeRecipients extracts the recipient descriptors from a Taproot Asset
+// PSBT.
 func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 	groupQuerier AssetGroupQuerier) (*FundingDescriptor, error) {
 
@@ -175,7 +176,7 @@ func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 	return desc, nil
 }
 
-// DescribeAddrs extracts the recipient descriptors from a list of Taro
+// DescribeAddrs extracts the recipient descriptors from a list of Taproot Asset
 // addresses.
 func DescribeAddrs(addrs []*address.Tap) (*FundingDescriptor, error) {
 	if len(addrs) < 1 {
@@ -200,7 +201,7 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 	desc *FundingDescriptor, inputScriptKey btcec.PublicKey) (*asset.Asset,
 	error) {
 
-	// The top-level Taproot ASset tree must have a non-empty asset tree at
+	// The top-level Taproot Asset tree must have a non-empty asset tree at
 	// the leaf specified by the funding descriptor's asset (group) specific
 	// commitment locator.
 	assetCommitments := tapCommitment.Commitments()
@@ -570,8 +571,8 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 // SignVirtualTransaction updates the new asset (the root asset located at the
 // change output in case of a non-interactive or partial amount send or the
 // full asset in case of an interactive full amount send) by creating a
-// signature over the asset transfer, verifying the transfer with the Taro VM,
-// and attaching that signature to the new Asset.
+// signature over the asset transfer, verifying the transfer with the Taproot
+// Asset VM, and attaching that signature to the new Asset.
 func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 	validator TxValidator) error {
 
@@ -604,7 +605,8 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 		prevAssets[input.PrevID] = input.Asset()
 	}
 
-	// Create a Taro virtual transaction representing the asset transfer.
+	// Create a Taproot Asset virtual transaction representing the asset
+	// transfer.
 	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
 	if err != nil {
 		return err
@@ -634,7 +636,7 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 		newAsset.PrevWitnesses[idx].TxWitness = newWitness
 	}
 
-	// Create an instance of the Taro VM and validate the transfer.
+	// Create an instance of the Taproot Asset VM and validate the transfer.
 	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
 		newAssetCopy := newAsset.Copy()
 		return validator.Execute(newAssetCopy, splitAssets, prevAssets)
@@ -809,8 +811,8 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 			// Update the top-level TapCommitment of the change
 			// output (sender). This'll effectively commit to all
 			// the new spend details. If there is nothing contained
-			// in the input commitment, it is removed from the Taro
-			// tree automatically.
+			// in the input commitment, it is removed from the
+			// Taproot Asset tree automatically.
 			err = inputTapCommitmentCopy.Upsert(inputCommitment)
 			if err != nil {
 				return nil, err
@@ -862,7 +864,7 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	return outputCommitments, nil
 }
 
-// AnchorPassiveAssets anchors the passive assets within the given taro
+// AnchorPassiveAssets anchors the passive assets within the given Taproot Asset
 // commitment.
 func AnchorPassiveAssets(passiveAssets []*tappsbt.VPacket,
 	tapCommitment *commitment.TapCommitment) error {
@@ -904,8 +906,8 @@ func AnchorPassiveAssets(passiveAssets []*tappsbt.VPacket,
 
 // AreValidAnchorOutputIndexes checks a set of virtual outputs for the minimum
 // number of outputs, and tests if the external indexes could be used for a
-// Taro-only spend, i.e. a TX that does not need other outputs added to be
-// valid.
+// Taproot Asset only spend, i.e. a TX that does not need other outputs added to
+// be valid.
 func AreValidAnchorOutputIndexes(outputs []*tappsbt.VOutput) (bool, error) {
 	// Sanity check the output indexes provided by the sender. There must be
 	// at least one output.
@@ -994,10 +996,10 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 	return spendPkt, nil
 }
 
-// UpdateTaprootOutputKeys updates a PSBT with outputs embedding TaroCommitments
+// UpdateTaprootOutputKeys updates a PSBT with outputs embedding TapCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
-// the corresponding Taro input asset to this PSBT before finalizing the TX.
-// Locators MUST be checked beforehand.
+// the corresponding Taproot Asset input asset to this PSBT before finalizing
+// the TX. Locators MUST be checked beforehand.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 	outputCommitments []*commitment.TapCommitment) (
 	map[uint32]*commitment.TapCommitment, error) {

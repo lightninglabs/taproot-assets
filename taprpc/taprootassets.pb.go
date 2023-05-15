@@ -634,7 +634,7 @@ type Asset struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The version of the Taproot Asset asset.
+	// The version of the Taproot Asset.
 	Version int32 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
 	// The base genesis information of an asset. This information never changes.
 	AssetGenesis *GenesisInfo `protobuf:"bytes,2,opt,name=asset_genesis,json=assetGenesis,proto3" json:"asset_genesis,omitempty"`
@@ -1733,7 +1733,7 @@ type AssetTransfer struct {
 	unknownFields protoimpl.UnknownFields
 
 	TransferTimestamp int64 `protobuf:"varint,1,opt,name=transfer_timestamp,json=transferTimestamp,proto3" json:"transfer_timestamp,omitempty"`
-	// The new transaction that commits to the set of Taproot Asset assets found
+	// The new transaction that commits to the set of Taproot Assets found
 	// at the above new anchor point.
 	AnchorTxHash       []byte `protobuf:"bytes,2,opt,name=anchor_tx_hash,json=anchorTxHash,proto3" json:"anchor_tx_hash,omitempty"`
 	AnchorTxHeightHint uint32 `protobuf:"varint,3,opt,name=anchor_tx_height_hint,json=anchorTxHeightHint,proto3" json:"anchor_tx_height_hint,omitempty"`

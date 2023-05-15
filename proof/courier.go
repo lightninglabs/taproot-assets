@@ -353,8 +353,8 @@ type HashMailCourier struct {
 }
 
 // NewHashMailCourier implements the Courier interface using the specified
-// ProofMailbox. This instance of the Courier relies on the taro address itself
-// as the parametrized address type.
+// ProofMailbox. This instance of the Courier relies on the Taproot Asset
+// address itself as the parametrized address type.
 func NewHashMailCourier(cfg *HashMailCourierCfg, mailbox ProofMailbox,
 	deliveryLog DeliveryLog) (*HashMailCourier, error) {
 

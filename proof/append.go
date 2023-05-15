@@ -28,8 +28,8 @@ type TransitionParams struct {
 	// RootInternalKey is the internal key of the output at RootOutputIndex.
 	RootInternalKey *btcec.PublicKey
 
-	// RootTaroRoot is the commitment root that commitments to the inclusion
-	// of the root split asset at the RootOutputIndex.
+	// RootTaprootAssetTree is the commitment root that commitments to the
+	// inclusion of the root split asset at the RootOutputIndex.
 	RootTaprootAssetTree *commitment.TapCommitment
 }
 

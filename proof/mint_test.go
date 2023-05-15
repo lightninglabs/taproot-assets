@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewMintingBlobs tests that the NewMintingBlobs creates a valid taro
-// proof file given valid data.
+// TestNewMintingBlobs tests that the NewMintingBlobs creates a valid Taproot
+// Asset proof file given valid data.
 func TestNewMintingBlobs(t *testing.T) {
 	t.Parallel()
 

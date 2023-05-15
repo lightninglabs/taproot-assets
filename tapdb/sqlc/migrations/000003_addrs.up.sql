@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS addrs (
     id INTEGER PRIMARY KEY,
 
-    -- version is the Taro script version this address support.
+    -- version is the Taproot Asset script version this address support.
     version SMALLINT NOT NULL,
 
     -- genesis_asset_id points to the asset genesis of the asset we want to
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS addrs (
     taproot_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
 
     -- tapscript_sibling is the serialized tapscript sibling preimage that
-    -- should be committed to in the taproot output alongside the Taro
+    -- should be committed to in the taproot output alongside the Taproot Asset
     -- commitment. If no sibling is present, this field will be NULL.
     tapscript_sibling BLOB,
 

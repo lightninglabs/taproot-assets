@@ -102,7 +102,7 @@ func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
 }
 
 // MintingOutputKey derives the output key that once mined, will commit to the
-// Taro asset root, thereby creating the set of included assets.
+// Taproot asset root, thereby creating the set of included assets.
 func (m *MintingBatch) MintingOutputKey() (*btcec.PublicKey, []byte, error) {
 	if m.mintingPubKey != nil {
 		return m.mintingPubKey, m.taprootAssetScriptRoot, nil

@@ -49,7 +49,7 @@ var (
 // The map is keyed by the AssetCommitment's TapCommitmentKey.
 type AssetCommitments map[[32]byte]*AssetCommitment
 
-// TapCommitment represents the outer MS-SMT within the Taro protocol
+// TapCommitment represents the outer MS-SMT within the Taproot Asset protocol
 // committing to a set of asset commitments. Asset commitments, which are
 // leaves represented as `asset_version || asset_tree_root || asset_sum`, are
 // keyed by their `asset_group_key` or `asset_id` otherwise.

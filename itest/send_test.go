@@ -27,7 +27,7 @@ func testBasicSend(t *harnessTest) {
 		numSends = 2
 	)
 
-	// Subscribe to receive assent send events from primary taro node.
+	// Subscribe to receive assent send events from primary tapd node.
 	eventNtfns, err := t.tapd.SubscribeSendAssetEventNtfns(
 		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
@@ -35,7 +35,7 @@ func testBasicSend(t *harnessTest) {
 
 	// Test to ensure that we execute the transaction broadcast state.
 	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification from the taro node as the rest of the test
+	// the event notification from the tapd node as the rest of the test
 	// proceeds.
 	wg.Add(1)
 	go func() {
@@ -244,14 +244,14 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 }
 
 // testReattemptFailedAssetSend tests that a failed attempt at sending an asset
-// proof will be reattempted by the taro node.
+// proof will be reattempted by the tapd node.
 func testReattemptFailedAssetSend(t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		wg   sync.WaitGroup
 	)
 
-	// Make a new node which will send the asset to the primary taro node.
+	// Make a new node which will send the asset to the primary tapd node.
 	// We expect this node to fail because our send call will time out
 	// whilst the porter continues to attempt to send the asset.
 	sendTapd := setupTapdHarness(
@@ -262,7 +262,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 		},
 	)
 
-	// Subscribe to receive asset send events from primary taro node.
+	// Subscribe to receive asset send events from primary tapd node.
 	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
 		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
@@ -271,7 +271,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
 	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification(s) from the taro node as the rest of the test
+	// the event notification(s) from the tapd node as the rest of the test
 	// proceeds.
 	wg.Add(1)
 	go func() {
@@ -350,7 +350,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		wg   sync.WaitGroup
 	)
 
-	// Make a new node which will send the asset to the primary taro node.
+	// Make a new node which will send the asset to the primary tapd node.
 	// We start a new node for sending so that we can customize the proof
 	// send backoff configuration.
 	sendTapd := setupTapdHarness(
@@ -371,7 +371,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	recvTapd := t.tapd
 
-	// Subscribe to receive asset send events from primary taro node.
+	// Subscribe to receive asset send events from primary tapd node.
 	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
 		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
@@ -380,7 +380,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
 	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification(s) from the taro node as the rest of the test
+	// the event notification(s) from the tapd node as the rest of the test
 	// proceeds.
 	wg.Add(1)
 	go func() {
@@ -434,7 +434,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
-	// Stop receiving taro node to simulate offline receiver.
+	// Stop receiving tapd node to simulate offline receiver.
 	t.Logf("Stopping receiving taproot assets node")
 	require.NoError(t.t, recvTapd.stop(false))
 
@@ -442,11 +442,11 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	sendAssetsToAddr(t, sendTapd, recvAddr)
 	_ = mineBlocks(t, t.lndHarness, 1, 1)
 
-	// Pause before restarting receiving taro node so that sender node has
+	// Pause before restarting receiving tapd node so that sender node has
 	// an opportunity to attempt to send the proof multiple times.
 	time.Sleep(1 * time.Second)
 
-	// Restart receiving taro node.
+	// Restart receiving tapd node.
 	t.Logf("Re-starting receiving taproot assets node")
 	require.NoError(t.t, recvTapd.start(false))
 

@@ -91,7 +91,8 @@ type TapscriptProof struct {
 	TapPreimage2 *commitment.TapscriptPreimage
 
 	// Bip86 indicates this is a normal BIP-0086 wallet output (likely a
-	// change output) that does not commit to any script or Taro root.
+	// change output) that does not commit to any script or Taproot Asset
+	// root.
 	Bip86 bool
 }
 
@@ -230,7 +231,7 @@ func deriveTaprootKeysFromTapCommitment(commitment *commitment.TapCommitment,
 	error) {
 
 	// If there's no actual sibling pre-image, meaning the only thing
-	// committed to is the Taro asset root, then this will remain nil.
+	// committed to is the Taproot asset root, then this will remain nil.
 	var siblingHash *chainhash.Hash
 
 	// If there is a sibling pre-image, it's either a leaf or a branch that
@@ -249,8 +250,9 @@ func deriveTaprootKeysFromTapCommitment(commitment *commitment.TapCommitment,
 	)
 }
 
-// DeriveByAssetInclusion derives the unique taproot output key backing a Taro
-// commitment by interpreting the TaprootProof as an asset inclusion proof.
+// DeriveByAssetInclusion derives the unique taproot output key backing a
+// Taproot Asset commitment by interpreting the TaprootProof as an asset
+// inclusion proof.
 //
 // There are at most two _possible_ keys that exist if each leaf preimage
 // matches the length of a branch preimage. However, using the annotated type
@@ -296,12 +298,12 @@ func (p TaprootProof) DeriveByAssetInclusion(
 	return pubKey, tapCommitment, nil
 }
 
-// DeriveByAssetExclusion derives the possible taproot keys backing a Taro
-// commitment by interpreting the TaprootProof as an asset exclusion proof.
-// Asset exclusion proofs can take two forms: one where an asset proof proves
-// that the asset no longer exists within its AssetCommitment, and another
-// where the AssetCommitment corresponding to the excluded asset no longer
-// exists within the TapCommitment.
+// DeriveByAssetExclusion derives the possible taproot keys backing a Taproot
+// Asset commitment by interpreting the TaprootProof as an asset exclusion
+// proof. Asset exclusion proofs can take two forms: one where an asset proof
+// proves that the asset no longer exists within its AssetCommitment, and
+// another where the AssetCommitment corresponding to the excluded asset no
+// longer exists within the TapCommitment.
 //
 // There are at most two possible keys to try if each leaf preimage matches the
 // length of a branch preimage. However, based on the type of the sibling
@@ -476,7 +478,7 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 }
 
 // DeriveByTapscriptProof derives the possible taproot keys from a
-// TapscriptProof backing a taproot output that does not include a Taro
+// TapscriptProof backing a taproot output that does not include a Taproot Asset
 // commitment.
 //
 // NOTE: There are at most two possible keys to try if each leaf preimage
@@ -506,7 +508,7 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 		}
 
 		// We only need to add exclusion proofs for P2TR outputs as only
-		// those could commit to a Taro tree.
+		// those could commit to a Taproot Asset tree.
 		if !txscript.IsPayToTaproot(txOut.PkScript) {
 			continue
 		}

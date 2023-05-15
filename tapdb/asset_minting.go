@@ -249,7 +249,7 @@ type BatchedPendingAssetStore interface {
 	BatchedTx[PendingAssetStore]
 }
 
-// AssetMintingStore is an implementation of the tarogarden.PlantingLog
+// AssetMintingStore is an implementation of the tapgarden.PlantingLog
 // interface backed by a persistent database. The abstracted
 // BatchedPendingAssetStore permits re-use of the main storage related business
 // logic for any backend that can implement the specified interface.
@@ -528,8 +528,8 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 }
 
 // fetchAssetSprouts fetches all the asset sprouts, or unconfirmed assets
-// associated with a given batch. The assets are them inserted into a Taro
-// commitment for easy handling.
+// associated with a given batch. The assets are them inserted into a Taproot
+// Asset commitment for easy handling.
 //
 // NOTE: In order for this query to work properly, until
 // https://github.com/kyleconroy/sqlc/issues/1334 is fixed in sqlc, after code

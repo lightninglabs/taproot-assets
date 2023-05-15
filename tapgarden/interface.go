@@ -132,7 +132,7 @@ func (b BatchState) String() string {
 
 // MintingStore is a log that stores information related to the set of pending
 // minting batches. The ChainPlanter and ChainCaretaker use this log to record
-// the process of seeding, planting, and finally maturing taro assets that are
+// the process of seeding, planting, and finally maturing taproot assets that are
 // a part of the batch.
 type MintingStore interface {
 	// CommitMintingBatch commits a new minting batch to disk, identified
@@ -173,8 +173,9 @@ type MintingStore interface {
 		genesisPacket *FundedPsbt, assets *commitment.TapCommitment) error
 
 	// CommitSignedGenesisTx adds a fully signed genesis transaction to the
-	// batch, along with the taro script root, which is the left/right
-	// sibling for the Taro tapscript commitment in the transaction.
+	// batch, along with the Taproot Asset script root, which is the
+	// left/right sibling for the Taproot Asset tapscript commitment in the
+	// transaction.
 	//
 	// NOTE: The BatchState should transition to the BatchStateBroadcast
 	// state upon a successful call.

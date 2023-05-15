@@ -338,7 +338,7 @@ type AssetSnapshot struct {
 	OutPoint wire.OutPoint
 
 	// AnchorBlockHash is the block hash that anchors the Bitcoin
-	// transaction for this Taro state transition.
+	// transaction for this Taproot Asset state transition.
 	AnchorBlockHash chainhash.Hash
 
 	// AnchorBlockHeight is the height of the block hash above.
@@ -364,8 +364,8 @@ type AssetSnapshot struct {
 	ScriptRoot *commitment.TapCommitment
 
 	// TapscriptSibling is the pre-image to the tapscript hash of the
-	// sibling to the Taro root. If this is nil then it means the Taro root
-	// is the only tapscript leaf in the tree.
+	// sibling to the Taproot Asset root. If this is nil then it means the
+	// Taproot Asset root is the only tapscript leaf in the tree.
 	TapscriptSibling *commitment.TapscriptPreimage
 
 	// SplitAsset is the optional indicator that the asset in the snapshot

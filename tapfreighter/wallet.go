@@ -60,8 +60,8 @@ type Wallet interface {
 	// FundAddressSend funds a virtual transaction, selecting assets to
 	// spend in order to pay the given address. It also returns supporting
 	// data which assists in processing the virtual transaction: passive
-	// asset re-anchors and the Taro level commitment of the selected
-	// assets.
+	// asset re-anchors and the Taproot Asset level commitment of the
+	// selected assets.
 	FundAddressSend(ctx context.Context,
 		receiverAddrs ...*address.Tap) (*FundedVPacket, error)
 
@@ -230,12 +230,12 @@ type WalletConfig struct {
 	// process.
 	KeyRing KeyRing
 
-	// Signer implements the Taro level signing we need to sign a virtual
-	// transaction.
+	// Signer implements the Taproot Asset level signing we need to sign a
+	// virtual transaction.
 	Signer Signer
 
-	// TxValidator allows us to validate each Taro virtual transaction we
-	// create.
+	// TxValidator allows us to validate each Taproot Asset virtual
+	// transaction we create.
 	TxValidator tapscript.TxValidator
 
 	// Wallet is used to fund+sign PSBTs for the transfer transaction.
@@ -259,8 +259,8 @@ func NewAssetWallet(cfg *WalletConfig) *AssetWallet {
 	}
 }
 
-// FundedVPacket is the result from an attempt to fund a given taro address send
-// request via a call to FundAddressSend.
+// FundedVPacket is the result from an attempt to fund a given Taproot Asset
+// address send request via a call to FundAddressSend.
 type FundedVPacket struct {
 	// VPacket is the virtual transaction that was created to fund the
 	// transfer.
@@ -274,7 +274,7 @@ type FundedVPacket struct {
 // FundAddressSend funds a virtual transaction, selecting assets to spend in
 // order to pay the given address. It also returns supporting data which assists
 // in processing the virtual transaction: passive asset re-anchors and the
-// Taro level commitment of the selected assets.
+// Taproot Asset level commitment of the selected assets.
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
@@ -379,7 +379,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
-	// can use that to do Taro asset coin selection.
+	// can use that to do Taproot asset coin selection.
 	constraints := CommitmentConstraints{
 		GroupKey: fundDesc.GroupKey,
 		AssetID:  &fundDesc.ID,
@@ -758,8 +758,9 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 		}
 	}
 
-	// Now we'll use the signer to sign all the inputs for the new taro
-	// leaves. The witness data for each input will be assigned for us.
+	// Now we'll use the signer to sign all the inputs for the new Taproot
+	// Asset leaves. The witness data for each input will be assigned for
+	// us.
 	err := tapscript.SignVirtualTransaction(
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
@@ -885,8 +886,8 @@ func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
 
 	// First, we remove any tombstones that might be in the commitment. We
 	// needed to select them from the DB to arrive at the correct input
-	// Taro tree but can now remove them for good as they are no longer
-	// relevant and don't need to be carried over to the next tree.
+	// Taproot Asset tree but can now remove them for good as they are no
+	// longer relevant and don't need to be carried over to the next tree.
 	for tapKey := range passiveCommitments {
 		assetCommitment := passiveCommitments[tapKey]
 		committedAssets := assetCommitment.Assets()
@@ -935,9 +936,9 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 	for inputIdx := range inputCommitments {
 		tapCommitment := inputCommitments[inputIdx]
 
-		// Each virtual input is associated with a distinct taro
-		// commitment. Therefore, each input may be associated with a
-		// distinct set of passive assets.
+		// Each virtual input is associated with a distinct Taproot
+		// Asset commitment. Therefore, each input may be associated
+		// with a distinct set of passive assets.
 		passiveCommitments, err := removeActiveCommitments(
 			tapCommitment, vPkt,
 		)
@@ -1047,7 +1048,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// we don't overwrite it when embedding our Taproot Asset commitments.
 	//
 	// TODO(jhb): Do we need richer handling for the change output?
-	// We could reassign the change value to our Taro change output
+	// We could reassign the change value to our Taproot Asset change output
 	// and remove the change output entirely.
 	adjustFundedPsbt(&anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
 
@@ -1149,14 +1150,15 @@ func (f *AssetWallet) SignOwnershipProof(
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input
-// anchor output as well as the Taro script root of the output (the Taproot
-// tweak).
+// anchor output as well as the Taproot Asset script root of the output (the
+// Taproot tweak).
 func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
 	error) {
 
-	// If any of the assets were received non-interactively, then the Taro
-	// tree of the input anchor output was built with asset leaves that had
-	// empty SplitCommitments. We need to replicate this here as well.
+	// If any of the assets were received non-interactively, then the
+	// Taproot Asset tree of the input anchor output was built with asset
+	// leaves that had empty SplitCommitments. We need to replicate this
+	// here as well.
 	inputCommitment, err := trimSplitWitnesses(assetInput.Commitment)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to trim split "+
@@ -1188,12 +1190,12 @@ func trimSplitWitnesses(
 	original *commitment.TapCommitment) (*commitment.TapCommitment,
 	error) {
 
-	// If the input asset was received non-interactively, then the Taro tree
-	// of the input anchor output was built with asset leaves that had empty
-	// SplitCommitments. However, the SplitCommitment field was
-	// populated when the transfer of the input asset was verified.
-	// To recompute the correct output script, we need to build a Taro tree
-	// from the input asset without any SplitCommitment.
+	// If the input asset was received non-interactively, then the Taproot
+	// Asset tree of the input anchor output was built with asset leaves
+	// that had empty SplitCommitments. However, the SplitCommitment field
+	// was populated when the transfer of the input asset was verified.
+	// To recompute the correct output script, we need to build a Taproot
+	// Asset tree from the input asset without any SplitCommitment.
 	tapCommitmentCopy, err := original.Copy()
 	if err != nil {
 		return nil, err
@@ -1210,9 +1212,9 @@ func trimSplitWitnesses(
 
 			inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
 
-			// Build the new Taro tree by first updating the asset
-			// commitment tree with the new asset leaf, and then the
-			// top-level Taro tree.
+			// Build the new Taproot Asset tree by first updating
+			// the asset commitment tree with the new asset leaf,
+			// and then the top-level Taproot Asset tree.
 			inputCommitments := tapCommitmentCopy.Commitments()
 			inputCommitmentKey := inputAssetCopy.TapCommitmentKey()
 			inputAssetTree := inputCommitments[inputCommitmentKey]

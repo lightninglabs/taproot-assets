@@ -45,8 +45,8 @@ type BaseProofParams struct {
 	TaprootAssetRoot *commitment.TapCommitment
 
 	// TapscriptSibling is the pre-image to the tapscript hash of the
-	// sibling to the Taro root. If this is nil then it means the Taro root
-	// is the only tapscript leaf in the tree.
+	// sibling to the Taproot Asset root. If this is nil then it means the
+	// Taproot Asset root is the only tapscript leaf in the tree.
 	TapscriptSibling *commitment.TapscriptPreimage
 
 	// ExclusionProofs is the set of TaprootProofs proving the exclusion of
@@ -235,7 +235,7 @@ func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitmen
 		// main inclusion proof.
 		//
 		// NOTE: We don't add a TapSiblingPreimage here since we assume
-		// that this minting output ONLY commits to the Taro
+		// that this minting output ONLY commits to the Taproot Asset
 		// commitment.
 		assetProof.InclusionProof.CommitmentProof = &CommitmentProof{
 			Proof: *assetMerkleProof,

@@ -21,7 +21,7 @@ import (
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
 type CustodianConfig struct {
-	// ChainParams are the Taro specific chain parameters.
+	// ChainParams are the Taproot Asset specific chain parameters.
 	ChainParams *address.ChainParams
 
 	// WalletAnchor is the main interface for interacting with the on-chain
@@ -56,9 +56,9 @@ type CustodianConfig struct {
 }
 
 // Custodian is responsible for taking custody of an asset that is transferred
-// to us on-chain. It watches the chain for incoming transfers defined by Taro
-// addresses and then takes full custody of the transferred assets by collecting
-// and validating their provenance proofs.
+// to us on-chain. It watches the chain for incoming transfers defined by
+// Taproot Asset addresses and then takes full custody of the transferred assets
+// by collecting and validating their provenance proofs.
 type Custodian struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -83,7 +83,8 @@ type Custodian struct {
 	*chanutils.ContextGuard
 }
 
-// NewCustodian creates a new taro custodian based on the passed config.
+// NewCustodian creates a new Taproot Asset custodian based on the passed
+// config.
 func NewCustodian(cfg *CustodianConfig) *Custodian {
 	addrSub := chanutils.NewEventReceiver[*address.AddrWithKeyInfo](
 		chanutils.DefaultQueueSize,

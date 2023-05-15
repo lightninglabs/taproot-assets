@@ -50,8 +50,9 @@ func computeTaprootScript(witnessProgram []byte) ([]byte, error) {
 		Script()
 }
 
-// virtualTxInPrevOut returns the prevout of the Taro virtual transaction's
-// single input as a hash of the root node's key concatenated by its sum.
+// virtualTxInPrevOut returns the prevout of the Taproot Asset virtual
+// transaction's single input as a hash of the root node's key concatenated by
+// its sum.
 func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 	// Grab the hash digest of the SMT node. This'll be used to generate
 	// the virtual prev out for this tx in.
@@ -70,9 +71,9 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 	)
 }
 
-// virtualTxIn computes the single input of a Taro virtual transaction. The
-// input prevout's hash is the root of a MS-SMT committing to all inputs of a
-// state transition.
+// virtualTxIn computes the single input of a Taproot Asset virtual transaction.
+// The input prevout's hash is the root of a MS-SMT committing to all inputs of
+// a state transition.
 func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	*wire.TxIn, mssmt.Tree, error) {
 
@@ -142,8 +143,8 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	return wire.NewTxIn(prevOut, nil, nil), inputTree, nil
 }
 
-// virtualTxOut computes the single output of a Taro virtual transaction based
-// on whether an asset has a split commitment or not.
+// virtualTxOut computes the single output of a Taproot Asset virtual
+// transaction based on whether an asset has a split commitment or not.
 func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 	// If we have any asset splits, then we'll indirectly commit to all of
 	// them through the SplitCommitmentRoot.
@@ -257,7 +258,7 @@ func VirtualTxWithInput(virtualTx *wire.MsgTx, input *asset.Asset,
 }
 
 // InputAssetPrevOut returns a TxOut that represents the input asset in a
-// Taro virtual TX.
+// Taproot Asset virtual TX.
 func InputAssetPrevOut(prevAsset asset.Asset) (*wire.TxOut, error) {
 	var pkScript []byte
 	switch prevAsset.ScriptVersion {
@@ -277,8 +278,8 @@ func InputAssetPrevOut(prevAsset asset.Asset) (*wire.TxOut, error) {
 	}
 }
 
-// InputPrevOutFetcher returns a Taro input's `PrevOutFetcher` to be used
-// throughout signing.
+// InputPrevOutFetcher returns a Taproot Asset input's `PrevOutFetcher` to be
+// used throughout signing.
 func InputPrevOutFetcher(prevAsset asset.Asset) (*txscript.CannedPrevOutputFetcher,
 	error) {
 
@@ -293,8 +294,8 @@ func InputPrevOutFetcher(prevAsset asset.Asset) (*txscript.CannedPrevOutputFetch
 }
 
 // InputKeySpendSigHash returns the signature hash of a virtual transaction for
-// a specific Taro input that can be spent through the key path. This is the
-// message over which signatures are generated over.
+// a specific Taproot Asset input that can be spent through the key path. This
+// is the message over which signatures are generated over.
 func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32, sigHashType txscript.SigHashType) ([]byte, error) {
 
@@ -311,8 +312,8 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 }
 
 // InputScriptSpendSigHash returns the signature hash of a virtual transaction
-// for a specific Taro input that can be spent through the script path. This is
-// the message over which signatures are generated over.
+// for a specific Taproot Asset input that can be spent through the script path.
+// This is the message over which signatures are generated over.
 func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 	idx uint32, sigHashType txscript.SigHashType,
 	tapLeaf *txscript.TapLeaf) ([]byte, error) {

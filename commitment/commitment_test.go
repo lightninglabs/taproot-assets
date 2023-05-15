@@ -1073,7 +1073,7 @@ func TestUpdateTapCommitment(t *testing.T) {
 	)
 
 	// Make sure that when we upsert an empty asset commitment, the whole
-	// asset tree is pruned from the Taro tree.
+	// asset tree is pruned from the Taproot Asset tree.
 	err = assetCommitment2.Delete(asset2)
 	require.NoError(t, err)
 	require.Equal(
@@ -1086,7 +1086,7 @@ func TestUpdateTapCommitment(t *testing.T) {
 	require.False(t, ok)
 
 	// And if we remove the second asset commitment, we arrive at an empty
-	// Taro tree.
+	// Taproot Asset tree.
 	err = assetCommitment1.Delete(asset1)
 	require.NoError(t, err)
 	require.Equal(

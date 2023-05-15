@@ -319,7 +319,7 @@ func randKeyDesc(t *testing.T) (keychain.KeyDescriptor, *btcec.PrivateKey) {
 
 // seedlingsToAssetRoot maps a set of seedlings to an asset root.
 //
-// TODO(roasbeef): same func in tarogarden can just re-use?
+// TODO(roasbeef): same func in tapgarden can just re-use?
 func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	seedlings map[string]*tapgarden.Seedling,
 	groupKeys map[string]*btcec.PrivateKey) *commitment.TapCommitment {
@@ -604,8 +604,8 @@ func TestCommitBatchChainActions(t *testing.T) {
 	genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
 
 	// With our assets inserted, we'll now commit the signed genesis packet
-	// to disk, along with the taro script root that's stored along side
-	// any managed UTXOs.
+	// to disk, along with the Taproot Asset script root that's stored
+	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
 		ctx, batchKey, genesisPkt, 2, scriptRoot,
 	))

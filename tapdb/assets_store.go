@@ -346,12 +346,13 @@ type ChainAsset struct {
 
 	// AnchorMerkleRoot is the Taproot merkle root hash of the anchor output
 	// the asset was committed to. If there is no Tapscript sibling, this is
-	// equal to the Taro root commitment hash.
+	// equal to the Taproot Asset root commitment hash.
 	AnchorMerkleRoot []byte
 
 	// AnchorTapscriptSibling is the serialized preimage of a Tapscript
-	// sibling, if there was one. If this is empty, then the AnchorTaroRoot
-	// hash is equal to the Taproot root hash of the anchor output.
+	// sibling, if there was one. If this is empty, then the
+	// AnchorTapscriptSibling hash is equal to the Taproot root hash of the
+	// anchor output.
 	AnchorTapscriptSibling []byte
 }
 
@@ -373,7 +374,7 @@ type ManagedUTXO struct {
 
 	// MerkleRoot is the Taproot merkle root hash committed to by this
 	// outpoint. If there is no Tapscript sibling, this is equal to
-	// TaroRoot.
+	// TaprootAssetRoot.
 	MerkleRoot []byte
 
 	// TapscriptSibling is the serialized tapscript sibling preimage of
@@ -405,7 +406,7 @@ type AssetHumanReadable struct {
 	// MetaHash is the hash of the meta data for this asset.
 	MetaHash [asset.MetaHashLen]byte
 
-	// Type uniquely identifies the type of Taro asset.
+	// Type uniquely identifies the type of Taproot asset.
 	Type asset.Type
 
 	// GroupKey is the tweaked public key that is used to associate assets

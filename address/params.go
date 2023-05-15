@@ -43,9 +43,9 @@ type ChainParams struct {
 // variables.
 var registerMtx sync.RWMutex
 
-// Register attempts to register a new taro ChainParams with the library. If a
-// set of parameters for the network has already been registered, then an error
-// is returned.
+// Register attempts to register a new Taproot Asset ChainParams with the
+// library. If a set of parameters for the network has already been registered,
+// then an error is returned.
 //
 // TODO(jhb): Resolve duplicate networks?
 func Register(params *ChainParams) error {

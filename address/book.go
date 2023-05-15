@@ -17,13 +17,13 @@ import (
 )
 
 var (
-	// ErrAssetGroupUnkown is returned when the asset genesis is not known.
+	// ErrAssetGroupUnknown is returned when the asset genesis is not known.
 	// This means an address can't be created until a Universe boostrap or
 	// manual issuance proof insertion.
 	ErrAssetGroupUnknown = fmt.Errorf("asset group is unknown")
 )
 
-// AddrWithKeyInfo wraps a normal Taro struct with key descriptor
+// AddrWithKeyInfo wraps a normal Taproot Asset struct with key descriptor
 // information.
 type AddrWithKeyInfo struct {
 	*Tap

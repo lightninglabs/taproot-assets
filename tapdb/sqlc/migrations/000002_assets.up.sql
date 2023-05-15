@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS asset_group_sigs (
 -- managed_utxos is the set of UTXOs managed by tapd. These UTXOs may commit
 -- to several assets. These UTXOs are also always imported into the backing
 -- wallet, so the wallet is able to keep track of the amount of sats that are
--- used to anchor Taro assets.
+-- used to anchor Taproot assets.
 CREATE TABLE IF NOT EXISTS managed_utxos (
     utxo_id INTEGER PRIMARY KEY,
 

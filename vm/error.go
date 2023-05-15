@@ -6,7 +6,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
-// ErrorKind uniquely identifies the kind of Error returned by the Taro VM.
+// ErrorKind uniquely identifies the kind of Error returned by the Taproot Asset
+// VM.
 type ErrorKind uint8
 
 const (
@@ -110,7 +111,7 @@ func (k ErrorKind) String() string {
 	}
 }
 
-// Error represents an error returned by the Taro VM.
+// Error represents an error returned by the Taproot Asset VM.
 type Error struct {
 	Kind  ErrorKind
 	Inner error

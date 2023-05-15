@@ -38,7 +38,7 @@ var (
 const (
 	// GenesisAmtSats is the amount of sats we'll use to anchor created
 	// assets within. This value just needs to be greater than dust, as for
-	// now, we assume that the taro client manages asset bearing UTXOs
+	// now, we assume that the tapd client manages asset bearing UTXOs
 	// distinctly from normal UTXOs.
 	GenesisAmtSats = btcutil.Amount(1_000)
 
@@ -102,7 +102,8 @@ type BatchCaretaker struct {
 	*chanutils.ContextGuard
 }
 
-// NewBatchCaretaker creates a new taro caretaker based on the passed config.
+// NewBatchCaretaker creates a new Taproot Asset caretaker based on the passed
+// config.
 //
 // TODO(roasbeef): rename to Cultivator?
 func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
@@ -306,7 +307,7 @@ func (b *BatchCaretaker) assetCultivator() {
 			}
 
 			// At this point we've advanced to the final state,
-			// which means we have a set of fully grown Taro
+			// which means we have a set of fully grown Taproot
 			// assets! We'll report back to the planter out final
 			// state, then exit.
 			b.cfg.SignalCompletion()
@@ -492,7 +493,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	}
 
 	// Now that we have all our assets created, we'll make a new
-	// Taro asset commitment, which commits to all the assets we
+	// Taproot asset commitment, which commits to all the assets we
 	// created above in a new root.
 	return commitment.FromAssets(newAssets...)
 }
@@ -548,7 +549,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			b.anchorOutputIndex = 1
 		}
 
-		// First, we'll turn all the seedlings into actual taro assets.
+		// First, we'll turn all the seedlings into actual taproot assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(
 			ctx, genesisPoint, b.anchorOutputIndex,
 		)
@@ -559,9 +560,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		b.cfg.Batch.RootAssetCommitment = tapCommitment
 
-		// With the commitment Taro root SMT constructed, we'll map
-		// that into the tapscript root we'll insert into the genesis
-		// transaction.
+		// With the commitment Taproot Asset root SMT constructed, we'll
+		// map that into the tapscript root we'll insert into the
+		// genesis transaction.
 		genesisScript, err := b.cfg.Batch.genesisScript()
 		if err != nil {
 			return 0, fmt.Errorf("unable to create genesis "+

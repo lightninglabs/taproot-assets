@@ -1,6 +1,6 @@
 # Taproot Assets
 
-The Taproot Assets Daemon `tapd` implements the [Taproot Assets Protocol](https://github.com/Roasbeef/bips/blob/bip-taro/bip-taro.mediawiki) for issuing assets on the Bitcoin blockchain. Taproot Assets leverage Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
+The Taproot Assets Daemon `tapd` implements the [Taproot Assets Protocol](./docs/bip-tap.mediawiki) for issuing assets on the Bitcoin blockchain. Taproot Assets leverage Taproot transactions to commit to newly created assets and their transfers in an efficient and scalable manner. Multiple assets can be created and transferred in a single bitcoin UTXO, while witness data is transacted and stored off-chain.
 
 ## Features:
 

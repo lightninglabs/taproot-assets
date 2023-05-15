@@ -60,7 +60,7 @@ var (
 // The map is keyed by the Asset's AssetCommitmentKey.
 type CommittedAssets map[[32]byte]*asset.Asset
 
-// AssetCommitment represents the inner MS-SMT within the Taro protocol
+// AssetCommitment represents the inner MS-SMT within the Taproot Asset protocol
 // committing to a set of assets under the same ID/group. Assets within this
 // tree, which are leaves represented as the serialized asset TLV payload, are
 // keyed by their `asset_script_key`.

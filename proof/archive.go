@@ -41,9 +41,9 @@ var (
 	ErrInvalidLocatorKey = fmt.Errorf("invalid script key locator")
 )
 
-// Locator is able to uniquely identify a proof in the extended Taro Universe
-// by a combination of the: top-level asset ID, the group key, and also the
-// script key.
+// Locator is able to uniquely identify a proof in the extended Taproot Asset
+// Universe by a combination of the: top-level asset ID, the group key, and also
+// the script key.
 type Locator struct {
 	// AssetID the asset ID of the proof to fetch. This is an optional field.
 	AssetID *asset.ID
@@ -150,7 +150,7 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 }
 
 // genProofFilePath generates the full proof file path based on a rootPath and
-// a valid locator. The final path is: root/assetID/scriptKey.taro
+// a valid locator. The final path is: root/assetID/scriptKey.assetproof
 func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	var emptyKey btcec.PublicKey
 
