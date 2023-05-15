@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
 )
@@ -271,7 +271,7 @@ func NewAssetMintingStore(db BatchedPendingAssetStore) *AssetMintingStore {
 // will be used as the internal key which will mint all the assets in the
 // batch.
 func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
-	newBatch *tarogarden.MintingBatch) error {
+	newBatch *tapgarden.MintingBatch) error {
 
 	rawBatchKey := newBatch.BatchKey.PubKey.SerializeCompressed()
 
@@ -303,7 +303,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		// Now that our minting batch is in place, which references the
 		// internal key inserted above, we can create the set of new
 		// seedlings. We insert group anchors before other assets.
-		orderedSeedlings := tarogarden.SortSeedlings(
+		orderedSeedlings := tapgarden.SortSeedlings(
 			maps.Values(newBatch.Seedlings),
 		)
 
@@ -371,7 +371,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 // AddSeedlingsToBatch adds a new set of seedlings to an existing batch.
 func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey, seedlings ...*tarogarden.Seedling) error {
+	batchKey *btcec.PublicKey, seedlings ...*tapgarden.Seedling) error {
 
 	rawBatchKey := batchKey.SerializeCompressed()
 
@@ -457,7 +457,7 @@ func fetchSeedlingID(ctx context.Context, q PendingAssetStore,
 // fetchAssetSeedlings attempts to fetch a set of asset seedlings for a given
 // batch. This is performed within the context of a greater DB transaction.
 func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
-	rawBatchKey []byte) (map[string]*tarogarden.Seedling, error) {
+	rawBatchKey []byte) (map[string]*tapgarden.Seedling, error) {
 
 	// Now that we have the main pieces of the batch, we'll fetch all the
 	// seedlings for this batch and map them to the proper struct.
@@ -468,9 +468,9 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 		return nil, err
 	}
 
-	seedlings := make(map[string]*tarogarden.Seedling)
+	seedlings := make(map[string]*tapgarden.Seedling)
 	for _, dbSeedling := range dbSeedlings {
-		seedling := &tarogarden.Seedling{
+		seedling := &tapgarden.Seedling{
 			AssetType: asset.Type(
 				dbSeedling.AssetType,
 			),
@@ -701,22 +701,22 @@ func fetchAssetMetas(ctx context.Context, db PendingAssetStore,
 // FetchNonFinalBatches fetches all the batches that aren't fully finalized on
 // disk.
 func (a *AssetMintingStore) FetchNonFinalBatches(
-	ctx context.Context) ([]*tarogarden.MintingBatch, error) {
+	ctx context.Context) ([]*tapgarden.MintingBatch, error) {
 
-	var batches []*tarogarden.MintingBatch
+	var batches []*tapgarden.MintingBatch
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
 		// First, we'll fetch all batches that aren't in a final state.
 		dbBatches, err := q.FetchMintingBatchesByInverseState(
-			ctx, int16(tarogarden.BatchStateFinalized),
+			ctx, int16(tapgarden.BatchStateFinalized),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to fetch minting "+
 				"batches: %w", err)
 		}
 
-		parseBatch := func(batch MintingBatchI) (*tarogarden.MintingBatch,
+		parseBatch := func(batch MintingBatchI) (*tapgarden.MintingBatch,
 			error) {
 
 			convBatch := convertMintingBatchI(batch)
@@ -739,9 +739,9 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 
 // FetchAllBatches fetches all batches on disk.
 func (a *AssetMintingStore) FetchAllBatches(
-	ctx context.Context) ([]*tarogarden.MintingBatch, error) {
+	ctx context.Context) ([]*tapgarden.MintingBatch, error) {
 
-	var batches []*tarogarden.MintingBatch
+	var batches []*tapgarden.MintingBatch
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
@@ -751,7 +751,7 @@ func (a *AssetMintingStore) FetchAllBatches(
 				"batches: %w", err)
 		}
 
-		parseBatch := func(batch MintingBatchA) (*tarogarden.MintingBatch,
+		parseBatch := func(batch MintingBatchA) (*tapgarden.MintingBatch,
 			error) {
 
 			convBatch := convertMintingBatchA(batch)
@@ -774,13 +774,13 @@ func (a *AssetMintingStore) FetchAllBatches(
 
 // FetchMintingBatch fetches the single batch with the given batch key.
 func (a *AssetMintingStore) FetchMintingBatch(ctx context.Context,
-	batchKey *btcec.PublicKey) (*tarogarden.MintingBatch, error) {
+	batchKey *btcec.PublicKey) (*tapgarden.MintingBatch, error) {
 
 	if batchKey == nil {
 		return nil, fmt.Errorf("no batch key")
 	}
 
-	var batch *tarogarden.MintingBatch
+	var batch *tapgarden.MintingBatch
 	batchKeyBytes := batchKey.SerializeCompressed()
 
 	readOpts := NewAssetStoreReadTx()
@@ -822,7 +822,7 @@ func convertMintingBatchA(batch MintingBatchA) MintingBatchF {
 // marshalMintingBatch marshals a minting batch into its native type,
 // and fetches the corresponding seedlings or root taro commitment.
 func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
-	dbBatch MintingBatchF) (*tarogarden.MintingBatch, error) {
+	dbBatch MintingBatchF) (*tapgarden.MintingBatch, error) {
 
 	batchKey, err := btcec.ParsePubKey(dbBatch.RawKey)
 	if err != nil {
@@ -831,8 +831,8 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 	// For each batch, we'll assemble an intermediate batch struct, then
 	// fill in all the seedlings with another sub-query.
-	batch := &tarogarden.MintingBatch{
-		BatchState: tarogarden.BatchState(
+	batch := &tapgarden.MintingBatch{
+		BatchState: tapgarden.BatchState(
 			dbBatch.BatchState,
 		),
 		BatchKey: keychain.KeyDescriptor{
@@ -855,7 +855,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		if err != nil {
 			return nil, err
 		}
-		batch.GenesisPacket = &tarogarden.FundedPsbt{
+		batch.GenesisPacket = &tapgarden.FundedPsbt{
 			Pkt: genesisPkt,
 			ChangeOutputIndex: extractSqlInt32[int32](
 				dbBatch.ChangeOutputIndex,
@@ -868,9 +868,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 	// descriptions w/ no real assets), or the set of
 	// sprouts (full defined assets, but not yet mined).
 	switch batch.BatchState {
-	case tarogarden.BatchStatePending,
-		tarogarden.BatchStateFrozen,
-		tarogarden.BatchStateSeedlingCancelled:
+	case tapgarden.BatchStatePending,
+		tapgarden.BatchStateFrozen,
+		tapgarden.BatchStateSeedlingCancelled:
 
 		// In this case we can just fetch the set of
 		// descriptions of future assets to be.
@@ -904,7 +904,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 // UpdateBatchState updates the state of a batch based on the batch key.
 func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
-	batchKey *btcec.PublicKey, newState tarogarden.BatchState) error {
+	batchKey *btcec.PublicKey, newState tapgarden.BatchState) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
@@ -931,7 +931,7 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPacket *tarogarden.FundedPsbt,
+	batchKey *btcec.PublicKey, genesisPacket *tapgarden.FundedPsbt,
 	assetRoot *commitment.TaroCommitment) error {
 
 	// Before we open the DB transaction below, we'll fetch the set of
@@ -974,7 +974,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		// Finally, update the batch state to BatchStateCommitted.
 		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     rawBatchKey,
-			BatchState: int16(tarogarden.BatchStateCommitted),
+			BatchState: int16(tapgarden.BatchStateCommitted),
 		})
 	})
 }
@@ -988,7 +988,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPkt *tarogarden.FundedPsbt,
+	batchKey *btcec.PublicKey, genesisPkt *tapgarden.FundedPsbt,
 	anchorOutputIndex uint32, merkleRoot []byte) error {
 
 	// The managed UTXO we'll insert only contains the raw tx of the
@@ -1093,7 +1093,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Finally, update the batch state to BatchStateBroadcast.
 		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     rawBatchKey,
-			BatchState: int16(tarogarden.BatchStateBroadcast),
+			BatchState: int16(tapgarden.BatchStateBroadcast),
 		})
 	})
 }
@@ -1113,7 +1113,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		// that the batch is fully finalized.
 		err := q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     rawBatchKey,
-			BatchState: int16(tarogarden.BatchStateConfirmed),
+			BatchState: int16(tapgarden.BatchStateConfirmed),
 		})
 		if err != nil {
 			return err
@@ -1193,5 +1193,5 @@ func (a *AssetMintingStore) FetchGroupByGroupKey(ctx context.Context,
 }
 
 // A compile-time assertion to ensure that AssetMintingStore meets the
-// tarogarden.MintingStore interface.
-var _ tarogarden.MintingStore = (*AssetMintingStore)(nil)
+// tapgarden.MintingStore interface.
+var _ tapgarden.MintingStore = (*AssetMintingStore)(nil)

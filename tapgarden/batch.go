@@ -1,4 +1,4 @@
-package tarogarden
+package tapgarden
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package tarogarden_test
+package tapgarden_test
 
 import (
 	"bytes"
@@ -24,7 +24,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb"
 	_ "github.com/lightninglabs/taro/tapdb" // Register relevant drivers.
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -41,7 +41,7 @@ var (
 )
 
 // newMintingStore creates a new instance of the TaroAddressBook book.
-func newMintingStore(t *testing.T) tarogarden.MintingStore {
+func newMintingStore(t *testing.T) tapgarden.MintingStore {
 	db := tapdb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tapdb.PendingAssetStore {
@@ -56,23 +56,23 @@ func newMintingStore(t *testing.T) tarogarden.MintingStore {
 // create succinct and fully featured unit/systems tests for the batched asset
 // minting process.
 type mintingTestHarness struct {
-	wallet *tarogarden.MockWalletAnchor
+	wallet *tapgarden.MockWalletAnchor
 
-	chain *tarogarden.MockChainBridge
+	chain *tapgarden.MockChainBridge
 
-	store tarogarden.MintingStore
+	store tapgarden.MintingStore
 
-	keyRing *tarogarden.MockKeyRing
+	keyRing *tapgarden.MockKeyRing
 
-	genSigner *tarogarden.MockGenSigner
+	genSigner *tapgarden.MockGenSigner
 
 	ticker *ticker.Force
 
-	planter *tarogarden.ChainPlanter
+	planter *tapgarden.ChainPlanter
 
 	batchKey *keychain.KeyDescriptor
 
-	proofFiles *tarogarden.MockProofArchive
+	proofFiles *tapgarden.MockProofArchive
 
 	*testing.T
 
@@ -81,18 +81,18 @@ type mintingTestHarness struct {
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T, store tarogarden.MintingStore,
+func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 	interval time.Duration) *mintingTestHarness {
 
-	keyRing := tarogarden.NewMockKeyRing()
-	genSigner := tarogarden.NewMockGenSigner(keyRing)
+	keyRing := tapgarden.NewMockKeyRing()
+	genSigner := tapgarden.NewMockGenSigner(keyRing)
 
 	return &mintingTestHarness{
 		T:         t,
 		store:     store,
 		ticker:    ticker.NewForce(interval),
-		wallet:    tarogarden.NewMockWalletAnchor(),
-		chain:     tarogarden.NewMockChainBridge(),
+		wallet:    tapgarden.NewMockWalletAnchor(),
+		chain:     tapgarden.NewMockChainBridge(),
 		keyRing:   keyRing,
 		genSigner: genSigner,
 		errChan:   make(chan error, 10),
@@ -107,8 +107,8 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 		require.NoError(t, t.planter.Stop())
 	}
 
-	t.planter = tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
-		GardenKit: tarogarden.GardenKit{
+	t.planter = tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+		GardenKit: tapgarden.GardenKit{
 			Wallet:      t.wallet,
 			ChainBridge: t.chain,
 			Log:         t.store,
@@ -124,8 +124,8 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 
 // newRandSeedlings creates numSeedlings amount of seedlings with random
 // initialized values.
-func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Seedling {
-	seedlings := make([]*tarogarden.Seedling, numSeedlings)
+func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tapgarden.Seedling {
+	seedlings := make([]*tapgarden.Seedling, numSeedlings)
 	for i := 0; i < numSeedlings; i++ {
 		var n [32]byte
 		if _, err := rand.Read(n[:]); err != nil {
@@ -133,7 +133,7 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tarogarden.Se
 		}
 
 		assetName := hex.EncodeToString(n[:])
-		seedlings[i] = &tarogarden.Seedling{
+		seedlings[i] = &tapgarden.Seedling{
 			AssetType: asset.Type(rand.Int31n(2)),
 			AssetName: assetName,
 			Meta: &proof.MetaReveal{
@@ -163,7 +163,7 @@ func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
 // raised if any of the seedlings aren't accepted.
 func (t *mintingTestHarness) queueSeedlingsInBatch(
-	seedlings ...*tarogarden.Seedling) {
+	seedlings ...*tapgarden.Seedling) {
 
 	for i, seedling := range seedlings {
 		seedling := seedling
@@ -188,7 +188,7 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(
 		require.NoError(t, update.Error)
 
 		// The received update should be a state of MintingStateSeed.
-		require.Equal(t, tarogarden.MintingStateSeed, update.NewState)
+		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
 	}
 }
 
@@ -270,7 +270,7 @@ func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
 
 // assertGenesisTxFunded asserts that a caretaker attempted to fund a new
 // genesis transaction.
-func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
+func (t *mintingTestHarness) assertGenesisTxFunded() *tapgarden.FundedPsbt {
 	// In order to fund a transaction, we expect a call to estimate the
 	// fee, followed by a request to fund a new PSBT packet.
 	_, err := chanutils.RecvOrTimeout(
@@ -289,10 +289,10 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
 	for _, txOut := range (*pkt).Pkt.UnsignedTx.TxOut {
 		txOut := txOut
 
-		if txOut.Value == int64(tarogarden.GenesisAmtSats) {
+		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
 			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
 			isDummyScript := bytes.Equal(
-				txOut.PkScript, tarogarden.GenesisDummyScript[:],
+				txOut.PkScript, tapgarden.GenesisDummyScript[:],
 			)
 
 			if isP2TR || isDummyScript {
@@ -311,16 +311,16 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tarogarden.FundedPsbt {
 
 // assertSeedlingsExist asserts that all the seedlings are present in the batch.
 func (t *mintingTestHarness) assertSeedlingsExist(
-	seedlings []*tarogarden.Seedling, batchKey *btcec.PublicKey) {
+	seedlings []*tapgarden.Seedling, batchKey *btcec.PublicKey) {
 
 	t.Helper()
-	var pendingBatch *tarogarden.MintingBatch
+	var pendingBatch *tapgarden.MintingBatch
 
 	pendingBatches, err := t.store.FetchNonFinalBatches(context.Background())
 	require.NoError(t, err)
 	require.True(t, len(pendingBatches) >= 1)
 
-	matchingBatch := func(batch *tarogarden.MintingBatch) bool {
+	matchingBatch := func(batch *tapgarden.MintingBatch) bool {
 		targetKey := asset.ToSerialized(batchKey)
 		candidateKey := asset.ToSerialized(batch.BatchKey.PubKey)
 
@@ -328,7 +328,7 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 	}
 
 	if batchKey == nil {
-		isNotCancelledBatch := func(batch *tarogarden.MintingBatch) bool {
+		isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 			return !isCancelledBatch(batch)
 		}
 		pendingBatch, err = chanutils.First(
@@ -362,13 +362,13 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 	}
 }
 
-func isCancelledBatch(batch *tarogarden.MintingBatch) bool {
-	return batch.BatchState == tarogarden.BatchStateSeedlingCancelled ||
-		batch.BatchState == tarogarden.BatchStateSproutCancelled
+func isCancelledBatch(batch *tapgarden.MintingBatch) bool {
+	return batch.BatchState == tapgarden.BatchStateSeedlingCancelled ||
+		batch.BatchState == tapgarden.BatchStateSproutCancelled
 }
 
 func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
-	batchState tarogarden.BatchState) {
+	batchState tapgarden.BatchState) {
 
 	t.Helper()
 
@@ -383,13 +383,13 @@ func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
 // assertSeedlingsMatchSprouts asserts that the seedlings were properly matched
 // into actual assets.
 func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
-	seedlings []*tarogarden.Seedling) {
+	seedlings []*tapgarden.Seedling) {
 
 	t.Helper()
 
 	// The caretaker is async, so we'll spin here until the batch read is
 	// in the expected state.
-	var pendingBatch *tarogarden.MintingBatch
+	var pendingBatch *tapgarden.MintingBatch
 	err := wait.Predicate(func() bool {
 		pendingBatches, err := t.store.FetchNonFinalBatches(
 			context.Background(),
@@ -397,8 +397,8 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		require.NoError(t, err)
 
 		// Filter out any cancelled batches.
-		isCommittedBatch := func(batch *tarogarden.MintingBatch) bool {
-			return batch.BatchState == tarogarden.BatchStateCommitted
+		isCommittedBatch := func(batch *tapgarden.MintingBatch) bool {
+			return batch.BatchState == tapgarden.BatchStateCommitted
 		}
 		batch, err := chanutils.First(pendingBatches, isCommittedBatch)
 		if err != nil {
@@ -461,7 +461,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 	)
 	require.NoError(t, err)
 
-	isNotCancelledBatch := func(batch *tarogarden.MintingBatch) bool {
+	isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 		return !isCancelledBatch(batch)
 	}
 	pendingBatch, err := chanutils.First(pendingBatches, isNotCancelledBatch)
@@ -750,7 +750,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	// but the seedlings should still exist on disk.
 	firstBatchKey := t.cancelMintingBatch(false)
 	t.assertNoPendingBatch()
-	t.assertBatchState(firstBatchKey, tarogarden.BatchStateSeedlingCancelled)
+	t.assertBatchState(firstBatchKey, tapgarden.BatchStateSeedlingCancelled)
 	t.assertSeedlingsExist(seedlings, firstBatchKey)
 
 	// Requesting batch finalization or cancellation with no pending batch
@@ -797,7 +797,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	// and at this point the minting transaction is still being made.
 	secondBatchKey := t.cancelMintingBatch(false)
 	t.assertNoPendingBatch()
-	t.assertBatchState(secondBatchKey, tarogarden.BatchStateSproutCancelled)
+	t.assertBatchState(secondBatchKey, tapgarden.BatchStateSproutCancelled)
 
 	// We can make another 5 random seedlings and continue with minting.
 	seedlings = t.newRandSeedlings(numSeedlings)
@@ -857,7 +857,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// Once the minting transaction has been published, trying to cancel the
 	// batch should fail with an error from the caretaker.
-	t.assertBatchState(thirdBatchKey, tarogarden.BatchStateBroadcast)
+	t.assertBatchState(thirdBatchKey, tapgarden.BatchStateBroadcast)
 	cancelResp := t.cancelMintingBatch(false)
 
 	batchKeyEquality := func(a, b *btcec.PublicKey) bool {
@@ -932,7 +932,7 @@ func init() {
 	rand.Seed(time.Now().Unix())
 
 	logWriter := build.NewRotatingLogWriter()
-	logger := logWriter.GenSubLogger(tarogarden.Subsystem, func() {})
-	logWriter.RegisterSubLogger(tarogarden.Subsystem, logger)
-	tarogarden.UseLogger(logger)
+	logger := logWriter.GenSubLogger(tapgarden.Subsystem, func() {})
+	logWriter.RegisterSubLogger(tapgarden.Subsystem, logger)
+	tapgarden.UseLogger(logger)
 }

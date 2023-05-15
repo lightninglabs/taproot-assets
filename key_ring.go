@@ -7,7 +7,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taro/asset"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -107,5 +107,5 @@ func (l *LndRpcKeyRing) IsLocalKey(ctx context.Context,
 }
 
 // A compile time assertion to ensure LndRpcKeyRing meets the
-// tarogarden.KeyRing interface.
-var _ tarogarden.KeyRing = (*LndRpcKeyRing)(nil)
+// tapgarden.KeyRing interface.
+var _ tapgarden.KeyRing = (*LndRpcKeyRing)(nil)

@@ -29,7 +29,7 @@ import (
 	"github.com/lightninglabs/taro/rpcperms"
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
@@ -273,7 +273,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	seedling := &tarogarden.Seedling{
+	seedling := &tapgarden.Seedling{
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
 		Amount:         uint64(req.Asset.Amount),
@@ -1036,7 +1036,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	_, err = proofFile.Verify(
 		ctx, headerVerifier,
 	)
@@ -1096,7 +1096,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
@@ -1811,7 +1811,7 @@ func marshallSendAssetEvent(
 }
 
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
-func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
+func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
 	error) {
 
 	rpcAssets := make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
@@ -1858,32 +1858,32 @@ func marshalMintingBatch(batch *tarogarden.MintingBatch) (*mintrpc.MintingBatch,
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
-func marshalBatchState(batch *tarogarden.MintingBatch) (mintrpc.BatchState,
+func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 	error) {
 
 	switch batch.BatchState {
-	case tarogarden.BatchStatePending:
+	case tapgarden.BatchStatePending:
 		return mintrpc.BatchState_BATCH_STATE_PEDNING, nil
 
-	case tarogarden.BatchStateFrozen:
+	case tapgarden.BatchStateFrozen:
 		return mintrpc.BatchState_BATCH_STATE_FROZEN, nil
 
-	case tarogarden.BatchStateCommitted:
+	case tapgarden.BatchStateCommitted:
 		return mintrpc.BatchState_BATCH_STATE_COMMITTED, nil
 
-	case tarogarden.BatchStateBroadcast:
+	case tapgarden.BatchStateBroadcast:
 		return mintrpc.BatchState_BATCH_STATE_BROADCAST, nil
 
-	case tarogarden.BatchStateConfirmed:
+	case tapgarden.BatchStateConfirmed:
 		return mintrpc.BatchState_BATCH_STATE_CONFIRMED, nil
 
-	case tarogarden.BatchStateFinalized:
+	case tapgarden.BatchStateFinalized:
 		return mintrpc.BatchState_BATCH_STATE_FINALIZED, nil
 
-	case tarogarden.BatchStateSeedlingCancelled:
+	case tapgarden.BatchStateSeedlingCancelled:
 		return mintrpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED, nil
 
-	case tarogarden.BatchStateSproutCancelled:
+	case tapgarden.BatchStateSproutCancelled:
 		return mintrpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
@@ -2720,7 +2720,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot decode proof: %w", err)
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	lastSnapshot, err := proofFile.Verify(ctx, headerVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
@@ -2775,7 +2775,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot decode proof file: %w", err)
 	}
 
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	_, err = p.Verify(ctx, nil, headerVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)

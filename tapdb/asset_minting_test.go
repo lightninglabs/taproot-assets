@@ -19,7 +19,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -50,13 +50,13 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 		db
 }
 
-func assertBatchState(t *testing.T, batch *tarogarden.MintingBatch,
-	state tarogarden.BatchState) {
+func assertBatchState(t *testing.T, batch *tapgarden.MintingBatch,
+	state tapgarden.BatchState) {
 
 	require.Equal(t, state, batch.BatchState)
 }
 
-func assertBatchEqual(t *testing.T, a, b *tarogarden.MintingBatch) {
+func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 	t.Helper()
 
 	require.Equal(t, a.CreationTime.Unix(), b.CreationTime.Unix())
@@ -67,7 +67,7 @@ func assertBatchEqual(t *testing.T, a, b *tarogarden.MintingBatch) {
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
 }
 
-func assertSeedlingBatchLen(t *testing.T, batches []*tarogarden.MintingBatch,
+func assertSeedlingBatchLen(t *testing.T, batches []*tapgarden.MintingBatch,
 	numBatches, numSeedlings int) {
 
 	require.Len(t, batches, numBatches)
@@ -140,7 +140,7 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 // minted into an existing group. The seedling is updated with the group key
 // and mapped to the key needed to sign for the reissuance.
 func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
-	ctx context.Context, seedlings map[string]*tarogarden.Seedling) (uint64,
+	ctx context.Context, seedlings map[string]*tapgarden.Seedling) (uint64,
 	map[string]*btcec.PrivateKey, *asset.AssetGroup) {
 
 	// Pick a random seedling.
@@ -176,11 +176,11 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 // group. Specifically, one seedling will have emission enabled, and the other
 // seedling will reference the first seedling as its group anchor.
 func addMultiAssetGroupToBatch(t *testing.T,
-	seedlings map[string]*tarogarden.Seedling) (string, string) {
+	seedlings map[string]*tapgarden.Seedling) (string, string) {
 
 	seedlingNames := maps.Keys(seedlings)
 	seedlingCount := len(seedlingNames)
-	var anchorSeedling, groupedSeedling *tarogarden.Seedling
+	var anchorSeedling, groupedSeedling *tapgarden.Seedling
 
 	// We want to find two spots in the random seedling list, where neither
 	// seedling was modified to be minted into an existing group.
@@ -224,7 +224,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// First, we'll write a new minting batch to disk, including an
 	// internal key and a set of seedlings. One random seedling will
 	// be a reissuance into a specific group.
-	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
 	addRandGroupToBatch(t, assetStore, ctx, mintingBatch.Seedlings)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err, "unable to write batch: %v", err)
@@ -242,10 +242,10 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	assertBatchEqual(t, mintingBatch, mintingBatchKeyed)
 
 	// The batch should also still be in the pending state.
-	assertBatchState(t, mintingBatches[0], tarogarden.BatchStatePending)
+	assertBatchState(t, mintingBatches[0], tapgarden.BatchStatePending)
 
 	// Now we'll add an additional set of seedlings.
-	seedlings := tarogarden.RandSeedlings(t, numSeedlings)
+	seedlings := tapgarden.RandSeedlings(t, numSeedlings)
 
 	// Pick a random seedling and give it a specific group.
 	addRandGroupToBatch(t, assetStore, ctx, seedlings)
@@ -265,17 +265,17 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// Finally update the state of the batch, and asset that when we read
 	// it from disk again, it has transitioned to being frozen.
 	require.NoError(t, assetStore.UpdateBatchState(
-		ctx, batchKey, tarogarden.BatchStateFrozen,
+		ctx, batchKey, tapgarden.BatchStateFrozen,
 	))
 
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings*2)
-	assertBatchState(t, mintingBatches[0], tarogarden.BatchStateFrozen)
+	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateFrozen)
 
 	// If we finalize the batch, then the next query to
 	// FetchNonFinalBatches should return zero batches.
 	require.NoError(t, assetStore.UpdateBatchState(
-		ctx, batchKey, tarogarden.BatchStateFinalized,
+		ctx, batchKey, tapgarden.BatchStateFinalized,
 	))
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 0, 0)
@@ -284,7 +284,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatchKeyed, err = assetStore.FetchMintingBatch(ctx, batchKey)
 	require.NoError(t, err)
 	require.NotNil(t, mintingBatchKeyed)
-	assertBatchState(t, mintingBatchKeyed, tarogarden.BatchStateFinalized)
+	assertBatchState(t, mintingBatchKeyed, tapgarden.BatchStateFinalized)
 
 	// We should not be able to fetch a non-existent batch.
 	badBatchKeyBytes := batchKey.SerializeCompressed()
@@ -297,7 +297,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 
 	// Insert another normal batch into the database. We should get this
 	// batch back if we query for the set of non final batches.
-	mintingBatch = tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch = tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
 	err = assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err)
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
@@ -321,10 +321,10 @@ func randKeyDesc(t *testing.T) (keychain.KeyDescriptor, *btcec.PrivateKey) {
 //
 // TODO(roasbeef): same func in tarogarden can just re-use?
 func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
-	seedlings map[string]*tarogarden.Seedling,
+	seedlings map[string]*tapgarden.Seedling,
 	groupKeys map[string]*btcec.PrivateKey) *commitment.TaroCommitment {
 
-	orderedSeedlings := tarogarden.SortSeedlings(maps.Values(seedlings))
+	orderedSeedlings := tapgarden.SortSeedlings(maps.Values(seedlings))
 	assetRoots := make([]*commitment.AssetCommitment, 0, len(seedlings))
 	newGroupPrivs := make(map[string]*btcec.PrivateKey)
 	newGroupInfo := make(map[string]*asset.AssetGroup)
@@ -419,7 +419,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	return taroCommitment
 }
 
-func randGenesisPacket(t *testing.T) *tarogarden.FundedPsbt {
+func randGenesisPacket(t *testing.T) *tapgarden.FundedPsbt {
 	tx := wire.NewMsgTx(2)
 
 	var hash chainhash.Hash
@@ -447,14 +447,14 @@ func randGenesisPacket(t *testing.T) *tarogarden.FundedPsbt {
 
 	packet, err := psbt.NewFromUnsignedTx(tx)
 	require.NoError(t, err)
-	return &tarogarden.FundedPsbt{
+	return &tapgarden.FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: 1,
 		ChainFees:         100,
 	}
 }
 
-func assertPsbtEqual(t *testing.T, a, b *tarogarden.FundedPsbt) {
+func assertPsbtEqual(t *testing.T, a, b *tapgarden.FundedPsbt) {
 	require.Equal(t, a.ChangeOutputIndex, b.ChangeOutputIndex)
 	require.Equal(t, a.LockedUTXOs, b.LockedUTXOs)
 
@@ -506,7 +506,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	// First, we'll create a new batch, then add some sample seedlings.
 	// One random seedling will be a reissuance into a specific group.
-	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
 	_, seedlingGroups, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -543,7 +543,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 	// above. We also expect that the batch is in the BatchStateCommitted
 	// state.
 	assertSeedlingBatchLen(t, mintingBatches, 1, 0)
-	assertBatchState(t, mintingBatches[0], tarogarden.BatchStateCommitted)
+	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateCommitted)
 	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
 
@@ -555,9 +555,9 @@ func TestAddSproutsToBatch(t *testing.T) {
 func addRandAssets(t *testing.T, ctx context.Context,
 	assetStore *AssetMintingStore,
 	numAssets int) (*btcec.PublicKey, *btcec.PublicKey, uint64,
-	*tarogarden.FundedPsbt, []byte, *commitment.TaroCommitment) {
+	*tapgarden.FundedPsbt, []byte, *commitment.TaroCommitment) {
 
-	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numAssets)
+	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numAssets)
 	genAmt, seedlingGroups, group := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -615,7 +615,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// "signed" above.
 	mintingBatches := noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertBatchState(
-		t, mintingBatches[0], tarogarden.BatchStateBroadcast,
+		t, mintingBatches[0], tapgarden.BatchStateBroadcast,
 	)
 	assertPsbtEqual(t, genesisPkt, mintingBatches[0].GenesisPacket)
 
@@ -975,7 +975,7 @@ func TestGroupAnchors(t *testing.T) {
 	// internal key and a set of seedlings. One random seedling will
 	// be a reissuance into a specific group. Two other seedlings will form
 	// a multi-asset group.
-	mintingBatch := tarogarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
 	_, seedlingGroups, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -993,14 +993,14 @@ func TestGroupAnchors(t *testing.T) {
 
 	// Now we'll add an additional set of seedlings with
 	// another multi-asset group.
-	seedlings := tarogarden.RandSeedlings(t, numSeedlings)
+	seedlings := tapgarden.RandSeedlings(t, numSeedlings)
 	secondAnchor, secondGrouped := addMultiAssetGroupToBatch(
 		t, seedlings,
 	)
 
 	// We add seedlings one at a time, in order, as the planter does.
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
-	orderedSeedlings := tarogarden.SortSeedlings(maps.Values(seedlings))
+	orderedSeedlings := tapgarden.SortSeedlings(maps.Values(seedlings))
 	for _, seedlingName := range orderedSeedlings {
 		seedling := seedlings[seedlingName]
 		require.NoError(t,
@@ -1046,7 +1046,7 @@ func TestGroupAnchors(t *testing.T) {
 	// above. We also expect that the batch is in the BatchStateCommitted
 	// state.
 	assertSeedlingBatchLen(t, mintingBatches, 1, 0)
-	assertBatchState(t, mintingBatches[0], tarogarden.BatchStateCommitted)
+	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateCommitted)
 	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
 }

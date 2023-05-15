@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
@@ -119,7 +119,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	universeStats := tapdb.NewUniverseStats(uniStatsDB)
 
-	headerVerifier := tarogarden.GenHeaderVerifier(
+	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
 	uniCfg := universe.MintingArchiveConfig{
@@ -204,8 +204,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	return &taro.Config{
 		DebugLevel:  cfg.DebugLevel,
 		ChainParams: cfg.ActiveNetParams,
-		AssetMinter: tarogarden.NewChainPlanter(tarogarden.PlanterConfig{
-			GardenKit: tarogarden.GardenKit{
+		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+			GardenKit: tapgarden.GardenKit{
 				Wallet:      walletAnchor,
 				ChainBridge: chainBridge,
 				Log:         assetMintingStore,
@@ -219,8 +219,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,
 		}),
-		AssetCustodian: tarogarden.NewCustodian(
-			&tarogarden.CustodianConfig{
+		AssetCustodian: tapgarden.NewCustodian(
+			&tapgarden.CustodianConfig{
 				ChainParams:   &taroChainParams,
 				WalletAnchor:  walletAnchor,
 				ChainBridge:   chainBridge,

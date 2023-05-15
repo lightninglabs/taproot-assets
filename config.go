@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -56,7 +56,7 @@ type RPCConfig struct {
 type DatabaseConfig struct {
 	RootKeyStore *tapdb.RootKeyStore
 
-	MintingStore tarogarden.MintingStore
+	MintingStore tapgarden.MintingStore
 
 	AssetStore *tapdb.AssetStore
 
@@ -76,11 +76,11 @@ type Config struct {
 
 	SignalInterceptor signal.Interceptor
 
-	AssetMinter tarogarden.Planter
+	AssetMinter tapgarden.Planter
 
-	AssetCustodian *tarogarden.Custodian
+	AssetCustodian *tapgarden.Custodian
 
-	ChainBridge tarogarden.ChainBridge
+	ChainBridge tapgarden.ChainBridge
 
 	AddrBook *address.Book
 

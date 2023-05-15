@@ -15,7 +15,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -300,11 +300,11 @@ type ExportLog interface {
 }
 
 // ChainBridge aliases into the ChainBridge of the tarogarden package.
-type ChainBridge = tarogarden.ChainBridge
+type ChainBridge = tapgarden.ChainBridge
 
 // WalletAnchor aliases into the WalletAnchor of the tarogarden package.
 type WalletAnchor interface {
-	tarogarden.WalletAnchor
+	tapgarden.WalletAnchor
 
 	// SignPsbt signs all the inputs it can in the passed PSBT packet,
 	// returning a new one with updated signature/witness data.
@@ -312,7 +312,7 @@ type WalletAnchor interface {
 }
 
 // KeyRing aliases into the KeyRing of the tarogarden package.
-type KeyRing = tarogarden.KeyRing
+type KeyRing = tapgarden.KeyRing
 
 // Signer aliases into the Signer interface of the taroscript package.
 type Signer = taroscript.Signer

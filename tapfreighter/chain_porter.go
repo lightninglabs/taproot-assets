@@ -16,7 +16,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -103,7 +103,7 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 		exportReqs:  make(chan Parcel),
 		subscribers: subscribers,
 		ContextGuard: &chanutils.ContextGuard{
-			DefaultTimeout: tarogarden.DefaultTimeout,
+			DefaultTimeout: tapgarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
 	}
@@ -305,7 +305,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	confEvent := sendPkg.TransferTxConfEvent
 
 	// Use callback to verify that block header exists on chain.
-	headerVerifier := tarogarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 
 	// Generate updated passive asset proof files.
 	passiveAssetProofFiles := make(

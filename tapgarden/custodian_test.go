@@ -1,4 +1,4 @@
-package tarogarden_test
+package tapgarden_test
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ var (
 )
 
 // newAddrBook creates a new instance of the TaroAddressBook book.
-func newAddrBook(t *testing.T, keyRing *tarogarden.MockKeyRing) (*address.Book,
+func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
 	*tapdb.TaroAddressBook, sqlc.Querier) {
 
 	db := tapdb.NewTestDB(t)
@@ -76,11 +76,11 @@ func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tapdb.AssetStore) {
 
 type custodianHarness struct {
 	t            *testing.T
-	c            *tarogarden.Custodian
-	cfg          *tarogarden.CustodianConfig
-	chainBridge  *tarogarden.MockChainBridge
-	walletAnchor *tarogarden.MockWalletAnchor
-	keyRing      *tarogarden.MockKeyRing
+	c            *tapgarden.Custodian
+	cfg          *tapgarden.CustodianConfig
+	chainBridge  *tapgarden.MockChainBridge
+	walletAnchor *tapgarden.MockWalletAnchor
+	keyRing      *tapgarden.MockKeyRing
 	tapdbBook    *tapdb.TaroAddressBook
 	addrBook     *address.Book
 	assetDB      *tapdb.AssetStore
@@ -128,9 +128,9 @@ func (h *custodianHarness) assertAddrsRegistered(
 func newHarness(t *testing.T,
 	initialAddrs []*address.AddrWithKeyInfo) *custodianHarness {
 
-	chainBridge := tarogarden.NewMockChainBridge()
-	walletAnchor := tarogarden.NewMockWalletAnchor()
-	keyRing := tarogarden.NewMockKeyRing()
+	chainBridge := tapgarden.NewMockChainBridge()
+	walletAnchor := tapgarden.NewMockWalletAnchor()
+	keyRing := tapgarden.NewMockKeyRing()
 	addrBook, tapdbBook, _ := newAddrBook(t, keyRing)
 	proofArchive, assetDB := newProofArchive(t)
 
@@ -140,7 +140,7 @@ func newHarness(t *testing.T,
 		require.NoError(t, err)
 	}
 
-	cfg := &tarogarden.CustodianConfig{
+	cfg := &tapgarden.CustodianConfig{
 		ChainParams:   chainParams,
 		ChainBridge:   chainBridge,
 		WalletAnchor:  walletAnchor,
@@ -151,7 +151,7 @@ func newHarness(t *testing.T,
 	}
 	return &custodianHarness{
 		t:            t,
-		c:            tarogarden.NewCustodian(cfg),
+		c:            tapgarden.NewCustodian(cfg),
 		cfg:          cfg,
 		chainBridge:  chainBridge,
 		walletAnchor: walletAnchor,
@@ -439,7 +439,7 @@ func TestAddrMatchesAsset(t *testing.T) {
 			tt.Parallel()
 
 			require.Equal(
-				tt, tc.result, tarogarden.AddrMatchesAsset(
+				tt, tc.result, tapgarden.AddrMatchesAsset(
 					tc.addr, tc.a,
 				),
 			)

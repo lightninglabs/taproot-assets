@@ -21,7 +21,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/tarogarden"
+	"github.com/lightninglabs/taro/tapgarden"
 	"github.com/lightninglabs/taro/taropsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/input"
@@ -35,7 +35,7 @@ type AnchorTransaction struct {
 	// FundedPsbt is the funded anchor TX at the state before it was signed,
 	// with all the UTXO information intact for later exclusion proof
 	// creation.
-	FundedPsbt *tarogarden.FundedPsbt
+	FundedPsbt *tapgarden.FundedPsbt
 
 	// FinalTx is the fully signed and finalized anchor TX that can be
 	// broadcast to the network.
@@ -1098,7 +1098,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Before we finalize, we need to calculate the actual, final fees that
 	// we pay.
-	chainFees, err := tarogarden.GetTxFee(signedPsbt)
+	chainFees, err := tapgarden.GetTxFee(signedPsbt)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get on-chain fees for psbt: "+
 			"%w", err)
@@ -1234,7 +1234,7 @@ func trimSplitWitnesses(
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
 // and creates a new one with outputs shuffled such that the change output is
 // the last output.
-func adjustFundedPsbt(fPkt *tarogarden.FundedPsbt, anchorInputValue int64) {
+func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
 	// If there is no change there's nothing we need to do.
 	changeIndex := fPkt.ChangeOutputIndex
 	if changeIndex == -1 {
