@@ -19,7 +19,7 @@ import (
 const (
 	// taprootAssetsMarkerTag is the preimage to the TaprootAssetsMarker
 	// included in tapscript leaves for Taproot Asset commitments.
-	taprootAssetsMarkerTag = "taro"
+	taprootAssetsMarkerTag = "taproot-assets"
 )
 
 var (
