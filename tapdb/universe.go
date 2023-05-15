@@ -198,7 +198,7 @@ func newTreeStoreWrapperTx(universeTx BaseUniverseStore,
 func (t *treeStoreWrapperTx) Update(ctx context.Context,
 	update func(tx mssmt.TreeStoreUpdateTx) error) error {
 
-	updateTx := &taroTreeStoreTx{
+	updateTx := &taprootAssetTreeStoreTx{
 		ctx:       ctx,
 		dbTx:      t.universeTx,
 		namespace: t.namespace,
@@ -211,7 +211,7 @@ func (t *treeStoreWrapperTx) Update(ctx context.Context,
 func (t *treeStoreWrapperTx) View(ctx context.Context,
 	view func(tx mssmt.TreeStoreViewTx) error) error {
 
-	viewTx := &taroTreeStoreTx{
+	viewTx := &taprootAssetTreeStoreTx{
 		ctx:       ctx,
 		dbTx:      t.universeTx,
 		namespace: t.namespace,

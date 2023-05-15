@@ -93,32 +93,34 @@ type BatchedTreeStore interface {
 	BatchedTx[TreeStore]
 }
 
-// TaroTreeStore is an persistent MS-SMT implementation backed by a live SQL
-// database.
-type TaroTreeStore struct {
+// TaprootAssetTreeStore is an persistent MS-SMT implementation backed by a live
+// SQL database.
+type TaprootAssetTreeStore struct {
 	db        BatchedTreeStore
 	namespace string
 }
 
-// NewTaroTreeStore creates a new TaroTreeStore instance given an open
-// BatchedTreeStore storage backend. The namespace argument is required, as it
-// allow us to store several distinct trees on disk in the same table.
-func NewTaroTreeStore(db BatchedTreeStore, namespace string) *TaroTreeStore {
-	return &TaroTreeStore{
+// NewTaprootAssetTreeStore creates a new TaprootAssetTreeStore instance given
+// an open BatchedTreeStore storage backend. The namespace argument is required,
+// as it allow us to store several distinct trees on disk in the same table.
+func NewTaprootAssetTreeStore(db BatchedTreeStore,
+	namespace string) *TaprootAssetTreeStore {
+
+	return &TaprootAssetTreeStore{
 		db:        db,
 		namespace: namespace,
 	}
 }
 
-var _ mssmt.TreeStore = (*TaroTreeStore)(nil)
+var _ mssmt.TreeStore = (*TaprootAssetTreeStore)(nil)
 
-// Update updates the persistent tree in the passed update closure using the
+// Update updates the persistent tree in the passed-in update closure using the
 // update transaction.
-func (t *TaroTreeStore) Update(ctx context.Context,
+func (t *TaprootAssetTreeStore) Update(ctx context.Context,
 	update func(tx mssmt.TreeStoreUpdateTx) error) error {
 
 	txBody := func(dbTx TreeStore) error {
-		updateTx := &taroTreeStoreTx{
+		updateTx := &taprootAssetTreeStoreTx{
 			ctx:       ctx,
 			dbTx:      dbTx,
 			namespace: t.namespace,
@@ -133,11 +135,11 @@ func (t *TaroTreeStore) Update(ctx context.Context,
 
 // View gives a view of the persistent tree in the passed view closure using
 // the view transaction.
-func (t *TaroTreeStore) View(ctx context.Context,
+func (t *TaprootAssetTreeStore) View(ctx context.Context,
 	update func(tx mssmt.TreeStoreViewTx) error) error {
 
 	txBody := func(dbTx TreeStore) error {
-		viewTx := &taroTreeStoreTx{
+		viewTx := &taprootAssetTreeStoreTx{
 			ctx:       ctx,
 			dbTx:      dbTx,
 			namespace: t.namespace,
@@ -153,14 +155,14 @@ func (t *TaroTreeStore) View(ctx context.Context,
 	return t.db.ExecTx(ctx, &readTxOpts, txBody)
 }
 
-type taroTreeStoreTx struct {
+type taprootAssetTreeStoreTx struct {
 	ctx       context.Context
 	dbTx      TreeStore
 	namespace string
 }
 
 // InsertBranch stores a new branch keyed by its NodeHash.
-func (t *taroTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
+func (t *taprootAssetTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
 	hashKey := branch.NodeHash()
 	lHashKey := branch.Left.NodeHash()
 	rHashKey := branch.Right.NodeHash()
@@ -179,7 +181,7 @@ func (t *taroTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
 }
 
 // InsertLeaf stores a new leaf keyed by its NodeHash (not the insertion key).
-func (t *taroTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
+func (t *taprootAssetTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
 	hashKey := leaf.NodeHash()
 
 	if err := t.dbTx.InsertLeaf(t.ctx, NewLeaf{
@@ -196,7 +198,7 @@ func (t *taroTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
 
 // InsertCompactedLeaf stores a new compacted leaf keyed by its
 // NodeHash (not the insertion key).
-func (t *taroTreeStoreTx) InsertCompactedLeaf(
+func (t *taprootAssetTreeStoreTx) InsertCompactedLeaf(
 	leaf *mssmt.CompactedLeafNode) error {
 
 	hashKey := leaf.NodeHash()
@@ -216,7 +218,7 @@ func (t *taroTreeStoreTx) InsertCompactedLeaf(
 }
 
 // DeleteBranch deletes the branch node keyed by the given NodeHash.
-func (t *taroTreeStoreTx) DeleteBranch(hashKey mssmt.NodeHash) error {
+func (t *taprootAssetTreeStoreTx) DeleteBranch(hashKey mssmt.NodeHash) error {
 	_, err := t.dbTx.DeleteNode(t.ctx, DelNode{
 		HashKey:   hashKey[:],
 		Namespace: t.namespace,
@@ -225,7 +227,7 @@ func (t *taroTreeStoreTx) DeleteBranch(hashKey mssmt.NodeHash) error {
 }
 
 // DeleteLeaf deletes the leaf node keyed by the given NodeHash.
-func (t *taroTreeStoreTx) DeleteLeaf(hashKey mssmt.NodeHash) error {
+func (t *taprootAssetTreeStoreTx) DeleteLeaf(hashKey mssmt.NodeHash) error {
 	_, err := t.dbTx.DeleteNode(t.ctx, DelNode{
 		HashKey:   hashKey[:],
 		Namespace: t.namespace,
@@ -234,7 +236,7 @@ func (t *taroTreeStoreTx) DeleteLeaf(hashKey mssmt.NodeHash) error {
 }
 
 // DeleteCompactedLeaf deletes a compacted leaf keyed by the given NodeHash.
-func (t *taroTreeStoreTx) DeleteCompactedLeaf(hashKey mssmt.NodeHash) error {
+func (t *taprootAssetTreeStoreTx) DeleteCompactedLeaf(hashKey mssmt.NodeHash) error {
 	_, err := t.dbTx.DeleteNode(t.ctx, DelNode{
 		HashKey:   hashKey[:],
 		Namespace: t.namespace,
@@ -257,7 +259,7 @@ func newKey(data []byte) ([32]byte, error) {
 
 // GetChildren returns the left and right child of the node keyed by the given
 // NodeHash.
-func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
+func (t *taprootAssetTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
 	mssmt.Node, mssmt.Node, error) {
 
 	dbRows, err := t.dbTx.FetchChildren(t.ctx, ChildQuery{
@@ -337,7 +339,7 @@ func (t *taroTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
 
 // RootNode returns the root nodes of the MS-SMT. If the tree has no elements,
 // then a nil node is returned.
-func (t *taroTreeStoreTx) RootNode() (mssmt.Node, error) {
+func (t *taprootAssetTreeStoreTx) RootNode() (mssmt.Node, error) {
 	var root mssmt.Node
 
 	rootNode, err := t.dbTx.FetchRootNode(t.ctx, t.namespace)
@@ -363,7 +365,7 @@ func (t *taroTreeStoreTx) RootNode() (mssmt.Node, error) {
 
 // UpdateRoot updates the index that points to the root node for the persistent
 // tree.
-func (t *taroTreeStoreTx) UpdateRoot(rootNode *mssmt.BranchNode) error {
+func (t *taprootAssetTreeStoreTx) UpdateRoot(rootNode *mssmt.BranchNode) error {
 	rootHash := rootNode.NodeHash()
 
 	// We'll do a sanity check here to ensure that we're not trying to

@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newTaroTreeStore makes a new instance of the TaroTreeStore backed by sqlite
-// by default.
-func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
-	sqlc.Querier) {
+// newTaprootAssetTreeStore makes a new instance of the TaprootAssetTreeStore
+// backed by sqlite by default.
+func newTaprootAssetTreeStore(t *testing.T,
+	namespace string) (*TaprootAssetTreeStore, sqlc.Querier) {
 
 	db := NewTestDB(t)
 
@@ -23,7 +23,7 @@ func newTaroTreeStore(t *testing.T, namespace string) (*TaroTreeStore,
 
 	treeDB := NewTransactionExecutor(db, txCreator)
 
-	return NewTaroTreeStore(treeDB, namespace), db
+	return NewTaprootAssetTreeStore(treeDB, namespace), db
 }
 
 // assertNodesEq is a helper to check equivalency or equality based on the
@@ -150,7 +150,7 @@ func TestTreeDeletion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, _ := newTaroTreeStore(t, test.name)
+			store, _ := newTaprootAssetTreeStore(t, test.name)
 
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
@@ -537,7 +537,7 @@ func TestTreeInsertion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, _ := newTaroTreeStore(t, test.name)
+			store, _ := newTaprootAssetTreeStore(t, test.name)
 
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
@@ -622,8 +622,8 @@ func TestTreeNamespaceIsolation(t *testing.T) {
 	compactedLeaf := mssmt.NewCompactedLeafNode(1, &leafHash, leaf)
 	root := mssmt.NewBranch(compactedLeaf, mssmt.EmptyTree[1])
 
-	store1, _ := newTaroTreeStore(t, name1)
-	store2, _ := newTaroTreeStore(t, name2)
+	store1, _ := newTaprootAssetTreeStore(t, name1)
+	store2, _ := newTaprootAssetTreeStore(t, name2)
 
 	// With both stores created, we'll insert the left and right branches
 	// of the root, then the root itself.
