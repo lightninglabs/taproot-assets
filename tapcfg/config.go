@@ -99,29 +99,29 @@ const (
 )
 
 var (
-	// DefaultTaroDir is the default directory where Taro tries to find its
+	// DefaultTapdDir is the default directory where tapd tries to find its
 	// configuration file and store its data. This is a directory in the
 	// user's application data, for example:
-	//   C:\Users\<username>\AppData\Local\Taro on Windows
-	//   ~/.taro on Linux
-	//   ~/Library/Application Support/Taro on MacOS
-	DefaultTaroDir = btcutil.AppDataDir("taro", false)
+	//   C:\Users\<username>\AppData\Local\Tapd on Windows
+	//   ~/.tapd on Linux
+	//   ~/Library/Application Support/Tapd on MacOS
+	DefaultTapdDir = btcutil.AppDataDir("tapd", false)
 
 	// DefaultConfigFile is the default full path of taro's configuration
 	// file.
-	DefaultConfigFile = filepath.Join(DefaultTaroDir, defaultConfigFileName)
+	DefaultConfigFile = filepath.Join(DefaultTapdDir, defaultConfigFileName)
 
 	defaultNetwork = "testnet"
 
-	defaultDataDir = filepath.Join(DefaultTaroDir, defaultDataDirname)
-	defaultLogDir  = filepath.Join(DefaultTaroDir, defaultLogDirname)
+	defaultDataDir = filepath.Join(DefaultTapdDir, defaultDataDirname)
+	defaultLogDir  = filepath.Join(DefaultTapdDir, defaultLogDirname)
 
-	defaultTLSCertPath = filepath.Join(DefaultTaroDir, defaultTLSCertFilename)
-	defaultTLSKeyPath  = filepath.Join(DefaultTaroDir, defaultTLSKeyFilename)
+	defaultTLSCertPath = filepath.Join(DefaultTapdDir, defaultTLSCertFilename)
+	defaultTLSKeyPath  = filepath.Join(DefaultTapdDir, defaultTLSKeyFilename)
 
-	defaultLetsEncryptDir = filepath.Join(DefaultTaroDir, defaultLetsEncryptDirname)
+	defaultLetsEncryptDir = filepath.Join(DefaultTapdDir, defaultLetsEncryptDirname)
 
-	defaultSqliteDatabaseFileName = "taro.db"
+	defaultSqliteDatabaseFileName = "tapd.db"
 
 	// defaultLndMacaroon is the default macaroon file we use if the old,
 	// deprecated --lnd.macaroondir config option is used.
@@ -225,7 +225,7 @@ type Config struct {
 
 	DebugLevel string `long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
-	TaroDir    string `long:"tarodir" description:"The base directory that contains taro's data, logs, configuration file, etc."`
+	TapdDir    string `long:"tapddir" description:"The base directory that contains taro's data, logs, configuration file, etc."`
 	ConfigFile string `long:"configfile" description:"Path to configuration file"`
 
 	DataDir        string `long:"datadir" description:"The directory to store taro's data within"`
@@ -274,7 +274,7 @@ type Config struct {
 // DefaultConfig returns all default values for the Config struct.
 func DefaultConfig() Config {
 	return Config{
-		TaroDir:        DefaultTaroDir,
+		TapdDir:        DefaultTapdDir,
 		ConfigFile:     DefaultConfigFile,
 		DataDir:        defaultDataDir,
 		DebugLevel:     defaultLogLevel,
@@ -352,13 +352,13 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	// we'll use the default config file path. However, if the user has
 	// modified their taroddir, then we should assume they intend to use
 	// the config file within it.
-	configFileDir := CleanAndExpandPath(preCfg.TaroDir)
+	configFileDir := CleanAndExpandPath(preCfg.TapdDir)
 	configFilePath := CleanAndExpandPath(preCfg.ConfigFile)
 	switch {
 	// User specified --taroddir but no --configfile. Update the config
 	// file path to the tapd config directory, but don't require it to
 	// exist.
-	case configFileDir != DefaultTaroDir &&
+	case configFileDir != DefaultTapdDir &&
 		configFilePath == DefaultConfigFile:
 
 		configFilePath = filepath.Join(
@@ -450,16 +450,16 @@ func (u *usageError) Error() string {
 func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	// If the provided tapd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
-	taroDir := CleanAndExpandPath(cfg.TaroDir)
-	if taroDir != DefaultTaroDir {
-		cfg.DataDir = filepath.Join(taroDir, defaultDataDirname)
+	tapdDir := CleanAndExpandPath(cfg.TapdDir)
+	if tapdDir != DefaultTapdDir {
+		cfg.DataDir = filepath.Join(tapdDir, defaultDataDirname)
 		cfg.RpcConf.TLSCertPath = filepath.Join(
-			taroDir, defaultTLSCertFilename,
+			tapdDir, defaultTLSCertFilename,
 		)
 		cfg.RpcConf.TLSKeyPath = filepath.Join(
-			taroDir, defaultTLSKeyFilename,
+			tapdDir, defaultTLSKeyFilename,
 		)
-		cfg.LogDir = filepath.Join(taroDir, defaultLogDirname)
+		cfg.LogDir = filepath.Join(tapdDir, defaultLogDirname)
 	}
 
 	funcName := "ValidateConfig"
@@ -624,7 +624,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	// don't already exist. This makes sure that directory trees are also
 	// created for files that point to outside the taroddir.
 	dirs := []string{
-		taroDir, cfg.DataDir, cfg.networkDir,
+		tapdDir, cfg.DataDir, cfg.networkDir,
 		filepath.Dir(cfg.RpcConf.TLSCertPath),
 		filepath.Dir(cfg.RpcConf.TLSKeyPath),
 		filepath.Dir(cfg.RpcConf.MacaroonPath),

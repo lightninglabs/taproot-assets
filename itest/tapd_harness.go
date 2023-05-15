@@ -94,7 +94,7 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 	tapCfg.MaxLogFileSize = 999
 
 	tapCfg.ChainConf.Network = cfg.NetParams.Name
-	tapCfg.TaroDir = cfg.BaseDir
+	tapCfg.TapdDir = cfg.BaseDir
 	tapCfg.DebugLevel = *logLevel
 
 	// Decide which DB backend to use.

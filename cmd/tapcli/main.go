@@ -45,8 +45,8 @@ const (
 )
 
 var (
-	defaultTaroDir     = btcutil.AppDataDir("tap", false)
-	defaultTLSCertPath = filepath.Join(defaultTaroDir, defaultTLSCertFilename)
+	defaultTapdDir     = btcutil.AppDataDir("tap", false)
+	defaultTLSCertPath = filepath.Join(defaultTapdDir, defaultTLSCertFilename)
 
 	// maxMsgRecvSize is the largest message our client will receive. We
 	// set this to 200MiB atm.
@@ -212,11 +212,11 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		return "", "", fmt.Errorf("unknown network: %v", network)
 	}
 
-	// We'll now fetch the tarodir so we can make a decision  on how to
+	// We'll now fetch the tapddir so we can make a decision  on how to
 	// properly read the macaroons (if needed) and also the cert. This will
 	// either be the default, or will have been overwritten by the end
 	// user.
-	taroDir := lncfg.CleanAndExpandPath(ctx.GlobalString("tarodir"))
+	tapdDir := lncfg.CleanAndExpandPath(ctx.GlobalString("tapddir"))
 
 	// If the macaroon path as been manually provided, then we'll only
 	// target the specified file.
@@ -225,10 +225,10 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		macPath = lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
 	} else {
 		// Otherwise, we'll go into the path:
-		// tarodir/data/<network> in order to fetch the
+		// tapddir/data/<network> in order to fetch the
 		// macaroon that we need.
 		macPath = filepath.Join(
-			taroDir, defaultDataDir, network, defaultMacaroonFilename,
+			tapdDir, defaultDataDir, network, defaultMacaroonFilename,
 		)
 	}
 
@@ -239,8 +239,8 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// override their paths so they can be found within the custom tapd
 	// directory set. This allows us to set a custom tapd directory, along
 	// with custom paths to the TLS cert and macaroon file.
-	if taroDir != defaultTaroDir {
-		tlsCertPath = filepath.Join(taroDir, defaultTLSCertFilename)
+	if tapdDir != defaultTapdDir {
+		tlsCertPath = filepath.Join(tapdDir, defaultTLSCertFilename)
 	}
 
 	return tlsCertPath, macPath, nil
@@ -258,8 +258,8 @@ func main() {
 			Usage: "The host:port of tap daemon.",
 		},
 		cli.StringFlag{
-			Name:      "tarodir",
-			Value:     defaultTaroDir,
+			Name:      "tapddir",
+			Value:     defaultTapdDir,
 			Usage:     "The path to tap's base directory.",
 			TakesFile: true,
 		},

@@ -26,7 +26,7 @@ var (
 type profileEntry struct {
 	Name        string       `json:"name"`
 	RPCServer   string       `json:"rpcserver"`
-	TaroDir     string       `json:"taroddir"`
+	TapdDir     string       `json:"tapddir"`
 	Chain       string       `json:"chain"`
 	Network     string       `json:"network"`
 	NoMacaroons bool         `json:"no-macaroons,omitempty"` // nolint:tagliatelle
@@ -176,7 +176,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 
 	entry := &profileEntry{
 		RPCServer:   ctx.GlobalString("rpcserver"),
-		TaroDir:     lncfg.CleanAndExpandPath(ctx.GlobalString("taroddir")),
+		TapdDir:     lncfg.CleanAndExpandPath(ctx.GlobalString("tapddir")),
 		Chain:       ctx.GlobalString("chain"),
 		Network:     ctx.GlobalString("network"),
 		NoMacaroons: ctx.GlobalBool("no-macaroons"),
