@@ -16,45 +16,45 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// We define a set of Taro specific global, input and output PSBT key types here
-// that correspond to the custom types defined in the VPacket below. We start at
-// 0x70 because that is sufficiently high to not conflict with any of the keys
-// specified in BIP-0174. Also, 7 is leet speak for "t" as in Taro.
-// It would perhaps make sense to wrap these values in the BIP-0174 defined
-// proprietary types to make 100% sure that no parser removes them. But the BIP
-// also mentions to not remove unknown keys, so we should be fine like this as
-// well.
+// We define a set of Taproot Asset (TAP) specific global, input and output PSBT
+// key types here that correspond to the custom types defined in the VPacket
+// below. We start at 0x70 because that is sufficiently high to not conflict
+// with any of the keys specified in BIP-0174. Also, 7 is leet speak for "t" as
+// in Taproot Assets. It would perhaps make sense to wrap these values in the
+// BIP-0174 defined proprietary types to make 100% sure that no parser removes
+// them. But the BIP also mentions to not remove unknown keys, so we should be
+// fine like this as well.
 var (
-	PsbtKeyTypeGlobalTaroIsVirtualTx    = []byte{0x70}
-	PsbtKeyTypeGlobalTaroChainParamsHRP = []byte{0x71}
-	PsbtKeyTypeGlobalTaroPsbtVersion    = []byte{0x72}
+	PsbtKeyTypeGlobalTapIsVirtualTx    = []byte{0x70}
+	PsbtKeyTypeGlobalTapChainParamsHRP = []byte{0x71}
+	PsbtKeyTypeGlobalTapPsbtVersion    = []byte{0x72}
 
-	PsbtKeyTypeInputTaroPrevID                             = []byte{0x70}
-	PsbtKeyTypeInputTaroAnchorValue                        = []byte{0x71}
-	PsbtKeyTypeInputTaroAnchorPkScript                     = []byte{0x72}
-	PsbtKeyTypeInputTaroAnchorSigHashType                  = []byte{0x73}
-	PsbtKeyTypeInputTaroAnchorInternalKey                  = []byte{0x74}
-	PsbtKeyTypeInputTaroAnchorMerkleRoot                   = []byte{0x75}
-	PsbtKeyTypeInputTaroAnchorOutputBip32Derivation        = []byte{0x76}
-	PsbtKeyTypeInputTaroAnchorOutputTaprootBip32Derivation = []byte{0x77}
-	PsbtKeyTypeInputTaroAnchorTapscriptSibling             = []byte{0x78}
-	PsbtKeyTypeInputTaroAsset                              = []byte{0x79}
-	PsbtKeyTypeInputTaroAssetProof                         = []byte{0x7a}
+	PsbtKeyTypeInputTapPrevID                             = []byte{0x70}
+	PsbtKeyTypeInputTapAnchorValue                        = []byte{0x71}
+	PsbtKeyTypeInputTapAnchorPkScript                     = []byte{0x72}
+	PsbtKeyTypeInputTapAnchorSigHashType                  = []byte{0x73}
+	PsbtKeyTypeInputTapAnchorInternalKey                  = []byte{0x74}
+	PsbtKeyTypeInputTapAnchorMerkleRoot                   = []byte{0x75}
+	PsbtKeyTypeInputTapAnchorOutputBip32Derivation        = []byte{0x76}
+	PsbtKeyTypeInputTapAnchorOutputTaprootBip32Derivation = []byte{0x77}
+	PsbtKeyTypeInputTapAnchorTapscriptSibling             = []byte{0x78}
+	PsbtKeyTypeInputTapAsset                              = []byte{0x79}
+	PsbtKeyTypeInputTapAssetProof                         = []byte{0x7a}
 
-	PsbtKeyTypeOutputTaroType                               = []byte{0x70}
-	PsbtKeyTypeOutputTaroIsInteractive                      = []byte{0x71}
-	PsbtKeyTypeOutputTaroAnchorOutputIndex                  = []byte{0x72}
-	PsbtKeyTypeOutputTaroAnchorOutputInternalKey            = []byte{0x73}
-	PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation        = []byte{0x74}
-	PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation = []byte{0x75}
-	PsbtKeyTypeOutputTaroAsset                              = []byte{0x76}
-	PsbtKeyTypeOutputTaroSplitAsset                         = []byte{0x77}
-	PsbtKeyTypeOutputTaroAnchorTapscriptSibling             = []byte{0x78}
+	PsbtKeyTypeOutputTapType                               = []byte{0x70}
+	PsbtKeyTypeOutputTapIsInteractive                      = []byte{0x71}
+	PsbtKeyTypeOutputTapAnchorOutputIndex                  = []byte{0x72}
+	PsbtKeyTypeOutputTapAnchorOutputInternalKey            = []byte{0x73}
+	PsbtKeyTypeOutputTapAnchorOutputBip32Derivation        = []byte{0x74}
+	PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation = []byte{0x75}
+	PsbtKeyTypeOutputTapAsset                              = []byte{0x76}
+	PsbtKeyTypeOutputTapSplitAsset                         = []byte{0x77}
+	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
 // transaction PSBTs only. They are defined here for completeness' sake but are
-// not directly used by the taropsbt package.
+// not directly used by the tappsbt package.
 var (
 	PsbtKeyTypeInputTaroProof = []byte{0x70}
 

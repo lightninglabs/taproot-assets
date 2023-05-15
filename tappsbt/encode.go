@@ -56,15 +56,15 @@ func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
 		Outputs:    make([]psbt.POutput, len(p.Outputs)),
 		Unknowns: []*customPsbtField{
 			{
-				Key:   PsbtKeyTypeGlobalTaroIsVirtualTx,
+				Key:   PsbtKeyTypeGlobalTapIsVirtualTx,
 				Value: trueAsBytes,
 			},
 			{
-				Key:   PsbtKeyTypeGlobalTaroChainParamsHRP,
+				Key:   PsbtKeyTypeGlobalTapChainParamsHRP,
 				Value: []byte(p.ChainParams.TapHRP),
 			},
 			{
-				Key:   PsbtKeyTypeGlobalTaroPsbtVersion,
+				Key:   PsbtKeyTypeGlobalTapPsbtVersion,
 				Value: []byte{p.Version},
 			},
 		},
@@ -130,39 +130,39 @@ func (i *VInput) encode() (psbt.PInput, error) {
 	)
 
 	mapping := []encoderMapping{{
-		key:     PsbtKeyTypeInputTaroPrevID,
+		key:     PsbtKeyTypeInputTapPrevID,
 		encoder: tlvEncoder(&prevID, asset.PrevIDEncoder),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorValue,
+		key:     PsbtKeyTypeInputTapAnchorValue,
 		encoder: tlvEncoder(&anchorValue, tlv.EUint64),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorPkScript,
+		key:     PsbtKeyTypeInputTapAnchorPkScript,
 		encoder: tlvEncoder(&i.Anchor.PkScript, tlv.EVarBytes),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorSigHashType,
+		key:     PsbtKeyTypeInputTapAnchorSigHashType,
 		encoder: tlvEncoder(&sigHashType, tlv.EUint64),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorInternalKey,
+		key:     PsbtKeyTypeInputTapAnchorInternalKey,
 		encoder: pubKeyEncoder(i.Anchor.InternalKey),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorMerkleRoot,
+		key:     PsbtKeyTypeInputTapAnchorMerkleRoot,
 		encoder: tlvEncoder(&i.Anchor.MerkleRoot, tlv.EVarBytes),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorOutputBip32Derivation,
+		key:     PsbtKeyTypeInputTapAnchorOutputBip32Derivation,
 		encoder: bip32DerivationEncoder(i.Anchor.Bip32Derivation),
 	}, {
-		key: PsbtKeyTypeInputTaroAnchorOutputTaprootBip32Derivation,
+		key: PsbtKeyTypeInputTapAnchorOutputTaprootBip32Derivation,
 		encoder: taprootBip32DerivationEncoder(
 			i.Anchor.TrBip32Derivation,
 		),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorTapscriptSibling,
+		key:     PsbtKeyTypeInputTapAnchorTapscriptSibling,
 		encoder: tlvEncoder(&i.Anchor.TapscriptSibling, tlv.EVarBytes),
 	}, {
-		key:     PsbtKeyTypeInputTaroAsset,
+		key:     PsbtKeyTypeInputTapAsset,
 		encoder: assetEncoder(i.asset),
 	}, {
-		key:     PsbtKeyTypeInputTaroAssetProof,
+		key:     PsbtKeyTypeInputTapAssetProof,
 		encoder: tlvEncoder(&i.proof, tlv.EVarBytes),
 	}}
 
@@ -214,33 +214,33 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
 	mapping := []encoderMapping{{
-		key:     PsbtKeyTypeOutputTaroType,
+		key:     PsbtKeyTypeOutputTapType,
 		encoder: tlvEncoder(&o.Type, vOutputTypeEncoder),
 	}, {
-		key:     PsbtKeyTypeOutputTaroIsInteractive,
+		key:     PsbtKeyTypeOutputTapIsInteractive,
 		encoder: booleanEncoder(o.Interactive),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAnchorOutputIndex,
+		key:     PsbtKeyTypeOutputTapAnchorOutputIndex,
 		encoder: tlvEncoder(&anchorOutputIndex, tlv.EUint64),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAnchorOutputInternalKey,
+		key:     PsbtKeyTypeOutputTapAnchorOutputInternalKey,
 		encoder: pubKeyEncoder(o.AnchorOutputInternalKey),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation,
+		key:     PsbtKeyTypeOutputTapAnchorOutputBip32Derivation,
 		encoder: bip32DerivationEncoder(o.AnchorOutputBip32Derivation),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation,
+		key: PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation,
 		encoder: taprootBip32DerivationEncoder(
 			o.AnchorOutputTaprootBip32Derivation,
 		),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAsset,
+		key:     PsbtKeyTypeOutputTapAsset,
 		encoder: assetEncoder(o.Asset),
 	}, {
-		key:     PsbtKeyTypeOutputTaroSplitAsset,
+		key:     PsbtKeyTypeOutputTapSplitAsset,
 		encoder: assetEncoder(o.SplitAsset),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorTapscriptSibling,
+		key: PsbtKeyTypeOutputTapAnchorTapscriptSibling,
 		encoder: tapscriptPreimageEncoder(
 			o.AnchorOutputTapscriptSibling,
 		),

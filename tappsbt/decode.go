@@ -58,7 +58,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 
 	// We want an explicit "isVirtual" boolean marker.
 	isVirtual, err := findCustomFieldsByKeyPrefix(
-		packet.Unknowns, PsbtKeyTypeGlobalTaroIsVirtualTx,
+		packet.Unknowns, PsbtKeyTypeGlobalTapIsVirtualTx,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error checking if virtual tx: %w", err)
@@ -69,7 +69,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 
 	// We also want the HRP of the Taro chain params.
 	hrp, err := findCustomFieldsByKeyPrefix(
-		packet.Unknowns, PsbtKeyTypeGlobalTaroChainParamsHRP,
+		packet.Unknowns, PsbtKeyTypeGlobalTapChainParamsHRP,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error reading Taro chain params HRP: "+
@@ -84,7 +84,7 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 	// The version is currently optional, as it's not used anywhere.
 	var version uint8
 	versionField, err := findCustomFieldsByKeyPrefix(
-		packet.Unknowns, PsbtKeyTypeGlobalTaroPsbtVersion,
+		packet.Unknowns, PsbtKeyTypeGlobalTapPsbtVersion,
 	)
 	if err == nil {
 		version = versionField.Value[0]
@@ -135,39 +135,39 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	)
 
 	mapping := []decoderMapping{{
-		key:     PsbtKeyTypeInputTaroPrevID,
+		key:     PsbtKeyTypeInputTapPrevID,
 		decoder: tlvDecoder(&prevID, asset.PrevIDDecoder),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorValue,
+		key:     PsbtKeyTypeInputTapAnchorValue,
 		decoder: tlvDecoder(&anchorValue, tlv.DUint64),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorPkScript,
+		key:     PsbtKeyTypeInputTapAnchorPkScript,
 		decoder: tlvDecoder(&i.Anchor.PkScript, tlv.DVarBytes),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorSigHashType,
+		key:     PsbtKeyTypeInputTapAnchorSigHashType,
 		decoder: tlvDecoder(&anchorSigHashType, tlv.DUint64),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorInternalKey,
+		key:     PsbtKeyTypeInputTapAnchorInternalKey,
 		decoder: tlvDecoder(&i.Anchor.InternalKey, tlv.DPubKey),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorMerkleRoot,
+		key:     PsbtKeyTypeInputTapAnchorMerkleRoot,
 		decoder: tlvDecoder(&i.Anchor.MerkleRoot, tlv.DVarBytes),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorOutputBip32Derivation,
+		key:     PsbtKeyTypeInputTapAnchorOutputBip32Derivation,
 		decoder: bip32DerivationDecoder(&i.Anchor.Bip32Derivation),
 	}, {
-		key: PsbtKeyTypeInputTaroAnchorOutputTaprootBip32Derivation,
+		key: PsbtKeyTypeInputTapAnchorOutputTaprootBip32Derivation,
 		decoder: taprootBip32DerivationDecoder(
 			&i.Anchor.TrBip32Derivation,
 		),
 	}, {
-		key:     PsbtKeyTypeInputTaroAnchorTapscriptSibling,
+		key:     PsbtKeyTypeInputTapAnchorTapscriptSibling,
 		decoder: tlvDecoder(&i.Anchor.TapscriptSibling, tlv.DVarBytes),
 	}, {
-		key:     PsbtKeyTypeInputTaroAsset,
+		key:     PsbtKeyTypeInputTapAsset,
 		decoder: assetDecoder(&i.asset),
 	}, {
-		key:     PsbtKeyTypeInputTaroAssetProof,
+		key:     PsbtKeyTypeInputTapAssetProof,
 		decoder: tlvDecoder(&i.proof, tlv.DVarBytes),
 	}}
 
@@ -231,33 +231,33 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
 	mapping := []decoderMapping{{
-		key:     PsbtKeyTypeOutputTaroType,
+		key:     PsbtKeyTypeOutputTapType,
 		decoder: tlvDecoder(&o.Type, vOutputTypeDecoder),
 	}, {
-		key:     PsbtKeyTypeOutputTaroIsInteractive,
+		key:     PsbtKeyTypeOutputTapIsInteractive,
 		decoder: booleanDecoder(&o.Interactive),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAnchorOutputIndex,
+		key:     PsbtKeyTypeOutputTapAnchorOutputIndex,
 		decoder: tlvDecoder(&anchorOutputIndex, tlv.DUint64),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAnchorOutputInternalKey,
+		key:     PsbtKeyTypeOutputTapAnchorOutputInternalKey,
 		decoder: tlvDecoder(&o.AnchorOutputInternalKey, tlv.DPubKey),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAnchorOutputBip32Derivation,
+		key:     PsbtKeyTypeOutputTapAnchorOutputBip32Derivation,
 		decoder: bip32DerivationDecoder(&o.AnchorOutputBip32Derivation),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorOutputTaprootBip32Derivation,
+		key: PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation,
 		decoder: taprootBip32DerivationDecoder(
 			&o.AnchorOutputTaprootBip32Derivation,
 		),
 	}, {
-		key:     PsbtKeyTypeOutputTaroAsset,
+		key:     PsbtKeyTypeOutputTapAsset,
 		decoder: assetDecoder(&o.Asset),
 	}, {
-		key:     PsbtKeyTypeOutputTaroSplitAsset,
+		key:     PsbtKeyTypeOutputTapSplitAsset,
 		decoder: assetDecoder(&o.SplitAsset),
 	}, {
-		key: PsbtKeyTypeOutputTaroAnchorTapscriptSibling,
+		key: PsbtKeyTypeOutputTapAnchorTapscriptSibling,
 		decoder: tlvDecoder(
 			&o.AnchorOutputTapscriptSibling,
 			commitment.TapscriptPreimageDecoder,
