@@ -1,4 +1,4 @@
-package taropsbt
+package tappsbt
 
 import (
 	"bytes"

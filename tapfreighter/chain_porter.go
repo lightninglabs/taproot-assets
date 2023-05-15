@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/taro/chanutils"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapgarden"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
@@ -359,7 +359,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		// For outputs without assets (=anchor for passive assets), we
 		// don't need to store explicit proofs, they were created and
 		// imported above.
-		if out.Type == taropsbt.TypePassiveAssetsOnly {
+		if out.Type == tappsbt.TypePassiveAssetsOnly {
 			continue
 		}
 
@@ -831,7 +831,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"assets: %w", err)
 		}
 
-		var passiveVPackets []*taropsbt.VPacket
+		var passiveVPackets []*tappsbt.VPacket
 		for _, passiveAsset := range currentPkg.PassiveAssets {
 			passiveVPackets = append(
 				passiveVPackets, passiveAsset.VPacket,
@@ -841,7 +841,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
 				FeeRate:            feeRate,
-				VPkts:              []*taropsbt.VPacket{vPacket},
+				VPkts:              []*tappsbt.VPacket{vPacket},
 				InputCommitments:   currentPkg.InputCommitments,
 				PassiveAssetsVPkts: passiveVPackets,
 			},

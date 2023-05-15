@@ -22,7 +22,7 @@ import (
 	"github.com/lightninglabs/taro/internal/test"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightninglabs/taro/vm"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -313,19 +313,19 @@ func createGenesisProof(t *testing.T, state *spendData) {
 
 func createPacket(addr address.Taro, prevInput asset.PrevID,
 	state spendData, inputSet commitment.InputSet,
-	fullValueInteractive bool) *taropsbt.VPacket {
+	fullValueInteractive bool) *tappsbt.VPacket {
 
 	inputAsset := inputSet[prevInput]
-	inputs := []*taropsbt.VInput{{
+	inputs := []*tappsbt.VInput{{
 		PrevID: prevInput,
 	}}
-	outputs := []*taropsbt.VOutput{{
+	outputs := []*tappsbt.VOutput{{
 		Amount: inputAsset.Amount - addr.Amount,
 		ScriptKey: asset.NewScriptKey(
 			&state.spenderScriptKey,
 		),
 		AnchorOutputIndex:       0,
-		Type:                    taropsbt.TypeSplitRoot,
+		Type:                    tappsbt.TypeSplitRoot,
 		AnchorOutputInternalKey: &state.spenderPubKey,
 	}, {
 		Amount:                  addr.Amount,
@@ -335,7 +335,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 	}}
 
 	if fullValueInteractive {
-		outputs = []*taropsbt.VOutput{{
+		outputs = []*tappsbt.VOutput{{
 			Interactive: true,
 			Amount:      addr.Amount,
 			ScriptKey: asset.NewScriptKey(
@@ -346,7 +346,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 		}}
 	}
 
-	vPacket := &taropsbt.VPacket{
+	vPacket := &tappsbt.VPacket{
 		Inputs:      inputs,
 		Outputs:     outputs,
 		ChainParams: addr.ChainParams,
@@ -356,7 +356,7 @@ func createPacket(addr address.Taro, prevInput asset.PrevID,
 	return vPacket
 }
 
-func checkPreparedOutputsNonInteractive(t *testing.T, packet *taropsbt.VPacket,
+func checkPreparedOutputsNonInteractive(t *testing.T, packet *tappsbt.VPacket,
 	addr address.Taro, scriptKey btcec.PublicKey) {
 
 	t.Helper()
@@ -378,7 +378,7 @@ func checkPreparedOutputsNonInteractive(t *testing.T, packet *taropsbt.VPacket,
 	require.Equal(t, *receiver.Asset.ScriptKey.PubKey, addr.ScriptKey)
 }
 
-func checkPreparedOutputsInteractive(t *testing.T, packet *taropsbt.VPacket,
+func checkPreparedOutputsInteractive(t *testing.T, packet *tappsbt.VPacket,
 	addr address.Taro, prevInput asset.PrevID) {
 
 	t.Helper()
@@ -507,7 +507,7 @@ func checkTaroCommitment(t *testing.T, assets []*asset.Asset,
 	}
 }
 
-func checkOutputCommitments(t *testing.T, vPkt *taropsbt.VPacket,
+func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 	outputCommitments []*commitment.TaroCommitment, isSplit bool) {
 
 	t.Helper()
@@ -584,7 +584,7 @@ func checkOutputCommitments(t *testing.T, vPkt *taropsbt.VPacket,
 	}
 }
 
-func checkTaprootOutputs(t *testing.T, outputs []*taropsbt.VOutput,
+func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
 	outputCommitments []*commitment.TaroCommitment,
 	spendingPsbt *psbt.Packet, senderAsset *asset.Asset, isSplit bool) {
 
@@ -1025,7 +1025,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 				Script:      []byte("not a valid script"),
 			},
 		)
-		pkt.Outputs = append(pkt.Outputs, &taropsbt.VOutput{
+		pkt.Outputs = append(pkt.Outputs, &tappsbt.VOutput{
 			AnchorOutputIndex:            tpl.AnchorOutputIndex,
 			AnchorOutputTapscriptSibling: testPreimage,
 		})
@@ -1061,7 +1061,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		_, err = taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1098,7 +1098,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		require.NoError(t, err)
 
 		_, err = taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1125,7 +1125,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1153,7 +1153,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1181,7 +1181,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1210,7 +1210,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1240,7 +1240,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1287,7 +1287,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1323,7 +1323,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1359,7 +1359,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1398,7 +1398,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1437,7 +1437,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1477,7 +1477,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset2TaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1518,7 +1518,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		inputCommitment := &state.asset1CollectGroupTaroTree
 		outputCommitments, err := taroscript.CreateOutputCommitments(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: inputCommitment,
 			}, pkt, nil,
 		)
@@ -1542,7 +1542,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 }}
 
 func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
-	full bool) (*psbt.Packet, *taropsbt.VPacket,
+	full bool) (*psbt.Packet, *tappsbt.VPacket,
 	[]*commitment.TaroCommitment) {
 
 	spendAddress := state.address1
@@ -1571,7 +1571,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 
 	inputCommitment := &state.asset2TaroTree
 	outputCommitments, err := taroscript.CreateOutputCommitments(
-		taropsbt.InputCommitments{
+		tappsbt.InputCommitments{
 			0: inputCommitment,
 		}, pkt, nil,
 	)
@@ -1589,7 +1589,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 }
 
 func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
-	btcPkt *psbt.Packet, pkt *taropsbt.VPacket,
+	btcPkt *psbt.Packet, pkt *tappsbt.VPacket,
 	outputCommitments []*commitment.TaroCommitment) []proof.TransitionParams {
 
 	btcPkt.UnsignedTx.AddTxIn(&genesisTxIn)
@@ -1804,7 +1804,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 func TestAreValidAnchorOutputIndexes(t *testing.T) {
 	t.Parallel()
 
-	outputs := []*taropsbt.VOutput{}
+	outputs := []*tappsbt.VOutput{}
 
 	// Reject groups of outputs smaller than 1.
 	taroOnlySpend, err := taroscript.AreValidAnchorOutputIndexes(outputs)
@@ -1813,7 +1813,7 @@ func TestAreValidAnchorOutputIndexes(t *testing.T) {
 
 	// Insert a locator for the sender and for the receiver, that would form
 	// a Taro-only spend.
-	outputs = []*taropsbt.VOutput{{
+	outputs = []*tappsbt.VOutput{{
 		AnchorOutputIndex: 0,
 	}, {
 		AnchorOutputIndex: 1,
@@ -1831,7 +1831,7 @@ func TestAreValidAnchorOutputIndexes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check for correctness with more than 2 outputs.
-	outputs = append(outputs, &taropsbt.VOutput{
+	outputs = append(outputs, &tappsbt.VOutput{
 		AnchorOutputIndex: 1,
 	})
 
@@ -1889,7 +1889,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		}
 
 		fullValue, err := taroscript.ValidateInputs(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: &state.asset1TaroTree,
 			}, []*btcec.PublicKey{&state.spenderScriptKey},
 			inputAsset.Type, fundDesc,
@@ -1917,7 +1917,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		}
 
 		fullValue, err := taroscript.ValidateInputs(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: &state.asset1CollectGroupTaroTree,
 			}, []*btcec.PublicKey{&state.spenderScriptKey},
 			inputAsset.Type, fundDesc,
@@ -1944,7 +1944,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		}
 
 		fullValue, err := taroscript.ValidateInputs(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: &state.asset2TaroTree,
 			}, []*btcec.PublicKey{&state.spenderScriptKey},
 			inputAsset.Type, fundDesc,
@@ -1971,7 +1971,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		}
 
 		fullValue, err := taroscript.ValidateInputs(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: &state.asset1TaroTree,
 			}, []*btcec.PublicKey{&state.spenderScriptKey},
 			inputAsset.Type, fundDesc,
@@ -1998,7 +1998,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		}
 
 		fullValue, err := taroscript.ValidateInputs(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: &state.asset1TaroTree,
 			}, []*btcec.PublicKey{&state.spenderScriptKey},
 			inputAsset.Type, fundDesc,
@@ -2033,7 +2033,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		}
 
 		fullValue, err := taroscript.ValidateInputs(
-			taropsbt.InputCommitments{
+			tappsbt.InputCommitments{
 				0: &state.asset1TaroTree,
 			}, []*btcec.PublicKey{&state.spenderScriptKey},
 			inputAsset.Type, fundDesc,

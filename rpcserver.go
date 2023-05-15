@@ -30,7 +30,7 @@ import (
 	"github.com/lightninglabs/taro/tapdb"
 	"github.com/lightninglabs/taro/tapfreighter"
 	"github.com/lightninglabs/taro/tapgarden"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -1200,7 +1200,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	var fundedVPkt *tapfreighter.FundedVPacket
 	switch {
 	case in.GetPsbt() != nil:
-		vPkt, err := taropsbt.NewFromRawBytes(
+		vPkt, err := tappsbt.NewFromRawBytes(
 			bytes.NewReader(in.GetPsbt()), false,
 		)
 		if err != nil {
@@ -1282,7 +1282,7 @@ func (r *rpcServer) SignVirtualPsbt(_ context.Context,
 	in *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
 	error) {
 
-	vPkt, err := taropsbt.NewFromRawBytes(
+	vPkt, err := tappsbt.NewFromRawBytes(
 		bytes.NewReader(in.FundedPsbt), false,
 	)
 	if err != nil {
@@ -1318,7 +1318,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("only one virtual PSBT supported")
 	}
 
-	vPacket, err := taropsbt.NewFromRawBytes(
+	vPacket, err := tappsbt.NewFromRawBytes(
 		bytes.NewReader(in.VirtualPsbts[0]), false,
 	)
 	if err != nil {
@@ -1694,20 +1694,20 @@ func marshalOutboundParcel(
 }
 
 // marshalOutputType turns the transfer output type into the RPC counterpart.
-func marshalOutputType(outputType taropsbt.VOutputType) (tarorpc.OutputType,
+func marshalOutputType(outputType tappsbt.VOutputType) (tarorpc.OutputType,
 	error) {
 
 	switch outputType {
-	case taropsbt.TypeSimple:
+	case tappsbt.TypeSimple:
 		return tarorpc.OutputType_OUTPUT_TYPE_SIMPLE, nil
 
-	case taropsbt.TypeSplitRoot:
+	case tappsbt.TypeSplitRoot:
 		return tarorpc.OutputType_OUTPUT_TYPE_SPLIT_ROOT, nil
 
-	case taropsbt.TypePassiveAssetsOnly:
+	case tappsbt.TypePassiveAssetsOnly:
 		return tarorpc.OutputType_OUTPUT_TYPE_PASSIVE_ASSETS_ONLY, nil
 
-	case taropsbt.TypePassiveSplitRoot:
+	case tappsbt.TypePassiveSplitRoot:
 		return tarorpc.OutputType_OUTPUT_TYPE_PASSIVE_SPLIT_ROOT, nil
 
 	default:

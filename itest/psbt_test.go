@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/internal/test"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -89,7 +89,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	t.Logf("Funded PSBT: %v",
 		base64.StdEncoding.EncodeToString(fundResp.FundedPsbt))
 
-	fundedPacket, err := taropsbt.NewFromRawBytes(
+	fundedPacket, err := tappsbt.NewFromRawBytes(
 		bytes.NewReader(fundResp.FundedPsbt), false,
 	)
 	require.NoError(t.t, err)
@@ -211,7 +211,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	t.Logf("Funded PSBT: %v",
 		base64.StdEncoding.EncodeToString(fundResp.FundedPsbt))
 
-	fundedPacket, err := taropsbt.NewFromRawBytes(
+	fundedPacket, err := tappsbt.NewFromRawBytes(
 		bytes.NewReader(fundResp.FundedPsbt), false,
 	)
 	require.NoError(t.t, err)
@@ -397,7 +397,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 			t.t, receiver,
 		)
 
-		vPkt := taropsbt.ForInteractiveSend(
+		vPkt := tappsbt.ForInteractiveSend(
 			id, fullAmt, receiverScriptKey, 0,
 			receiverAnchorIntKeyDesc, chainParams,
 		)
@@ -616,7 +616,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 			t.t, receiver,
 		)
 
-		vPkt := taropsbt.ForInteractiveSend(
+		vPkt := tappsbt.ForInteractiveSend(
 			id, sendAmt, receiverScriptKey, 0,
 			receiverAnchorIntKeyDesc, chainParams,
 		)
@@ -733,7 +733,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 		sendAmt   = uint64(1000)
 		changeAmt = rpcAssets[0].Amount - sendAmt
 	)
-	vPkt := taropsbt.ForInteractiveSend(
+	vPkt := tappsbt.ForInteractiveSend(
 		id, sendAmt, receiverScriptKey, 0, receiverAnchorIntKeyDesc,
 		chainParams,
 	)
@@ -865,7 +865,7 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// We create the output at anchor index 0 for the first address.
 	outputAmounts := []uint64{1200, 1300, 1400, 800, 300}
-	vPkt := taropsbt.ForInteractiveSend(
+	vPkt := tappsbt.ForInteractiveSend(
 		id, outputAmounts[0], receiverScriptKey1, 0,
 		receiverAnchorIntKeyDesc1, chainParams,
 	)
@@ -874,15 +874,15 @@ func testPsbtMultiSend(t *harnessTest) {
 	// address and two at anchor index 2 for our internal split. This should
 	// still leave 300 units as change which we expect to end up at anchor
 	// index 3.
-	taropsbt.AddOutput(
+	tappsbt.AddOutput(
 		vPkt, outputAmounts[1], receiverScriptKey2, 1,
 		receiverAnchorIntKeyDesc2,
 	)
-	taropsbt.AddOutput(
+	tappsbt.AddOutput(
 		vPkt, outputAmounts[2], senderScriptKey1, 2,
 		senderAnchorIntKeyDesc1,
 	)
-	taropsbt.AddOutput(
+	tappsbt.AddOutput(
 		vPkt, outputAmounts[3], senderScriptKey2, 2,
 		senderAnchorIntKeyDesc1,
 	)

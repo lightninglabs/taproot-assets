@@ -16,7 +16,7 @@ import (
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapgarden"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/taroscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -164,7 +164,7 @@ type TransferOutput struct {
 	// Type indicates what type of output this is, which has an influence on
 	// whether the asset is set or what witness type is expected to be
 	// generated for the asset.
-	Type taropsbt.VOutputType
+	Type tappsbt.VOutputType
 
 	// ScriptKey is the new script key.
 	ScriptKey asset.ScriptKey
@@ -256,7 +256,7 @@ type AssetConfirmEvent struct {
 type PassiveAssetReAnchor struct {
 	// VPacket is a virtual packet which describes the virtual transaction
 	// which is used in re-anchoring the passive asset.
-	VPacket *taropsbt.VPacket
+	VPacket *tappsbt.VPacket
 
 	// GenesisID is the genesis ID of the passive asset.
 	GenesisID asset.ID

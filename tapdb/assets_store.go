@@ -21,7 +21,7 @@ import (
 	"github.com/lightninglabs/taro/proof"
 	"github.com/lightninglabs/taro/tapdb/sqlc"
 	"github.com/lightninglabs/taro/tapfreighter"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -1974,7 +1974,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
 			),
 			ProofSuffix: dbOut.ProofSuffix,
-			Type:        taropsbt.VOutputType(dbOut.OutputType),
+			Type:        tappsbt.VOutputType(dbOut.OutputType),
 		}
 
 		err = readOutPoint(
@@ -2162,7 +2162,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			isTombstone := isNumsKey &&
 				out.Amount == 0 &&
 				out.OutputType != int16(
-					taropsbt.TypePassiveAssetsOnly,
+					tappsbt.TypePassiveAssetsOnly,
 				)
 
 			// If this is an outbound transfer (meaning that our

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/tarorpc"
 	wrpc "github.com/lightninglabs/taro/tarorpc/assetwalletrpc"
 	"github.com/lightninglabs/taro/tarorpc/mintrpc"
@@ -342,7 +342,7 @@ func fundAddressSendPacket(t *harnessTest, tarod *tarodHarness,
 
 // fundPacket asks the wallet to fund the given virtual packet.
 func fundPacket(t *harnessTest, tarod *tarodHarness,
-	vPkg *taropsbt.VPacket) *wrpc.FundVirtualPsbtResponse {
+	vPkg *tappsbt.VPacket) *wrpc.FundVirtualPsbtResponse {
 
 	var buf bytes.Buffer
 	err := vPkg.Serialize(&buf)

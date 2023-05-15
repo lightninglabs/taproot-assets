@@ -16,7 +16,7 @@ import (
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -332,7 +332,7 @@ func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 // CreateTaprootSignature creates a Taproot signature for the given asset input.
 // Depending on the fields set in the input, this will either create a key path
 // spend or a script path spend.
-func CreateTaprootSignature(vIn *taropsbt.VInput, virtualTx *wire.MsgTx,
+func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	idx int, txSigner Signer) (wire.TxWitness, error) {
 
 	// Before we even attempt to sign anything, we need to make sure all the

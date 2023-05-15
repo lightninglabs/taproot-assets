@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightninglabs/taro/vm"
 	"golang.org/x/sync/errgroup"
 )
@@ -250,7 +250,7 @@ func (p *Proof) verifyChallengeWitness() (bool, error) {
 	// independent of how the asset was created. The chain params are only
 	// needed when encoding/decoding a vPkt, so it doesn't matter what
 	// network we choose as we only need the packet to get the witness.
-	vPkt := taropsbt.OwnershipProofPacket(
+	vPkt := tappsbt.OwnershipProofPacket(
 		p.Asset.Copy(), &address.MainNetTaro,
 	)
 	vIn := vPkt.Inputs[0]

@@ -14,7 +14,7 @@ import (
 	"github.com/lightninglabs/taro/commitment"
 	"github.com/lightninglabs/taro/mssmt"
 	"github.com/lightninglabs/taro/proof"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -167,7 +167,7 @@ type PreSignedParcel struct {
 	*parcelKit
 
 	// vPkt is the virtual transaction that should be delivered.
-	vPkt *taropsbt.VPacket
+	vPkt *tappsbt.VPacket
 
 	// inputCommitment is the commitment for the input that is being spent
 	// in the virtual transaction.
@@ -181,7 +181,7 @@ var _ Parcel = (*PreSignedParcel)(nil)
 // NewPreSignedParcel creates a new PreSignedParcel.
 //
 // TODO(ffranr): Add support for multiple inputs (commitments).
-func NewPreSignedParcel(vPkt *taropsbt.VPacket,
+func NewPreSignedParcel(vPkt *tappsbt.VPacket,
 	inputCommitment *commitment.TaroCommitment) *PreSignedParcel {
 
 	return &PreSignedParcel{
@@ -205,7 +205,7 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 		Parcel:        p,
 		SendState:     SendStateAnchorSign,
 		VirtualPacket: p.vPkt,
-		InputCommitments: taropsbt.InputCommitments{
+		InputCommitments: tappsbt.InputCommitments{
 			0: p.inputCommitment,
 		},
 	}
@@ -223,11 +223,11 @@ type sendPackage struct {
 
 	// VirtualPacket is the virtual packet that we'll use to construct the
 	// virtual asset transition transaction.
-	VirtualPacket *taropsbt.VPacket
+	VirtualPacket *tappsbt.VPacket
 
 	// InputCommitments is a map from virtual package input index to its
 	// associated taro commitment.
-	InputCommitments taropsbt.InputCommitments
+	InputCommitments tappsbt.InputCommitments
 
 	// PassiveAssets is the data used in re-anchoring passive assets.
 	PassiveAssets []*PassiveAssetReAnchor
@@ -371,7 +371,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// (marked as interactive split root and not committing to an
 		// active asset transfer).
 		case vOut.Interactive && vOut.Type.IsSplitRoot() && vOut.Asset == nil:
-			vOut.Type = taropsbt.TypePassiveAssetsOnly
+			vOut.Type = tappsbt.TypePassiveAssetsOnly
 
 		// In any other case we expect an active asset transfer to be
 		// committed to.
@@ -492,7 +492,7 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 
 // proofParams creates the set of parameters that will be used to create the
 // proofs for the sender and receiver.
-func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
+func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 	outIndex int) (*proof.TransitionParams, error) {
 
 	outputCommitments := anchorTx.OutputCommitments
@@ -522,7 +522,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 		err = addOtherOutputExclusionProofs(
 			vPkt.Outputs, rootOut.Asset, rootParams,
 			outputCommitments,
-			func(i int, _ *taropsbt.VOutput) bool {
+			func(i int, _ *tappsbt.VOutput) bool {
 				return i == outIndex
 			},
 		)
@@ -577,7 +577,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 	// Add exclusion proofs for all the other outputs.
 	err = addOtherOutputExclusionProofs(
 		vPkt.Outputs, splitOut.Asset, splitParams, outputCommitments,
-		func(i int, vOut *taropsbt.VOutput) bool {
+		func(i int, vOut *tappsbt.VOutput) bool {
 			// We don't need exclusion proofs for:
 			//	- The split output itself.
 			//	- The split root output.
@@ -597,10 +597,10 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *taropsbt.VPacket,
 // addOtherOutputExclusionProofs adds exclusion proofs for all the outputs that
 // are asset outputs but haven't been processed yet (the skip function needs to
 // return false for not yet processed outputs, otherwise they'll be skipped).
-func addOtherOutputExclusionProofs(outputs []*taropsbt.VOutput,
+func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 	asset *asset.Asset, params *proof.TransitionParams,
 	outputCommitments map[uint32]*commitment.TaroCommitment,
-	skip func(int, *taropsbt.VOutput) bool) error {
+	skip func(int, *tappsbt.VOutput) bool) error {
 
 	for idx := range outputs {
 		vOut := outputs[idx]
@@ -647,7 +647,7 @@ func addOtherOutputExclusionProofs(outputs []*taropsbt.VOutput,
 // createReAnchorProof creates the new proof for the re-anchoring of a passive
 // asset.
 func (s *sendPackage) createReAnchorProof(
-	passivePkt *taropsbt.VPacket) (*proof.Proof, error) {
+	passivePkt *tappsbt.VPacket) (*proof.Proof, error) {
 
 	// Passive asset transfers only have a single input and a single output.
 	passiveIn := passivePkt.Inputs[0]
@@ -680,7 +680,7 @@ func (s *sendPackage) createReAnchorProof(
 	// BTC level outputs.
 	err = addOtherOutputExclusionProofs(
 		s.VirtualPacket.Outputs, passiveOut.Asset, passiveParams,
-		outputCommitments, func(i int, vOut *taropsbt.VOutput) bool {
+		outputCommitments, func(i int, vOut *tappsbt.VOutput) bool {
 			return vOut.AnchorOutputIndex == passiveOutputIndex
 		},
 	)

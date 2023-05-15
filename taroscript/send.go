@@ -18,7 +18,7 @@ import (
 	"github.com/lightninglabs/taro/address"
 	"github.com/lightninglabs/taro/asset"
 	"github.com/lightninglabs/taro/commitment"
-	"github.com/lightninglabs/taro/taropsbt"
+	"github.com/lightninglabs/taro/tappsbt"
 	"golang.org/x/exp/slices"
 )
 
@@ -141,7 +141,7 @@ func (r *FundingDescriptor) TaroCommitmentKey() [32]byte {
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taro PSBT.
-func DescribeRecipients(ctx context.Context, vPkt *taropsbt.VPacket,
+func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 	groupQuerier AssetGroupQuerier) (*FundingDescriptor, error) {
 
 	if len(vPkt.Outputs) < 1 {
@@ -228,7 +228,7 @@ func AssetFromTaroCommitment(taroCommitment *commitment.TaroCommitment,
 
 // ValidateInputs validates a set of inputs against a funding request. It
 // returns true if the inputs would be spent fully, otherwise false.
-func ValidateInputs(inputCommitments taropsbt.InputCommitments,
+func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 	inputsScriptKeys []*btcec.PublicKey, expectedAssetType asset.Type,
 	desc *FundingDescriptor) (bool, error) {
 
@@ -287,7 +287,7 @@ func ValidateInputs(inputCommitments taropsbt.InputCommitments,
 // or partial amount send) it computes a split commitment with the given inputs
 // and spend information. The inputs MUST be checked as valid beforehand and the
 // change output is expected to be declared as such (and be at index 0).
-func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
+func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
@@ -571,7 +571,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *taropsbt.VPacket) error {
 // full asset in case of an interactive full amount send) by creating a
 // signature over the asset transfer, verifying the transfer with the Taro VM,
 // and attaching that signature to the new Asset.
-func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
+func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 	validator TxValidator) error {
 
 	inputs := vPkt.Inputs
@@ -691,9 +691,9 @@ func SignVirtualTransaction(vPkt *taropsbt.VPacket, signer Signer,
 
 // CreateOutputCommitments creates the final set of TaroCommitments representing
 // the asset send.
-func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
-	vPkt *taropsbt.VPacket,
-	passiveAssets []*taropsbt.VPacket) ([]*commitment.TaroCommitment,
+func CreateOutputCommitments(inputTaroCommitments tappsbt.InputCommitments,
+	vPkt *tappsbt.VPacket,
+	passiveAssets []*tappsbt.VPacket) ([]*commitment.TaroCommitment,
 	error) {
 
 	inputs := vPkt.Inputs
@@ -863,7 +863,7 @@ func CreateOutputCommitments(inputTaroCommitments taropsbt.InputCommitments,
 
 // AnchorPassiveAssets anchors the passive assets within the given taro
 // commitment.
-func AnchorPassiveAssets(passiveAssets []*taropsbt.VPacket,
+func AnchorPassiveAssets(passiveAssets []*tappsbt.VPacket,
 	taroCommitment *commitment.TaroCommitment) error {
 
 	for idx := range passiveAssets {
@@ -905,7 +905,7 @@ func AnchorPassiveAssets(passiveAssets []*taropsbt.VPacket,
 // number of outputs, and tests if the external indexes could be used for a
 // Taro-only spend, i.e. a TX that does not need other outputs added to be
 // valid.
-func AreValidAnchorOutputIndexes(outputs []*taropsbt.VOutput) (bool, error) {
+func AreValidAnchorOutputIndexes(outputs []*tappsbt.VOutput) (bool, error) {
 	// Sanity check the output indexes provided by the sender. There must be
 	// at least one output.
 	if len(outputs) < 1 {
@@ -931,7 +931,7 @@ func AreValidAnchorOutputIndexes(outputs []*taropsbt.VOutput) (bool, error) {
 }
 
 // CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
-func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
+func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 	// Check if our outputs are valid, and if we will need to add extra
 	// outputs to fill in the gaps between outputs.
 	taroOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
@@ -976,13 +976,13 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 		)
 
 		for idx := range vOut.AnchorOutputBip32Derivation {
-			out.Bip32Derivation = taropsbt.AddBip32Derivation(
+			out.Bip32Derivation = tappsbt.AddBip32Derivation(
 				out.Bip32Derivation,
 				vOut.AnchorOutputBip32Derivation[idx],
 			)
 		}
 		for idx := range vOut.AnchorOutputTaprootBip32Derivation {
-			out.TaprootBip32Derivation = taropsbt.AddTaprootBip32Derivation(
+			out.TaprootBip32Derivation = tappsbt.AddTaprootBip32Derivation(
 				out.TaprootBip32Derivation,
 				vOut.AnchorOutputTaprootBip32Derivation[idx],
 			)
@@ -996,7 +996,7 @@ func CreateAnchorTx(outputs []*taropsbt.VOutput) (*psbt.Packet, error) {
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taro input asset to this PSBT before finalizing the TX.
 // Locators MUST be checked beforehand.
-func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
+func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 	outputCommitments []*commitment.TaroCommitment) (
 	map[uint32]*commitment.TaroCommitment, error) {
 
@@ -1079,7 +1079,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *taropsbt.VPacket,
 // if there is exactly one output that spends the input fully and interactively
 // (when discarding any potential passive asset anchor outputs).
 func interactiveFullValueSend(totalInputAmount uint64,
-	outputs []*taropsbt.VOutput) (int, bool) {
+	outputs []*tappsbt.VOutput) (int, bool) {
 
 	var (
 		numRecipientOutputs = 0
@@ -1107,8 +1107,8 @@ func interactiveFullValueSend(totalInputAmount uint64,
 // assertAnchorsEqual makes sure that the anchor output information for each
 // output of the virtual packet that anchors to the same BTC level output is
 // identical.
-func assertAnchorsEqual(vPkt *taropsbt.VPacket) error {
-	deDupMap := make(map[uint32]*taropsbt.Anchor)
+func assertAnchorsEqual(vPkt *tappsbt.VPacket) error {
+	deDupMap := make(map[uint32]*tappsbt.Anchor)
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
 
@@ -1119,7 +1119,7 @@ func assertAnchorsEqual(vPkt *taropsbt.VPacket) error {
 			return fmt.Errorf("unable to encode tapscript "+
 				"preimage: %w", err)
 		}
-		outAnchor := &taropsbt.Anchor{
+		outAnchor := &tappsbt.Anchor{
 			InternalKey:       vOut.AnchorOutputInternalKey,
 			TapscriptSibling:  siblingBytes,
 			Bip32Derivation:   vOut.AnchorOutputBip32Derivation,
