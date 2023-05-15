@@ -251,7 +251,7 @@ func (p *Proof) verifyChallengeWitness() (bool, error) {
 	// needed when encoding/decoding a vPkt, so it doesn't matter what
 	// network we choose as we only need the packet to get the witness.
 	vPkt := tappsbt.OwnershipProofPacket(
-		p.Asset.Copy(), &address.MainNetTaro,
+		p.Asset.Copy(), &address.MainNetTap,
 	)
 	vIn := vPkt.Inputs[0]
 	vOut := vPkt.Outputs[0]

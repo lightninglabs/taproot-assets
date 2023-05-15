@@ -373,7 +373,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	vPkt *tappsbt.VPacket) (*FundedVPacket, error) {
 
 	// The input and address networks must match.
-	if !address.IsForNet(vPkt.ChainParams.TaroHRP, f.cfg.ChainParams) {
+	if !address.IsForNet(vPkt.ChainParams.TapHRP, f.cfg.ChainParams) {
 		return nil, address.ErrMismatchedHRP
 	}
 

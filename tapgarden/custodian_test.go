@@ -27,7 +27,7 @@ import (
 var (
 	testPollInterval = 20 * time.Millisecond
 	testTimeout      = 1 * time.Second
-	chainParams      = &address.RegressionNetTaro
+	chainParams      = &address.RegressionNetTap
 
 	txTypeTaproot = lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V1_TAPROOT
 )
@@ -164,7 +164,7 @@ func newHarness(t *testing.T,
 }
 
 func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
-	addr, genesis, group := address.RandAddr(h.t, &address.RegressionNetTaro)
+	addr, genesis, group := address.RandAddr(h.t, &address.RegressionNetTap)
 
 	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
 	require.NoError(h.t, err)
@@ -312,7 +312,7 @@ func mustMakeAddr(t *testing.T,
 	var p btcec.PublicKey
 	addr, err := address.New(
 		gen, groupKey, groupSig, scriptKey,
-		p, 1, nil, &address.TestNet3Taro,
+		p, 1, nil, &address.TestNet3Tap,
 	)
 	require.NoError(t, err)
 

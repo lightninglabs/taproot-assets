@@ -102,7 +102,7 @@ tapcli addrs new --asset_id bab08407[...]129bf6d0 --amt 21
 The sender can now fulfill the request by initiating the transfer.
 
 ```shell
-tapcli assets send --addr tarotb1q[...]tywpre3a
+tapcli assets send --addr taptb1q[...]tywpre3a
 ```
 ## Development
 

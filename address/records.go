@@ -14,7 +14,7 @@ const (
 	// addrVersionType is the TLV type of the addr version.
 	addrVersionType addressTLVType = 0
 
-	// addrAssetIDType is the TLV type of the asset asset ID.
+	// addrAssetIDType is the TLV type of the asset ID.
 	addrAssetIDType addressTLVType = 2
 
 	// addrGroupKeyType is the TLV type of the group key of the asset.

@@ -61,7 +61,7 @@ func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
 			},
 			{
 				Key:   PsbtKeyTypeGlobalTaroChainParamsHRP,
-				Value: []byte(p.ChainParams.TaroHRP),
+				Value: []byte(p.ChainParams.TapHRP),
 			},
 			{
 				Key:   PsbtKeyTypeGlobalTaroPsbtVersion,

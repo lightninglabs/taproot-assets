@@ -106,7 +106,7 @@ func TestNewAddress(t *testing.T) {
 			name: "normal address",
 			f: func() (*Taro, error) {
 				return randAddress(
-					t, &TestNet3Taro, false, false, nil,
+					t, &TestNet3Tap, false, false, nil,
 					asset.Normal,
 				)
 			},
@@ -116,7 +116,7 @@ func TestNewAddress(t *testing.T) {
 			name: "collectible address with group key",
 			f: func() (*Taro, error) {
 				return randAddress(
-					t, &MainNetTaro, true, false, nil,
+					t, &MainNetTap, true, false, nil,
 					asset.Collectible,
 				)
 			},
@@ -126,7 +126,7 @@ func TestNewAddress(t *testing.T) {
 			name: "collectible address with group key and sibling",
 			f: func() (*Taro, error) {
 				return randAddress(
-					t, &MainNetTaro, true, true, nil,
+					t, &MainNetTap, true, true, nil,
 					asset.Collectible,
 				)
 			},
@@ -137,7 +137,7 @@ func TestNewAddress(t *testing.T) {
 			f: func() (*Taro, error) {
 				zeroAmt := uint64(0)
 				return randAddress(
-					t, &TestNet3Taro, false, false,
+					t, &TestNet3Tap, false, false,
 					&zeroAmt, asset.Normal,
 				)
 			},
@@ -148,7 +148,7 @@ func TestNewAddress(t *testing.T) {
 			f: func() (*Taro, error) {
 				badAmt := uint64(2)
 				return randAddress(
-					t, &TestNet3Taro, false, false, &badAmt,
+					t, &TestNet3Tap, false, false, &badAmt,
 					asset.Collectible,
 				)
 			},
@@ -210,7 +210,7 @@ func TestAddressEncoding(t *testing.T) {
 			name: "valid address",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &RegressionNetTaro, false, false,
+					t, &RegressionNetTap, false, false,
 					asset.Normal,
 				)
 			},
@@ -220,7 +220,7 @@ func TestAddressEncoding(t *testing.T) {
 			name: "group collectible",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &SigNetTaro, true, false,
+					t, &SigNetTap, true, false,
 					asset.Collectible,
 				)
 			},
@@ -230,7 +230,7 @@ func TestAddressEncoding(t *testing.T) {
 			name: "simnet collectible",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTaro, false, false,
+					t, &SimNetTap, false, false,
 					asset.Collectible,
 				)
 			},
@@ -240,7 +240,7 @@ func TestAddressEncoding(t *testing.T) {
 			name: "simnet collectible with sibling",
 			f: func() (*Taro, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTaro, false, true,
+					t, &SimNetTap, false, true,
 					asset.Collectible,
 				)
 			},
@@ -260,11 +260,11 @@ func TestAddressEncoding(t *testing.T) {
 			name: "mismatched hrp",
 			f: func() (*Taro, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Taro, true, false,
+					t, &TestNet3Tap, true, false,
 					asset.Collectible,
 				)
 				_, err := DecodeAddress(
-					encodedAddr, &MainNetTaro,
+					encodedAddr, &MainNetTap,
 				)
 				return newAddr, "", err
 			},
@@ -274,12 +274,12 @@ func TestAddressEncoding(t *testing.T) {
 			name: "missing hrp",
 			f: func() (*Taro, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Taro, true, false,
+					t, &TestNet3Tap, true, false,
 					asset.Collectible,
 				)
 				encodedAddr = encodedAddr[4:]
 				_, err := DecodeAddress(
-					encodedAddr[4:], &TestNet3Taro,
+					encodedAddr[4:], &TestNet3Tap,
 				)
 				return newAddr, "", err
 			},

@@ -140,7 +140,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, ErrUnsupportedAssetType
 	}
 
-	if !IsBech32MTaroPrefix(net.TaroHRP + "1") {
+	if !IsBech32MTapPrefix(net.TapHRP + "1") {
 		return nil, ErrUnsupportedHRP
 	}
 
@@ -189,7 +189,7 @@ func (a *Taro) Copy() *Taro {
 
 // Net returns the ChainParams struct matching the Taro address network.
 func (a *Taro) Net() (*ChainParams, error) {
-	return Net(a.ChainParams.TaroHRP)
+	return Net(a.ChainParams.TapHRP)
 }
 
 // AssetType returns the type of asset that this address was generated for.
@@ -355,8 +355,8 @@ func (a *Taro) EncodeAddress() (string, error) {
 	}
 
 	// Check that our address is targeting a supported network.
-	if IsBech32MTaroPrefix(a.ChainParams.TaroHRP + "1") {
-		bech, err := bech32.EncodeM(a.ChainParams.TaroHRP, converted)
+	if IsBech32MTapPrefix(a.ChainParams.TapHRP + "1") {
+		bech, err := bech32.EncodeM(a.ChainParams.TapHRP, converted)
 		if err != nil {
 			return "", err
 		}
@@ -386,7 +386,7 @@ func DecodeAddress(addr string, net *ChainParams) (*Taro, error) {
 	}
 
 	prefix := addr[:oneIndex+1]
-	if !IsBech32MTaroPrefix(prefix) {
+	if !IsBech32MTapPrefix(prefix) {
 		return nil, ErrUnsupportedHRP
 	}
 

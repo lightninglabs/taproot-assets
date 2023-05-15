@@ -126,7 +126,7 @@ func initSpendScenario(t *testing.T) spendData {
 	// Store the receiver StateKeys as well.
 	address1, err := address.New(
 		state.genesis1, nil, nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt1, nil, &address.MainNetTaro,
+		state.receiverPubKey, state.normalAmt1, nil, &address.MainNetTap,
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
@@ -135,7 +135,7 @@ func initSpendScenario(t *testing.T) spendData {
 	address1CollectGroup, err := address.New(
 		state.genesis1collect, &state.groupKey.GroupPubKey,
 		&state.groupKey.Sig, state.receiverPubKey, state.receiverPubKey,
-		state.collectAmt, nil, &address.TestNet3Taro,
+		state.collectAmt, nil, &address.TestNet3Tap,
 	)
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
@@ -144,7 +144,7 @@ func initSpendScenario(t *testing.T) spendData {
 
 	address2, err := address.New(
 		state.genesis1, nil, nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt2, nil, &address.MainNetTaro,
+		state.receiverPubKey, state.normalAmt2, nil, &address.MainNetTap,
 	)
 	require.NoError(t, err)
 	state.address2 = *address2
@@ -2019,7 +2019,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		address1testnet, err := address.New(
 			state.genesis1, nil, nil, state.receiverPubKey,
 			state.receiverPubKey, state.normalAmt1, nil,
-			&address.TestNet3Taro,
+			&address.TestNet3Tap,
 		)
 		require.NoError(t, err)
 
@@ -2091,7 +2091,7 @@ func TestPayToAddrScript(t *testing.T) {
 	// the script above.
 	addr1, err := address.New(
 		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
-		sendAmt, nil, &address.RegressionNetTaro,
+		sendAmt, nil, &address.RegressionNetTap,
 	)
 	require.NoError(t, err)
 
@@ -2107,7 +2107,7 @@ func TestPayToAddrScript(t *testing.T) {
 	))
 	addr2, err := address.New(
 		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
-		sendAmt, sibling, &address.RegressionNetTaro,
+		sendAmt, sibling, &address.RegressionNetTap,
 	)
 	require.NoError(t, err)
 

@@ -379,7 +379,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		receiver    = bob
 		id          [32]byte
 		fullAmt     = mintedAsset.Amount
-		chainParams = &address.RegressionNetTaro
+		chainParams = &address.RegressionNetTap
 	)
 	copy(id[:], genInfo.AssetId)
 
@@ -583,7 +583,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		senderSum   = mintedAsset.Amount
 		receiverSum = uint64(0)
 		id          [32]byte
-		chainParams = &address.RegressionNetTaro
+		chainParams = &address.RegressionNetTap
 	)
 	copy(id[:], genInfo.AssetId)
 
@@ -699,7 +699,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	chainParams := &address.RegressionNetTaro
+	chainParams := &address.RegressionNetTap
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -823,7 +823,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
-	chainParams := &address.RegressionNetTaro
+	chainParams := &address.RegressionNetTap
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)

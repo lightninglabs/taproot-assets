@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	testParams = &address.MainNetTaro
+	testParams = &address.MainNetTap
 )
 
 // RandPacket generates a random virtual packet for testing purposes.

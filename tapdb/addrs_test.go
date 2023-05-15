@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	chainParams = &address.RegressionNetTaro
+	chainParams = &address.RegressionNetTap
 )
 
 // newAddrBook makes a new instance of the TaroAddressBook book.

@@ -10,31 +10,33 @@ import (
 
 const (
 	// MainnetHRP is the HRP for mainnet.
-	MainnetHRP = "tarobc"
+	MainnetHRP = "tapbc"
 
 	// TestnetHRP is the HRP for testnet.
-	TestnetHRP = "tarotb"
+	TestnetHRP = "taptb"
 
 	// RegTestHRP is the HRP for regtest.
-	RegTestHRP = "tarort"
+	RegTestHRP = "taprt"
 
 	// SigNetHRP is the HRP for "the" signet.
-	SigNetHRP = "tarotb"
+	SigNetHRP = "taptb"
 
 	// SimNetHRP is the HRP for simnet.
-	SimNetHRP = "tarosb"
+	SimNetHRP = "tapsb"
 )
 
-// ChainParams defines a Taro-supporting network by its parameters. These
-// parameters include those specified by chaincfg.Params, as well as a
-// Taro-specific HRP used for Taro addresses. These parameters may be
-// used by Taro applications to differentiate networks as well as addresses
-// and keys for one network from those intended for use on another network.
+// ChainParams defines a Taproot Asset supporting network by its parameters.
+// These parameters include those specified by chaincfg.Params, as well as a
+// Taproot Asset specific HRP used for Taproot ASset addresses. These parameters
+// may be used by Taproot Asset applications to differentiate networks as well
+// as addresses and keys for one network from those intended for use on another
+// network.
 type ChainParams struct {
 	*chaincfg.Params
 
-	// TaroHRP is the HRP to use for Taro addresses for the target network.
-	TaroHRP string
+	// TapHRP is the HRP to use for Taproot Asset addresses for the target
+	// network.
+	TapHRP string
 }
 
 // registerMtx is used to provide thread-safe access to the internal global
@@ -55,86 +57,87 @@ func Register(params *ChainParams) error {
 		return err
 	}
 
-	bech32TaroPrefixes[params.TaroHRP+"1"] = struct{}{}
+	bech32TapPrefixes[params.TapHRP+"1"] = struct{}{}
 	return nil
 }
 
 var (
-	// bech32TaroPrefixes holds the set of all supported prefixes for
+	// bech32TapPrefixes holds the set of all supported prefixes for
 	// bech32m encoded addresses.
-	bech32TaroPrefixes = make(map[string]struct{})
+	bech32TapPrefixes = make(map[string]struct{})
 
-	// MainNetTaro holds the chain params for mainnet.
-	MainNetTaro = ChainParams{
-		Params:  &chaincfg.MainNetParams,
-		TaroHRP: MainnetHRP,
+	// MainNetTap holds the chain params for mainnet.
+	MainNetTap = ChainParams{
+		Params: &chaincfg.MainNetParams,
+		TapHRP: MainnetHRP,
 	}
 
-	// TestNet3Taro holds the chain params for testnet.
-	TestNet3Taro = ChainParams{
-		Params:  &chaincfg.TestNet3Params,
-		TaroHRP: TestnetHRP,
+	// TestNet3Tap holds the chain params for testnet.
+	TestNet3Tap = ChainParams{
+		Params: &chaincfg.TestNet3Params,
+		TapHRP: TestnetHRP,
 	}
 
-	// RegressionNetTaro holds the chain params for regtest.
-	RegressionNetTaro = ChainParams{
-		Params:  &chaincfg.RegressionNetParams,
-		TaroHRP: RegTestHRP,
+	// RegressionNetTap holds the chain params for regtest.
+	RegressionNetTap = ChainParams{
+		Params: &chaincfg.RegressionNetParams,
+		TapHRP: RegTestHRP,
 	}
 
-	// SigNetTaro holds the chain params for signet.
-	SigNetTaro = ChainParams{
-		Params:  &chaincfg.SigNetParams,
-		TaroHRP: SigNetHRP,
+	// SigNetTap holds the chain params for signet.
+	SigNetTap = ChainParams{
+		Params: &chaincfg.SigNetParams,
+		TapHRP: SigNetHRP,
 	}
 
-	// SimNetTaro holds the chain params for simnet.
-	SimNetTaro = ChainParams{
-		Params:  &chaincfg.SimNetParams,
-		TaroHRP: SimNetHRP,
+	// SimNetTap holds the chain params for simnet.
+	SimNetTap = ChainParams{
+		Params: &chaincfg.SimNetParams,
+		TapHRP: SimNetHRP,
 	}
 )
 
-// IsBech32MTaroPrefix returns whether the prefix is a known prefix for Taro
-// addresses on any supported network.  This is used when creating an address,
-// encoding an address to a string, or decoding an address string into a TLV.
-func IsBech32MTaroPrefix(prefix string) bool {
+// IsBech32MTapPrefix returns whether the prefix is a known prefix for Taproot
+// Asset addresses on any supported network. This is used when creating an
+// address, encoding an address to a string, or decoding an address string into
+// a TLV.
+func IsBech32MTapPrefix(prefix string) bool {
 	registerMtx.RLock()
 	defer registerMtx.RUnlock()
 
 	prefix = strings.ToLower(prefix)
-	_, ok := bech32TaroPrefixes[prefix]
+	_, ok := bech32TapPrefixes[prefix]
 	return ok
 }
 
 // IsForNet returns whether the HRP is associated with the passed network.
 func IsForNet(hrp string, net *ChainParams) bool {
-	return hrp == net.TaroHRP
+	return hrp == net.TapHRP
 }
 
-// Net returns the ChainParams struct associated with a Taro HRP.
+// Net returns the ChainParams struct associated with a Taproot Asset HRP.
 func Net(hrp string) (*ChainParams, error) {
 	switch hrp {
-	case MainNetTaro.TaroHRP:
-		return &MainNetTaro, nil
+	case MainNetTap.TapHRP:
+		return &MainNetTap, nil
 
-	case TestNet3Taro.TaroHRP:
-		return &TestNet3Taro, nil
+	case TestNet3Tap.TapHRP:
+		return &TestNet3Tap, nil
 
-	case RegressionNetTaro.TaroHRP:
-		return &RegressionNetTaro, nil
+	case RegressionNetTap.TapHRP:
+		return &RegressionNetTap, nil
 
-	case SigNetTaro.TaroHRP:
-		return &SigNetTaro, nil
+	case SigNetTap.TapHRP:
+		return &SigNetTap, nil
 
-	case SimNetTaro.TaroHRP:
-		// For simnet, we'll need to slighlty modify the coin type as
+	case SimNetTap.TapHRP:
+		// For simnet, we'll need to slightly modify the coin type as
 		// lnd only ever expects the testnet coin type (1) instead of
 		// the simnet coin type (115).
-		simNet := SimNetTaro
-		simNet.HDCoinType = TestNet3Taro.HDCoinType
+		simNet := SimNetTap
+		simNet.HDCoinType = TestNet3Tap.HDCoinType
 
-		return &SimNetTaro, nil
+		return &SimNetTap, nil
 
 	default:
 		return nil, ErrUnsupportedHRP
@@ -145,23 +148,23 @@ func Net(hrp string) (*ChainParams, error) {
 func ParamsForChain(name string) ChainParams {
 	switch name {
 	case chaincfg.MainNetParams.Name:
-		return MainNetTaro
+		return MainNetTap
 
 	case chaincfg.TestNet3Params.Name:
-		return TestNet3Taro
+		return TestNet3Tap
 
 	case chaincfg.RegressionNetParams.Name:
-		return RegressionNetTaro
+		return RegressionNetTap
 
 	case chaincfg.SigNetParams.Name:
-		return SigNetTaro
+		return SigNetTap
 
 	case chaincfg.SimNetParams.Name:
-		// For simnet, we'll need to slighlty modify the coin type as
+		// For simnet, we'll need to slightly modify the coin type as
 		// lnd only ever expects the testnet coin type (1) instead of
 		// the simnet coin type (115).
-		simNet := SimNetTaro
-		simNet.HDCoinType = TestNet3Taro.HDCoinType
+		simNet := SimNetTap
+		simNet.HDCoinType = TestNet3Tap.HDCoinType
 
 		return simNet
 
@@ -175,9 +178,9 @@ func init() {
 	defer registerMtx.RUnlock()
 
 	// Register all default networks when the package is initialized.
-	bech32TaroPrefixes[MainNetTaro.TaroHRP+"1"] = struct{}{}
-	bech32TaroPrefixes[TestNet3Taro.TaroHRP+"1"] = struct{}{}
-	bech32TaroPrefixes[RegressionNetTaro.TaroHRP+"1"] = struct{}{}
-	bech32TaroPrefixes[SigNetTaro.TaroHRP+"1"] = struct{}{}
-	bech32TaroPrefixes[SimNetTaro.TaroHRP+"1"] = struct{}{}
+	bech32TapPrefixes[MainNetTap.TapHRP+"1"] = struct{}{}
+	bech32TapPrefixes[TestNet3Tap.TapHRP+"1"] = struct{}{}
+	bech32TapPrefixes[RegressionNetTap.TapHRP+"1"] = struct{}{}
+	bech32TapPrefixes[SigNetTap.TapHRP+"1"] = struct{}{}
+	bech32TapPrefixes[SimNetTap.TapHRP+"1"] = struct{}{}
 }
