@@ -110,9 +110,10 @@ type Storage interface {
 
 // KeyRing is used to create script and internal keys for Taro addresses.
 type KeyRing interface {
-	// DeriveNextTaroKey attempts to derive the *next* key within the Taro
-	// key family.
-	DeriveNextTaroKey(context.Context) (keychain.KeyDescriptor, error)
+	// DeriveNextTaprootAssetKey attempts to derive the *next* key within
+	// the TaprootAsset key family.
+	DeriveNextTaprootAssetKey(context.Context) (keychain.KeyDescriptor,
+		error)
 
 	// DeriveNextKey attempts to derive the *next* key within the key
 	// family (account in BIP43) specified. This method should return the
@@ -180,7 +181,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 			"asset %x: %w", assetID[:], err)
 	}
 
-	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
+	rawScriptKeyDesc, err := b.cfg.KeyRing.DeriveNextTaprootAssetKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}
@@ -190,7 +191,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	// used with a plain key spend.
 	scriptKey := asset.NewScriptKeyBip86(rawScriptKeyDesc)
 
-	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaroKey(ctx)
+	internalKeyDesc, err := b.cfg.KeyRing.DeriveNextTaprootAssetKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen key: %w", err)
 	}

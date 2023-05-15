@@ -42,9 +42,9 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	return *keyDesc, nil
 }
 
-// DeriveNextTaroKey attempts to derive the *next* key within the Taro key
-// family.
-func (l *LndRpcKeyRing) DeriveNextTaroKey(
+// DeriveNextTaprootAssetKey attempts to derive the *next* key within the
+// Taproot Asset key family.
+func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
 	keyFam := int32(asset.TaprootAssetsKeyFamily)

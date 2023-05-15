@@ -338,9 +338,9 @@ func NewMockKeyRing() *MockKeyRing {
 	}
 }
 
-// DeriveNextTaroKey attempts to derive the *next* key within the Taro key
-// family.
-func (m *MockKeyRing) DeriveNextTaroKey(
+// DeriveNextTaprootAssetKey attempts to derive the *next* key within the
+// Taproot Asset key family.
+func (m *MockKeyRing) DeriveNextTaprootAssetKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
 	return m.DeriveNextKey(ctx, asset.TaprootAssetsKeyFamily)
