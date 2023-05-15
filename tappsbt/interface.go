@@ -56,9 +56,9 @@ var (
 // transaction PSBTs only. They are defined here for completeness' sake but are
 // not directly used by the tappsbt package.
 var (
-	PsbtKeyTypeInputTaroProof = []byte{0x70}
+	PsbtKeyTypeInputTapProof = []byte{0x70}
 
-	PsbtKeyTypeOutputTaroProof = []byte{0x70}
+	PsbtKeyTypeOutputTapProof = []byte{0x70}
 )
 
 // VOutPredicate is a function that can be used to filter virtual outputs.
