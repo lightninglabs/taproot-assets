@@ -25,6 +25,7 @@ var assetsCommands = []cli.Command{
 			listAssetBalancesCommand,
 			sendAssetsCommand,
 			listTransfersCommand,
+			fetchMetaCommand,
 		},
 	},
 }
@@ -479,6 +480,71 @@ func listTransfers(ctx *cli.Context) error {
 	resp, err := client.ListTransfers(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to list asset transfers: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+const (
+	metaName = "asset_meta"
+)
+
+var fetchMetaCommand = cli.Command{
+	Name:  "meta",
+	Usage: "fetch asset meta",
+	Description: "fetch the meta bytes for an asset based on the " +
+		"asset_id or meta_hash",
+	Action: fetchMeta,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "asset_id to fetch meta for",
+		},
+		cli.StringFlag{
+			Name:  metaName,
+			Usage: "meta_hash to fetch meta for",
+		},
+	},
+}
+
+func fetchMeta(ctx *cli.Context) error {
+	switch {
+	case ctx.IsSet(metaName) && ctx.IsSet(assetIDName):
+		return fmt.Errorf("only the asset_id or meta_hash can be set")
+
+	case !ctx.IsSet(assetIDName) && !ctx.IsSet(metaName):
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &taprpc.FetchAssetMetaRequest{}
+	if ctx.IsSet(assetIDName) {
+		assetIDHex, err := hex.DecodeString(ctx.String(assetIDName))
+		if err != nil {
+			return fmt.Errorf("invalid asset ID")
+		}
+
+		req.Asset = &taprpc.FetchAssetMetaRequest_AssetId{
+			AssetId: assetIDHex,
+		}
+	} else {
+		metaBytes, err := hex.DecodeString(ctx.String(metaName))
+		if err != nil {
+			return fmt.Errorf("invalid meta hash")
+		}
+
+		req.Asset = &taprpc.FetchAssetMetaRequest_MetaHash{
+			MetaHash: metaBytes,
+		}
+	}
+
+	resp, err := client.FetchAssetMeta(ctxc, req)
+	if err != nil {
+		return fmt.Errorf("unable to fetch asset meta: %w", err)
 	}
 
 	printRespJSON(resp)
