@@ -742,6 +742,14 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 		utxos[op] = utxo
 	}
 
+	// As a final pass, we'll prune out any UTXOs that don't have any
+	// assets, as these may be in the DB just for record keeping.
+	for _, utxo := range utxos {
+		if len(utxo.Assets) == 0 {
+			delete(utxos, utxo.OutPoint)
+		}
+	}
+
 	return &taprpc.ListUtxosResponse{
 		ManagedUtxos: utxos,
 	}, nil
