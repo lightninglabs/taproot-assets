@@ -39,25 +39,25 @@ service Universe {
     rpc AssetLeaves (ID) returns (AssetLeafResponse);
 
     /* tapcli: `universe proofs query`
-    QueryIssuanceProof attempts to query for an issuance proof for a given
-    asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
-    (asset_id/group_key) and also a leaf key (outpoint || script_key). If
+    QueryProof attempts to query for an issuance or transfer proof for a given
+    asset based on its UniverseKey. A UniverseKey is composed of the Universe
+    ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
     found, then the issuance proof is returned that includes an inclusion proof
     to the known Universe root, as well as a Taproot Asset state transition or
     issuance proof for the said asset.
     */
-    rpc QueryIssuanceProof (UniverseKey) returns (IssuanceProofResponse);
+    rpc QueryProof (UniverseKey) returns (AssetProofResponse);
 
     // TODO(roasbeef): can make generic by being just AssetProof? ^
     //   * also want flag to give it in raw bytes so can sideload or import
 
     /* tapcli: `universe proofs insert`
-    InsertIssuanceProof attempts to insert a new issuance proof into the
+    InsertProof attempts to insert a new issuance or transfer proof into the
     Universe tree specified by the UniverseKey. If valid, then the proof is
     inserted into the database, with a new Universe root returned for the
     updated asset_id/group_key.
     */
-    rpc InsertIssuanceProof (IssuanceProof) returns (IssuanceProofResponse);
+    rpc InsertProof (AssetProof) returns (AssetProofResponse);
 
     // TODO(roasbeef): rename resp to UniverseStateUpdate? ^
 
@@ -228,7 +228,7 @@ message UniverseKey {
     // outpoint, then return rest, etc
 }
 
-message IssuanceProofResponse {
+message AssetProofResponse {
     // The request original request for the issuance proof.
     UniverseKey req = 1;
 
@@ -243,7 +243,7 @@ message IssuanceProofResponse {
     AssetLeaf asset_leaf = 4;
 }
 
-message IssuanceProof {
+message AssetProof {
     // The ID of the asset to insert the proof for.
     UniverseKey key = 1;
 

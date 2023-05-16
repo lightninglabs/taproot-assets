@@ -313,13 +313,13 @@
     },
     "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
-        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
-        "operationId": "Universe_QueryIssuanceProof",
+        "summary": "tapcli: `universe proofs query`\nQueryProof attempts to query for an issuance or transfer proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe\nID (asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
+        "operationId": "Universe_QueryProof",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+              "$ref": "#/definitions/universerpcAssetProofResponse"
             }
           },
           "default": {
@@ -402,13 +402,13 @@
     },
     "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
-        "summary": "tapcli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
-        "operationId": "Universe_InsertIssuanceProof",
+        "summary": "tapcli: `universe proofs insert`\nInsertProof attempts to insert a new issuance or transfer proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "operationId": "Universe_InsertProof",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+              "$ref": "#/definitions/universerpcAssetProofResponse"
             }
           },
           "default": {
@@ -452,7 +452,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProof"
+              "$ref": "#/definitions/universerpcAssetProof"
             }
           }
         ],
@@ -463,13 +463,13 @@
     },
     "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
-        "summary": "tapcli: `universe proofs query`\nQueryIssuanceProof attempts to query for an issuance proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe ID\n(asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
-        "operationId": "Universe_QueryIssuanceProof2",
+        "summary": "tapcli: `universe proofs query`\nQueryProof attempts to query for an issuance or transfer proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe\nID (asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
+        "operationId": "Universe_QueryProof2",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+              "$ref": "#/definitions/universerpcAssetProofResponse"
             }
           },
           "default": {
@@ -552,13 +552,13 @@
     },
     "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
       "post": {
-        "summary": "tapcli: `universe proofs insert`\nInsertIssuanceProof attempts to insert a new issuance proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
-        "operationId": "Universe_InsertIssuanceProof2",
+        "summary": "tapcli: `universe proofs insert`\nInsertProof attempts to insert a new issuance or transfer proof into the\nUniverse tree specified by the UniverseKey. If valid, then the proof is\ninserted into the database, with a new Universe root returned for the\nupdated asset_id/group_key.",
+        "operationId": "Universe_InsertProof2",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProofResponse"
+              "$ref": "#/definitions/universerpcAssetProofResponse"
             }
           },
           "default": {
@@ -602,7 +602,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/universerpcIssuanceProof"
+              "$ref": "#/definitions/universerpcAssetProof"
             }
           }
         ],
@@ -1190,6 +1190,41 @@
         }
       }
     },
+    "universerpcAssetProof": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/universerpcUniverseKey",
+          "description": "The ID of the asset to insert the proof for."
+        },
+        "asset_leaf": {
+          "$ref": "#/definitions/universerpcAssetLeaf",
+          "description": "The asset leaf to insert into the Universe tree."
+        }
+      }
+    },
+    "universerpcAssetProofResponse": {
+      "type": "object",
+      "properties": {
+        "req": {
+          "$ref": "#/definitions/universerpcUniverseKey",
+          "description": "The request original request for the issuance proof."
+        },
+        "universe_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The Universe root that includes this asset leaf."
+        },
+        "universe_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "An inclusion proof for the asset leaf included below. The value is that\nissuance proof itself, with a sum value of the amount of the asset."
+        },
+        "asset_leaf": {
+          "$ref": "#/definitions/universerpcAssetLeaf",
+          "description": "The asset leaf itself, which includes the asset and the issuance proof."
+        }
+      }
+    },
     "universerpcAssetQuerySort": {
       "type": "string",
       "enum": [
@@ -1275,41 +1310,6 @@
         "group_key_str": {
           "type": "string",
           "description": "The 32-byte asset group key encoded as hex string."
-        }
-      }
-    },
-    "universerpcIssuanceProof": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "$ref": "#/definitions/universerpcUniverseKey",
-          "description": "The ID of the asset to insert the proof for."
-        },
-        "asset_leaf": {
-          "$ref": "#/definitions/universerpcAssetLeaf",
-          "description": "The asset leaf to insert into the Universe tree."
-        }
-      }
-    },
-    "universerpcIssuanceProofResponse": {
-      "type": "object",
-      "properties": {
-        "req": {
-          "$ref": "#/definitions/universerpcUniverseKey",
-          "description": "The request original request for the issuance proof."
-        },
-        "universe_root": {
-          "$ref": "#/definitions/universerpcUniverseRoot",
-          "description": "The Universe root that includes this asset leaf."
-        },
-        "universe_inclusion_proof": {
-          "type": "string",
-          "format": "byte",
-          "description": "An inclusion proof for the asset leaf included below. The value is that\nissuance proof itself, with a sum value of the amount of the asset."
-        },
-        "asset_leaf": {
-          "$ref": "#/definitions/universerpcAssetLeaf",
-          "description": "The asset leaf itself, which includes the asset and the issuance proof."
         }
       }
     },

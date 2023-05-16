@@ -123,7 +123,7 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 		callback(string(respBytes), nil)
 	}
 
-	registry["universerpc.Universe.QueryIssuanceProof"] = func(ctx context.Context,
+	registry["universerpc.Universe.QueryProof"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
 		req := &UniverseKey{}
@@ -134,7 +134,7 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 		}
 
 		client := NewUniverseClient(conn)
-		resp, err := client.QueryIssuanceProof(ctx, req)
+		resp, err := client.QueryProof(ctx, req)
 		if err != nil {
 			callback("", err)
 			return
@@ -148,10 +148,10 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 		callback(string(respBytes), nil)
 	}
 
-	registry["universerpc.Universe.InsertIssuanceProof"] = func(ctx context.Context,
+	registry["universerpc.Universe.InsertProof"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &IssuanceProof{}
+		req := &AssetProof{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)
@@ -159,7 +159,7 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 		}
 
 		client := NewUniverseClient(conn)
-		resp, err := client.InsertIssuanceProof(ctx, req)
+		resp, err := client.InsertProof(ctx, req)
 		if err != nil {
 			callback("", err)
 			return

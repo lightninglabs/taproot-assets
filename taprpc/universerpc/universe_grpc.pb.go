@@ -42,19 +42,19 @@ type UniverseClient interface {
 	// well as details for the asset.
 	AssetLeaves(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
-	// QueryIssuanceProof attempts to query for an issuance proof for a given
-	// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
-	// (asset_id/group_key) and also a leaf key (outpoint || script_key). If
+	// QueryProof attempts to query for an issuance or transfer proof for a given
+	// asset based on its UniverseKey. A UniverseKey is composed of the Universe
+	// ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
 	// found, then the issuance proof is returned that includes an inclusion proof
 	// to the known Universe root, as well as a Taproot Asset state transition or
 	// issuance proof for the said asset.
-	QueryIssuanceProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*IssuanceProofResponse, error)
+	QueryProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*AssetProofResponse, error)
 	// tapcli: `universe proofs insert`
-	// InsertIssuanceProof attempts to insert a new issuance proof into the
+	// InsertProof attempts to insert a new issuance or transfer proof into the
 	// Universe tree specified by the UniverseKey. If valid, then the proof is
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
-	InsertIssuanceProof(ctx context.Context, in *IssuanceProof, opts ...grpc.CallOption) (*IssuanceProofResponse, error)
+	InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error)
 	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
 	// attempts to synchronize either only the set of specified asset_ids, or all
@@ -133,18 +133,18 @@ func (c *universeClient) AssetLeaves(ctx context.Context, in *ID, opts ...grpc.C
 	return out, nil
 }
 
-func (c *universeClient) QueryIssuanceProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*IssuanceProofResponse, error) {
-	out := new(IssuanceProofResponse)
-	err := c.cc.Invoke(ctx, "/universerpc.Universe/QueryIssuanceProof", in, out, opts...)
+func (c *universeClient) QueryProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*AssetProofResponse, error) {
+	out := new(AssetProofResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/QueryProof", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *universeClient) InsertIssuanceProof(ctx context.Context, in *IssuanceProof, opts ...grpc.CallOption) (*IssuanceProofResponse, error) {
-	out := new(IssuanceProofResponse)
-	err := c.cc.Invoke(ctx, "/universerpc.Universe/InsertIssuanceProof", in, out, opts...)
+func (c *universeClient) InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error) {
+	out := new(AssetProofResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/InsertProof", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -233,19 +233,19 @@ type UniverseServer interface {
 	// well as details for the asset.
 	AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
-	// QueryIssuanceProof attempts to query for an issuance proof for a given
-	// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
-	// (asset_id/group_key) and also a leaf key (outpoint || script_key). If
+	// QueryProof attempts to query for an issuance or transfer proof for a given
+	// asset based on its UniverseKey. A UniverseKey is composed of the Universe
+	// ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
 	// found, then the issuance proof is returned that includes an inclusion proof
 	// to the known Universe root, as well as a Taproot Asset state transition or
 	// issuance proof for the said asset.
-	QueryIssuanceProof(context.Context, *UniverseKey) (*IssuanceProofResponse, error)
+	QueryProof(context.Context, *UniverseKey) (*AssetProofResponse, error)
 	// tapcli: `universe proofs insert`
-	// InsertIssuanceProof attempts to insert a new issuance proof into the
+	// InsertProof attempts to insert a new issuance or transfer proof into the
 	// Universe tree specified by the UniverseKey. If valid, then the proof is
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
-	InsertIssuanceProof(context.Context, *IssuanceProof) (*IssuanceProofResponse, error)
+	InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error)
 	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
 	// attempts to synchronize either only the set of specified asset_ids, or all
@@ -297,11 +297,11 @@ func (UnimplementedUniverseServer) AssetLeafKeys(context.Context, *ID) (*AssetLe
 func (UnimplementedUniverseServer) AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssetLeaves not implemented")
 }
-func (UnimplementedUniverseServer) QueryIssuanceProof(context.Context, *UniverseKey) (*IssuanceProofResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method QueryIssuanceProof not implemented")
+func (UnimplementedUniverseServer) QueryProof(context.Context, *UniverseKey) (*AssetProofResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryProof not implemented")
 }
-func (UnimplementedUniverseServer) InsertIssuanceProof(context.Context, *IssuanceProof) (*IssuanceProofResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InsertIssuanceProof not implemented")
+func (UnimplementedUniverseServer) InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InsertProof not implemented")
 }
 func (UnimplementedUniverseServer) SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncUniverse not implemented")
@@ -406,38 +406,38 @@ func _Universe_AssetLeaves_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Universe_QueryIssuanceProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Universe_QueryProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UniverseKey)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(UniverseServer).QueryIssuanceProof(ctx, in)
+		return srv.(UniverseServer).QueryProof(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/universerpc.Universe/QueryIssuanceProof",
+		FullMethod: "/universerpc.Universe/QueryProof",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UniverseServer).QueryIssuanceProof(ctx, req.(*UniverseKey))
+		return srv.(UniverseServer).QueryProof(ctx, req.(*UniverseKey))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Universe_InsertIssuanceProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(IssuanceProof)
+func _Universe_InsertProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssetProof)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(UniverseServer).InsertIssuanceProof(ctx, in)
+		return srv.(UniverseServer).InsertProof(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/universerpc.Universe/InsertIssuanceProof",
+		FullMethod: "/universerpc.Universe/InsertProof",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UniverseServer).InsertIssuanceProof(ctx, req.(*IssuanceProof))
+		return srv.(UniverseServer).InsertProof(ctx, req.(*AssetProof))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -574,12 +574,12 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Universe_AssetLeaves_Handler,
 		},
 		{
-			MethodName: "QueryIssuanceProof",
-			Handler:    _Universe_QueryIssuanceProof_Handler,
+			MethodName: "QueryProof",
+			Handler:    _Universe_QueryProof_Handler,
 		},
 		{
-			MethodName: "InsertIssuanceProof",
-			Handler:    _Universe_InsertIssuanceProof_Handler,
+			MethodName: "InsertProof",
+			Handler:    _Universe_InsertProof_Handler,
 		},
 		{
 			MethodName: "SyncUniverse",

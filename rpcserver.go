@@ -2401,7 +2401,7 @@ func marshalUniverseProof(proof *mssmt.Proof) ([]byte, error) {
 // marshalIssuanceProof marshals an issuance proof into the RPC form.
 func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
-	proof *universe.IssuanceProof) (*unirpc.IssuanceProofResponse, error) {
+	proof *universe.IssuanceProof) (*unirpc.AssetProofResponse, error) {
 
 	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
 		Node: proof.UniverseRoot,
@@ -2419,7 +2419,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 		return nil, err
 	}
 
-	return &unirpc.IssuanceProofResponse{
+	return &unirpc.AssetProofResponse{
 		Req:                    req,
 		UniverseRoot:           uniRoot,
 		UniverseInclusionProof: uniProof,
@@ -2427,14 +2427,14 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	}, nil
 }
 
-// QueryIssuanceProof attempts to query for an issuance proof for a given asset
-// based on its UniverseKey. A UniverseKey is composed of the Universe ID
+// QueryProof attempts to query for an issuance proof for a given asset based
+// on its UniverseKey. A UniverseKey is composed of the Universe ID
 // (asset_id/group_key) and also a leaf key (outpoint || script_key). If found,
 // then the issuance proof is returned that includes an inclusion proof to the
 // known Universe root, as well as a Taproot Asset state transition or issuance
 // proof for the said asset.
-func (r *rpcServer) QueryIssuanceProof(ctx context.Context,
-	req *unirpc.UniverseKey) (*unirpc.IssuanceProofResponse, error) {
+func (r *rpcServer) QueryProof(ctx context.Context,
+	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
 	universeID, err := unmarshalUniID(req.Id)
 	if err != nil {
@@ -2483,12 +2483,12 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 	}, nil
 }
 
-// InsertIssuanceProof attempts to insert a new issuance proof into the
-// Universe tree specified by the UniverseKey. If valid, then the proof is
-// inserted into the database, with a new Universe root returned for the
-// updated asset_id/group_key.
-func (r *rpcServer) InsertIssuanceProof(ctx context.Context,
-	req *unirpc.IssuanceProof) (*unirpc.IssuanceProofResponse, error) {
+// InsertProof attempts to insert a new issuance proof into the Universe tree
+// specified by the UniverseKey. If valid, then the proof is inserted into the
+// database, with a new Universe root returned for the updated
+// asset_id/group_key.
+func (r *rpcServer) InsertProof(ctx context.Context,
+	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
 
 	universeID, err := unmarshalUniID(req.Key.Id)
 	if err != nil {
