@@ -72,7 +72,7 @@ type UniverseClient interface {
 	// Universe server. Once a server is added, this call can also optionally be
 	// used to trigger a sync of the remote server.
 	AddFederationServer(ctx context.Context, in *AddFederationServerRequest, opts ...grpc.CallOption) (*AddFederationServerResponse, error)
-	// tapcli: `universe federation delete`
+	// tapcli: `universe federation del`
 	// DeleteFederationServer removes a server from the federation of the local
 	// Universe server.
 	DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error)
@@ -263,7 +263,7 @@ type UniverseServer interface {
 	// Universe server. Once a server is added, this call can also optionally be
 	// used to trigger a sync of the remote server.
 	AddFederationServer(context.Context, *AddFederationServerRequest) (*AddFederationServerResponse, error)
-	// tapcli: `universe federation delete`
+	// tapcli: `universe federation del`
 	// DeleteFederationServer removes a server from the federation of the local
 	// Universe server.
 	DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error)
