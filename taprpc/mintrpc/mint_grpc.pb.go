@@ -28,7 +28,7 @@ type MintClient interface {
 	// tapcli: `assets mint cancel`
 	// CancelBatch will attempt to cancel the current pending batch.
 	CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error)
-	// tapcli: `assets batches`
+	// tapcli: `assets mint batches`
 	// ListBatches lists the set of batches submitted to the daemon, including
 	// pending and cancelled batches.
 	ListBatches(ctx context.Context, in *ListBatchRequest, opts ...grpc.CallOption) (*ListBatchResponse, error)
@@ -92,7 +92,7 @@ type MintServer interface {
 	// tapcli: `assets mint cancel`
 	// CancelBatch will attempt to cancel the current pending batch.
 	CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error)
-	// tapcli: `assets batches`
+	// tapcli: `assets mint batches`
 	// ListBatches lists the set of batches submitted to the daemon, including
 	// pending and cancelled batches.
 	ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error)

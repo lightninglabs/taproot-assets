@@ -23,7 +23,7 @@ service Mint {
     */
     rpc CancelBatch (CancelBatchRequest) returns (CancelBatchResponse);
 
-    /* tapcli: `assets batches`
+    /* tapcli: `assets mint batches`
     ListBatches lists the set of batches submitted to the daemon, including
     pending and cancelled batches.
     */

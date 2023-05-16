@@ -88,7 +88,7 @@ service Universe {
     rpc AddFederationServer (AddFederationServerRequest)
         returns (AddFederationServerResponse);
 
-    /* tapcli: `universe federation delete`
+    /* tapcli: `universe federation del`
     DeleteFederationServer removes a server from the federation of the local
     Universe server.
     */

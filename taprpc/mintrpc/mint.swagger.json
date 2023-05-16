@@ -51,7 +51,7 @@
     },
     "/v1/taproot-assets/assets/mint/batches/{batch_key}": {
       "get": {
-        "summary": "tapcli: `assets batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
+        "summary": "tapcli: `assets mint batches`\nListBatches lists the set of batches submitted to the daemon, including\npending and cancelled batches.",
         "operationId": "Mint_ListBatches",
         "responses": {
           "200": {

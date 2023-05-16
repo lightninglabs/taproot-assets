@@ -39,7 +39,7 @@
         ]
       },
       "delete": {
-        "summary": "tapcli: `universe federation delete`\nDeleteFederationServer removes a server from the federation of the local\nUniverse server.",
+        "summary": "tapcli: `universe federation del`\nDeleteFederationServer removes a server from the federation of the local\nUniverse server.",
         "operationId": "Universe_DeleteFederationServer",
         "responses": {
           "200": {
