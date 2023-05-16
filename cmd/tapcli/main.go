@@ -45,7 +45,7 @@ const (
 )
 
 var (
-	defaultTapdDir     = btcutil.AppDataDir("tap", false)
+	defaultTapdDir     = btcutil.AppDataDir("tapd", false)
 	defaultTLSCertPath = filepath.Join(defaultTapdDir, defaultTLSCertFilename)
 
 	// maxMsgRecvSize is the largest message our client will receive. We
