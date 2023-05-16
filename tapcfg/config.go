@@ -79,7 +79,7 @@ const (
 
 	// defaultProofTransferNumTries is the default number of times we'll
 	// attempt to transfer a proof before ending the backoff procedure.
-	defaultProofTransferNumTries = 4
+	defaultProofTransferNumTries = 2000
 
 	// defaultProofTransferInitialBackoff is the default initial backoff
 	// time we'll use for proof transfers.
@@ -91,7 +91,7 @@ const (
 
 	// defaultProofTransferReceiverAckTimeout is the default timeout we'll
 	// use for waiting for a receiver to acknowledge a proof transfer.
-	defaultProofTransferReceiverAckTimeout = 10 * time.Second
+	defaultProofTransferReceiverAckTimeout = time.Hour * 6
 
 	// defaultuniverseSyncInterval is the default interval that we'll use
 	// to sync Universe state with the federation.
