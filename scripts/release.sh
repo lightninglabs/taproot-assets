@@ -109,12 +109,9 @@ function check_tag_correct() {
     tapd_version="v${BASH_REMATCH[1]}"
     green "version: $tapd_version"
 
-    # If tag contains a release candidate suffix, append this suffix to the
-    # tapd reported version before we compare.
-    RC_REGEX="-rc[0-9]+$"
-    if [[ $tag =~ $RC_REGEX ]]; then
-      tapd_version+=${BASH_REMATCH[0]}
-    fi
+    # If the tapd reported version contains a suffix, remove it, so we can match
+    # the tag properly.
+    tapd_version=$(echo "$tapd_version" | sed -e 's/-\(alpha\|beta\)\(\.rc[0-9]\+\)\?//g')
 
     # Match git tag with tapd version.
     if [[ $tag != "${tapd_version}" ]]; then
