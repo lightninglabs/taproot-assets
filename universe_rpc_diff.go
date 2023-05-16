@@ -155,7 +155,7 @@ func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
 	key universe.BaseKey) ([]*universe.IssuanceProof, error) {
 
-	uProofs, err := r.conn.QueryIssuanceProof(ctx, &universerpc.UniverseKey{
+	uProofs, err := r.conn.QueryProof(ctx, &universerpc.UniverseKey{
 		Id:      marshalUniID(id),
 		LeafKey: marshalLeafKey(key),
 	})

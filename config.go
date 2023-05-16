@@ -71,6 +71,8 @@ type DatabaseConfig struct {
 type Config struct {
 	DebugLevel string
 
+	AcceptRemoteUniverseProofs bool
+
 	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?
 	ChainParams chaincfg.Params
 

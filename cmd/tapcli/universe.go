@@ -336,7 +336,7 @@ func universeProofQuery(ctx *cli.Context) error {
 		return err
 	}
 
-	uProof, err := client.QueryIssuanceProof(ctxc, &universerpc.UniverseKey{
+	uProof, err := client.QueryProof(ctxc, &universerpc.UniverseKey{
 		Id:      universeID,
 		LeafKey: assetKey,
 	})
@@ -411,7 +411,7 @@ func universeProofInsert(ctx *cli.Context) error {
 		return err
 	}
 
-	req := &universerpc.IssuanceProof{
+	req := &universerpc.AssetProof{
 		Key: &universerpc.UniverseKey{
 			Id:      universeID,
 			LeafKey: assetKey,
@@ -421,7 +421,7 @@ func universeProofInsert(ctx *cli.Context) error {
 			IssuanceProof: rawProof,
 		},
 	}
-	resp, err := client.InsertIssuanceProof(ctxc, req)
+	resp, err := client.InsertProof(ctxc, req)
 	if err != nil {
 		return err
 	}

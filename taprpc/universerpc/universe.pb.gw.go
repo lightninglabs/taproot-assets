@@ -510,10 +510,10 @@ func local_request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime
 }
 
 var (
-	filter_Universe_QueryIssuanceProof_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
+	filter_Universe_QueryProof_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
 )
 
-func request_Universe_QueryIssuanceProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_Universe_QueryProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq UniverseKey
 	var metadata runtime.ServerMetadata
 
@@ -567,16 +567,16 @@ func request_Universe_QueryIssuanceProof_0(ctx context.Context, marshaler runtim
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryIssuanceProof_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.QueryIssuanceProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.QueryProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Universe_QueryIssuanceProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_Universe_QueryProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq UniverseKey
 	var metadata runtime.ServerMetadata
 
@@ -630,20 +630,20 @@ func local_request_Universe_QueryIssuanceProof_0(ctx context.Context, marshaler 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryIssuanceProof_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.QueryIssuanceProof(ctx, &protoReq)
+	msg, err := server.QueryProof(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
 var (
-	filter_Universe_QueryIssuanceProof_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
+	filter_Universe_QueryProof_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
 )
 
-func request_Universe_QueryIssuanceProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_Universe_QueryProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq UniverseKey
 	var metadata runtime.ServerMetadata
 
@@ -697,16 +697,16 @@ func request_Universe_QueryIssuanceProof_1(ctx context.Context, marshaler runtim
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryIssuanceProof_1); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.QueryIssuanceProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.QueryProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Universe_QueryIssuanceProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_Universe_QueryProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq UniverseKey
 	var metadata runtime.ServerMetadata
 
@@ -760,17 +760,17 @@ func local_request_Universe_QueryIssuanceProof_1(ctx context.Context, marshaler 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryIssuanceProof_1); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Universe_QueryProof_1); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.QueryIssuanceProof(ctx, &protoReq)
+	msg, err := server.QueryProof(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_Universe_InsertIssuanceProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq IssuanceProof
+func request_Universe_InsertProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -828,13 +828,13 @@ func request_Universe_InsertIssuanceProof_0(ctx context.Context, marshaler runti
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
 
-	msg, err := client.InsertIssuanceProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.InsertProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Universe_InsertIssuanceProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq IssuanceProof
+func local_request_Universe_InsertProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -892,13 +892,13 @@ func local_request_Universe_InsertIssuanceProof_0(ctx context.Context, marshaler
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
 
-	msg, err := server.InsertIssuanceProof(ctx, &protoReq)
+	msg, err := server.InsertProof(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_Universe_InsertIssuanceProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq IssuanceProof
+func request_Universe_InsertProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -956,13 +956,13 @@ func request_Universe_InsertIssuanceProof_1(ctx context.Context, marshaler runti
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
 
-	msg, err := client.InsertIssuanceProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.InsertProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Universe_InsertIssuanceProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq IssuanceProof
+func local_request_Universe_InsertProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -1020,7 +1020,7 @@ func local_request_Universe_InsertIssuanceProof_1(ctx context.Context, marshaler
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
 	}
 
-	msg, err := server.InsertIssuanceProof(ctx, &protoReq)
+	msg, err := server.InsertProof(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -1368,18 +1368,18 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 
 	})
 
-	mux.Handle("GET", pattern_Universe_QueryIssuanceProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Universe_QueryProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Universe_QueryIssuanceProof_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Universe_QueryProof_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -1387,22 +1387,22 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			return
 		}
 
-		forward_Universe_QueryIssuanceProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_QueryProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Universe_QueryIssuanceProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Universe_QueryProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Universe_QueryIssuanceProof_1(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Universe_QueryProof_1(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -1410,22 +1410,22 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			return
 		}
 
-		forward_Universe_QueryIssuanceProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_QueryProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_Universe_InsertIssuanceProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_Universe_InsertProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Universe_InsertIssuanceProof_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Universe_InsertProof_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -1433,22 +1433,22 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			return
 		}
 
-		forward_Universe_InsertIssuanceProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_InsertProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_Universe_InsertIssuanceProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_Universe_InsertProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Universe_InsertIssuanceProof_1(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Universe_InsertProof_1(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -1456,7 +1456,7 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 			return
 		}
 
-		forward_Universe_InsertIssuanceProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_InsertProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1779,83 +1779,83 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 
 	})
 
-	mux.Handle("GET", pattern_Universe_QueryIssuanceProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Universe_QueryProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Universe_QueryIssuanceProof_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Universe_QueryProof_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Universe_QueryIssuanceProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_QueryProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Universe_QueryIssuanceProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Universe_QueryProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/QueryProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Universe_QueryIssuanceProof_1(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Universe_QueryProof_1(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Universe_QueryIssuanceProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_QueryProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_Universe_InsertIssuanceProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_Universe_InsertProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Universe_InsertIssuanceProof_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Universe_InsertProof_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Universe_InsertIssuanceProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_InsertProof_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_Universe_InsertIssuanceProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_Universe_InsertProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertIssuanceProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/InsertProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Universe_InsertIssuanceProof_1(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Universe_InsertProof_1(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Universe_InsertIssuanceProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Universe_InsertProof_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1997,13 +1997,13 @@ var (
 
 	pattern_Universe_AssetLeaves_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "universe", "leaves", "group-key", "group_key_str"}, ""))
 
-	pattern_Universe_QueryIssuanceProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
+	pattern_Universe_QueryProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "id.asset_id_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
 
-	pattern_Universe_QueryIssuanceProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "id.group_key_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
+	pattern_Universe_QueryProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "id.group_key_str", "leaf_key.op.hash_str", "leaf_key.op.index", "leaf_key.script_key_str"}, ""))
 
-	pattern_Universe_InsertIssuanceProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_InsertProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
 
-	pattern_Universe_InsertIssuanceProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+	pattern_Universe_InsertProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
 
 	pattern_Universe_SyncUniverse_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "sync"}, ""))
 
@@ -2033,13 +2033,13 @@ var (
 
 	forward_Universe_AssetLeaves_1 = runtime.ForwardResponseMessage
 
-	forward_Universe_QueryIssuanceProof_0 = runtime.ForwardResponseMessage
+	forward_Universe_QueryProof_0 = runtime.ForwardResponseMessage
 
-	forward_Universe_QueryIssuanceProof_1 = runtime.ForwardResponseMessage
+	forward_Universe_QueryProof_1 = runtime.ForwardResponseMessage
 
-	forward_Universe_InsertIssuanceProof_0 = runtime.ForwardResponseMessage
+	forward_Universe_InsertProof_0 = runtime.ForwardResponseMessage
 
-	forward_Universe_InsertIssuanceProof_1 = runtime.ForwardResponseMessage
+	forward_Universe_InsertProof_1 = runtime.ForwardResponseMessage
 
 	forward_Universe_SyncUniverse_0 = runtime.ForwardResponseMessage
 

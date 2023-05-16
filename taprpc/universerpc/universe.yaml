@@ -24,17 +24,17 @@ http:
     - selector: universerpc.Universe.AssetLeaves
       get: "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"
 
-    - selector: universerpc.Universe.QueryIssuanceProof
+    - selector: universerpc.Universe.QueryProof
       get: "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
 
-    - selector: universerpc.Universe.QueryIssuanceProof
+    - selector: universerpc.Universe.QueryProof
       get: "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
 
-    - selector: universerpc.Universe.InsertIssuanceProof
+    - selector: universerpc.Universe.InsertProof
       post: "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
       body: "*"
 
-    - selector: universerpc.Universe.InsertIssuanceProof
+    - selector: universerpc.Universe.InsertProof
       post: "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
       body: "*"
 

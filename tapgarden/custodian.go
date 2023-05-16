@@ -369,9 +369,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				return
 			}
 
-			log.Debugf("Received proof for script key %x: %v",
-				addr.ScriptKey.SerializeCompressed(),
-				addrProof)
+			log.Debugf("Received proof for: script_key=%x, "+
+				"asset_id=%x",
+				addr.ScriptKey.SerializeCompressed(), assetID)
 
 			ctx, cancel = c.CtxBlocking()
 			defer cancel()

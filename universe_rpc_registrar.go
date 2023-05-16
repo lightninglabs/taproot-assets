@@ -55,7 +55,7 @@ func NewRpcUniverseRegistar(serverAddr universe.ServerAddr,
 // unmarshalIssuanceProof unmarshals an issuance proof response into a struct
 // useable by the universe package.
 func unmarshalIssuanceProof(ctx context.Context,
-	uniKey *unirpc.UniverseKey, proofResp *unirpc.IssuanceProofResponse,
+	uniKey *unirpc.UniverseKey, proofResp *unirpc.AssetProofResponse,
 ) (*universe.IssuanceProof, error) {
 
 	baseKey, err := unmarshalLeafKey(uniKey.LeafKey)
@@ -113,12 +113,10 @@ func (r *RpcUniverseRegistar) RegisterIssuance(ctx context.Context,
 
 	// With the RPC req prepared, we'll now send it off to the remote
 	// Universe serve as a new proof insertion request.
-	proofResp, err := r.conn.InsertIssuanceProof(
-		ctx, &unirpc.IssuanceProof{
-			Key:       uniKey,
-			AssetLeaf: assetLeaf,
-		},
-	)
+	proofResp, err := r.conn.InsertProof(ctx, &unirpc.AssetProof{
+		Key:       uniKey,
+		AssetLeaf: assetLeaf,
+	})
 	if err != nil {
 		return nil, err
 	}

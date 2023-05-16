@@ -532,7 +532,7 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 // archive and then transfers the receiver's proof to the receiver. Upon
 // successful transfer, the asset parcel delivery is marked as complete.
 func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
-	ctx, cancel := p.CtxBlocking()
+	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
 	deliver := func(ctx context.Context, out TransferOutput) error {
@@ -962,8 +962,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, the transfer transaction is confirmed on-chain. We go
 	// on to store the sender and receiver proofs in the proof archive.
 	case SendStateReceiverProofTransfer:
-		err := p.transferReceiverProof(&currentPkg)
-		return &currentPkg, err
+
+		// We'll set the package state to complete early here so the
+		// main loop breaks out. We'll continue to attempt proof
+		// deliver in the background.
+		currentPkg.SendState = SendStateComplete
+
+		p.Wg.Add(1)
+		go func() {
+			defer p.Wg.Done()
+
+			err := p.transferReceiverProof(&currentPkg)
+			if err != nil {
+				log.Errorf("unable to transfer receiver "+
+					"proof: %v", err)
+			}
+		}()
+
+		return &currentPkg, nil
 
 	default:
 		return &currentPkg, fmt.Errorf("unknown state: %v",

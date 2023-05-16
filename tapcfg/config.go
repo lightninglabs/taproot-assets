@@ -51,6 +51,10 @@ const (
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
 
+	defaultAcceptRemoteProofs = false
+
+	defaultTestnetFederationServer = "testnet.universe.lightning.finance:12010"
+
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
 	// (14 months * 30 days * 24 hours).
@@ -79,7 +83,7 @@ const (
 
 	// defaultProofTransferNumTries is the default number of times we'll
 	// attempt to transfer a proof before ending the backoff procedure.
-	defaultProofTransferNumTries = 4
+	defaultProofTransferNumTries = 2000
 
 	// defaultProofTransferInitialBackoff is the default initial backoff
 	// time we'll use for proof transfers.
@@ -91,7 +95,7 @@ const (
 
 	// defaultProofTransferReceiverAckTimeout is the default timeout we'll
 	// use for waiting for a receiver to acknowledge a proof transfer.
-	defaultProofTransferReceiverAckTimeout = 10 * time.Second
+	defaultProofTransferReceiverAckTimeout = time.Hour * 6
 
 	// defaultuniverseSyncInterval is the default interval that we'll use
 	// to sync Universe state with the federation.
@@ -219,6 +223,16 @@ type LndConfig struct {
 	TLSPath string `long:"tlspath" description:"Path to lnd tls certificate"`
 }
 
+// UniverseConfig is the config that houses any Universe related config
+// values.
+type UniverseConfig struct {
+	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
+
+	AcceptRemoteProofs bool `long:"accept-remote-proofs" description:"If true, then if the Universe server is on a public interface, valid proof from remote parties will be accepted"`
+
+	FederationServers []string `long:"federationserver" description:"The host:port of a Universe server peer with. These servers will be added as the default set of federation servers. Can be specified multiple times."`
+}
+
 // Config is the main config for the tapd cli command.
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
@@ -251,7 +265,7 @@ type Config struct {
 	Sqlite          *tapdb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
 	Postgres        *tapdb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
-	UniverseSyncInterval time.Duration `long:"unisyncinterval" description:"Amount of time to wait between universe syncs"`
+	Universe *UniverseConfig `group:"universe" namespace:"universe"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
@@ -319,7 +333,10 @@ func DefaultConfig() Config {
 				MaxBackoff:       defaultProofTransferMaxBackoff,
 			},
 		},
-		UniverseSyncInterval: defaultUniverseSyncInterval,
+		Universe: &UniverseConfig{
+			SyncInterval:       defaultUniverseSyncInterval,
+			AcceptRemoteProofs: defaultAcceptRemoteProofs,
+		},
 	}
 }
 

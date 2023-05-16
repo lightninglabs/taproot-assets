@@ -132,11 +132,11 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
-		"/universerpc.Universe/QueryIssuanceProof": {{
+		"/universerpc.Universe/QueryProof": {{
 			Entity: "universe",
 			Action: "read",
 		}},
-		"/universerpc.Universe/InsertIssuanceProof": {{
+		"/universerpc.Universe/InsertProof": {{
 			Entity: "universe",
 			Action: "write",
 		}},
@@ -168,14 +168,14 @@ var (
 
 	// MacaroonWhitelist defines methods that we don't require macaroons to
 	// access. For now, these are the Universe related read/write methods.
-	// We permit InsertIssuanceProof as a valid proof requires an on-chain
+	// We permit InsertProof as a valid proof requires an on-chain
 	// transaction, so we gain a layer of DoS defense.
 	MacaroonWhitelist = map[string]struct{}{
-		"/universerpc.Universe/AssetRoots":          {},
-		"/universerpc.Universe/QueryAssetRoots":     {},
-		"/universerpc.Universe/AssetLeafKeys":       {},
-		"/universerpc.Universe/AssetLeaves":         {},
-		"/universerpc.Universe/QueryIssuanceProof":  {},
-		"/universerpc.Universe/InsertIssuanceProof": {},
+		"/universerpc.Universe/AssetRoots":      {},
+		"/universerpc.Universe/QueryAssetRoots": {},
+		"/universerpc.Universe/AssetLeafKeys":   {},
+		"/universerpc.Universe/AssetLeaves":     {},
+		"/universerpc.Universe/QueryProof":      {},
+		"/universerpc.Universe/InsertProof":     {},
 	}
 )

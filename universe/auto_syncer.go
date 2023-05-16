@@ -44,6 +44,11 @@ type FederationConfig struct {
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+
+	// StaticFederationMembers is a set of static federation members
+	// that'll be added on start up, and used to sync and push out proofs
+	// with.
+	StaticFederationMembers []string
 }
 
 // FederationPushReq is used to push out new updates to all or some members of
@@ -95,6 +100,17 @@ func NewFederationEnvoy(cfg FederationConfig) *FederationEnvoy {
 func (f *FederationEnvoy) Start() error {
 	f.startOnce.Do(func() {
 		log.Infof("Starting FederationEnvoy")
+
+		// Before we start the main goroutine, we'll add the set of
+		// static Universe servers.
+		addrs := f.cfg.StaticFederationMembers
+		serverAddrs := chanutils.Map(addrs, func(a string) ServerAddr {
+			return NewServerAddrFromStr(a)
+		})
+		err := f.AddServer(serverAddrs...)
+		if err != nil {
+			log.Warnf("unable to add universe servers: %v", err)
+		}
 
 		f.Wg.Add(1)
 
@@ -221,7 +237,7 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
 	err = chanutils.ParSlice(ctx, fedServers, pushNewProof)
 	if err != nil {
 		// TODO(roasbeef): retry in the background until successful?
-		log.Errorf("unable to push proof to federation: %w", err)
+		log.Errorf("unable to push proof to federation: %v", err)
 		return
 	}
 }
@@ -365,7 +381,7 @@ func (f *FederationEnvoy) AddServer(addrs ...ServerAddr) error {
 
 		err := chanutils.ParSlice(ctx, addrs, f.syncUniverseState)
 		if err != nil {
-			log.Warnf("unable to sync universe state: %w", err)
+			log.Warnf("unable to sync universe state: %v", err)
 		}
 	}()
 
