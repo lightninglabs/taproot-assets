@@ -219,6 +219,12 @@ type LndConfig struct {
 	TLSPath string `long:"tlspath" description:"Path to lnd tls certificate"`
 }
 
+// UniverseConfig is the config that houses any Universe related config
+// values.
+type UniverseConfig struct {
+	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
+}
+
 // Config is the main config for the tapd cli command.
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
@@ -251,7 +257,7 @@ type Config struct {
 	Sqlite          *tapdb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
 	Postgres        *tapdb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
-	UniverseSyncInterval time.Duration `long:"unisyncinterval" description:"Amount of time to wait between universe syncs"`
+	Universe *UniverseConfig
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
@@ -319,7 +325,9 @@ func DefaultConfig() Config {
 				MaxBackoff:       defaultProofTransferMaxBackoff,
 			},
 		},
-		UniverseSyncInterval: defaultUniverseSyncInterval,
+		Universe: &UniverseConfig{
+			SyncInterval: defaultUniverseSyncInterval,
+		},
 	}
 }
 
