@@ -43,7 +43,7 @@ type CourierHarness interface {
 	Stop() error
 }
 
-// Courier abstracts away from the final proof retrival/delivery process as
+// Courier abstracts away from the final proof retrieval/delivery process as
 // part of the non-interactive send flow. A sender can use this given the
 // abstracted Addr/source type to send a proof to the receiver. Conversely, a
 // receiver can use this to fetch a proof from the sender.
@@ -63,7 +63,7 @@ type Courier[Addr any] interface {
 	SetSubscribers(map[uint64]*chanutils.EventReceiver[chanutils.Event])
 }
 
-// ProofMailbox represents an abstract store-and-forward maillbox that can be
+// ProofMailbox represents an abstract store-and-forward mailbox that can be
 // used to send/receive proofs.
 type ProofMailbox interface {
 	// Init creates a mailbox given the specified stream ID.
@@ -76,13 +76,13 @@ type ProofMailbox interface {
 	ReadProof(ctx context.Context, sid streamID) (Blob, error)
 
 	// AckProof sends an ACK from the receiver to the sender that a proof
-	// has been recevied.
+	// has been received.
 	AckProof(ctx context.Context, sid streamID) error
 
 	// RecvAck waits for the sender to receive the ack from the receiver.
 	RecvAck(ctx context.Context, sid streamID) error
 
-	// CleanUp atempts to tear down the mailbox as specified by the passed
+	// CleanUp attempts to tear down the mailbox as specified by the passed
 	// sid.
 	CleanUp(ctx context.Context, sid streamID) error
 }
