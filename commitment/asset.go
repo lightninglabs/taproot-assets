@@ -74,6 +74,9 @@ type AssetCommitment struct {
 	// every committed asset must match if their asset.ID differs.
 	AssetID [32]byte
 
+	// AssetType is the type of asset(s) committed to within the tree.
+	AssetType asset.Type
+
 	// TreeRoot is the root node of the MS-SMT containing all of the
 	// committed assets.
 	TreeRoot *mssmt.BranchNode
@@ -98,11 +101,27 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		return nil, ErrNoAssets
 	}
 
-	maxVersion := asset.Version(0)
-	assetGenesis := assets[0].Genesis.ID()
-	assetGroupKey := assets[0].GroupKey
-	assetsMap := make(CommittedAssets, len(assets))
-	for _, asset := range assets {
+	var (
+		assetType     asset.Type
+		maxVersion    = asset.Version(0)
+		assetGenesis  = assets[0].Genesis.ID()
+		assetGroupKey = assets[0].GroupKey
+		assetsMap     = make(CommittedAssets, len(assets))
+	)
+	for idx, asset := range assets {
+		// Inspect the first asset to note properties which should be
+		// consistent across all assets.
+		if idx == 0 {
+			// Set the asset type from the first asset.
+			assetType = asset.Type
+		}
+
+		// Return error if the asset type doesn't match the previously
+		// encountered asset types.
+		if assetType != asset.Type {
+			return nil, ErrAssetTypeMismatch
+		}
+
 		switch {
 		case !assetGroupKey.IsEqualGroup(asset.GroupKey):
 			return nil, ErrAssetGroupKeyMismatch
@@ -148,9 +167,10 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	}
 
 	return &AssetCommitment{
-		Version: maxVersion,
-		AssetID: assetID,
-		assets:  assetsMap,
+		Version:   maxVersion,
+		AssetID:   assetID,
+		AssetType: assetType,
+		assets:    assetsMap,
 	}, nil
 }
 
@@ -194,14 +214,10 @@ func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
 		return ErrNoAssets
 	}
 
-	// Sanity check the asset type of the given asset. Since we don't store
-	// the asset type in the AssetCommitment, we fetch the type of a random,
-	// already included and validated asset.
-	for _, randAsset := range c.assets {
-		if randAsset.Type != asset.Type {
-			return ErrAssetTypeMismatch
-		}
-		break
+	// Sanity check the asset type of the given asset. This check ensures
+	// that all assets committed to within the tree are of the same type.
+	if c.AssetType != asset.Type {
+		return ErrAssetTypeMismatch
 	}
 
 	// The given Asset must have an ID that matches the AssetCommitment ID.
@@ -264,6 +280,11 @@ func (c *AssetCommitment) Delete(asset *asset.Asset) error {
 			return ErrAssetGroupKeyMismatch
 		}
 		return ErrAssetGenesisMismatch
+	}
+
+	// Ensure the given asset is of the expected type.
+	if c.AssetType != asset.Type {
+		return ErrAssetTypeMismatch
 	}
 
 	key := asset.AssetCommitmentKey()
@@ -379,6 +400,12 @@ func (c *AssetCommitment) Copy() (*AssetCommitment, error) {
 // commitment is empty, then this is a no-op. If the other commitment was
 // not constructed with NewAssetCommitment, then an error is returned.
 func (c *AssetCommitment) Merge(other *AssetCommitment) error {
+	// Ensure that the given asset commitment commits assets of the expected
+	// type.
+	if c.AssetType != other.AssetType {
+		return ErrAssetTypeMismatch
+	}
+
 	// If this was not constructed with NewAssetCommitment then we can't
 	// merge as we don't have the assets available.
 	if other.assets == nil {
