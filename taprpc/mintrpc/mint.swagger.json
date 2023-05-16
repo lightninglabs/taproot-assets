@@ -329,10 +329,10 @@
     "taprpcAssetMetaType": {
       "type": "string",
       "enum": [
-        "MTEA_TYPE_OPAQUE"
+        "META_TYPE_OPAQUE"
       ],
-      "default": "MTEA_TYPE_OPAQUE",
-      "description": " - MTEA_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
+      "default": "META_TYPE_OPAQUE",
+      "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
     },
     "taprpcAssetType": {
       "type": "string",
