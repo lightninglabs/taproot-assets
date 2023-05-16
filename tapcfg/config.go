@@ -53,6 +53,8 @@ const (
 
 	defaultAcceptRemoteProofs = false
 
+	defaultTestnetFederationServer = "testnet.universe.lightning.finance:12010"
+
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
 	// (14 months * 30 days * 24 hours).
@@ -227,6 +229,8 @@ type UniverseConfig struct {
 	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
 
 	AcceptRemoteProofs bool `long:"accept-remote-proofs" description:"If true, then if the Universe server is on a public interface, valid proof from remote parties will be accepted"`
+
+	FederationServers []string `long:"federationserver" description:"The host:port of a Universe server peer with. These servers will be added as the default set of federation servers. Can be specified multiple times."`
 }
 
 // Config is the main config for the tapd cli command.
@@ -261,7 +265,7 @@ type Config struct {
 	Sqlite          *tapdb.SqliteConfig   `group:"sqlite" namespace:"sqlite"`
 	Postgres        *tapdb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
-	Universe *UniverseConfig
+	Universe *UniverseConfig `group:"universe" namespace:"universe"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.

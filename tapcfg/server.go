@@ -177,14 +177,26 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		LocalRegistrar:      baseUni,
 	})
 
+	federationMembers := cfg.Universe.FederationServers
+	switch cfg.ChainConf.Network {
+	case "testnet":
+		cfgLogger.Infof("Configuring %v as initial Universe "+
+			"federation server", defaultTestnetFederationServer)
+
+		federationMembers = append(
+			federationMembers, defaultTestnetFederationServer,
+		)
+	}
+
 	universeFederation := universe.NewFederationEnvoy(
 		universe.FederationConfig{
-			FederationDB:       federationDB,
-			UniverseSyncer:     universeSyncer,
-			LocalRegistrar:     baseUni,
-			SyncInterval:       cfg.Universe.SyncInterval,
-			NewRemoteRegistrar: tap.NewRpcUniverseRegistar,
-			ErrChan:            mainErrChan,
+			FederationDB:            federationDB,
+			UniverseSyncer:          universeSyncer,
+			LocalRegistrar:          baseUni,
+			SyncInterval:            cfg.Universe.SyncInterval,
+			NewRemoteRegistrar:      tap.NewRpcUniverseRegistar,
+			StaticFederationMembers: federationMembers,
+			ErrChan:                 mainErrChan,
 		},
 	)
 
