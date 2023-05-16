@@ -2490,6 +2490,10 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
 
+	if !r.cfg.AcceptRemoteUniverseProofs {
+		return nil, fmt.Errorf("remote proofs not accepted")
+	}
+
 	universeID, err := unmarshalUniID(req.Key.Id)
 	if err != nil {
 		return nil, err

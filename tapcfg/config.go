@@ -51,6 +51,8 @@ const (
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
 
+	defaultAcceptRemoteProofs = false
+
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
 	// (14 months * 30 days * 24 hours).
@@ -223,6 +225,8 @@ type LndConfig struct {
 // values.
 type UniverseConfig struct {
 	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
+
+	AcceptRemoteProofs bool `long:"accept-remote-proofs" description:"If true, then if the Universe server is on a public interface, valid proof from remote parties will be accepted"`
 }
 
 // Config is the main config for the tapd cli command.
@@ -326,7 +330,8 @@ func DefaultConfig() Config {
 			},
 		},
 		Universe: &UniverseConfig{
-			SyncInterval: defaultUniverseSyncInterval,
+			SyncInterval:       defaultUniverseSyncInterval,
+			AcceptRemoteProofs: defaultAcceptRemoteProofs,
 		},
 	}
 }

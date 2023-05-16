@@ -97,6 +97,8 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 	tapCfg.TapdDir = cfg.BaseDir
 	tapCfg.DebugLevel = *logLevel
 
+	tapCfg.Universe.AcceptRemoteProofs = true
+
 	// Decide which DB backend to use.
 	switch *dbbackend {
 	case tapcfg.DatabaseBackendSqlite:
