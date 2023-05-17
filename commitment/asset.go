@@ -102,11 +102,12 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 	}
 
 	var (
-		assetType     asset.Type
-		maxVersion    = asset.Version(0)
-		assetGenesis  = assets[0].Genesis.ID()
-		assetGroupKey = assets[0].GroupKey
-		assetsMap     = make(CommittedAssets, len(assets))
+		assetType        asset.Type
+		tapCommitmentKey [32]byte
+		maxVersion       = asset.Version(0)
+		assetGenesis     = assets[0].Genesis.ID()
+		assetGroupKey    = assets[0].GroupKey
+		assetsMap        = make(CommittedAssets, len(assets))
 	)
 	for idx, asset := range assets {
 		// Inspect the first asset to note properties which should be
@@ -114,6 +115,10 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		if idx == 0 {
 			// Set the asset type from the first asset.
 			assetType = asset.Type
+
+			// Set the expected tapCommitmentKey from the first
+			// asset.
+			tapCommitmentKey = asset.TapCommitmentKey()
 		}
 
 		// Return error if the asset type doesn't match the previously
@@ -140,6 +145,16 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 			if !validSig {
 				return nil, ErrAssetGenesisInvalidSig
 			}
+		}
+
+		// Return error if the asset's tap commitment key doesn't match
+		// the previously encountered key.
+		//
+		// NOTE: This sanity check executes after the group key check
+		// because it is a less specific check.
+		if tapCommitmentKey != asset.TapCommitmentKey() {
+			return nil, fmt.Errorf("inconsistent asset " +
+				"TapCommitmentKey")
 		}
 
 		key := asset.AssetCommitmentKey()
