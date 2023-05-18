@@ -79,6 +79,9 @@ type TaprootAssetsClient interface {
 	// send, as well as the proof file information the receiver needs to fully
 	// receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
+	// tapcli: `getinfo`
+	// GetInfo returns the information for the node.
+	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
 	// SubscribeSendAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendAssetEventNtfnsClient, error)
@@ -230,6 +233,15 @@ func (c *taprootAssetsClient) SendAsset(ctx context.Context, in *SendAssetReques
 	return out, nil
 }
 
+func (c *taprootAssetsClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error) {
+	out := new(GetInfoResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/GetInfo", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taprootAssetsClient) SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendAssetEventNtfnsClient, error) {
 	stream, err := c.cc.NewStream(ctx, &TaprootAssets_ServiceDesc.Streams[0], "/taprpc.TaprootAssets/SubscribeSendAssetEventNtfns", opts...)
 	if err != nil {
@@ -336,6 +348,9 @@ type TaprootAssetsServer interface {
 	// send, as well as the proof file information the receiver needs to fully
 	// receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
+	// tapcli: `getinfo`
+	// GetInfo returns the information for the node.
+	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
 	// SubscribeSendAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TaprootAssets_SubscribeSendAssetEventNtfnsServer) error
@@ -393,6 +408,9 @@ func (UnimplementedTaprootAssetsServer) ImportProof(context.Context, *ImportProo
 }
 func (UnimplementedTaprootAssetsServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
+}
+func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
 }
 func (UnimplementedTaprootAssetsServer) SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TaprootAssets_SubscribeSendAssetEventNtfnsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeSendAssetEventNtfns not implemented")
@@ -683,6 +701,24 @@ func _TaprootAssets_SendAsset_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_GetInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).GetInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/GetInfo",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).GetInfo(ctx, req.(*GetInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_SubscribeSendAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeSendAssetEventNtfnsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -788,6 +824,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendAsset",
 			Handler:    _TaprootAssets_SendAsset_Handler,
+		},
+		{
+			MethodName: "GetInfo",
+			Handler:    _TaprootAssets_GetInfo_Handler,
 		},
 		{
 			MethodName: "FetchAssetMeta",
