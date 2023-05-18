@@ -14,6 +14,10 @@ http:
       post: "/v1/taproot-assets/debuglevel"
       body: "*"
 
+    - selector: taprpc.TaprootAssets.GetInfo
+      post: "/v1/taproot-assets/getinfo"
+      body: "*"
+
     - selector: taprpc.TaprootAssets.QueryAddrs
       get: "/v1/taproot-assets/addrs"
 
