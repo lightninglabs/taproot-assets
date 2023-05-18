@@ -405,6 +405,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/getinfo": {
+      "post": {
+        "summary": "tarocli: `getinfo`\nGetInfo returns the information for the node.",
+        "operationId": "TaprootAssets_GetInfo",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcGetInfoResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcGetInfoRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/proofs/export": {
       "post": {
         "summary": "tapcli: `proofs export`\nExportProof exports the latest raw proof file anchored at the specified\nscript_key.",
@@ -1120,6 +1153,23 @@
           "type": "integer",
           "format": "int32",
           "description": "The version of the Taproot Asset commitment that created this asset."
+        }
+      }
+    },
+    "taprpcGetInfoRequest": {
+      "type": "object"
+    },
+    "taprpcGetInfoResponse": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "lnd_version": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
         }
       }
     },
