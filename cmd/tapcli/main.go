@@ -319,6 +319,7 @@ func main() {
 		stopCommand,
 		debugLevelCommand,
 		profileSubCommand,
+		getInfoCommand,
 	}
 	app.Commands = append(app.Commands, assetsCommands...)
 	app.Commands = append(app.Commands, addrCommands...)
