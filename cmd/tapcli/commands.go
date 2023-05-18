@@ -116,3 +116,25 @@ func stopDaemon(ctx *cli.Context) error {
 
 	return nil
 }
+
+var getInfoCommand = cli.Command{
+	Name:        "getinfo",
+	Usage:       "Get daemon info.",
+	Description: "Returns basic information related to the active daemon.",
+	Action:      getInfo,
+}
+
+func getInfo(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &taprpc.GetInfoRequest{}
+	resp, err := client.GetInfo(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
