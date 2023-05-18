@@ -16,6 +16,10 @@ var (
 			Entity: "daemon",
 			Action: "write",
 		}},
+		"/taprpc.TaprootAssets/GetInfo": {{
+			Entity: "daemon",
+			Action: "read",
+		}},
 		"/taprpc.TaprootAssets/ListAssets": {{
 			Entity: "assets",
 			Action: "read",
