@@ -119,4 +119,8 @@ var testCases = []*testCase{
 		name: "universe federation",
 		test: testUniverseFederation,
 	},
+	{
+		name: "get info",
+		test: testGetInfo,
+	},
 }
