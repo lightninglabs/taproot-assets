@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -17,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -79,12 +77,6 @@ var (
 	client = http.Client{
 		Transport: transport,
 		Timeout:   1 * time.Second,
-	}
-	jsonMarshaler = &proxy.JSONPb{
-		MarshalOptions: protojson.MarshalOptions{
-			UseProtoNames:   true,
-			EmitUnpopulated: true,
-		},
 	}
 )
 

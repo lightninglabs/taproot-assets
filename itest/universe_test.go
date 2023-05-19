@@ -9,10 +9,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
+	"google.golang.org/protobuf/proto"
 )
 
 // testUniverseSync tests that we're able to properly sync the universe state
@@ -135,7 +137,7 @@ func testUniverseREST(t *harnessTest) {
 
 	// First of all, get all roots and make sure our assets are contained
 	// in the returned list.
-	roots, err := getJSON[unirpc.AssetRootResponse](
+	roots, err := getJSON[*unirpc.AssetRootResponse](
 		fmt.Sprintf("%s/roots", urlPrefix),
 	)
 	require.NoError(t.t, err)
@@ -151,7 +153,7 @@ func testUniverseREST(t *harnessTest) {
 		)
 
 		// Query the specific root to make sure we get the same result.
-		assetRoot, err := getJSON[unirpc.QueryRootResponse](
+		assetRoot, err := getJSON[*unirpc.QueryRootResponse](
 			fmt.Sprintf("%s/roots/asset-id/%s", urlPrefix, assetID),
 		)
 		require.NoError(t.t, err)
@@ -178,7 +180,7 @@ func testUniverseREST(t *harnessTest) {
 		queryURI := fmt.Sprintf(
 			"%s/roots/group-key/%s", urlPrefix, queryGroupKey,
 		)
-		assetRoot, err := getJSON[unirpc.QueryRootResponse](queryURI)
+		assetRoot, err := getJSON[*unirpc.QueryRootResponse](queryURI)
 		require.NoError(t.t, err)
 
 		require.Equal(
@@ -190,12 +192,13 @@ func testUniverseREST(t *harnessTest) {
 
 // getJSON retrieves the body of a given URL, ignoring any TLS certificate the
 // server might present.
-func getJSON[T any](url string) (*T, error) {
-	jsonResp := new(T)
+func getJSON[T proto.Message](url string) (T, error) {
+	var jsonType T
+	jsonResp := jsonType.ProtoReflect().New().Interface()
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return jsonResp, err
+		return jsonType, err
 	}
 
 	defer func() {
@@ -204,15 +207,16 @@ func getJSON[T any](url string) (*T, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return jsonResp, err
+		return jsonType, err
 	}
 
-	if err = jsonMarshaler.Unmarshal(body, jsonResp); err != nil {
-		return jsonResp, fmt.Errorf("failed to unmarshal %s: %v", body,
+	err = taprpc.RESTJsonUnmarshalOpts.Unmarshal(body, jsonResp)
+	if err != nil {
+		return jsonType, fmt.Errorf("failed to unmarshal %s: %v", body,
 			err)
 	}
 
-	return jsonResp, nil
+	return jsonResp.(T), nil
 }
 
 func testUniverseFederation(t *harnessTest) {
