@@ -136,7 +136,7 @@ enum AssetMetaType {
     Opaque is used for asset meta blobs that have no true structure and instead
     should be interpreted as opaque blobs.
     */
-    MTEA_TYPE_OPAQUE = 0;
+    META_TYPE_OPAQUE = 0;
 }
 
 message AssetMeta {
