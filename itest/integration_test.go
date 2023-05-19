@@ -4,10 +4,12 @@
 package itest
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -84,4 +86,18 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			return
 		}
 	}
+}
+
+// testGetInfo tests the GetInfo RPC call.
+func testGetInfo(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := t.tapd.GetInfo(ctxt, &taprpc.GetInfoRequest{})
+	require.NoError(t.t, err)
+
+	// Ensure network field is set correctly.
+	expectedNetwork := t.tapd.cfg.NetParams.Name
+	require.Equal(t.t, expectedNetwork, resp.Network)
 }

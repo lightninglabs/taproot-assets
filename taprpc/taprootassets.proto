@@ -96,6 +96,11 @@ service TaprootAssets {
     */
     rpc SendAsset (SendAssetRequest) returns (SendAssetResponse);
 
+    /* tapcli: `getinfo`
+    GetInfo returns the information for the node.
+    */
+    rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
+
     /*
     SubscribeSendAssetEventNtfns registers a subscription to the event
     notification stream which relates to the asset sending process.
@@ -759,6 +764,15 @@ message PrevInputAsset {
 
 message SendAssetResponse {
     AssetTransfer transfer = 1;
+}
+
+message GetInfoRequest {
+}
+
+message GetInfoResponse {
+    string version = 1;
+    string lnd_version = 2;
+    string network = 3;
 }
 
 message SubscribeSendAssetEventNtfnsRequest {

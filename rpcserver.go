@@ -252,6 +252,18 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 	return &taprpc.DebugLevelResponse{}, nil
 }
 
+// GetInfo returns general information relating to the active daemon. For
+// example: its version, network, and lnd version.
+func (r *rpcServer) GetInfo(context.Context,
+	*taprpc.GetInfoRequest) (*taprpc.GetInfoResponse, error) {
+
+	return &taprpc.GetInfoResponse{
+		Version:    Version(),
+		LndVersion: r.cfg.Lnd.Version.Version,
+		Network:    r.cfg.ChainParams.Name,
+	}, nil
+}
+
 // MintAsset attempts to mint the set of assets (async by default to ensure
 // proper batching) specified in the request.
 func (r *rpcServer) MintAsset(ctx context.Context,
