@@ -13,13 +13,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/perms"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -410,10 +410,8 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer) (func(), error) {
 	// that the marshaler prints all values, even if they are falsey.
 	customMarshalerOption := proxy.WithMarshalerOption(
 		proxy.MIMEWildcard, &proxy.JSONPb{
-			MarshalOptions: protojson.MarshalOptions{
-				UseProtoNames:   true,
-				EmitUnpopulated: true,
-			},
+			MarshalOptions:   *taprpc.RESTJsonMarshalOpts,
+			UnmarshalOptions: *taprpc.RESTJsonUnmarshalOpts,
 		},
 	)
 	mux := proxy.NewServeMux(
