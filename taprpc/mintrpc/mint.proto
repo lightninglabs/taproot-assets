@@ -123,9 +123,16 @@ message CancelBatchResponse {
 }
 
 message ListBatchRequest {
-    // The optional batch key of the batch to list. When using REST this field
-    // must be encoded as base64url.
-    bytes batch_key = 1;
+    // The optional batch key of the batch to list.
+    oneof filter {
+        // The optional batch key of the batch to list, specified as raw bytes
+        // (gRPC only).
+        bytes batch_key = 1;
+
+        // The optional batch key of the batch to list, specified as a hex
+        // encoded string (use this for REST).
+        string batch_key_str = 2;
+    }
 }
 
 message ListBatchResponse {
