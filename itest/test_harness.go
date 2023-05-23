@@ -17,8 +17,6 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
-	"github.com/lightninglabs/protobuf-hex-display/proto"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -30,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -515,18 +514,12 @@ func shutdownAndAssert(t *harnessTest, node *node.HarnessNode,
 }
 
 func formatProtoJSON(resp proto.Message) (string, error) {
-	jsonMarshaler := &jsonpb.Marshaler{
-		EmitDefaults: true,
-		OrigName:     true,
-		Indent:       "    ",
-	}
-
-	jsonStr, err := jsonMarshaler.MarshalToString(resp)
+	jsonBytes, err := taprpc.ProtoJSONMarshalOpts.Marshal(resp)
 	if err != nil {
 		return "", err
 	}
 
-	return jsonStr, nil
+	return string(jsonBytes), nil
 }
 
 // lndKeyDescToTap converts an lnd key descriptor to a tap key descriptor.

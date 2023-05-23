@@ -3,15 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
-	"github.com/lightninglabs/protobuf-hex-display/json"
-	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
-	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
+	"google.golang.org/protobuf/proto"
 )
 
 func getContext() context.Context {
@@ -42,19 +41,13 @@ func printJSON(resp interface{}) {
 }
 
 func printRespJSON(resp proto.Message) {
-	jsonMarshaler := &jsonpb.Marshaler{
-		EmitDefaults: true,
-		OrigName:     true,
-		Indent:       "    ",
-	}
-
-	jsonStr, err := jsonMarshaler.MarshalToString(resp)
+	jsonBytes, err := taprpc.ProtoJSONMarshalOpts.Marshal(resp)
 	if err != nil {
 		fmt.Println("unable to decode response: ", err)
 		return
 	}
 
-	fmt.Println(jsonStr)
+	fmt.Printf("%s\n", jsonBytes)
 }
 
 var debugLevelCommand = cli.Command{
