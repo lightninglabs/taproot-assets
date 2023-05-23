@@ -41,14 +41,6 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 
 	lndHarness.SetupStandbyNodes()
 
-	// Start aperture service and attach to test harness.
-	//
-	// TODO(ffranr): Each test case should have access to its own
-	// 		 independent aperture service. Remove this global
-	//   	         instance.
-	apertureHarness := setupApertureHarness(ht.t)
-	ht.apertureHarness = &apertureHarness
-
 	t.Logf("Running %v integration tests", len(testCases))
 	for _, testCase := range testCases {
 		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
@@ -58,9 +50,11 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			// The universe server and tapd client are both freshly
 			// created and later discarded for each test run to
 			// assure no state is taken over between runs.
-			tapdHarness, universeServer := setupHarnesses(
-				t1, ht, lndHarness, testCase.enableHashMail,
-			)
+			tapdHarness, universeServer, proofCourier :=
+				setupHarnesses(
+					t1, ht, lndHarness,
+					testCase.proofCourierType,
+				)
 			lndHarness.EnsureConnected(
 				lndHarness.Alice, lndHarness.Bob,
 			)
@@ -70,6 +64,7 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 
 			ht := ht.newHarnessTest(
 				t1, lndHarness, universeServer, tapdHarness,
+				proofCourier,
 			)
 
 			// Now we have everything to run the test case.

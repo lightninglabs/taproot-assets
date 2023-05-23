@@ -19,7 +19,31 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Courier abstracts away from the final proof retrival/delivery process as
+// CourierType is an enum that represents the different types of proof courier
+// services.
+type CourierType int64
+
+const (
+	// DisabledCourier is the default courier type that is used when no
+	// courier is specified.
+	DisabledCourier CourierType = iota
+
+	// ApertureCourier is a courier that uses the hashmail protocol to
+	// deliver proofs.
+	ApertureCourier
+)
+
+// CourierHarness interface is an integration testing harness for a proof
+// courier service.
+type CourierHarness interface {
+	// Start starts the proof courier service.
+	Start(chan error) error
+
+	// Stop stops the proof courier service.
+	Stop() error
+}
+
+// Courier abstracts away from the final proof retrieval/delivery process as
 // part of the non-interactive send flow. A sender can use this given the
 // abstracted Addr/source type to send a proof to the receiver. Conversely, a
 // receiver can use this to fetch a proof from the sender.
@@ -39,7 +63,7 @@ type Courier[Addr any] interface {
 	SetSubscribers(map[uint64]*chanutils.EventReceiver[chanutils.Event])
 }
 
-// ProofMailbox represents an abstract store-and-forward maillbox that can be
+// ProofMailbox represents an abstract store-and-forward mailbox that can be
 // used to send/receive proofs.
 type ProofMailbox interface {
 	// Init creates a mailbox given the specified stream ID.
@@ -52,13 +76,13 @@ type ProofMailbox interface {
 	ReadProof(ctx context.Context, sid streamID) (Blob, error)
 
 	// AckProof sends an ACK from the receiver to the sender that a proof
-	// has been recevied.
+	// has been received.
 	AckProof(ctx context.Context, sid streamID) error
 
 	// RecvAck waits for the sender to receive the ack from the receiver.
 	RecvAck(ctx context.Context, sid streamID) error
 
-	// CleanUp atempts to tear down the mailbox as specified by the passed
+	// CleanUp attempts to tear down the mailbox as specified by the passed
 	// sid.
 	CleanUp(ctx context.Context, sid streamID) error
 }
@@ -198,7 +222,7 @@ func (h *HashMailBox) ReadProof(ctx context.Context,
 var ackMsg = []byte("ack")
 
 // AckProof sends an ACK from the receiver to the sender that a proof has been
-// recevied.
+// received.
 func (h *HashMailBox) AckProof(ctx context.Context, sid streamID) error {
 	writeStream, err := h.client.SendStream(ctx)
 	if err != nil {

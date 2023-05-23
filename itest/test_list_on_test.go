@@ -3,6 +3,10 @@
 
 package itest
 
+import (
+	"github.com/lightninglabs/taproot-assets/proof"
+)
+
 var testCases = []*testCase{
 	{
 		name: "mint assets",
@@ -21,23 +25,24 @@ var testCases = []*testCase{
 		test: testMultiAddress,
 	},
 	{
-		name:           "basic send",
-		test:           testBasicSend,
-		enableHashMail: true,
+		name:             "basic send",
+		test:             testBasicSend,
+		proofCourierType: proof.ApertureCourier,
 	},
 	{
-		name:           "reattempt failed asset send",
-		test:           testReattemptFailedAssetSend,
-		enableHashMail: true,
+		name:             "reattempt failed asset send",
+		test:             testReattemptFailedAssetSend,
+		proofCourierType: proof.ApertureCourier,
 	},
 	{
-		name:           "offline receiver eventually receives",
-		test:           testOfflineReceiverEventuallyReceives,
-		enableHashMail: true,
+		name:             "offline receiver eventually receives",
+		test:             testOfflineReceiverEventuallyReceives,
+		proofCourierType: proof.ApertureCourier,
 	},
 	{
-		name: "basic send passive asset",
-		test: testBasicSendPassiveAsset,
+		name:             "basic send passive asset",
+		test:             testBasicSendPassiveAsset,
+		proofCourierType: proof.ApertureCourier,
 	},
 	{
 		name: "multi input send non-interactive single ID",

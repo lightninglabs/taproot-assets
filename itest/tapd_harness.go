@@ -69,7 +69,8 @@ type tapdConfig struct {
 // newTapdHarness creates a new tapd server harness with the given
 // configuration.
 func newTapdHarness(ht *harnessTest, cfg tapdConfig,
-	enableHashMail bool, proofSendBackoffCfg *proof.BackoffCfg,
+	proofCourier proof.CourierHarness,
+	proofSendBackoffCfg *proof.BackoffCfg,
 	proofReceiverAckTimeout *time.Duration) (*tapdHarness, error) {
 
 	if cfg.BaseDir == "" {
@@ -134,9 +135,9 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 		return nil, err
 	}
 
-	// Conditionally use the local hashmail service.
-	finalCfg.HashMailCourier = nil
-	if enableHashMail {
+	// Populate proof courier specific config fields.
+	switch typedProofCourier := (proofCourier).(type) {
+	case *proof.ApertureHarness:
 		// Use passed in backoff config or default config.
 		backoffCfg := &proof.BackoffCfg{
 			BackoffResetWait: 20 * time.Second,
@@ -155,11 +156,13 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 		}
 
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
-			Addr:               ht.apertureHarness.ListenAddr,
-			TlsCertPath:        ht.apertureHarness.TlsCertPath,
+			Addr:               typedProofCourier.ListenAddr,
+			TlsCertPath:        typedProofCourier.TlsCertPath,
 			ReceiverAckTimeout: receiverAckTimeout,
 			BackoffCfg:         backoffCfg,
 		}
+	default:
+		finalCfg.HashMailCourier = nil
 	}
 
 	return &tapdHarness{

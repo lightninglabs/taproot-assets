@@ -72,9 +72,9 @@ const (
 
 // testCase is a struct that holds a single test case.
 type testCase struct {
-	name           string
-	test           func(t *harnessTest)
-	enableHashMail bool
+	name             string
+	test             func(t *harnessTest)
+	proofCourierType proof.CourierType
 }
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -88,9 +88,11 @@ type harnessTest struct {
 	// current test case.
 	testCase *testCase
 
-	// apertureHarness is a reference to the current aperture harness.
-	// Will be nil if not yet set up.
-	apertureHarness *ApertureHarness
+	// proofCourier is a reference to the current proof courier
+	// harness.
+	//
+	// NOTE: This will be nil if not yet set up.
+	proofCourier proof.CourierHarness
 
 	// lndHarness is a reference to the current network harness. Will be
 	// nil if not yet set up.
@@ -108,16 +110,17 @@ type harnessTest struct {
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
-	universeServer *serverHarness, tapd *tapdHarness) *harnessTest {
+	universeServer *serverHarness, tapd *tapdHarness,
+	proofCourier proof.CourierHarness) *harnessTest {
 
 	return &harnessTest{
-		t:               t,
-		apertureHarness: h.apertureHarness,
-		lndHarness:      net,
-		universeServer:  universeServer,
-		tapd:            tapd,
-		logWriter:       h.logWriter,
-		interceptor:     h.interceptor,
+		t:              t,
+		proofCourier:   proofCourier,
+		lndHarness:     net,
+		universeServer: universeServer,
+		tapd:           tapd,
+		logWriter:      h.logWriter,
+		interceptor:    h.interceptor,
 	}
 }
 
@@ -171,7 +174,21 @@ func (h *harnessTest) Log(args ...interface{}) {
 // shutdown stops both the mock universe and tapd server.
 func (h *harnessTest) shutdown(t *testing.T) error {
 	h.universeServer.stop()
-	return h.tapd.stop(!*noDelete)
+
+	if h.proofCourier != nil {
+		err := h.proofCourier.Stop()
+		if err != nil {
+			return fmt.Errorf("unable to stop proof courier "+
+				"harness: %v", err)
+		}
+	}
+
+	err := h.tapd.stop(!*noDelete)
+	if err != nil {
+		return fmt.Errorf("unable to stop tapd: %v", err)
+	}
+
+	return nil
 }
 
 // setupLogging initializes the logging subsystem for the server and client
@@ -250,7 +267,27 @@ func nextAvailablePort() int {
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest,
-	enableHashMail bool) (*tapdHarness, *serverHarness) {
+	proofCourierType proof.CourierType) (*tapdHarness,
+	*serverHarness, proof.CourierHarness) {
+
+	// If a proof courier type is specified, start test specific proof
+	// courier service and attach to test harness.
+	var proofCourier proof.CourierHarness
+	switch proofCourierType {
+	case proof.DisabledCourier:
+		// Proof courier disabled, do nothing.
+
+	case proof.ApertureCourier:
+		port := nextAvailablePort()
+		apHarness := proof.NewApertureHarness(ht.t, port)
+		proofCourier = &apHarness
+	}
+
+	// Start the proof courier harness if specified.
+	if proofCourier != nil {
+		err := proofCourier.Start(nil)
+		require.NoError(t, err, "unable to start proof courier harness")
+	}
 
 	mockServerAddr := fmt.Sprintf(
 		node.ListenerFormat, node.NextAvailablePort(),
@@ -263,17 +300,18 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	tapdHarness := setupTapdHarness(
 		t, ht, lndHarness.Alice, universeServer,
 		func(params *tapdHarnessParams) {
-			params.enableHashMail = enableHashMail
+			params.proofCourier = proofCourier
 		},
 	)
-	return tapdHarness, universeServer
+	return tapdHarness, universeServer, proofCourier
 }
 
 // tapdHarnessParams contains parameters that can be set when creating a new
 // tapdHarness.
 type tapdHarnessParams struct {
-	// enableHashMail enables hashmail in the tap daemon.
-	enableHashMail bool
+	// proofCourier is the proof courier harness that will be used by
+	// the tapd harness.
+	proofCourier proof.CourierHarness
 
 	// proofSendBackoffCfg is the backoff configuration that is used when
 	// sending proofs to the tap daemon.
@@ -310,12 +348,23 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		opt(params)
 	}
 
+	// If present, use the proof courier specified in the optional
+	// parameters. Otherwise, use the proof courier specified in the test
+	// case harness.
+	//
+	// A new tapd node spun up within a test case will default to using the
+	// same proof courier as the primary test case tapd node.
+	selectedProofCourier := ht.proofCourier
+	if params.proofCourier != nil {
+		selectedProofCourier = params.proofCourier
+	}
+
 	tapdHarness, err := newTapdHarness(
 		ht, tapdConfig{
 			NetParams: harnessNetParams,
 			LndNode:   node,
-		}, params.enableHashMail, params.proofSendBackoffCfg,
-		params.proofReceiverAckTimeout,
+		}, selectedProofCourier,
+		params.proofSendBackoffCfg, params.proofReceiverAckTimeout,
 	)
 	require.NoError(t, err)
 

@@ -1,4 +1,4 @@
-package itest
+package proof
 
 import (
 	"crypto/tls"
@@ -28,15 +28,15 @@ type ApertureHarness struct {
 	Service *aperture.Aperture
 }
 
-// setupApertureHarness creates a new instance of the aperture service and
-// starts it. It returns a harness which includes useful values for testing.
-func setupApertureHarness(t *testing.T) ApertureHarness {
+// NewApertureHarness creates a new instance of the aperture service. It returns
+// a harness which includes useful values for testing.
+func NewApertureHarness(t *testing.T, port int) ApertureHarness {
 	// Create a temporary directory for the aperture service to use.
 	baseDir := filepath.Join(t.TempDir(), "aperture")
 	err := os.MkdirAll(baseDir, os.ModePerm)
 	require.NoError(t, err)
 
-	listenAddr := fmt.Sprintf("127.0.0.1:%d", nextAvailablePort())
+	listenAddr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	cfg := &aperture.Config{
 		Insecure:   false,
@@ -57,15 +57,31 @@ func setupApertureHarness(t *testing.T) ApertureHarness {
 	}
 	service := aperture.NewAperture(cfg)
 
-	// Start aperture service asynchronously.
-	t.Logf("Starting aperture service on %s", listenAddr)
-	errChan := make(chan error)
-	require.NoError(t, service.Start(errChan))
+	return ApertureHarness{
+		ListenAddr:  listenAddr,
+		TlsCertPath: filepath.Join(baseDir, "tls.cert"),
+		Service:     service,
+	}
+}
+
+// Start starts the aperture service.
+func (h *ApertureHarness) Start(errChan chan error) error {
+	// If not given, construct a channel to signal any errors produced by
+	// the aperture service.
+	if errChan == nil {
+		errChan = make(chan error)
+	}
+
+	// Start the aperture service.
+	err := h.Service.Start(errChan)
+	if err != nil {
+		return err
+	}
 
 	// Check for error produced while starting.
 	select {
 	case err := <-errChan:
-		t.Fatalf("error starting aperture: %v", err)
+		return fmt.Errorf("error starting aperture: %w", err)
 	default:
 	}
 
@@ -81,7 +97,7 @@ func setupApertureHarness(t *testing.T) ApertureHarness {
 
 		// Check for successful service start by querying the dummy
 		// endpoint.
-		apertureAddr := fmt.Sprintf("https://%s/dummy", listenAddr)
+		apertureAddr := fmt.Sprintf("https://%s/dummy", h.ListenAddr)
 		resp, err := client.Get(apertureAddr)
 		if err != nil {
 			return err
@@ -93,11 +109,17 @@ func setupApertureHarness(t *testing.T) ApertureHarness {
 
 		return nil
 	}, apertureStartTimeout)
-	require.NoError(t, err)
-
-	return ApertureHarness{
-		ListenAddr:  listenAddr,
-		TlsCertPath: filepath.Join(baseDir, "tls.cert"),
-		Service:     service,
+	if err != nil {
+		return err
 	}
+
+	return nil
 }
+
+// Stop stops the aperture service.
+func (h *ApertureHarness) Stop() error {
+	return h.Service.Stop()
+}
+
+// Ensure that ApertureHarness implements the CourierHarness interface.
+var _ CourierHarness = (*ApertureHarness)(nil)
