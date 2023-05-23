@@ -288,7 +288,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	seedling := &tapgarden.Seedling{
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
-		Amount:         uint64(req.Asset.Amount),
+		Amount:         req.Asset.Amount,
 		EnableEmission: req.EnableEmission,
 	}
 
