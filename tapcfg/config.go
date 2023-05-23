@@ -53,7 +53,7 @@ const (
 
 	defaultAcceptRemoteProofs = false
 
-	defaultTestnetFederationServer = "testnet.universe.lightning.finance:12010"
+	defaultTestnetFederationServer = "testnet.universe.lightning.finance:10029"
 
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
