@@ -1,6 +1,7 @@
 package test
 
 import (
+	crand "crypto/rand"
 	"math/rand"
 	"testing"
 
@@ -32,7 +33,7 @@ func RandOp(t testing.TB) wire.OutPoint {
 	op := wire.OutPoint{
 		Index: uint32(RandInt[int32]()),
 	}
-	_, err := rand.Read(op.Hash[:])
+	_, err := crand.Read(op.Hash[:])
 	require.NoError(t, err)
 
 	return op
@@ -60,7 +61,7 @@ func RandPubKey(t testing.TB) *btcec.PublicKey {
 
 func RandBytes(num int) []byte {
 	randBytes := make([]byte, num)
-	_, _ = rand.Read(randBytes)
+	_, _ = crand.Read(randBytes)
 	return randBytes
 }
 
@@ -111,7 +112,7 @@ func RandTxWitnesses(t testing.TB) wire.TxWitness {
 	w := make(wire.TxWitness, numElements)
 	for i := 0; i < numElements; i++ {
 		elem := make([]byte, 10)
-		_, err := rand.Read(elem)
+		_, err := crand.Read(elem)
 		require.NoError(t, err)
 
 		w[i] = elem
