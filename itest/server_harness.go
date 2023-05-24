@@ -2,8 +2,8 @@ package itest
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"path"
 	"sync"
 	"time"
@@ -49,7 +49,7 @@ func (s *serverHarness) stop() {
 }
 
 func (s *serverHarness) start() error {
-	tempDirName, err := ioutil.TempDir("", "tapitest")
+	tempDirName, err := os.MkdirTemp("", "tapitest")
 	if err != nil {
 		return err
 	}

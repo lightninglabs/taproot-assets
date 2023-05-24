@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -148,7 +148,7 @@ func mintAsset(ctx *cli.Context) error {
 		metaPath := tapcfg.CleanAndExpandPath(
 			ctx.String(assetMetaFilePathName),
 		)
-		metaFileBytes, err := ioutil.ReadFile(metaPath)
+		metaFileBytes, err := os.ReadFile(metaPath)
 		if err != nil {
 			return fmt.Errorf("unable to read meta file: %w", err)
 		}

@@ -3,7 +3,7 @@ package proof
 import (
 	"bytes"
 	"encoding/hex"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,7 +40,7 @@ func readTestData(t *testing.T) []wire.MsgBlock {
 
 	var testBlocks []wire.MsgBlock
 
-	oddTxBlockHex, err := ioutil.ReadFile(oddTxBlockHexFileName)
+	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
 	require.NoError(t, err)
 
 	oddTxBlockBytes, err := hex.DecodeString(
@@ -53,7 +53,7 @@ func readTestData(t *testing.T) []wire.MsgBlock {
 
 	testBlocks = append(testBlocks, oddTxBlock)
 
-	evenTxBlockHex, err := ioutil.ReadFile(evenTxBlockHexFileName)
+	evenTxBlockHex, err := os.ReadFile(evenTxBlockHexFileName)
 	require.NoError(t, err)
 
 	evenTxBlockBytes, err := hex.DecodeString(
@@ -66,7 +66,7 @@ func readTestData(t *testing.T) []wire.MsgBlock {
 
 	testBlocks = append(testBlocks, evenTxBlock)
 
-	testnetTxBlockHex, err := ioutil.ReadFile(testnetTxBlockHexFileName)
+	testnetTxBlockHex, err := os.ReadFile(testnetTxBlockHexFileName)
 	require.NoError(t, err)
 
 	testnetTxBlockBytes, err := hex.DecodeString(
