@@ -363,8 +363,9 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 }
 
 func isCancelledBatch(batch *tapgarden.MintingBatch) bool {
-	return batch.BatchState == tapgarden.BatchStateSeedlingCancelled ||
-		batch.BatchState == tapgarden.BatchStateSproutCancelled
+	batchState := batch.State()
+	return batchState == tapgarden.BatchStateSeedlingCancelled ||
+		batchState == tapgarden.BatchStateSproutCancelled
 }
 
 func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
@@ -377,7 +378,7 @@ func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
 	require.Len(t, batches, 1)
 
 	batch := batches[0]
-	require.Equal(t, batchState, batch.BatchState)
+	require.Equal(t, batchState, batch.State())
 }
 
 // assertSeedlingsMatchSprouts asserts that the seedlings were properly matched
@@ -398,7 +399,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 
 		// Filter out any cancelled batches.
 		isCommittedBatch := func(batch *tapgarden.MintingBatch) bool {
-			return batch.BatchState == tapgarden.BatchStateCommitted
+			return batch.State() == tapgarden.BatchStateCommitted
 		}
 		batch, err := chanutils.First(pendingBatches, isCommittedBatch)
 		if err != nil {

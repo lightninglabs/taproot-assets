@@ -254,8 +254,10 @@ func (c *ChainPlanter) Start() error {
 		// caretaker which'll handle progressing each batch to
 		// completion. We'll skip batches that were cancelled.
 		for _, batch := range nonFinalBatches {
-			if batch.BatchState == BatchStateSeedlingCancelled ||
-				batch.BatchState == BatchStateSproutCancelled {
+			batchState := batch.State()
+
+			if batchState == BatchStateSeedlingCancelled ||
+				batchState == BatchStateSproutCancelled {
 
 				continue
 			}
@@ -748,13 +750,13 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		newBatch := &MintingBatch{
 			CreationTime: time.Now(),
 			HeightHint:   currentHeight,
-			BatchState:   BatchStatePending,
 			BatchKey:     newInternalKey,
 			Seedlings: map[string]*Seedling{
 				req.AssetName: req,
 			},
 			AssetMetas: make(AssetMetas),
 		}
+		newBatch.UpdateState(BatchStatePending)
 		ctx, cancel = c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
