@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"testing"
@@ -33,7 +32,7 @@ func TestFileArchiver(t *testing.T) {
 
 	// First, we'll make a temp directory we'll use as the root of our file
 	// system.
-	dir, err := ioutil.TempDir("", "tap-proofs-")
+	dir, err := os.MkdirTemp("", "tap-proofs-")
 	require.NoError(t, err)
 
 	defer os.RemoveAll(dir)
