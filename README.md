@@ -49,7 +49,7 @@ make install tags="signrpc walletrpc chainrpc invoicesrpc"
 Compile Taproot Assets from source by cloning this repository. [Go version 1.19](https://go.dev/dl/) or higher is required.
 
 ```shell
-git clone https://github.com/lightninglabs/taproot-assets.git
+git clone --recurse-submodules https://github.com/lightninglabs/taproot-assets.git
 cd taproot-assets
 make install
 ```

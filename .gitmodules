@@ -1,0 +1,4 @@
+[submodule "bips"]
+	path = bips
+	url = git@github.com:Roasbeef/bips.git
+	branch = bip-tap
