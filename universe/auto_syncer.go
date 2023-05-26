@@ -2,6 +2,7 @@ package universe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -108,7 +109,10 @@ func (f *FederationEnvoy) Start() error {
 			return NewServerAddrFromStr(a)
 		})
 		err := f.AddServer(serverAddrs...)
-		if err != nil {
+		// On restart, we'll get an error for universe servers already
+		// inserted in our DB, since we can't store duplicates.
+		// We can safely ignore that error.
+		if !errors.Is(err, ErrDuplicateUniverse) {
 			log.Warnf("unable to add universe servers: %v", err)
 		}
 

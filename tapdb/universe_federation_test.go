@@ -57,7 +57,7 @@ func TestUniverseFederationCRUD(t *testing.T) {
 	// If we try to insert them all again, then we should get an error as
 	// we ensure the host names are unique.
 	err = fedDB.AddServers(ctx, addrs...)
-	require.ErrorContains(t, err, "universe name is already added")
+	require.ErrorIs(t, err, universe.ErrDuplicateUniverse)
 
 	// Next, we should be able to fetch all the active hosts.
 	dbAddrs, err := fedDB.UniverseServers(ctx)

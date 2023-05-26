@@ -23,6 +23,10 @@ var (
 	// ErrNoUniverseServers is returned when no active Universe servers are
 	// found in the DB.
 	ErrNoUniverseServers = fmt.Errorf("no active federation servers")
+
+	// ErrDuplicateUniverse is returned when the Universe server being added
+	// to the DB already exists.
+	ErrDuplicateUniverse = fmt.Errorf("universe server already added")
 )
 
 // Identifier is the identifier for a root/base universe.
