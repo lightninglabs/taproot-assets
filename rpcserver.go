@@ -1097,7 +1097,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := btcec.ParsePubKey(in.ScriptKey)
+	scriptKey, err := parseUserKey(in.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
@@ -1977,6 +1977,23 @@ func marshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
 	return rpcScriptKey
 }
 
+// parseUserKey parses a user-provided script or group key, which can be in
+// either the Schnorr or Compressed format.
+func parseUserKey(scriptKey []byte) (*btcec.PublicKey, error) {
+	switch len(scriptKey) {
+	case schnorr.PubKeyBytesLen:
+		return schnorr.ParsePubKey(scriptKey)
+
+	// Truncate the key and then parse as a Schnorr key.
+	case btcec.PubKeyBytesLenCompressed:
+		return schnorr.ParsePubKey(scriptKey[1:])
+
+	default:
+		return nil, fmt.Errorf("unknown script key length: %v",
+			len(scriptKey))
+	}
+}
+
 // marshalKeyDescriptor marshals the native key descriptor into the RPC
 // counterpart.
 func marshalKeyDescriptor(desc keychain.KeyDescriptor) *taprpc.KeyDescriptor {
@@ -2162,7 +2179,7 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}, nil
 
 	case rpcID.GetGroupKey() != nil:
-		groupKey, err := schnorr.ParsePubKey(rpcID.GetGroupKey())
+		groupKey, err := parseUserKey(rpcID.GetGroupKey())
 		if err != nil {
 			return universe.Identifier{}, err
 		}
@@ -2179,7 +2196,7 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 
 		// TODO(roasbeef): reuse with above
 
-		groupKey, err := schnorr.ParsePubKey(groupKeyBytes)
+		groupKey, err := parseUserKey(groupKeyBytes)
 		if err != nil {
 			return universe.Identifier{}, err
 		}
@@ -2330,6 +2347,34 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	return resp, nil
 }
 
+// unmarshalOutpoint unmarshals an outpoint from a string received via RPC.
+func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
+	parts := strings.Split(outpoint, ":")
+	if len(parts) != 2 {
+		return nil, errors.New("outpoint should be of form txid:index")
+	}
+
+	txidStr := parts[0]
+	if hex.DecodedLen(len(txidStr)) != chainhash.HashSize {
+		return nil, fmt.Errorf("invalid hex-encoded txid %v", txidStr)
+	}
+
+	txid, err := chainhash.NewHashFromStr(txidStr)
+	if err != nil {
+		return nil, err
+	}
+
+	outputIndex, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid output index: %v", err)
+	}
+
+	return &wire.OutPoint{
+		Hash:  *txid,
+		Index: uint32(outputIndex),
+	}, nil
+}
+
 // unmarshalLeafKey unmarshals a leaf key from the RPC form.
 func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 	var (
@@ -2339,9 +2384,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 
 	switch {
 	case key.GetScriptKeyBytes() != nil:
-		pubKey, err := schnorr.ParsePubKey(
-			key.GetScriptKeyBytes(),
-		)
+		pubKey, err := parseUserKey(key.GetScriptKeyBytes())
 		if err != nil {
 			return baseKey, err
 		}
@@ -2356,9 +2399,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 			return baseKey, err
 		}
 
-		pubKey, err := schnorr.ParsePubKey(
-			scriptKeyBytes,
-		)
+		pubKey, err := parseUserKey(scriptKeyBytes)
 		if err != nil {
 			return baseKey, err
 		}
@@ -2376,32 +2417,13 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 	case key.GetOpStr() != "":
 		// Parse a bitcoin outpoint in the form txid:index into a
 		// wire.OutPoint struct.
-		parts := strings.Split(key.GetOpStr(), ":")
-		if len(parts) != 2 {
-			return baseKey, errors.New("outpoint should be of " +
-				"the form txid:index")
-		}
-		txidStr := parts[0]
-		if hex.DecodedLen(len(txidStr)) != chainhash.HashSize {
-			return baseKey, fmt.Errorf("invalid hex-encoded "+
-				"txid %v", txidStr)
-		}
-
-		txid, err := chainhash.NewHashFromStr(txidStr)
+		outpointStr := key.GetOpStr()
+		outpoint, err := UnmarshalOutpoint(outpointStr)
 		if err != nil {
 			return baseKey, err
 		}
 
-		outputIndex, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return baseKey, fmt.Errorf("invalid output "+
-				"index: %v", err)
-		}
-
-		baseKey.MintingOutpoint = wire.OutPoint{
-			Hash:  *txid,
-			Index: uint32(outputIndex),
-		}
+		baseKey.MintingOutpoint = *outpoint
 
 	case key.GetOutpoint() != nil:
 		op := key.GetOp()
@@ -2440,12 +2462,6 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.IssuanceProof) (*unirpc.AssetProofResponse, error) {
 
-	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
-		Node: proof.UniverseRoot,
-	})
-	if err != nil {
-		return nil, err
-	}
 	uniProof, err := marshalUniverseProof(proof.InclusionProof)
 	if err != nil {
 		return nil, err
@@ -2455,6 +2471,16 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
+		Node: proof.UniverseRoot,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	uniRoot.AssetName = assetLeaf.Asset.AssetGenesis.Name
+	uniRoot.Id = req.Id
 
 	return &unirpc.AssetProofResponse{
 		Req:                    req,
@@ -2741,7 +2767,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := btcec.ParsePubKey(in.ScriptKey)
+	scriptKey, err := parseUserKey(in.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
