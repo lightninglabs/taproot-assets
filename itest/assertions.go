@@ -218,6 +218,13 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness,
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)
 
+	// Also make sure that the RPC can decode the proof as well.
+	decodeResp, err := tapd.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
+		RawProof: blob,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, decodeResp.DecodedProof.Asset)
+
 	headerVerifier := func(blockHeader wire.BlockHeader) error {
 		hash := blockHeader.BlockHash()
 		req := &chainrpc.GetBlockRequest{
