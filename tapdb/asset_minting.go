@@ -832,9 +832,6 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 	// For each batch, we'll assemble an intermediate batch struct, then
 	// fill in all the seedlings with another sub-query.
 	batch := &tapgarden.MintingBatch{
-		BatchState: tapgarden.BatchState(
-			dbBatch.BatchState,
-		),
 		BatchKey: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{
 				Family: keychain.KeyFamily(
@@ -847,6 +844,13 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		HeightHint:   uint32(dbBatch.HeightHint),
 		CreationTime: dbBatch.CreationTimeUnix.UTC(),
 	}
+
+	batchState, err := tapgarden.NewBatchState(uint8(dbBatch.BatchState))
+	if err != nil {
+		return nil, err
+	}
+
+	batch.UpdateState(batchState)
 
 	if dbBatch.MintingTxPsbt != nil {
 		genesisPkt, err := psbt.NewFromRawBytes(
@@ -867,7 +871,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 	// either fetch the set of seedlings (asset
 	// descriptions w/ no real assets), or the set of
 	// sprouts (full defined assets, but not yet mined).
-	switch batch.BatchState {
+	switch batchState {
 	case tapgarden.BatchStatePending,
 		tapgarden.BatchStateFrozen,
 		tapgarden.BatchStateSeedlingCancelled:

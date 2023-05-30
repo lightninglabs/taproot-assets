@@ -1881,7 +1881,9 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
 func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 	error) {
 
-	switch batch.BatchState {
+	currentBatchState := batch.State()
+
+	switch currentBatchState {
 	case tapgarden.BatchStatePending:
 		return mintrpc.BatchState_BATCH_STATE_PEDNING, nil
 
@@ -1907,8 +1909,8 @@ func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 		return mintrpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
-		return 0, fmt.Errorf("unknown batch state: %d",
-			batch.BatchState)
+		return 0, fmt.Errorf("unknown batch state: %v",
+			currentBatchState.String())
 	}
 }
 

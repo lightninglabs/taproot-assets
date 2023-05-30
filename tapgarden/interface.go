@@ -126,7 +126,41 @@ func (b BatchState) String() string {
 		return "BatchStateSproutCancelled"
 
 	default:
-		return fmt.Sprintf("UnknownState(%v)", int(b))
+		return fmt.Sprintf("UnknownState(%d)", b)
+	}
+}
+
+// NewBatchState creates a BatchState from a uint8, returning an error if the
+// input value does not map to a valid BatchState.
+func NewBatchState(state uint8) (BatchState, error) {
+	switch BatchState(state) {
+	case BatchStatePending:
+		return BatchStatePending, nil
+
+	case BatchStateFrozen:
+		return BatchStateFrozen, nil
+
+	case BatchStateCommitted:
+		return BatchStateCommitted, nil
+
+	case BatchStateBroadcast:
+		return BatchStateBroadcast, nil
+
+	case BatchStateConfirmed:
+		return BatchStateConfirmed, nil
+
+	case BatchStateFinalized:
+		return BatchStateFinalized, nil
+
+	case BatchStateSeedlingCancelled:
+		return BatchStateSeedlingCancelled, nil
+
+	case BatchStateSproutCancelled:
+		return BatchStateSproutCancelled, nil
+
+	default:
+		return BatchStateSproutCancelled,
+			fmt.Errorf("unknown batch state: %v", state)
 	}
 }
 

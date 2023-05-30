@@ -146,7 +146,7 @@ func (b *BatchCaretaker) Cancel() CancelResp {
 	defer cancel()
 
 	batchKey := b.cfg.Batch.BatchKey.PubKey.SerializeCompressed()
-	batchState := b.cfg.Batch.BatchState
+	batchState := b.cfg.Batch.State()
 	// This function can only be called before the caretaker state stepping
 	// function, so the batch state read is the next state that has not yet
 	// been executed. Seedlings are converted to asset sprouts in the Frozen
@@ -235,7 +235,7 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 
 		currentState = nextState
 
-		b.cfg.Batch.BatchState = currentState
+		b.cfg.Batch.UpdateState(currentState)
 	}
 
 	return currentState, nil
@@ -248,9 +248,10 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 func (b *BatchCaretaker) assetCultivator() {
 	defer b.Wg.Done()
 
+	currentBatchState := b.cfg.Batch.State()
 	// If the batch is already marked as confirmed, then we just need to
 	// advance it one more level to be finalized.
-	if b.cfg.Batch.BatchState == BatchStateConfirmed {
+	if currentBatchState == BatchStateConfirmed {
 		log.Infof("MintingBatch(%x): already confirmed!", b.batchKey[:])
 
 		_, err := b.advanceStateUntil(
@@ -271,7 +272,7 @@ func (b *BatchCaretaker) assetCultivator() {
 	// confirmation notification, which'll let us advance to the final
 	// state.
 	_, err := b.advanceStateUntil(
-		b.cfg.Batch.BatchState, BatchStateBroadcast,
+		currentBatchState, BatchStateBroadcast,
 	)
 	if err != nil {
 		log.Errorf("unable to advance state machine: %v", err)
@@ -295,11 +296,12 @@ func (b *BatchCaretaker) assetCultivator() {
 				confInfo.BlockHash, confInfo.BlockHeight)
 
 			b.confInfo = confInfo
-			b.cfg.Batch.BatchState = BatchStateConfirmed
+			b.cfg.Batch.UpdateState(BatchStateConfirmed)
+			currentBatchState = b.cfg.Batch.State()
 
 			// TODO(roasbeef): use a "trigger" here instead?
 			_, err = b.advanceStateUntil(
-				b.cfg.Batch.BatchState, BatchStateFinalized,
+				currentBatchState, BatchStateFinalized,
 			)
 			if err != nil {
 				log.Error(err)

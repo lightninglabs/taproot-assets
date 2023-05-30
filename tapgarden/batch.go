@@ -2,6 +2,7 @@ package tapgarden
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -30,8 +31,8 @@ type MintingBatch struct {
 	// transaction.
 	HeightHint uint32
 
-	// BatchState is the state of the batch.
-	BatchState BatchState
+	// batchState is the state of the batch.
+	batchState atomic.Uint32
 
 	// BatchKey is the unique identifier for a batch.
 	BatchKey keychain.KeyDescriptor
@@ -131,4 +132,20 @@ func (m *MintingBatch) genesisScript() ([]byte, error) {
 	}
 
 	return tapscript.PayToTaprootScript(mintingOutputKey)
+}
+
+// State returns the private state of the batch.
+func (m *MintingBatch) State() BatchState {
+	currentBatchState := m.batchState.Load()
+
+	// Drop the error when converting the stored state to a BatchState, as
+	// we verify the batch state before storing it.
+	batchStateCopy, _ := NewBatchState(uint8(currentBatchState))
+	return batchStateCopy
+}
+
+// UpdateState updates the state of a batch to a value that has been verified to
+// be a valid batch state.
+func (m *MintingBatch) UpdateState(state BatchState) {
+	m.batchState.Store(uint32(state))
 }

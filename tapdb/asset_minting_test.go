@@ -53,14 +53,14 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 func assertBatchState(t *testing.T, batch *tapgarden.MintingBatch,
 	state tapgarden.BatchState) {
 
-	require.Equal(t, state, batch.BatchState)
+	require.Equal(t, state, batch.State())
 }
 
 func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 	t.Helper()
 
 	require.Equal(t, a.CreationTime.Unix(), b.CreationTime.Unix())
-	require.Equal(t, a.BatchState, b.BatchState)
+	require.Equal(t, a.State(), b.State())
 	require.Equal(t, a.BatchKey, b.BatchKey)
 	require.Equal(t, a.Seedlings, b.Seedlings)
 	require.Equal(t, a.GenesisPacket, b.GenesisPacket)
