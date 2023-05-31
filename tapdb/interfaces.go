@@ -139,7 +139,8 @@ type BaseDB struct {
 // struct.
 func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 	sqlOptions := sql.TxOptions{
-		ReadOnly: opts.ReadOnly(),
+		ReadOnly:  opts.ReadOnly(),
+		Isolation: sql.LevelSerializable,
 	}
 	return s.DB.BeginTx(ctx, &sqlOptions)
 }
