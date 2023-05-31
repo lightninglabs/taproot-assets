@@ -19,6 +19,12 @@ service Universe {
     */
     rpc QueryAssetRoots (AssetRootQuery) returns (QueryRootResponse);
 
+    /* tapcli: `universe delete`
+    DeleteAssetRoot deletes the Universe root for a specific asset, including
+    all asoociated universe keys, leaves, and events.
+    */
+    rpc DeleteAssetRoot (DeleteRootQuery) returns (DeleteRootResponse);
+
     /* tapcli: `universe keys`
     AssetLeafKeys queries for the set of Universe keys associated with a given
     asset_id or group_key. Each key takes the form: (outpoint, script_key),
@@ -170,6 +176,14 @@ message AssetRootQuery {
 message QueryRootResponse {
     // The asset root for the given asset ID or group key.
     UniverseRoot asset_root = 1;
+}
+
+message DeleteRootQuery {
+    // An ID value to uniquely identify a Universe root.
+    ID id = 1;
+}
+
+message DeleteRootResponse {
 }
 
 message Outpoint {

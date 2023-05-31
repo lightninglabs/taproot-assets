@@ -2370,6 +2370,26 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 	}, nil
 }
 
+// DeleteAssetRoot attempts to locate the current Universe root for a specific
+// asset, and deletes the associated Universe tree if found.
+func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
+	req *unirpc.DeleteRootQuery) (*unirpc.DeleteRootResponse, error) {
+
+	universeID, err := unmarshalUniID(req.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("Deleting asset root for %v", spew.Sdump(universeID))
+
+	_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.DeleteRootResponse{}, nil
+}
+
 func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
 	return &unirpc.AssetKey{
 		Outpoint: &unirpc.AssetKey_OpStr{
