@@ -174,6 +174,10 @@ type BaseBackend interface {
 	// MintingLeaves returns all the minting leaves inserted into the
 	// universe.
 	MintingLeaves(ctx context.Context) ([]MintingLeaf, error)
+
+	// DeleteUniverse deletes all leaves, and the root, for a given base
+	// universe.
+	DeleteUniverse(ctx context.Context) (string, error)
 }
 
 // BaseRoot is the ms-smt root for a base universe. This root can be used to
