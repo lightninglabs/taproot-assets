@@ -9,6 +9,18 @@ import (
 	"context"
 )
 
+const deleteAllNodes = `-- name: DeleteAllNodes :execrows
+DELETE FROM mssmt_nodes WHERE namespace = $1
+`
+
+func (q *Queries) DeleteAllNodes(ctx context.Context, namespace string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAllNodes, namespace)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteNode = `-- name: DeleteNode :execrows
 DELETE FROM mssmt_nodes WHERE hash_key = $1 AND namespace = $2
 `
@@ -20,6 +32,18 @@ type DeleteNodeParams struct {
 
 func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteNode, arg.HashKey, arg.Namespace)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteRoot = `-- name: DeleteRoot :execrows
+DELETE FROM mssmt_roots WHERE namespace = $1
+`
+
+func (q *Queries) DeleteRoot(ctx context.Context, namespace string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRoot, namespace)
 	if err != nil {
 		return 0, err
 	}

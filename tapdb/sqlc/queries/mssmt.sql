@@ -51,6 +51,12 @@ WITH subtree_cte (
 -- name: DeleteNode :execrows
 DELETE FROM mssmt_nodes WHERE hash_key = $1 AND namespace = $2; 
 
+-- name: DeleteAllNodes :execrows
+DELETE FROM mssmt_nodes WHERE namespace = $1;
+
+-- name: DeleteRoot :execrows
+DELETE FROM mssmt_roots WHERE namespace = $1;
+
 -- name: FetchRootNode :one
 SELECT nodes.*
 FROM mssmt_nodes nodes

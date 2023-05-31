@@ -152,6 +152,25 @@ func TestTreeDeletion(t *testing.T) {
 
 			store, _ := newTaprootAssetTreeStore(t, test.name)
 
+			insertAllNodes := func(t *testing.T,
+				tx mssmt.TreeStoreUpdateTx) {
+
+				require.NoError(t, tx.InsertLeaf(l1))
+				require.NoError(t, tx.InsertLeaf(l2))
+				require.NoError(
+					t, tx.InsertCompactedLeaf(cl1),
+				)
+				require.NoError(
+					t, tx.InsertCompactedLeaf(cl2),
+				)
+
+				require.NoError(t, tx.InsertBranch(b1))
+				require.NoError(t, tx.InsertBranch(b2))
+				require.NoError(
+					t, tx.InsertBranch(test.branch),
+				)
+			}
+
 			require.NoError(t, store.Update(context.Background(),
 				func(tx mssmt.TreeStoreUpdateTx) error {
 					// An empty tree should have a root
@@ -162,21 +181,7 @@ func TestTreeDeletion(t *testing.T) {
 						t, mssmt.EmptyTree[0], dbRoot,
 					)
 
-					require.NoError(t, tx.InsertLeaf(l1))
-					require.NoError(t, tx.InsertLeaf(l2))
-					require.NoError(
-						t, tx.InsertCompactedLeaf(cl1),
-					)
-					require.NoError(
-						t, tx.InsertCompactedLeaf(cl2),
-					)
-
-					require.NoError(t, tx.InsertBranch(b1))
-					require.NoError(t, tx.InsertBranch(b2))
-					require.NoError(
-						t, tx.InsertBranch(test.branch),
-					)
-
+					insertAllNodes(t, tx)
 					rootKey := test.branch.NodeHash()
 
 					// First make sure we inserted our test
@@ -232,6 +237,24 @@ func TestTreeDeletion(t *testing.T) {
 					require.Equal(t, n1, empty)
 					require.Equal(t, n2, empty)
 
+					// Now, delete all nodes to remove those
+					// not deleted explicitly above. Rebuild
+					// the tree and delete all nodes again.
+					// We should not be able to fetch the
+					// children of the test branch.
+					err = tx.DeleteAllNodes()
+					require.NoError(t, err)
+					insertAllNodes(t, tx)
+
+					err = tx.DeleteAllNodes()
+					require.NoError(t, err)
+
+					n1, n2, err = tx.GetChildren(
+						test.root, rootKey,
+					)
+					require.NoError(t, err)
+					require.Equal(t, n1, empty)
+					require.Equal(t, n2, empty)
 					return nil
 				},
 			))
@@ -679,6 +702,21 @@ func TestTreeNamespaceIsolation(t *testing.T) {
 		dbRoot, err := tx.RootNode()
 		require.NoError(t, err)
 		assertNodesEq(t, root, dbRoot)
+		return nil
+	})
+	require.NoError(t, err)
+
+	// We'll now delete the root hash. Fetching the root after deletion
+	// should return the empty tree root hash.
+	err = store1.Update(ctxb, func(tx mssmt.TreeStoreUpdateTx) error {
+		if err := tx.DeleteRoot(); err != nil {
+			return err
+		}
+		dbRoot, err := tx.RootNode()
+		require.NoError(t, err)
+		require.Equal(
+			t, mssmt.EmptyTree[0], dbRoot,
+		)
 		return nil
 	})
 	require.NoError(t, err)

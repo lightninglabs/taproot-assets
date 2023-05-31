@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"golang.org/x/exp/maps"
 )
 
 // TreeStore represents a generic database interface to update or view a
@@ -61,6 +63,12 @@ type TreeStoreUpdateTx interface {
 	// DeleteCompactedLeaf deletes a compacted leaf keyed by the given
 	// NodeHash.
 	DeleteCompactedLeaf(NodeHash) error
+
+	// DeleteRoot deletes the root node of the MS-SMT.
+	DeleteRoot() error
+
+	// DeleteAllNodes deletes all nodes in the MS-SMT.
+	DeleteAllNodes() error
 }
 
 // TreeStoreDriver represents a concrete driver of the main TreeStore
@@ -244,6 +252,32 @@ func (d *DefaultStore) DeleteCompactedLeaf(key NodeHash) error {
 	return nil
 }
 
+// DeleteRoot deletes the root node of the MS-SMT.
+func (d *DefaultStore) DeleteRoot() error {
+	d.root = nil
+	d.cntDeletes++
+
+	return nil
+}
+
+// DeleteAllNodes deletes all nodes in the MS-SMT.
+func (d *DefaultStore) DeleteAllNodes() error {
+	// Delete leaves, then compacted leaves, then branches.
+	leafCount := len(d.leaves)
+	maps.Clear(d.leaves)
+	d.cntDeletes += leafCount
+
+	compactedLeafCount := len(d.compactedLeaves)
+	maps.Clear(d.compactedLeaves)
+	d.cntDeletes += compactedLeafCount
+
+	branchCount := len(d.branches)
+	maps.Clear(d.branches)
+	d.cntDeletes += branchCount
+
+	return nil
+}
+
 // GetChildren returns the left and right child of the node keyed by the given
 // NodeHash.
 func (d *DefaultStore) GetChildren(height int, key NodeHash) (
@@ -257,16 +291,26 @@ func (d *DefaultStore) GetChildren(height int, key NodeHash) (
 			d.cntReads++
 			return branch
 		}
+
 		if leaf, ok := d.compactedLeaves[key]; ok {
 			d.cntReads++
 			return leaf
 		}
 
-		d.cntReads++
-		return d.leaves[key]
+		if leaf, ok := d.leaves[key]; ok {
+			d.cntReads++
+			return leaf
+		}
+
+		return EmptyTree[height]
 	}
 
 	node := getNode(uint(height), key)
+
+	if key != EmptyTree[height].NodeHash() && node == EmptyTree[height] {
+		return nil, nil, fmt.Errorf("node not found")
+	}
+
 	switch node := node.(type) {
 	case *BranchNode:
 		return getNode(uint(height)+1, node.Left.NodeHash()),

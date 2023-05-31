@@ -57,6 +57,12 @@ type TreeStore interface {
 	// leaf) from the store.
 	DeleteNode(ctx context.Context, n DelNode) (int64, error)
 
+	// DeleteAllNodes deletes all nodes from the store.
+	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
+
+	// DeleteRoot deletes a root node from the store.
+	DeleteRoot(ctx context.Context, namespace string) (int64, error)
+
 	// FetchRootNode fetches the root node for the specified namespace.
 	FetchRootNode(ctx context.Context,
 		namespace string) (sqlc.MssmtNode, error)
@@ -215,6 +221,18 @@ func (t *taprootAssetTreeStoreTx) InsertCompactedLeaf(
 	}
 
 	return nil
+}
+
+// DeleteRoot deletes the root node of the MS-SMT.
+func (t *taprootAssetTreeStoreTx) DeleteRoot() error {
+	_, err := t.dbTx.DeleteRoot(t.ctx, t.namespace)
+	return err
+}
+
+// DeleteRoot deletes all nodes, including branch nodes, of the MS-SMT.
+func (t *taprootAssetTreeStoreTx) DeleteAllNodes() error {
+	_, err := t.dbTx.DeleteAllNodes(t.ctx, t.namespace)
+	return err
 }
 
 // DeleteBranch deletes the branch node keyed by the given NodeHash.

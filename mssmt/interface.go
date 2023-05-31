@@ -15,6 +15,12 @@ type Tree interface {
 	// MS-SMT.
 	Delete(ctx context.Context, key [hashSize]byte) (Tree, error)
 
+	// DeleteRoot deletes the root node of the MS-SMT.
+	DeleteRoot(ctx context.Context) error
+
+	// DeleteAllNodes deletes all non-root nodes within the MS-SMT.
+	DeleteAllNodes(ctx context.Context) error
+
 	// Get returns the leaf node found at the given key within the MS-SMT.
 	Get(ctx context.Context, key [hashSize]byte) (*LeafNode, error)
 
