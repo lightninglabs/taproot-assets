@@ -10,6 +10,12 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
+var (
+	// ErrRetriesExceeded is returned when a transaction is retried more
+	// than the max allowed valued without a success.
+	ErrRetriesExceeded = errors.New("db tx retries exceeded")
+)
+
 // MapSQLError attempts to interpret a given error as a database agnostic SQL
 // error.
 func MapSQLError(err error) error {
@@ -55,6 +61,12 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 			DbError: pqErr,
 		}
 
+	// Unable to serialize the transaction, so we'll need to try again.
+	case pgerrcode.SerializationFailure:
+		return &ErrSerializationError{
+			DbError: pqErr,
+		}
+
 	default:
 		return fmt.Errorf("unknown postgres error: %w", pqErr)
 	}
@@ -68,4 +80,21 @@ type ErrSqlUniqueConstraintViolation struct {
 
 func (e ErrSqlUniqueConstraintViolation) Error() string {
 	return fmt.Sprintf("sql unique constraint violation: %v", e.DbError)
+}
+
+// ErrSerializationError is an error type which represents a database agnostic
+// error that a transaction couldn't be serialized with other concurrent db
+// transactions.
+type ErrSerializationError struct {
+	DbError error
+}
+
+// Unwrap returns the wrapped error.
+func (e ErrSerializationError) Unwrap() error {
+	return e.DbError
+}
+
+// Error returns the error message.
+func (e ErrSerializationError) Error() string {
+	return e.DbError.Error()
 }

@@ -3,6 +3,8 @@ package tapdb
 import (
 	"context"
 	"database/sql"
+	"errors"
+	prand "math/rand"
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -12,6 +14,17 @@ var (
 	// DefaultStoreTimeout is the default timeout used for any interaction
 	// with the storage/database.
 	DefaultStoreTimeout = time.Second * 10
+)
+
+const (
+	// DefaultNumTxRetries is the default number of times we'll retry a
+	// transaction if it fails with an error that permits transaction
+	// repetition.
+	DefaultNumTxRetries = 10
+
+	// DefaultRetryDelay is the default delay between retries. This will be
+	// used to generate a random delay between 0 and this value.
+	DefaultRetryDelay = time.Millisecond * 50
 )
 
 // TxOptions represents a set of options one can use to control what type of
@@ -69,6 +82,49 @@ type BatchedQuerier interface {
 	BeginTx(ctx context.Context, options TxOptions) (*sql.Tx, error)
 }
 
+// txExecutorOptions is a struct that holds the options for the transaction
+// executor. This can be used to do things like retry a transaction due to an
+// error a certain amount of times.
+type txExecutorOptions struct {
+	numRetries int
+	retryDelay time.Duration
+}
+
+// defaultTxExecutorOptions returns the default options for the transaction
+// executor.
+func defaultTxExecutorOptions() *txExecutorOptions {
+	return &txExecutorOptions{
+		numRetries: DefaultNumTxRetries,
+		retryDelay: DefaultRetryDelay,
+	}
+}
+
+// randRetryDelay returns a random retry delay between 0 and the configured max
+// delay.
+func (t *txExecutorOptions) randRetryDelay() time.Duration {
+	return time.Duration(prand.Int63n(int64(t.retryDelay))) //nolint:gosec
+}
+
+// TxExecutorOption is a functional option that allows us to pass in optional
+// argument when creating the executor.
+type TxExecutorOption func(*txExecutorOptions)
+
+// WithTxRetries is a functional option that allows us to specify the number of
+// times a transaction should be retried if it fails with a repeatable error.
+func WithTxRetries(numRetries int) TxExecutorOption {
+	return func(o *txExecutorOptions) {
+		o.numRetries = numRetries
+	}
+}
+
+// WithTxRetryDelay is a functional option that allows us to specify the delay
+// to wait before a transaction is retried.
+func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
+	return func(o *txExecutorOptions) {
+		o.retryDelay = delay
+	}
+}
+
 // TransactionExecutor is a generic struct that abstracts away from the type of
 // query a type needs to run under a database transaction, and also the set of
 // options for that transaction. The QueryCreator is used to create a query
@@ -77,17 +133,26 @@ type TransactionExecutor[Query any] struct {
 	BatchedQuerier
 
 	createQuery QueryCreator[Query]
+
+	opts *txExecutorOptions
 }
 
 // NewTransactionExecutor creates a new instance of a TransactionExecutor given
 // a Querier query object and a concrete type for the type of transactions the
 // Querier understands.
 func NewTransactionExecutor[Querier any](db BatchedQuerier,
-	createQuery QueryCreator[Querier]) *TransactionExecutor[Querier] {
+	createQuery QueryCreator[Querier],
+	opts ...TxExecutorOption) *TransactionExecutor[Querier] {
+
+	txOpts := defaultTxExecutorOptions()
+	for _, optFunc := range opts {
+		optFunc(txOpts)
+	}
 
 	return &TransactionExecutor[Querier]{
 		BatchedQuerier: db,
 		createQuery:    createQuery,
+		opts:           txOpts,
 	}
 }
 
@@ -100,30 +165,61 @@ func NewTransactionExecutor[Querier any](db BatchedQuerier,
 func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	txOptions TxOptions, txBody func(Q) error) error {
 
-	// Create the db transaction.
-	tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
-	if err != nil {
-		return err
+	for i := 0; i < t.opts.numRetries; i++ {
+		// Create the db transaction.
+		tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
+		if err != nil {
+			return err
+		}
+
+		// Rollback is safe to call even if the tx is already closed,
+		// so if the tx commits successfully, this is a no-op.
+		defer func() {
+			_ = tx.Rollback()
+		}()
+
+		if err := txBody(t.createQuery(tx)); err != nil {
+			dbErr := MapSQLError(err)
+
+			// At this point, we know the DB wasn't able to
+			// properly serialize the error, so we'll re-execute
+			// everything to try once again.
+			var serializationErr *ErrSerializationError
+			if errors.As(dbErr, &serializationErr) {
+				// Roll back the transaction, then pop back up
+				// to try once again.
+				_ = tx.Rollback()
+
+				retryDelay := t.opts.randRetryDelay()
+
+				log.Tracef("Retrying transaction due to tx "+
+					"serialization error, "+
+					"attempt_number=%v, delay=%v", i,
+					retryDelay)
+
+				// Before we try again, we'll wait with a
+				// random backoff based on the retry delay.
+				time.Sleep(retryDelay)
+
+				continue
+			} else {
+				return dbErr
+			}
+		}
+
+		// Commit transaction.
+		//
+		// TODO(roasbeef): need to handle SQLITE_BUSY here?
+		if err = tx.Commit(); err != nil {
+			return MapSQLError(err)
+		}
+
+		return nil
 	}
 
-	// Rollback is safe to call even if the tx is already closed, so if the
-	// tx commits successfully, this is a no-op.
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	if err := txBody(t.createQuery(tx)); err != nil {
-		return MapSQLError(err)
-	}
-
-	// Commit transaction.
-	//
-	// TODO(roasbeef): need to handle SQLITE_BUSY here?
-	if err = tx.Commit(); err != nil {
-		return MapSQLError(err)
-	}
-
-	return nil
+	// If we get to this point, then we weren't able to successfully commit
+	// a tx given the max number of retries.
+	return ErrRetriesExceeded
 }
 
 // BaseDB is the base database struct that each implementation can embed to
