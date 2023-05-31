@@ -32,6 +32,7 @@ var universeCommands = []cli.Command{
 		Category:  "Universe",
 		Subcommands: []cli.Command{
 			universeRootsCommand,
+			universeDeleteRootCommand,
 			universeLeavesCommand,
 			universeKeysCommand,
 			universeProofCommand,
@@ -136,6 +137,46 @@ func universeRoots(ctx *cli.Context) error {
 	}
 
 	printRespJSON(universeRoot)
+	return nil
+}
+
+var universeDeleteRootCommand = cli.Command{
+	Name:        "delete",
+	ShortName:   "d",
+	Description: "Delete a known asset universe root",
+	Usage:       "delete a known asset universe root",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "the asset ID of the universe to delete",
+		},
+		cli.StringFlag{
+			Name:  groupKeyName,
+			Usage: "the group key of the universe to delete",
+		},
+	},
+	Action: deleteUniverseRoot,
+}
+
+func deleteUniverseRoot(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	universeID, err := parseUniverseID(ctx, true)
+	if err != nil {
+		return err
+	}
+
+	rootReq := &universerpc.DeleteRootQuery{
+		Id: universeID,
+	}
+
+	_, err = client.DeleteAssetRoot(ctxc, rootReq)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
