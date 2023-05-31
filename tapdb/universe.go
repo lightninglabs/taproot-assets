@@ -64,6 +64,16 @@ type BaseUniverseStore interface {
 	QueryUniverseLeaves(ctx context.Context,
 		arg UniverseLeafQuery) ([]UniverseLeaf, error)
 
+	// DeleteUniverseLeaves is used to delete leaves that reside in a
+	// universe tree.
+	DeleteUniverseLeaves(ctx context.Context, namespace string) error
+
+	// DeleteUniverseRoot is used to delete the root of a universe tree.
+	DeleteUniverseRoot(ctx context.Context, namespace string) error
+
+	// DeleteUniverseEvents is used to delete a universe sync event.
+	DeleteUniverseEvents(ctx context.Context, namespace string) error
+
 	// FetchUniverseRoot fetches the root of a universe based on the
 	// namespace key, which is a function of the asset ID and the group
 	// key.

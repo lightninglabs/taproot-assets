@@ -20,6 +20,19 @@ INSERT INTO universe_roots (
     DO UPDATE SET namespace_root = @namespace_root
 RETURNING id;
 
+-- name: DeleteUniverseEvents :exec
+WITH root_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE namespace_root = @namespace_root
+)
+DELETE FROM universe_events
+WHERE universe_root_id = (SELECT id from root_id);
+
+-- name: DeleteUniverseRoot :exec
+DELETE FROM universe_roots
+WHERE namespace_root = @namespace_root;
+
 -- name: InsertUniverseLeaf :exec
 INSERT INTO universe_leaves (
     asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
@@ -28,6 +41,10 @@ INSERT INTO universe_leaves (
     @asset_genesis_id, @script_key_bytes, @universe_root_id, @leaf_node_key,
     @leaf_node_namespace, @minting_point
 );
+
+-- name: DeleteUniverseLeaves :exec
+DELETE FROM universe_leaves
+WHERE leaf_node_namespace = @namespace;
 
 -- name: QueryUniverseLeaves :many
 SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value genesis_proof, 
