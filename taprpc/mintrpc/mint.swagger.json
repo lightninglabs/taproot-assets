@@ -70,11 +70,18 @@
         "parameters": [
           {
             "name": "batch_key",
-            "description": "The optional batch key of the batch to list. When using REST this field\nmust be encoded as base64url.",
+            "description": "The optional batch key of the batch to list, specified as raw bytes\n(gRPC only).",
             "in": "path",
             "required": true,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "batch_key_str",
+            "description": "The optional batch key of the batch to list, specified as a hex\nencoded string (use this for REST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

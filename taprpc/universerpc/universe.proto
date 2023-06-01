@@ -130,16 +130,17 @@ message MerkleSumNode {
 
 message ID {
     oneof id {
-        // The 32-byte asset ID.
+        // The 32-byte asset ID specified as raw bytes (gRPC only).
         bytes asset_id = 1;
 
-        // The 32-byte asset ID encoded as a hex string.
+        // The 32-byte asset ID encoded as a hex string (use this for REST).
         string asset_id_str = 2;
 
-        // The 32-byte asset group key.
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
         bytes group_key = 3;
 
-        // The 32-byte asset group key encoded as hex string.
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
         string group_key_str = 4;
     }
 }

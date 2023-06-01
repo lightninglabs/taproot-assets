@@ -355,22 +355,23 @@ type isID_Id interface {
 }
 
 type ID_AssetId struct {
-	// The 32-byte asset ID.
+	// The 32-byte asset ID specified as raw bytes (gRPC only).
 	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3,oneof"`
 }
 
 type ID_AssetIdStr struct {
-	// The 32-byte asset ID encoded as a hex string.
+	// The 32-byte asset ID encoded as a hex string (use this for REST).
 	AssetIdStr string `protobuf:"bytes,2,opt,name=asset_id_str,json=assetIdStr,proto3,oneof"`
 }
 
 type ID_GroupKey struct {
-	// The 32-byte asset group key.
+	// The 32-byte asset group key specified as raw bytes (gRPC only).
 	GroupKey []byte `protobuf:"bytes,3,opt,name=group_key,json=groupKey,proto3,oneof"`
 }
 
 type ID_GroupKeyStr struct {
-	// The 32-byte asset group key encoded as hex string.
+	// The 32-byte asset group key encoded as hex string (use this for
+	// REST).
 	GroupKeyStr string `protobuf:"bytes,4,opt,name=group_key_str,json=groupKeyStr,proto3,oneof"`
 }
 

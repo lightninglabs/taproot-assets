@@ -133,6 +133,10 @@ func local_request_Mint_CancelBatch_0(ctx context.Context, marshaler runtime.Mar
 
 }
 
+var (
+	filter_Mint_ListBatches_0 = &utilities.DoubleArray{Encoding: map[string]int{"batch_key": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
+)
+
 func request_Mint_ListBatches_0(ctx context.Context, marshaler runtime.Marshaler, client MintClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq ListBatchRequest
 	var metadata runtime.ServerMetadata
@@ -149,9 +153,21 @@ func request_Mint_ListBatches_0(ctx context.Context, marshaler runtime.Marshaler
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key")
 	}
 
-	protoReq.BatchKey, err = runtime.Bytes(val)
+	if protoReq.Filter == nil {
+		protoReq.Filter = &ListBatchRequest_BatchKey{}
+	} else if _, ok := protoReq.Filter.(*ListBatchRequest_BatchKey); !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ListBatchRequest_BatchKey, but: %t\n", protoReq.Filter)
+	}
+	protoReq.Filter.(*ListBatchRequest_BatchKey).BatchKey, err = runtime.Bytes(val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_ListBatches_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	msg, err := client.ListBatches(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -175,9 +191,21 @@ func local_request_Mint_ListBatches_0(ctx context.Context, marshaler runtime.Mar
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "batch_key")
 	}
 
-	protoReq.BatchKey, err = runtime.Bytes(val)
+	if protoReq.Filter == nil {
+		protoReq.Filter = &ListBatchRequest_BatchKey{}
+	} else if _, ok := protoReq.Filter.(*ListBatchRequest_BatchKey); !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "expect type: *ListBatchRequest_BatchKey, but: %t\n", protoReq.Filter)
+	}
+	protoReq.Filter.(*ListBatchRequest_BatchKey).BatchKey, err = runtime.Bytes(val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "batch_key", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Mint_ListBatches_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	msg, err := server.ListBatches(ctx, &protoReq)

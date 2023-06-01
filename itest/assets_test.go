@@ -485,7 +485,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	// the batch state.
 	cancelBatch, err := t.tapd.ListBatches(
 		ctxt, &mintrpc.ListBatchRequest{
-			BatchKey: collideBatchKey.BatchKey,
+			Filter: &mintrpc.ListBatchRequest_BatchKey{
+				BatchKey: collideBatchKey.BatchKey,
+			},
 		})
 	require.NoError(t.t, err)
 

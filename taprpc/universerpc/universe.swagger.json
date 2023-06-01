@@ -112,14 +112,14 @@
         "parameters": [
           {
             "name": "asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -127,7 +127,7 @@
           },
           {
             "name": "group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -135,7 +135,7 @@
           },
           {
             "name": "group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
@@ -167,14 +167,14 @@
         "parameters": [
           {
             "name": "group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -182,14 +182,14 @@
           },
           {
             "name": "asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -222,14 +222,14 @@
         "parameters": [
           {
             "name": "asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -237,7 +237,7 @@
           },
           {
             "name": "group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -245,7 +245,7 @@
           },
           {
             "name": "group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
@@ -277,14 +277,14 @@
         "parameters": [
           {
             "name": "group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -292,14 +292,14 @@
           },
           {
             "name": "asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -332,7 +332,7 @@
         "parameters": [
           {
             "name": "id.asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
@@ -360,7 +360,7 @@
           },
           {
             "name": "id.asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -368,7 +368,7 @@
           },
           {
             "name": "id.group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -376,7 +376,7 @@
           },
           {
             "name": "id.group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
@@ -421,7 +421,7 @@
         "parameters": [
           {
             "name": "key.id.asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
@@ -482,7 +482,7 @@
         "parameters": [
           {
             "name": "id.group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
@@ -510,7 +510,7 @@
           },
           {
             "name": "id.asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -518,14 +518,14 @@
           },
           {
             "name": "id.asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "id.group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -571,7 +571,7 @@
         "parameters": [
           {
             "name": "key.id.group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
@@ -655,14 +655,14 @@
         "parameters": [
           {
             "name": "id.asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "id.asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -670,7 +670,7 @@
           },
           {
             "name": "id.group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -678,7 +678,7 @@
           },
           {
             "name": "id.group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
@@ -710,14 +710,14 @@
         "parameters": [
           {
             "name": "id.group_key_str",
-            "description": "The 32-byte asset group key encoded as hex string.",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "id.asset_id",
-            "description": "The 32-byte asset ID.",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -725,14 +725,14 @@
           },
           {
             "name": "id.asset_id_str",
-            "description": "The 32-byte asset ID encoded as a hex string.",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
             "name": "id.group_key",
-            "description": "The 32-byte asset group key.",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1296,20 +1296,20 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The 32-byte asset ID."
+          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
         },
         "asset_id_str": {
           "type": "string",
-          "description": "The 32-byte asset ID encoded as a hex string."
+          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
         },
         "group_key": {
           "type": "string",
           "format": "byte",
-          "description": "The 32-byte asset group key."
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
         },
         "group_key_str": {
           "type": "string",
-          "description": "The 32-byte asset group key encoded as hex string."
+          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
         }
       }
     },

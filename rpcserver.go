@@ -406,8 +406,25 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		err      error
 	)
 
-	if len(req.BatchKey) != 0 {
-		batchKey, err = btcec.ParsePubKey(req.BatchKey)
+	switch {
+	case len(req.GetBatchKey()) > 0 && len(req.GetBatchKeyStr()) > 0:
+		return nil, fmt.Errorf("cannot specify both batch_key and " +
+			"batch_key_string")
+
+	case len(req.GetBatchKey()) > 0:
+		batchKey, err = btcec.ParsePubKey(req.GetBatchKey())
+		if err != nil {
+			return nil, fmt.Errorf("invalid batch key: %w", err)
+		}
+
+	case len(req.GetBatchKeyStr()) > 0:
+		batchKeyBytes, err := hex.DecodeString(req.GetBatchKeyStr())
+		if err != nil {
+			return nil, fmt.Errorf("invalid batch key string: %w",
+				err)
+		}
+
+		batchKey, err = btcec.ParsePubKey(batchKeyBytes)
 		if err != nil {
 			return nil, fmt.Errorf("invalid batch key: %w", err)
 		}
