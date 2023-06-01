@@ -2594,15 +2594,15 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 		SyncedUniverses: make([]*unirpc.SyncedUniverse, 0, len(uniDiff)),
 	}
 
-	for _, diff := range uniDiff {
+	err := fn.ForEachErr(uniDiff, func(diff universe.AssetSyncDiff) error {
 		oldUniRoot, err := marshalUniverseRoot(diff.OldUniverseRoot)
 		if err != nil {
-			return nil, fmt.Errorf("unable to marshal old "+
-				"uni root: %w", err)
+			return fmt.Errorf("unable to marshal old uni "+
+				"root: %w", err)
 		}
 		newUniRoot, err := marshalUniverseRoot(diff.NewUniverseRoot)
 		if err != nil {
-			return nil, fmt.Errorf("unable to marshal new unit "+
+			return fmt.Errorf("unable to marshal new unit "+
 				"root: %w", err)
 		}
 
@@ -2610,7 +2610,7 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 		for i, leaf := range diff.NewLeafProofs {
 			leaves[i], err = r.marshalAssetLeaf(ctx, leaf)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 
@@ -2621,6 +2621,10 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 				NewAssetLeaves: leaves,
 			},
 		)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return resp, nil
