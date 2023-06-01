@@ -24,11 +24,12 @@ const (
 	// transactions are started immediately.
 	sqliteTxLockImmediate = "_txlock=immediate"
 
-	// maxConns is the number of permitted active and idle connections. We
-	// want to limit this so it isn't unlimited. We use the same value for
-	// the number of idle connections as, this can speed up queries given a
-	// new connection doesn't need to be established each time.
-	maxConns = 25
+	// defaultMaxConns is the number of permitted active and idle
+	// connections. We want to limit this so it isn't unlimited. We use the
+	// same value for the number of idle connections as, this can speed up
+	// queries given a new connection doesn't need to be established each
+	// time.
+	defaultMaxConns = 25
 
 	// connIdleLifetime is the amount of time a connection can be idle.
 	connIdleLifetime = 5 * time.Minute
@@ -112,8 +113,8 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(maxConns)
-	db.SetMaxIdleConns(maxConns)
+	db.SetMaxOpenConns(defaultMaxConns)
+	db.SetMaxIdleConns(defaultMaxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
 
 	if !cfg.SkipMigrations {

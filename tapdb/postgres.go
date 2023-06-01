@@ -33,7 +33,7 @@ type PostgresConfig struct {
 	User               string `long:"user" description:"Database user."`
 	Password           string `long:"password" description:"Database user's password."`
 	DBName             string `long:"dbname" description:"Database name to use."`
-	MaxOpenConnections int32  `long:"maxconnections" description:"Max open connections to keep alive to the database server."`
+	MaxOpenConnections int    `long:"maxconnections" description:"Max open connections to keep alive to the database server."`
 	RequireSSL         bool   `long:"requiressl" description:"Whether to require using SSL (mode: require) when connecting to the server."`
 }
 
@@ -71,6 +71,15 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	maxConns := defaultMaxConns
+	if cfg.MaxOpenConnections > 0 {
+		maxConns = cfg.MaxOpenConnections
+	}
+
+	rawDb.SetMaxOpenConns(maxConns)
+	rawDb.SetMaxIdleConns(maxConns)
+	rawDb.SetConnMaxLifetime(connIdleLifetime)
 
 	if !cfg.SkipMigrations {
 		// Now that the database is open, populate the database with
