@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -469,7 +469,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 		return batch.Assets[0].AssetType == taprpc.AssetType_COLLECTIBLE
 	}
-	batchCollide, err := chanutils.First(allBatches, isCollidingBatch)
+	batchCollide, err := fn.First(allBatches, isCollidingBatch)
 	require.NoError(t.t, err)
 
 	require.Len(t.t, batchCollide.Assets, 1)

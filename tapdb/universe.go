@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -308,7 +308,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		// overlay.
 		universeRootID, err := db.UpsertUniverseRoot(ctx, NewUniverseRoot{
 			NamespaceRoot: b.smtNamespace,
-			AssetID:       chanutils.ByteSlice(leaf.ID()),
+			AssetID:       fn.ByteSlice(leaf.ID()),
 			GroupKey:      groupKeyBytes,
 		})
 		if err != nil {

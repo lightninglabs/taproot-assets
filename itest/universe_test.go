@@ -8,7 +8,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -116,10 +116,9 @@ func testUniverseSync(t *harnessTest) {
 	// Finally, we'll ensure that the universe keys and leaves matches for
 	// both parties.
 	uniRoots := maps.Values(universeRoots.UniverseRoots)
-	uniIDs := chanutils.Map(uniRoots,
-		func(root *unirpc.UniverseRoot) *unirpc.ID {
-			return root.Id
-		},
+	uniIDs := fn.Map(uniRoots, func(root *unirpc.UniverseRoot) *unirpc.ID {
+		return root.Id
+	},
 	)
 	assertUniverseKeysEqual(t.t, uniIDs, t.tapd, bob)
 	assertUniverseLeavesEqual(t.t, uniIDs, t.tapd, bob)

@@ -17,8 +17,8 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -901,7 +901,7 @@ func (a *TapAddressBook) QueryAssetGroup(ctx context.Context,
 		assetGroup.Genesis = &asset.Genesis{
 			FirstPrevOut: genesisPrevOut,
 			Tag:          assetGen.AssetTag,
-			MetaHash: chanutils.ToArray[[32]byte](
+			MetaHash: fn.ToArray[[32]byte](
 				assetGen.MetaHash,
 			),
 			OutputIndex: uint32(assetGen.OutputIndex),

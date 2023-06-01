@@ -15,8 +15,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -308,7 +308,7 @@ type AssetStore struct {
 
 	// eventDistributor is an event distributor that will be used to notify
 	// subscribers about new proofs that are added to the archiver.
-	eventDistributor *chanutils.EventDistributor[proof.Blob]
+	eventDistributor *fn.EventDistributor[proof.Blob]
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
@@ -316,7 +316,7 @@ type AssetStore struct {
 func NewAssetStore(db BatchedAssetStore) *AssetStore {
 	return &AssetStore{
 		db:               db,
-		eventDistributor: chanutils.NewEventDistributor[proof.Blob](),
+		eventDistributor: fn.NewEventDistributor[proof.Blob](),
 	}
 }
 
@@ -1353,11 +1353,9 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 	// Notify any event subscribers that there are new proofs. We do this
 	// outside of the transaction to avoid the subscribers trying to look up
 	// the proofs before they are committed.
-	proofBlobs := chanutils.Map(
-		proofs, func(p *proof.AnnotatedProof) proof.Blob {
-			return p.Blob
-		},
-	)
+	proofBlobs := fn.Map(proofs, func(p *proof.AnnotatedProof) proof.Blob {
+		return p.Blob
+	})
 	a.eventDistributor.NotifySubscribers(proofBlobs...)
 
 	return nil
@@ -1370,7 +1368,7 @@ func (a *AssetStore) ImportProofs(ctx context.Context,
 // marker onward existing items should be delivered on startup. If deliverFrom
 // is nil/zero/empty then all existing items will be delivered.
 func (a *AssetStore) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[proof.Blob],
+	receiver *fn.EventReceiver[proof.Blob],
 	deliverExisting bool, deliverFrom []*proof.Locator) error {
 
 	a.eventDistributor.RegisterSubscriber(receiver)
@@ -1398,7 +1396,7 @@ func (a *AssetStore) RegisterSubscriber(
 // RemoveSubscriber removes the given subscriber and also stops it from
 // processing events.
 func (a *AssetStore) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[proof.Blob]) error {
+	subscriber *fn.EventReceiver[proof.Blob]) error {
 
 	return a.eventDistributor.RemoveSubscriber(subscriber)
 }
@@ -1563,10 +1561,8 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			return cAsset.Asset
 		}
 
-		assets := chanutils.Map(anchoredAssets, fetchAsset)
-
+		assets := fn.Map(anchoredAssets, fetchAsset)
 		tapCommitment, err := commitment.FromAssets(assets...)
-
 		if err != nil {
 			return nil, err
 		}

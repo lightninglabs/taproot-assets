@@ -14,7 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -83,26 +83,26 @@ type ChainPorter struct {
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
-	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
 	subscriberMtx sync.Mutex
 
-	*chanutils.ContextGuard
+	*fn.ContextGuard
 }
 
 // NewChainPorter creates a new instance of the ChainPorter given a valid
 // config.
 func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	subscribers := make(
-		map[uint64]*chanutils.EventReceiver[chanutils.Event],
+		map[uint64]*fn.EventReceiver[fn.Event],
 	)
 	return &ChainPorter{
 		cfg:         cfg,
 		exportReqs:  make(chan Parcel),
 		subscribers: subscribers,
-		ContextGuard: &chanutils.ContextGuard{
+		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: tapgarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
@@ -169,7 +169,7 @@ func (p *ChainPorter) Stop() error {
 // RequestShipment is the main external entry point to the porter. This request
 // a new transfer take place.
 func (p *ChainPorter) RequestShipment(req Parcel) (*OutboundParcel, error) {
-	if !chanutils.SendOrQuit(p.exportReqs, req, p.Quit) {
+	if !fn.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
 
@@ -593,7 +593,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		err := chanutils.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
+		err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
 		if err != nil {
 			return fmt.Errorf("error delivering proof(s): %w", err)
 		}
@@ -992,7 +992,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 //
 // TODO(ffranr): Add support for delivering existing events to new subscribers.
 func (p *ChainPorter) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[chanutils.Event],
+	receiver *fn.EventReceiver[fn.Event],
 	deliverExisting bool, deliverFrom bool) error {
 
 	p.subscriberMtx.Lock()
@@ -1011,7 +1011,7 @@ func (p *ChainPorter) RegisterSubscriber(
 // RemoveSubscriber removes a subscriber from the set of subscribers that will
 // be notified of any new events that are broadcast.
 func (p *ChainPorter) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[chanutils.Event]) error {
+	subscriber *fn.EventReceiver[fn.Event]) error {
 
 	p.subscriberMtx.Lock()
 	defer p.subscriberMtx.Unlock()
@@ -1034,7 +1034,7 @@ func (p *ChainPorter) RemoveSubscriber(
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
-func (p *ChainPorter) publishSubscriberEvent(event chanutils.Event) {
+func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 	// Lock the subscriber mutex to ensure that we don't modify the
 	// subscriber map while we're iterating over it.
 	p.subscriberMtx.Lock()
@@ -1046,8 +1046,8 @@ func (p *ChainPorter) publishSubscriberEvent(event chanutils.Event) {
 }
 
 // A compile-time assertion to make sure ChainPorter satisfies the
-// chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[chanutils.Event, bool] = (*ChainPorter)(nil)
+// fn.EventPublisher interface.
+var _ fn.EventPublisher[fn.Event, bool] = (*ChainPorter)(nil)
 
 // ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
 // subscribers before a state is executed.

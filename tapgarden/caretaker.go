@@ -13,8 +13,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -99,7 +99,7 @@ type BatchCaretaker struct {
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
-	*chanutils.ContextGuard
+	*fn.ContextGuard
 }
 
 // NewBatchCaretaker creates a new Taproot Asset caretaker based on the passed
@@ -111,7 +111,7 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
 		cfg:       cfg,
 		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
-		ContextGuard: &chanutils.ContextGuard{
+		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},

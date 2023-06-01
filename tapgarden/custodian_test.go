@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -90,13 +90,13 @@ type custodianHarness struct {
 // assertStartup makes sure the custodian was started correctly.
 func (h *custodianHarness) assertStartup() {
 	// Make sure SubscribeTransactions is called on startup.
-	_, err := chanutils.RecvOrTimeout(
+	_, err := fn.RecvOrTimeout(
 		h.walletAnchor.SubscribeTxSignal, testTimeout,
 	)
 	require.NoError(h.t, err)
 
 	// Make sure ListTransactions is called on startup.
-	_, err = chanutils.RecvOrTimeout(
+	_, err = fn.RecvOrTimeout(
 		h.walletAnchor.ListTxnsSignal, testTimeout,
 	)
 	require.NoError(h.t, err)
@@ -114,7 +114,7 @@ func (h *custodianHarness) assertAddrsRegistered(
 	addrs ...*address.AddrWithKeyInfo) {
 
 	for _, addr := range addrs {
-		pubKey, err := chanutils.RecvOrTimeout(
+		pubKey, err := fn.RecvOrTimeout(
 			h.walletAnchor.ImportPubKeySignal, testTimeout,
 		)
 		require.NoError(h.t, err)

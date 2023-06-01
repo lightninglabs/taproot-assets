@@ -9,7 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -79,7 +79,7 @@ func TestUniverseEmptyTree(t *testing.T) {
 func randBaseKey(t *testing.T) universe.BaseKey {
 	return universe.BaseKey{
 		MintingOutpoint: test.RandOp(t),
-		ScriptKey: chanutils.Ptr(
+		ScriptKey: fn.Ptr(
 			asset.NewScriptKey(test.RandPubKey(t)),
 		),
 	}
@@ -206,7 +206,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.Equal(t, numLeaves, len(mintingKeys))
 
 	// The set of leaves we created above should match what was returned.
-	require.True(t, chanutils.All(mintingKeys, func(key universe.BaseKey) bool {
+	require.True(t, fn.All(mintingKeys, func(key universe.BaseKey) bool {
 		for _, testLeaf := range testLeaves {
 			if reflect.DeepEqual(key, testLeaf.BaseKey) {
 				return true
@@ -221,7 +221,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	dbLeaves, err := baseUniverse.MintingLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
-	require.True(t, chanutils.All(dbLeaves, func(leaf universe.MintingLeaf) bool {
+	require.True(t, fn.All(dbLeaves, func(leaf universe.MintingLeaf) bool {
 		for _, testLeaf := range testLeaves {
 			if leaf.Genesis.ID() == testLeaf.MintingLeaf.Genesis.ID() {
 				return true
@@ -343,7 +343,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// We should be able to find both of the roots we've inserted above.
-	require.True(t, chanutils.All(rootNodes, func(rootNode universe.BaseRoot) bool {
+	require.True(t, fn.All(rootNodes, func(rootNode universe.BaseRoot) bool {
 		for _, rootNode := range rootNodes {
 			if mssmt.IsEqualNode(rootNode.Node, groupRoot) {
 				return true

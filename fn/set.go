@@ -1,4 +1,4 @@
-package chanutils
+package fn
 
 import "golang.org/x/exp/maps"
 

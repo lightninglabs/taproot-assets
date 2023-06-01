@@ -1,4 +1,4 @@
-package chanutils
+package fn
 
 // SendOrQuit attempts to and a message through channel c. If this succeeds,
 // then bool is returned. Otherwise if a quit signal is received first, then

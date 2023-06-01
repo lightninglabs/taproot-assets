@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 )
@@ -251,7 +251,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		for _, assetStat := range assetStats {
 			stats := universe.AssetSyncSnapshot{
 				TotalSupply: uint64(assetStat.AssetSupply),
-				AssetID: chanutils.ToArray[asset.ID](
+				AssetID: fn.ToArray[asset.ID](
 					assetStat.AssetID,
 				),
 				AssetName:   assetStat.AssetName,

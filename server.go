@@ -10,7 +10,7 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/perms"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -301,7 +301,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 		// We'll report the error to the main daemon, but only if this
 		// isn't a context cancel.
-		if chanutils.IsCanceled(err) {
+		if fn.IsCanceled(err) {
 			return nil
 		}
 

@@ -14,7 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 )
 
 const (
@@ -107,7 +107,7 @@ type Archiver interface {
 type NotifyArchiver interface {
 	Archiver
 
-	chanutils.EventPublisher[Blob, []*Locator]
+	fn.EventPublisher[Blob, []*Locator]
 }
 
 // FileArchiver implements proof Archiver backed by an on-disk file system. The
@@ -125,7 +125,7 @@ type FileArchiver struct {
 
 	// eventDistributor is an event distributor that will be used to notify
 	// subscribers about new proofs that are added to the archiver.
-	eventDistributor *chanutils.EventDistributor[Blob]
+	eventDistributor *fn.EventDistributor[Blob]
 }
 
 // NewFileArchiver creates a new file archive rooted at the passed specified
@@ -145,7 +145,7 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 
 	return &FileArchiver{
 		proofPath:        proofPath,
-		eventDistributor: chanutils.NewEventDistributor[Blob](),
+		eventDistributor: fn.NewEventDistributor[Blob](),
 	}, nil
 }
 
@@ -232,7 +232,7 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 // marker onward existing items should be delivered on startup. If deliverFrom
 // is nil/zero/empty then all existing items will be delivered.
 func (f *FileArchiver) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[Blob],
+	receiver *fn.EventReceiver[Blob],
 	deliverExisting bool, deliverFrom []*Locator) error {
 
 	f.eventDistributor.RegisterSubscriber(receiver)
@@ -259,7 +259,7 @@ func (f *FileArchiver) RegisterSubscriber(
 // RemoveSubscriber removes the given subscriber and also stops it from
 // processing events.
 func (f *FileArchiver) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[Blob]) error {
+	subscriber *fn.EventReceiver[Blob]) error {
 
 	return f.eventDistributor.RemoveSubscriber(subscriber)
 }
@@ -281,7 +281,7 @@ type MultiArchiver struct {
 
 	// eventDistributor is an event distributor that will be used to notify
 	// subscribers about new proofs that are added to the archiver.
-	eventDistributor *chanutils.EventDistributor[Blob]
+	eventDistributor *fn.EventDistributor[Blob]
 }
 
 // NewMultiArchiver creates a new MultiArchiver based on the set of specified
@@ -293,7 +293,7 @@ func NewMultiArchiver(verifier Verifier, archiveTimeout time.Duration,
 		proofVerifier:    verifier,
 		backends:         backends,
 		archiveTimeout:   archiveTimeout,
-		eventDistributor: chanutils.NewEventDistributor[Blob](),
+		eventDistributor: fn.NewEventDistributor[Blob](),
 	}
 }
 
@@ -366,7 +366,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 		return nil
 	}
 
-	if err := chanutils.ParSlice(ctx, proofs, f); err != nil {
+	if err := fn.ParSlice(ctx, proofs, f); err != nil {
 		return err
 	}
 
@@ -381,7 +381,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	}
 
 	// Deliver each new proof to the new item queue of the subscribers.
-	blobs := chanutils.Map(proofs, func(p *AnnotatedProof) Blob {
+	blobs := fn.Map(proofs, func(p *AnnotatedProof) Blob {
 		return p.Blob
 	})
 	m.eventDistributor.NotifySubscribers(blobs...)
@@ -395,8 +395,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 // optional deliverFrom can be specified to indicate from which timestamp/index/
 // marker onward existing items should be delivered on startup. If deliverFrom
 // is nil/zero/empty then all existing items will be delivered.
-func (m *MultiArchiver) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[Blob],
+func (m *MultiArchiver) RegisterSubscriber(receiver *fn.EventReceiver[Blob],
 	deliverExisting bool, deliverFrom []*Locator) error {
 
 	m.eventDistributor.RegisterSubscriber(receiver)
@@ -428,7 +427,7 @@ func (m *MultiArchiver) RegisterSubscriber(
 // RemoveSubscriber removes the given subscriber and also stops it from
 // processing events.
 func (m *MultiArchiver) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[Blob]) error {
+	subscriber *fn.EventReceiver[Blob]) error {
 
 	return m.eventDistributor.RemoveSubscriber(subscriber)
 }

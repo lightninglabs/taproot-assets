@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -688,7 +688,7 @@ func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
 	// same set of asset IDs are being tracked.
 	uniKeys := maps.Keys(a.UniverseRoots)
 	require.Equal(t, len(a.UniverseRoots), len(b.UniverseRoots))
-	require.True(t, chanutils.All(uniKeys, func(key string) bool {
+	require.True(t, fn.All(uniKeys, func(key string) bool {
 		_, ok := b.UniverseRoots[key]
 		return ok
 	}))
@@ -805,7 +805,7 @@ func assertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	require.Len(t, assetStats.AssetStats, len(assetIDs))
 
 	for _, assetStat := range assetStats.AssetStats {
-		found := chanutils.Any(assetIDs, func(id []byte) bool {
+		found := fn.Any(assetIDs, func(id []byte) bool {
 			return bytes.Equal(assetStat.AssetId, id)
 		})
 		require.True(t, found)

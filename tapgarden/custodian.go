@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
@@ -68,11 +68,11 @@ type Custodian struct {
 	// addrSubscription is the subscription queue through which we receive
 	// events about new addresses being created (and we also receive all
 	// previously existing addresses on startup).
-	addrSubscription *chanutils.EventReceiver[*address.AddrWithKeyInfo]
+	addrSubscription *fn.EventReceiver[*address.AddrWithKeyInfo]
 
 	// proofSubscription is the subscription queue through which we receive
 	// events about new proofs being imported.
-	proofSubscription *chanutils.EventReceiver[proof.Blob]
+	proofSubscription *fn.EventReceiver[proof.Blob]
 
 	// events is a map of all transaction outpoints and their ongoing
 	// address events of inbound assets.
@@ -80,24 +80,22 @@ type Custodian struct {
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
-	*chanutils.ContextGuard
+	*fn.ContextGuard
 }
 
 // NewCustodian creates a new Taproot Asset custodian based on the passed
 // config.
 func NewCustodian(cfg *CustodianConfig) *Custodian {
-	addrSub := chanutils.NewEventReceiver[*address.AddrWithKeyInfo](
-		chanutils.DefaultQueueSize,
+	addrSub := fn.NewEventReceiver[*address.AddrWithKeyInfo](
+		fn.DefaultQueueSize,
 	)
-	proofSub := chanutils.NewEventReceiver[proof.Blob](
-		chanutils.DefaultQueueSize,
-	)
+	proofSub := fn.NewEventReceiver[proof.Blob](fn.DefaultQueueSize)
 	return &Custodian{
 		cfg:               cfg,
 		addrSubscription:  addrSub,
 		proofSubscription: proofSub,
 		events:            make(map[wire.OutPoint]*address.Event),
-		ContextGuard: &chanutils.ContextGuard{
+		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
@@ -268,7 +266,7 @@ func (c *Custodian) watchInboundAssets() {
 		if err != nil {
 			// We'll report the error to the main daemon, but only
 			// if this isn't a context cancel.
-			if chanutils.IsCanceled(err) {
+			if fn.IsCanceled(err) {
 				return
 			}
 
@@ -498,7 +496,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	// the proof is available in the relational database. If the proof is
 	// not in the DB, we can't update the event.
 	blob, err := c.cfg.ProofNotifier.FetchProof(ctxt, proof.Locator{
-		AssetID:   chanutils.Ptr(event.Addr.AssetID),
+		AssetID:   fn.Ptr(event.Addr.AssetID),
 		GroupKey:  event.Addr.GroupKey,
 		ScriptKey: event.Addr.ScriptKey,
 	})

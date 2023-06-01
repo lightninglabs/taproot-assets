@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
@@ -323,10 +323,9 @@ func TestUniverseQuerySyncFilters(t *testing.T) {
 		},
 		{
 			name:       "type",
-			typeFilter: chanutils.Ptr(asset.Type(rand.Int() % 2)),
+			typeFilter: fn.Ptr(asset.Type(rand.Int() % 2)),
 			queryCheck: func(s *universe.AssetSyncStats) bool {
-				typeCount := chanutils.Reduce(
-					sh.universeLeaves,
+				typeCount := fn.Reduce(sh.universeLeaves,
 					func(acc int, p *universe.IssuanceProof) int {
 						if p.Leaf.Type == *s.Query.AssetTypeFilter {
 							return acc + 1

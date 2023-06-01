@@ -11,8 +11,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -196,31 +196,31 @@ func (p *VPacket) HasSplitCommitment() (bool, error) {
 // HasSplitRootOutput determines if this virtual transaction has a split root
 // output.
 func (p *VPacket) HasSplitRootOutput() bool {
-	return chanutils.Any(p.Outputs, VOutIsSplitRoot)
+	return fn.Any(p.Outputs, VOutIsSplitRoot)
 }
 
 // HasInteractiveOutput determines if this virtual transaction has an
 // interactive output.
 func (p *VPacket) HasInteractiveOutput() bool {
-	return chanutils.Any(p.Outputs, VOutIsInteractive)
+	return fn.Any(p.Outputs, VOutIsInteractive)
 }
 
 // SplitRootOutput returns the split root output in the virtual transaction, or
 // an error if there is none or more than one.
 func (p *VPacket) SplitRootOutput() (*VOutput, error) {
-	count := chanutils.Count(p.Outputs, VOutIsSplitRoot)
+	count := fn.Count(p.Outputs, VOutIsSplitRoot)
 	if count != 1 {
 		return nil, fmt.Errorf("expected 1 split root output, got %d",
 			count)
 	}
 
-	return chanutils.First(p.Outputs, VOutIsSplitRoot)
+	return fn.First(p.Outputs, VOutIsSplitRoot)
 }
 
 // FirstNonSplitRootOutput returns the first non-change output in the virtual
 // transaction.
 func (p *VPacket) FirstNonSplitRootOutput() (*VOutput, error) {
-	result, err := chanutils.First(p.Outputs, VOutIsNotSplitRoot)
+	result, err := fn.First(p.Outputs, VOutIsNotSplitRoot)
 	if err != nil {
 		return nil, fmt.Errorf("no non split root output found")
 	}
@@ -231,7 +231,7 @@ func (p *VPacket) FirstNonSplitRootOutput() (*VOutput, error) {
 // FirstInteractiveOutput returns the first interactive output in the virtual
 // transaction.
 func (p *VPacket) FirstInteractiveOutput() (*VOutput, error) {
-	result, err := chanutils.First(p.Outputs, VOutIsInteractive)
+	result, err := fn.First(p.Outputs, VOutIsInteractive)
 	if err != nil {
 		return nil, fmt.Errorf("no interactive output found")
 	}
@@ -602,7 +602,7 @@ func AddBip32Derivation(derivations []*psbt.Bip32Derivation,
 	}
 
 	predicate := bip32DerivationKeyEqual(target.PubKey)
-	if chanutils.Any(derivations, predicate) {
+	if fn.Any(derivations, predicate) {
 		return derivations
 	}
 
@@ -619,7 +619,7 @@ func AddTaprootBip32Derivation(derivations []*psbt.TaprootBip32Derivation,
 	}
 
 	predicate := taprootBip32DerivationKeyEqual(target.XOnlyPubKey)
-	if chanutils.Any(derivations, predicate) {
+	if fn.Any(derivations, predicate) {
 		return derivations
 	}
 

@@ -1,4 +1,4 @@
-package chanutils
+package fn
 
 // ForEachErr will iterate through all items in the passed slice, calling the
 // function f on each slice. If a call to f fails, then the function returns an

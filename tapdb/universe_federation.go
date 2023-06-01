@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 )
@@ -89,7 +89,7 @@ func (u *UniverseFederationDB) UniverseServers(ctx context.Context,
 			return err
 		}
 
-		uniServers = chanutils.Map(servers,
+		uniServers = fn.Map(servers,
 			func(s sqlc.UniverseServer) universe.ServerAddr {
 				return universe.NewServerAddr(
 					uint32(s.ID), s.ServerHost,
@@ -109,14 +109,13 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 
 	var writeTx UniverseFederationOptions
 	err := u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
-		return chanutils.ForEachErr(addrs,
-			func(a universe.ServerAddr) error {
-				addr := NewUniverseServer{
-					ServerHost:   a.HostStr(),
-					LastSyncTime: time.Now(),
-				}
-				return db.InsertUniverseServer(ctx, addr)
-			})
+		return fn.ForEachErr(addrs, func(a universe.ServerAddr) error {
+			addr := NewUniverseServer{
+				ServerHost:   a.HostStr(),
+				LastSyncTime: time.Now(),
+			}
+			return db.InsertUniverseServer(ctx, addr)
+		})
 	})
 	if err != nil {
 		// Add context to unique constraint errors.
@@ -138,7 +137,7 @@ func (u *UniverseFederationDB) RemoveServers(ctx context.Context,
 
 	var writeTx UniverseFederationOptions
 	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
-		return chanutils.ForEachErr(addrs, func(a universe.ServerAddr) error {
+		return fn.ForEachErr(addrs, func(a universe.ServerAddr) error {
 			// If the host string is set, then we'll make the
 			// target ID -1 so we can target _only_ based on the
 			// host string instead. This avoids bugs where a user
@@ -164,7 +163,7 @@ func (u *UniverseFederationDB) LogNewSyncs(ctx context.Context,
 
 	var writeTx UniverseFederationOptions
 	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
-		return chanutils.ForEachErr(addrs, func(a universe.ServerAddr) error {
+		return fn.ForEachErr(addrs, func(a universe.ServerAddr) error {
 			return db.LogServerSync(ctx, sqlc.LogServerSyncParams{
 				NewSyncTime:  time.Now(),
 				TargetServer: a.HostStr(),

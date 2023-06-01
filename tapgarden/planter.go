@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -185,7 +185,7 @@ type ChainPlanter struct {
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
-	*chanutils.ContextGuard
+	*fn.ContextGuard
 }
 
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
@@ -196,7 +196,7 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 		completionSignals: make(chan BatchKey),
 		seedlingReqs:      make(chan *Seedling),
 		stateReqs:         make(chan stateRequest),
-		ContextGuard: &chanutils.ContextGuard{
+		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
@@ -618,7 +618,7 @@ func (c *ChainPlanter) gardener() {
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 	req := newStateReq[*MintingBatch](reqTypePendingBatch)
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -630,7 +630,7 @@ func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 func (c *ChainPlanter) NumActiveBatches() (int, error) {
 	req := newStateReq[int](reqTypeNumActiveBatches)
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return 0, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -644,7 +644,7 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 
 	req := newStateParamReq[[]*MintingBatch](reqTypeListBatches, batchKey)
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -655,7 +655,7 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 func (c *ChainPlanter) FinalizeBatch() (*btcec.PublicKey, error) {
 	req := newStateReq[*btcec.PublicKey](reqTypeFinalizeBatch)
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -666,7 +666,7 @@ func (c *ChainPlanter) FinalizeBatch() (*btcec.PublicKey, error) {
 func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	req := newStateReq[*btcec.PublicKey](reqTypeCancelBatch)
 
-	if !chanutils.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
 	}
 
@@ -809,7 +809,7 @@ func (c *ChainPlanter) QueueNewSeedling(req *Seedling) (SeedlingUpdates, error) 
 
 	// Attempt to send the new request, or exit if the quit channel
 	// triggered first.
-	if !chanutils.SendOrQuit(c.seedlingReqs, req, c.Quit) {
+	if !fn.SendOrQuit(c.seedlingReqs, req, c.Quit) {
 		return nil, fmt.Errorf("planter shutting down")
 	}
 

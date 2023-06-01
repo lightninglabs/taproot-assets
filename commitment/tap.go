@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"golang.org/x/exp/maps"
 )
@@ -378,7 +378,7 @@ func (c *TapCommitment) Copy() (*TapCommitment, error) {
 	}
 
 	// Otherwise, we'll copy all the internal asset commitments.
-	newAssetCommitments, err := chanutils.CopyAllErr(
+	newAssetCommitments, err := fn.CopyAllErr(
 		maps.Values(c.assetCommitments),
 	)
 	if err != nil {

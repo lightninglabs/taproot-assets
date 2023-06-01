@@ -11,8 +11,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -150,7 +150,7 @@ type Book struct {
 
 	// subscribers is a map of components that want to be notified on new
 	// address events, keyed by their subscription ID.
-	subscribers map[uint64]*chanutils.EventReceiver[*AddrWithKeyInfo]
+	subscribers map[uint64]*fn.EventReceiver[*AddrWithKeyInfo]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
@@ -158,15 +158,15 @@ type Book struct {
 }
 
 // A compile-time assertion to make sure Book satisfies the
-// chanutils.EventPublisher interface.
-var _ chanutils.EventPublisher[*AddrWithKeyInfo, QueryParams] = (*Book)(nil)
+// fn.EventPublisher interface.
+var _ fn.EventPublisher[*AddrWithKeyInfo, QueryParams] = (*Book)(nil)
 
 // NewBook creates a new Book instance from the config.
 func NewBook(cfg BookConfig) *Book {
 	return &Book{
 		cfg: cfg,
 		subscribers: make(
-			map[uint64]*chanutils.EventReceiver[*AddrWithKeyInfo],
+			map[uint64]*fn.EventReceiver[*AddrWithKeyInfo],
 		),
 	}
 }
@@ -392,7 +392,7 @@ func (b *Book) CompleteEvent(ctx context.Context, event *Event,
 // marker onward existing items should be delivered on startup. If deliverFrom
 // is nil/zero/empty then all existing items will be delivered.
 func (b *Book) RegisterSubscriber(
-	receiver *chanutils.EventReceiver[*AddrWithKeyInfo],
+	receiver *fn.EventReceiver[*AddrWithKeyInfo],
 	deliverExisting bool, deliverFrom QueryParams) error {
 
 	b.subscriberMtx.Lock()
@@ -427,7 +427,7 @@ func (b *Book) RegisterSubscriber(
 // RemoveSubscriber removes the given subscriber and also stops it from
 // processing events.
 func (b *Book) RemoveSubscriber(
-	subscriber *chanutils.EventReceiver[*AddrWithKeyInfo]) error {
+	subscriber *fn.EventReceiver[*AddrWithKeyInfo]) error {
 
 	b.subscriberMtx.Lock()
 	defer b.subscriberMtx.Unlock()
