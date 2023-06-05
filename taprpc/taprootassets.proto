@@ -170,7 +170,7 @@ message AnchorInfo {
     string anchor_txid = 2;
 
     // The block hash the contains the anchor transaction above.
-    bytes anchor_block_hash = 3;
+    string anchor_block_hash = 3;
 
     // The outpoint (txid:vout) that stores the Taproot Asset commitment.
     string anchor_outpoint = 4;

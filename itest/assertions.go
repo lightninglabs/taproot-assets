@@ -68,7 +68,7 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 				txid[:])
 		}
 
-		if !bytes.Equal(a.ChainAnchor.AnchorBlockHash, blockHash[:]) {
+		if a.ChainAnchor.AnchorBlockHash != blockHash.String() {
 			return fmt.Errorf("unexpected asset anchor block "+
 				"hash, got %x wanted %x",
 				a.ChainAnchor.AnchorBlockHash, blockHash[:])
