@@ -10,7 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"golang.org/x/exp/maps"
 )
@@ -404,7 +404,7 @@ func (c *AssetCommitment) Copy() (*AssetCommitment, error) {
 
 	// First, we'll perform a deep copy of all the assets that this existing
 	// commitment is committing to.
-	newAssets := chanutils.CopyAll(maps.Values(c.Assets()))
+	newAssets := fn.CopyAll(maps.Values(c.Assets()))
 
 	// Now that we have a deep copy of all the assets, we can just create a
 	// brand-new commitment from the set of assets.

@@ -10,8 +10,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -624,7 +624,7 @@ func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 		log.Tracef("Generated exclusion proof for anchor output index "+
 			"%d with asset_id=%v, taproot_asset_root=%x, "+
 			"internal_key=%x", outIndex, asset.ID(),
-			chanutils.ByteSlice(tapTree.TapscriptRoot(nil)),
+			fn.ByteSlice(tapTree.TapscriptRoot(nil)),
 			vOut.AnchorOutputInternalKey.SerializeCompressed())
 
 		siblingPreimage := vOut.AnchorOutputTapscriptSibling

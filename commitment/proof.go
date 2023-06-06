@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -129,7 +129,7 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 	)
 	log.Tracef("Derived asset inclusion proof for asset_id=%v, "+
 		"asset_commitment_key=%x, asset_commitment_leaf=%s",
-		asset.ID(), chanutils.ByteSlice(asset.AssetCommitmentKey()),
+		asset.ID(), fn.ByteSlice(asset.AssetCommitmentKey()),
 		assetCommitmentLeaf.NodeHash())
 
 	return NewTapCommitmentWithRoot(

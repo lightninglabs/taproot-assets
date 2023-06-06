@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
@@ -91,7 +91,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 
 	// We need to fetch the minted group anchor asset, which includes the
 	// genesis information used to compute the tweak for the group key.
-	normalAnchor, err := chanutils.First(
+	normalAnchor, err := fn.First(
 		mintedBatch, func(asset *taprpc.Asset) bool {
 			return matchingName(asset, issuableAssets[0].Asset.Name)
 		},
@@ -104,7 +104,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		normalAnchor.AssetGroup.TweakedGroupKey,
 	)
 
-	collectAnchor, err := chanutils.First(
+	collectAnchor, err := fn.First(
 		mintedBatch, func(asset *taprpc.Asset) bool {
 			return matchingName(asset, issuableAssets[1].Asset.Name)
 		},
@@ -130,7 +130,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		require.NoError(t.t, secondTapd.stop(true))
 	}()
 
-	normalMember, err := chanutils.First(
+	normalMember, err := fn.First(
 		mintedBatch, func(asset *taprpc.Asset) bool {
 			return asset.Amount == normalAnchor.Amount/2
 		},
@@ -175,7 +175,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		)
 		return isNotAnchor && isGrouped
 	}
-	collectMember, err := chanutils.First(mintedBatch, isCollectGroupMember)
+	collectMember, err := fn.First(mintedBatch, isCollectGroupMember)
 	require.NoError(t.t, err)
 
 	collectMemberGenInfo := collectMember.AssetGenesis

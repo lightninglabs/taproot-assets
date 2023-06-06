@@ -217,7 +217,8 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 			context.Background(), id, key,
 		)
 		if err != nil {
-			log.Warnf("unable to log new proof event: %v", err)
+			log.Warnf("unable to log new proof event (id=%v): %v",
+				spew.Sdump(id), err)
 		}
 	}()
 
@@ -240,7 +241,9 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 				context.Background(), id, key,
 			)
 			if err != nil {
-				log.Warnf("unable to log sync event: %v", err)
+				log.Warnf("unable to log sync event "+
+					"(id=%v, key=%v): %v", spew.Sdump(id),
+					spew.Sdump(key), err)
 			}
 		}()
 	}()

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 )
 
@@ -68,8 +68,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		// as a series of parallel requests backed by a worker pool.
 		//
 		// TODO(roasbeef): can actually make non-blocking..
-		err = chanutils.ParSlice(
-			ctx, idsToSync,
+		err = fn.ParSlice(ctx, idsToSync,
 			func(ctx context.Context, id Identifier) error {
 				root, err := diffEngine.RootNode(ctx, id)
 				if err != nil {
@@ -92,14 +91,14 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		rootsToSync = make(chan BaseRoot, len(roots))
 
 		// TODO(roasbeef): can make non-blocking w/ goroutine
-		chanutils.SendAll(rootsToSync, roots...)
+		fn.SendAll(rootsToSync, roots...)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch roots for "+
 			"universe sync: %w", err)
 	}
 
-	targetRoots := chanutils.Collect(rootsToSync)
+	targetRoots := fn.Collect(rootsToSync)
 
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
@@ -109,7 +108,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// Now that we know the set of Universes we need to sync, we'll execute
 	// the diff operation for each of them.
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
-	err = chanutils.ParSlice(ctx, targetRoots, func(ctx context.Context, remoteRoot BaseRoot) error {
+	err = fn.ParSlice(ctx, targetRoots, func(ctx context.Context, remoteRoot BaseRoot) error {
 		// First, we'll compare the remote root against the local root.
 		uniID := remoteRoot.ID
 		localRoot, err := s.cfg.LocalDiffEngine.RootNode(ctx, uniID)
@@ -150,7 +149,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 		// With the set of keys fetched, we can now find the set of
 		// keys that need to be synced.
-		keysToFetch := chanutils.SetDiff(remoteUnikeys, localUnikeys)
+		keysToFetch := fn.SetDiff(remoteUnikeys, localUnikeys)
 
 		log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
 			len(keysToFetch))
@@ -161,7 +160,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		// Now that we know where the divergence is, we can fetch the
 		// issuance proofs from the remote party.
 		newLeaves := make(chan *MintingLeaf, len(keysToFetch))
-		err = chanutils.ParSlice(ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
+		err = fn.ParSlice(ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
 			newProof, err := diffEngine.FetchIssuanceProof(ctx, uniID, key)
 			if err != nil {
 				return err
@@ -213,7 +212,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		syncDiffs <- AssetSyncDiff{
 			OldUniverseRoot: localRoot,
 			NewUniverseRoot: remoteRoot,
-			NewLeafProofs:   chanutils.Collect(newLeaves),
+			NewLeafProofs:   fn.Collect(newLeaves),
 		}
 
 		log.Infof("Sync for UniverseRoot(%v) complete!", uniID.String())
@@ -228,7 +227,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	}
 
 	// Finally, we'll collect all the diffs and return them to the caller.
-	return chanutils.Collect(syncDiffs), nil
+	return fn.Collect(syncDiffs), nil
 }
 
 // SyncUniverse attempts to synchronize the local universe with the remote

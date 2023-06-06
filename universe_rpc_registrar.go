@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -84,7 +84,7 @@ func unmarshalIssuanceProof(ctx context.Context,
 	return &universe.IssuanceProof{
 		MintingKey: baseKey,
 		UniverseRoot: mssmt.NewComputedBranch(
-			chanutils.ToArray[mssmt.NodeHash](
+			fn.ToArray[mssmt.NodeHash](
 				proofResp.UniverseRoot.MssmtRoot.RootHash,
 			),
 			uint64(proofResp.UniverseRoot.MssmtRoot.RootSum),

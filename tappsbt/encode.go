@@ -13,8 +13,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -280,7 +280,7 @@ func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
 
 		return []*customPsbtField{
 			{
-				Key:   chanutils.CopySlice(key),
+				Key:   fn.CopySlice(key),
 				Value: b.Bytes(),
 			},
 		}, nil
@@ -314,11 +314,11 @@ func assetEncoder(a *asset.Asset) encoderFunc {
 func booleanEncoder(val bool) encoderFunc {
 	return func(key []byte) ([]*customPsbtField, error) {
 		unknown := &customPsbtField{
-			Key:   chanutils.CopySlice(key),
-			Value: chanutils.CopySlice(falseAsBytes),
+			Key:   fn.CopySlice(key),
+			Value: fn.CopySlice(falseAsBytes),
 		}
 		if val {
-			unknown.Value = chanutils.CopySlice(trueAsBytes)
+			unknown.Value = fn.CopySlice(trueAsBytes)
 		}
 
 		return []*customPsbtField{unknown}, nil
@@ -337,7 +337,7 @@ func bip32DerivationEncoder(derivations []*psbt.Bip32Derivation) encoderFunc {
 		for idx := range derivations {
 			d := derivations[idx]
 
-			keyCopy := chanutils.CopySlice(key)
+			keyCopy := fn.CopySlice(key)
 			unknowns[idx] = &customPsbtField{
 				Key: append(keyCopy, d.PubKey...),
 				Value: psbt.SerializeBIP32Derivation(
@@ -368,7 +368,7 @@ func taprootBip32DerivationEncoder(
 				return nil, err
 			}
 
-			keyCopy := chanutils.CopySlice(key)
+			keyCopy := fn.CopySlice(key)
 			unknowns[idx] = &customPsbtField{
 				Key:   append(keyCopy, d.XOnlyPubKey...),
 				Value: value,

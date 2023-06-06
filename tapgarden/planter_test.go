@@ -19,7 +19,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -154,7 +154,7 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tapgarden.See
 func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 	t.Helper()
 
-	key, err := chanutils.RecvOrTimeout(t.keyRing.ReqKeys, defaultTimeout)
+	key, err := fn.RecvOrTimeout(t.keyRing.ReqKeys, defaultTimeout)
 	require.NoError(t, err)
 
 	return *key
@@ -181,7 +181,7 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(
 
 		// We should get an update from the update channel that the
 		// seedling is now pending.
-		update, err := chanutils.RecvOrTimeout(updates, defaultTimeout)
+		update, err := fn.RecvOrTimeout(updates, defaultTimeout)
 		require.NoError(t, err)
 
 		// Make sure the seedling was planted without error.
@@ -273,12 +273,12 @@ func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
 func (t *mintingTestHarness) assertGenesisTxFunded() *tapgarden.FundedPsbt {
 	// In order to fund a transaction, we expect a call to estimate the
 	// fee, followed by a request to fund a new PSBT packet.
-	_, err := chanutils.RecvOrTimeout(
+	_, err := fn.RecvOrTimeout(
 		t.chain.FeeEstimateSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
 
-	pkt, err := chanutils.RecvOrTimeout(
+	pkt, err := fn.RecvOrTimeout(
 		t.wallet.FundPsbtSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
@@ -331,7 +331,7 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 		isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 			return !isCancelledBatch(batch)
 		}
-		pendingBatch, err = chanutils.First(
+		pendingBatch, err = fn.First(
 			pendingBatches, isNotCancelledBatch,
 		)
 		require.NoError(t, err)
@@ -339,7 +339,7 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 
 	if batchKey != nil {
 		var err error
-		pendingBatch, err = chanutils.First(pendingBatches, matchingBatch)
+		pendingBatch, err = fn.First(pendingBatches, matchingBatch)
 		require.NoError(t, err)
 	}
 
@@ -401,7 +401,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		isCommittedBatch := func(batch *tapgarden.MintingBatch) bool {
 			return batch.State() == tapgarden.BatchStateCommitted
 		}
-		batch, err := chanutils.First(pendingBatches, isCommittedBatch)
+		batch, err := fn.First(pendingBatches, isCommittedBatch)
 		if err != nil {
 			return false
 		}
@@ -450,7 +450,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 	t.Helper()
 
 	// Ensure that a request to finalize the PSBt has come across.
-	_, err := chanutils.RecvOrTimeout(
+	_, err := fn.RecvOrTimeout(
 		t.wallet.SignPsbtSignal, defaultTimeout,
 	)
 	require.NoError(t, err, "psbt sign req not sent")
@@ -465,7 +465,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 	isNotCancelledBatch := func(batch *tapgarden.MintingBatch) bool {
 		return !isCancelledBatch(batch)
 	}
-	pendingBatch, err := chanutils.First(pendingBatches, isNotCancelledBatch)
+	pendingBatch, err := fn.First(pendingBatches, isNotCancelledBatch)
 	require.NoError(t, err)
 
 	// The minting key of the batch should match the public key
@@ -473,7 +473,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 	batchKey, _, err := pendingBatch.MintingOutputKey()
 	require.NoError(t, err)
 
-	importedKey, err := chanutils.RecvOrTimeout(
+	importedKey, err := fn.RecvOrTimeout(
 		t.wallet.ImportPubKeySignal, defaultTimeout,
 	)
 	require.NoError(t, err, "pubkey import req not sent")
@@ -485,7 +485,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 	t.Helper()
 
-	tx, err := chanutils.RecvOrTimeout(t.chain.PublishReq, defaultTimeout)
+	tx, err := fn.RecvOrTimeout(t.chain.PublishReq, defaultTimeout)
 	require.NoError(t, err)
 
 	return *tx
@@ -497,7 +497,7 @@ func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 func (t *mintingTestHarness) assertConfReqSent(tx *wire.MsgTx,
 	block *wire.MsgBlock) func() {
 
-	reqNo, err := chanutils.RecvOrTimeout(
+	reqNo, err := fn.RecvOrTimeout(
 		t.chain.ConfReqSignal, defaultTimeout,
 	)
 	require.NoError(t, err)

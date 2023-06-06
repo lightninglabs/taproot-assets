@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -60,7 +60,7 @@ type Courier[Addr any] interface {
 
 	// SetSubscribers sets the set of subscribers that will be notified
 	// of proof courier related events.
-	SetSubscribers(map[uint64]*chanutils.EventReceiver[chanutils.Event])
+	SetSubscribers(map[uint64]*fn.EventReceiver[fn.Event])
 }
 
 // ProofMailbox represents an abstract store-and-forward mailbox that can be
@@ -369,7 +369,7 @@ type HashMailCourier struct {
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
-	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
@@ -383,7 +383,7 @@ func NewHashMailCourier(cfg *HashMailCourierCfg, mailbox ProofMailbox,
 	deliveryLog DeliveryLog) (*HashMailCourier, error) {
 
 	subscribers := make(
-		map[uint64]*chanutils.EventReceiver[chanutils.Event],
+		map[uint64]*fn.EventReceiver[fn.Event],
 	)
 	return &HashMailCourier{
 		cfg:         cfg,
@@ -638,7 +638,7 @@ func (h *HashMailCourier) backoffExec(ctx context.Context,
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
-func (h *HashMailCourier) publishSubscriberEvent(event chanutils.Event) {
+func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 	// Lock the subscriber mutex to ensure that we don't modify the
 	// subscriber map while we're iterating over it.
 	h.subscriberMtx.Lock()
@@ -733,7 +733,7 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context, recipient Recipient,
 // SetSubscribers sets the subscribers for the courier. This method is
 // thread-safe.
 func (h *HashMailCourier) SetSubscribers(
-	subscribers map[uint64]*chanutils.EventReceiver[chanutils.Event]) {
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]) {
 
 	h.subscriberMtx.Lock()
 	defer h.subscriberMtx.Unlock()

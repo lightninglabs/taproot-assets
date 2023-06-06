@@ -11,8 +11,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -335,5 +335,5 @@ type Porter interface {
 
 	// EventPublisher is a subscription interface that allows callers to
 	// subscribe to events that are relevant to the Porter.
-	chanutils.EventPublisher[chanutils.Event, bool]
+	fn.EventPublisher[fn.Event, bool]
 }

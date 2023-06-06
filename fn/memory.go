@@ -1,4 +1,4 @@
-package chanutils
+package fn
 
 // Ptr returns the pointer of the given value. This is useful in instances
 // where a function returns the value, but a pointer is wanted. Without this,

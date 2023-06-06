@@ -22,8 +22,8 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
@@ -435,7 +435,7 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		return nil, fmt.Errorf("unable to list batches: %w", err)
 	}
 
-	rpcBatches, err := chanutils.MapErr(batches, marshalMintingBatch)
+	rpcBatches, err := fn.MapErr(batches, marshalMintingBatch)
 	if err != nil {
 		return nil, err
 	}
@@ -1760,9 +1760,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 	// Create a new event subscriber and pass a copy to the chain porter.
 	// We will then read events from the subscriber.
-	eventSubscriber := chanutils.NewEventReceiver[chanutils.Event](
-		chanutils.DefaultQueueSize,
-	)
+	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
 	defer eventSubscriber.Stop()
 
 	err := r.cfg.ChainPorter.RegisterSubscriber(eventSubscriber, false, false)
@@ -1816,7 +1814,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 // marshallSendAssetEvent maps a ChainPorter event to its RPC counterpart.
 func marshallSendAssetEvent(
-	eventInterface chanutils.Event) (*taprpc.SendAssetEvent, error) {
+	eventInterface fn.Event) (*taprpc.SendAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *tapfreighter.ExecuteSendStateEvent:
@@ -1863,7 +1861,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
 		var seedlingMeta *taprpc.AssetMeta
 		if seedling.Meta != nil {
 			seedlingMeta = &taprpc.AssetMeta{
-				MetaHash: chanutils.ByteSlice(
+				MetaHash: fn.ByteSlice(
 					seedling.Meta.MetaHash(),
 				),
 				Data: seedling.Meta.Data,
@@ -2596,15 +2594,15 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 		SyncedUniverses: make([]*unirpc.SyncedUniverse, 0, len(uniDiff)),
 	}
 
-	for _, diff := range uniDiff {
+	err := fn.ForEachErr(uniDiff, func(diff universe.AssetSyncDiff) error {
 		oldUniRoot, err := marshalUniverseRoot(diff.OldUniverseRoot)
 		if err != nil {
-			return nil, fmt.Errorf("unable to marshal old "+
-				"uni root: %w", err)
+			return fmt.Errorf("unable to marshal old uni "+
+				"root: %w", err)
 		}
 		newUniRoot, err := marshalUniverseRoot(diff.NewUniverseRoot)
 		if err != nil {
-			return nil, fmt.Errorf("unable to marshal new unit "+
+			return fmt.Errorf("unable to marshal new unit "+
 				"root: %w", err)
 		}
 
@@ -2612,7 +2610,7 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 		for i, leaf := range diff.NewLeafProofs {
 			leaves[i], err = r.marshalAssetLeaf(ctx, leaf)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 
@@ -2623,6 +2621,10 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 				NewAssetLeaves: leaves,
 			},
 		)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return resp, nil
@@ -2684,7 +2686,7 @@ func (r *rpcServer) ListFederationServers(ctx context.Context,
 	}
 
 	return &unirpc.ListFederationServersResponse{
-		Servers: chanutils.Map(uniServers, marshalUniverseServer),
+		Servers: fn.Map(uniServers, marshalUniverseServer),
 	}, nil
 }
 
@@ -2701,7 +2703,7 @@ func (r *rpcServer) AddFederationServer(ctx context.Context,
 	in *unirpc.AddFederationServerRequest,
 ) (*unirpc.AddFederationServerResponse, error) {
 
-	serversToAdd := chanutils.Map(in.Servers, unmarshalUniverseServer)
+	serversToAdd := fn.Map(in.Servers, unmarshalUniverseServer)
 
 	err := r.cfg.UniverseFederation.AddServer(serversToAdd...)
 	if err != nil {
@@ -2717,7 +2719,7 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 	in *unirpc.DeleteFederationServerRequest,
 ) (*unirpc.DeleteFederationServerResponse, error) {
 
-	serversToDel := chanutils.Map(in.Servers, unmarshalUniverseServer)
+	serversToDel := fn.Map(in.Servers, unmarshalUniverseServer)
 
 	err := r.cfg.FederationDB.RemoveServers(ctx, serversToDel...)
 	if err != nil {
@@ -2748,7 +2750,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
-	assetID := chanutils.ToArray[asset.ID](in.AssetId)
+	assetID := fn.ToArray[asset.ID](in.AssetId)
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
@@ -2875,16 +2877,16 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 			AssetTypeFilter: func() *asset.Type {
 				switch req.AssetTypeFilter {
 				case unirpc.AssetTypeFilter_FILTER_ASSET_NORMAL:
-					return chanutils.Ptr(asset.Normal)
+					return fn.Ptr(asset.Normal)
 
 				case unirpc.AssetTypeFilter_FILTER_ASSET_COLLECTIBLE:
-					return chanutils.Ptr(asset.Collectible)
+					return fn.Ptr(asset.Collectible)
 
 				default:
 					return nil
 				}
 			}(),
-			AssetIDFilter: chanutils.ToArray[asset.ID](
+			AssetIDFilter: fn.ToArray[asset.ID](
 				req.AssetIdFilter,
 			),
 			SortBy: universe.SyncStatsSort(req.SortBy),
@@ -2898,7 +2900,7 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 
 	snapshots := assetStats.SyncStats
 	resp := &unirpc.UniverseAssetStats{
-		AssetStats: chanutils.Map(snapshots, marshalAssetSyncSnapshot),
+		AssetStats: fn.Map(snapshots, marshalAssetSyncSnapshot),
 	}
 
 	return resp, nil

@@ -13,8 +13,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -723,7 +723,7 @@ func (a *AssetMintingStore) FetchNonFinalBatches(
 			return marshalMintingBatch(ctx, q, convBatch)
 		}
 
-		batches, err = chanutils.MapErr(dbBatches, parseBatch)
+		batches, err = fn.MapErr(dbBatches, parseBatch)
 		if err != nil {
 			return fmt.Errorf("batch parsing failed: %w", err)
 		}
@@ -758,7 +758,7 @@ func (a *AssetMintingStore) FetchAllBatches(
 			return marshalMintingBatch(ctx, q, convBatch)
 		}
 
-		batches, err = chanutils.MapErr(dbBatches, parseBatch)
+		batches, err = fn.MapErr(dbBatches, parseBatch)
 		if err != nil {
 			return fmt.Errorf("batch parsing failed: %w", err)
 		}

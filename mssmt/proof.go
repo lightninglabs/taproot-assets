@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 )
 
 var (
@@ -89,7 +89,7 @@ func (p *CompressedProof) Decompress() (*Proof, error) {
 	nodes := make([]Node, len(p.Bits))
 
 	// The number of 0 bits should match the number of pre-populated nodes.
-	numExpectedNodes := chanutils.Reduce(p.Bits, func(count int, bit bool) int {
+	numExpectedNodes := fn.Reduce(p.Bits, func(count int, bit bool) int {
 		if !bit {
 			return count + 1
 		}

@@ -17,8 +17,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -427,7 +427,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		)
 	}
 
-	inputsScriptKeys := chanutils.Map(
+	inputsScriptKeys := fn.Map(
 		vPkt.Inputs, func(vInput *tappsbt.VInput) *btcec.PublicKey {
 			return vInput.Asset().ScriptKey.PubKey
 		},
@@ -622,9 +622,8 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 
 		log.Tracef("Input commitment taproot_asset_root=%x, "+
 			"internal_key=%x, pk_script=%x, trimmed_merkle_root=%x",
-			chanutils.ByteSlice(
-				assetInput.Commitment.TapscriptRoot(nil),
-			), internalKey.PubKey.SerializeCompressed(),
+			fn.ByteSlice(assetInput.Commitment.TapscriptRoot(nil)),
+			internalKey.PubKey.SerializeCompressed(),
 			anchorPkScript, anchorMerkleRoot[:])
 
 		// We'll also include an inclusion proof for the input asset in

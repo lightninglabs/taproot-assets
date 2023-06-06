@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -308,7 +308,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		// overlay.
 		universeRootID, err := db.UpsertUniverseRoot(ctx, NewUniverseRoot{
 			NamespaceRoot: b.smtNamespace,
-			AssetID:       chanutils.ByteSlice(leaf.ID()),
+			AssetID:       fn.ByteSlice(leaf.ID()),
 			GroupKey:      groupKeyBytes,
 		})
 		if err != nil {
@@ -437,7 +437,7 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 		// Now that we have all the leaves we need to query, we'll look
 		// each up them up in the universe tree, obtaining a merkle
 		// proof for each of them along the way.
-		for _, leaf := range universeLeaves {
+		return fn.ForEachErr(universeLeaves, func(leaf UniverseLeaf) error {
 			scriptPub, err := schnorr.ParsePubKey(leaf.ScriptKeyBytes)
 			if err != nil {
 				return err
@@ -493,9 +493,9 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 			}
 
 			proofs = append(proofs, proof)
-		}
 
-		return nil
+			return nil
+		})
 	})
 	if dbErr != nil {
 		return nil, dbErr
@@ -517,7 +517,7 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 			return err
 		}
 
-		for _, key := range universeKeys {
+		return fn.ForEachErr(universeKeys, func(key UniverseKeys) error {
 			scriptKeyPub, err := schnorr.ParsePubKey(
 				key.ScriptKeyBytes,
 			)
@@ -539,9 +539,9 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 				MintingOutpoint: genPoint,
 				ScriptKey:       &scriptKey,
 			})
-		}
 
-		return nil
+			return nil
+		})
 	})
 	if dbErr != nil {
 		return nil, dbErr
@@ -571,11 +571,11 @@ func (b *BaseUniverseTree) MintingLeaves(ctx context.Context,
 			return err
 		}
 
-		for _, leaf := range universeLeaves {
+		return fn.ForEachErr(universeLeaves, func(dbLeaf UniverseLeaf) error {
 			// For each leaf, we'll decode the proof, and then also
 			// fetch the genesis asset information for that leaf.
 			leafAssetGen, err := fetchGenesis(
-				ctx, db, leaf.GenAssetID,
+				ctx, db, dbLeaf.GenAssetID,
 			)
 			if err != nil {
 				return err
@@ -587,8 +587,8 @@ func (b *BaseUniverseTree) MintingLeaves(ctx context.Context,
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				GenesisProof: leaf.GenesisProof,
-				Amt:          uint64(leaf.SumAmt),
+				GenesisProof: dbLeaf.GenesisProof,
+				Amt:          uint64(dbLeaf.SumAmt),
 			}
 			if b.id.GroupKey != nil {
 				leaf.GroupKey = &asset.GroupKey{
@@ -597,9 +597,9 @@ func (b *BaseUniverseTree) MintingLeaves(ctx context.Context,
 			}
 
 			leaves = append(leaves, leaf)
-		}
 
-		return nil
+			return nil
+		})
 	})
 	if dbErr != nil {
 		return nil, dbErr

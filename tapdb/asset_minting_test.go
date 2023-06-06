@@ -15,8 +15,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -744,7 +744,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 		return count
 	}
-	numKeyGroups := chanutils.Reduce(mintedAssets, keyGroupSumReducer)
+	numKeyGroups := fn.Reduce(mintedAssets, keyGroupSumReducer)
 	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(
 		ctx, nil,
 	)

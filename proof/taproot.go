@@ -12,8 +12,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/chanutils"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -291,7 +291,7 @@ func (p TaprootProof) DeriveByAssetInclusion(
 
 	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
 		"internal_key=%x, taproot_key=%x",
-		chanutils.ByteSlice(tapCommitment.TapscriptRoot(nil)),
+		fn.ByteSlice(tapCommitment.TapscriptRoot(nil)),
 		p.InternalKey.SerializeCompressed(),
 		schnorr.SerializePubKey(pubKey))
 
@@ -349,7 +349,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 
 	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
 		"internal_key=%x",
-		chanutils.ByteSlice(commitment.TapscriptRoot(nil)),
+		fn.ByteSlice(commitment.TapscriptRoot(nil)),
 		p.InternalKey.SerializeCompressed())
 
 	return deriveTaprootKeysFromTapCommitment(

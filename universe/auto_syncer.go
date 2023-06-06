@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taproot-assets/chanutils"
+	"github.com/lightninglabs/taproot-assets/fn"
 )
 
 const (
@@ -75,7 +75,7 @@ type FederationPushReq struct {
 type FederationEnvoy struct {
 	cfg FederationConfig
 
-	*chanutils.ContextGuard
+	*fn.ContextGuard
 
 	startOnce sync.Once
 
@@ -89,7 +89,7 @@ func NewFederationEnvoy(cfg FederationConfig) *FederationEnvoy {
 	return &FederationEnvoy{
 		cfg:          cfg,
 		pushRequests: make(chan *FederationPushReq),
-		ContextGuard: &chanutils.ContextGuard{
+		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
@@ -104,7 +104,7 @@ func (f *FederationEnvoy) Start() error {
 		// Before we start the main goroutine, we'll add the set of
 		// static Universe servers.
 		addrs := f.cfg.StaticFederationMembers
-		serverAddrs := chanutils.Map(addrs, func(a string) ServerAddr {
+		serverAddrs := fn.Map(addrs, func(a string) ServerAddr {
 			return NewServerAddrFromStr(a)
 		})
 		err := f.AddServer(serverAddrs...)
@@ -234,7 +234,7 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
 
 	// To conclude, we'll attempt to push the new proof to all the universe
 	// servers in parallel.
-	err = chanutils.ParSlice(ctx, fedServers, pushNewProof)
+	err = fn.ParSlice(ctx, fedServers, pushNewProof)
 	if err != nil {
 		// TODO(roasbeef): retry in the background until successful?
 		log.Errorf("unable to push proof to federation: %v", err)
@@ -284,7 +284,7 @@ func (f *FederationEnvoy) syncer() {
 
 			// Sync the set of servers in parallel, waiting until
 			// the syncs are finished to proceed.
-			err = chanutils.ParSlice(
+			err = fn.ParSlice(
 				ctx, fedServers, f.syncUniverseState,
 			)
 			if err != nil {
@@ -352,11 +352,11 @@ func (f *FederationEnvoy) RegisterIssuance(ctx context.Context, id Identifier,
 		err:  make(chan error, 1),
 	}
 
-	if !chanutils.SendOrQuit(f.pushRequests, pushReq, f.Quit) {
+	if !fn.SendOrQuit(f.pushRequests, pushReq, f.Quit) {
 		return nil, fmt.Errorf("unable to push new proof event")
 	}
 
-	return chanutils.RecvResp(pushReq.resp, pushReq.err, f.Quit)
+	return fn.RecvResp(pushReq.resp, pushReq.err, f.Quit)
 }
 
 // AddServers adds a new set of servers to the federation, then immediately
@@ -379,7 +379,7 @@ func (f *FederationEnvoy) AddServer(addrs ...ServerAddr) error {
 		ctx, cancel = f.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		err := chanutils.ParSlice(ctx, addrs, f.syncUniverseState)
+		err := fn.ParSlice(ctx, addrs, f.syncUniverseState)
 		if err != nil {
 			log.Warnf("unable to sync universe state: %v", err)
 		}

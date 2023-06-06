@@ -1,4 +1,4 @@
-package chanutils
+package fn
 
 import (
 	"fmt"

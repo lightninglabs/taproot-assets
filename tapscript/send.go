@@ -724,7 +724,7 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 
 	// Merge all input Taproot Asset commitments into a single commitment.
 	//
-	// TODO(ffranr): Use `chanutils.ForEach` and `inputTapCommitments[1:]`.
+	// TODO(ffranr): Use `fn.ForEach` and `inputTapCommitments[1:]`.
 	inputTapCommitment := inputTapCommitments[0]
 	for idx := range inputTapCommitments {
 		if idx == 0 {
