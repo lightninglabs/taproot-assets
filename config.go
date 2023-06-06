@@ -95,7 +95,7 @@ type Config struct {
 
 	ChainPorter tapfreighter.Porter
 
-	BaseUniverse *universe.MintingArchive
+	MintingArchive *universe.MintingArchive
 
 	UniverseSyncer universe.Syncer
 

@@ -122,7 +122,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
-	uniCfg := universe.MintingArchiveConfig{
+	mintingArchCfg := universe.MintingArchiveConfig{
 		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
 			return tapdb.NewBaseUniverseTree(
 				uniDB, id,
@@ -169,12 +169,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	baseUni := universe.NewMintingArchive(uniCfg)
+	mintingArchive := universe.NewMintingArchive(mintingArchCfg)
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
-		LocalDiffEngine:     baseUni,
+		LocalDiffEngine:     mintingArchive,
 		NewRemoteDiffEngine: tap.NewRpcUniverseDiff,
-		LocalRegistrar:      baseUni,
+		LocalRegistrar:      mintingArchive,
 	})
 
 	federationMembers := cfg.Universe.FederationServers
@@ -192,7 +192,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		universe.FederationConfig{
 			FederationDB:            federationDB,
 			UniverseSyncer:          universeSyncer,
-			LocalRegistrar:          baseUni,
+			LocalRegistrar:          mintingArchive,
 			SyncInterval:            cfg.Universe.SyncInterval,
 			NewRemoteRegistrar:      tap.NewRpcUniverseRegistar,
 			StaticFederationMembers: federationMembers,
@@ -264,7 +264,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ErrChan:      mainErrChan,
 			},
 		),
-		BaseUniverse:       baseUni,
+		MintingArchive:     mintingArchive,
 		UniverseSyncer:     universeSyncer,
 		UniverseFederation: universeFederation,
 		UniverseStats:      universeStats,

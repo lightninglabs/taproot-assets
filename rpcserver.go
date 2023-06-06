@@ -2110,7 +2110,7 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	// First, we'll retrieve the full set of known asset Universe roots.
-	assetRoots, err := r.cfg.BaseUniverse.RootNodes(ctx)
+	assetRoots, err := r.cfg.MintingArchive.RootNodes(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -2205,7 +2205,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 
 	rpcsLog.Debugf("Querying for asset root for %v", spew.Sdump(universeID))
 
-	assetRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	assetRoot, err := r.cfg.MintingArchive.RootNode(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -2249,7 +2249,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	// TODO(roasbeef): tell above if was tring or not, then would set
 	// below diff
 
-	leafKeys, err := r.cfg.BaseUniverse.MintingKeys(ctx, universeID)
+	leafKeys, err := r.cfg.MintingArchive.MintingKeys(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -2310,7 +2310,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.BaseUniverse.MintingLeaves(ctx, universeID)
+	assetLeaves, err := r.cfg.MintingArchive.MintingLeaves(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -2482,7 +2482,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		return nil, err
 	}
 
-	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
+	proofs, err := r.cfg.MintingArchive.FetchIssuanceProof(
 		ctx, universeID, leafKey,
 	)
 	if err != nil {
@@ -2545,7 +2545,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, err
 	}
 
-	newUniverseState, err := r.cfg.BaseUniverse.RegisterIssuance(
+	newUniverseState, err := r.cfg.MintingArchive.RegisterIssuance(
 		ctx, universeID, leafKey, assetLeaf,
 	)
 	if err != nil {
