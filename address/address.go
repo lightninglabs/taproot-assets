@@ -85,8 +85,8 @@ type Tap struct {
 	// to encode the Taproot Asset address.
 	ChainParams *ChainParams
 
-	// Version is the Taproot Asset version of the asset.
-	Version asset.Version
+	// AssetVersion is the Taproot Asset version of the asset.
+	AssetVersion asset.Version
 
 	// AssetID is the asset ID of the asset.
 	AssetID asset.ID
@@ -164,7 +164,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 
 	payload := Tap{
 		ChainParams:      net,
-		Version:          asset.V0,
+		AssetVersion:     asset.V0,
 		AssetID:          genesis.ID(),
 		GroupKey:         groupKey,
 		groupSig:         groupSig,
@@ -296,7 +296,7 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 // address at runtime.
 func (a *Tap) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 6)
-	records = append(records, newAddressVersionRecord(&a.Version))
+	records = append(records, newAddressVersionRecord(&a.AssetVersion))
 	records = append(records, newAddressAssetID(&a.AssetID))
 
 	if a.GroupKey != nil {
@@ -319,7 +319,7 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 // decoding.
 func (a *Tap) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
-		newAddressVersionRecord(&a.Version),
+		newAddressVersionRecord(&a.AssetVersion),
 		newAddressAssetID(&a.AssetID),
 		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
