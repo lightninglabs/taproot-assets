@@ -68,10 +68,13 @@ func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
 
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the universe forest.
-func (b *BaseUniverseForest) RootNodes(ctx context.Context) ([]universe.BaseRoot, error) {
-	var uniRoots []universe.BaseRoot
+func (b *BaseUniverseForest) RootNodes(
+	ctx context.Context) ([]universe.BaseRoot, error) {
 
-	readTx := NewBaseUniverseForestReadTx()
+	var (
+		uniRoots []universe.BaseRoot
+		readTx   = NewBaseUniverseForestReadTx()
+	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseForestStore) error {
 		dbRoots, err := db.UniverseRoots(ctx)
