@@ -318,7 +318,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	normalLeaf, err := insertRandLeaf(t, ctx, normalUniverse, nil)
 	require.NoError(t, err)
 
-	// We should be able to get the roots for both fo the trees.
+	// We should be able to get the roots for both of the trees.
 	groupRoot, _, err := groupUniverse.RootNode(ctx)
 	require.NoError(t, err)
 
