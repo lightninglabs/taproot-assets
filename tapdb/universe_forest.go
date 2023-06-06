@@ -31,8 +31,8 @@ func (b *BaseUniverseForestOptions) ReadOnly() bool {
 	return b.readOnly
 }
 
-// NewBaseUniverseForestReadTx creates a new read-only transaction for the base
-// universe.
+// NewBaseUniverseForestReadTx creates a new read-only transaction for the
+// universe forest.
 func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
 	return BaseUniverseForestOptions{
 		readOnly: true,
@@ -48,9 +48,7 @@ type BatchedUniverseForest interface {
 	BatchedTx[BaseUniverseForestStore]
 }
 
-// BaseUniverseForest implements the persistent storage for the Base universe
-// for a given asset. The minting outpoints stored of the asset are used to key
-// into the universe tree.
+// BaseUniverseForest implements the persistent storage for a universe forest.
 //
 // NOTE: This implements the universe.BaseForest interface.
 type BaseUniverseForest struct {
