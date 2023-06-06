@@ -66,8 +66,8 @@ func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
 	}
 }
 
-// RootNodes returns the complete set of known root nodes for the set of assets
-// tracked in the base Universe.
+// RootNodes returns the complete set of known base universe root nodes for the
+// set of base universes tracked in the universe forest.
 func (b *BaseUniverseForest) RootNodes(ctx context.Context) ([]universe.BaseRoot, error) {
 	var uniRoots []universe.BaseRoot
 
