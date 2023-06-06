@@ -68,54 +68,60 @@ func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
 
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the universe forest.
-func (b *BaseUniverseForest) RootNodes(ctx context.Context) ([]universe.BaseRoot, error) {
-	var uniRoots []universe.BaseRoot
+func (b *BaseUniverseForest) RootNodes(
+	ctx context.Context) ([]universe.BaseRoot, error) {
 
-	readTx := NewBaseUniverseForestReadTx()
+	var (
+		uniRoots []universe.BaseRoot
+		readTx   = NewBaseUniverseForestReadTx()
+	)
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseForestStore) error {
-		dbRoots, err := db.UniverseRoots(ctx)
-		if err != nil {
-			return err
-		}
+	dbErr := b.db.ExecTx(
+		ctx, &readTx, func(db BaseUniverseForestStore) error {
 
-		for _, dbRoot := range dbRoots {
-			var (
-				assetID  asset.ID
-				groupKey *btcec.PublicKey
-			)
-
-			if dbRoot.AssetID != nil {
-				copy(assetID[:], dbRoot.AssetID)
+			dbRoots, err := db.UniverseRoots(ctx)
+			if err != nil {
+				return err
 			}
 
-			if dbRoot.GroupKey != nil {
-				groupKey, err = schnorr.ParsePubKey(
-					dbRoot.GroupKey,
+			for _, dbRoot := range dbRoots {
+				var (
+					assetID  asset.ID
+					groupKey *btcec.PublicKey
 				)
-				if err != nil {
-					return err
+
+				if dbRoot.AssetID != nil {
+					copy(assetID[:], dbRoot.AssetID)
 				}
+
+				if dbRoot.GroupKey != nil {
+					groupKey, err = schnorr.ParsePubKey(
+						dbRoot.GroupKey,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				var nodeHash mssmt.NodeHash
+				copy(nodeHash[:], dbRoot.RootHash)
+				uniRoot := universe.BaseRoot{
+					ID: universe.Identifier{
+						AssetID:  assetID,
+						GroupKey: groupKey,
+					},
+					Node: mssmt.NewComputedBranch(
+						nodeHash,
+						uint64(dbRoot.RootSum),
+					),
+					AssetName: dbRoot.AssetName,
+				}
+
+				uniRoots = append(uniRoots, uniRoot)
 			}
 
-			var nodeHash mssmt.NodeHash
-			copy(nodeHash[:], dbRoot.RootHash)
-			uniRoot := universe.BaseRoot{
-				ID: universe.Identifier{
-					AssetID:  assetID,
-					GroupKey: groupKey,
-				},
-				Node: mssmt.NewComputedBranch(
-					nodeHash, uint64(dbRoot.RootSum),
-				),
-				AssetName: dbRoot.AssetName,
-			}
-
-			uniRoots = append(uniRoots, uniRoot)
-		}
-
-		return nil
-	})
+			return nil
+		})
 	if dbErr != nil {
 		return nil, dbErr
 	}
