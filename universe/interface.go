@@ -381,10 +381,11 @@ type Syncer interface {
 // DiffEngine is a Universe diff engine that can be used to compare the state
 // of two universes and find the set of assets that are different between them.
 type DiffEngine interface {
-	BaseForest
-
 	// RootNode returns the root node for a given base universe.
 	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
+
+	// RootNodes returns the set of root nodes for all known universes.
+	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
 	// MintingKeys returns all the keys inserted in the universe.
 	MintingKeys(ctx context.Context, id Identifier) ([]BaseKey, error)
