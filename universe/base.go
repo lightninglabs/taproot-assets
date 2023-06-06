@@ -201,9 +201,9 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	}
 
 	// Now that we know the proof is valid, we'll insert it into the base
-	// universe backend, and return the new issuance proof.
-	issuanceProof, err := baseUni.RegisterIssuance(
-		ctx, key, leaf, assetSnapshot.MetaReveal,
+	// universe forest backend, and return the new issuance proof.
+	issuanceProof, err := a.cfg.UniverseForest.RegisterIssuance(
+		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register new "+

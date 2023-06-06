@@ -146,6 +146,14 @@ type IssuanceProof struct {
 
 	// Leaf is the leaf node for the asset within the universe tree.
 	Leaf *MintingLeaf
+
+	// ForestRoot is the root of the universe forest that the asset is
+	// located within.
+	ForestRoot mssmt.Node
+
+	// ForestInclusionProof is the inclusion proof for the asset within the
+	// universe forest.
+	ForestInclusionProof *mssmt.Proof
 }
 
 // VerifyRoot verifies that the inclusion proof for the root node matches the
@@ -220,6 +228,12 @@ type Forest interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
+
+	// RegisterIssuance inserts a new minting leaf within the universe tree,
+	// stored at the base key.
+	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
+		leaf *MintingLeaf,
+		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
