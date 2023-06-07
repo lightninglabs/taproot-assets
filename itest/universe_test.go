@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -122,6 +124,44 @@ func testUniverseSync(t *harnessTest) {
 	)
 	assertUniverseKeysEqual(t.t, uniIDs, t.tapd, bob)
 	assertUniverseLeavesEqual(t.t, uniIDs, t.tapd, bob)
+
+	// We should also be able to fetch an asset from Bob's Universe, and
+	// query for that asset with the compressed script key.
+	firstAssetID := rpcSimpleAssets[0].AssetGenesis.AssetId
+	firstScriptKey := hex.EncodeToString(rpcSimpleAssets[0].ScriptKey)
+	firstOutpoint, err := tap.UnmarshalOutpoint(
+		rpcSimpleAssets[0].ChainAnchor.AnchorOutpoint,
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, firstScriptKey, btcec.PubKeyBytesLenCompressed*2)
+
+	firstAssetProofQuery := unirpc.UniverseKey{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_AssetId{
+				AssetId: firstAssetID,
+			},
+		},
+		LeafKey: &unirpc.AssetKey{
+			Outpoint: &unirpc.AssetKey_Op{
+				Op: &unirpc.Outpoint{
+					HashStr: firstOutpoint.Hash.String(),
+					Index:   int32(firstOutpoint.Index),
+				},
+			},
+			ScriptKey: &unirpc.AssetKey_ScriptKeyStr{
+				ScriptKeyStr: firstScriptKey,
+			},
+		},
+	}
+
+	// The asset fetched from the universe should match the asset minted
+	// on the main node, ignoring the zero prev witness from minting.
+	firstAssetUniProof, err := bob.QueryProof(ctxt, &firstAssetProofQuery)
+	require.NoError(t.t, err)
+
+	firstAssetFromUni := firstAssetUniProof.AssetLeaf.Asset
+	firstAssetFromUni.PrevWitnesses = nil
+	assertAsset(t.t, rpcSimpleAssets[0], firstAssetFromUni)
 }
 
 // testUniverseREST tests that we're able to properly query the universe state
@@ -232,6 +272,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Now that Bob is active, we'll make a set of assets with the main node.
 	firstAsset := mintAssetsConfirmBatch(t, t.tapd, simpleAssets[:1])
+	require.Len(t.t, firstAsset, 1)
 
 	// We'll now add the main node, as a member of Bob's Universe
 	// federation. We expect that their state is synchronized shortly after

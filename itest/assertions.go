@@ -479,6 +479,22 @@ func assertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.NotEqual(t, expected.ScriptKey, actual.ScriptKey)
 }
 
+// assertEqualAsset asserts that two taprpc.Asset objects are equal, ignoring
+// node-specific fields like if script keys are local, if the asset is spent,
+// or if the anchor information is populated.
+func assertAsset(t *testing.T, expected, actual *taprpc.Asset) {
+	require.Equal(t, expected.Version, actual.Version)
+	require.Equal(t, expected.AssetGenesis, actual.AssetGenesis)
+	require.Equal(t, expected.AssetType, actual.AssetType)
+	require.Equal(t, expected.Amount, actual.Amount)
+	require.Equal(t, expected.LockTime, actual.LockTime)
+	require.Equal(t, expected.RelativeLockTime, actual.RelativeLockTime)
+	require.Equal(t, expected.ScriptVersion, actual.ScriptVersion)
+	require.Equal(t, expected.ScriptKey, actual.ScriptKey)
+	require.Equal(t, expected.AssetGroup, actual.AssetGroup)
+	require.Equal(t, expected.PrevWitnesses, actual.PrevWitnesses)
+}
+
 // assertBalanceByID asserts that the balance of a single asset,
 // specified by ID, on the given daemon is correct.
 func assertBalanceByID(t *testing.T, tapd *tapdHarness, id []byte,
@@ -778,15 +794,15 @@ func assertUniverseStats(t *testing.T, node *tapdHarness,
 		}
 
 		if numProofs != int(uniStats.NumTotalProofs) {
-			return fmt.Errorf("expected %v, got %v",
+			return fmt.Errorf("expected %v proofs, got %v",
 				numProofs, uniStats.NumTotalProofs)
 		}
 		if numSyncs != int(uniStats.NumTotalSyncs) {
-			return fmt.Errorf("expected %v, got %v",
+			return fmt.Errorf("expected %v syncs, got %v",
 				numSyncs, uniStats.NumTotalSyncs)
 		}
 		if numAssets != int(uniStats.NumTotalAssets) {
-			return fmt.Errorf("expected %v, got %v",
+			return fmt.Errorf("expected %v assets, got %v",
 				numAssets, uniStats.NumTotalAssets)
 		}
 
