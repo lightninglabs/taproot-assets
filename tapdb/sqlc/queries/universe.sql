@@ -87,9 +87,11 @@ SELECT * FROM universe_servers;
 
 -- name: InsertNewSyncEvent :exec
 WITH root_asset_id AS (
-    SELECT id
-    FROM universe_roots
-    WHERE asset_id = @asset_id
+    SELECT leaves.universe_root_id AS id
+    FROM universe_leaves leaves
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = @asset_id
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
@@ -99,9 +101,11 @@ INSERT INTO universe_events (
 
 -- name: InsertNewProofEvent :exec
 WITH root_asset_id AS (
-    SELECT id
-    FROM universe_roots
-    WHERE asset_id = @asset_id
+    SELECT leaves.universe_root_id AS id
+    FROM universe_leaves leaves
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = @asset_id
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time

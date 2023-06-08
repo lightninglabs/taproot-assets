@@ -97,9 +97,11 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 
 const insertNewProofEvent = `-- name: InsertNewProofEvent :exec
 WITH root_asset_id AS (
-    SELECT id
-    FROM universe_roots
-    WHERE asset_id = $2
+    SELECT leaves.universe_root_id AS id
+    FROM universe_leaves leaves
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $2
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
@@ -120,9 +122,11 @@ func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEve
 
 const insertNewSyncEvent = `-- name: InsertNewSyncEvent :exec
 WITH root_asset_id AS (
-    SELECT id
-    FROM universe_roots
-    WHERE asset_id = $2
+    SELECT leaves.universe_root_id AS id
+    FROM universe_leaves leaves
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $2
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
