@@ -85,7 +85,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
 func assertAddressEqual(t *testing.T, a, b *Tap) {
 	t.Helper()
 
-	require.Equal(t, a.Version, b.Version)
+	require.Equal(t, a.AssetVersion, b.AssetVersion)
 	require.Equal(t, a.AssetID, b.AssetID)
 	require.Equal(t, a.GroupKey, b.GroupKey)
 	require.Equal(t, a.ScriptKey, b.ScriptKey)

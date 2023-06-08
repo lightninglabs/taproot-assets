@@ -258,7 +258,7 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				groupKeyBytes = addr.GroupKey.SerializeCompressed()
 			}
 			_, err = db.InsertAddr(ctx, NewAddr{
-				Version:          int16(addr.Version),
+				Version:          int16(addr.AssetVersion),
 				GenesisAssetID:   genAssetID,
 				GroupKey:         groupKeyBytes,
 				ScriptKeyID:      scriptKeyID,
@@ -421,7 +421,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
-			tapAddr.Version = asset.Version(addr.Version)
+			tapAddr.AssetVersion = asset.Version(addr.Version)
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Tap: tapAddr,
@@ -557,7 +557,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
 	}
-	tapAddr.Version = asset.Version(dbAddr.Version)
+	tapAddr.AssetVersion = asset.Version(dbAddr.Version)
 
 	return &address.AddrWithKeyInfo{
 		Tap: tapAddr,
