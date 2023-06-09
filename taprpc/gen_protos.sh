@@ -48,7 +48,7 @@ function generate() {
     --custom_opt="$opts" \
     taprootassets.proto
 
-  PACKAGES="assetwalletrpc universerpc"
+  PACKAGES="assetwalletrpc universerpc mintrpc"
   for package in $PACKAGES; do
 
     opts="package_name=$package,manual_import=$manual_import,js_stubs=1"
