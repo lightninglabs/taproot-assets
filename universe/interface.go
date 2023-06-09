@@ -221,6 +221,10 @@ type BaseForest interface {
 	// of assets tracked in the base Universe.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
+	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
+		leaf *MintingLeaf,
+		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
 }
