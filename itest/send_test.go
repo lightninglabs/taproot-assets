@@ -93,15 +93,16 @@ func testBasicSend(t *harnessTest) {
 	// addresses from our main node to Bob.
 	currentUnits := simpleAssets[0].Asset.Amount
 
-	for i := 0; i < numSends; i++ {
-		bobAddr, err := secondTapd.NewAddr(
-			ctxb, &taprpc.NewAddrRequest{
-				AssetId: genInfo.AssetId,
-				Amt:     numUnits,
-			},
-		)
-		require.NoError(t.t, err)
+	// Issue a single address which will be reused for each send.
+	bobAddr, err := secondTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     numUnits,
+		},
+	)
+	require.NoError(t.t, err)
 
+	for i := 0; i < numSends; i++ {
 		// Deduct what we sent from the expected current number of
 		// units.
 		currentUnits -= numUnits
