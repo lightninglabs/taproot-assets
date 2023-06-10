@@ -41,17 +41,17 @@ function generate() {
   # Generate the JSON/WASM client stubs.
   falafel=$(which falafel)
   pkg="taprpc"
-  opts="package_name=$pkg,js_stubs=1,build_tags=// +build js"
+  opts="package_name=$pkg,js_stubs=1"
   protoc -I/usr/local/include -I. -I.. \
     --plugin=protoc-gen-custom=$falafel\
     --custom_out=. \
     --custom_opt="$opts" \
     taprootassets.proto
 
-  PACKAGES="assetwalletrpc universerpc"
+  PACKAGES="assetwalletrpc universerpc mintrpc"
   for package in $PACKAGES; do
 
-    opts="package_name=$package,manual_import=$manual_import,js_stubs=1,build_tags=// +build js"
+    opts="package_name=$package,manual_import=$manual_import,js_stubs=1"
     pushd $package
     protoc -I/usr/local/include -I. -I.. \
       --plugin=protoc-gen-custom=$falafel\
