@@ -384,7 +384,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
-	// Mine a block to force the send we created above to confirm.
+	// Mine a block to force the send event to complete (confirm on-chain).
 	_ = mineBlocks(t, t.lndHarness, 1, 1)
 
 	// Confirm that we can externally view the transfer.
