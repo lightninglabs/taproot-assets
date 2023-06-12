@@ -16,7 +16,7 @@ import (
 
 // testBasicSend tests that we can properly send assets back and forth between
 // nodes.
-func testBasicSend(t *harnessTest) {
+func testBasicSendUnidirectional(t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		wg   sync.WaitGroup
