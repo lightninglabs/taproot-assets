@@ -11,6 +11,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -125,6 +127,123 @@ func testBasicSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	wg.Wait()
+}
+
+// testSendReservesUTXO tests that the UTXO used as input in an asset send
+// anchoring transaction is reserved until the asset send procedure is
+// completed.
+func testSendReservesUTXO(t *harnessTest) {
+	ctxb := context.Background()
+
+	sendLnd := t.lndHarness.Alice
+	sendTapd := t.tapd
+
+	// Setup a receiver node.
+	recvLnd := t.lndHarness.Bob
+	recvTapd := setupTapdHarness(
+		t.t, t, recvLnd, t.universeServer,
+		func(params *tapdHarnessParams) {
+			// We expect the receiver node to exit with an error
+			// since it will fail to receive the asset at the first
+			// attempt. We will confirm that the receiver node does
+			// eventually receive the asset correctly via an RPC
+			// call.
+			params.expectErrExit = true
+		},
+	)
+
+	// Coalesce all UTXOs into a single UTXO on the sending side. This is
+	// achieved by creating a new address and sending all coins to it.
+	newAddrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+	resp := sendLnd.RPC.NewAddress(newAddrReq)
+
+	// Send all coins to the new address.
+	sendCoinsReq := &lnrpc.SendCoinsRequest{
+		Addr:    resp.Address,
+		SendAll: true,
+	}
+	sendLnd.RPC.SendCoins(sendCoinsReq)
+
+	// Mint UTXO coalescing transaction.
+	t.lndHarness.MineBlocks(6)
+
+	// Confirm that the UTXO coalescing transaction was successful.
+	unspentResp := sendLnd.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{
+			MinConfs: 1,
+		},
+	)
+	require.Equal(t.t, 1, len(unspentResp.Utxos))
+
+	// Mint an asset for sending.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Synchronize the Universe state of the sending node, with the
+	// receiving node.
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
+
+	// The receiver node generates a new address.
+	recvAddr, err := recvTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     10,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	// Start the asset send procedure.
+	t.t.Logf("Commencing asset send procedure")
+	sendAssetsToAddr(t, sendTapd, recvAddr)
+
+	// Stop the sending node before mining the asset transfer's anchoring
+	// transaction. This will ensure that the send procedure does not
+	// complete. The sending node will be stalled waiting for the
+	// broadcast transaction to confirm.
+	t.t.Logf("Stopping sending tapd node")
+	err = sendTapd.stop(false)
+	require.NoError(t.t, err)
+
+	// The last send asset event should have reserved the only available
+	// UTXO, so we should not be able to identify any available unspent
+	// UTXOs.
+	unspentResp = sendLnd.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{
+			MinConfs: 1,
+		},
+	)
+	require.Equal(t.t, 0, len(unspentResp.Utxos))
+
+	// Re-commence the asset send procedure by restarting the sending node.
+	// The asset package should be picked up as a pending package.
+	t.t.Logf("Re-starting sending tapd node so as to complete transfer")
+	err = sendTapd.start(false)
+	require.NoError(t.t, err)
+
+	// Complete the transfer by mining the anchoring transaction and
+	// sending the proof to the receiver node.
+	t.lndHarness.MineBlocks(6)
+
+	_ = sendProof(
+		t, sendTapd, recvTapd, recvAddr.ScriptKey, genInfo,
+	)
+
+	// Confirm with the receiver node that the asset was fully received.
+	assertNonInteractiveRecvComplete(t, recvTapd, 1)
+
+	// Confirm that UTXOs are available again.
+	unspentResp = sendLnd.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{
+			MinConfs: 1,
+		},
+	)
+	require.Greater(t.t, len(unspentResp.Utxos), 0)
 }
 
 // testBasicSendPassiveAsset tests that we can properly send assets which were
