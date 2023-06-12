@@ -30,6 +30,11 @@ var testCases = []*testCase{
 		proofCourierType: proof.ApertureCourier,
 	},
 	{
+		name:             "send reserves UTXO",
+		test:             testSendReservesUTXO,
+		proofCourierType: proof.ApertureCourier,
+	},
+	{
 		name:             "reattempt failed asset send",
 		test:             testReattemptFailedAssetSend,
 		proofCourierType: proof.ApertureCourier,

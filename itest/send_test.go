@@ -2,15 +2,20 @@ package itest
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -125,6 +130,151 @@ func testBasicSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	wg.Wait()
+}
+
+// unmarshallOutPoint converts an outpoint from its lnrpc type to its canonical
+// type.
+func unmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
+	if op == nil {
+		return nil, fmt.Errorf("empty outpoint provided")
+	}
+
+	var hash chainhash.Hash
+	switch {
+	case len(op.TxidBytes) == 0 && len(op.TxidStr) == 0:
+		fallthrough
+
+	case len(op.TxidBytes) != 0 && len(op.TxidStr) != 0:
+		return nil, fmt.Errorf("either TxidBytes or TxidStr must be " +
+			"specified, but not both")
+
+	// The hash was provided as raw bytes.
+	case len(op.TxidBytes) != 0:
+		copy(hash[:], op.TxidBytes)
+
+	// The hash was provided as a hex-encoded string.
+	case len(op.TxidStr) != 0:
+		h, err := chainhash.NewHashFromStr(op.TxidStr)
+		if err != nil {
+			return nil, err
+		}
+		hash = *h
+	}
+
+	return &wire.OutPoint{
+		Hash:  hash,
+		Index: op.OutputIndex,
+	}, nil
+}
+
+// testSendReservesUTXO tests that the UTXO used as input in an asset send
+// anchoring transaction is reserved until the asset send procedure is
+// completed.
+func testSendReservesUTXO(t *harnessTest) {
+	ctxb := context.Background()
+
+	sendLnd := t.lndHarness.Alice
+	sendTapd := t.tapd
+
+	// Setup a receiver node.
+	recvLnd := t.lndHarness.Bob
+	recvTapd := setupTapdHarness(
+		t.t, t, recvLnd, t.universeServer,
+		func(params *tapdHarnessParams) {
+			// We expect the receiver node to exit with an error
+			// since it will fail to receive the asset at the first
+			// attempt. We will confirm that the receiver node does
+			// eventually receive the asset correctly via an RPC
+			// call.
+			params.expectErrExit = true
+		},
+	)
+
+	// Mint an asset for sending.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Synchronize the Universe state of the sending node, with the
+	// receiving node.
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
+
+	// The receiver node generates a new address.
+	recvAddr, err := recvTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     10,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	// Consolidate all UTXOs into a single UTXO.
+	//resp := sendLnd.RPC.NewAddress(&lnrpc.NewAddressRequest{
+	//	Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	//})
+	//sendCoinsReq := &lnrpc.SendCoinsRequest{
+	//	Addr:    resp.Address,
+	//	SendAll: true,
+	//}
+	//sendLnd.RPC.SendCoins(sendCoinsReq)
+	//t.lndHarness.MineBlocks(6)
+
+	listLeasesResp, err := sendLnd.RPC.WalletKit.ListLeases(
+		ctxb, &walletrpc.ListLeasesRequest{},
+	)
+
+	t.t.Logf("Start asset send procedure")
+	sendResp := sendAssetsToAddr(t, sendTapd, recvAddr)
+
+	t.t.Logf("Asset send procedure started with response: %v", sendResp)
+
+	listLeasesResp, err = sendLnd.RPC.WalletKit.ListLeases(
+		ctxb, &walletrpc.ListLeasesRequest{},
+	)
+	foundLockedUTXO := false
+	for _, lockedUTXO := range listLeasesResp.LockedUtxos {
+		lockedUTXO.Outpoint.TxidStr = ""
+		outPoint, err := unmarshallOutPoint(lockedUTXO.Outpoint)
+		require.NoError(t.t, err)
+		t.t.Logf("outPoint: %v", outPoint)
+
+		// Attempt to identify the locked UTXO in the asset send inputs.
+		for _, input := range sendResp.Transfer.Inputs {
+			sendInputOutPoint, err := parseOutPoint(
+				input.AnchorPoint,
+			)
+			require.NoError(t.t, err)
+
+			if outPoint.String() == sendInputOutPoint.String() {
+				foundLockedUTXO = true
+			}
+		}
+		//lockedUTXO.Outpoint.TxidBytes = nil
+
+		_, err = sendLnd.RPC.WalletKit.ReleaseOutput(
+			ctxb, &walletrpc.ReleaseOutputRequest{
+				Id:       lockedUTXO.Id,
+				Outpoint: lockedUTXO.Outpoint,
+			},
+		)
+		require.NoError(t.t, err)
+	}
+	t.t.Logf("foundLockedUTXO: %v", foundLockedUTXO)
+	require.True(t.t, foundLockedUTXO)
+
+	// Complete the transfer by mining the anchoring transaction and
+	// sending the proof to the receiver node.
+	t.lndHarness.MineBlocks(6)
+
+	_ = sendProof(
+		t, sendTapd, recvTapd, recvAddr.ScriptKey, genInfo,
+	)
+
+	// Confirm with the receiver node that the asset was fully received.
+	assertNonInteractiveRecvComplete(t, recvTapd, 1)
 }
 
 // testBasicSendPassiveAsset tests that we can properly send assets which were
