@@ -127,6 +127,98 @@ func testBasicSend(t *harnessTest) {
 	wg.Wait()
 }
 
+// testResumePendingPackageSend tests that we can properly resume a pending
+// package send after a restart.
+func testResumePendingPackageSend(t *harnessTest) {
+	ctxb := context.Background()
+
+	sendTapd := t.tapd
+
+	// Setup a receiver node.
+	recvLnd := t.lndHarness.Bob
+	recvTapd := setupTapdHarness(
+		t.t, t, recvLnd, t.universeServer,
+		func(params *tapdHarnessParams) {
+			// We expect the receiver node to exit with an error
+			// since it will fail to receive the asset at the first
+			// attempt. We will confirm that the receiver node does
+			// eventually receive the asset correctly via an RPC
+			// call.
+			params.expectErrExit = true
+		},
+	)
+
+	// Mint (and mine) an asset for sending.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Synchronize the Universe state of the sending node, with the
+	// receiving node.
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
+
+	// The receiver node generates a new address.
+	recvAddr, err := recvTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     10,
+		},
+	)
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	// We will now start two asset send events in sequence. We will stop and
+	// restart the sending node during each send. During one sending event
+	// we will mine whilst the sending node is stopped. During the other
+	// sending event we will only mine once the sending node is restarted.
+	for i := range []int{0, 1} {
+		mineWhileNodeDown := i == 0
+
+		// Start the asset send procedure.
+		t.t.Logf("Commencing asset send procedure")
+		sendAssetsToAddr(t, sendTapd, recvAddr)
+
+		// Stop the sending node before mining the asset transfer's
+		// anchoring transaction. This will ensure that the send
+		// procedure does not complete. The sending node will be stalled
+		// waiting for the broadcast transaction to confirm.
+		t.t.Logf("Stopping sending tapd node")
+		err = sendTapd.stop(false)
+		require.NoError(t.t, err)
+
+		if mineWhileNodeDown {
+			// Mine the anchoring transaction to ensure that the
+			// asset transfer is broadcast.
+			t.lndHarness.MineBlocks(6)
+		}
+
+		// Re-commence the asset send procedure by restarting the
+		// sending node. The asset package should be picked up as a
+		// pending package.
+		t.t.Logf("Re-starting sending tapd node so as to complete " +
+			"transfer")
+		err = sendTapd.start(false)
+		require.NoError(t.t, err)
+
+		if !mineWhileNodeDown {
+			// Complete the transfer by mining the anchoring
+			// transaction and sending the proof to the receiver
+			// node.
+			t.lndHarness.MineBlocks(6)
+		}
+
+		_ = sendProof(
+			t, sendTapd, recvTapd, recvAddr.ScriptKey, genInfo,
+		)
+
+		// Confirm with the receiver node that the asset was fully
+		// received.
+		assertNonInteractiveRecvComplete(t, recvTapd, i+1)
+	}
+}
+
 // testBasicSendPassiveAsset tests that we can properly send assets which were
 // passive assets during a previous send.
 func testBasicSendPassiveAsset(t *harnessTest) {
