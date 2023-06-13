@@ -116,31 +116,34 @@ func (p *ChainPorter) Start() error {
 	p.startOnce.Do(func() {
 		log.Infof("Starting ChainPorter")
 
-		// Before we re-launch the main goroutine, we'll make sure to
-		// restart any other incomplete sends that may or may not have
-		// had the transaction broadcaster.
+		// Start the main chain porter goroutine.
+		p.Wg.Add(1)
+		go p.assetsPorter()
+
+		// Identify any pending parcels that need to be resumed and add
+		// them to the exportReqs channel so they can be processed by
+		// the main porter goroutine.
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
-		pendingParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
+		outboundParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
 		if err != nil {
 			startErr = err
 			return
 		}
 
-		log.Infof("Resuming delivery of %v pending asset parcels",
-			len(pendingParcels))
+		// We resume delivery using the normal parcel delivery mechanism
+		// by converting the outbound parcels into pending parcels.
+		for idx := range outboundParcels {
+			outboundParcel := outboundParcels[idx]
+			log.Infof("Attempting to resume delivery for "+
+				"anchor_txid=%v",
+				outboundParcel.AnchorTx.TxHash().String())
 
-		// Now that we have the set of pending sends, we'll make a new
-		// goroutine that'll drive the state machine till the broadcast
-		// point (which we might be repeating), and final terminal
-		// state.
-		for _, parcel := range pendingParcels {
-			p.Wg.Add(1)
-			go p.resumePendingParcel(parcel)
+			// At this point the asset porter should be running.
+			// It should therefore pick up the pending parcels from
+			// the channel and attempt to deliver them.
+			p.exportReqs <- NewPendingParcel(outboundParcel)
 		}
-
-		p.Wg.Add(1)
-		go p.assetsPorter()
 	})
 
 	return startErr
@@ -182,34 +185,6 @@ func (p *ChainPorter) RequestShipment(req Parcel) (*OutboundParcel, error) {
 
 	case <-p.Quit:
 		return nil, fmt.Errorf("ChainPorter shutting down")
-	}
-}
-
-// resumePendingParcel attempts to resume a pending parcel. A pending parcel
-// has already had its transfer transaction broadcast. In this state, we'll
-// rebroadcast and then wait for the transfer to confirm.
-//
-// TODO(roasbeef): consolidate w/ below? or adopt similar arch as ChainPlanter
-//   - could move final conf into the state machine itself
-func (p *ChainPorter) resumePendingParcel(pkg *OutboundParcel) {
-	defer p.Wg.Done()
-
-	log.Infof("Attempting to resume delivery for anchor_txid=%v",
-		pkg.AnchorTx.TxHash().String())
-
-	// To resume the state machine, we'll make a skeleton of a sendPackage,
-	// basically just what we need to drive the state machine to further
-	// completion.
-	restartSendPkg := sendPackage{
-		OutboundPkg: pkg,
-		SendState:   SendStateBroadcast,
-	}
-
-	err := p.advanceState(&restartSendPkg)
-	if err != nil {
-		// TODO(roasbef): no req to send the error back to here
-		log.Warnf("Unable to advance state machine: %v", err)
-		return
 	}
 }
 

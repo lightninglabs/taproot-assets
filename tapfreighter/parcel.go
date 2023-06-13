@@ -160,6 +160,40 @@ func (p *AddressParcel) kit() *parcelKit {
 	return p.parcelKit
 }
 
+// PendingParcel is a parcel that has not yet completed delivery.
+type PendingParcel struct {
+	*parcelKit
+
+	outboundPkg *OutboundParcel
+}
+
+// NewPendingParcel creates a new PendingParcel.
+func NewPendingParcel(outboundPkg *OutboundParcel) *PendingParcel {
+	return &PendingParcel{
+		parcelKit: &parcelKit{
+			respChan: make(chan *OutboundParcel, 1),
+			errChan:  make(chan error, 1),
+		},
+		outboundPkg: outboundPkg,
+	}
+}
+
+// pkg returns the send package that should be delivered.
+func (p *PendingParcel) pkg() *sendPackage {
+	// A pending parcel has already had its transfer transaction broadcast.
+	// We set the send package state such that the send process will
+	// rebroadcast and then wait for the transfer to confirm.
+	return &sendPackage{
+		OutboundPkg: p.outboundPkg,
+		SendState:   SendStateBroadcast,
+	}
+}
+
+// kit returns the parcel kit used for delivery.
+func (p *PendingParcel) kit() *parcelKit {
+	return p.parcelKit
+}
+
 // PreSignedParcel is a request to issue an asset transfer of a pre-signed
 // parcel. This packages a virtual transaction, the input commitment, and also
 // the response context.
