@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -805,7 +806,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+		headerVerifier := GenCachingHeaderVerifier(
+			ctx, b.cfg.ChainBridge,
+		)
 
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
@@ -1031,5 +1034,35 @@ func GenHeaderVerifier(ctx context.Context,
 			ctx, blockHeader.BlockHash(),
 		)
 		return err
+	}
+}
+
+// GenCachingHeaderVerifier generate a block header on-chain verification
+// callback that caches the first block hash verified with the chain bridge,
+// and checks for equality with the cached block hash on future calls.
+// This is only safe to use for proof generation after asset minting where all
+// proofs share an anchor transaction.
+func GenCachingHeaderVerifier(ctx context.Context,
+	chainBridge ChainBridge) func(header wire.BlockHeader) error {
+
+	return func(blockHeader wire.BlockHeader) error {
+		var staticBlockHash chainhash.Hash
+		if staticBlockHash.IsEqual(&chainhash.Hash{}) {
+			staticBlockHash = blockHeader.BlockHash()
+			_, err := chainBridge.GetBlock(
+				ctx, staticBlockHash,
+			)
+			return err
+		}
+
+		// Skip the RPC call if the block header is the same as the
+		// first used block header.
+		if blockHeader.BlockHash() == staticBlockHash {
+			return nil
+		}
+
+		return fmt.Errorf("passed block hash %x does not match cached"+
+			"%x", blockHeader.BlockHash().String(),
+			staticBlockHash.String())
 	}
 }
