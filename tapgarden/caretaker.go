@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
 )
 
@@ -382,7 +384,73 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		"with genesis_point=%v", b.batchKey[:],
 		len(b.cfg.Batch.Seedlings), genesisPoint)
 
-	newAssets := make([]*asset.Asset, 0, len(b.cfg.Batch.Seedlings))
+	newAssets := make([]*asset.Asset, len(b.cfg.Batch.Seedlings))
+	batchSize := len(b.cfg.Batch.Seedlings)
+	threadCount := runtime.NumCPU()
+	scriptKeyDescs := make(chan keychain.KeyDescriptor, 10*threadCount)
+	scriptKeys := make(chan asset.ScriptKey, 10*threadCount)
+	errChan := make(chan error, threadCount)
+	metaChan := make(chan *proof.MetaReveal)
+	metaHashChan := make(chan [32]byte)
+	makeKeyChan := make(chan struct{}, threadCount)
+	var wg sync.WaitGroup
+
+	// Derive a new script key if a signal is sent on a channel. If key
+	// derivation fails, send out the error. The main sprout creation loop
+	// will propogate that error and exit.
+	newScriptKey := func(errChan chan<- error) {
+		for range makeKeyChan {
+			scriptKeyDesc, err := b.cfg.KeyRing.DeriveNextKey(
+				ctx, asset.TaprootAssetsKeyFamily,
+			)
+			if err != nil {
+				errChan <- fmt.Errorf("unable to obtain"+
+					"script key: %w", err)
+				return
+			}
+
+			select {
+			case scriptKeyDescs <- scriptKeyDesc:
+			default:
+			}
+		}
+	}
+
+	// Create script keys from new script key descriptors.
+	newBip86ScriptKey := func() {
+		for desc := range scriptKeyDescs {
+			scriptKey := asset.NewScriptKeyBip86(desc)
+			scriptKeys <- scriptKey
+		}
+	}
+
+	// Hash metadata for seedlings and forward the metadata hash.
+	newMetaHash := func() {
+		for meta := range metaChan {
+			metaHash := meta.MetaHash()
+			metaHashChan <- metaHash
+		}
+	}
+
+	// Start a pipeline to derive new script keys and metadata hashes in
+	// parallel. The signal to derive new keys is sent from this goroutine,
+	// and that signal can be closed before the main sprout creation loop
+	// is done reading keys. The channels for the other goroutines are
+	// closed after the main sprout creation loop.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < threadCount; i++ {
+			go newScriptKey(errChan)
+			go newBip86ScriptKey()
+			go newMetaHash()
+		}
+		for batchSize > 0 {
+			makeKeyChan <- struct{}{}
+			batchSize -= 1
+		}
+		close(makeKeyChan)
+	}()
 
 	// Seedlings that anchor a group may be referenced by other seedlings,
 	// and therefore need to be mapped to sprouts first so that we derive
@@ -390,7 +458,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	orederedSeedlings := SortSeedlings(maps.Values(b.cfg.Batch.Seedlings))
 	newGroups := make(map[string]*asset.AssetGroup, len(orederedSeedlings))
 
-	for _, seedlingName := range orederedSeedlings {
+	for ind, seedlingName := range orederedSeedlings {
 		seedling := b.cfg.Batch.Seedlings[seedlingName]
 
 		assetGen := asset.Genesis{
@@ -404,21 +472,21 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// that by including the hash of the meta data in the asset
 		// genesis.
 		if seedling.Meta != nil {
-			assetGen.MetaHash = seedling.Meta.MetaHash()
-		}
-
-		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to obtain script "+
-				"key: %w", err)
+			metaChan <- seedling.Meta
 		}
 
 		var (
+			err            error
+			scriptKey      asset.ScriptKey
 			groupInfo      *asset.AssetGroup
 			sproutGroupKey *asset.GroupKey
 		)
+
+		select {
+		case err = <-errChan:
+			return nil, err
+		case scriptKey = <-scriptKeys:
+		}
 
 		// If the seedling has a group key specified,
 		// that group key was validated earlier. We need to
@@ -433,6 +501,11 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// the asset genesis with that key.
 		if seedling.GroupAnchor != nil {
 			groupInfo = newGroups[*seedling.GroupAnchor]
+		}
+
+		// Set the metahash field before possibly deriving a group key.
+		if seedling.Meta != nil {
+			assetGen.MetaHash = <-metaHashChan
 		}
 
 		if groupInfo != nil {
@@ -484,16 +557,20 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		}
 
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBip86(scriptKey), sproutGroupKey,
+			assetGen, amount, 0, 0, scriptKey, sproutGroupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %w",
 				err)
 		}
 
-		newAssets = append(newAssets, newAsset)
+		newAssets[ind] = newAsset
 	}
+
+	close(scriptKeyDescs)
+	close(scriptKeys)
+	close(metaChan)
+	wg.Wait()
 
 	// Now that we have all our assets created, we'll make a new
 	// Taproot asset commitment, which commits to all the assets we
