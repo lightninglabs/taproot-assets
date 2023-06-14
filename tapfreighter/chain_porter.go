@@ -236,7 +236,8 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 			err)
 	}
 
-	// Launch a goroutine that'll notify us when the transaction confirms.
+	// Listen on the confirmation channel for a notification that the
+	// transaction has confirmed.
 	defer confCancel()
 
 	var confEvent *chainntnfs.TxConfirmation
