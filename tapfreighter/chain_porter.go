@@ -217,6 +217,44 @@ func (p *ChainPorter) assetsPorter() {
 	}
 }
 
+// resumeTransfer resumes the transfer process for a given package.
+func (p *ChainPorter) resumeTransfer(pkg *sendPackage) error {
+	var (
+		outboundPkg        = pkg.OutboundPkg
+		anchorTx           = outboundPkg.AnchorTx
+		txHash             = anchorTx.TxHash()
+		anchorTxHeightHint = outboundPkg.AnchorTxHeightHint
+	)
+	log.Infof("Resuming package transfer: transfer_txid=%v", txHash)
+
+	// Attempt to identify if the anchor tx has been mined.
+	//
+	// At this point we are not waiting for the anchor tx to be mined as it
+	// might not have been broadcast yet. We will therefore set a minimal
+	// timeout for the tx confirmation.
+	ctx, cancel := p.WithCtxQuitCustomTimeout(3 * time.Second)
+	defer cancel()
+
+	confEvent, err := p.waitForTransferTxConf(
+		ctx, anchorTx, anchorTxHeightHint,
+	)
+	if err != nil {
+		return err
+	}
+
+	// By default, if the anchor tx has not been found on-chain, we ensure
+	// that the tx will be broadcast in the next porter state.
+	pkg.SendState = SendStateBroadcast
+
+	// Update the package porter state if the anchor tx was confirmed.
+	if confEvent != nil {
+		pkg.TransferTxConfEvent = confEvent
+		pkg.SendState = SendStateStoreProofs
+	}
+
+	return nil
+}
+
 // waitForTransferTxConf waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
@@ -888,6 +926,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		return &currentPkg, nil
 
+	// In this state we will resume the transfer of a package which was
+	// restored from persistent storage.
+	case SendStateResumeTransfer:
+		err := p.resumeTransfer(&currentPkg)
+		return &currentPkg, err
+
 	// In this state we broadcast the transaction to the network, then
 	// launch a goroutine to notify us on confirmation.
 	case SendStateBroadcast:
@@ -938,6 +982,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, err
 		}
 
+		// Update the package porter state given that the anchor tx was
+		// confirmed.
 		currentPkg.TransferTxConfEvent = confEvent
 		currentPkg.SendState = SendStateStoreProofs
 

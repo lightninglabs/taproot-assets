@@ -63,6 +63,11 @@ const (
 	// SendStateComplete is the state which is reached once entire asset
 	// transfer process is complete.
 	SendStateComplete
+
+	// SendStateResumeTransfer is the first state executed upon the
+	// resumption of a transfer process which was previously successfully
+	// stored in persistent storage.
+	SendStateResumeTransfer
 )
 
 // String returns a human-readable version of SendState.
@@ -185,7 +190,7 @@ func (p *PendingParcel) pkg() *sendPackage {
 	// rebroadcast and then wait for the transfer to confirm.
 	return &sendPackage{
 		OutboundPkg: p.outboundPkg,
-		SendState:   SendStateBroadcast,
+		SendState:   SendStateResumeTransfer,
 	}
 }
 
