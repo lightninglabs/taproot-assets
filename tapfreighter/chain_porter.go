@@ -220,51 +220,48 @@ func (p *ChainPorter) assetsPorter() {
 // waitForTransferTxConf waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
-func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
-	outboundPkg := pkg.OutboundPkg
+func (p *ChainPorter) waitForTransferTxConf(ctx context.Context,
+	anchorTx *wire.MsgTx,
+	anchorTxHeightHint uint32) (*chainntnfs.TxConfirmation, error) {
 
-	txHash := outboundPkg.AnchorTx.TxHash()
+	txHash := anchorTx.TxHash()
 	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
 
-	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
-		outboundPkg.AnchorTxHeightHint, true,
+		ctx, &txHash, anchorTx.TxOut[0].PkScript, 1, anchorTxHeightHint,
+		true,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to register for package tx conf: %w",
-			err)
+		return nil, fmt.Errorf("unable to register for package tx "+
+			"conf: %w", err)
 	}
 
 	// Listen on the confirmation channel for a notification that the
 	// transaction has confirmed.
-	defer confCancel()
-
 	var confEvent *chainntnfs.TxConfirmation
 	select {
 	case confEvent = <-confNtfn.Confirmed:
 		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
-		pkg.TransferTxConfEvent = confEvent
-		pkg.SendState = SendStateStoreProofs
+		return confEvent, nil
 
 	case err := <-errChan:
-		return fmt.Errorf("error whilst waiting for package tx "+
+		return nil, fmt.Errorf("error whilst waiting for package tx "+
 			"confirmation: %w", err)
 
-	case <-confCtx.Done():
+	case <-ctx.Done():
 		log.Debugf("Skipping TX confirmation, context done")
 
 	case <-p.Quit:
 		log.Debugf("Skipping TX confirmation, exiting")
-		return nil
+		return nil, nil
 	}
 
 	if confEvent == nil {
-		return fmt.Errorf("got empty package tx confirmation event " +
-			"in batch")
+		return nil, fmt.Errorf("got empty package tx confirmation " +
+			"event in batch")
 	}
 
-	return nil
+	return nil, nil
 }
 
 // storeProofs writes the updated sender and receiver proof files to the proof
@@ -926,7 +923,24 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, transaction broadcast is complete. We go on to wait
 	// for the transfer transaction to confirm on-chain.
 	case SendStateWaitTxConf:
-		err := p.waitForTransferTxConf(&currentPkg)
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		var (
+			outboundPkg        = currentPkg.OutboundPkg
+			anchorTx           = outboundPkg.AnchorTx
+			anchorTxHeightHint = outboundPkg.AnchorTxHeightHint
+		)
+		confEvent, err := p.waitForTransferTxConf(
+			ctx, anchorTx, anchorTxHeightHint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		currentPkg.TransferTxConfEvent = confEvent
+		currentPkg.SendState = SendStateStoreProofs
+
 		return &currentPkg, err
 
 	// At this point, the transfer transaction is confirmed on-chain. We go
