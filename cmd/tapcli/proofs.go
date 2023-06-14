@@ -34,9 +34,16 @@ const (
 )
 
 var verifyProofCommand = cli.Command{
-	Name:        "verify",
-	ShortName:   "v",
-	Description: "verify a taproot asset proof",
+	Name:      "verify",
+	ShortName: "v",
+	Usage:     "verify a taproot asset proof",
+	Description: `
+	Verify a taproot asset proof that contains the full provenance of an
+	asset. Such a proof proves the existence of an asset, but does not
+	prove that the creator of the proof can actually also spend the asset.
+	To verify ownership, use the "verifyownership" command with a separate
+	ownership proof.
+`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: proofPathName,
@@ -130,9 +137,16 @@ const (
 )
 
 var exportProofCommand = cli.Command{
-	Name:        "export",
-	ShortName:   "e",
-	Description: "export a taproot asset proof",
+	Name:      "export",
+	ShortName: "e",
+	Usage:     "export a taproot asset proof",
+	Description: `
+	Export a taproot asset proof that contains the full provenance of an
+	asset. Such a proof proves the existence of an asset, but does not
+	prove that the creator of the proof can actually also spend the asset.
+	To prove ownership, use the "proveownership" command to produce a
+	separate ownership proof.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  assetIDName,
@@ -271,8 +285,13 @@ func proveOwnership(ctx *cli.Context) error {
 var importProofCommand = cli.Command{
 	Name:      "import",
 	ShortName: "i",
-	Description: "import a taproot asset proof, resulting in a spendable " +
-		"asset",
+	Usage:     "import a taproot asset proof",
+	Description: `
+	Imports a taproot asset proof that contains the full provenance of an
+	asset. If the asset script key of the asset is known to the lnd node
+	the daemon is connected to, then this results in a spendable asset being
+	imported into the wallet.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: proofPathName,
