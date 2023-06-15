@@ -8,6 +8,7 @@ import (
 	"path"
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
 )
@@ -22,6 +23,8 @@ var proofCommands = []cli.Command{
 			verifyProofCommand,
 			exportProofCommand,
 			importProofCommand,
+			proveOwnershipCommand,
+			verifyOwnershipCommand,
 		},
 	},
 }
@@ -31,9 +34,16 @@ const (
 )
 
 var verifyProofCommand = cli.Command{
-	Name:        "verify",
-	ShortName:   "v",
-	Description: "verify a taproot asset proof",
+	Name:      "verify",
+	ShortName: "v",
+	Usage:     "verify a taproot asset proof",
+	Description: `
+	Verify a taproot asset proof that contains the full provenance of an
+	asset. Such a proof proves the existence of an asset, but does not
+	prove that the creator of the proof can actually also spend the asset.
+	To verify ownership, use the "verifyownership" command with a separate
+	ownership proof.
+`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: proofPathName,
@@ -64,7 +74,58 @@ func verifyProof(ctx *cli.Context) error {
 		RawProof: rawFile,
 	})
 	if err != nil {
-		return fmt.Errorf("unable to verify file: %w", err)
+		return fmt.Errorf("unable to verify proof file: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var verifyOwnershipCommand = cli.Command{
+	Name:      "verifyownership",
+	ShortName: "vo",
+	Usage:     "verify a taproot asset ownership proof",
+	Description: `
+	Verify a taproot asset ownership proof. The proof does not contain the
+	full asset provenance, only the last state transition proof. But that
+	proof contains a signature to prove the asset can be spent by the
+	creator of the proof. This command verifies that signature.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: proofPathName,
+			Usage: "the path to the ownership proof file on " +
+				"disk; use the dash character (-) to read " +
+				"from stdin instead",
+		},
+	},
+	Action: verifyOwnershipProof,
+}
+
+func verifyOwnershipProof(ctx *cli.Context) error {
+	switch {
+	case ctx.String(proofPathName) == "":
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
+	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+	rawFile, err := readFile(filePath)
+	if err != nil {
+		return fmt.Errorf("unable to read ownership proof file: %w",
+			err)
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.VerifyAssetOwnership(
+		ctxc, &wrpc.VerifyAssetOwnershipRequest{
+			ProofWithWitness: rawFile,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify asset ownership: %w", err)
 	}
 
 	printRespJSON(resp)
@@ -76,9 +137,16 @@ const (
 )
 
 var exportProofCommand = cli.Command{
-	Name:        "export",
-	ShortName:   "e",
-	Description: "export a taproot asset proof",
+	Name:      "export",
+	ShortName: "e",
+	Usage:     "export a taproot asset proof",
+	Description: `
+	Export a taproot asset proof that contains the full provenance of an
+	asset. Such a proof proves the existence of an asset, but does not
+	prove that the creator of the proof can actually also spend the asset.
+	To prove ownership, use the "proveownership" command to produce a
+	separate ownership proof.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  assetIDName,
@@ -108,12 +176,12 @@ func exportProof(ctx *cli.Context) error {
 
 	scriptKeyBytes, err := hex.DecodeString(ctx.String(scriptKeyName))
 	if err != nil {
-		return fmt.Errorf("unable to decode script key: %v", err)
+		return fmt.Errorf("unable to decode script key: %w", err)
 	}
 
 	assetID, err := hex.DecodeString(ctx.String(assetIDName))
 	if err != nil {
-		return fmt.Errorf("unable to asset ID: %v", err)
+		return fmt.Errorf("unable to decode asset ID: %w", err)
 	}
 
 	ctxc := getContext()
@@ -125,7 +193,7 @@ func exportProof(ctx *cli.Context) error {
 		ScriptKey: scriptKeyBytes,
 	})
 	if err != nil {
-		return fmt.Errorf("unable to verify file: %w", err)
+		return fmt.Errorf("unable to export proof file: %w", err)
 	}
 
 	// Write the raw (binary) proof to a file (or stdout) instead of in the
@@ -139,11 +207,91 @@ func exportProof(ctx *cli.Context) error {
 	return nil
 }
 
+var proveOwnershipCommand = cli.Command{
+	Name:      "proveownership",
+	ShortName: "po",
+	Usage:     "generate a taproot asset ownership proof",
+	Description: `
+	Generates a binary proof that proves the ownership of an asset. This
+	differs from the export command in that it generates a proof that
+	contains a signature created with the script key of the asset. This
+	signature proves that the asset can be spent by the creator of the
+	ownership proof.
+`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: assetIDName,
+			Usage: "the asset ID of the asset to prove ownership " +
+				"of",
+		},
+		cli.StringFlag{
+			Name: scriptKeyName,
+			Usage: "the script key of the asset to prove " +
+				"ownership of",
+		},
+		cli.StringFlag{
+			Name: proofPathName,
+			Usage: "(optional) the file to write the ownership " +
+				"proof file to; use the dash character (-) " +
+				"to write the raw binary ownership proof to " +
+				"stdout instead of the default JSON format",
+		},
+	},
+	Action: proveOwnership,
+}
+
+func proveOwnership(ctx *cli.Context) error {
+	switch {
+	case ctx.String(scriptKeyName) == "",
+		ctx.String(assetIDName) == "":
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
+	scriptKeyBytes, err := hex.DecodeString(ctx.String(scriptKeyName))
+	if err != nil {
+		return fmt.Errorf("unable to decode script key: %w", err)
+	}
+
+	assetID, err := hex.DecodeString(ctx.String(assetIDName))
+	if err != nil {
+		return fmt.Errorf("unable to decode asset ID: %w", err)
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.ProveAssetOwnership(
+		ctxc, &wrpc.ProveAssetOwnershipRequest{
+			AssetId:   assetID,
+			ScriptKey: scriptKeyBytes,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to generate ownership proof: %w", err)
+	}
+
+	// Write the raw (binary) proof to a file (or stdout) instead of in the
+	// JSON format.
+	if ctx.String(proofPathName) != "" {
+		filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+		return writeToFile(filePath, resp.ProofWithWitness)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var importProofCommand = cli.Command{
 	Name:      "import",
 	ShortName: "i",
-	Description: "import a taproot asset proof, resulting in a spendable " +
-		"asset",
+	Usage:     "import a taproot asset proof",
+	Description: `
+	Imports a taproot asset proof that contains the full provenance of an
+	asset. If the asset script key of the asset is known to the lnd node
+	the daemon is connected to, then this results in a spendable asset being
+	imported into the wallet.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: proofPathName,
@@ -167,14 +315,14 @@ func importProof(ctx *cli.Context) error {
 	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
 	proofFile, err := readFile(filePath)
 	if err != nil {
-		return fmt.Errorf("unable to read file: %v", err)
+		return fmt.Errorf("unable to read proof file: %w", err)
 	}
 
 	resp, err := client.ImportProof(ctxc, &taprpc.ImportProofRequest{
 		ProofFile: proofFile,
 	})
 	if err != nil {
-		return fmt.Errorf("unable to verify file: %w", err)
+		return fmt.Errorf("unable to import proof file: %w", err)
 	}
 
 	printRespJSON(resp)
@@ -199,7 +347,7 @@ func writeToFile(fileName string, content []byte) error {
 		_, err := os.Stdout.Write(content)
 		if err != nil {
 			return fmt.Errorf("error writing raw proof to stdout: "+
-				"%v", err)
+				"%w", err)
 		}
 
 		return nil
@@ -207,13 +355,13 @@ func writeToFile(fileName string, content []byte) error {
 
 	// Make sure all parent directories of the given path exist as well.
 	if err := os.MkdirAll(path.Dir(fileName), defaultDirPerms); err != nil {
-		return fmt.Errorf("unable to create directory %v: %v",
+		return fmt.Errorf("unable to create directory %v: %w",
 			path.Dir(fileName), err)
 	}
 
 	err := os.WriteFile(fileName, content, defaultFilePerms)
 	if err != nil {
-		return fmt.Errorf("unable to store file %v: %v", fileName, err)
+		return fmt.Errorf("unable to store file %v: %w", fileName, err)
 	}
 
 	return nil

@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -76,6 +77,16 @@ func getMintClient(ctx *cli.Context) (mintrpc.MintClient, func()) {
 	}
 
 	return mintrpc.NewMintClient(conn), cleanUp
+}
+
+func getWalletClient(ctx *cli.Context) (wrpc.AssetWalletClient, func()) {
+	conn := getClientConn(ctx, false)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return wrpc.NewAssetWalletClient(conn), cleanUp
 }
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
