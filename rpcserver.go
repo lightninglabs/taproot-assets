@@ -2734,6 +2734,21 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
 }
 
+// Info returns a set of information about the current state of the Universe.
+func (r *rpcServer) Info(ctx context.Context,
+	req *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
+
+	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.InfoResponse{
+		RuntimeId: r.cfg.RuntimeID,
+		NumAssets: universeStats.NumTotalAssets,
+	}, nil
+}
+
 // unmarshalUniverseSyncType maps an RPC universe sync type into a concrete
 // type.
 func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (

@@ -33,6 +33,9 @@ http:
         - post: "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
           body: "*"
 
+    - selector: universerpc.Universe.Info
+      get: "/v1/taproot-assets/universe/info"
+
     - selector: universerpc.Universe.SyncUniverse
       post: "/v1/taproot-assets/universe/sync"
       body: "*"

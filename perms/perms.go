@@ -193,5 +193,6 @@ var (
 		"/universerpc.Universe/AssetLeaves":     {},
 		"/universerpc.Universe/QueryProof":      {},
 		"/universerpc.Universe/InsertProof":     {},
+		"/universerpc.Universe/Info":            {},
 	}
 )

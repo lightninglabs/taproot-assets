@@ -67,6 +67,11 @@ service Universe {
 
     // TODO(roasbeef): rename resp to UniverseStateUpdate? ^
 
+    /* tapcli: `universe info`
+    Info returns a set of information about the current state of the Universe.
+    */
+    rpc Info (InfoRequest) returns (InfoResponse);
+
     /* tapcli: `universe sync`
     SyncUniverse takes host information for a remote Universe server, then
     attempts to synchronize either only the set of specified asset_ids, or all
@@ -102,7 +107,7 @@ service Universe {
         returns (DeleteFederationServerResponse);
 
     /* tapcli: `universe stats`
-    UniverseStats returns a set of aggregrate statistics for the current state
+    UniverseStats returns a set of aggregate statistics for the current state
     of the Universe. Stats returned include: total number of syncs, total
     number of proofs, and total number of known assets.
     */
@@ -264,6 +269,19 @@ message AssetProof {
 
     // The asset leaf to insert into the Universe tree.
     AssetLeaf asset_leaf = 4;
+}
+
+message InfoRequest {
+}
+
+message InfoResponse {
+    // A pseudo-random runtime ID for the current instance of the Universe
+    // server, changes with each restart. Mainly used to identify identical
+    // servers when they are exposed under different hostnames/ports.
+    int64 runtime_id = 1;
+
+    // The number of assets known to this Universe server.
+    uint64 num_assets = 2;
 }
 
 enum UniverseSyncMode {

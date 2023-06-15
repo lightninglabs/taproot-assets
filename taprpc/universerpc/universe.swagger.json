@@ -146,6 +146,29 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/info": {
+      "get": {
+        "summary": "tapcli: `universe info`\nInfo returns a set of information about the current state of the Universe.",
+        "operationId": "Universe_Info",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcInfoResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}": {
       "get": {
         "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
@@ -801,7 +824,7 @@
     },
     "/v1/taproot-assets/universe/stats": {
       "get": {
-        "summary": "tapcli: `universe stats`\nUniverseStats returns a set of aggregrate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
+        "summary": "tapcli: `universe stats`\nUniverseStats returns a set of aggregate statistics for the current state\nof the Universe. Stats returned include: total number of syncs, total\nnumber of proofs, and total number of known assets.",
         "operationId": "Universe_UniverseStats",
         "responses": {
           "200": {
@@ -1367,6 +1390,21 @@
         "group_key_str": {
           "type": "string",
           "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        }
+      }
+    },
+    "universerpcInfoResponse": {
+      "type": "object",
+      "properties": {
+        "runtime_id": {
+          "type": "string",
+          "format": "int64",
+          "description": "A pseudo-random runtime ID for the current instance of the Universe\nserver, changes with each restart. Mainly used to identify identical\nservers when they are exposed under different hostnames/ports."
+        },
+        "num_assets": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of assets known to this Universe server."
         }
       }
     },
