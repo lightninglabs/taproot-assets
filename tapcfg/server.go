@@ -198,7 +198,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			SyncInterval:            cfg.Universe.SyncInterval,
 			NewRemoteRegistrar:      tap.NewRpcUniverseRegistrar,
 			StaticFederationMembers: federationMembers,
-			ErrChan:                 mainErrChan,
+			ServerChecker: func(addr universe.ServerAddr) error {
+				return tap.CheckFederationServer(
+					runtimeID, universe.DefaultTimeout,
+					addr,
+				)
+			},
+			ErrChan: mainErrChan,
 		},
 	)
 

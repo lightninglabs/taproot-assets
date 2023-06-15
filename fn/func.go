@@ -30,6 +30,21 @@ func Map[I, O any, S []I](s S, f func(I) O) []O {
 	return output
 }
 
+// Filter applies the given predicate function to each element of the given
+// slice and generates a new slice containing only the elements for which the
+// predicate returned true.
+func Filter[T any](s []T, f func(T) bool) []T {
+	output := make([]T, len(s))
+
+	for _, x := range s {
+		if f(x) {
+			output = append(output, x)
+		}
+	}
+
+	return output
+}
+
 // MapErr applies the given fallible mapping function to each element of the
 // given slice and generates a new slice. This is identical to Map, but
 // returns early if any single mapping fails.

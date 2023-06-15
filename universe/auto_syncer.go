@@ -50,6 +50,10 @@ type FederationConfig struct {
 	// that'll be added on start up, and used to sync and push out proofs
 	// with.
 	StaticFederationMembers []string
+
+	// ServerChecker is a function that can be used to check if a server is
+	// operational and not the local daemon.
+	ServerChecker func(ServerAddr) error
 }
 
 // FederationPushReq is used to push out new updates to all or some members of
@@ -108,6 +112,21 @@ func (f *FederationEnvoy) Start() error {
 		serverAddrs := fn.Map(addrs, func(a string) ServerAddr {
 			return NewServerAddrFromStr(a)
 		})
+
+		serverAddrs = fn.Filter(serverAddrs, func(a ServerAddr) bool {
+			// Before we add the server as a federation member, we
+			// check that we can actually connect to it and that it
+			// isn't ourselves.
+			if err := f.cfg.ServerChecker(a); err != nil {
+				log.Warnf("Not adding server to federation: %v",
+					err)
+
+				return false
+			}
+
+			return true
+		})
+
 		err := f.AddServer(serverAddrs...)
 		// On restart, we'll get an error for universe servers already
 		// inserted in our DB, since we can't store duplicates.

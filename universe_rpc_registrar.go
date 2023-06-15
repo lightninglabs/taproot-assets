@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -112,6 +113,38 @@ func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 // A compile time interface to ensure that RpcUniverseRegistrar implements the
 // universe.Registrar interface.
 var _ universe.Registrar = (*RpcUniverseRegistrar)(nil)
+
+// CheckFederationServer attempts to connect to the target server and ensure
+// that it is a valid federation server that isn't the local daemon.
+func CheckFederationServer(localRuntimeID int64, connectTimeout time.Duration,
+	server universe.ServerAddr) error {
+
+	srvrLog.Debugf("Attempting to connect to federation server %v",
+		server.HostStr())
+
+	conn, err := ConnectUniverse(server)
+	if err != nil {
+		return fmt.Errorf("error connecting to server %v: %w",
+			server.HostStr(), err)
+	}
+
+	// We don't allow adding ourselves as a federation member.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, connectTimeout)
+	defer cancel()
+
+	info, err := conn.Info(ctxt, &unirpc.InfoRequest{})
+	if err != nil {
+		return fmt.Errorf("error getting info from server %v: %w",
+			server.HostStr(), err)
+	}
+
+	if info.RuntimeId == localRuntimeID {
+		return fmt.Errorf("cannot add ourselves as a federation member")
+	}
+
+	return nil
+}
 
 // ConnectUniverse connects to a remote Universe server using the provided
 // server address.
