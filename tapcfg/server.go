@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	prand "math/rand"
 
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
@@ -188,6 +189,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		)
 	}
 
+	runtimeID := prand.Int63() // nolint:gosec
 	universeFederation := universe.NewFederationEnvoy(
 		universe.FederationConfig{
 			FederationDB:            federationDB,
@@ -215,6 +217,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	return &tap.Config{
 		DebugLevel:                 cfg.DebugLevel,
+		RuntimeID:                  runtimeID,
 		AcceptRemoteUniverseProofs: cfg.Universe.AcceptRemoteProofs,
 		Lnd:                        lndServices,
 		ChainParams:                cfg.ActiveNetParams,
