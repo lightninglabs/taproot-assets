@@ -14,49 +14,32 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// RpcUniverseRegistar is an implementation of the universe.Registrar interface
+// RpcUniverseRegistrar is an implementation of the universe.Registrar interface
 // that uses an RPC connection to target Universe.
-type RpcUniverseRegistar struct {
+type RpcUniverseRegistrar struct {
 	conn unirpc.UniverseClient
 }
 
 // NewRpcUniverseRegistrar creates a new RpcUniverseRegistrar instance that
 // dials out to the target remote universe server address.
-func NewRpcUniverseRegistar(serverAddr universe.ServerAddr,
-) (universe.Registrar, error) {
+func NewRpcUniverseRegistrar(
+	serverAddr universe.ServerAddr) (universe.Registrar, error) {
 
-	// TODO(roasbeef): all info is authenticated, but also want to allow
-	// brontide connect as well, can avoid TLS certs
-	creds := credentials.NewTLS(&tls.Config{
-		InsecureSkipVerify: true,
-	})
-
-	// Create a dial options array.
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-	}
-
-	uniAddr, err := serverAddr.Addr()
+	conn, err := ConnectUniverse(serverAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to connect to universe RPC "+
+			"server: %w", err)
 	}
 
-	conn, err := grpc.Dial(uniAddr.String(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to RPC "+
-			"server: %v", err)
-	}
-
-	return &RpcUniverseRegistar{
-		conn: unirpc.NewUniverseClient(conn),
+	return &RpcUniverseRegistrar{
+		conn: conn,
 	}, nil
 }
 
 // unmarshalIssuanceProof unmarshals an issuance proof response into a struct
-// useable by the universe package.
-func unmarshalIssuanceProof(ctx context.Context,
-	uniKey *unirpc.UniverseKey, proofResp *unirpc.AssetProofResponse,
-) (*universe.IssuanceProof, error) {
+// usable by the universe package.
+func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
+	proofResp *unirpc.AssetProofResponse) (*universe.IssuanceProof, error) {
 
 	baseKey, err := unmarshalLeafKey(uniKey.LeafKey)
 	if err != nil {
@@ -96,7 +79,7 @@ func unmarshalIssuanceProof(ctx context.Context,
 
 // RegisterIssuance is an implementation of the universe.Registrar interface
 // that uses a remote Universe server as the Registry instance.
-func (r *RpcUniverseRegistar) RegisterIssuance(ctx context.Context,
+func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 	id universe.Identifier, key universe.BaseKey,
 	leaf *universe.MintingLeaf) (*universe.IssuanceProof, error) {
 
@@ -128,4 +111,34 @@ func (r *RpcUniverseRegistar) RegisterIssuance(ctx context.Context,
 
 // A compile time interface to ensure that RpcUniverseRegistrar implements the
 // universe.Registrar interface.
-var _ universe.Registrar = (*RpcUniverseRegistar)(nil)
+var _ universe.Registrar = (*RpcUniverseRegistrar)(nil)
+
+// ConnectUniverse connects to a remote Universe server using the provided
+// server address.
+func ConnectUniverse(
+	serverAddr universe.ServerAddr) (unirpc.UniverseClient, error) {
+
+	// TODO(roasbeef): all info is authenticated, but also want to allow
+	// brontide connect as well, can avoid TLS certs
+	creds := credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: true,
+	})
+
+	// Create a dial options array.
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	uniAddr, err := serverAddr.Addr()
+	if err != nil {
+		return nil, err
+	}
+
+	rawConn, err := grpc.Dial(uniAddr.String(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to RPC "+
+			"server: %v", err)
+	}
+
+	return unirpc.NewUniverseClient(rawConn), nil
+}
