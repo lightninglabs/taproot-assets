@@ -1061,7 +1061,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 // VerifyProof attempts to verify a given proof file that claims to be anchored
 // at the specified genesis point.
 func (r *rpcServer) VerifyProof(ctx context.Context,
-	in *taprpc.ProofFile) (*taprpc.ProofVerifyResponse, error) {
+	in *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
 	if len(in.RawProof) == 0 {
 		return nil, fmt.Errorf("proof file must be specified")
@@ -1079,12 +1079,145 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	)
 	valid := err == nil
 
-	// TODO(roasbeef): also show additional final resting anchor
-	// information, etc?
+	decodedProof, err := r.marshalProofFile(ctx, proofFile, 0, false, false)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal proof: %w", err)
+	}
 
-	// TODO(roasbeef): show the final resting place of the asset?
-	return &taprpc.ProofVerifyResponse{
-		Valid: valid,
+	return &taprpc.VerifyProofResponse{
+		Valid:        valid,
+		DecodedProof: decodedProof,
+	}, nil
+}
+
+// DecodeProof attempts to decode a given proof file that claims to be anchored
+// at the specified genesis point.
+func (r *rpcServer) DecodeProof(ctx context.Context,
+	in *taprpc.DecodeProofRequest) (*taprpc.DecodeProofResponse, error) {
+
+	if len(in.RawProof) == 0 {
+		return nil, fmt.Errorf("proof file must be specified")
+	}
+
+	var proofFile proof.File
+	if err := proofFile.Decode(bytes.NewReader(in.RawProof)); err != nil {
+		return nil, fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	latestProofIndex := uint32(proofFile.NumProofs() - 1)
+
+	if in.ProofAtDepth > latestProofIndex {
+		return nil, fmt.Errorf("invalid depth %d is greater than "+
+			"latest proof index of %d", in.ProofAtDepth,
+			latestProofIndex)
+	}
+
+	// Default to latest proof.
+	depth := latestProofIndex - in.ProofAtDepth
+
+	decodedProof, err := r.marshalProofFile(
+		ctx, proofFile, depth, in.WithPrevWitnesses, in.WithMetaReveal,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal proof: %w", err)
+	}
+
+	return &taprpc.DecodeProofResponse{
+		DecodedProof: decodedProof,
+	}, nil
+}
+
+// marshalProofFile turns a proof file into an RPC DecodedProof.
+func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
+	depth uint32, withPrevWitnesses, withMetaReveal bool) (*taprpc.DecodedProof,
+	error) {
+
+	decodedProof, err := proofFile.ProofAt(depth)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		finalAsset     = decodedProof.Asset
+		rpcMeta        *taprpc.AssetMeta
+		anchorOutpoint = wire.OutPoint{
+			Hash:  decodedProof.AnchorTx.TxHash(),
+			Index: decodedProof.InclusionProof.OutputIndex,
+		}
+		txMerkleProof  = decodedProof.TxMerkleProof
+		inclusionProof = decodedProof.InclusionProof
+		splitRootProof = decodedProof.SplitRootProof
+	)
+
+	var txMerkleProofBuf bytes.Buffer
+	if err := txMerkleProof.Encode(&txMerkleProofBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode serialized Bitcoin "+
+			"merkle proof: %w", err)
+	}
+
+	var inclusionProofBuf bytes.Buffer
+	if err := inclusionProof.Encode(&inclusionProofBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode inclusion proof: %w",
+			err)
+	}
+
+	var exclusionProofs [][]byte
+	for _, exclusionProof := range decodedProof.ExclusionProofs {
+		var exclusionProofBuf bytes.Buffer
+		if err := exclusionProof.Encode(&exclusionProofBuf); err != nil {
+			return nil, fmt.Errorf("unable to encode exclusion "+
+				"proofs: %w", err)
+		}
+		exclusionProofBytes := exclusionProofBuf.Bytes()
+
+		exclusionProofs = append(exclusionProofs, exclusionProofBytes)
+	}
+
+	var splitRootProofBuf bytes.Buffer
+	if splitRootProof != nil {
+		if err := splitRootProof.Encode(&splitRootProofBuf); err != nil {
+			return nil, fmt.Errorf("unable to encode split root proof: %w",
+				err)
+		}
+	}
+
+	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
+		Asset:             &finalAsset,
+		AnchorTx:          &decodedProof.AnchorTx,
+		AnchorTxid:        decodedProof.AnchorTx.TxHash(),
+		AnchorBlockHash:   decodedProof.BlockHeader.BlockHash(),
+		AnchorOutpoint:    anchorOutpoint,
+		AnchorInternalKey: decodedProof.InclusionProof.InternalKey,
+	}, withPrevWitnesses)
+	if err != nil {
+		return nil, err
+	}
+
+	if withMetaReveal {
+		if len(rpcAsset.AssetGenesis.MetaHash) == 0 {
+			return nil, fmt.Errorf("asset does not contain meta data")
+		}
+		rpcMeta, err = r.FetchAssetMeta(ctx, &taprpc.FetchAssetMetaRequest{
+			Asset: &taprpc.FetchAssetMetaRequest_MetaHash{
+				MetaHash: rpcAsset.AssetGenesis.MetaHash,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &taprpc.DecodedProof{
+		ProofAtDepth:        depth,
+		NumberOfProofs:      uint32(proofFile.NumProofs()),
+		Asset:               rpcAsset,
+		MetaReveal:          rpcMeta,
+		TxMerkleProof:       txMerkleProofBuf.Bytes(),
+		InclusionProof:      inclusionProofBuf.Bytes(),
+		ExclusionProofs:     exclusionProofs,
+		SplitRootProof:      splitRootProofBuf.Bytes(),
+		NumAdditionalInputs: uint32(len(decodedProof.AdditionalInputs)),
+		ChallengeWitness:    decodedProof.ChallengeWitness,
 	}, nil
 }
 

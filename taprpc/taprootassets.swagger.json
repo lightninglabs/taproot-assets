@@ -438,6 +438,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/proofs/decode": {
+      "post": {
+        "summary": "tarocli: `proofs decode`\nDecodeProof attempts to decode a given proof file into human readable\nformat.",
+        "operationId": "TaprootAssets_DecodeProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcDecodeProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcDecodeProofRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/proofs/export": {
       "post": {
         "summary": "tapcli: `proofs export`\nExportProof exports the latest raw proof file anchored at the specified\nscript_key.",
@@ -512,7 +545,7 @@
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/taprpcProofVerifyResponse"
+              "$ref": "#/definitions/taprpcVerifyProofResponse"
             }
           },
           "default": {
@@ -1095,6 +1128,96 @@
         }
       }
     },
+    "taprpcDecodeProofRequest": {
+      "type": "object",
+      "properties": {
+        "raw_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw proof in bytes to decode, which may contain multiple proofs."
+        },
+        "proof_at_depth": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index depth of the decoded proof, with 0 being the latest proof."
+        },
+        "with_prev_witnesses": {
+          "type": "boolean",
+          "description": "An option to include previous witnesses in decoding."
+        },
+        "with_meta_reveal": {
+          "type": "boolean",
+          "description": "An option to attempt to retrieve the meta data associated with the proof."
+        }
+      }
+    },
+    "taprpcDecodeProofResponse": {
+      "type": "object",
+      "properties": {
+        "decoded_proof": {
+          "$ref": "#/definitions/taprpcDecodedProof"
+        }
+      }
+    },
+    "taprpcDecodedProof": {
+      "type": "object",
+      "properties": {
+        "proof_at_depth": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index depth of the decoded proof, with 0 being the latest proof."
+        },
+        "number_of_proofs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of proofs contained in the raw proof."
+        },
+        "asset": {
+          "$ref": "#/definitions/taprpcAsset",
+          "description": "The asset referenced in the proof."
+        },
+        "meta_reveal": {
+          "$ref": "#/definitions/taprpcAssetMeta",
+          "description": "The reveal meta data associated with the proof, if available."
+        },
+        "tx_merkle_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The merkle proof for AnchorTx used to prove its\ninclusion within BlockHeader."
+        },
+        "inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "The TaprootProof proving the new inclusion of the\nresulting asset within AnchorTx."
+        },
+        "exclusion_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The set of TaprootProofs proving the exclusion of\nthe resulting asset from all other Taproot outputs within AnchorTx."
+        },
+        "split_root_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional TaprootProof needed if this asset is\nthe result of a split. SplitRootProof proves inclusion of the root\nasset of the split."
+        },
+        "num_additional_inputs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of additional nested full proofs for any inputs found within\nthe resulting asset."
+        },
+        "challenge_witness": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "ChallengeWitness is an optional virtual transaction witness that serves\nas an ownership proof for the asset. If this is non-nil, then it is a\nvalid transfer witness for a 1-input, 1-output virtual transaction that\nspends the asset in this proof and sends it to the NUMS key, to prove\nthat the creator of the proof is able to produce a valid signature to\nspend the asset."
+        }
+      }
+    },
     "taprpcExecuteSendStateEvent": {
       "type": "object",
       "properties": {
@@ -1415,14 +1538,6 @@
         }
       }
     },
-    "taprpcProofVerifyResponse": {
-      "type": "object",
-      "properties": {
-        "valid": {
-          "type": "boolean"
-        }
-      }
-    },
     "taprpcQueryAddrResponse": {
       "type": "object",
       "properties": {
@@ -1606,6 +1721,17 @@
         "num_passive_assets": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "taprpcVerifyProofResponse": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "decoded_proof": {
+          "$ref": "#/definitions/taprpcDecodedProof"
         }
       }
     }
