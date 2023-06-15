@@ -3010,7 +3010,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 	}, nil
 }
 
-// UniverseStats returns a set of aggregrate statistics for the current state
+// UniverseStats returns a set of aggregate statistics for the current state
 // of the Universe.
 func (r *rpcServer) UniverseStats(ctx context.Context,
 	req *unirpc.StatsRequest) (*unirpc.StatsResponse, error) {
@@ -3029,8 +3029,8 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 // marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
 // counterpart.
-func marshalAssetSyncSnapshot(a universe.AssetSyncSnapshot,
-) *unirpc.AssetStatsSnapshot {
+func marshalAssetSyncSnapshot(
+	a universe.AssetSyncSnapshot) *unirpc.AssetStatsSnapshot {
 
 	return &unirpc.AssetStatsSnapshot{
 		AssetId:       a.AssetID[:],

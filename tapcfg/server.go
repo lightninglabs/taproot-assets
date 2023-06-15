@@ -339,8 +339,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	return tap.NewServer(serverCfg), nil
 }
 
-// CreateServerFromConfig creates a new Taproot Asset server from the given CLI
-// config.
+// CreateSubServerFromConfig creates a new Taproot Asset server from the given
+// CLI config.
 func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
 	mainErrChan chan<- error) (*tap.Server, error) {

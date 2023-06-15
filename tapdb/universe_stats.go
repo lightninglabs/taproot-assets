@@ -133,10 +133,10 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 	})
 }
 
-// AggreagateSyncStats returns stats aggregated over all assets within the
+// AggregateSyncStats returns stats aggregated over all assets within the
 // Universe.
-func (u *UniverseStats) AggregateSyncStats(ctx context.Context,
-) (universe.AggregateStats, error) {
+func (u *UniverseStats) AggregateSyncStats(
+	ctx context.Context) (universe.AggregateStats, error) {
 
 	var stats universe.AggregateStats
 

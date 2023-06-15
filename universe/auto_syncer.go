@@ -124,7 +124,7 @@ func (f *FederationEnvoy) Start() error {
 	return nil
 }
 
-// Stop stop all active goroutines.
+// Stop stops all active goroutines.
 func (f *FederationEnvoy) Stop() error {
 	f.stopOnce.Do(func() {
 		log.Infof("Stopping FederationEnvoy")
@@ -139,7 +139,7 @@ func (f *FederationEnvoy) Stop() error {
 	return nil
 }
 
-// reportErr sends a new error result back to the main error channle.
+// reportErr sends a new error result back to the main error channel.
 func (f *FederationEnvoy) reportErr(err error) {
 	log.Errorf(err.Error())
 
@@ -149,7 +149,7 @@ func (f *FederationEnvoy) reportErr(err error) {
 	}
 }
 
-// syncUniverseState attempts to sync Universe state with the targets server.
+// syncUniverseState attempts to sync Universe state with the target server.
 // If the sync is successful (even if no diff is generated), then a new sync
 // event will be logged.
 func (f *FederationEnvoy) syncUniverseState(ctx context.Context,
@@ -363,7 +363,7 @@ func (f *FederationEnvoy) RegisterIssuance(ctx context.Context, id Identifier,
 	return fn.RecvResp(pushReq.resp, pushReq.err, f.Quit)
 }
 
-// AddServers adds a new set of servers to the federation, then immediately
+// AddServer adds a new set of servers to the federation, then immediately
 // performs a new background sync.
 func (f *FederationEnvoy) AddServer(addrs ...ServerAddr) error {
 	ctx, cancel := f.WithCtxQuit()
