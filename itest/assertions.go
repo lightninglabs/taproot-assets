@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -720,6 +721,22 @@ func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
 
 		assertUniverseRootEqual(t, rootA, rootB)
 	}
+}
+
+func succeedEventually(t *testing.T, f func(*testing.T),
+	timeout, retryInterval time.Duration) {
+
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		// Create a new instance of a testing.T so that we can check
+		// whether the test failed or not without failing the whole
+		// parent test.
+		tt := &testing.T{}
+		f(tt)
+
+		return !tt.Failed()
+	}, timeout, retryInterval)
 }
 
 func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
