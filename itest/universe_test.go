@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -298,7 +299,9 @@ func testUniverseFederation(t *harnessTest) {
 	require.Equal(t.t, t.tapd.rpcHost(), fedNodes.Servers[0].Host)
 
 	// At this point, both nodes should have the same Universe roots.
-	assertUniverseStateEqual(t.t, bob, t.tapd)
+	succeedEventually(t.t, func(tt *testing.T) {
+		assertUniverseStateEqual(tt, bob, t.tapd)
+	}, defaultWaitTimeout, wait.PollInterval)
 
 	// Bob's Universe stats should show that he now has a single asset. We
 	// should also be able to query for stats specifically for the asset.
