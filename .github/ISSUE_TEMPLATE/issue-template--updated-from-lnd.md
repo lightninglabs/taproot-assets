@@ -15,7 +15,7 @@ Describe your issue here.
 
 ```sh
 tapcli getinfo                                    # version of `tapd`, `lnd`, and network
-uname -a                                          # operating system 
+uname -mrsv                                          # operating system 
 bitcoind --version || btcd --version # version of `btcd`, `bitcoind`, or other backend
 ```
 * any other relevant environment details
