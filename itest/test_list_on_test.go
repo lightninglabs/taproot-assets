@@ -25,8 +25,8 @@ var testCases = []*testCase{
 		test: testMultiAddress,
 	},
 	{
-		name:             "basic send",
-		test:             testBasicSend,
+		name:             "basic send unidirectional",
+		test:             testBasicSendUnidirectional,
 		proofCourierType: proof.ApertureCourier,
 	},
 	{
