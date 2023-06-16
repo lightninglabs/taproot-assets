@@ -728,7 +728,7 @@ func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
 	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 
-	rootsB, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
+	rootsB, err := b.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 
 	assertUniverseRootsEqual(t, rootsA, rootsB)
