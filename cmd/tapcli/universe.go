@@ -3,12 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -280,41 +276,18 @@ var universeProofQueryCommand = cli.Command{
 	Action: universeProofQuery,
 }
 
-func parseUniOutpoint(ctx *cli.Context) (*universerpc.Outpoint, error) {
-	// Parse a bitcoin outpoint in the form txid:index into a
-	// wire.OutPoint struct.
-	parts := strings.Split(ctx.String(outpointName), ":")
-	if len(parts) != 2 {
-		return nil, errors.New("outpoint should be of " +
-			"the form txid:index")
-	}
-	txidStr := parts[0]
-	if hex.DecodedLen(len(txidStr)) != chainhash.HashSize {
-		return nil, fmt.Errorf("invalid hex-encoded "+
-			"txid %v", txidStr)
-	}
-
-	outputIndex, err := strconv.ParseInt(parts[1], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid output "+
-			"index: %v", err)
-	}
-
-	return &universerpc.Outpoint{
-		HashStr: txidStr,
-		Index:   int32(outputIndex),
-	}, nil
-}
-
 func parseAssetKey(ctx *cli.Context) (*universerpc.AssetKey, error) {
-	outpoint, err := parseUniOutpoint(ctx)
+	outpoint, err := tap.UnmarshalOutpoint(ctx.String(outpointName))
 	if err != nil {
 		return nil, err
 	}
 
 	return &universerpc.AssetKey{
 		Outpoint: &universerpc.AssetKey_Op{
-			Op: outpoint,
+			Op: &unirpc.Outpoint{
+				HashStr: outpoint.Hash.String(),
+				Index:   int32(outpoint.Index),
+			},
 		},
 		ScriptKey: &universerpc.AssetKey_ScriptKeyStr{
 			ScriptKeyStr: ctx.String(scriptKeyName),

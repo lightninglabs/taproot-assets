@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -121,8 +120,7 @@ func (u *UniverseFederationDB) AddServers(ctx context.Context,
 		// Add context to unique constraint errors.
 		var uniqueConstraintErr *ErrSqlUniqueConstraintViolation
 		if errors.As(err, &uniqueConstraintErr) {
-			return fmt.Errorf("universe name is already added: %w",
-				err)
+			return universe.ErrDuplicateUniverse
 		}
 
 		return err
