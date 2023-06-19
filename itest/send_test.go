@@ -173,8 +173,8 @@ func testResumePendingPackageSend(t *harnessTest) {
 	// We will now start two asset send events in sequence. We will stop and
 	// restart the sending node during each send. During one sending event
 	// we will mine whilst the sending node is stopped. During the other
-	// sending event we will only mine once the sending node is restarted.
-	for i := range []int{0, 1} {
+	// sending event we will only mine once the sending node has restarted.
+	for i := 0; i < 2; i++ {
 		mineWhileNodeDown := i == 0
 
 		// Start the asset send procedure.
