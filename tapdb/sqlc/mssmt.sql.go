@@ -295,6 +295,7 @@ INSERT INTO mssmt_roots (
 ) VALUES (
     $1, $2
 ) ON CONFLICT (namespace)
+    -- Not a NOP, we always overwrite the root hash.
     DO UPDATE SET root_hash = EXCLUDED.root_hash
 `
 

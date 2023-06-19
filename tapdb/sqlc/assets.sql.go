@@ -2095,8 +2095,9 @@ INSERT INTO assets_meta (
     -- In this case, we may be inserting the data+type for an existing blob. So
     -- we'll set both of those values. At this layer we assume the meta hash
     -- has been validated elsewhere.
-    DO UPDATE SET meta_data_blob = EXCLUDED.meta_data_blob, 
-        meta_data_type = EXCLUDED.meta_data_type
+    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob), 
+                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type)
+        
 RETURNING meta_id
 `
 
@@ -2133,7 +2134,7 @@ INSERT INTO asset_proofs (
 ) VALUES (
     (SELECT asset_id FROM target_asset), $1
 ) ON CONFLICT (asset_id)
-    -- This is not a NOP, update the proof file in case it wasn't set before.
+    -- This is not a NOP, we always overwrite the proof with the new one.
     DO UPDATE SET proof_file = EXCLUDED.proof_file
 `
 
