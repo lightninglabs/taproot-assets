@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	prand "math/rand"
 	"time"
 
@@ -165,11 +164,31 @@ func NewTransactionExecutor[Querier any](db BatchedQuerier,
 func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	txOptions TxOptions, txBody func(Q) error) error {
 
+	waitBeforeRetry := func(attemptNumber int) {
+		retryDelay := t.opts.randRetryDelay()
+
+		log.Tracef("Retrying transaction due to tx serialization "+
+			"error, attempt_number=%v, delay=%v", attemptNumber,
+			retryDelay)
+
+		// Before we try again, we'll wait with a random backoff based
+		// on the retry delay.
+		time.Sleep(retryDelay)
+	}
+
 	for i := 0; i < t.opts.numRetries; i++ {
 		// Create the db transaction.
 		tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
 		if err != nil {
-			return err
+			dbErr := MapSQLError(err)
+			if IsSerializationError(dbErr) {
+				// Nothing to roll back here, since we didn't
+				// even get a transaction yet.
+				waitBeforeRetry(i)
+				continue
+			}
+
+			return dbErr
 		}
 
 		// Rollback is safe to call even if the tx is already closed,
@@ -180,38 +199,31 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 
 		if err := txBody(t.createQuery(tx)); err != nil {
 			dbErr := MapSQLError(err)
-
-			// At this point, we know the DB wasn't able to
-			// properly serialize the error, so we'll re-execute
-			// everything to try once again.
-			var serializationErr *ErrSerializationError
-			if errors.As(dbErr, &serializationErr) {
+			if IsSerializationError(dbErr) {
 				// Roll back the transaction, then pop back up
 				// to try once again.
 				_ = tx.Rollback()
 
-				retryDelay := t.opts.randRetryDelay()
-
-				log.Tracef("Retrying transaction due to tx "+
-					"serialization error, "+
-					"attempt_number=%v, delay=%v", i,
-					retryDelay)
-
-				// Before we try again, we'll wait with a
-				// random backoff based on the retry delay.
-				time.Sleep(retryDelay)
-
+				waitBeforeRetry(i)
 				continue
-			} else {
-				return dbErr
 			}
+
+			return dbErr
 		}
 
 		// Commit transaction.
-		//
-		// TODO(roasbeef): need to handle SQLITE_BUSY here?
 		if err = tx.Commit(); err != nil {
-			return MapSQLError(err)
+			dbErr := MapSQLError(err)
+			if IsSerializationError(dbErr) {
+				// Roll back the transaction, then pop back up
+				// to try once again.
+				_ = tx.Rollback()
+
+				waitBeforeRetry(i)
+				continue
+			}
+
+			return dbErr
 		}
 
 		return nil
