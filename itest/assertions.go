@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -724,6 +725,53 @@ func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 		}
 		require.True(t.t, assetMatched, "asset not matched: %v", a)
 	}
+}
+
+func assertUniverseRoot(t *testing.T, tapd *tapdHarness, sum int,
+	assetID []byte, groupKey []byte) error {
+
+	bothSet := assetID != nil && groupKey != nil
+	neitherSet := assetID == nil && groupKey == nil
+	if bothSet || neitherSet {
+		return fmt.Errorf("only set one of assetID or groupKey")
+	}
+
+	// Re-parse and serialize the keys to account for the different
+	// formats returned in RPC responses.
+	matchingGroupKey := func(root *unirpc.UniverseRoot) bool {
+		rootGroupKeyBytes := root.Id.GetGroupKey()
+		require.NotNil(t, rootGroupKeyBytes)
+
+		expectedGroupKey, err := btcec.ParsePubKey(groupKey)
+		require.NoError(t, err)
+		require.Equal(
+			t, rootGroupKeyBytes,
+			schnorr.SerializePubKey(expectedGroupKey),
+		)
+
+		return true
+	}
+
+	// Comparing the asset ID is always safe, even if nil.
+	matchingRoot := func(root *unirpc.UniverseRoot) bool {
+		require.Equal(t, root.MssmtRoot.RootSum, int64(sum))
+		require.Equal(t, root.Id.GetAssetId(), assetID)
+		if groupKey != nil {
+			return matchingGroupKey(root)
+		}
+
+		return true
+	}
+
+	ctx := context.Background()
+
+	uniRoots, err := tapd.AssetRoots(ctx, &unirpc.AssetRootRequest{})
+	require.NoError(t, err)
+
+	correctRoot := fn.Any(maps.Values(uniRoots.UniverseRoots), matchingRoot)
+	require.True(t, correctRoot)
+
+	return nil
 }
 
 func assertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {

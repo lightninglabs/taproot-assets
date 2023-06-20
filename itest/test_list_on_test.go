@@ -136,7 +136,15 @@ var testCases = []*testCase{
 
 var optionalTestCases = []*testCase{
 	{
-		name: "get info",
-		test: testGetInfo,
+		name: "mint batch 100 stress test",
+		test: testMintBatch100StressTest,
+	},
+	{
+		name: "mint batch 1k stress test",
+		test: testMintBatch1kStressTest,
+	},
+	{
+		name: "mint batch 10k stress test",
+		test: testMintBatch10kStressTest,
 	},
 }

@@ -131,13 +131,37 @@ func testMintAssets(t *harnessTest) {
 	transferAssetProofs(t, t.tapd, secondTapd, allAssets, false)
 }
 
+type mintOption func(*mintOptions)
+
+type mintOptions struct {
+	mintingTimeout time.Duration
+}
+
+func defaultMintOptions() *mintOptions {
+	return &mintOptions{
+		mintingTimeout: defaultWaitTimeout,
+	}
+}
+
+func withMintingTimeout(timeout time.Duration) mintOption {
+	return func(options *mintOptions) {
+		options.mintingTimeout = timeout
+	}
+}
+
 // mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
 // batch and verifies all asset proofs of the minted assets.
 func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
-	assetRequests []*mintrpc.MintAssetRequest) []*taprpc.Asset {
+	assetRequests []*mintrpc.MintAssetRequest,
+	opts ...mintOption) []*taprpc.Asset {
+
+	options := defaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
 	defer cancel()
 
 	// Mint all the assets in the same batch.
@@ -155,11 +179,11 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	require.NotEmpty(t.t, batchResp.BatchKey)
 
 	waitForBatchState(
-		t, ctxt, tapd, defaultWaitTimeout,
+		t, ctxt, tapd, options.mintingTimeout,
 		mintrpc.BatchState_BATCH_STATE_BROADCAST,
 	)
 	hashes, err := waitForNTxsInMempool(
-		t.lndHarness.Miner.Client, 1, defaultWaitTimeout,
+		t.lndHarness.Miner.Client, 1, options.mintingTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -189,7 +213,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	blockHash := block.BlockHash()
 	waitForBatchState(
-		t, ctxt, tapd, defaultWaitTimeout,
+		t, ctxt, tapd, options.mintingTimeout,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
