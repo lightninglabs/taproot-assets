@@ -11,6 +11,41 @@ import (
 	"time"
 )
 
+const deleteUniverseEvents = `-- name: DeleteUniverseEvents :exec
+WITH root_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE namespace_root = $1
+)
+DELETE FROM universe_events
+WHERE universe_root_id = (SELECT id from root_id)
+`
+
+func (q *Queries) DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error {
+	_, err := q.db.ExecContext(ctx, deleteUniverseEvents, namespaceRoot)
+	return err
+}
+
+const deleteUniverseLeaves = `-- name: DeleteUniverseLeaves :exec
+DELETE FROM universe_leaves
+WHERE leaf_node_namespace = $1
+`
+
+func (q *Queries) DeleteUniverseLeaves(ctx context.Context, namespace string) error {
+	_, err := q.db.ExecContext(ctx, deleteUniverseLeaves, namespace)
+	return err
+}
+
+const deleteUniverseRoot = `-- name: DeleteUniverseRoot :exec
+DELETE FROM universe_roots
+WHERE namespace_root = $1
+`
+
+func (q *Queries) DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error {
+	_, err := q.db.ExecContext(ctx, deleteUniverseRoot, namespaceRoot)
+	return err
+}
+
 const deleteUniverseServer = `-- name: DeleteUniverseServer :exec
 DELETE FROM universe_servers
 WHERE server_host = $1 OR id = $2

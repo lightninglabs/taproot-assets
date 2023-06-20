@@ -136,6 +136,10 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
+		"/universerpc.Universe/DeleteAssetRoot": {{
+			Entity: "universe",
+			Action: "write",
+		}},
 		"/universerpc.Universe/AssetLeafKeys": {{
 			Entity: "universe",
 			Action: "read",

@@ -22,9 +22,14 @@ type Querier interface {
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
+	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
+	DeleteRoot(ctx context.Context, namespace string) (int64, error)
+	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error
+	DeleteUniverseLeaves(ctx context.Context, namespace string) error
+	DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error)

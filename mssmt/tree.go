@@ -278,6 +278,20 @@ func (t *FullTree) Delete(ctx context.Context, key [hashSize]byte) (
 	return t, nil
 }
 
+// DeleteRoot deletes the root node of the MS-SMT.
+func (t *FullTree) DeleteRoot(ctx context.Context) error {
+	return t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		return tx.DeleteRoot()
+	})
+}
+
+// DeleteAllNodes deletes all nodes in the MS-SMT.
+func (t *FullTree) DeleteAllNodes(ctx context.Context) error {
+	return t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		return tx.DeleteAllNodes()
+	})
+}
+
 // Get returns the leaf node found at the given key within the MS-SMT.
 func (t *FullTree) Get(ctx context.Context, key [hashSize]byte) (
 	*LeafNode, error) {

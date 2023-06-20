@@ -163,6 +163,48 @@ func testUniverseSync(t *harnessTest) {
 	firstAssetFromUni := firstAssetUniProof.AssetLeaf.Asset
 	firstAssetFromUni.PrevWitnesses = nil
 	assertAsset(t.t, rpcSimpleAssets[0], firstAssetFromUni)
+
+	// Now we'll delete a universe root on Bob's node, and then re-sync it.
+	_, err = bob.DeleteAssetRoot(ctxt, &unirpc.DeleteRootQuery{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_AssetId{
+				AssetId: firstAssetID,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	universeRootsBob, err = bob.AssetRoots(
+		ctxt, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Bob should be missing one universe root from the total, which is
+	// exactly the root we deleted.
+	require.Len(t.t, universeRootsBob.UniverseRoots, totalAssets-1)
+	firstAssetUniID := hex.EncodeToString(firstAssetID)
+	_, ok := universeRootsBob.UniverseRoots[firstAssetUniID]
+	require.False(t.t, ok)
+
+	syncDiff, err = bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+		UniverseHost: t.tapd.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+	})
+	require.NoError(t.t, err)
+
+	// The diff from resyncing Bob to the main universe node should be
+	// for one universe with one asset.
+	require.Len(t.t, syncDiff.SyncedUniverses, 1)
+	resyncedUniverse := syncDiff.SyncedUniverses[0]
+	require.True(t.t, resyncedUniverse.OldAssetRoot.MssmtRoot == nil)
+	require.Len(t.t, resyncedUniverse.NewAssetLeaves, 1)
+
+	// After re-sync, both universes should match again.
+	universeRootsBob, err = bob.AssetRoots(
+		ctxt, &unirpc.AssetRootRequest{},
+	)
+	require.NoError(t.t, err)
+	assertUniverseRootsEqual(t.t, universeRoots, universeRootsBob)
 }
 
 // testUniverseREST tests that we're able to properly query the universe state

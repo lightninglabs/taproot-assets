@@ -16,6 +16,61 @@
     "application/json"
   ],
   "paths": {
+    "/v1/taproot-assets/universe/delete": {
+      "delete": {
+        "summary": "tapcli: `universe delete`\nDeleteAssetRoot deletes the Universe root for a specific asset, including\nall asoociated universe keys, leaves, and events.",
+        "operationId": "Universe_DeleteAssetRoot",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcDeleteRootResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id.asset_id",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "id.group_key",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/federation": {
       "get": {
         "summary": "tapcli: `universe federation list`\nListFederationServers lists the set of servers that make up the federation\nof the local Universe server. This servers are used to push out new proofs,\nand also periodically call sync new proofs from the remote server.",
@@ -1287,6 +1342,9 @@
       "default": "FILTER_ASSET_NONE"
     },
     "universerpcDeleteFederationServerResponse": {
+      "type": "object"
+    },
+    "universerpcDeleteRootResponse": {
       "type": "object"
     },
     "universerpcID": {

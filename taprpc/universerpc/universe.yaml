@@ -37,6 +37,9 @@ http:
       post: "/v1/taproot-assets/universe/sync"
       body: "*"
 
+    - selector: universerpc.Universe.DeleteAssetRoot
+      delete: "/v1/taproot-assets/universe/delete"
+
     - selector: universerpc.Universe.ListFederationServers
       get: "/v1/taproot-assets/universe/federation"
 

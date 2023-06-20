@@ -26,6 +26,10 @@ type UniverseClient interface {
 	// QueryAssetRoots attempts to locate the current Universe root for a specific
 	// asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(ctx context.Context, in *AssetRootQuery, opts ...grpc.CallOption) (*QueryRootResponse, error)
+	// tapcli: `universe delete`
+	// DeleteAssetRoot deletes the Universe root for a specific asset, including
+	// all asoociated universe keys, leaves, and events.
+	DeleteAssetRoot(ctx context.Context, in *DeleteRootQuery, opts ...grpc.CallOption) (*DeleteRootResponse, error)
 	// tapcli: `universe keys`
 	// AssetLeafKeys queries for the set of Universe keys associated with a given
 	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
@@ -109,6 +113,15 @@ func (c *universeClient) AssetRoots(ctx context.Context, in *AssetRootRequest, o
 func (c *universeClient) QueryAssetRoots(ctx context.Context, in *AssetRootQuery, opts ...grpc.CallOption) (*QueryRootResponse, error) {
 	out := new(QueryRootResponse)
 	err := c.cc.Invoke(ctx, "/universerpc.Universe/QueryAssetRoots", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) DeleteAssetRoot(ctx context.Context, in *DeleteRootQuery, opts ...grpc.CallOption) (*DeleteRootResponse, error) {
+	out := new(DeleteRootResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/DeleteAssetRoot", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +230,10 @@ type UniverseServer interface {
 	// QueryAssetRoots attempts to locate the current Universe root for a specific
 	// asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(context.Context, *AssetRootQuery) (*QueryRootResponse, error)
+	// tapcli: `universe delete`
+	// DeleteAssetRoot deletes the Universe root for a specific asset, including
+	// all asoociated universe keys, leaves, and events.
+	DeleteAssetRoot(context.Context, *DeleteRootQuery) (*DeleteRootResponse, error)
 	// tapcli: `universe keys`
 	// AssetLeafKeys queries for the set of Universe keys associated with a given
 	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
@@ -290,6 +307,9 @@ func (UnimplementedUniverseServer) AssetRoots(context.Context, *AssetRootRequest
 }
 func (UnimplementedUniverseServer) QueryAssetRoots(context.Context, *AssetRootQuery) (*QueryRootResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryAssetRoots not implemented")
+}
+func (UnimplementedUniverseServer) DeleteAssetRoot(context.Context, *DeleteRootQuery) (*DeleteRootResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAssetRoot not implemented")
 }
 func (UnimplementedUniverseServer) AssetLeafKeys(context.Context, *ID) (*AssetLeafKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssetLeafKeys not implemented")
@@ -366,6 +386,24 @@ func _Universe_QueryAssetRoots_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(UniverseServer).QueryAssetRoots(ctx, req.(*AssetRootQuery))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_DeleteAssetRoot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRootQuery)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).DeleteAssetRoot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/DeleteAssetRoot",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).DeleteAssetRoot(ctx, req.(*DeleteRootQuery))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -564,6 +602,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryAssetRoots",
 			Handler:    _Universe_QueryAssetRoots_Handler,
+		},
+		{
+			MethodName: "DeleteAssetRoot",
+			Handler:    _Universe_DeleteAssetRoot_Handler,
 		},
 		{
 			MethodName: "AssetLeafKeys",

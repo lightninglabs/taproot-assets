@@ -175,6 +175,17 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 		require.Equal(t, int(assetStat.TotalProofs), 1)
 	}
+
+	// Finally, we should be able to delete a universe and all associated
+	// events.
+	_, err = sh.assetUniverses[assetToSync].DeleteUniverse(ctx)
+	require.NoError(t, err)
+
+	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
+		NumTotalAssets: numAssets - 1,
+		NumTotalProofs: numAssets - 1,
+		NumTotalSyncs:  0,
+	})
 }
 
 // TestUniverseQuerySyncStatsSorting tests that we're able to properly sort the

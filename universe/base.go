@@ -276,3 +276,22 @@ func (a *MintingArchive) MintingLeaves(ctx context.Context,
 		return baseUni.MintingLeaves(ctx)
 	})
 }
+
+// DeleteRoot deletes all universe leaves, and the universe root, for the
+// specified base universe.
+func (a *MintingArchive) DeleteRoot(ctx context.Context,
+	id Identifier) (string, error) {
+
+	log.Debugf("Deleting universe tree for Universe: id=%v", id.String())
+
+	uniStr, err := withBaseUni(a, id, func(baseUni BaseBackend) (string,
+		error) {
+
+		return baseUni.DeleteUniverse(ctx)
+	})
+
+	if err != nil {
+		log.Tracef("Failed to delete universe tree: %w", err)
+	}
+	return uniStr, err
+}

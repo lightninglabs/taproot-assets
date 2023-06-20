@@ -422,6 +422,9 @@ func TestDeletion(t *testing.T) {
 				testDeletion(t,
 					leaves, mssmt.NewFullTree(store),
 				)
+				testBatchDeletion(t,
+					leaves, mssmt.NewFullTree(store),
+				)
 			})
 
 			t.Run("smol SMT", func(t *testing.T) {
@@ -431,6 +434,9 @@ func TestDeletion(t *testing.T) {
 				require.NoError(t, err)
 
 				testDeletion(t,
+					leaves, mssmt.NewCompactedTree(store),
+				)
+				testBatchDeletion(t,
 					leaves, mssmt.NewCompactedTree(store),
 				)
 			})
@@ -463,6 +469,34 @@ func testDeletion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 	require.NoError(t, err)
 
 	require.True(t, mssmt.IsEqualNode(mssmt.EmptyTree[0], treeRoot))
+}
+
+func testBatchDeletion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
+	ctx := context.TODO()
+	for _, item := range leaves {
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+
+	treeRoot, err := tree.Root(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, mssmt.EmptyTree[0], treeRoot)
+
+	err = tree.DeleteAllNodes(ctx)
+	require.NoError(t, err)
+
+	for _, item := range leaves {
+		emptyLeaf, err := tree.Get(ctx, item.key)
+		require.Nil(t, emptyLeaf)
+		require.ErrorContains(t, err, "node not found")
+	}
+
+	err = tree.DeleteRoot(ctx)
+	require.NoError(t, err)
+
+	treeRoot, err = tree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, mssmt.EmptyTree[0], treeRoot)
 }
 
 func assertEqualProofAfterCompression(t *testing.T, proof *mssmt.Proof) {

@@ -216,7 +216,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		return false
 	}))
 
-	// Finally, we should be able to query for the complete set of leaves,
+	// We should be able to query for the complete set of leaves,
 	// which matches what we inserted above.
 	dbLeaves, err := baseUniverse.MintingLeaves(ctx)
 	require.NoError(t, err)
@@ -229,6 +229,23 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		}
 		return false
 	}))
+
+	// Finally, we should be able to delete this universe and all included
+	// keys and leaves, as well as the root node.
+	_, err = baseUniverse.DeleteUniverse(ctx)
+	require.NoError(t, err)
+
+	mintingKeys, err = baseUniverse.MintingKeys(ctx)
+	require.NoError(t, err)
+	require.Len(t, mintingKeys, 0)
+
+	dbLeaves, err = baseUniverse.MintingLeaves(ctx)
+	require.NoError(t, err)
+	require.Len(t, dbLeaves, 0)
+
+	rootNode, _, err := baseUniverse.RootNode(ctx)
+	require.Nil(t, rootNode)
+	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
 // TestUniverseMetaBlob tests that leaves inserted with a meta reveal can be
@@ -354,6 +371,22 @@ func TestUniverseTreeIsolation(t *testing.T) {
 		}
 		return false
 	}))
+
+	// We should be able to delete one Universe with no effect on the other.
+	normalNamespace, err := normalUniverse.DeleteUniverse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, idToNameSpace(idNormal), normalNamespace)
+
+	// A deleted universe should have no root stored.
+	normalRoot, _, err = normalUniverse.RootNode(ctx)
+	require.Nil(t, normalRoot)
+	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
+
+	// The deleted universe should not be present in the universe forest.
+	rootNodes, err = universeForest.RootNodes(ctx)
+	require.NoError(t, err)
+	require.Len(t, rootNodes, 1)
+	require.True(t, mssmt.IsEqualNode(rootNodes[0].Node, groupRoot))
 }
 
 // TestUniverseLeafQuery tests that we're able to properly query for the set of
