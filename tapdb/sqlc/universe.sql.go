@@ -131,52 +131,76 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 }
 
 const insertNewProofEvent = `-- name: InsertNewProofEvent :exec
-WITH root_asset_id AS (
+WITH group_key_root_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE group_key = $1
+), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
-    JOIN genesis_info_view gen
-        ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $2
+             JOIN genesis_info_view gen
+                  ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $3
+    LIMIT 1
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    'NEW_PROOF', (SELECT id FROM root_asset_id), $1
+    'NEW_PROOF',
+        CASE WHEN length($1) > 0 THEN (
+            SELECT id FROM group_key_root_id
+        ) ELSE (
+            SELECT id FROM asset_id_root_id
+        ) END,
+    $2
 )
 `
 
 type InsertNewProofEventParams struct {
-	EventTime time.Time
-	AssetID   []byte
+	GroupKeyXOnly interface{}
+	EventTime     time.Time
+	AssetID       []byte
 }
 
 func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewProofEvent, arg.EventTime, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, insertNewProofEvent, arg.GroupKeyXOnly, arg.EventTime, arg.AssetID)
 	return err
 }
 
 const insertNewSyncEvent = `-- name: InsertNewSyncEvent :exec
-WITH root_asset_id AS (
+WITH group_key_root_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE group_key = $1
+), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $2
+    WHERE gen.asset_id = $3 
+    LIMIT 1
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    'SYNC', (SELECT id FROM root_asset_id), $1
+    'SYNC',
+        CASE WHEN length($1) > 0 THEN (
+            SELECT id FROM group_key_root_id
+        ) ELSE (
+            SELECT id FROM asset_id_root_id
+        ) END,
+    $2
 )
 `
 
 type InsertNewSyncEventParams struct {
-	EventTime time.Time
-	AssetID   []byte
+	GroupKeyXOnly interface{}
+	EventTime     time.Time
+	AssetID       []byte
 }
 
 func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewSyncEvent, arg.EventTime, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, insertNewSyncEvent, arg.GroupKeyXOnly, arg.EventTime, arg.AssetID)
 	return err
 }
 

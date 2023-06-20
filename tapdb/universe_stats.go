@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -98,10 +99,16 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 
 	var writeTxOpts UniverseStatsOptions
 	return u.db.ExecTx(ctx, &writeTxOpts, func(db UniverseStatsStore) error {
+		var groupKeyXOnly []byte
+		if uniID.GroupKey != nil {
+			groupKeyXOnly = schnorr.SerializePubKey(uniID.GroupKey)
+		}
+
 		return db.InsertNewSyncEvent(ctx, NewSyncEvent{
 			// TODO(roasbeef): use clock interface
-			EventTime: time.Now(),
-			AssetID:   uniID.AssetID[:],
+			EventTime:     time.Now(),
+			AssetID:       uniID.AssetID[:],
+			GroupKeyXOnly: groupKeyXOnly,
 		})
 	})
 }
@@ -112,10 +119,16 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 
 	var writeTxOpts UniverseStatsOptions
 	return u.db.ExecTx(ctx, &writeTxOpts, func(db UniverseStatsStore) error {
+		var groupKeyXOnly []byte
+		if uniID.GroupKey != nil {
+			groupKeyXOnly = schnorr.SerializePubKey(uniID.GroupKey)
+		}
+
 		return db.InsertNewProofEvent(ctx, NewProofEvent{
 			// TODO(roasbeef): use clock interface
-			EventTime: time.Now(),
-			AssetID:   uniID.AssetID[:],
+			EventTime:     time.Now(),
+			AssetID:       uniID.AssetID[:],
+			GroupKeyXOnly: groupKeyXOnly,
 		})
 	})
 }
