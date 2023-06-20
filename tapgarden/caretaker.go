@@ -533,7 +533,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		//
 		// TODO(roasbeef): need to invalidate asset creation if on
 		// restart leases are gone
-		ctx, cancel := b.WithCtxQuit()
+		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 		genesisTxPkt, err := b.fundGenesisPsbt(ctx)
 		if err != nil {
@@ -802,7 +802,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// log.
 	case BatchStateConfirmed:
 		confInfo := b.confInfo
-		ctx, cancel := b.WithCtxQuit()
+		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 
 		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
