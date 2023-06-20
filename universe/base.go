@@ -135,7 +135,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	key BaseKey, leaf *MintingLeaf) (*IssuanceProof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
-		id.String(), spew.Sdump(key))
+		id.StringForLog(), spew.Sdump(key))
 
 	baseUni := a.fetchUniverse(id)
 
@@ -218,7 +218,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		)
 		if err != nil {
 			log.Warnf("unable to log new proof event (id=%v): %v",
-				spew.Sdump(id), err)
+				id.StringForLog(), err)
 		}
 	}()
 
@@ -231,7 +231,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	key BaseKey) ([]*IssuanceProof, error) {
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
-		id.String(), spew.Sdump(key))
+		id.StringForLog(), spew.Sdump(key))
 
 	// Log a sync event for the leaf query leaf in the background as an
 	// async goroutine.
@@ -241,16 +241,18 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 				context.Background(), id, key,
 			)
 			if err != nil {
-				log.Warnf("unable to log sync event "+
-					"(id=%v, key=%v): %v", spew.Sdump(id),
+				log.Warnf("unable to log sync event (id=%v, "+
+					"key=%v): %v", id.StringForLog(),
 					spew.Sdump(key), err)
 			}
 		}()
 	}()
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
-		return baseUni.FetchIssuanceProof(ctx, key)
-	})
+	return withBaseUni(
+		a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
+			return baseUni.FetchIssuanceProof(ctx, key)
+		},
+	)
 }
 
 // MintingKeys returns the set of minting keys known for the specified base
@@ -258,7 +260,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 func (a *MintingArchive) MintingKeys(ctx context.Context,
 	id Identifier) ([]BaseKey, error) {
 
-	log.Debugf("Retrieving all keys for Universe: id=%v", id.String())
+	log.Debugf("Retrieving all keys for Universe: id=%v", id.StringForLog())
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) ([]BaseKey, error) {
 		return baseUni.MintingKeys(ctx)
@@ -270,11 +272,14 @@ func (a *MintingArchive) MintingKeys(ctx context.Context,
 func (a *MintingArchive) MintingLeaves(ctx context.Context,
 	id Identifier) ([]MintingLeaf, error) {
 
-	log.Debugf("Retrieving all leaves for Universe: id=%v", id.String())
+	log.Debugf("Retrieving all leaves for Universe: id=%v",
+		id.StringForLog())
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) ([]MintingLeaf, error) {
-		return baseUni.MintingLeaves(ctx)
-	})
+	return withBaseUni(
+		a, id, func(baseUni BaseBackend) ([]MintingLeaf, error) {
+			return baseUni.MintingLeaves(ctx)
+		},
+	)
 }
 
 // DeleteRoot deletes all universe leaves, and the universe root, for the

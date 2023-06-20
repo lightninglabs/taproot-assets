@@ -50,6 +50,19 @@ func (i *Identifier) String() string {
 	return hex.EncodeToString(i.AssetID[:])
 }
 
+// StringForLog returns a string representation of the ID for logging.
+func (i *Identifier) StringForLog() string {
+	groupKey := "<nil>"
+	if i.GroupKey != nil {
+		groupKey = hex.EncodeToString(
+			schnorr.SerializePubKey(i.GroupKey),
+		)
+	}
+
+	return fmt.Sprintf("%v (asset_id=%x, group_key=%v)",
+		i.String(), i.AssetID[:], groupKey)
+}
+
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
 // group key it's associated with (if that exists).
 type GenesisWithGroup struct {
