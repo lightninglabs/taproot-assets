@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -725,59 +726,58 @@ func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 	}
 }
 
-func assertUniverseRootEqual(t *testing.T, a, b *unirpc.UniverseRoot) {
+func assertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
 	// The ids should batch exactly.
-	require.Equal(t, a.Id.Id, b.Id.Id)
+	if !reflect.DeepEqual(a.Id.Id, b.Id.Id) {
+		return false
+	}
 
 	// The sum and root hash should also match for the SMT root itself.
-	require.Equal(
-		t, a.MssmtRoot.RootHash, b.MssmtRoot.RootHash,
-	)
-	require.Equal(
-		t, a.MssmtRoot.RootSum, b.MssmtRoot.RootSum,
-	)
+	if !bytes.Equal(a.MssmtRoot.RootHash, b.MssmtRoot.RootHash) {
+		return false
+	}
+	if a.MssmtRoot.RootSum != b.MssmtRoot.RootSum {
+		return false
+	}
+
+	return true
 }
 
-func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
+func assertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
 	// The set of keys in the maps should match exactly, as this means the
 	// same set of asset IDs are being tracked.
 	uniKeys := maps.Keys(a.UniverseRoots)
-	require.Equal(t, len(a.UniverseRoots), len(b.UniverseRoots))
-	require.True(t, fn.All(uniKeys, func(key string) bool {
+	if len(a.UniverseRoots) != len(b.UniverseRoots) {
+		return false
+	}
+	if !fn.All(uniKeys, func(key string) bool {
 		_, ok := b.UniverseRoots[key]
 		return ok
-	}))
+	}) {
+
+		return false
+	}
 
 	// Now that we know the same set of assets are being tracked, we'll
 	// ensure that the root values are also the same.
 	for uniID := range a.UniverseRoots {
 		rootA, ok := a.UniverseRoots[uniID]
-		require.True(t, ok)
+		if !ok {
+			return false
+		}
 
 		rootB, ok := b.UniverseRoots[uniID]
-		require.True(t, ok)
+		if !ok {
+			return false
+		}
 
-		assertUniverseRootEqual(t, rootA, rootB)
+		return assertUniverseRootEqual(rootA, rootB)
 	}
+
+	return true
 }
 
-func succeedEventually(t *testing.T, f func(*testing.T),
-	timeout, retryInterval time.Duration) {
-
-	t.Helper()
-
-	require.Eventually(t, func() bool {
-		// Create a new instance of a testing.T so that we can check
-		// whether the test failed or not without failing the whole
-		// parent test.
-		tt := &testing.T{}
-		f(tt)
-
-		return !tt.Failed()
-	}, timeout, retryInterval)
-}
-
-func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
+func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) bool {
 	ctxb := context.Background()
 
 	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
@@ -786,7 +786,7 @@ func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
 	rootsB, err := b.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 
-	assertUniverseRootsEqual(t, rootsA, rootsB)
+	return assertUniverseRootsEqual(rootsA, rootsB)
 }
 
 func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
