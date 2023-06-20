@@ -60,6 +60,10 @@ var (
 			Entity: "proofs",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/DecodeProof": {{
+			Entity: "proofs",
+			Action: "read",
+		}},
 		"/taprpc.TaprootAssets/ExportProof": {{
 			Entity: "proofs",
 			Action: "read",

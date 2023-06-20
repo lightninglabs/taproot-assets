@@ -253,7 +253,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 			existingAsset.ChainAnchor.AnchorTxid,
 		)
 		require.NoError(t.t, err)
-		anchorBlockHash, err := chainhash.NewHash(
+		anchorBlockHash, err := chainhash.NewHashFromStr(
 			existingAsset.ChainAnchor.AnchorBlockHash,
 		)
 		require.NoError(t.t, err)

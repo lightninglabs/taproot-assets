@@ -21,6 +21,7 @@ var proofCommands = []cli.Command{
 		Category:  "Proofs",
 		Subcommands: []cli.Command{
 			verifyProofCommand,
+			decodeProofCommand,
 			exportProofCommand,
 			importProofCommand,
 			proveOwnershipCommand,
@@ -31,6 +32,10 @@ var proofCommands = []cli.Command{
 
 const (
 	proofPathName = "proof_file"
+
+	proofAtDepthName      = "proof_at_depth"
+	withPrevWitnessesName = "latest_proof"
+	withMetaRevealName    = "meta_reveal"
 )
 
 var verifyProofCommand = cli.Command{
@@ -75,6 +80,75 @@ func verifyProof(ctx *cli.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to verify proof file: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var decodeProofCommand = cli.Command{
+	Name:      "decode",
+	ShortName: "d",
+	Usage:     "decode a Taproot Asset proof",
+	Description: `
+	Decode a taproot asset proof that contains the full provenance of an
+	asset into human readable format. Such a proof proves the existence 
+	of an asset, but does not prove that the creator of the proof can 
+	actually also spend the asset. To verify ownership, use the 
+	"verifyownership" command with a separate ownership proof.
+`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: proofPathName,
+			Usage: "the path to the proof file on disk; use the " +
+				"dash character (-) to read from stdin instead",
+		},
+		cli.Int64Flag{
+			Name:  proofAtDepthName,
+			Value: 0,
+			Usage: "the index depth of the decoded proof to fetch " +
+				"with 0 being the latest proof",
+		},
+		cli.BoolFlag{
+			Name:  withPrevWitnessesName,
+			Usage: "if true, previous witnesses will be returned",
+		},
+		cli.BoolFlag{
+			Name: withMetaRevealName,
+			Usage: "if true, will attempt to reveal the meta data " +
+				"associated with the proof",
+		},
+	},
+	Action: decodeProof,
+}
+
+func decodeProof(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	switch {
+	case !ctx.IsSet(proofPathName):
+		_ = cli.ShowCommandHelp(ctx, "decode")
+		return nil
+	}
+
+	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+	rawFile, err := readFile(filePath)
+	if err != nil {
+		return fmt.Errorf("unable to read proof file: %w", err)
+	}
+
+	req := &taprpc.DecodeProofRequest{
+		RawProof:          rawFile,
+		ProofAtDepth:      uint32(ctx.Uint(proofAtDepthName)),
+		WithPrevWitnesses: ctx.Bool(withPrevWitnessesName),
+		WithMetaReveal:    ctx.Bool(withMetaRevealName),
+	}
+
+	resp, err := client.DecodeProof(ctxc, req)
+	if err != nil {
+		return fmt.Errorf("unable to verify file: %w", err)
 	}
 
 	printRespJSON(resp)

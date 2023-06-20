@@ -37,6 +37,10 @@ http:
       post: "/v1/taproot-assets/proofs/verify"
       body: "*"
 
+    - selector: taprpc.TaprootAssets.DecodeProof
+      post: "/v1/taproot-assets/proofs/decode"
+      body: "*"
+
     - selector: taprpc.TaprootAssets.ExportProof
       post: "/v1/taproot-assets/proofs/export"
       body: "*"

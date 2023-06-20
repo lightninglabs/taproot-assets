@@ -69,7 +69,7 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 				txid[:])
 		}
 
-		if !bytes.Equal(a.ChainAnchor.AnchorBlockHash, blockHash[:]) {
+		if a.ChainAnchor.AnchorBlockHash != blockHash.String() {
 			return fmt.Errorf("unexpected asset anchor block "+
 				"hash, got %x wanted %x",
 				a.ChainAnchor.AnchorBlockHash, blockHash[:])
@@ -218,6 +218,13 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness,
 	})
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)
+
+	// Also make sure that the RPC can decode the proof as well.
+	decodeResp, err := tapd.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
+		RawProof: blob,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, decodeResp.DecodedProof.Asset)
 
 	headerVerifier := func(blockHeader wire.BlockHeader) error {
 		hash := blockHeader.BlockHash()

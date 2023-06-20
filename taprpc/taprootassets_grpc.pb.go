@@ -63,7 +63,11 @@ type TaprootAssetsClient interface {
 	// tapcli: `proofs verify`
 	// VerifyProof attempts to verify a given proof file that claims to be anchored
 	// at the specified genesis point.
-	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*ProofVerifyResponse, error)
+	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*VerifyProofResponse, error)
+	// tarocli: `proofs decode`
+	// DecodeProof attempts to decode a given proof file into human readable
+	// format.
+	DecodeProof(ctx context.Context, in *DecodeProofRequest, opts ...grpc.CallOption) (*DecodeProofResponse, error)
 	// tapcli: `proofs export`
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
@@ -197,9 +201,18 @@ func (c *taprootAssetsClient) AddrReceives(ctx context.Context, in *AddrReceives
 	return out, nil
 }
 
-func (c *taprootAssetsClient) VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*ProofVerifyResponse, error) {
-	out := new(ProofVerifyResponse)
+func (c *taprootAssetsClient) VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*VerifyProofResponse, error) {
+	out := new(VerifyProofResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/VerifyProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetsClient) DecodeProof(ctx context.Context, in *DecodeProofRequest, opts ...grpc.CallOption) (*DecodeProofResponse, error) {
+	out := new(DecodeProofResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/DecodeProof", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +345,11 @@ type TaprootAssetsServer interface {
 	// tapcli: `proofs verify`
 	// VerifyProof attempts to verify a given proof file that claims to be anchored
 	// at the specified genesis point.
-	VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error)
+	VerifyProof(context.Context, *ProofFile) (*VerifyProofResponse, error)
+	// tarocli: `proofs decode`
+	// DecodeProof attempts to decode a given proof file into human readable
+	// format.
+	DecodeProof(context.Context, *DecodeProofRequest) (*DecodeProofResponse, error)
 	// tapcli: `proofs export`
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
@@ -397,8 +414,11 @@ func (UnimplementedTaprootAssetsServer) DecodeAddr(context.Context, *DecodeAddrR
 func (UnimplementedTaprootAssetsServer) AddrReceives(context.Context, *AddrReceivesRequest) (*AddrReceivesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddrReceives not implemented")
 }
-func (UnimplementedTaprootAssetsServer) VerifyProof(context.Context, *ProofFile) (*ProofVerifyResponse, error) {
+func (UnimplementedTaprootAssetsServer) VerifyProof(context.Context, *ProofFile) (*VerifyProofResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VerifyProof not implemented")
+}
+func (UnimplementedTaprootAssetsServer) DecodeProof(context.Context, *DecodeProofRequest) (*DecodeProofResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DecodeProof not implemented")
 }
 func (UnimplementedTaprootAssetsServer) ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExportProof not implemented")
@@ -647,6 +667,24 @@ func _TaprootAssets_VerifyProof_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_DecodeProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecodeProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).DecodeProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/DecodeProof",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).DecodeProof(ctx, req.(*DecodeProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_ExportProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExportProofRequest)
 	if err := dec(in); err != nil {
@@ -812,6 +850,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VerifyProof",
 			Handler:    _TaprootAssets_VerifyProof_Handler,
+		},
+		{
+			MethodName: "DecodeProof",
+			Handler:    _TaprootAssets_DecodeProof_Handler,
 		},
 		{
 			MethodName: "ExportProof",
