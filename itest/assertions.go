@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -93,55 +94,85 @@ func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
 	}
 }
 
+// groupAssetsByName converts an unordered list of assets to a map of lists of
+// assets, where all assets in a list have the same name.
+func groupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
+	assetLists := make(map[string][]*taprpc.Asset)
+	for idx := range assets {
+		a := assets[idx]
+		assetLists[a.AssetGenesis.Name] = append(
+			assetLists[a.AssetGenesis.Name], a,
+		)
+	}
+
+	return assetLists
+}
+
 // assertAssetState makes sure that an asset with the given (possibly
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
-func assertAssetState(t *harnessTest, tapd *tapdHarness, name string,
-	metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
-
-	t.t.Helper()
-
-	ctxb := context.Background()
+func assertAssetState(t *harnessTest, assets map[string][]*taprpc.Asset,
+	name string, metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
 
 	var a *taprpc.Asset
-	err := wait.NoError(func() error {
-		ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-		defer cancel()
 
-		listResp, err := tapd.ListAssets(
-			ctxt, &taprpc.ListAssetRequest{},
-		)
-		if err != nil {
-			return err
-		}
+	require.Contains(t.t, assets, name)
 
-		for _, rpcAsset := range listResp.Assets {
-			rpcGen := rpcAsset.AssetGenesis
-			if rpcGen.Name == name &&
-				bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+	for _, rpcAsset := range assets[name] {
+		rpcGen := rpcAsset.AssetGenesis
+		if bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+			a = rpcAsset
 
-				a = rpcAsset
-
-				for _, check := range assetChecks {
-					if err := check(rpcAsset); err != nil {
-						return err
-					}
-				}
-
-				break
+			for _, check := range assetChecks {
+				err := check(rpcAsset)
+				require.NoError(t.t, err)
 			}
-		}
 
-		if a == nil {
-			return fmt.Errorf("asset with name %s not found in "+
-				"asset list", name)
+			break
 		}
+	}
 
-		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t.t, err)
+	require.NotNil(t.t, a, fmt.Errorf("asset with matching metadata not"+
+		"found in asset list"))
 
 	return a
+}
+
+// waitForBatchState polls until the planter has reached the desired state with
+// the current batch.
+func waitForBatchState(t *harnessTest, ctx context.Context, tapd *tapdHarness,
+	timeout time.Duration, targetState mintrpc.BatchState) bool {
+
+	breakTimeout := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	isTargetState := func(b *mintrpc.MintingBatch) bool {
+		return b.State == targetState
+	}
+
+	batchCount := func() int {
+		batchResp, err := tapd.ListBatches(
+			ctx, &mintrpc.ListBatchRequest{},
+		)
+		require.NoError(t.t, err)
+
+		return fn.Count(batchResp.Batches, isTargetState)
+	}
+
+	initialBatchCount := batchCount()
+
+	for {
+		select {
+		case <-breakTimeout:
+			return false
+		case <-ticker.C:
+			currentBatchCount := batchCount()
+			if currentBatchCount-initialBatchCount == 1 {
+				return true
+			}
+		}
+	}
 }
 
 // commitmentKey returns the asset's commitment key given an RPC asset

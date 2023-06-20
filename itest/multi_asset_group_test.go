@@ -85,37 +85,11 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// Now that we've verified the group count, size, and balance, we also
 	// need to check that the intended asset was used as the group anchor.
 	// We can do this by re-deriving the tweaked group key.
-	matchingName := func(asset *taprpc.Asset, name string) bool {
-		return asset.AssetGenesis.Name == name
-	}
+	normalAnchorName := issuableAssets[0].Asset.Name
+	normalAnchor := verifyGroupAnchor(t.t, mintedBatch, normalAnchorName)
 
-	// We need to fetch the minted group anchor asset, which includes the
-	// genesis information used to compute the tweak for the group key.
-	normalAnchor, err := fn.First(
-		mintedBatch, func(asset *taprpc.Asset) bool {
-			return matchingName(asset, issuableAssets[0].Asset.Name)
-		},
-	)
-	require.NoError(t.t, err)
-	normalAnchorGen := parseGenInfo(t.t, normalAnchor.AssetGenesis)
-	normalAnchorGen.Type = asset.Type(normalAnchor.AssetType)
-	assertGroupAnchor(
-		t.t, normalAnchorGen, normalAnchor.AssetGroup.RawGroupKey,
-		normalAnchor.AssetGroup.TweakedGroupKey,
-	)
-
-	collectAnchor, err := fn.First(
-		mintedBatch, func(asset *taprpc.Asset) bool {
-			return matchingName(asset, issuableAssets[1].Asset.Name)
-		},
-	)
-	require.NoError(t.t, err)
-	collectAnchorGen := parseGenInfo(t.t, collectAnchor.AssetGenesis)
-	collectAnchorGen.Type = asset.Type(collectAnchor.AssetType)
-	assertGroupAnchor(
-		t.t, collectAnchorGen, collectAnchor.AssetGroup.RawGroupKey,
-		collectAnchor.AssetGroup.TweakedGroupKey,
-	)
+	collectAnchorName := issuableAssets[1].Asset.Name
+	collectAnchor := verifyGroupAnchor(t.t, mintedBatch, collectAnchorName)
 
 	// Finally, we send some assets from the multi-asset group to Bob to
 	// ensure that they can be sent and received correctly.
@@ -165,7 +139,9 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// We want to select the one collectible that is in the same group as
 	// the collectible group anchor, and is not the anchor itself.
 	isCollectGroupMember := func(asset *taprpc.Asset) bool {
-		isNotAnchor := asset.AssetGenesis.Name != collectAnchorGen.Tag
+		isNotAnchor := asset.AssetGenesis.Name !=
+			collectAnchor.AssetGenesis.Name
+
 		if asset.AssetGroup == nil {
 			return false
 		}
@@ -199,6 +175,28 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	assertBalanceByGroup(
 		t.t, secondTapd, collectGroupKey, collectMember.Amount,
 	)
+}
+
+// verifyGroupAnchor verifies that the correct asset was used as the group
+// anchor by re-deriving the group key.
+func verifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
+	anchorName string) *taprpc.Asset {
+
+	anchor, err := fn.First(
+		assets, func(asset *taprpc.Asset) bool {
+			return asset.AssetGenesis.Name == anchorName
+		},
+	)
+	require.NoError(t, err)
+
+	anchorGen := parseGenInfo(t, anchor.AssetGenesis)
+	anchorGen.Type = asset.Type(anchor.AssetType)
+	assertGroupAnchor(
+		t, anchorGen, anchor.AssetGroup.RawGroupKey,
+		anchor.AssetGroup.TweakedGroupKey,
+	)
+
+	return anchor
 }
 
 // createMultiAssetGroup creates a list of minting requests that represent a
