@@ -78,6 +78,17 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure we have imported and finalized all proofs.
 		assertNonInteractiveRecvComplete(t, secondTapd, idx+1)
+
+		// Make sure the asset meta is also fetched correctly.
+		assetResp, err := secondTapd.FetchAssetMeta(
+			ctxt, &taprpc.FetchAssetMetaRequest{
+				Asset: &taprpc.FetchAssetMetaRequest_AssetId{
+					AssetId: a.AssetGenesis.AssetId,
+				},
+			},
+		)
+		require.NoError(t.t, err)
+		require.Equal(t.t, a.AssetGenesis.MetaHash, assetResp.MetaHash)
 	}
 
 	// Now sanity check that we can actually list the transfer.
