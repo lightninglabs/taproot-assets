@@ -67,6 +67,19 @@ jobs:
       - name: Run go mod tidy
         run: make mod-check
 
+  test-vector-check:
+    name: test vector check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
+
+      - name: Run test vector creation check
+        run: make test-vector-check
+
   ########################
   # Compilation check.
   ########################
