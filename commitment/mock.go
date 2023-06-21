@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -40,4 +41,26 @@ func RandSplitCommit(t testing.TB, a asset.Asset) *asset.SplitCommitment {
 	assetSplit := split.SplitAssets[splitLoc].PrevWitnesses[0]
 
 	return assetSplit.SplitCommitment
+}
+
+func HexTapscriptSibling(t testing.TB, ts *TapscriptPreimage) string {
+	if ts.IsEmpty() {
+		return ""
+	}
+
+	siblingBytes, _, err := MaybeEncodeTapscriptPreimage(ts)
+	require.NoError(t, err)
+
+	return hex.EncodeToString(siblingBytes)
+}
+
+func ParseTapscriptSibling(t testing.TB, ts string) *TapscriptPreimage {
+	if ts == "" {
+		return nil
+	}
+
+	siblingHex, _, err := MaybeDecodeTapscriptPreimage(test.ParseHex(t, ts))
+	require.NoError(t, err)
+
+	return siblingHex
 }
