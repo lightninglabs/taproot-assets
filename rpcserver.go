@@ -254,13 +254,30 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 
 // GetInfo returns general information relating to the active daemon. For
 // example: its version, network, and lnd version.
-func (r *rpcServer) GetInfo(context.Context,
-	*taprpc.GetInfoRequest) (*taprpc.GetInfoResponse, error) {
+func (r *rpcServer) GetInfo(context.Context, *taprpc.GetInfoRequest) (*taprpc.GetInfoResponse, error) {
+	// Retrieve the best block's hash and height using ChainKit
+	blockHash, blockHeight, err := r.cfg.Lnd.ChainKit.GetBestBlock(context.Background())
+	if err != nil {
+		// Handle error appropriately
+		return nil, err
+	}
+
+	// Retrieve the LND node info using GetInfo
+	info, err := r.cfg.Lnd.Client.GetInfo(context.Background())
+	if err != nil {
+		// Handle error appropriately
+		return nil, err
+	}
 
 	return &taprpc.GetInfoResponse{
-		Version:    Version(),
-		LndVersion: r.cfg.Lnd.Version.Version,
-		Network:    r.cfg.ChainParams.Name,
+		Version:           Version(),
+		LndVersion:        r.cfg.Lnd.Version.Version,
+		Network:           r.cfg.ChainParams.Name,
+		LndIdentityPubkey: r.cfg.Lnd.NodePubkey.String(),
+		NodeAlias:         info.Alias,
+		BlockHeight:       blockHeight,
+		BlockHash:         blockHash.String(),
+		SyncedToChain:     info.SyncedToChain,
 	}, nil
 }
 
