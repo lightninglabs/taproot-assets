@@ -1292,6 +1292,22 @@
         },
         "network": {
           "type": "string"
+        },
+        "lnd_identity_pubkey": {
+          "type": "string"
+        },
+        "node_alias": {
+          "type": "string"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "block_hash": {
+          "type": "string"
+        },
+        "synced_to_chain": {
+          "type": "boolean"
         }
       }
     },
