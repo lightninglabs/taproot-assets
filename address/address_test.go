@@ -75,7 +75,9 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
 	newAddr, err := randAddress(
 		t, net, groupPubKey, sibling, nil, assetType,
 	)
-	require.NoError(t, err)
+	if err != nil {
+		return nil, "", err
+	}
 
 	encodedAddr, err := newAddr.EncodeAddress()
 
@@ -167,6 +169,8 @@ func TestNewAddress(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
+		testCase := testCase
+
 		success := t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -188,7 +192,7 @@ func TestNewAddress(t *testing.T) {
 func TestAddressEncoding(t *testing.T) {
 	t.Parallel()
 
-	assetAddressEncoding := func(a *Tap) {
+	assertAddressEncoding := func(a *Tap) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
@@ -288,13 +292,15 @@ func TestAddressEncoding(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
+		testCase := testCase
+
 		success := t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
 			addr, _, err := testCase.f()
 			require.Equal(t, testCase.err, err)
 			if testCase.err == nil {
-				assetAddressEncoding(addr)
+				assertAddressEncoding(addr)
 			}
 		})
 		if !success {
