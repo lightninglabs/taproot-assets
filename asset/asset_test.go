@@ -12,22 +12,34 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	hashBytes1     = [32]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
-	hashBytes2     = [32]byte{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2}
+	hashBytes1     = fn.ToArray[[32]byte](bytes.Repeat([]byte{1}, 32))
+	hashBytes2     = fn.ToArray[[32]byte](bytes.Repeat([]byte{2}, 32))
 	pubKeyBytes, _ = hex.DecodeString(
-		"03a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+		"03a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a34620" +
+			"2e078f",
 	)
 	pubKey, _   = btcec.ParsePubKey(pubKeyBytes)
 	sigBytes, _ = hex.DecodeString(
-		"e907831f80848d1069a5371b402410364bdf1c5f8307b0084c55f1ce2dca821525f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f477df4900d310536c0",
+		"e907831f80848d1069a5371b402410364bdf1c5f8307b0084c55f1ce2dca" +
+			"821525f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f47" +
+			"7df4900d310536c0",
 	)
 	sig, _ = schnorr.ParseSignature(sigBytes)
+
+	generatedTestVectorName = "asset_tlv_encoding_generated.json"
+
+	allTestVectorFiles = []string{
+		generatedTestVectorName,
+		"asset_tlv_encoding_error_cases.json",
+	}
 )
 
 // TestGroupKeyIsEqual tests that GroupKey.IsEqual is correct.
@@ -163,13 +175,22 @@ func TestGroupKeyIsEqual(t *testing.T) {
 func TestAssetEncoding(t *testing.T) {
 	t.Parallel()
 
-	assertAssetEncoding := func(a *Asset) {
+	testVectors := &TestVectors{}
+	assertAssetEncoding := func(comment string, a *Asset) {
 		t.Helper()
 
 		require.True(t, a.DeepEqual(a.Copy()))
 
 		var buf bytes.Buffer
 		require.NoError(t, a.Encode(&buf))
+
+		testVectors.ValidTestCases = append(
+			testVectors.ValidTestCases, &ValidTestCase{
+				Asset:    NewTestFromAsset(t, a),
+				Expected: hex.EncodeToString(buf.Bytes()),
+				Comment:  comment,
+			},
+		)
 
 		var b Asset
 		require.NoError(t, b.Decode(&buf))
@@ -239,12 +260,13 @@ func TestAssetEncoding(t *testing.T) {
 		},
 	}
 	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
-		Proof:     *mssmt.NewProof(mssmt.EmptyTree[:mssmt.MaxTreeLevels]),
+		Proof:     *mssmt.RandProof(t),
 		RootAsset: *root,
 	}
-	assertAssetEncoding(split)
+	assertAssetEncoding("random split asset with root asset", split)
 
-	assertAssetEncoding(&Asset{
+	comment := "random asset with multiple previous witnesses"
+	assertAssetEncoding(comment, &Asset{
 		Version: 2,
 		Genesis: Genesis{
 			FirstPrevOut: wire.OutPoint{
@@ -284,6 +306,17 @@ func TestAssetEncoding(t *testing.T) {
 		ScriptKey:           NewScriptKey(pubKey),
 		GroupKey:            nil,
 	})
+
+	assertAssetEncoding("minimal asset", &Asset{
+		Genesis: Genesis{
+			MetaHash: [MetaHashLen]byte{},
+		},
+		ScriptKey: NewScriptKey(pubKey),
+	})
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
 }
 
 // TestAssetType asserts that the number of issued assets is set according to
@@ -432,4 +465,85 @@ func TestDecodeHex(t *testing.T) {
 	a := &Asset{}
 	err = a.Decode(bytes.NewReader(rawBytes))
 	require.NoError(t, err)
+}
+
+// TestBIPTestVectors tests that the BIP test vectors are passing.
+func TestBIPTestVectors(t *testing.T) {
+	t.Parallel()
+
+	for idx := range allTestVectorFiles {
+		var (
+			fileName    = allTestVectorFiles[idx]
+			testVectors = &TestVectors{}
+		)
+		test.ParseTestVectors(t, fileName, &testVectors)
+		t.Run(fileName, func(tt *testing.T) {
+			tt.Parallel()
+
+			runBIPTestVector(tt, testVectors)
+		})
+	}
+}
+
+// runBIPTestVector runs the tests in a single BIP test vector file.
+func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+	for _, validCase := range testVectors.ValidTestCases {
+		validCase := validCase
+
+		t.Run(validCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			a := validCase.Asset.ToAsset(tt)
+
+			var buf bytes.Buffer
+			err := a.Encode(&buf)
+			require.NoError(tt, err)
+
+			areEqual := validCase.Expected == hex.EncodeToString(
+				buf.Bytes(),
+			)
+
+			// Create nice diff if things don't match.
+			if !areEqual {
+				expectedBytes, err := hex.DecodeString(
+					validCase.Expected,
+				)
+				require.NoError(tt, err)
+
+				expectedAsset := &Asset{}
+				err = expectedAsset.Decode(bytes.NewReader(
+					expectedBytes,
+				))
+				require.NoError(tt, err)
+
+				require.Equal(tt, a, expectedAsset)
+
+				// Make sure we still fail the test.
+				require.Equal(
+					tt, validCase.Expected,
+					hex.EncodeToString(buf.Bytes()),
+				)
+			}
+
+			// We also want to make sure that the asset is decoded
+			// correctly from the encoded TLV stream.
+			decoded := &Asset{}
+			err = decoded.Decode(&buf)
+			require.NoError(tt, err)
+
+			require.Equal(tt, a, decoded)
+		})
+	}
+
+	for _, invalidCase := range testVectors.ErrorTestCases {
+		invalidCase := invalidCase
+
+		t.Run(invalidCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			require.PanicsWithValue(t, invalidCase.Error, func() {
+				invalidCase.Asset.ToAsset(tt)
+			})
+		})
+	}
 }

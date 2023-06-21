@@ -1,6 +1,10 @@
 package test
 
 import (
+	"bytes"
+	"encoding/hex"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -10,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/stretchr/testify/require"
@@ -20,6 +25,9 @@ var (
 	// randLock is a mutex that must be held when accessing the global rand
 	// instance.
 	randLock sync.Mutex
+
+	HexCompressedPubKeyLen = hex.EncodedLen(btcec.PubKeyBytesLenCompressed)
+	HexTaprootPkScript     = hex.EncodedLen(input.P2TRSize)
 )
 
 // RandBool rolls a random boolean.
@@ -123,6 +131,181 @@ func ParseRPCKeyDescriptor(t testing.TB,
 		},
 		PubKey: pubKey,
 	}
+}
+
+func ParsePubKey(t testing.TB, key string) *btcec.PublicKey {
+	t.Helper()
+
+	if len(key) == 0 {
+		return nil
+	}
+
+	pkBytes, err := hex.DecodeString(key)
+	require.NoError(t, err)
+
+	pk, err := btcec.ParsePubKey(pkBytes)
+	require.NoError(t, err)
+
+	return pk
+}
+
+func ParseSchnorrPubKey(t testing.TB, key string) *btcec.PublicKey {
+	t.Helper()
+
+	if len(key) == 0 {
+		return nil
+	}
+
+	pkBytes, err := hex.DecodeString(key)
+	require.NoError(t, err)
+
+	pk, err := schnorr.ParsePubKey(pkBytes)
+	require.NoError(t, err)
+
+	return pk
+}
+
+func ParseOutPoint(t testing.TB, op string) wire.OutPoint {
+	t.Helper()
+
+	if op == "" {
+		return wire.OutPoint{}
+	}
+
+	parts := strings.Split(op, ":")
+	require.Len(t, parts, 2)
+
+	hash := ParseChainHash(t, parts[0])
+
+	outputIndex, err := strconv.Atoi(parts[1])
+	require.NoError(t, err)
+
+	return wire.OutPoint{
+		Hash:  hash,
+		Index: uint32(outputIndex),
+	}
+}
+
+func ParseChainHash(t testing.TB, hash string) chainhash.Hash {
+	t.Helper()
+
+	if hash == "" {
+		return chainhash.Hash{}
+	}
+
+	require.Equal(t, chainhash.HashSize, hex.DecodedLen(len(hash)))
+
+	h, err := chainhash.NewHashFromStr(hash)
+	require.NoError(t, err)
+	return *h
+}
+
+func Parse32Byte(t testing.TB, b string) [32]byte {
+	t.Helper()
+
+	if b == "" {
+		return [32]byte{}
+	}
+
+	require.Equal(t, hex.EncodedLen(32), len(b))
+
+	var result [32]byte
+	_, err := hex.Decode(result[:], []byte(b))
+	require.NoError(t, err)
+
+	return result
+}
+
+func Parse33Byte(t testing.TB, b string) [33]byte {
+	t.Helper()
+
+	if b == "" {
+		return [33]byte{}
+	}
+
+	require.Equal(t, hex.EncodedLen(33), len(b))
+
+	var result [33]byte
+	_, err := hex.Decode(result[:], []byte(b))
+	require.NoError(t, err)
+
+	return result
+}
+
+func ParseHex(t testing.TB, b string) []byte {
+	t.Helper()
+
+	if len(b) == 0 {
+		return nil
+	}
+
+	result, err := hex.DecodeString(b)
+	require.NoError(t, err)
+
+	return result
+}
+
+func ParseSchnorrSig(t testing.TB, sigHex string) *schnorr.Signature {
+	t.Helper()
+
+	require.Len(t, sigHex, hex.EncodedLen(schnorr.SignatureSize))
+
+	sigBytes, err := hex.DecodeString(sigHex)
+	require.NoError(t, err)
+
+	sig, err := schnorr.ParseSignature(sigBytes)
+	require.NoError(t, err)
+
+	return sig
+}
+
+func ParseTx(t testing.TB, tx string) *wire.MsgTx {
+	t.Helper()
+
+	txBytes, err := hex.DecodeString(tx)
+	require.NoError(t, err)
+
+	var msgTx wire.MsgTx
+	require.NoError(t, msgTx.Deserialize(bytes.NewReader(txBytes)))
+
+	return &msgTx
+}
+
+func HexPubKey(pk *btcec.PublicKey) string {
+	if pk == nil {
+		return ""
+	}
+
+	return hex.EncodeToString(pk.SerializeCompressed())
+}
+
+func HexSchnorrPubKey(pk *btcec.PublicKey) string {
+	if pk == nil {
+		return ""
+	}
+
+	return hex.EncodeToString(schnorr.SerializePubKey(pk))
+}
+
+func HexSignature(sig *schnorr.Signature) string {
+	if sig == nil {
+		return ""
+	}
+
+	return hex.EncodeToString(sig.Serialize())
+}
+
+func HexTx(t testing.TB, tx *wire.MsgTx) string {
+	t.Helper()
+
+	if tx == nil {
+		return ""
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, tx.Serialize(&buf))
+
+	return hex.EncodeToString(buf.Bytes())
 }
 
 func ComputeTaprootScript(t testing.TB, taprootKey *btcec.PublicKey) []byte {
