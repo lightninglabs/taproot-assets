@@ -190,8 +190,11 @@ func (f *FederationEnvoy) syncUniverseState(ctx context.Context,
 	}
 
 	// If we synced anything from the server, then we'll log that here.
-	log.Infof("Synced new Universe leaves from server=%v, diff=%v",
-		spew.Sdump(addr), spew.Sdump(diff))
+	log.Infof("Synced new Universe leaves from server=%v", spew.Sdump(addr))
+	for _, d := range diff {
+		log.Infof("diff:\n%v", d.StringForInfoLog())
+		log.Debugf(d.StringForDebugLog())
+	}
 
 	// Log a new sync event in the background now that we know we were able
 	// to contract the remote server.

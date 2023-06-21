@@ -104,7 +104,8 @@ func withBaseUni[T any](fetcher uniFetcher, id Identifier,
 func (a *MintingArchive) RootNode(ctx context.Context,
 	id Identifier) (BaseRoot, error) {
 
-	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
+	log.Debugf("Looking up root node for base Universe %v",
+		id.StringForLog())
 
 	return withBaseUni(a, id, func(baseUni BaseBackend) (BaseRoot, error) {
 		smtNode, assetName, err := baseUni.RootNode(ctx)

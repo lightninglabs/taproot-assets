@@ -179,10 +179,10 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 			// TODO(roasbeef): inclusion w/ root here, also that
 			// it's the expected asset ID
 
-			log.Infof("UniverseRoot(%v): inserting new leaf",
-				uniID.String())
+			log.Debugf("UniverseRoot(%v): inserting new leaf",
+				uniID.StringForLog())
 			log.Tracef("UniverseRoot(%v): inserting new leaf for "+
-				"key=%v", uniID.String(), spew.Sdump(key))
+				"key=%v", uniID.StringForLog(), spew.Sdump(key))
 
 			// TODO(roasbeef): this is actually giving a lagging
 			// proof for each of them
@@ -202,7 +202,8 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		}
 
 		log.Infof("Universe sync for UniverseRoot(%v) complete, %d "+
-			"new leaves inserted", uniID.String(), len(keysToFetch))
+			"new leaves inserted", uniID.StringForLog(),
+			len(keysToFetch))
 
 		// TODO(roabseef): sanity check local and remote roots match
 		// now?
@@ -215,9 +216,10 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 			NewLeafProofs:   fn.Collect(newLeaves),
 		}
 
-		log.Infof("Sync for UniverseRoot(%v) complete!", uniID.String())
+		log.Infof("Sync for UniverseRoot(%v) complete!",
+			uniID.StringForLog())
 		log.Tracef("Sync for UniverseRoot(%v) complete! New "+
-			"universe_root=%v", uniID.String(),
+			"universe_root=%v", uniID.StringForLog(),
 			spew.Sdump(remoteRoot))
 
 		return nil

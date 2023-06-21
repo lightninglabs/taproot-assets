@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -71,6 +72,35 @@ type GenesisWithGroup struct {
 	*asset.GroupKey
 }
 
+// StringForLog returns a string representation of a GenesisWithGroup for
+// logging.
+func (g GenesisWithGroup) StringForLog() string {
+	groupKey := "<nil>"
+	groupSig := "<nil>"
+	if g.GroupKey != nil {
+		groupKey = hex.EncodeToString(
+			schnorr.SerializePubKey(&g.GroupPubKey),
+		)
+		groupSig = hex.EncodeToString(g.Sig.Serialize())
+	}
+
+	var genesisGroupStr strings.Builder
+	genesisGroupStr.WriteString(
+		fmt.Sprintln("FirstPrevOut:", g.Genesis.FirstPrevOut.String()),
+	)
+	genesisGroupStr.WriteString(fmt.Sprintln("Tag:", g.Genesis.Tag))
+	genesisGroupStr.WriteString(
+		fmt.Sprintf("Metahash: %x\n", g.Genesis.MetaHash[:]),
+	)
+	genesisGroupStr.WriteString(
+		fmt.Sprintln("OutputIndex:", g.Genesis.OutputIndex),
+	)
+	genesisGroupStr.WriteString(fmt.Sprintf("Type: %v\n", g.Genesis.Type))
+	genesisGroupStr.WriteString(fmt.Sprintln("Group Key:", groupKey))
+	genesisGroupStr.WriteString(fmt.Sprintln("Group Sig:", groupSig))
+	return genesisGroupStr.String()
+}
+
 // MintingLeaf is a leaf node in the SMT that represents a minting output. For
 // each new asset created for a given asset/universe, a new minting leaf is
 // created.
@@ -85,6 +115,13 @@ type MintingLeaf struct {
 
 	// Amt is the amount of units created.
 	Amt uint64
+}
+
+// StringForLog returns a string representation of a MintingLeaf for
+// logging, omitting the genesis proof.
+func (m *MintingLeaf) StringForLog() string {
+	return fmt.Sprintf("MintingLeaf:\n%vAmt: %d",
+		m.GenesisWithGroup.StringForLog(), m.Amt)
 }
 
 // SmtLeafNode returns the SMT leaf node for the given minting leaf.
@@ -204,6 +241,21 @@ type BaseRoot struct {
 	// AssetName is the name of the asset. This might not always be set for
 	// performance reasons.
 	AssetName string
+}
+
+// StringForLog returns a string representation of a BaseRoot for logging.
+func (b *BaseRoot) StringForLog() string {
+	var baseRootStr strings.Builder
+	baseRootStr.WriteString(fmt.Sprintln("ID:", b.ID.StringForLog()))
+	nodeStr := "Node: <nil>"
+	if b.Node != nil {
+		nodeStr = fmt.Sprintf("NodeHash: %v Sum: %d\n",
+			b.Node.NodeHash(), b.NodeSum())
+	}
+	baseRootStr.WriteString(nodeStr)
+	baseRootStr.WriteString(fmt.Sprintln(b.AssetName))
+
+	return baseRootStr.String()
 }
 
 // BaseForest is an interface used to keep track of the set of base universe
@@ -363,6 +415,25 @@ type AssetSyncDiff struct {
 
 	// TODO(roasbeef): ability to return if things failed?
 	//  * can used a sealed interface to return the error
+}
+
+// StringForInfoLog returns a string representation of an AssetSyncDiff for
+// logging at the info level, omitting all leaf proofs.
+func (d *AssetSyncDiff) StringForInfoLog() string {
+	oldRoot := d.OldUniverseRoot.StringForLog()
+	newRoot := d.NewUniverseRoot.StringForLog()
+	return fmt.Sprintf("old:\n%vnew:\n%v", oldRoot, newRoot)
+}
+
+// StringForDebugLog returns a string representation of an AssetSyncDiff for
+// logging at the debug level, intended to be printed after StringForInfoLog.
+func (d *AssetSyncDiff) StringForDebugLog() string {
+	var syncDiffStr strings.Builder
+	for _, leaf := range d.NewLeafProofs {
+		syncDiffStr.WriteString(fmt.Sprintln(leaf.StringForLog()))
+	}
+
+	return syncDiffStr.String()
 }
 
 // Syncer is used to synchronize the state of two Universe instances: a local
