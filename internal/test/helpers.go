@@ -1,7 +1,7 @@
 package test
 
 import (
-	"math/rand"
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -16,14 +16,51 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+var (
+	// randLock is a mutex that must be held when accessing the global rand
+	// instance.
+	randLock sync.Mutex
+)
+
 // RandBool rolls a random boolean.
 func RandBool() bool {
+	randLock.Lock()
+	defer randLock.Unlock()
+
 	return rand.Int()%2 == 0
+}
+
+// RandInt31n returns a random 32-bit integer in the range [0, n).
+func RandInt31n(n int32) int32 {
+	randLock.Lock()
+	defer randLock.Unlock()
+
+	return rand.Int31n(n)
+}
+
+// RandIntn returns a random integer in the range [0, n).
+func RandIntn(n int) int {
+	randLock.Lock()
+	defer randLock.Unlock()
+
+	return rand.Intn(n)
 }
 
 // RandInt makes a random integer of the specified type.
 func RandInt[T constraints.Integer]() T {
+	randLock.Lock()
+	defer randLock.Unlock()
+
 	return T(rand.Int63()) // nolint:gosec
+}
+
+// RandRead fills the passed byte slice with random data.
+func RandRead(t testing.TB, b []byte) {
+	randLock.Lock()
+	defer randLock.Unlock()
+
+	_, err := rand.Read(b)
+	require.NoError(t, err)
 }
 
 func RandOp(t testing.TB) wire.OutPoint {
@@ -32,16 +69,14 @@ func RandOp(t testing.TB) wire.OutPoint {
 	op := wire.OutPoint{
 		Index: uint32(RandInt[int32]()),
 	}
-	_, err := rand.Read(op.Hash[:])
-	require.NoError(t, err)
+	RandRead(t, op.Hash[:])
 
 	return op
 }
 
-func RandPrivKey(t testing.TB) *btcec.PrivateKey {
-	privKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	return privKey
+func RandPrivKey(_ testing.TB) *btcec.PrivateKey {
+	priv, _ := btcec.PrivKeyFromBytes(RandBytes(32))
+	return priv
 }
 
 func SchnorrPubKey(t testing.TB, privKey *btcec.PrivateKey) *btcec.PublicKey {
@@ -59,6 +94,9 @@ func RandPubKey(t testing.TB) *btcec.PublicKey {
 }
 
 func RandBytes(num int) []byte {
+	randLock.Lock()
+	defer randLock.Unlock()
+
 	randBytes := make([]byte, num)
 	_, _ = rand.Read(randBytes)
 	return randBytes
@@ -111,8 +149,7 @@ func RandTxWitnesses(t testing.TB) wire.TxWitness {
 	w := make(wire.TxWitness, numElements)
 	for i := 0; i < numElements; i++ {
 		elem := make([]byte, 10)
-		_, err := rand.Read(elem)
-		require.NoError(t, err)
+		RandRead(t, elem)
 
 		w[i] = elem
 	}
