@@ -18,7 +18,7 @@ const (
 	MetaOpaque MetaType = 1
 )
 
-// MetaReveals is an optional TLV type that can be added to the proof of a
+// MetaReveal is an optional TLV type that can be added to the proof of a
 // genesis asset to reveal pre-image to the metadata hash. If present, then the
 // following equality must hold for the genesis proof to be valid:
 //
