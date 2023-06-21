@@ -135,6 +135,8 @@ func Net(hrp string) (*ChainParams, error) {
 		// lnd only ever expects the testnet coin type (1) instead of
 		// the simnet coin type (115).
 		simNet := SimNetTap
+		simNetParamsCopy := *simNet.Params
+		simNet.Params = &simNetParamsCopy
 		simNet.HDCoinType = TestNet3Tap.HDCoinType
 
 		return &SimNetTap, nil
