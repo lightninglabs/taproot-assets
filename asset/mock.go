@@ -1,11 +1,9 @@
 package asset
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -15,8 +13,7 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 	t.Helper()
 
 	var metaHash [32]byte
-	_, err := rand.Read(metaHash[:])
-	require.NoError(t, err)
+	test.RandRead(t, metaHash[:])
 
 	return Genesis{
 		FirstPrevOut: test.RandOp(t),
@@ -29,8 +26,7 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 
 // RandGroupKey creates a random group key for testing.
 func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
-	privateKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
+	privateKey := test.RandPrivKey(t)
 
 	genSigner := NewRawKeyGenesisSigner(privateKey)
 
@@ -70,8 +66,7 @@ func RandSerializedKey(t testing.TB) SerializedKey {
 // RandID creates a random asset ID.
 func RandID(t testing.TB) ID {
 	var a ID
-	_, err := rand.Read(a[:])
-	require.NoError(t, err)
+	test.RandRead(t, a[:])
 
 	return a
 }

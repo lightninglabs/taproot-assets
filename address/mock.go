@@ -1,7 +1,6 @@
 package address
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -18,14 +18,12 @@ import (
 func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	*asset.Genesis, *asset.GroupKey) {
 
-	scriptKeyPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
+	scriptKeyPriv := test.RandPrivKey(t)
 
-	internalKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
+	internalKey := test.RandPrivKey(t)
 
-	genesis := asset.RandGenesis(t, asset.Type(rand.Int31n(2)))
-	amount := uint64(rand.Int63())
+	genesis := asset.RandGenesis(t, asset.Type(test.RandInt31n(2)))
+	amount := test.RandInt[uint64]()
 	if genesis.Type == asset.Collectible {
 		amount = 1
 	}
@@ -36,7 +34,7 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		groupSig         *schnorr.Signature
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
-	if rand.Int31()%2 == 0 {
+	if test.RandInt[uint32]()%2 == 0 {
 		groupInfo = asset.RandGroupKey(t, genesis)
 		groupPubKey = &groupInfo.GroupPubKey
 		groupSig = &groupInfo.Sig
@@ -49,8 +47,8 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: scriptKeyPriv.PubKey(),
 		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(rand.Intn(255) + 1),
-			Index:  uint32(rand.Intn(255)),
+			Family: keychain.KeyFamily(test.RandIntn(255) + 1),
+			Index:  uint32(test.RandIntn(255)),
 		},
 	})
 
@@ -68,8 +66,8 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamily(rand.Int31()),
-				Index:  uint32(rand.Int31()),
+				Family: keychain.KeyFamily(test.RandIntn(255)),
+				Index:  test.RandInt[uint32](),
 			},
 			PubKey: internalKey.PubKey(),
 		},
