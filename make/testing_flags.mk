@@ -56,6 +56,14 @@ else
 LOG_TAGS := nolog
 endif
 
+ifneq ($(gen-test-vectors),)
+DEV_TAGS += gen_test_vectors
+endif
+
+ifneq ($(nocache),)
+TEST_FLAGS += -test.count=1
+endif
+
 # If a timeout was requested, construct initialize the proper flag for the go
 # test command. If not, we set 60m (up from the default 10m).
 ifneq ($(timeout),)
