@@ -2,7 +2,6 @@ package address
 
 import (
 	"encoding/hex"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -11,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,6 +22,13 @@ var (
 			"078f",
 	)
 	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
+
+	generatedTestVectorName = "address_tlv_encoding_generated.json"
+
+	allTestVectorFiles = []string{
+		generatedTestVectorName,
+		"address_tlv_encoding_error_cases.json",
+	}
 )
 
 func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
@@ -35,7 +42,7 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	}
 
 	if amt == nil && assetType == asset.Normal {
-		amount = rand.Uint64()
+		amount = test.RandInt[uint64]()
 	}
 
 	var tapscriptSibling *commitment.TapscriptPreimage
@@ -97,8 +104,6 @@ func assertAddressEqual(t *testing.T, a, b *Tap) {
 
 // TestNewAddress tests edge cases around creating a new address.
 func TestNewAddress(t *testing.T) {
-	t.Parallel()
-
 	testCases := []struct {
 		name string
 		f    func() (*Tap, error)
@@ -172,8 +177,6 @@ func TestNewAddress(t *testing.T) {
 		testCase := testCase
 
 		success := t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
 			address, err := testCase.f()
 			require.Equal(t, testCase.err, err)
 
@@ -192,7 +195,8 @@ func TestNewAddress(t *testing.T) {
 func TestAddressEncoding(t *testing.T) {
 	t.Parallel()
 
-	assertAddressEncoding := func(a *Tap) {
+	testVectors := &TestVectors{}
+	assertAddressEncoding := func(comment string, a *Tap) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
@@ -203,6 +207,14 @@ func TestAddressEncoding(t *testing.T) {
 		b, err := DecodeAddress(addr, net)
 		require.NoError(t, err)
 		assertAddressEqual(t, a, b)
+
+		testVectors.ValidTestCases = append(
+			testVectors.ValidTestCases, &ValidTestCase{
+				Address:  NewTestFromAddress(t, a),
+				Expected: addr,
+				Comment:  comment,
+			},
+		)
 	}
 
 	testCases := []struct {
@@ -211,7 +223,7 @@ func TestAddressEncoding(t *testing.T) {
 		err  error
 	}{
 		{
-			name: "valid address",
+			name: "valid regtest address",
 			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
 					t, &RegressionNetTap, false, false,
@@ -221,7 +233,37 @@ func TestAddressEncoding(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "group collectible",
+			name: "valid simnet address",
+			f: func() (*Tap, string, error) {
+				return randEncodedAddress(
+					t, &SimNetTap, false, false,
+					asset.Normal,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "valid testnet address",
+			f: func() (*Tap, string, error) {
+				return randEncodedAddress(
+					t, &TestNet3Tap, false, false,
+					asset.Normal,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "valid mainnet address",
+			f: func() (*Tap, string, error) {
+				return randEncodedAddress(
+					t, &MainNetTap, false, false,
+					asset.Normal,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "signet group collectible",
 			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
 					t, &SigNetTap, true, false,
@@ -295,16 +337,97 @@ func TestAddressEncoding(t *testing.T) {
 		testCase := testCase
 
 		success := t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
 			addr, _, err := testCase.f()
 			require.Equal(t, testCase.err, err)
 			if testCase.err == nil {
-				assertAddressEncoding(addr)
+				assertAddressEncoding(testCase.name, addr)
 			}
 		})
 		if !success {
 			return
 		}
+	}
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
+}
+
+// TestBIPTestVectors tests that the BIP test vectors are passing.
+func TestBIPTestVectors(t *testing.T) {
+	t.Parallel()
+
+	for idx := range allTestVectorFiles {
+		var (
+			fileName    = allTestVectorFiles[idx]
+			testVectors = &TestVectors{}
+		)
+		test.ParseTestVectors(t, fileName, &testVectors)
+		t.Run(fileName, func(tt *testing.T) {
+			tt.Parallel()
+
+			runBIPTestVector(tt, testVectors)
+		})
+	}
+}
+
+// runBIPTestVector runs the tests in a single BIP test vector file.
+func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+	for _, validCase := range testVectors.ValidTestCases {
+		validCase := validCase
+
+		t.Run(validCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			a := validCase.Address.ToAddress(tt)
+
+			addrString, err := a.EncodeAddress()
+			require.NoError(tt, err)
+
+			areEqual := validCase.Expected == addrString
+
+			// Create nice diff if things don't match.
+			if !areEqual {
+				chainParams, err := a.Net()
+				require.NoError(tt, err)
+
+				expectedAddress, err := DecodeAddress(
+					validCase.Expected, chainParams,
+				)
+				require.NoError(tt, err)
+
+				require.Equal(tt, a, expectedAddress)
+
+				// Make sure we still fail the test.
+				require.Equal(
+					tt, validCase.Expected,
+					addrString,
+				)
+			}
+
+			// We also want to make sure that the address is decoded
+			// correctly from the encoded TLV stream.
+			chainParams, err := a.Net()
+			require.NoError(tt, err)
+
+			decoded, err := DecodeAddress(
+				validCase.Expected, chainParams,
+			)
+			require.NoError(tt, err)
+
+			require.Equal(tt, a, decoded)
+		})
+	}
+
+	for _, invalidCase := range testVectors.ErrorTestCases {
+		invalidCase := invalidCase
+
+		t.Run(invalidCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			require.PanicsWithValue(tt, invalidCase.Error, func() {
+				invalidCase.Address.ToAddress(tt)
+			})
+		})
 	}
 }
