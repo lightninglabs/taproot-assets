@@ -66,11 +66,6 @@ var (
 	NUMSCompressedKey = ToSerialized(NUMSPubKey)
 	NUMSScriptKey     = ScriptKey{
 		PubKey: NUMSPubKey,
-		TweakedScriptKey: &TweakedScriptKey{
-			RawKey: keychain.KeyDescriptor{
-				PubKey: NUMSPubKey,
-			},
-		},
 	}
 )
 
