@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +43,14 @@ var (
 	ownershipProofHexFileName = filepath.Join(
 		testDataFileName, "ownership-proof.hex",
 	)
+
+	generatedTestVectorName = "proof_tlv_encoding_generated.json"
+
+	allTestVectorFiles = []string{
+		generatedTestVectorName,
+		"proof_tlv_encoding_other.json",
+		"proof_tlv_encoding_error_cases.json",
+	}
 )
 
 func assertEqualCommitmentProof(t *testing.T, expected, actual *CommitmentProof) {
@@ -165,18 +172,13 @@ func TestProofEncoding(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	testLeafPreimage := &commitment.TapscriptPreimage{
-		SiblingPreimage: []byte{1},
-		SiblingType:     commitment.LeafPreimage,
-	}
-	testLeafPreimage2 := &commitment.TapscriptPreimage{
-		SiblingPreimage: []byte{2},
-		SiblingType:     commitment.LeafPreimage,
-	}
-	testBranchPreimage := &commitment.TapscriptPreimage{
-		SiblingPreimage: []byte{1},
-		SiblingType:     commitment.BranchPreimage,
-	}
+	leaf1 := txscript.NewBaseTapLeaf([]byte{1})
+	leaf2 := txscript.NewBaseTapLeaf([]byte{2})
+	testLeafPreimage := commitment.NewPreimageFromLeaf(leaf1)
+	testLeafPreimage2 := commitment.NewPreimageFromLeaf(leaf2)
+	testBranchPreimage := commitment.NewPreimageFromBranch(
+		txscript.NewTapBranch(leaf1, leaf2),
+	)
 	proof := Proof{
 		PrevOut:       genesis.FirstPrevOut,
 		BlockHeader:   oddTxBlock.Header,
@@ -320,6 +322,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	blockHeader := wire.NewBlockHeader(
 		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
 	)
+	blockHeader.Timestamp = time.Unix(test.RandInt[int64](), 0)
 
 	// We'll set the block height to 1, as the genesis block is at height 0.
 	blockHeight := uint32(1)
@@ -461,8 +464,10 @@ func TestGenesisProofVerification(t *testing.T) {
 		},
 	}
 
+	testVectors := &TestVectors{}
 	for _, tc := range testCases {
 		tc := tc
+
 		t.Run(tc.name, func(tt *testing.T) {
 			genesisProof, _ := genRandomGenesisWithProof(
 				tt, tc.assetType, tc.amount,
@@ -473,8 +478,31 @@ func TestGenesisProofVerification(t *testing.T) {
 				context.Background(), nil, MockHeaderVerifier,
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
+
+			var buf bytes.Buffer
+			err = genesisProof.Encode(&buf)
+			require.NoError(tt, err)
+
+			if tc.expectedErr == nil {
+				testVectors.ValidTestCases = append(
+					testVectors.ValidTestCases,
+					&ValidTestCase{
+						Proof: NewTestFromProof(
+							t, &genesisProof,
+						),
+						Expected: hex.EncodeToString(
+							buf.Bytes(),
+						),
+						Comment: tc.name,
+					},
+				)
+			}
 		})
 	}
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
 }
 
 // TestProofBlockHeaderVerification ensures that an error returned by the
@@ -644,9 +672,90 @@ func BenchmarkProofEncoding(b *testing.B) {
 	}
 }
 
-func init() {
-	rand.Seed(time.Now().Unix())
+// TestBIPTestVectors tests that the BIP test vectors are passing.
+func TestBIPTestVectors(t *testing.T) {
+	t.Parallel()
 
+	for idx := range allTestVectorFiles {
+		var (
+			fileName    = allTestVectorFiles[idx]
+			testVectors = &TestVectors{}
+		)
+		test.ParseTestVectors(t, fileName, &testVectors)
+		t.Run(fileName, func(tt *testing.T) {
+			tt.Parallel()
+
+			runBIPTestVector(tt, testVectors)
+		})
+	}
+}
+
+// runBIPTestVector runs the tests in a single BIP test vector file.
+func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+	for _, validCase := range testVectors.ValidTestCases {
+		validCase := validCase
+
+		t.Run(validCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			p := validCase.Proof.ToProof(tt)
+
+			var buf bytes.Buffer
+			err := p.Encode(&buf)
+			require.NoError(tt, err)
+
+			areEqual := validCase.Expected == hex.EncodeToString(
+				buf.Bytes(),
+			)
+
+			// Create nice diff if things don't match.
+			if !areEqual {
+				expectedProof := &Proof{}
+				proofBytes, err := hex.DecodeString(
+					strings.Trim(validCase.Expected, "\n"),
+				)
+				require.NoError(t, err)
+
+				err = expectedProof.Decode(bytes.NewReader(
+					proofBytes,
+				))
+				require.NoError(tt, err)
+
+				require.Equal(tt, expectedProof, p)
+
+				// Make sure we still fail the test.
+				require.Equal(
+					tt, validCase.Expected,
+					hex.EncodeToString(buf.Bytes()),
+				)
+			}
+
+			// We also want to make sure that the proof is decoded
+			// correctly from the encoded TLV stream.
+			decoded := &Proof{}
+			err = decoded.Decode(hex.NewDecoder(
+				strings.NewReader(validCase.Expected),
+			))
+			require.NoError(tt, err)
+
+			require.Equal(tt, p, decoded)
+		})
+	}
+
+	for _, invalidCase := range testVectors.ErrorTestCases {
+		invalidCase := invalidCase
+
+		t.Run(invalidCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			require.PanicsWithValue(tt, invalidCase.Error, func() {
+				invalidCase.Proof.ToProof(tt)
+			})
+		})
+	}
+}
+
+func init() {
 	logWriter := build.NewRotatingLogWriter()
 	logger := logWriter.GenSubLogger(Subsystem, func() {})
 	logWriter.RegisterSubLogger(Subsystem, logger)

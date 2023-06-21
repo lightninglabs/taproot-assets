@@ -82,7 +82,7 @@ func readTestData(t *testing.T) []wire.MsgBlock {
 	return testBlocks
 }
 
-func TestTxMerkleProof(t *testing.T) {
+func TestTxMerkleProofEncoding(t *testing.T) {
 	t.Parallel()
 
 	testBlocks := readTestData(t)
@@ -94,14 +94,18 @@ func TestTxMerkleProof(t *testing.T) {
 		for i, tx := range block.Transactions {
 			proof, err := NewTxMerkleProof(block.Transactions, i)
 			require.NoError(t, err)
-			require.True(t, proof.Verify(tx, block.Header.MerkleRoot))
+			require.True(
+				t, proof.Verify(tx, block.Header.MerkleRoot),
+			)
 
 			var buf bytes.Buffer
 			require.NoError(t, proof.Encode(&buf))
 			var decoded TxMerkleProof
 			require.NoError(t, decoded.Decode(&buf))
 			require.Equal(t, *proof, decoded)
-			require.True(t, decoded.Verify(tx, block.Header.MerkleRoot))
+			require.True(
+				t, decoded.Verify(tx, block.Header.MerkleRoot),
+			)
 		}
 	}
 }
