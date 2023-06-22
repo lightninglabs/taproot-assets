@@ -1,5 +1,5 @@
 # IMAGE FOR BUILDING
-FROM golang:1.20.4 as builder 
+FROM golang:1.20.5 as builder 
 
 WORKDIR /app
 
