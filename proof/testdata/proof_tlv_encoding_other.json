@@ -65,7 +65,7 @@
                   ],
                   "split_commitment_root": {
                     "hash": "e159d800a12c331ec7fb1042d630ec41bd3af25c95da8aad952ac35231918fc4",
-                    "sum": 5000
+                    "sum": "5000"
                   },
                   "script_version": 0,
                   "script_key": "02bd27312c017064d08868a8af7e6a1d93ee6924c8802091cc6dea118ccb71cd19",
