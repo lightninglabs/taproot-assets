@@ -3,28 +3,16 @@ package mssmt_test
 import (
 	"math"
 	"math/big"
-	"math/rand"
-	"time"
 
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 )
 
 const hashSize = 32
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
-func randKey() [hashSize]byte {
-	var key [hashSize]byte
-	_, _ = rand.Read(key[:])
-	return key
-}
-
 func randLeaf() *mssmt.LeafNode {
-	valueLen := rand.Intn(math.MaxUint8) + 1
-	value := make([]byte, valueLen)
-	_, _ = rand.Read(value[:])
+	valueLen := test.RandInt31n(math.MaxUint8) + 1
+	value := test.RandBytes(int(valueLen))
 	sum := mssmt.RandLeafAmount()
 	return mssmt.NewLeafNode(value, sum)
 }
@@ -38,7 +26,7 @@ func randTree(numLeaves int) []treeLeaf {
 	leaves := make([]treeLeaf, numLeaves)
 	for i := 0; i < numLeaves; i++ {
 		leaves[i] = treeLeaf{
-			key:  randKey(),
+			key:  test.RandHash(),
 			leaf: randLeaf(),
 		}
 	}

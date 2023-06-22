@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -68,6 +69,109 @@ func HexProof(t testing.TB, proof *Proof) string {
 	require.NoError(t, err)
 
 	return hex.EncodeToString(buf.Bytes())
+}
+
+type ValidTestCase struct {
+	RootHash        string           `json:"root_hash"`
+	RootSum         string           `json:"root_sum"`
+	InsertedLeaves  []string         `json:"inserted_leaves"`
+	DeletedLeaves   []string         `json:"deleted_leaves"`
+	ReplacedLeaves  []*TestLeaf      `json:"replaced_leaves"`
+	InclusionProofs []*TestProofCase `json:"inclusion_proofs"`
+	ExclusionProofs []*TestProofCase `json:"exclusion_proofs"`
+	Comment         string           `json:"comment"`
+}
+
+func (tc *ValidTestCase) ShouldInsert(key string) bool {
+	return fn.Any(tc.InsertedLeaves, func(k string) bool {
+		return k == key
+	})
+}
+
+func (tc *ValidTestCase) ShouldDelete(key string) bool {
+	return fn.Any(tc.DeletedLeaves, func(k string) bool {
+		return k == key
+	})
+}
+
+type ErrorTestCase struct {
+	InsertedLeaves []string `json:"inserted_leaves"`
+	Error          string   `json:"error"`
+	Comment        string   `json:"comment"`
+}
+
+func (ec *ErrorTestCase) ShouldInsert(key string) bool {
+	return fn.Any(ec.InsertedLeaves, func(k string) bool {
+		return k == key
+	})
+}
+
+type TestVectors struct {
+	AllTreeLeaves  []*TestLeaf      `json:"all_tree_leaves"`
+	ValidTestCases []*ValidTestCase `json:"valid_test_cases"`
+	ErrorTestCases []*ErrorTestCase `json:"error_test_cases"`
+}
+
+func (tv *TestVectors) FindLeaf(key string) *TestLeaf {
+	for idx := range tv.AllTreeLeaves {
+		leaf := tv.AllTreeLeaves[idx]
+		if leaf.Key == key {
+			return leaf
+		}
+	}
+	return nil
+}
+
+type TestProofCase struct {
+	ProofKey        string `json:"proof_key"`
+	CompressedProof string `json:"compressed_proof"`
+}
+
+func (tpc *TestProofCase) ToProof(t testing.TB) *Proof {
+	t.Helper()
+
+	proofBytes, err := hex.DecodeString(tpc.CompressedProof)
+	require.NoError(t, err)
+
+	var compressedProof CompressedProof
+	err = compressedProof.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	proof, err := compressedProof.Decompress()
+	require.NoError(t, err)
+
+	return proof
+}
+
+func NewTestFromLeaf(t testing.TB, key [32]byte, leaf *LeafNode) *TestLeaf {
+	t.Helper()
+
+	return &TestLeaf{
+		Key: hex.EncodeToString(key[:]),
+		Node: &TestLeafNode{
+			Value: hex.EncodeToString(leaf.Value),
+			Sum:   strconv.FormatUint(leaf.NodeSum(), 10),
+		},
+	}
+}
+
+type TestLeaf struct {
+	Key  string        `json:"key"`
+	Node *TestLeafNode `json:"node"`
+}
+
+func (tl *TestLeaf) ToLeafNode(t testing.TB) *LeafNode {
+	t.Helper()
+
+	sum, err := strconv.ParseUint(tl.Node.Sum, 10, 64)
+	require.NoError(t, err)
+
+	return NewLeafNode(test.ParseHex(t, tl.Node.Value), sum)
+}
+
+type TestLeafNode struct {
+	Value string `json:"value"`
+	Sum   string `json:"sum"`
 }
 
 func NewTestFromProof(t testing.TB, p *Proof) *TestProof {

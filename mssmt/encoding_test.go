@@ -3,10 +3,18 @@ package mssmt_test
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"strconv"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	proofsTestVectorName = "mssmt_tree_proofs.json"
 )
 
 func assertEqualProof(t *testing.T, expected, actual *mssmt.Proof) {
@@ -49,15 +57,32 @@ func TestBitPacking(t *testing.T) {
 func TestProofEncoding(t *testing.T) {
 	t.Parallel()
 
+	testCase := &mssmt.ValidTestCase{
+		Comment: "compressed proofs",
+	}
+	testVectors := &mssmt.TestVectors{
+		ValidTestCases: []*mssmt.ValidTestCase{testCase},
+	}
+
 	leaves := randTree(10_000)
 	tree := mssmt.NewFullTree(mssmt.NewDefaultStore())
 	ctx := context.TODO()
 	for _, item := range leaves {
 		_, err := tree.Insert(ctx, item.key, item.leaf)
 		require.NoError(t, err)
+
+		testVectors.AllTreeLeaves = append(
+			testVectors.AllTreeLeaves, mssmt.NewTestFromLeaf(
+				t, item.key, item.leaf,
+			),
+		)
+		testCase.InsertedLeaves = append(
+			testCase.InsertedLeaves,
+			hex.EncodeToString(item.key[:]),
+		)
 	}
 
-	for _, item := range leaves {
+	for idx, item := range leaves {
 		proof, err := tree.MerkleProof(ctx, item.key)
 		require.NoError(t, err)
 		compressed := proof.Compress()
@@ -75,5 +100,50 @@ func TestProofEncoding(t *testing.T) {
 		require.NoError(t, err)
 		assertEqualProof(t, proof, decodedProof)
 		assertEqualProof(t, proof, decodedProof.Copy())
+
+		// Create test vector proofs for 10% of the leaves.
+		if idx%10 == 0 {
+			proofKeyHex := hex.EncodeToString(item.key[:])
+			testCase.InclusionProofs = append(
+				testCase.InclusionProofs, &mssmt.TestProofCase{
+					ProofKey: proofKeyHex,
+					CompressedProof: hex.EncodeToString(
+						buf.Bytes(),
+					),
+				},
+			)
+		}
 	}
+
+	// Generate a bunch of exclusion proofs for random keys.
+	for i := 0; i < 10; i++ {
+		randomKey := test.RandHash()
+
+		proof, err := tree.MerkleProof(ctx, randomKey)
+		require.NoError(t, err)
+		compressed := proof.Compress()
+
+		var buf bytes.Buffer
+		err = compressed.Encode(&buf)
+		require.NoError(t, err)
+
+		testCase.ExclusionProofs = append(
+			testCase.ExclusionProofs, &mssmt.TestProofCase{
+				ProofKey: hex.EncodeToString(randomKey[:]),
+				CompressedProof: hex.EncodeToString(
+					buf.Bytes(),
+				),
+			},
+		)
+	}
+
+	root, err := tree.Root(ctx)
+	require.NoError(t, err)
+
+	testCase.RootHash = hex.EncodeToString(fn.ByteSlice(root.NodeHash()))
+	testCase.RootSum = strconv.FormatUint(root.NodeSum(), 10)
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, proofsTestVectorName, testVectors)
 }

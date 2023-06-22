@@ -5,15 +5,32 @@ package mssmt_test
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/rand"
 	"path/filepath"
+	"strconv"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	_ "github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	errorTestVectorName       = "mssmt_tree_error_cases.json"
+	deletionTestVectorName    = "mssmt_tree_deletion.json"
+	replacementTestVectorName = "mssmt_tree_replacement.json"
+
+	allTestVectorFiles = []string{
+		proofsTestVectorName,
+		deletionTestVectorName,
+		replacementTestVectorName,
+		errorTestVectorName,
+	}
 )
 
 type makeTestTreeStoreFunc = func() (mssmt.TreeStore, error)
@@ -87,7 +104,7 @@ func testInsertion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 
 	// Finally verify that we're able to loop up a random key (resulting
 	// in the default empty leaf).
-	emptyLeaf, err := tree.Get(ctx, randKey())
+	emptyLeaf, err := tree.Get(ctx, test.RandHash())
 	require.NoError(t, err)
 	require.True(t, emptyLeaf.IsEmpty())
 }
@@ -156,22 +173,50 @@ func TestInsertion(t *testing.T) {
 func TestInsertionOverflow(t *testing.T) {
 	t.Parallel()
 
+	testCaseOk := &mssmt.ValidTestCase{
+		Comment: "non overflowing leaf",
+	}
+	testCaseOverflow := &mssmt.ErrorTestCase{
+		Comment: "overflowing leaf",
+	}
+	testVectors := &mssmt.TestVectors{
+		ValidTestCases: []*mssmt.ValidTestCase{
+			testCaseOk,
+		},
+		ErrorTestCases: []*mssmt.ErrorTestCase{
+			testCaseOverflow,
+		},
+	}
+
 	// Construct a minimal leaf which should not cause an overflow when
 	// inserted.
-	value := make([]byte, 10)
+	value := test.RandBytes(10)
 	minLeaf := treeLeaf{
-		key:  randKey(),
+		key:  test.RandHash(),
 		leaf: mssmt.NewLeafNode(value, 1),
 	}
 
 	// Construct a leaf which should cause an overflow when inserted.
 	leafSum := uint64(math.MaxUint64)
 	overflowLeaf := treeLeaf{
-		key:  randKey(),
+		key:  test.RandHash(),
 		leaf: mssmt.NewLeafNode(value, leafSum),
 	}
 
-	runTest := func(t *testing.T, name string, makeTree func(mssmt.TreeStore) mssmt.Tree,
+	// We'll generate two test vectors, one successful with just the minimal
+	// leaf and one overflowing.
+	testVectors.AllTreeLeaves = []*mssmt.TestLeaf{
+		mssmt.NewTestFromLeaf(t, minLeaf.key, minLeaf.leaf),
+		mssmt.NewTestFromLeaf(t, overflowLeaf.key, overflowLeaf.leaf),
+	}
+	testCaseOk.InsertedLeaves = []string{hex.EncodeToString(minLeaf.key[:])}
+	testCaseOverflow.InsertedLeaves = []string{
+		hex.EncodeToString(minLeaf.key[:]),
+		hex.EncodeToString(overflowLeaf.key[:]),
+	}
+
+	runTest := func(t *testing.T, name string,
+		makeTree func(mssmt.TreeStore) mssmt.Tree,
 		makeStore makeTestTreeStoreFunc) {
 
 		t.Run(name, func(t *testing.T) {
@@ -187,11 +232,23 @@ func TestInsertionOverflow(t *testing.T) {
 			_, err = tree.Insert(ctx, minLeaf.key, minLeaf.leaf)
 			require.NoError(t, err)
 
+			root, err := tree.Root(ctx)
+			require.NoError(t, err)
+
+			testCaseOk.RootHash = hex.EncodeToString(
+				fn.ByteSlice(root.NodeHash()),
+			)
+			testCaseOk.RootSum = strconv.FormatUint(
+				root.NodeSum(), 10,
+			)
+
 			// Insert overflow leaf, which should return an error.
 			_, err = tree.Insert(
 				ctx, overflowLeaf.key, overflowLeaf.leaf,
 			)
 			require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
+
+			testCaseOverflow.Error = mssmt.ErrIntegerOverflow.Error()
 		})
 	}
 
@@ -207,12 +264,25 @@ func TestInsertionOverflow(t *testing.T) {
 			)
 		})
 	}
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, errorTestVectorName, testVectors)
 }
 
 // TestReplaceWithEmptyBranch tests that a compacted tree won't add default
 // branches when whole subtrees are deleted.
 func TestReplaceWithEmptyBranch(t *testing.T) {
 	t.Parallel()
+
+	testCase := &mssmt.ValidTestCase{
+		Comment: "sub tree deletion",
+	}
+	testVectors := &mssmt.TestVectors{
+		ValidTestCases: []*mssmt.ValidTestCase{
+			testCase,
+		},
+	}
 
 	store := mssmt.NewDefaultStore()
 	tree := mssmt.NewCompactedTree(store)
@@ -229,8 +299,19 @@ func TestReplaceWithEmptyBranch(t *testing.T) {
 
 	ctx := context.TODO()
 	for _, key := range keys {
-		_, err := tree.Insert(ctx, key, randLeaf())
+		leaf := randLeaf()
+		_, err := tree.Insert(ctx, key, leaf)
 		require.NoError(t, err)
+
+		testVectors.AllTreeLeaves = append(
+			testVectors.AllTreeLeaves, mssmt.NewTestFromLeaf(
+				t, key, leaf,
+			),
+		)
+		testCase.InsertedLeaves = append(
+			testCase.InsertedLeaves,
+			hex.EncodeToString(key[:]),
+		)
 	}
 
 	// Make sure the store has all our leaves and branches.
@@ -238,28 +319,71 @@ func TestReplaceWithEmptyBranch(t *testing.T) {
 	require.Equal(t, 0, store.NumLeaves())
 	require.Equal(t, 3, store.NumCompactedLeaves())
 
-	// Now delete compacted leafs 2 and 4 which would
-	// trigger inserting a default branch in place of
-	// their parent B.
+	// Now delete compacted leafs 2 and 4 which would trigger inserting a
+	// default branch in place of their parent B.
 	_, err := tree.Delete(ctx, keys[1])
 	require.NoError(t, err)
 	_, err = tree.Delete(ctx, keys[2])
 	require.NoError(t, err)
 
+	testCase.DeletedLeaves = append(
+		testCase.DeletedLeaves,
+		hex.EncodeToString(keys[1][:]),
+		hex.EncodeToString(keys[2][:]),
+	)
+
 	// We expect that the store only has one compacted leaf and one branch.
 	require.Equal(t, 1, store.NumBranches())
 	require.Equal(t, 0, store.NumLeaves())
 	require.Equal(t, 1, store.NumCompactedLeaves())
+
+	root, err := tree.Root(ctx)
+	require.NoError(t, err)
+
+	testCase.RootHash = hex.EncodeToString(fn.ByteSlice(root.NodeHash()))
+	testCase.RootSum = strconv.FormatUint(root.NodeSum(), 10)
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, deletionTestVectorName, testVectors)
 }
 
 // TestReplace tests that replacing keys works as expected.
 func TestReplace(t *testing.T) {
 	t.Parallel()
 
+	testCase := &mssmt.ValidTestCase{
+		Comment: "leaf replacement",
+	}
+	testVectors := &mssmt.TestVectors{
+		ValidTestCases: []*mssmt.ValidTestCase{
+			testCase,
+		},
+	}
+
 	const numLeaves = 100
 
 	leaves1 := genTreeFromRange(numLeaves)
 	leaves2 := genTreeFromRange(numLeaves)
+
+	for idx := range leaves1 {
+		item := leaves1[idx]
+		testVectors.AllTreeLeaves = append(
+			testVectors.AllTreeLeaves,
+			mssmt.NewTestFromLeaf(t, item.key, item.leaf),
+		)
+		testCase.InsertedLeaves = append(
+			testCase.InsertedLeaves,
+			hex.EncodeToString(item.key[:]),
+		)
+	}
+	for idx := range leaves2 {
+		item := leaves2[idx]
+		testCase.ReplacedLeaves = append(
+			testCase.ReplacedLeaves,
+			mssmt.NewTestFromLeaf(t, item.key, item.leaf),
+		)
+	}
 
 	testUpdate := func(tree mssmt.Tree) {
 		ctx := context.TODO()
@@ -284,6 +408,14 @@ func TestReplace(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, item.leaf, leafCopy)
 		}
+
+		root, err := tree.Root(ctx)
+		require.NoError(t, err)
+
+		testCase.RootHash = hex.EncodeToString(
+			fn.ByteSlice(root.NodeHash()),
+		)
+		testCase.RootSum = strconv.FormatUint(root.NodeSum(), 10)
 	}
 
 	runTest := func(t *testing.T, name string,
@@ -303,12 +435,14 @@ func TestReplace(t *testing.T) {
 		makeStore := makeStore
 
 		t.Run(storeName, func(t *testing.T) {
-			t.Parallel()
-
 			runTest(t, "full SMT", makeFullTree, makeStore)
 			runTest(t, "smol SMT", makeSmolTree, makeStore)
 		})
 	}
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, replacementTestVectorName, testVectors)
 }
 
 // TestHistoryIndependence tests that given the same set of keys, two trees
@@ -560,7 +694,7 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 	// Create a new leaf that will not be inserted in the tree. Computing
 	// its proof should result in a non-inclusion proof (an empty leaf
 	// exists at said key).
-	nonExistentKey := randKey()
+	nonExistentKey := test.RandHash()
 	nonExistentLeaf := randLeaf()
 
 	proof, err := tree.MerkleProof(ctx, nonExistentKey)
@@ -580,7 +714,7 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 	))
 }
 
-func testProofEqulity(t *testing.T, tree1, tree2 mssmt.Tree, leaves []treeLeaf) {
+func testProofEquality(t *testing.T, tree1, tree2 mssmt.Tree, leaves []treeLeaf) {
 	assertEqualProof := func(proof1, proof2 *mssmt.Proof) {
 		t.Helper()
 
@@ -656,7 +790,7 @@ func TestMerkleProof(t *testing.T) {
 			}
 
 			t.Run("proof equality", func(t *testing.T) {
-				testProofEqulity(t, tree, smolTree, leaves)
+				testProofEquality(t, tree, smolTree, leaves)
 			})
 
 			t.Run("full SMT proof properties", func(t *testing.T) {
@@ -666,6 +800,199 @@ func TestMerkleProof(t *testing.T) {
 			t.Run("smol SMT proof properties", func(t *testing.T) {
 				testMerkleProof(t, smolTree, leaves)
 			})
+		})
+	}
+}
+
+// TestBIPTestVectors tests that the BIP test vectors are passing.
+func TestBIPTestVectors(t *testing.T) {
+	t.Parallel()
+
+	for idx := range allTestVectorFiles {
+		var (
+			fileName    = allTestVectorFiles[idx]
+			testVectors = &mssmt.TestVectors{}
+		)
+		test.ParseTestVectors(t, fileName, &testVectors)
+		t.Run(fileName, func(tt *testing.T) {
+			tt.Parallel()
+
+			runBIPTestVector(tt, testVectors)
+		})
+	}
+}
+
+// runBIPTestVector runs the tests in a single BIP test vector file.
+func runBIPTestVector(t *testing.T, testVectors *mssmt.TestVectors) {
+	for _, validCase := range testVectors.ValidTestCases {
+		validCase := validCase
+
+		t.Run(validCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			ctx := context.Background()
+			fullTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+			smolTree := mssmt.NewCompactedTree(
+				mssmt.NewDefaultStore(),
+			)
+
+			// Insert all leaves declared in the test vector into
+			// both sets of trees.
+			for idx := range testVectors.AllTreeLeaves {
+				leaf := testVectors.AllTreeLeaves[idx]
+				leafKey := test.Parse32Byte(t, leaf.Key)
+				leafNode := leaf.ToLeafNode(t)
+
+				if !validCase.ShouldInsert(leaf.Key) {
+					continue
+				}
+
+				_, err := fullTree.Insert(
+					ctx, leafKey, leafNode,
+				)
+				require.NoError(tt, err)
+
+				_, err = smolTree.Insert(ctx, leafKey, leafNode)
+				require.NoError(tt, err)
+			}
+
+			// Now delete all leaves declared in the test vector.
+			for idx := range validCase.DeletedLeaves {
+				keyHex := validCase.DeletedLeaves[idx]
+				key := test.Parse32Byte(t, keyHex)
+
+				if !validCase.ShouldDelete(keyHex) {
+					continue
+				}
+
+				_, err := fullTree.Delete(ctx, key)
+				require.NoError(tt, err)
+
+				_, err = smolTree.Delete(ctx, key)
+				require.NoError(tt, err)
+			}
+
+			// And finally replace all leaves declared in the test
+			// vector.
+			for idx := range validCase.ReplacedLeaves {
+				leaf := validCase.ReplacedLeaves[idx]
+				leafKey := test.Parse32Byte(t, leaf.Key)
+				leafNode := leaf.ToLeafNode(t)
+
+				_, err := fullTree.Insert(
+					ctx, leafKey, leafNode,
+				)
+				require.NoError(tt, err)
+
+				_, err = smolTree.Insert(ctx, leafKey, leafNode)
+				require.NoError(tt, err)
+			}
+
+			// Verify the expected root hash and sum.
+			expectedHash := fn.ToArray[mssmt.NodeHash](
+				test.ParseHex(t, validCase.RootHash),
+			)
+			expectedSum, err := strconv.ParseUint(
+				validCase.RootSum, 10, 64,
+			)
+			require.NoError(tt, err)
+
+			fullTreeRoot, err := fullTree.Root(ctx)
+			require.NoError(tt, err)
+			smolTreeRoot, err := smolTree.Root(ctx)
+			require.NoError(tt, err)
+
+			require.Equal(tt, expectedHash, fullTreeRoot.NodeHash())
+			require.Equal(tt, expectedHash, smolTreeRoot.NodeHash())
+
+			require.Equal(tt, expectedSum, fullTreeRoot.NodeSum())
+			require.Equal(tt, expectedSum, smolTreeRoot.NodeSum())
+
+			// Verify all inclusion proofs.
+			for idx := range validCase.InclusionProofs {
+				inclusion := validCase.InclusionProofs[idx]
+
+				key := test.Parse32Byte(
+					t, inclusion.ProofKey,
+				)
+				proof := inclusion.ToProof(t)
+				leaf := testVectors.FindLeaf(inclusion.ProofKey)
+				require.NotNil(tt, leaf)
+
+				require.True(t, mssmt.VerifyMerkleProof(
+					key, leaf.ToLeafNode(t), proof,
+					fullTreeRoot,
+				))
+				require.True(t, mssmt.VerifyMerkleProof(
+					key, leaf.ToLeafNode(t), proof,
+					smolTreeRoot,
+				))
+			}
+
+			// Verify all exclusion proofs.
+			for idx := range validCase.ExclusionProofs {
+				exclusion := validCase.ExclusionProofs[idx]
+
+				key := test.Parse32Byte(
+					t, exclusion.ProofKey,
+				)
+				proof := exclusion.ToProof(t)
+
+				require.True(t, mssmt.VerifyMerkleProof(
+					key, mssmt.EmptyLeafNode, proof,
+					fullTreeRoot,
+				))
+				require.True(t, mssmt.VerifyMerkleProof(
+					key, mssmt.EmptyLeafNode, proof,
+					smolTreeRoot,
+				))
+			}
+		})
+	}
+
+	for _, invalidCase := range testVectors.ErrorTestCases {
+		invalidCase := invalidCase
+
+		t.Run(invalidCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			ctx := context.Background()
+			fullTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+			smolTree := mssmt.NewCompactedTree(
+				mssmt.NewDefaultStore(),
+			)
+
+			for idx := range testVectors.AllTreeLeaves {
+				leaf := testVectors.AllTreeLeaves[idx]
+				leafKey := test.Parse32Byte(t, leaf.Key)
+				leafNode := leaf.ToLeafNode(t)
+
+				if !invalidCase.ShouldInsert(leaf.Key) {
+					continue
+				}
+
+				lastIdx := len(testVectors.AllTreeLeaves) - 1
+				checkErr := func(err error) {
+					if idx == lastIdx {
+						require.ErrorContains(
+							tt, err,
+							invalidCase.Error,
+						)
+					} else {
+						require.NoError(tt, err)
+					}
+				}
+
+				_, err := fullTree.Insert(
+					ctx, leafKey, leafNode,
+				)
+				checkErr(err)
+
+				_, err = smolTree.Insert(
+					ctx, leafKey, leafNode,
+				)
+				checkErr(err)
+			}
 		})
 	}
 }
