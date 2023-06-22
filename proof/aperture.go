@@ -51,7 +51,7 @@ func NewApertureHarness(t *testing.T, port int) ApertureHarness {
 		HashMail: &aperture.HashMailConfig{
 			Enabled:               true,
 			MessageRate:           time.Millisecond,
-			MessageBurstAllowance: math.MaxUint32,
+			MessageBurstAllowance: int(math.MaxInt32),
 		},
 		Prometheus: &aperture.PrometheusConfig{},
 		Tor:        &aperture.TorConfig{},
