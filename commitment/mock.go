@@ -1,14 +1,18 @@
 package commitment
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 // RandSplitCommit creates a random split commitment for testing.
@@ -124,4 +128,132 @@ type TestAssetProof struct {
 type TestTaprootAssetProof struct {
 	Proof   string `json:"proof"`
 	Version uint8  `json:"version"`
+}
+
+func NewTestFromSplitSet(t testing.TB, s SplitSet) TestSplitSet {
+	t.Helper()
+
+	ts := make([]*TestSplitEntry, 0, len(s))
+
+	// We want stable ordering for the test vectors, so we loop over the
+	// sorted keys.
+	keys := maps.Keys(s)
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].OutputIndex < keys[j].OutputIndex
+	})
+	for keyIndex := range keys {
+		key := keys[keyIndex]
+		ts = append(ts, &TestSplitEntry{
+			Locator: &TestSplitLocator{
+				OutputIndex: key.OutputIndex,
+				AssetID:     key.AssetID.String(),
+				ScriptKey: hex.EncodeToString(
+					key.ScriptKey[:],
+				),
+				Amount: key.Amount,
+			},
+			Asset: &TestSplitAsset{
+				Asset: asset.NewTestFromAsset(
+					t, &s[key].Asset,
+				),
+				OutputIndex: s[key].OutputIndex,
+			},
+		})
+	}
+
+	return ts
+}
+
+type TestSplitSet []*TestSplitEntry
+
+func (ts TestSplitSet) ToSplitSet(t testing.TB) SplitSet {
+	t.Helper()
+
+	s := make(SplitSet, len(ts))
+	for idx := range ts {
+		e := ts[idx]
+		key := SplitLocator{
+			OutputIndex: e.Locator.OutputIndex,
+			AssetID:     test.Parse32Byte(t, e.Locator.AssetID),
+			ScriptKey:   test.Parse33Byte(t, e.Locator.ScriptKey),
+			Amount:      e.Locator.Amount,
+		}
+
+		// We'll allow empty assets here.
+		var (
+			parsedAsset asset.Asset
+			emptyAsset  = asset.NewTestFromAsset(t, &asset.Asset{})
+		)
+		if !reflect.DeepEqual(e.Asset.Asset, emptyAsset) {
+			parsedAsset = *e.Asset.Asset.ToAsset(t)
+		}
+
+		s[key] = &SplitAsset{
+			Asset:       parsedAsset,
+			OutputIndex: e.Asset.OutputIndex,
+		}
+	}
+
+	return s
+}
+
+type TestSplitEntry struct {
+	Locator *TestSplitLocator `json:"key"`
+	Asset   *TestSplitAsset   `json:"value"`
+}
+
+type TestSplitLocator struct {
+	OutputIndex uint32 `json:"output_index"`
+	AssetID     string `json:"asset_id"`
+	ScriptKey   string `json:"script_key"`
+	Amount      uint64 `json:"amount"`
+}
+
+type TestSplitAsset struct {
+	Asset       *asset.TestAsset `json:"asset"`
+	OutputIndex uint32           `json:"output_index"`
+}
+
+func NewTestFromInputSet(t testing.TB, i InputSet) TestInputSet {
+	t.Helper()
+
+	ts := make([]*TestInputEntry, 0, len(i))
+
+	// We want stable ordering for the test vectors, so we loop over the
+	// sorted keys.
+	keys := maps.Keys(i)
+	sort.Slice(keys, func(i, j int) bool {
+		return bytes.Compare(
+			keys[i].ScriptKey[:], keys[j].ScriptKey[:],
+		) < 0
+	})
+	for keyIndex := range keys {
+		key := keys[keyIndex]
+		ts = append(ts, &TestInputEntry{
+			PrevID: asset.NewTestFromPrevID(&key),
+			Asset:  asset.NewTestFromAsset(t, i[key]),
+		})
+	}
+
+	return ts
+}
+
+type TestInputSet []*TestInputEntry
+
+func (ts TestInputSet) ToInputSet(t testing.TB) InputSet {
+	t.Helper()
+
+	i := make(InputSet, len(ts))
+	for idx := range ts {
+		e := ts[idx]
+		key := e.PrevID.ToPrevID(t)
+		i[*key] = e.Asset.ToAsset(t)
+	}
+
+	return i
+}
+
+type TestInputEntry struct {
+	PrevID *asset.TestPrevID `json:"prev_id"`
+	Asset  *asset.TestAsset  `json:"asset"`
 }
