@@ -414,17 +414,6 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		return nil, nil, err
 	}
 
-	// Initialize logging at the default logging level.
-	tap.SetupLoggers(cfg.LogWriter, interceptor)
-	err = cfg.LogWriter.InitLogRotator(
-		filepath.Join(cfg.LogDir, defaultLogFilename),
-		cfg.MaxLogFileSize, cfg.MaxLogFiles,
-	)
-	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err.Error())
-		return nil, nil, err
-	}
-
 	cfgLogger := cfg.LogWriter.GenSubLogger("CONF", nil)
 
 	// Make sure everything we just loaded makes sense.
@@ -436,6 +425,17 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		}
 
 		cfgLogger.Warnf("Error validating config: %v", err)
+		return nil, nil, err
+	}
+
+	// Initialize logging at the default logging level.
+	tap.SetupLoggers(cfg.LogWriter, interceptor)
+	err = cfg.LogWriter.InitLogRotator(
+		filepath.Join(cleanCfg.LogDir, defaultLogFilename),
+		cleanCfg.MaxLogFileSize, cfg.MaxLogFiles,
+	)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
 		return nil, nil, err
 	}
 
