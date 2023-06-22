@@ -1,10 +1,10 @@
 //go:build itest
-// +build itest
 
 package itest
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"testing"
 	"time"
@@ -14,12 +14,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var optionalTests = flag.Bool("optional", false, "if true, the optional test"+
+	"list will be used")
+
 // TestTaprootAssetsDaemon performs a series of integration tests amongst a
 // programmatically driven set of participants, namely a Taproot Assets daemon
 // and a universe server.
 func TestTaprootAssetsDaemon(t *testing.T) {
+	// Switch to the list of optional test cases with the '-optional' flag.
+	testList := testCases
+	if *optionalTests {
+		testList = optionalTestCases
+	}
+
 	// If no tests are registered, then we can exit early.
-	if len(testCases) == 0 {
+	if len(testList) == 0 {
 		t.Skip("integration tests not selected with flag 'itest'")
 	}
 
@@ -41,8 +50,8 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 
 	lndHarness.SetupStandbyNodes()
 
-	t.Logf("Running %v integration tests", len(testCases))
-	for _, testCase := range testCases {
+	t.Logf("Running %v integration tests", len(testList))
+	for _, testCase := range testList {
 		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
 			testCase.name)
 

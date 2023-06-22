@@ -46,6 +46,12 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 			DbError: sqliteErr,
 		}
 
+	// Database is currently busy, so we'll need to try again.
+	case sqlite3.SQLITE_BUSY:
+		return &ErrSerializationError{
+			DbError: sqliteErr,
+		}
+
 	default:
 		return fmt.Errorf("unknown sqlite error: %w", sqliteErr)
 	}
@@ -97,4 +103,11 @@ func (e ErrSerializationError) Unwrap() error {
 // Error returns the error message.
 func (e ErrSerializationError) Error() string {
 	return e.DbError.Error()
+}
+
+// IsSerializationError returns true if the given error is a serialization
+// error.
+func IsSerializationError(err error) bool {
+	var serializationError *ErrSerializationError
+	return errors.As(err, &serializationError)
 }

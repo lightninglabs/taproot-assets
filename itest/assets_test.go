@@ -131,13 +131,37 @@ func testMintAssets(t *harnessTest) {
 	transferAssetProofs(t, t.tapd, secondTapd, allAssets, false)
 }
 
+type mintOption func(*mintOptions)
+
+type mintOptions struct {
+	mintingTimeout time.Duration
+}
+
+func defaultMintOptions() *mintOptions {
+	return &mintOptions{
+		mintingTimeout: defaultWaitTimeout,
+	}
+}
+
+func withMintingTimeout(timeout time.Duration) mintOption {
+	return func(options *mintOptions) {
+		options.mintingTimeout = timeout
+	}
+}
+
 // mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
 // batch and verifies all asset proofs of the minted assets.
 func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
-	assetRequests []*mintrpc.MintAssetRequest) []*taprpc.Asset {
+	assetRequests []*mintrpc.MintAssetRequest,
+	opts ...mintOption) []*taprpc.Asset {
+
+	options := defaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
 	defer cancel()
 
 	// Mint all the assets in the same batch.
@@ -154,19 +178,29 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	require.NoError(t.t, err)
 	require.NotEmpty(t.t, batchResp.BatchKey)
 
+	waitForBatchState(
+		t, ctxt, tapd, options.mintingTimeout,
+		mintrpc.BatchState_BATCH_STATE_BROADCAST,
+	)
 	hashes, err := waitForNTxsInMempool(
-		t.lndHarness.Miner.Client, 1, defaultWaitTimeout,
+		t.lndHarness.Miner.Client, 1, options.mintingTimeout,
 	)
 	require.NoError(t.t, err)
 
 	// Make sure the assets were all minted within the same anchor but don't
 	// yet have a block hash associated with them.
+	listRespUnconfirmed, err := tapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	unconfirmedAssets := groupAssetsByName(listRespUnconfirmed.Assets)
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		assertAssetState(
-			t, tapd, assetRequest.Asset.Name,
+			t, unconfirmedAssets, assetRequest.Asset.Name,
 			metaHash[:],
 			assetAmountCheck(assetRequest.Asset.Amount),
 			assetTypeCheck(assetRequest.Asset.AssetType),
@@ -178,6 +212,10 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	// Mine a block to confirm the assets.
 	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	blockHash := block.BlockHash()
+	waitForBatchState(
+		t, ctxt, tapd, options.mintingTimeout,
+		mintrpc.BatchState_BATCH_STATE_FINALIZED,
+	)
 
 	// The rest of the anchor information should now be populated as well.
 	// We also check that the anchor outpoint of all assets is the same,
@@ -186,13 +224,20 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 		firstOutpoint string
 		assetList     []*taprpc.Asset
 	)
+
+	listRespConfirmed, err := tapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	confirmedAssets := groupAssetsByName(listRespConfirmed.Assets)
+
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		mintedAsset := assertAssetState(
-			t, tapd, assetRequest.Asset.Name, metaHash[:],
-			assetAnchorCheck(*hashes[0], blockHash),
+			t, confirmedAssets, assetRequest.Asset.Name,
+			metaHash[:], assetAnchorCheck(*hashes[0], blockHash),
 			assetScriptKeyIsLocalCheck(true),
 			func(a *taprpc.Asset) error {
 				anchor := a.ChainAnchor
@@ -248,18 +293,28 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 			GenesisPoint: gen.GenesisPoint,
 		})
 		require.NoError(t.t, err)
+	}
 
+	listResp, err := dst.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	importedAssets := groupAssetsByName(listResp.Assets)
+	for _, existingAsset := range assets {
+		gen := existingAsset.AssetGenesis
 		anchorTxHash, err := chainhash.NewHashFromStr(
 			existingAsset.ChainAnchor.AnchorTxid,
 		)
 		require.NoError(t.t, err)
+
 		anchorBlockHash, err := chainhash.NewHashFromStr(
 			existingAsset.ChainAnchor.AnchorBlockHash,
 		)
 		require.NoError(t.t, err)
 
 		assertAssetState(
-			t, dst, gen.Name, gen.MetaHash,
+			t, importedAssets, gen.Name, gen.MetaHash,
 			assetAmountCheck(existingAsset.Amount),
 			assetTypeCheck(existingAsset.AssetType),
 			assetAnchorCheck(*anchorTxHash, *anchorBlockHash),

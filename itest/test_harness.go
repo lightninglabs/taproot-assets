@@ -170,6 +170,12 @@ func (h *harnessTest) Log(args ...interface{}) {
 	h.t.Log(args...)
 }
 
+func (h *harnessTest) LogfTimestamped(format string, args ...interface{}) {
+	timestamp := time.Now().Format(time.RFC3339Nano)
+	args = append([]interface{}{timestamp}, args...)
+	h.t.Logf("%s: "+format, args...)
+}
+
 // shutdown stops both the mock universe and tapd server.
 func (h *harnessTest) shutdown(t *testing.T) error {
 	h.universeServer.stop()

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
@@ -111,8 +112,8 @@ func NewBaseUniverseReadTx() BaseUniverseStoreOptions {
 	}
 }
 
-// BasedUniverseTree is a wrapper around the base universe tree that allows us
-// perform batch queries with all the relevant query interfaces.
+// BatchedUniverseTree is a wrapper around the base universe tree that allows us
+// to perform batch queries with all the relevant query interfaces.
 type BatchedUniverseTree interface {
 	BaseUniverseStore
 
@@ -128,6 +129,8 @@ type BaseUniverseTree struct {
 	db BatchedUniverseTree
 
 	id universe.Identifier
+
+	registrationMtx sync.Mutex
 
 	smtNamespace string
 }
@@ -291,6 +294,13 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	// Up to this point many writers can perform all required read
+	// operations to prepare and validate the keys. But since we're now
+	// actually starting to write, we want to limit this to a single writer
+	// at a time.
+	b.registrationMtx.Lock()
+	defer b.registrationMtx.Unlock()
 
 	var (
 		writeTx BaseUniverseStoreOptions

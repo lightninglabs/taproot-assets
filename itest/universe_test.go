@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -105,7 +104,7 @@ func testUniverseSync(t *harnessTest) {
 
 		srcRoot, ok := universeRoots.UniverseRoots[uniKey]
 		require.True(t.t, ok)
-		assertUniverseRootEqual(t.t, srcRoot, newRoot)
+		require.True(t.t, assertUniverseRootEqual(srcRoot, newRoot))
 	}
 
 	// Now we'll fetch the Universe roots from Bob. These should match the
@@ -114,7 +113,9 @@ func testUniverseSync(t *harnessTest) {
 		ctxt, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
-	assertUniverseRootsEqual(t.t, universeRoots, universeRootsBob)
+	require.True(
+		t.t, assertUniverseRootsEqual(universeRoots, universeRootsBob),
+	)
 
 	// Finally, we'll ensure that the universe keys and leaves matches for
 	// both parties.
@@ -204,7 +205,9 @@ func testUniverseSync(t *harnessTest) {
 		ctxt, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t.t, err)
-	assertUniverseRootsEqual(t.t, universeRoots, universeRootsBob)
+	require.True(
+		t.t, assertUniverseRootsEqual(universeRoots, universeRootsBob),
+	)
 }
 
 // testUniverseREST tests that we're able to properly query the universe state
@@ -341,8 +344,8 @@ func testUniverseFederation(t *harnessTest) {
 	require.Equal(t.t, t.tapd.rpcHost(), fedNodes.Servers[0].Host)
 
 	// At this point, both nodes should have the same Universe roots.
-	succeedEventually(t.t, func(tt *testing.T) {
-		assertUniverseStateEqual(tt, bob, t.tapd)
+	require.Eventually(t.t, func() bool {
+		return assertUniverseStateEqual(t.t, bob, t.tapd)
 	}, defaultWaitTimeout, wait.PollInterval)
 
 	// Bob's Universe stats should show that he now has a single asset. We

@@ -103,31 +103,53 @@ WHERE server_host = @target_server;
 SELECT * FROM universe_servers;
 
 -- name: InsertNewSyncEvent :exec
-WITH root_asset_id AS (
+WITH group_key_root_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE group_key = @group_key_x_only
+), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = @asset_id
+    WHERE gen.asset_id = @asset_id 
+    LIMIT 1
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    'SYNC', (SELECT id FROM root_asset_id), @event_time
+    'SYNC',
+        CASE WHEN length(@group_key_x_only) > 0 THEN (
+            SELECT id FROM group_key_root_id
+        ) ELSE (
+            SELECT id FROM asset_id_root_id
+        ) END,
+    @event_time
 );
 
 -- name: InsertNewProofEvent :exec
-WITH root_asset_id AS (
+WITH group_key_root_id AS (
+    SELECT id
+    FROM universe_roots
+    WHERE group_key = @group_key_x_only
+), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
-    JOIN genesis_info_view gen
-        ON leaves.asset_genesis_id = gen.gen_asset_id
+             JOIN genesis_info_view gen
+                  ON leaves.asset_genesis_id = gen.gen_asset_id
     WHERE gen.asset_id = @asset_id
+    LIMIT 1
 )
 INSERT INTO universe_events (
     event_type, universe_root_id, event_time
 ) VALUES (
-    'NEW_PROOF', (SELECT id FROM root_asset_id), @event_time
+    'NEW_PROOF',
+        CASE WHEN length(@group_key_x_only) > 0 THEN (
+            SELECT id FROM group_key_root_id
+        ) ELSE (
+            SELECT id FROM asset_id_root_id
+        ) END,
+    @event_time
 );
 
 -- name: QueryUniverseStats :one

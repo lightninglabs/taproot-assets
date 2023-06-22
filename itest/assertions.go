@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -16,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -93,55 +96,85 @@ func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
 	}
 }
 
+// groupAssetsByName converts an unordered list of assets to a map of lists of
+// assets, where all assets in a list have the same name.
+func groupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
+	assetLists := make(map[string][]*taprpc.Asset)
+	for idx := range assets {
+		a := assets[idx]
+		assetLists[a.AssetGenesis.Name] = append(
+			assetLists[a.AssetGenesis.Name], a,
+		)
+	}
+
+	return assetLists
+}
+
 // assertAssetState makes sure that an asset with the given (possibly
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
-func assertAssetState(t *harnessTest, tapd *tapdHarness, name string,
-	metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
-
-	t.t.Helper()
-
-	ctxb := context.Background()
+func assertAssetState(t *harnessTest, assets map[string][]*taprpc.Asset,
+	name string, metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
 
 	var a *taprpc.Asset
-	err := wait.NoError(func() error {
-		ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-		defer cancel()
 
-		listResp, err := tapd.ListAssets(
-			ctxt, &taprpc.ListAssetRequest{},
-		)
-		if err != nil {
-			return err
-		}
+	require.Contains(t.t, assets, name)
 
-		for _, rpcAsset := range listResp.Assets {
-			rpcGen := rpcAsset.AssetGenesis
-			if rpcGen.Name == name &&
-				bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+	for _, rpcAsset := range assets[name] {
+		rpcGen := rpcAsset.AssetGenesis
+		if bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+			a = rpcAsset
 
-				a = rpcAsset
-
-				for _, check := range assetChecks {
-					if err := check(rpcAsset); err != nil {
-						return err
-					}
-				}
-
-				break
+			for _, check := range assetChecks {
+				err := check(rpcAsset)
+				require.NoError(t.t, err)
 			}
-		}
 
-		if a == nil {
-			return fmt.Errorf("asset with name %s not found in "+
-				"asset list", name)
+			break
 		}
+	}
 
-		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t.t, err)
+	require.NotNil(t.t, a, fmt.Errorf("asset with matching metadata not"+
+		"found in asset list"))
 
 	return a
+}
+
+// waitForBatchState polls until the planter has reached the desired state with
+// the current batch.
+func waitForBatchState(t *harnessTest, ctx context.Context, tapd *tapdHarness,
+	timeout time.Duration, targetState mintrpc.BatchState) bool {
+
+	breakTimeout := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	isTargetState := func(b *mintrpc.MintingBatch) bool {
+		return b.State == targetState
+	}
+
+	batchCount := func() int {
+		batchResp, err := tapd.ListBatches(
+			ctx, &mintrpc.ListBatchRequest{},
+		)
+		require.NoError(t.t, err)
+
+		return fn.Count(batchResp.Batches, isTargetState)
+	}
+
+	initialBatchCount := batchCount()
+
+	for {
+		select {
+		case <-breakTimeout:
+			return false
+		case <-ticker.C:
+			currentBatchCount := batchCount()
+			if currentBatchCount-initialBatchCount == 1 {
+				return true
+			}
+		}
+	}
 }
 
 // commitmentKey returns the asset's commitment key given an RPC asset
@@ -694,59 +727,105 @@ func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 	}
 }
 
-func assertUniverseRootEqual(t *testing.T, a, b *unirpc.UniverseRoot) {
-	// The ids should batch exactly.
-	require.Equal(t, a.Id.Id, b.Id.Id)
+func assertUniverseRoot(t *testing.T, tapd *tapdHarness, sum int,
+	assetID []byte, groupKey []byte) error {
 
-	// The sum and root hash should also match for the SMT root itself.
-	require.Equal(
-		t, a.MssmtRoot.RootHash, b.MssmtRoot.RootHash,
-	)
-	require.Equal(
-		t, a.MssmtRoot.RootSum, b.MssmtRoot.RootSum,
-	)
+	bothSet := assetID != nil && groupKey != nil
+	neitherSet := assetID == nil && groupKey == nil
+	if bothSet || neitherSet {
+		return fmt.Errorf("only set one of assetID or groupKey")
+	}
+
+	// Re-parse and serialize the keys to account for the different
+	// formats returned in RPC responses.
+	matchingGroupKey := func(root *unirpc.UniverseRoot) bool {
+		rootGroupKeyBytes := root.Id.GetGroupKey()
+		require.NotNil(t, rootGroupKeyBytes)
+
+		expectedGroupKey, err := btcec.ParsePubKey(groupKey)
+		require.NoError(t, err)
+		require.Equal(
+			t, rootGroupKeyBytes,
+			schnorr.SerializePubKey(expectedGroupKey),
+		)
+
+		return true
+	}
+
+	// Comparing the asset ID is always safe, even if nil.
+	matchingRoot := func(root *unirpc.UniverseRoot) bool {
+		require.Equal(t, root.MssmtRoot.RootSum, int64(sum))
+		require.Equal(t, root.Id.GetAssetId(), assetID)
+		if groupKey != nil {
+			return matchingGroupKey(root)
+		}
+
+		return true
+	}
+
+	ctx := context.Background()
+
+	uniRoots, err := tapd.AssetRoots(ctx, &unirpc.AssetRootRequest{})
+	require.NoError(t, err)
+
+	correctRoot := fn.Any(maps.Values(uniRoots.UniverseRoots), matchingRoot)
+	require.True(t, correctRoot)
+
+	return nil
 }
 
-func assertUniverseRootsEqual(t *testing.T, a, b *unirpc.AssetRootResponse) {
+func assertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
+	// The ids should batch exactly.
+	if !reflect.DeepEqual(a.Id.Id, b.Id.Id) {
+		return false
+	}
+
+	// The sum and root hash should also match for the SMT root itself.
+	if !bytes.Equal(a.MssmtRoot.RootHash, b.MssmtRoot.RootHash) {
+		return false
+	}
+	if a.MssmtRoot.RootSum != b.MssmtRoot.RootSum {
+		return false
+	}
+
+	return true
+}
+
+func assertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
 	// The set of keys in the maps should match exactly, as this means the
 	// same set of asset IDs are being tracked.
 	uniKeys := maps.Keys(a.UniverseRoots)
-	require.Equal(t, len(a.UniverseRoots), len(b.UniverseRoots))
-	require.True(t, fn.All(uniKeys, func(key string) bool {
+	if len(a.UniverseRoots) != len(b.UniverseRoots) {
+		return false
+	}
+	if !fn.All(uniKeys, func(key string) bool {
 		_, ok := b.UniverseRoots[key]
 		return ok
-	}))
+	}) {
+
+		return false
+	}
 
 	// Now that we know the same set of assets are being tracked, we'll
 	// ensure that the root values are also the same.
 	for uniID := range a.UniverseRoots {
 		rootA, ok := a.UniverseRoots[uniID]
-		require.True(t, ok)
+		if !ok {
+			return false
+		}
 
 		rootB, ok := b.UniverseRoots[uniID]
-		require.True(t, ok)
+		if !ok {
+			return false
+		}
 
-		assertUniverseRootEqual(t, rootA, rootB)
+		return assertUniverseRootEqual(rootA, rootB)
 	}
+
+	return true
 }
 
-func succeedEventually(t *testing.T, f func(*testing.T),
-	timeout, retryInterval time.Duration) {
-
-	t.Helper()
-
-	require.Eventually(t, func() bool {
-		// Create a new instance of a testing.T so that we can check
-		// whether the test failed or not without failing the whole
-		// parent test.
-		tt := &testing.T{}
-		f(tt)
-
-		return !tt.Failed()
-	}, timeout, retryInterval)
-}
-
-func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
+func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) bool {
 	ctxb := context.Background()
 
 	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
@@ -755,7 +834,7 @@ func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) {
 	rootsB, err := b.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 
-	assertUniverseRootsEqual(t, rootsA, rootsB)
+	return assertUniverseRootsEqual(rootsA, rootsB)
 }
 
 func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,

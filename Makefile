@@ -179,6 +179,20 @@ itest-only-trace: aperture-dir
 	rm -rf itest/regtest; date
 	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -loglevel=trace -btcdexec=./btcd-itest -logdir=regtest
 
+optional-itest: build-itest optional-itest-only
+
+optional-itest-trace: build-itest optional-itest-only-trace
+
+optional-itest-only: aperture-dir
+	@$(call print, "Running integration tests with ${backend} backend.")
+	rm -rf itest/regtest; date
+	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -optional -btcdexec=./btcd-itest -logdir=regtest
+
+optional-itest-only-trace: aperture-dir
+	@$(call print, "Running integration tests with ${backend} backend.")
+	rm -rf itest/regtest; date
+	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -optional -loglevel=trace -btcdexec=./btcd-itest -logdir=regtest
+
 aperture-dir:
 ifeq ($(UNAME_S),Linux)
 	mkdir -p $$HOME/.aperture

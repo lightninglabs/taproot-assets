@@ -457,8 +457,9 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
+		receivedAssets := groupAssetsByName(receiverAssets.Assets)
 		assertAssetState(
-			t, receiver, genInfo.Name, genInfo.MetaHash,
+			t, receivedAssets, genInfo.Name, genInfo.MetaHash,
 			assetAmountCheck(fullAmt),
 		)
 	}
