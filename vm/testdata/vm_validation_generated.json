@@ -289,7 +289,7 @@
         ],
         "split_commitment_root": {
           "hash": "d76b3a35f08e144db2eea3847c71c190a0140b6e27d015c1088f12bf71f6c2e9",
-          "sum": 3
+          "sum": "3"
         },
         "script_version": 0,
         "script_key": "021285582f1b01b4fc15c14e60f0dc3e431f414585031e3d5719f794861a8e88a8",
@@ -352,7 +352,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "d76b3a35f08e144db2eea3847c71c190a0140b6e27d015c1088f12bf71f6c2e9",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "021285582f1b01b4fc15c14e60f0dc3e431f414585031e3d5719f794861a8e88a8",
@@ -428,7 +428,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "d76b3a35f08e144db2eea3847c71c190a0140b6e27d015c1088f12bf71f6c2e9",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "021285582f1b01b4fc15c14e60f0dc3e431f414585031e3d5719f794861a8e88a8",
@@ -504,7 +504,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "d76b3a35f08e144db2eea3847c71c190a0140b6e27d015c1088f12bf71f6c2e9",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "021285582f1b01b4fc15c14e60f0dc3e431f414585031e3d5719f794861a8e88a8",
@@ -594,7 +594,7 @@
         ],
         "split_commitment_root": {
           "hash": "f73e42b54a57539ccfa0811ddf58fbc23bed9f107a947317b7e13a9ca05c4599",
-          "sum": 3
+          "sum": "3"
         },
         "script_version": 0,
         "script_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
@@ -657,7 +657,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "f73e42b54a57539ccfa0811ddf58fbc23bed9f107a947317b7e13a9ca05c4599",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
@@ -733,7 +733,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "f73e42b54a57539ccfa0811ddf58fbc23bed9f107a947317b7e13a9ca05c4599",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
@@ -823,7 +823,7 @@
         ],
         "split_commitment_root": {
           "hash": "110a79d3177335226d1c1095cea3921838f296e54a9adf7aa21d45e6fc7ec4b3",
-          "sum": 1
+          "sum": "1"
         },
         "script_version": 0,
         "script_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
@@ -886,7 +886,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "110a79d3177335226d1c1095cea3921838f296e54a9adf7aa21d45e6fc7ec4b3",
-                        "sum": 1
+                        "sum": "1"
                       },
                       "script_version": 0,
                       "script_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
@@ -962,7 +962,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "110a79d3177335226d1c1095cea3921838f296e54a9adf7aa21d45e6fc7ec4b3",
-                        "sum": 1
+                        "sum": "1"
                       },
                       "script_version": 0,
                       "script_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
@@ -1054,7 +1054,7 @@
         ],
         "split_commitment_root": {
           "hash": "1a7a0f4078e7a26e93e0200eaaa9724aa37327fb9aa10610f0c14390610f3891",
-          "sum": 3
+          "sum": "3"
         },
         "script_version": 0,
         "script_key": "02c974ab0bdb78b718947d967969020de23eb809128a9a90290e7e58386b622f73",
@@ -1119,7 +1119,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "1a7a0f4078e7a26e93e0200eaaa9724aa37327fb9aa10610f0c14390610f3891",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "02c974ab0bdb78b718947d967969020de23eb809128a9a90290e7e58386b622f73",
@@ -1197,7 +1197,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "1a7a0f4078e7a26e93e0200eaaa9724aa37327fb9aa10610f0c14390610f3891",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "02c974ab0bdb78b718947d967969020de23eb809128a9a90290e7e58386b622f73",
@@ -1275,7 +1275,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "1a7a0f4078e7a26e93e0200eaaa9724aa37327fb9aa10610f0c14390610f3891",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "02c974ab0bdb78b718947d967969020de23eb809128a9a90290e7e58386b622f73",
@@ -1367,7 +1367,7 @@
         ],
         "split_commitment_root": {
           "hash": "20277b95513cf1ca8695f00a080f37a47f2e711abdb3283c8481bbbbcb57c860",
-          "sum": 3
+          "sum": "3"
         },
         "script_version": 0,
         "script_key": "026e8f12fb008b1336754e1a6d6b2db5ae0369e470b2c47f71ab2a8c261fa0d777",
@@ -1432,7 +1432,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "20277b95513cf1ca8695f00a080f37a47f2e711abdb3283c8481bbbbcb57c860",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "026e8f12fb008b1336754e1a6d6b2db5ae0369e470b2c47f71ab2a8c261fa0d777",
@@ -1510,7 +1510,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "20277b95513cf1ca8695f00a080f37a47f2e711abdb3283c8481bbbbcb57c860",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "026e8f12fb008b1336754e1a6d6b2db5ae0369e470b2c47f71ab2a8c261fa0d777",
@@ -1588,7 +1588,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "20277b95513cf1ca8695f00a080f37a47f2e711abdb3283c8481bbbbcb57c860",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "026e8f12fb008b1336754e1a6d6b2db5ae0369e470b2c47f71ab2a8c261fa0d777",
@@ -1680,7 +1680,7 @@
         ],
         "split_commitment_root": {
           "hash": "9f4bfc4d466fbf243d40a79c851e5212921a429206d2cb6289190abf4894ba9e",
-          "sum": 3
+          "sum": "3"
         },
         "script_version": 0,
         "script_key": "023a1a8108438e6f94b2a53601824a75d195a8588de4ad89cc741eb2c830d8397c",
@@ -1745,7 +1745,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "9f4bfc4d466fbf243d40a79c851e5212921a429206d2cb6289190abf4894ba9e",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "023a1a8108438e6f94b2a53601824a75d195a8588de4ad89cc741eb2c830d8397c",
@@ -1823,7 +1823,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "9f4bfc4d466fbf243d40a79c851e5212921a429206d2cb6289190abf4894ba9e",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "023a1a8108438e6f94b2a53601824a75d195a8588de4ad89cc741eb2c830d8397c",
@@ -1901,7 +1901,7 @@
                       ],
                       "split_commitment_root": {
                         "hash": "9f4bfc4d466fbf243d40a79c851e5212921a429206d2cb6289190abf4894ba9e",
-                        "sum": 3
+                        "sum": "3"
                       },
                       "script_version": 0,
                       "script_key": "023a1a8108438e6f94b2a53601824a75d195a8588de4ad89cc741eb2c830d8397c",

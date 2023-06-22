@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -83,7 +84,7 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 			n := compressedProof.Nodes[nodeIdx]
 			nodes[idx] = &TestNode{
 				Hash: n.NodeHash().String(),
-				Sum:  n.NodeSum(),
+				Sum:  strconv.FormatUint(n.NodeSum(), 10),
 			}
 			nodeIdx++
 		}
@@ -117,17 +118,20 @@ func NewTestFromNode(t testing.TB, node Node) *TestNode {
 	nodeHash := node.NodeHash()
 	return &TestNode{
 		Hash: hex.EncodeToString(nodeHash[:]),
-		Sum:  node.NodeSum(),
+		Sum:  strconv.FormatUint(node.NodeSum(), 10),
 	}
 }
 
 type TestNode struct {
 	Hash string `json:"hash"`
-	Sum  uint64 `json:"sum"`
+	Sum  string `json:"sum"`
 }
 
 func (tn *TestNode) ToNode(t testing.TB) ComputedNode {
 	t.Helper()
 
-	return NewComputedNode(test.Parse32Byte(t, tn.Hash), tn.Sum)
+	sum, err := strconv.ParseUint(tn.Sum, 10, 64)
+	require.NoError(t, err)
+
+	return NewComputedNode(test.Parse32Byte(t, tn.Hash), sum)
 }
