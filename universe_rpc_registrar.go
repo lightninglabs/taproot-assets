@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -14,49 +15,32 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// RpcUniverseRegistar is an implementation of the universe.Registrar interface
+// RpcUniverseRegistrar is an implementation of the universe.Registrar interface
 // that uses an RPC connection to target Universe.
-type RpcUniverseRegistar struct {
+type RpcUniverseRegistrar struct {
 	conn unirpc.UniverseClient
 }
 
 // NewRpcUniverseRegistrar creates a new RpcUniverseRegistrar instance that
 // dials out to the target remote universe server address.
-func NewRpcUniverseRegistar(serverAddr universe.ServerAddr,
-) (universe.Registrar, error) {
+func NewRpcUniverseRegistrar(
+	serverAddr universe.ServerAddr) (universe.Registrar, error) {
 
-	// TODO(roasbeef): all info is authenticated, but also want to allow
-	// brontide connect as well, can avoid TLS certs
-	creds := credentials.NewTLS(&tls.Config{
-		InsecureSkipVerify: true,
-	})
-
-	// Create a dial options array.
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-	}
-
-	uniAddr, err := serverAddr.Addr()
+	conn, err := ConnectUniverse(serverAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to connect to universe RPC "+
+			"server: %w", err)
 	}
 
-	conn, err := grpc.Dial(uniAddr.String(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to RPC "+
-			"server: %v", err)
-	}
-
-	return &RpcUniverseRegistar{
-		conn: unirpc.NewUniverseClient(conn),
+	return &RpcUniverseRegistrar{
+		conn: conn,
 	}, nil
 }
 
 // unmarshalIssuanceProof unmarshals an issuance proof response into a struct
-// useable by the universe package.
-func unmarshalIssuanceProof(ctx context.Context,
-	uniKey *unirpc.UniverseKey, proofResp *unirpc.AssetProofResponse,
-) (*universe.IssuanceProof, error) {
+// usable by the universe package.
+func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
+	proofResp *unirpc.AssetProofResponse) (*universe.IssuanceProof, error) {
 
 	baseKey, err := unmarshalLeafKey(uniKey.LeafKey)
 	if err != nil {
@@ -96,7 +80,7 @@ func unmarshalIssuanceProof(ctx context.Context,
 
 // RegisterIssuance is an implementation of the universe.Registrar interface
 // that uses a remote Universe server as the Registry instance.
-func (r *RpcUniverseRegistar) RegisterIssuance(ctx context.Context,
+func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 	id universe.Identifier, key universe.BaseKey,
 	leaf *universe.MintingLeaf) (*universe.IssuanceProof, error) {
 
@@ -128,4 +112,66 @@ func (r *RpcUniverseRegistar) RegisterIssuance(ctx context.Context,
 
 // A compile time interface to ensure that RpcUniverseRegistrar implements the
 // universe.Registrar interface.
-var _ universe.Registrar = (*RpcUniverseRegistar)(nil)
+var _ universe.Registrar = (*RpcUniverseRegistrar)(nil)
+
+// CheckFederationServer attempts to connect to the target server and ensure
+// that it is a valid federation server that isn't the local daemon.
+func CheckFederationServer(localRuntimeID int64, connectTimeout time.Duration,
+	server universe.ServerAddr) error {
+
+	srvrLog.Debugf("Attempting to connect to federation server %v",
+		server.HostStr())
+
+	conn, err := ConnectUniverse(server)
+	if err != nil {
+		return fmt.Errorf("error connecting to server %v: %w",
+			server.HostStr(), err)
+	}
+
+	// We don't allow adding ourselves as a federation member.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, connectTimeout)
+	defer cancel()
+
+	info, err := conn.Info(ctxt, &unirpc.InfoRequest{})
+	if err != nil {
+		return fmt.Errorf("error getting info from server %v: %w",
+			server.HostStr(), err)
+	}
+
+	if info.RuntimeId == localRuntimeID {
+		return fmt.Errorf("cannot add ourselves as a federation member")
+	}
+
+	return nil
+}
+
+// ConnectUniverse connects to a remote Universe server using the provided
+// server address.
+func ConnectUniverse(
+	serverAddr universe.ServerAddr) (unirpc.UniverseClient, error) {
+
+	// TODO(roasbeef): all info is authenticated, but also want to allow
+	// brontide connect as well, can avoid TLS certs
+	creds := credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: true,
+	})
+
+	// Create a dial options array.
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	uniAddr, err := serverAddr.Addr()
+	if err != nil {
+		return nil, err
+	}
+
+	rawConn, err := grpc.Dial(uniAddr.String(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to RPC "+
+			"server: %v", err)
+	}
+
+	return unirpc.NewUniverseClient(rawConn), nil
+}

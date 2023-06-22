@@ -314,17 +314,39 @@ func testUniverseFederation(t *harnessTest) {
 		require.NoError(t.t, bob.stop(true))
 	}()
 
-	ctx := context.Background()
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// Now that Bob is active, we'll make a set of assets with the main node.
 	firstAsset := mintAssetsConfirmBatch(t, t.tapd, simpleAssets[:1])
 	require.Len(t.t, firstAsset, 1)
 
+	// Make sure we can't add ourselves to the universe.
+	_, err := t.tapd.AddFederationServer(
+		ctxt, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{{
+				Host: t.tapd.rpcHost(),
+			}},
+		},
+	)
+	require.ErrorContains(t.t, err, "cannot add ourselves")
+
+	// Make sure we can't add an invalid server to the universe.
+	_, err = t.tapd.AddFederationServer(
+		ctxt, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{{
+				Host: "foobar this is not even a valid address",
+			}},
+		},
+	)
+	require.ErrorContains(t.t, err, "no such host")
+
 	// We'll now add the main node, as a member of Bob's Universe
 	// federation. We expect that their state is synchronized shortly after
 	// the call returns.
-	_, err := bob.AddFederationServer(
-		ctx, &unirpc.AddFederationServerRequest{
+	_, err = bob.AddFederationServer(
+		ctxt, &unirpc.AddFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
 					Host: t.tapd.rpcHost(),
@@ -337,7 +359,7 @@ func testUniverseFederation(t *harnessTest) {
 	// If we fetch the set of federation nodes, then the main node should
 	// be shown as being a part of that set.
 	fedNodes, err := bob.ListFederationServers(
-		ctx, &unirpc.ListFederationServersRequest{},
+		ctxt, &unirpc.ListFederationServersRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 1, len(fedNodes.Servers))
@@ -352,6 +374,11 @@ func testUniverseFederation(t *harnessTest) {
 	// should also be able to query for stats specifically for the asset.
 	assertUniverseStats(t.t, bob, 1, 0, 1)
 
+	// Test the content of the universe info call.
+	info, err := bob.Info(ctxt, &unirpc.InfoRequest{})
+	require.NoError(t.t, err)
+	require.EqualValues(t.t, 1, info.NumAssets)
+
 	// We'll now make a new asset with Bob, and ensure that the state is
 	// properly pushed to the main node which is a part of the federation.
 	newAsset := mintAssetsConfirmBatch(t, bob, simpleAssets[1:])
@@ -359,7 +386,7 @@ func testUniverseFederation(t *harnessTest) {
 	// Bob should have a new asset in its local Universe tree.
 	assetID := newAsset[0].AssetGenesis.AssetId
 	waitErr := wait.NoError(func() error {
-		_, err := bob.QueryAssetRoots(ctx, &unirpc.AssetRootQuery{
+		_, err := bob.QueryAssetRoots(ctxt, &unirpc.AssetRootQuery{
 			Id: &unirpc.ID{
 				Id: &unirpc.ID_AssetId{
 					AssetId: assetID,
@@ -390,7 +417,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Next, we'll try to delete the main node from the federation.
 	_, err = bob.DeleteFederationServer(
-		ctx, &unirpc.DeleteFederationServerRequest{
+		ctxt, &unirpc.DeleteFederationServerRequest{
 			Servers: []*unirpc.UniverseFederationServer{
 				{
 					Host: t.tapd.rpcHost(),
@@ -403,7 +430,7 @@ func testUniverseFederation(t *harnessTest) {
 	// If we fetch the set of federation nodes, then the main node should
 	// no longer be present.
 	fedNodes, err = bob.ListFederationServers(
-		ctx, &unirpc.ListFederationServersRequest{},
+		ctxt, &unirpc.ListFederationServersRequest{},
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 0, len(fedNodes.Servers))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	prand "math/rand"
 
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
@@ -188,15 +189,22 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		)
 	}
 
+	runtimeID := prand.Int63() // nolint:gosec
 	universeFederation := universe.NewFederationEnvoy(
 		universe.FederationConfig{
 			FederationDB:            federationDB,
 			UniverseSyncer:          universeSyncer,
 			LocalRegistrar:          baseUni,
 			SyncInterval:            cfg.Universe.SyncInterval,
-			NewRemoteRegistrar:      tap.NewRpcUniverseRegistar,
+			NewRemoteRegistrar:      tap.NewRpcUniverseRegistrar,
 			StaticFederationMembers: federationMembers,
-			ErrChan:                 mainErrChan,
+			ServerChecker: func(addr universe.ServerAddr) error {
+				return tap.CheckFederationServer(
+					runtimeID, universe.DefaultTimeout,
+					addr,
+				)
+			},
+			ErrChan: mainErrChan,
 		},
 	)
 
@@ -215,6 +223,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	return &tap.Config{
 		DebugLevel:                 cfg.DebugLevel,
+		RuntimeID:                  runtimeID,
 		AcceptRemoteUniverseProofs: cfg.Universe.AcceptRemoteProofs,
 		Lnd:                        lndServices,
 		ChainParams:                cfg.ActiveNetParams,
@@ -339,8 +348,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	return tap.NewServer(serverCfg), nil
 }
 
-// CreateServerFromConfig creates a new Taproot Asset server from the given CLI
-// config.
+// CreateSubServerFromConfig creates a new Taproot Asset server from the given
+// CLI config.
 func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
 	mainErrChan chan<- error) (*tap.Server, error) {

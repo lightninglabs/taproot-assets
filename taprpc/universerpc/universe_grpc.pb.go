@@ -59,6 +59,9 @@ type UniverseClient interface {
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
 	InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error)
+	// tapcli: `universe info`
+	// Info returns a set of information about the current state of the Universe.
+	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
 	// attempts to synchronize either only the set of specified asset_ids, or all
@@ -81,7 +84,7 @@ type UniverseClient interface {
 	// Universe server.
 	DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error)
 	// tapcli: `universe stats`
-	// UniverseStats returns a set of aggregrate statistics for the current state
+	// UniverseStats returns a set of aggregate statistics for the current state
 	// of the Universe. Stats returned include: total number of syncs, total
 	// number of proofs, and total number of known assets.
 	UniverseStats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
@@ -158,6 +161,15 @@ func (c *universeClient) QueryProof(ctx context.Context, in *UniverseKey, opts .
 func (c *universeClient) InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error) {
 	out := new(AssetProofResponse)
 	err := c.cc.Invoke(ctx, "/universerpc.Universe/InsertProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error) {
+	out := new(InfoResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/Info", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +275,9 @@ type UniverseServer interface {
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
 	InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error)
+	// tapcli: `universe info`
+	// Info returns a set of information about the current state of the Universe.
+	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	// tapcli: `universe sync`
 	// SyncUniverse takes host information for a remote Universe server, then
 	// attempts to synchronize either only the set of specified asset_ids, or all
@@ -285,7 +300,7 @@ type UniverseServer interface {
 	// Universe server.
 	DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error)
 	// tapcli: `universe stats`
-	// UniverseStats returns a set of aggregrate statistics for the current state
+	// UniverseStats returns a set of aggregate statistics for the current state
 	// of the Universe. Stats returned include: total number of syncs, total
 	// number of proofs, and total number of known assets.
 	UniverseStats(context.Context, *StatsRequest) (*StatsResponse, error)
@@ -322,6 +337,9 @@ func (UnimplementedUniverseServer) QueryProof(context.Context, *UniverseKey) (*A
 }
 func (UnimplementedUniverseServer) InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InsertProof not implemented")
+}
+func (UnimplementedUniverseServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
 }
 func (UnimplementedUniverseServer) SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncUniverse not implemented")
@@ -480,6 +498,24 @@ func _Universe_InsertProof_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_Info_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).Info(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/Info",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).Info(ctx, req.(*InfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Universe_SyncUniverse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SyncRequest)
 	if err := dec(in); err != nil {
@@ -622,6 +658,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InsertProof",
 			Handler:    _Universe_InsertProof_Handler,
+		},
+		{
+			MethodName: "Info",
+			Handler:    _Universe_Info_Handler,
 		},
 		{
 			MethodName: "SyncUniverse",

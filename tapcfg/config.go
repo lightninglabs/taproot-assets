@@ -97,7 +97,7 @@ const (
 	// use for waiting for a receiver to acknowledge a proof transfer.
 	defaultProofTransferReceiverAckTimeout = time.Hour * 6
 
-	// defaultuniverseSyncInterval is the default interval that we'll use
+	// defaultUniverseSyncInterval is the default interval that we'll use
 	// to sync Universe state with the federation.
 	defaultUniverseSyncInterval = time.Minute * 10
 )

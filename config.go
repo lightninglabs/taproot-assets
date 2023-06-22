@@ -72,6 +72,11 @@ type DatabaseConfig struct {
 type Config struct {
 	DebugLevel string
 
+	// RuntimeID is a pseudo-random ID that is generated when the server
+	// starts. It is used to identify the server to itself, to avoid
+	// connecting to itself as a federation member.
+	RuntimeID int64
+
 	AcceptRemoteUniverseProofs bool
 
 	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?

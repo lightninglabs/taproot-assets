@@ -3,7 +3,6 @@ package taprootassets
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -11,8 +10,6 @@ import (
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"golang.org/x/exp/maps"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 // RpcUniverseDiff is an implementation of the universe.DiffEngine interface
@@ -23,33 +20,17 @@ type RpcUniverseDiff struct {
 
 // NewRpcUniverseDiff creates a new RpcUniverseDiff instance that dials out to
 // the target remote universe server address.
-func NewRpcUniverseDiff(serverAddr universe.ServerAddr,
-) (universe.DiffEngine, error) {
+func NewRpcUniverseDiff(
+	serverAddr universe.ServerAddr) (universe.DiffEngine, error) {
 
-	// TODO(roasbeef): all info is authenticated, but also want to allow
-	// brontide connect as well, can avoid TLS certs
-	creds := credentials.NewTLS(&tls.Config{
-		InsecureSkipVerify: true,
-	})
-
-	// Create a dial options array.
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-	}
-
-	uniAddr, err := serverAddr.Addr()
+	conn, err := ConnectUniverse(serverAddr)
 	if err != nil {
-		return nil, err
-	}
-
-	conn, err := grpc.Dial(uniAddr.String(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to RPC "+
-			"server: %v", err)
+		return nil, fmt.Errorf("unable to connect to universe RPC "+
+			"server: %w", err)
 	}
 
 	return &RpcUniverseDiff{
-		conn: unirpc.NewUniverseClient(conn),
+		conn: conn,
 	}, nil
 }
 
@@ -60,7 +41,9 @@ func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 	return mssmt.NewComputedBranch(nodeHash, uint64(root.RootSum))
 }
 
-func unmarshalUniverseRoot(root *unirpc.UniverseRoot) (universe.BaseRoot, error) {
+func unmarshalUniverseRoot(
+	root *unirpc.UniverseRoot) (universe.BaseRoot, error) {
+
 	id, err := unmarshalUniID(root.Id)
 	if err != nil {
 		return universe.BaseRoot{}, err
@@ -72,7 +55,9 @@ func unmarshalUniverseRoot(root *unirpc.UniverseRoot) (universe.BaseRoot, error)
 	}, nil
 }
 
-func unmarshalUniverseRoots(roots []*unirpc.UniverseRoot) ([]universe.BaseRoot, error) {
+func unmarshalUniverseRoots(
+	roots []*unirpc.UniverseRoot) ([]universe.BaseRoot, error) {
+
 	baseRoots := make([]universe.BaseRoot, 0, len(roots))
 	for _, root := range roots {
 		id, err := unmarshalUniID(root.Id)
@@ -91,8 +76,8 @@ func unmarshalUniverseRoots(roots []*unirpc.UniverseRoot) ([]universe.BaseRoot, 
 
 // RootNodes returns the complete set of known root nodes for the set
 // of assets tracked in the base Universe.
-func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
-) ([]universe.BaseRoot, error) {
+func (r *RpcUniverseDiff) RootNodes(
+	ctx context.Context) ([]universe.BaseRoot, error) {
 
 	universeRoots, err := r.conn.AssetRoots(
 		ctx, &unirpc.AssetRootRequest{},

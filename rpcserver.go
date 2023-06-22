@@ -2734,6 +2734,21 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
 }
 
+// Info returns a set of information about the current state of the Universe.
+func (r *rpcServer) Info(ctx context.Context,
+	req *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
+
+	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &unirpc.InfoResponse{
+		RuntimeId: r.cfg.RuntimeID,
+		NumAssets: universeStats.NumTotalAssets,
+	}, nil
+}
+
 // unmarshalUniverseSyncType maps an RPC universe sync type into a concrete
 // type.
 func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
@@ -2884,6 +2899,20 @@ func (r *rpcServer) AddFederationServer(ctx context.Context,
 
 	serversToAdd := fn.Map(in.Servers, unmarshalUniverseServer)
 
+	for idx := range serversToAdd {
+		server := serversToAdd[idx]
+
+		// Before we add the server as a federation member, we check
+		// that we can actually connect to it and that it isn't
+		// ourselves.
+		err := CheckFederationServer(
+			r.cfg.RuntimeID, universe.DefaultTimeout, server,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	err := r.cfg.UniverseFederation.AddServer(serversToAdd...)
 	if err != nil {
 		return nil, err
@@ -3010,7 +3039,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 	}, nil
 }
 
-// UniverseStats returns a set of aggregrate statistics for the current state
+// UniverseStats returns a set of aggregate statistics for the current state
 // of the Universe.
 func (r *rpcServer) UniverseStats(ctx context.Context,
 	req *unirpc.StatsRequest) (*unirpc.StatsResponse, error) {
@@ -3029,8 +3058,8 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 // marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
 // counterpart.
-func marshalAssetSyncSnapshot(a universe.AssetSyncSnapshot,
-) *unirpc.AssetStatsSnapshot {
+func marshalAssetSyncSnapshot(
+	a universe.AssetSyncSnapshot) *unirpc.AssetStatsSnapshot {
 
 	return &unirpc.AssetStatsSnapshot{
 		AssetId:       a.AssetID[:],
