@@ -78,6 +78,22 @@ jobs:
         run: go install -v ./...
 
   ########################
+  # cross compilation
+  ########################
+  cross-compile:
+    name: cross compilation
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+
+      - name: build release for all architectures
+        run: make release
+
+  ########################
   # Lint check.
   ########################
   lint-check:
