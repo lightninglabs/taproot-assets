@@ -1,4 +1,9 @@
-# IMAGE FOR BUILDING
+# If you change this value, please change it in the following files as well:
+# /.github/workflows/main.yaml
+# /Dockerfile
+# /make/builder.Dockerfile
+# /taprpc/Dockerfile
+# /tools/Dockerfile
 FROM golang:1.20.5 as builder 
 
 WORKDIR /app

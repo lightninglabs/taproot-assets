@@ -137,7 +137,7 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 
 	// Populate proof courier specific config fields.
 	switch typedProofCourier := (proofCourier).(type) {
-	case *proof.ApertureHarness:
+	case *ApertureHarness:
 		// Use passed in backoff config or default config.
 		backoffCfg := &proof.BackoffCfg{
 			BackoffResetWait: 20 * time.Second,
