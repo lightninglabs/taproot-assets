@@ -1,4 +1,4 @@
-package proof
+package itest
 
 import (
 	"crypto/tls"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/aperture"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -121,5 +122,5 @@ func (h *ApertureHarness) Stop() error {
 	return h.Service.Stop()
 }
 
-// Ensure that ApertureHarness implements the CourierHarness interface.
-var _ CourierHarness = (*ApertureHarness)(nil)
+// Ensure that ApertureHarness implements the proof.CourierHarness interface.
+var _ proof.CourierHarness = (*ApertureHarness)(nil)

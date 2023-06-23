@@ -284,7 +284,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 
 	case proof.ApertureCourier:
 		port := nextAvailablePort()
-		apHarness := proof.NewApertureHarness(ht.t, port)
+		apHarness := NewApertureHarness(ht.t, port)
 		proofCourier = &apHarness
 	}
 
