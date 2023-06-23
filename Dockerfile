@@ -1,9 +1,9 @@
 # If you change this value, please change it in the following files as well:
-# /.travis.yml
+# /.github/workflows/main.yaml
 # /dev.Dockerfile
 # /make/builder.Dockerfile
-# /.github/workflows/main.yml
-# /.github/workflows/release.yml
+# /taprpc/Dockerfile
+# /tools/Dockerfile
 FROM golang:1.20.5-alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS

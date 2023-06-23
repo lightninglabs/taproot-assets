@@ -1,3 +1,9 @@
+# If you change this value, please change it in the following files as well:
+# /.github/workflows/main.yaml
+# /Dockerfile
+# /dev.Dockerfile
+# /make/builder.Dockerfile
+# /tools/Dockerfile
 FROM golang:1.20.4-buster
 
 RUN apt-get update && apt-get install -y \

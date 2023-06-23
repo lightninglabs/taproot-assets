@@ -1,9 +1,9 @@
 # If you change this value, please change it in the following files as well:
-# /.travis.yml
+# /.github/workflows/main.yaml
 # /Dockerfile
 # /dev.Dockerfile
-# /.github/workflows/main.yml
-# /.github/workflows/release.yml
+# /taprpc/Dockerfile
+# /tools/Dockerfile
 FROM golang:1.20.5-buster
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
