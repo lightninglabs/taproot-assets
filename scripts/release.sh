@@ -111,6 +111,7 @@ function check_tag_correct() {
 
     # If the tapd reported version contains a suffix, remove it, so we can match
     # the tag properly.
+    # shellcheck disable=SC2001
     tapd_version=$(echo "$tapd_version" | sed -e 's/-\(alpha\|beta\)\(\.rc[0-9]\+\)\?//g')
 
     # Match git tag with tapd version.
@@ -137,8 +138,8 @@ function build_release() {
   reproducible_tar_gzip vendor
 
   maindir=$PACKAGE-$tag
-  rm -rf $maindir
-  mkdir -p $maindir
+  rm -rf "$maindir"
+  mkdir -p "$maindir"
   mv vendor.tar.gz "${maindir}/"
 
   # Don't use tag in source directory, otherwise our file names get too long and
@@ -158,8 +159,8 @@ function build_release() {
   mv "${package_source}.tar.gz" "${package_source}-$tag.tar.gz" 
 
   for i in $sys; do
-    os=$(echo $i | cut -f1 -d-)
-    arch=$(echo $i | cut -f2 -d-)
+    os=$(echo "$i" | cut -f1 -d-)
+    arch=$(echo "$i" | cut -f2 -d-)
     arm=
 
     if [[ $arch == "armv6" ]]; then
@@ -175,8 +176,8 @@ function build_release() {
     pushd "${dir}"
 
     green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
-    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapd
-    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapcli
+    env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapd
+    env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapcli
     popd
 
     # Add the hashes for the individual binaries as well for easy verification
