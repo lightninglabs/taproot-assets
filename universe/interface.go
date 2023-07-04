@@ -40,14 +40,20 @@ type Identifier struct {
 	GroupKey *btcec.PublicKey
 }
 
-// String returns a string representation of the ID.
-func (i *Identifier) String() string {
+// Bytes returns a bytes representation of the ID.
+func (i *Identifier) Bytes() [32]byte {
 	if i.GroupKey != nil {
 		h := sha256.Sum256(schnorr.SerializePubKey(i.GroupKey))
-		return hex.EncodeToString(h[:])
+		return h
 	}
 
-	return hex.EncodeToString(i.AssetID[:])
+	return i.AssetID
+}
+
+// String returns a string representation of the ID.
+func (i *Identifier) String() string {
+	idBytes := i.Bytes()
+	return hex.EncodeToString(idBytes[:])
 }
 
 // StringForLog returns a string representation of the ID for logging.
