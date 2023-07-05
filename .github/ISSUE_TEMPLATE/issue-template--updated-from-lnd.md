@@ -1,5 +1,5 @@
 ---
-name: Issue template, updated from lnd
+name: Issue template
 about: Create a report to help us improve
 title: "[bug]: "
 labels: needs triage
