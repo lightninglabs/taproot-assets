@@ -39,7 +39,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 )
@@ -138,7 +137,7 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 		return err
 	}
 
-	err = walletrpc.RegisterWalletKitHandlerFromEndpoint(
+	err = wrpc.RegisterAssetWalletHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
