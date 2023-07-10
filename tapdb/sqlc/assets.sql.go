@@ -816,7 +816,7 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 }
 
 const fetchGenesisByAssetID = `-- name: FetchGenesisByAssetID :one
-SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out 
+SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out, block_height 
 FROM genesis_info_view
 WHERE asset_id = $1
 `
@@ -832,6 +832,7 @@ func (q *Queries) FetchGenesisByAssetID(ctx context.Context, assetID []byte) (Ge
 		&i.OutputIndex,
 		&i.AssetType,
 		&i.PrevOut,
+		&i.BlockHeight,
 	)
 	return i, err
 }

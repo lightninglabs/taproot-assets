@@ -337,6 +337,10 @@ type ChainAsset struct {
 	// AnchorBlockHash is the blockhash that mined the anchor tx.
 	AnchorBlockHash chainhash.Hash
 
+	// AnchorBlockHeight is the height of the block that mined the anchor
+	// tx.
+	AnchorBlockHeight uint32
+
 	// AnchorOutpoint is the outpoint that commits to the asset.
 	AnchorOutpoint wire.OutPoint
 

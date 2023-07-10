@@ -170,6 +170,7 @@ type GenesisInfoView struct {
 	OutputIndex int32
 	AssetType   int16
 	PrevOut     []byte
+	BlockHeight sql.NullInt32
 }
 
 type GenesisPoint struct {
