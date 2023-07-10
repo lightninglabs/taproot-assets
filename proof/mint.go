@@ -26,6 +26,10 @@ type BaseProofParams struct {
 	// specified assets.
 	Block *wire.MsgBlock
 
+	// BlockHeight is the height of the block that mined the transaction
+	// which minted the specified assets.
+	BlockHeight uint32
+
 	// Tx is the transaction that created the assets.
 	Tx *wire.MsgTx
 
@@ -200,6 +204,7 @@ func coreProof(params *BaseProofParams) (*Proof, error) {
 
 	return &Proof{
 		BlockHeader:   params.Block.Header,
+		BlockHeight:   params.BlockHeight,
 		AnchorTx:      *params.Tx,
 		TxMerkleProof: *merkleProof,
 	}, nil

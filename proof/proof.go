@@ -48,6 +48,10 @@ type Proof struct {
 	// transaction attempting an asset state transition.
 	BlockHeader wire.BlockHeader
 
+	// BlockHeight is the height of the current block committing to the
+	// on-chain transaction attempting an asset state transition.
+	BlockHeight uint32
+
 	// AnchorTx is the on-chain transaction attempting the asset state
 	// transition.
 	AnchorTx wire.MsgTx
@@ -129,6 +133,7 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 			&p.ChallengeWitness,
 		))
 	}
+	records = append(records, BlockHeightRecord(&p.BlockHeight))
 	return records
 }
 
@@ -146,6 +151,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		MetaRevealRecord(&p.MetaReveal),
 		AdditionalInputsRecord(&p.AdditionalInputs),
 		ChallengeWitnessRecord(&p.ChallengeWitness),
+		BlockHeightRecord(&p.BlockHeight),
 	}
 }
 

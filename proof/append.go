@@ -108,6 +108,7 @@ func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
 	}
 
 	p.BlockHeader = proofHeader.BlockHeader
+	p.BlockHeight = proofHeader.BlockHeight
 	p.AnchorTx = proofHeader.AnchorTx
 	p.TxMerkleProof = proofHeader.TxMerkleProof
 	return nil

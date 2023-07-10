@@ -22,6 +22,7 @@ const (
 	MetaRevealType       tlv.Type = 8
 	AdditionalInputsType tlv.Type = 9
 	ChallengeWitnessType tlv.Type = 10
+	BlockHeightType      tlv.Type = 11
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 1
@@ -52,6 +53,12 @@ func BlockHeaderRecord(header *wire.BlockHeader) tlv.Record {
 	return tlv.MakeStaticRecord(
 		BlockHeaderType, header, wire.MaxBlockHeaderPayload,
 		BlockHeaderEncoder, BlockHeaderDecoder,
+	)
+}
+
+func BlockHeightRecord(height *uint32) tlv.Record {
+	return tlv.MakeStaticRecord(
+		BlockHeightType, height, 4, tlv.EUint32, tlv.DUint32,
 	)
 }
 
