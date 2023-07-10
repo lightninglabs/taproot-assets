@@ -191,10 +191,12 @@ var (
 	MacaroonWhitelist = map[string]struct{}{
 		"/universerpc.Universe/AssetRoots":      {},
 		"/universerpc.Universe/QueryAssetRoots": {},
+		"/universerpc.Universe/QueryAssetStats": {},
 		"/universerpc.Universe/AssetLeafKeys":   {},
 		"/universerpc.Universe/AssetLeaves":     {},
 		"/universerpc.Universe/QueryProof":      {},
 		"/universerpc.Universe/InsertProof":     {},
 		"/universerpc.Universe/Info":            {},
+		"/universerpc.Universe/UniverseStats":   {},
 	}
 )
