@@ -183,16 +183,20 @@ var (
 	}
 
 	// MacaroonWhitelist defines methods that we don't require macaroons to
-	// access. For now, these are the Universe related read/write methods.
-	// We permit InsertProof as a valid proof requires an on-chain
-	// transaction, so we gain a layer of DoS defense.
+	// access.
+	//
+	// For now, these are the Universe related read/write methods. We permit
+	// InsertProof as a valid proof requires an on-chain transaction, so we
+	// gain a layer of DoS defense.
 	MacaroonWhitelist = map[string]struct{}{
 		"/universerpc.Universe/AssetRoots":      {},
 		"/universerpc.Universe/QueryAssetRoots": {},
+		"/universerpc.Universe/QueryAssetStats": {},
 		"/universerpc.Universe/AssetLeafKeys":   {},
 		"/universerpc.Universe/AssetLeaves":     {},
 		"/universerpc.Universe/QueryProof":      {},
 		"/universerpc.Universe/InsertProof":     {},
 		"/universerpc.Universe/Info":            {},
+		"/universerpc.Universe/UniverseStats":   {},
 	}
 )
