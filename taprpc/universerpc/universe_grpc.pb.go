@@ -94,6 +94,10 @@ type UniverseClient interface {
 	// asset type. Pagination is supported via the offset and limit params.
 	// Results can also be sorted based on any of the main query params.
 	QueryAssetStats(ctx context.Context, in *AssetStatsQuery, opts ...grpc.CallOption) (*UniverseAssetStats, error)
+	// tapcli `universe stats events`
+	// QueryEvents returns the number of sync and proof events for a given time
+	// period, grouped by day.
+	QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error)
 }
 
 type universeClient struct {
@@ -230,6 +234,15 @@ func (c *universeClient) QueryAssetStats(ctx context.Context, in *AssetStatsQuer
 	return out, nil
 }
 
+func (c *universeClient) QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error) {
+	out := new(QueryEventsResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/QueryEvents", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -310,6 +323,10 @@ type UniverseServer interface {
 	// asset type. Pagination is supported via the offset and limit params.
 	// Results can also be sorted based on any of the main query params.
 	QueryAssetStats(context.Context, *AssetStatsQuery) (*UniverseAssetStats, error)
+	// tapcli `universe stats events`
+	// QueryEvents returns the number of sync and proof events for a given time
+	// period, grouped by day.
+	QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -358,6 +375,9 @@ func (UnimplementedUniverseServer) UniverseStats(context.Context, *StatsRequest)
 }
 func (UnimplementedUniverseServer) QueryAssetStats(context.Context, *AssetStatsQuery) (*UniverseAssetStats, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryAssetStats not implemented")
+}
+func (UnimplementedUniverseServer) QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryEvents not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -624,6 +644,24 @@ func _Universe_QueryAssetStats_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_QueryEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).QueryEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/QueryEvents",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).QueryEvents(ctx, req.(*QueryEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -686,6 +724,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryAssetStats",
 			Handler:    _Universe_QueryAssetStats_Handler,
+		},
+		{
+			MethodName: "QueryEvents",
+			Handler:    _Universe_QueryEvents_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

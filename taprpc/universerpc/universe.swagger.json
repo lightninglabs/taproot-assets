@@ -925,6 +925,45 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/stats/events": {
+      "get": {
+        "summary": "tapcli `universe stats events`\nQueryEvents returns the number of sync and proof events for a given time\nperiod, grouped by day.",
+        "operationId": "Universe_QueryEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcQueryEventsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "start_timestamp",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "end_timestamp",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/sync": {
       "post": {
         "summary": "tapcli: `universe sync`\nSyncUniverse takes host information for a remote Universe server, then\nattempts to synchronize either only the set of specified asset_ids, or all\nassets if none are specified. The sync process will attempt to query for\nthe latest known root for each asset, performing tree based reconciliation\nto arrive at a new shared root.",
@@ -1392,6 +1431,23 @@
     "universerpcDeleteRootResponse": {
       "type": "object"
     },
+    "universerpcGroupedUniverseEvents": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "The date the events occurred on, formatted as YYYY-MM-DD."
+        },
+        "sync_events": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "new_proof_events": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
     "universerpcID": {
       "type": "object",
       "properties": {
@@ -1467,6 +1523,17 @@
           "type": "integer",
           "format": "int32",
           "description": "The index of the output."
+        }
+      }
+    },
+    "universerpcQueryEventsResponse": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcGroupedUniverseEvents"
+          }
         }
       }
     },

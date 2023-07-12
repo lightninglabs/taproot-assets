@@ -120,6 +120,12 @@ service Universe {
     Results can also be sorted based on any of the main query params.
     */
     rpc QueryAssetStats (AssetStatsQuery) returns (UniverseAssetStats);
+
+    /* tapcli `universe stats events`
+    QueryEvents returns the number of sync and proof events for a given time
+    period, grouped by day.
+    */
+    rpc QueryEvents (QueryEventsRequest) returns (QueryEventsResponse);
 }
 
 message AssetRootRequest {
@@ -424,4 +430,20 @@ message AssetStatsSnapshot {
 
 message UniverseAssetStats {
     repeated AssetStatsSnapshot asset_stats = 1;
+}
+
+message QueryEventsRequest {
+    int64 start_timestamp = 1;
+    int64 end_timestamp = 2;
+}
+
+message QueryEventsResponse {
+    repeated GroupedUniverseEvents events = 1;
+}
+
+message GroupedUniverseEvents {
+    // The date the events occurred on, formatted as YYYY-MM-DD.
+    string date = 1;
+    uint64 sync_events = 2;
+    uint64 new_proof_events = 3;
 }

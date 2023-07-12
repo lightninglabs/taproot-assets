@@ -923,9 +923,8 @@ func assertUniverseStats(t *testing.T, node *tapdHarness,
 func assertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	assets []*taprpc.Asset) {
 
-	assetStats, err := node.QueryAssetStats(
-		context.Background(), &unirpc.AssetStatsQuery{},
-	)
+	ctxb := context.Background()
+	assetStats, err := node.QueryAssetStats(ctxb, &unirpc.AssetStatsQuery{})
 	require.NoError(t, err)
 	require.Len(t, assetStats.AssetStats, len(assets))
 
@@ -952,4 +951,14 @@ func assertUniverseAssetStats(t *testing.T, node *tapdHarness,
 		require.NotZero(t, assetStat.GenesisTimestamp)
 		require.NotEmpty(t, assetStat.GenesisPoint)
 	}
+
+	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})
+	require.NoError(t, err)
+
+	todayStr := time.Now().Format("2006-01-02")
+	require.Len(t, eventStats.Events, 1)
+
+	s := eventStats.Events[0]
+	require.Equal(t, todayStr, s.Date)
+	require.EqualValues(t, len(assets), s.NewProofEvents)
 }

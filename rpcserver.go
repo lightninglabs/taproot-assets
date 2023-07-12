@@ -3182,3 +3182,48 @@ func (r *rpcServer) getBlockTimestamp(ctx context.Context,
 
 	return int64(ts)
 }
+
+// QueryEvents returns the number of sync and proof events for a given time
+// period, grouped by day.
+func (r *rpcServer) QueryEvents(ctx context.Context,
+	req *unirpc.QueryEventsRequest) (*unirpc.QueryEventsResponse, error) {
+
+	// If no start or end time is specified, default to the last 30 days.
+	var (
+		startTime = time.Now().AddDate(0, 0, -30)
+		endTime   = time.Now()
+	)
+	if req.StartTimestamp > 0 {
+		startTime = time.Unix(req.StartTimestamp, 0)
+	}
+	if req.EndTimestamp > 0 {
+		endTime = time.Unix(req.EndTimestamp, 0)
+	}
+
+	if endTime.Before(startTime) {
+		return nil, fmt.Errorf("end time cannot be before start time")
+	}
+
+	stats, err := r.cfg.UniverseStats.QueryAssetStatsPerDay(
+		ctx, universe.GroupedStatsQuery{
+			StartTime: startTime,
+			EndTime:   endTime,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error querying stats: %w", err)
+	}
+
+	rpcStats := &unirpc.QueryEventsResponse{
+		Events: make([]*unirpc.GroupedUniverseEvents, len(stats)),
+	}
+	for day, s := range stats {
+		rpcStats.Events[day] = &unirpc.GroupedUniverseEvents{
+			Date:           s.Date,
+			SyncEvents:     s.NumTotalSyncs,
+			NewProofEvents: s.NumTotalProofs,
+		}
+	}
+
+	return rpcStats, nil
+}
