@@ -199,6 +199,9 @@ message AnchorInfo {
     anchor output.
     */
     bytes tapscript_sibling = 7;
+
+    // The height of the block which contains the anchor transaction.
+    uint32 block_height = 8;
 }
 
 message GenesisInfo {

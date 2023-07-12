@@ -569,6 +569,7 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 		InternalKey:      a.AnchorInternalKey.SerializeCompressed(),
 		MerkleRoot:       a.AnchorMerkleRoot,
 		TapscriptSibling: a.AnchorTapscriptSibling,
+		BlockHeight:      a.AnchorBlockHeight,
 	}
 
 	return rpcAsset, nil
@@ -1185,6 +1186,7 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 		AnchorTx:          &decodedProof.AnchorTx,
 		AnchorTxid:        decodedProof.AnchorTx.TxHash(),
 		AnchorBlockHash:   decodedProof.BlockHeader.BlockHash(),
+		AnchorBlockHeight: decodedProof.BlockHeight,
 		AnchorOutpoint:    anchorOutpoint,
 		AnchorInternalKey: decodedProof.InclusionProof.InternalKey,
 	}, withPrevWitnesses)

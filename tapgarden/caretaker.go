@@ -815,6 +815,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		baseProof := &proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
 				Block:            confInfo.Block,
+				BlockHeight:      confInfo.BlockHeight,
 				Tx:               confInfo.Tx,
 				TxIndex:          int(confInfo.TxIndex),
 				OutputIndex:      int(b.anchorOutputIndex),

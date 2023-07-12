@@ -297,14 +297,16 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 CREATE VIEW genesis_info_view AS
     SELECT
         gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash meta_hash,
-        output_index, asset_type, genesis_points.prev_out prev_out
+        output_index, asset_type, genesis_points.prev_out prev_out, block_height
     FROM genesis_assets
     -- We do a LEFT JOIN here, as not every asset has a set of
     -- metadata that matches the asset.
     LEFT JOIN assets_meta
         ON genesis_assets.meta_data_id = assets_meta.meta_id
     JOIN genesis_points
-        ON genesis_assets.genesis_point_id = genesis_points.genesis_id;
+        ON genesis_assets.genesis_point_id = genesis_points.genesis_id
+    LEFT JOIN chain_txns
+        ON genesis_points.anchor_tx_id = chain_txns.txn_id;
 
 -- This view is used to perform a series of joins that allow us to extract
 -- the group key information, as well as the group sigs for the series of

@@ -180,6 +180,7 @@ func TestProofEncoding(t *testing.T) {
 	proof := Proof{
 		PrevOut:       genesis.FirstPrevOut,
 		BlockHeader:   oddTxBlock.Header,
+		BlockHeight:   42,
 		AnchorTx:      *oddTxBlock.Transactions[0],
 		TxMerkleProof: *txMerkleProof,
 		Asset:         *asset,

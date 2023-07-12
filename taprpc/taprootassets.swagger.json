@@ -869,6 +869,11 @@
           "type": "string",
           "format": "byte",
           "description": "The serialized preimage of a Tapscript sibling, if there was one. If this\nis empty, then the merkle_root hash is equal to the Taproot root hash of the\nanchor output."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block which contains the anchor transaction."
         }
       }
     },

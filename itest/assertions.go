@@ -257,7 +257,13 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness,
 		RawProof: blob,
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, decodeResp.DecodedProof.Asset)
+
+	rpcAsset := decodeResp.DecodedProof.Asset
+	require.NotEmpty(t, rpcAsset)
+
+	// Ensure anchor block height is set.
+	anchorTxBlockHeight := rpcAsset.ChainAnchor.BlockHeight
+	require.Greater(t, anchorTxBlockHeight, uint32(0))
 
 	headerVerifier := func(blockHeader wire.BlockHeader) error {
 		hash := blockHeader.BlockHash()
