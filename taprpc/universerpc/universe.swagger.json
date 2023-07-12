@@ -898,7 +898,10 @@
               "SORT_BY_NONE",
               "SORT_BY_ASSET_NAME",
               "SORT_BY_ASSET_ID",
-              "SORT_BY_ASSET_TYPE"
+              "SORT_BY_ASSET_TYPE",
+              "SORT_BY_TOTAL_SYNCS",
+              "SORT_BY_TOTAL_PROOFS",
+              "SORT_BY_GENESIS_HEIGHT"
             ],
             "default": "SORT_BY_NONE"
           },
@@ -1313,7 +1316,10 @@
         "SORT_BY_NONE",
         "SORT_BY_ASSET_NAME",
         "SORT_BY_ASSET_ID",
-        "SORT_BY_ASSET_TYPE"
+        "SORT_BY_ASSET_TYPE",
+        "SORT_BY_TOTAL_SYNCS",
+        "SORT_BY_TOTAL_PROOFS",
+        "SORT_BY_GENESIS_HEIGHT"
       ],
       "default": "SORT_BY_NONE"
     },
@@ -1336,6 +1342,13 @@
           "type": "string",
           "format": "byte"
         },
+        "group_key": {
+          "type": "string",
+          "format": "byte"
+        },
+        "genesis_point": {
+          "type": "string"
+        },
         "total_supply": {
           "type": "string",
           "format": "int64"
@@ -1349,6 +1362,10 @@
         "genesis_height": {
           "type": "integer",
           "format": "int32"
+        },
+        "genesis_timestamp": {
+          "type": "string",
+          "format": "int64"
         },
         "total_syncs": {
           "type": "string",

@@ -370,6 +370,12 @@ enum AssetQuerySort {
     SORT_BY_ASSET_ID = 2;
 
     SORT_BY_ASSET_TYPE = 3;
+
+    SORT_BY_TOTAL_SYNCS = 4;
+
+    SORT_BY_TOTAL_PROOFS = 5;
+
+    SORT_BY_GENESIS_HEIGHT = 6;
 }
 
 enum AssetTypeFilter {
@@ -397,17 +403,23 @@ message AssetStatsQuery {
 message AssetStatsSnapshot {
     bytes asset_id = 1;
 
-    int64 total_supply = 2;
+    bytes group_key = 2;
 
-    string asset_name = 3;
+    string genesis_point = 3;
 
-    taprpc.AssetType asset_type = 4;
+    int64 total_supply = 4;
 
-    int32 genesis_height = 5;
+    string asset_name = 5;
 
-    int64 total_syncs = 6;
+    taprpc.AssetType asset_type = 6;
 
-    int64 total_proofs = 7;
+    int32 genesis_height = 7;
+
+    int64 genesis_timestamp = 8;
+
+    int64 total_syncs = 9;
+
+    int64 total_proofs = 10;
 }
 
 message UniverseAssetStats {
