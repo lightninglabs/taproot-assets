@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -202,6 +204,15 @@ func sortTypeToOrderBy(s universe.SyncStatsSort) string {
 	case universe.SortByAssetID:
 		return "asset_id"
 
+	case universe.SortByTotalSyncs:
+		return "total_syncs"
+
+	case universe.SortByTotalProofs:
+		return "total_proofs"
+
+	case universe.SortByGenesisHeight:
+		return "genesis_height"
+
 	default:
 		return ""
 	}
@@ -267,10 +278,30 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 				AssetID: fn.ToArray[asset.ID](
 					assetStat.AssetID,
 				),
-				AssetName:   assetStat.AssetName,
-				AssetType:   asset.Type(assetStat.AssetType),
+				AssetName: assetStat.AssetName,
+				AssetType: asset.Type(assetStat.AssetType),
+				GenesisHeight: uint32(
+					assetStat.GenesisHeight.Int32,
+				),
 				TotalSyncs:  uint64(assetStat.TotalSyncs),
 				TotalProofs: uint64(assetStat.TotalProofs),
+			}
+
+			if len(assetStat.GroupKey) > 0 {
+				stats.GroupKey, err = btcec.ParsePubKey(
+					assetStat.GroupKey,
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if err := readOutPoint(
+				bytes.NewReader(assetStat.GenesisPrevOut), 0, 0,
+				&stats.GenesisPoint,
+			); err != nil {
+				return fmt.Errorf("unable to read outpoint: %w",
+					err)
 			}
 
 			resp.SyncStats = append(resp.SyncStats, stats)

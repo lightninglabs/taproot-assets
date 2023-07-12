@@ -309,16 +309,26 @@ WITH asset_supply AS (
     GROUP BY gen.asset_id
 ), asset_info AS (
     SELECT asset_supply.supply, gen.asset_id AS asset_id, 
-           gen.asset_tag AS asset_name, gen.asset_type AS asset_type
+           gen.asset_tag AS asset_name, gen.asset_type AS asset_type,
+           gen.block_height AS genesis_height, gen.prev_out AS genesis_prev_out,
+           group_info.tweaked_group_key AS group_key
     FROM genesis_info_view gen
     JOIN asset_supply
         ON asset_supply.asset_id = gen.asset_id
+    -- We use a LEFT JOIN here as not every asset has a group key, so this'll
+    -- generate rows that have NULL values for the group key fields if an asset
+    -- doesn't have a group key.
+    LEFT JOIN key_group_info_view group_info
+        ON gen.gen_asset_id = group_info.gen_asset_id
     WHERE (gen.asset_tag = $4 OR $4 IS NULL) AND
           (gen.asset_type = $5 OR $5 IS NULL) AND
           (gen.asset_id = $6 OR $6 IS NULL)
 )
 SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
     asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
+    asset_info.genesis_height AS genesis_height,
+    asset_info.genesis_prev_out AS genesis_prev_out,
+    asset_info.group_key AS group_key,
     universe_stats.total_asset_syncs AS total_syncs,
     universe_stats.total_asset_proofs AS total_proofs
 FROM asset_info
@@ -336,6 +346,18 @@ ORDER BY
     CASE
         WHEN $1 = 'asset_type' THEN asset_info.asset_type
         ELSE NULL
+    END,
+    CASE
+        WHEN $1 = 'total_syncs' THEN universe_stats.total_asset_syncs
+        ELSE NULL
+        END,
+    CASE
+        WHEN $1 = 'total_proofs' THEN universe_stats.total_asset_proofs
+        ELSE NULL
+    END,
+    CASE
+        WHEN $1 = 'genesis_height' THEN asset_info.genesis_height
+        ELSE NULL
     END
 LIMIT $3 OFFSET $2
 `
@@ -350,12 +372,15 @@ type QueryUniverseAssetStatsParams struct {
 }
 
 type QueryUniverseAssetStatsRow struct {
-	AssetSupply int64
-	AssetName   string
-	AssetType   int16
-	AssetID     []byte
-	TotalSyncs  int64
-	TotalProofs int64
+	AssetSupply    int64
+	AssetName      string
+	AssetType      int16
+	AssetID        []byte
+	GenesisHeight  sql.NullInt32
+	GenesisPrevOut []byte
+	GroupKey       []byte
+	TotalSyncs     int64
+	TotalProofs    int64
 }
 
 // TODO(roasbeef): use the universe id instead for the grouping? so namespace
@@ -381,6 +406,9 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 			&i.AssetName,
 			&i.AssetType,
 			&i.AssetID,
+			&i.GenesisHeight,
+			&i.GenesisPrevOut,
+			&i.GroupKey,
 			&i.TotalSyncs,
 			&i.TotalProofs,
 		); err != nil {

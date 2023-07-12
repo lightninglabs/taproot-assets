@@ -489,6 +489,17 @@ const (
 
 	// SortByAssetID sorts the returned stats by the asset ID.
 	SortByAssetID
+
+	// SortByTotalSyncs sorts the returned stats by the total number of
+	// syncs.
+	SortByTotalSyncs
+
+	// SortByTotalProofs sorts the returned stats by the total number of
+	// proofs.
+	SortByTotalProofs
+
+	// SortByGenesisHeight sorts the returned stats by the genesis height.
+	SortByGenesisHeight
 )
 
 // SyncStatsQuery packages a set of query parameters to retrieve stats related
@@ -522,6 +533,12 @@ type SyncStatsQuery struct {
 type AssetSyncSnapshot struct {
 	// AssetID is the ID of the asset.
 	AssetID asset.ID
+
+	// GroupKey is the optional group key of the asset.
+	GroupKey *btcec.PublicKey
+
+	// GenesisPoint is the first previous output that created the asset.
+	GenesisPoint wire.OutPoint
 
 	// AssetName is the name of the asset.
 	AssetName string
@@ -578,7 +595,7 @@ type AggregateStats struct {
 // TODO(roasbeef): prob want to add a wrapper around multiple instances, eg: to
 // the main db and also prometheus or w/e
 type Telemetry interface {
-	// AggreagateSyncStats returns stats aggregated over all assets within
+	// AggregateSyncStats returns stats aggregated over all assets within
 	// the Universe.
 	AggregateSyncStats(ctx context.Context) (AggregateStats, error)
 

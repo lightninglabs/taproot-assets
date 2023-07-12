@@ -258,6 +258,41 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:     "total sync",
+			sortType: universe.SortByTotalSyncs,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+			) func(i, j int) bool {
+
+				return func(i, j int) bool {
+					return s[i].TotalSyncs < s[j].TotalSyncs
+				}
+			},
+		},
+		{
+			name:     "total proofs",
+			sortType: universe.SortByTotalProofs,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+			) func(i, j int) bool {
+
+				return func(i, j int) bool {
+					return s[i].TotalProofs <
+						s[j].TotalProofs
+				}
+			},
+		},
+		{
+			name:     "genesis height",
+			sortType: universe.SortByGenesisHeight,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+			) func(i, j int) bool {
+
+				return func(i, j int) bool {
+					return s[i].GenesisHeight <
+						s[j].GenesisHeight
+				}
+			},
+		},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
