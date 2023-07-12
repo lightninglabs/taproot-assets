@@ -18,8 +18,8 @@ import (
 func newUniverseStatsWithDB(t *testing.T,
 	db *BaseDB) (*UniverseStats, sqlc.Querier) {
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) UniverseStatsStore {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) UniverseStatsStore {
 			return db.WithTx(tx)
 		},
 	)

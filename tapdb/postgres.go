@@ -109,7 +109,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 		}
 	}
 
-	queries := sqlc.New(rawDb)
+	queries := sqlc.NewPostgres(rawDb)
 
 	return &PostgresStore{
 		cfg: cfg,

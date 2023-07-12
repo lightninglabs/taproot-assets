@@ -56,8 +56,8 @@ func newTestUniverse(t *testing.T,
 func newTestUniverseWithDb(t *testing.T, db *BaseDB,
 	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseUniverseStore {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) BaseUniverseStore {
 			return db.WithTx(tx)
 		},
 	)
