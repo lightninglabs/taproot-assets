@@ -51,7 +51,7 @@ func testRoundTripSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	// We'll send half of the minted units to Bob, and then have Bob return

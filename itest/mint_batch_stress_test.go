@@ -168,7 +168,7 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
-		require.NoError(t.t, bob.stop(true))
+		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	_, err = bob.AddFederationServer(

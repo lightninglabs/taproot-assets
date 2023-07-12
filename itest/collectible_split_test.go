@@ -47,7 +47,7 @@ func testCollectibleSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	// Next, we'll attempt to complete three transfers of the full value of

@@ -49,7 +49,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	var (
@@ -170,7 +170,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	var (
@@ -309,7 +309,7 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	runPsbtInteractiveFullValueSendTest(
@@ -359,7 +359,7 @@ func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	runPsbtInteractiveFullValueSendTest(
@@ -513,7 +513,7 @@ func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	runPsbtInteractiveSplitSendTest(
@@ -563,7 +563,7 @@ func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	runPsbtInteractiveSplitSendTest(
@@ -716,7 +716,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	var (
@@ -840,7 +840,7 @@ func testPsbtMultiSend(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	var (

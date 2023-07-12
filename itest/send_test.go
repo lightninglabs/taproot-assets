@@ -86,7 +86,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	// Next, we'll attempt to complete two transfers with distinct
@@ -260,7 +260,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, recvTapd.stop(true))
+		require.NoError(t.t, recvTapd.stop(!*noDelete))
 	}()
 
 	// Next, we'll attempt to transfer some amount of assets[0] to the
@@ -619,7 +619,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, bobTapd.stop(true))
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()
 
 	// First of two send events from minting node to secondary node.

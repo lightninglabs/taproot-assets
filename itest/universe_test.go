@@ -34,7 +34,7 @@ func testUniverseSync(t *harnessTest) {
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
-		require.NoError(t.t, bob.stop(true))
+		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	ctxb := context.Background()
@@ -312,7 +312,7 @@ func testUniverseFederation(t *harnessTest) {
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
-		require.NoError(t.t, bob.stop(true))
+		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	ctxb := context.Background()
