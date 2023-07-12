@@ -185,7 +185,7 @@ type MintingStore interface {
 	AddSeedlingsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
 		seedlings ...*Seedling) error
 
-	// FetchAllBetches fetches all the batches on disk.
+	// FetchAllBatches fetches all the batches on disk.
 	FetchAllBatches(ctx context.Context) ([]*MintingBatch, error)
 
 	// FetchNonFinalBatches fetches all non-finalized batches, meaning

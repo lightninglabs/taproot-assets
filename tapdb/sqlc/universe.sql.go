@@ -140,11 +140,11 @@ WITH group_key_root_id AS (
     FROM universe_leaves leaves
              JOIN genesis_info_view gen
                   ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $3
+    WHERE gen.asset_id = $4
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'NEW_PROOF',
         CASE WHEN length($1) > 0 THEN (
@@ -152,18 +152,24 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    $2
+    $2, $3
 )
 `
 
 type InsertNewProofEventParams struct {
-	GroupKeyXOnly interface{}
-	EventTime     time.Time
-	AssetID       []byte
+	GroupKeyXOnly  interface{}
+	EventTime      time.Time
+	EventTimestamp int64
+	AssetID        []byte
 }
 
 func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewProofEvent, arg.GroupKeyXOnly, arg.EventTime, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, insertNewProofEvent,
+		arg.GroupKeyXOnly,
+		arg.EventTime,
+		arg.EventTimestamp,
+		arg.AssetID,
+	)
 	return err
 }
 
@@ -177,11 +183,11 @@ WITH group_key_root_id AS (
     FROM universe_leaves leaves
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $3 
+    WHERE gen.asset_id = $4 
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'SYNC',
         CASE WHEN length($1) > 0 THEN (
@@ -189,18 +195,24 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    $2
+    $2, $3
 )
 `
 
 type InsertNewSyncEventParams struct {
-	GroupKeyXOnly interface{}
-	EventTime     time.Time
-	AssetID       []byte
+	GroupKeyXOnly  interface{}
+	EventTime      time.Time
+	EventTimestamp int64
+	AssetID        []byte
 }
 
 func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewSyncEvent, arg.GroupKeyXOnly, arg.EventTime, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, insertNewSyncEvent,
+		arg.GroupKeyXOnly,
+		arg.EventTime,
+		arg.EventTimestamp,
+		arg.AssetID,
+	)
 	return err
 }
 
@@ -294,6 +306,98 @@ type LogServerSyncParams struct {
 func (q *Queries) LogServerSync(ctx context.Context, arg LogServerSyncParams) error {
 	_, err := q.db.ExecContext(ctx, logServerSync, arg.NewSyncTime, arg.TargetServer)
 	return err
+}
+
+const queryAssetStatsPerDayPostgres = `-- name: QueryAssetStatsPerDayPostgres :many
+SELECT
+    to_char(to_timestamp(event_timestamp), 'YYYY-MM-DD') AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= $1 AND event_timestamp <= $2
+GROUP BY day
+ORDER BY day
+`
+
+type QueryAssetStatsPerDayPostgresParams struct {
+	StartTime int64
+	EndTime   int64
+}
+
+type QueryAssetStatsPerDayPostgresRow struct {
+	Day            string
+	SyncEvents     int64
+	NewProofEvents int64
+}
+
+func (q *Queries) QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDayPostgres, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetStatsPerDayPostgresRow
+	for rows.Next() {
+		var i QueryAssetStatsPerDayPostgresRow
+		if err := rows.Scan(&i.Day, &i.SyncEvents, &i.NewProofEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryAssetStatsPerDaySqlite = `-- name: QueryAssetStatsPerDaySqlite :many
+SELECT
+    cast(strftime('%Y-%m-%d', datetime(event_timestamp, 'unixepoch')) as text) AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= $1 AND event_timestamp <= $2
+GROUP BY day
+ORDER BY day
+`
+
+type QueryAssetStatsPerDaySqliteParams struct {
+	StartTime int64
+	EndTime   int64
+}
+
+type QueryAssetStatsPerDaySqliteRow struct {
+	Day            string
+	SyncEvents     int64
+	NewProofEvents int64
+}
+
+func (q *Queries) QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAssetStatsPerDaySqliteParams) ([]QueryAssetStatsPerDaySqliteRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDaySqlite, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetStatsPerDaySqliteRow
+	for rows.Next() {
+		var i QueryAssetStatsPerDaySqliteRow
+		if err := rows.Scan(&i.Day, &i.SyncEvents, &i.NewProofEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const queryUniverseAssetStats = `-- name: QueryUniverseAssetStats :many

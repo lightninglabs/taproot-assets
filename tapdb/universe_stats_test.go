@@ -131,6 +131,10 @@ func TestUniverseStatsEvents(t *testing.T) {
 	// asset above. We'll mark these each first as a new proof.
 	for i := 0; i < numAssets; i++ {
 		sh.logProofEventByIndex(i)
+
+		// Increment the clock by a full day to ensure that the event
+		// is grouped into its own day.
+		testClock.SetTime(testClock.Now().Add(24 * time.Hour))
 	}
 
 	// We'll now query for the set of aggregate Universe stats. It should
@@ -178,6 +182,29 @@ func TestUniverseStatsEvents(t *testing.T) {
 		}
 
 		require.Equal(t, int(assetStat.TotalProofs), 1)
+	}
+
+	timeStats, err := statsDB.QueryAssetStatsPerDay(
+		ctx, universe.GroupedStatsQuery{
+			StartTime: yesterday,
+			EndTime:   testClock.Now(),
+		},
+	)
+	require.NoError(t, err)
+
+	// There should be 4 total time stats, three for the proofs, and one
+	// for the sync event.
+	require.Len(t, timeStats, 4)
+	for idx, s := range timeStats {
+		targetDate := yesterday.Add(time.Duration(idx) * 24 * time.Hour)
+		targetDateStr := targetDate.Format("2006-01-02")
+		require.Equal(t, targetDateStr, s.Date)
+
+		if idx == 3 {
+			require.NotZero(t, s.NumTotalSyncs)
+		} else {
+			require.NotZero(t, s.NumTotalProofs)
+		}
 	}
 
 	// Finally, we should be able to delete a universe and all associated

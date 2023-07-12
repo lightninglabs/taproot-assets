@@ -35,6 +35,21 @@ type (
 	// AggregateStats is used to return the aggregate stats for the entire
 	// Universe.
 	AggregateStats = sqlc.QueryUniverseStatsRow
+
+	// AssetStatsPerDay is the assets stats record for a given day.
+	AssetStatsPerDay = sqlc.QueryAssetStatsPerDaySqliteRow
+
+	// AssetStatsPerDayPg is the assets stats record for a given day (for
+	// Postgres).
+	AssetStatsPerDayPg = sqlc.QueryAssetStatsPerDayPostgresRow
+
+	// AssetStatsPerDayQuery is the query used to fetch the asset stats for
+	// a given day.
+	AssetStatsPerDayQuery = sqlc.QueryAssetStatsPerDaySqliteParams
+
+	// AssetStatsPerDayQueryPg is the query used to fetch the asset stats
+	// for a given day (for Postgres).
+	AssetStatsPerDayQueryPg = sqlc.QueryAssetStatsPerDayPostgresParams
 )
 
 // UniverseStatsStore is an interface that defines the methods required to
@@ -53,6 +68,16 @@ type UniverseStatsStore interface {
 	// universe/
 	QueryUniverseAssetStats(ctx context.Context,
 		arg UniverseStatsQuery) ([]UniverseStatsResp, error)
+
+	// QueryAssetStatsPerDaySqlite returns the stats for a given asset
+	// grouped by day in a SQLite specific format.
+	QueryAssetStatsPerDaySqlite(ctx context.Context,
+		q AssetStatsPerDayQuery) ([]AssetStatsPerDay, error)
+
+	// QueryAssetStatsPerDayPostgres returns the stats for a given asset
+	// grouped by day in a Postgres specific format.
+	QueryAssetStatsPerDayPostgres(ctx context.Context,
+		q AssetStatsPerDayQueryPg) ([]AssetStatsPerDayPg, error)
 }
 
 // UniverseStatsOptions defines the set of txn options for the universe stats.
@@ -112,9 +137,10 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 		}
 
 		return db.InsertNewSyncEvent(ctx, NewSyncEvent{
-			EventTime:     u.clock.Now(),
-			AssetID:       uniID.AssetID[:],
-			GroupKeyXOnly: groupKeyXOnly,
+			EventTime:      u.clock.Now(),
+			EventTimestamp: u.clock.Now().UTC().Unix(),
+			AssetID:        uniID.AssetID[:],
+			GroupKeyXOnly:  groupKeyXOnly,
 		})
 	})
 }
@@ -131,9 +157,10 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 		}
 
 		return db.InsertNewProofEvent(ctx, NewProofEvent{
-			EventTime:     u.clock.Now(),
-			AssetID:       uniID.AssetID[:],
-			GroupKeyXOnly: groupKeyXOnly,
+			EventTime:      u.clock.Now(),
+			EventTimestamp: u.clock.Now().UTC().Unix(),
+			AssetID:        uniID.AssetID[:],
+			GroupKeyXOnly:  groupKeyXOnly,
 		})
 	})
 }
@@ -219,6 +246,87 @@ func sortTypeToOrderBy(s universe.SyncStatsSort) string {
 	default:
 		return ""
 	}
+}
+
+// QueryAssetStatsPerDay returns the stats for all assets grouped by day.
+func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
+	q universe.GroupedStatsQuery) ([]*universe.GroupedStats, error) {
+
+	var (
+		readTx  = NewUniverseStatsReadTx()
+		results []*universe.GroupedStats
+	)
+	dbErr := u.db.ExecTx(ctx, &readTx, func(db UniverseStatsStore) error {
+		switch u.db.Backend() {
+		case sqlc.BackendTypeSqlite:
+			var err error
+			stats, err := db.QueryAssetStatsPerDaySqlite(
+				ctx, AssetStatsPerDayQuery{
+					StartTime: q.StartTime.UTC().Unix(),
+					EndTime:   q.EndTime.UTC().Unix(),
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			results = make([]*universe.GroupedStats, len(stats))
+			for idx := range stats {
+				s := stats[idx]
+				results[idx] = &universe.GroupedStats{
+					Date: s.Day,
+					AggregateStats: universe.AggregateStats{
+						NumTotalSyncs: uint64(
+							s.SyncEvents,
+						),
+						NumTotalProofs: uint64(
+							s.NewProofEvents,
+						),
+					},
+				}
+			}
+
+			return nil
+
+		case sqlc.BackendTypePostgres:
+			stats, err := db.QueryAssetStatsPerDayPostgres(
+				ctx, AssetStatsPerDayQueryPg{
+					StartTime: q.StartTime.UTC().Unix(),
+					EndTime:   q.EndTime.UTC().Unix(),
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			results = make([]*universe.GroupedStats, len(stats))
+			for idx := range stats {
+				s := stats[idx]
+				results[idx] = &universe.GroupedStats{
+					Date: s.Day,
+					AggregateStats: universe.AggregateStats{
+						NumTotalSyncs: uint64(
+							s.SyncEvents,
+						),
+						NumTotalProofs: uint64(
+							s.NewProofEvents,
+						),
+					},
+				}
+			}
+
+			return nil
+
+		default:
+			return fmt.Errorf("unknown backend type: %v",
+				u.db.Backend())
+		}
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return results, nil
 }
 
 // QuerySyncStats attempts to query the stats for the target universe.  For a

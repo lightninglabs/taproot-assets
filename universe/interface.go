@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -579,13 +580,32 @@ type AggregateStats struct {
 	// NumTotalAssets is the total number of assets in the Universe.
 	NumTotalAssets uint64
 
-	// NumTotalSyncs is the total number of syncs that have been performed in
-	// the Universe.
+	// NumTotalSyncs is the total number of syncs that have been performed
+	// in the Universe.
 	NumTotalSyncs uint64
 
 	// NumTotalProofs is the total number of proofs that have been inserted
 	// into the Universe.
 	NumTotalProofs uint64
+}
+
+// GroupedStatsQuery packages a set of query parameters to retrieve event based
+// stats.
+type GroupedStatsQuery struct {
+	// StartTime is the start time to use when querying for stats.
+	StartTime time.Time
+
+	// EndTime is the end time to use when querying for stats.
+	EndTime time.Time
+}
+
+// GroupedStats is a type for aggregated stats grouped by day.
+type GroupedStats struct {
+	AggregateStats
+
+	// Date is the string formatted date (YYYY-MM-DD) that the stats are
+	// for.
+	Date string
 }
 
 // Telemetry it a type used by the Universe syncer and base universe to export
@@ -619,4 +639,9 @@ type Telemetry interface {
 	// and known proofs for a given Universe server instance.
 	QuerySyncStats(ctx context.Context,
 		q SyncStatsQuery) (*AssetSyncStats, error)
+
+	// QueryAssetStatsPerDay returns the stats for all assets grouped by
+	// day.
+	QueryAssetStatsPerDay(ctx context.Context,
+		q GroupedStatsQuery) ([]*GroupedStats, error)
 }

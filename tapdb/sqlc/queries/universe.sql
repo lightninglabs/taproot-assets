@@ -116,7 +116,7 @@ WITH group_key_root_id AS (
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'SYNC',
         CASE WHEN length(@group_key_x_only) > 0 THEN (
@@ -124,7 +124,7 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    @event_time
+    @event_time, @event_timestamp
 );
 
 -- name: InsertNewProofEvent :exec
@@ -141,7 +141,7 @@ WITH group_key_root_id AS (
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'NEW_PROOF',
         CASE WHEN length(@group_key_x_only) > 0 THEN (
@@ -149,7 +149,7 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    @event_time
+    @event_time, @event_timestamp
 );
 
 -- name: QueryUniverseStats :one
@@ -228,3 +228,25 @@ ORDER BY
         ELSE NULL
     END
 LIMIT @num_limit OFFSET @num_offset;
+
+-- name: QueryAssetStatsPerDaySqlite :many
+SELECT
+    cast(strftime('%Y-%m-%d', datetime(event_timestamp, 'unixepoch')) as text) AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= @start_time AND event_timestamp <= @end_time
+GROUP BY day
+ORDER BY day;
+
+-- name: QueryAssetStatsPerDayPostgres :many
+SELECT
+    to_char(to_timestamp(event_timestamp), 'YYYY-MM-DD') AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= @start_time AND event_timestamp <= @end_time
+GROUP BY day
+ORDER BY day;
