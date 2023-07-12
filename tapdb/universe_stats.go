@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -15,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/clock"
 )
 
 type (
@@ -85,13 +85,18 @@ type BatchedUniverseStats interface {
 // is backed by the on-disk Universe event and MS-SMT tree store.
 type UniverseStats struct {
 	db BatchedUniverseStats
+
+	clock clock.Clock
 }
 
 // NewUniverseStats creates a new instance of the UniverseStats backed by the
 // database.
-func NewUniverseStats(db BatchedUniverseStats) *UniverseStats {
+func NewUniverseStats(db BatchedUniverseStats,
+	clock clock.Clock) *UniverseStats {
+
 	return &UniverseStats{
-		db: db,
+		db:    db,
+		clock: clock,
 	}
 }
 
@@ -107,8 +112,7 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 		}
 
 		return db.InsertNewSyncEvent(ctx, NewSyncEvent{
-			// TODO(roasbeef): use clock interface
-			EventTime:     time.Now(),
+			EventTime:     u.clock.Now(),
 			AssetID:       uniID.AssetID[:],
 			GroupKeyXOnly: groupKeyXOnly,
 		})
@@ -127,8 +131,7 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 		}
 
 		return db.InsertNewProofEvent(ctx, NewProofEvent{
-			// TODO(roasbeef): use clock interface
-			EventTime:     time.Now(),
+			EventTime:     u.clock.Now(),
 			AssetID:       uniID.AssetID[:],
 			GroupKeyXOnly: groupKeyXOnly,
 		})

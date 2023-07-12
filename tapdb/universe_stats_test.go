@@ -7,16 +7,18 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 )
 
-func newUniverseStatsWithDB(t *testing.T,
-	db *BaseDB) (*UniverseStats, sqlc.Querier) {
+func newUniverseStatsWithDB(db *BaseDB, clock clock.Clock) (*UniverseStats,
+	sqlc.Querier) {
 
 	dbTxer := NewTransactionExecutor(
 		db, func(tx *sql.Tx) UniverseStatsStore {
@@ -24,7 +26,7 @@ func newUniverseStatsWithDB(t *testing.T,
 		},
 	)
 
-	return NewUniverseStats(dbTxer), db
+	return NewUniverseStats(dbTxer, clock), db
 }
 
 type uniStatsHarness struct {
@@ -107,7 +109,9 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 	db := NewTestDB(t)
 
-	statsDB, _ := newUniverseStatsWithDB(t, db.BaseDB)
+	yesterday := time.Now().Add(-24 * time.Hour)
+	testClock := clock.NewTestClock(yesterday)
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 	ctx := context.Background()
 
@@ -193,7 +197,8 @@ func TestUniverseStatsEvents(t *testing.T) {
 func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 	db := NewTestDB(t)
 
-	statsDB, _ := newUniverseStatsWithDB(t, db.BaseDB)
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 	ctx := context.Background()
 
@@ -318,7 +323,8 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 func TestUniverseQuerySyncFilters(t *testing.T) {
 	db := NewTestDB(t)
 
-	statsDB, _ := newUniverseStatsWithDB(t, db.BaseDB)
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 	ctx := context.Background()
 
