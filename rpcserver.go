@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -47,7 +48,24 @@ const (
 	// tapdMacaroonLocation is the value we use for the tapd macaroons'
 	// "Location" field when baking them.
 	tapdMacaroonLocation = "tapd"
+
+	// maxNumBlocksInCache is the maximum number of blocks we'll cache
+	// timestamps for. With 100k blocks we should only take up approximately
+	// 800kB of memory (4 bytes for the block height and 4 bytes for the
+	// timestamp, not including any map/cache overhead).
+	maxNumBlocksInCache = 100_000
 )
+
+// cacheableTimestamp is a wrapper around a uint32 that can be used as a value
+// in an LRU cache.
+type cacheableTimestamp uint32
+
+// Size returns the size of the cacheable timestamp. Since we scale the cache by
+// the number of items and not the total memory size, we can simply return 1
+// here to count each timestamp as 1 item.
+func (c cacheableTimestamp) Size() (uint64, error) {
+	return 1, nil
+}
 
 // rpcServer is the main RPC server for the Taproot Assets daemon that handles
 // gRPC/REST/Websockets incoming requests.
@@ -66,6 +84,8 @@ type rpcServer struct {
 
 	cfg *Config
 
+	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -78,8 +98,11 @@ func newRPCServer(interceptor signal.Interceptor,
 	return &rpcServer{
 		interceptor:      interceptor,
 		interceptorChain: interceptorChain,
-		quit:             make(chan struct{}),
-		cfg:              cfg,
+		blockTimestampCache: lru.NewCache[uint32, cacheableTimestamp](
+			maxNumBlocksInCache,
+		),
+		quit: make(chan struct{}),
+		cfg:  cfg,
 	}, nil
 }
 
@@ -3062,8 +3085,15 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 func marshalAssetSyncSnapshot(
 	a universe.AssetSyncSnapshot) *unirpc.AssetStatsSnapshot {
 
+	var groupKey []byte
+	if a.GroupKey != nil {
+		groupKey = a.GroupKey.SerializeCompressed()
+	}
+
 	return &unirpc.AssetStatsSnapshot{
 		AssetId:       a.AssetID[:],
+		GroupKey:      groupKey,
+		GenesisPoint:  a.GenesisPoint.String(),
 		AssetName:     a.AssetName,
 		AssetType:     taprpc.AssetType(a.AssetType),
 		TotalSupply:   int64(a.TotalSupply),
@@ -3107,10 +3137,48 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 		return nil, err
 	}
 
-	snapshots := assetStats.SyncStats
 	resp := &unirpc.UniverseAssetStats{
-		AssetStats: fn.Map(snapshots, marshalAssetSyncSnapshot),
+		AssetStats: make(
+			[]*unirpc.AssetStatsSnapshot, len(assetStats.SyncStats),
+		),
+	}
+	for idx, snapshot := range assetStats.SyncStats {
+		resp.AssetStats[idx] = marshalAssetSyncSnapshot(snapshot)
+		resp.AssetStats[idx].GenesisTimestamp = r.getBlockTimestamp(
+			ctx, snapshot.GenesisHeight,
+		)
 	}
 
 	return resp, nil
+}
+
+// getBlockTimestamp returns the timestamp of the block at the given height.
+func (r *rpcServer) getBlockTimestamp(ctx context.Context,
+	height uint32) int64 {
+
+	// Shortcut any lookup in case we don't have a valid height in the first
+	// place.
+	if height == 0 {
+		return 0
+	}
+
+	cacheTS, err := r.blockTimestampCache.Get(height)
+	if err == nil {
+		return int64(cacheTS)
+	}
+
+	hash, err := r.cfg.Lnd.ChainKit.GetBlockHash(ctx, int64(height))
+	if err != nil {
+		return 0
+	}
+
+	block, err := r.cfg.Lnd.ChainKit.GetBlock(ctx, hash)
+	if err != nil {
+		return 0
+	}
+
+	ts := uint32(block.Header.Timestamp.Unix())
+	_, _ = r.blockTimestampCache.Put(height, cacheableTimestamp(ts))
+
+	return int64(ts)
 }

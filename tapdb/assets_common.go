@@ -23,6 +23,14 @@ type UpsertAssetStore interface {
 	// on disk, and returns the primary key.
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
 
+	// AnchorGenesisPoint associates a genesis point with the transaction
+	// that mints the associated assets on disk.
+	AnchorGenesisPoint(ctx context.Context, arg GenesisPointAnchor) error
+
+	// UpsertChainTx inserts a new or updates an existing chain tx into the
+	// DB.
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
+
 	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
 	// (the base asset info) in the DB, and returns the primary key.
 	//
