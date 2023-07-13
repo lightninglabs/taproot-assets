@@ -196,6 +196,8 @@ type RpcConfig struct {
 	MacaroonPath string `long:"macaroonpath" description:"Path to write the admin macaroon for tapd's RPC and REST services if it doesn't exist"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
 
+	AllowPublicStats bool `long:"allow-public-stats" description:"Disable macaroon authentication for stats RPC endpoints."`
+
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 
 	LetsEncryptDir    string `long:"letsencryptdir" description:"The directory to store Let's Encrypt certificates within"`

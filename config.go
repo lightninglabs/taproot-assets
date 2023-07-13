@@ -43,6 +43,8 @@ type RPCConfig struct {
 
 	MacaroonPath string
 
+	AllowPublicStats bool
+
 	LetsEncryptDir string
 
 	LetsEncryptListen string
