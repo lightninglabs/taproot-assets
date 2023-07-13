@@ -67,6 +67,20 @@ func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 	return block, nil
 }
 
+// GetBlockHash returns the hash of the block in the best blockchain at the
+// given height.
+func (l *LndRpcChainBridge) GetBlockHash(ctx context.Context,
+	blockHeight int64) (chainhash.Hash, error) {
+
+	blockHash, err := l.lnd.ChainKit.GetBlockHash(ctx, blockHeight)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("unable to retrieve "+
+			"block hash: %w", err)
+	}
+
+	return blockHash, nil
+}
+
 // CurrentHeight return the current height of the main chain.
 func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
 	info, err := l.lnd.Client.GetInfo(ctx)

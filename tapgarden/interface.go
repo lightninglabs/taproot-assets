@@ -252,6 +252,10 @@ type ChainBridge interface {
 	// GetBlock returns a chain block given its hash.
 	GetBlock(context.Context, chainhash.Hash) (*wire.MsgBlock, error)
 
+	// GetBlockHash returns the hash of the block in the best blockchain at
+	// the given height.
+	GetBlockHash(context.Context, int64) (chainhash.Hash, error)
+
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)
 
