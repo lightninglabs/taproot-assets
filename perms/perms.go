@@ -182,21 +182,37 @@ var (
 		}},
 	}
 
-	// MacaroonWhitelist defines methods that we don't require macaroons to
-	// access.
+	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
+	// don't require macaroons authentication.
 	//
 	// For now, these are the Universe related read/write methods. We permit
 	// InsertProof as a valid proof requires an on-chain transaction, so we
 	// gain a layer of DoS defense.
-	MacaroonWhitelist = map[string]struct{}{
+	defaultMacaroonWhitelist = map[string]struct{}{
 		"/universerpc.Universe/AssetRoots":      {},
 		"/universerpc.Universe/QueryAssetRoots": {},
-		"/universerpc.Universe/QueryAssetStats": {},
 		"/universerpc.Universe/AssetLeafKeys":   {},
 		"/universerpc.Universe/AssetLeaves":     {},
 		"/universerpc.Universe/QueryProof":      {},
 		"/universerpc.Universe/InsertProof":     {},
 		"/universerpc.Universe/Info":            {},
-		"/universerpc.Universe/UniverseStats":   {},
 	}
 )
+
+// MacaroonWhitelist returns the set of RPC endpoints that don't require
+// macaroon authentication.
+func MacaroonWhitelist(allowPublicStats bool) map[string]struct{} {
+	// Make a copy of the default whitelist.
+	whitelist := make(map[string]struct{})
+	for k, v := range defaultMacaroonWhitelist {
+		whitelist[k] = v
+	}
+
+	// Conditionally add public stats RPC endpoints to the whitelist.
+	if allowPublicStats {
+		whitelist["/universerpc.Universe/QueryAssetStats"] = struct{}{}
+		whitelist["/universerpc.Universe/UniverseStats"] = struct{}{}
+	}
+
+	return whitelist
+}
