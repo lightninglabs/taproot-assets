@@ -310,14 +310,17 @@ var universeProofQueryCommand = cli.Command{
 	Usage: "query for a universe proof",
 	Description: `
 	Attempt to query the target universe for a given proof based on a top
-	level asset id or group key, and the leaf key of: outpoint || script
-	key.
+	level asset id or group key, and the leaf key of: outpoint || script key.
 	`,
 	Flags:  universeProofArgs,
 	Action: universeProofQuery,
 }
 
 func parseAssetKey(ctx *cli.Context) (*universerpc.AssetKey, error) {
+	if !ctx.IsSet(outpointName) || !ctx.IsSet(scriptKeyName) {
+		return nil, fmt.Errorf("outpoint and script key must be set")
+	}
+
 	outpoint, err := tap.UnmarshalOutpoint(ctx.String(outpointName))
 	if err != nil {
 		return nil, err
@@ -341,15 +344,15 @@ func universeProofQuery(ctx *cli.Context) error {
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
 
-	universeID, err := parseUniverseID(ctx, true)
-	if err != nil {
-		return err
-	}
 	assetKey, err := parseAssetKey(ctx)
 	if err != nil {
 		return err
 	}
 
+	universeID, err := parseUniverseID(ctx, true)
+	if err != nil {
+		return err
+	}
 	uProof, err := client.QueryProof(ctxc, &universerpc.UniverseKey{
 		Id:      universeID,
 		LeafKey: assetKey,
@@ -382,15 +385,15 @@ func universeProofInsert(ctx *cli.Context) error {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
-	universeID, err := parseUniverseID(ctx, true)
-	if err != nil {
-		return err
-	}
 	assetKey, err := parseAssetKey(ctx)
 	if err != nil {
 		return err
 	}
 
+	universeID, err := parseUniverseID(ctx, true)
+	if err != nil {
+		return err
+	}
 	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
 	rawFile, err := readFile(filePath)
 	if err != nil {
