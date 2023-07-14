@@ -1,18 +1,20 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
 	"math"
 	"strconv"
-	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/clock"
 )
 
 type (
@@ -33,6 +35,21 @@ type (
 	// AggregateStats is used to return the aggregate stats for the entire
 	// Universe.
 	AggregateStats = sqlc.QueryUniverseStatsRow
+
+	// AssetStatsPerDay is the assets stats record for a given day.
+	AssetStatsPerDay = sqlc.QueryAssetStatsPerDaySqliteRow
+
+	// AssetStatsPerDayPg is the assets stats record for a given day (for
+	// Postgres).
+	AssetStatsPerDayPg = sqlc.QueryAssetStatsPerDayPostgresRow
+
+	// AssetStatsPerDayQuery is the query used to fetch the asset stats for
+	// a given day.
+	AssetStatsPerDayQuery = sqlc.QueryAssetStatsPerDaySqliteParams
+
+	// AssetStatsPerDayQueryPg is the query used to fetch the asset stats
+	// for a given day (for Postgres).
+	AssetStatsPerDayQueryPg = sqlc.QueryAssetStatsPerDayPostgresParams
 )
 
 // UniverseStatsStore is an interface that defines the methods required to
@@ -51,6 +68,16 @@ type UniverseStatsStore interface {
 	// universe/
 	QueryUniverseAssetStats(ctx context.Context,
 		arg UniverseStatsQuery) ([]UniverseStatsResp, error)
+
+	// QueryAssetStatsPerDaySqlite returns the stats for a given asset
+	// grouped by day in a SQLite specific format.
+	QueryAssetStatsPerDaySqlite(ctx context.Context,
+		q AssetStatsPerDayQuery) ([]AssetStatsPerDay, error)
+
+	// QueryAssetStatsPerDayPostgres returns the stats for a given asset
+	// grouped by day in a Postgres specific format.
+	QueryAssetStatsPerDayPostgres(ctx context.Context,
+		q AssetStatsPerDayQueryPg) ([]AssetStatsPerDayPg, error)
 }
 
 // UniverseStatsOptions defines the set of txn options for the universe stats.
@@ -83,13 +110,18 @@ type BatchedUniverseStats interface {
 // is backed by the on-disk Universe event and MS-SMT tree store.
 type UniverseStats struct {
 	db BatchedUniverseStats
+
+	clock clock.Clock
 }
 
 // NewUniverseStats creates a new instance of the UniverseStats backed by the
 // database.
-func NewUniverseStats(db BatchedUniverseStats) *UniverseStats {
+func NewUniverseStats(db BatchedUniverseStats,
+	clock clock.Clock) *UniverseStats {
+
 	return &UniverseStats{
-		db: db,
+		db:    db,
+		clock: clock,
 	}
 }
 
@@ -105,10 +137,10 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 		}
 
 		return db.InsertNewSyncEvent(ctx, NewSyncEvent{
-			// TODO(roasbeef): use clock interface
-			EventTime:     time.Now(),
-			AssetID:       uniID.AssetID[:],
-			GroupKeyXOnly: groupKeyXOnly,
+			EventTime:      u.clock.Now(),
+			EventTimestamp: u.clock.Now().UTC().Unix(),
+			AssetID:        uniID.AssetID[:],
+			GroupKeyXOnly:  groupKeyXOnly,
 		})
 	})
 }
@@ -125,10 +157,10 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 		}
 
 		return db.InsertNewProofEvent(ctx, NewProofEvent{
-			// TODO(roasbeef): use clock interface
-			EventTime:     time.Now(),
-			AssetID:       uniID.AssetID[:],
-			GroupKeyXOnly: groupKeyXOnly,
+			EventTime:      u.clock.Now(),
+			EventTimestamp: u.clock.Now().UTC().Unix(),
+			AssetID:        uniID.AssetID[:],
+			GroupKeyXOnly:  groupKeyXOnly,
 		})
 	})
 }
@@ -202,9 +234,99 @@ func sortTypeToOrderBy(s universe.SyncStatsSort) string {
 	case universe.SortByAssetID:
 		return "asset_id"
 
+	case universe.SortByTotalSyncs:
+		return "total_syncs"
+
+	case universe.SortByTotalProofs:
+		return "total_proofs"
+
+	case universe.SortByGenesisHeight:
+		return "genesis_height"
+
 	default:
 		return ""
 	}
+}
+
+// QueryAssetStatsPerDay returns the stats for all assets grouped by day.
+func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
+	q universe.GroupedStatsQuery) ([]*universe.GroupedStats, error) {
+
+	var (
+		readTx  = NewUniverseStatsReadTx()
+		results []*universe.GroupedStats
+	)
+	dbErr := u.db.ExecTx(ctx, &readTx, func(db UniverseStatsStore) error {
+		switch u.db.Backend() {
+		case sqlc.BackendTypeSqlite:
+			var err error
+			stats, err := db.QueryAssetStatsPerDaySqlite(
+				ctx, AssetStatsPerDayQuery{
+					StartTime: q.StartTime.UTC().Unix(),
+					EndTime:   q.EndTime.UTC().Unix(),
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			results = make([]*universe.GroupedStats, len(stats))
+			for idx := range stats {
+				s := stats[idx]
+				results[idx] = &universe.GroupedStats{
+					Date: s.Day,
+					AggregateStats: universe.AggregateStats{
+						NumTotalSyncs: uint64(
+							s.SyncEvents,
+						),
+						NumTotalProofs: uint64(
+							s.NewProofEvents,
+						),
+					},
+				}
+			}
+
+			return nil
+
+		case sqlc.BackendTypePostgres:
+			stats, err := db.QueryAssetStatsPerDayPostgres(
+				ctx, AssetStatsPerDayQueryPg{
+					StartTime: q.StartTime.UTC().Unix(),
+					EndTime:   q.EndTime.UTC().Unix(),
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			results = make([]*universe.GroupedStats, len(stats))
+			for idx := range stats {
+				s := stats[idx]
+				results[idx] = &universe.GroupedStats{
+					Date: s.Day,
+					AggregateStats: universe.AggregateStats{
+						NumTotalSyncs: uint64(
+							s.SyncEvents,
+						),
+						NumTotalProofs: uint64(
+							s.NewProofEvents,
+						),
+					},
+				}
+			}
+
+			return nil
+
+		default:
+			return fmt.Errorf("unknown backend type: %v",
+				u.db.Backend())
+		}
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return results, nil
 }
 
 // QuerySyncStats attempts to query the stats for the target universe.  For a
@@ -267,10 +389,30 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 				AssetID: fn.ToArray[asset.ID](
 					assetStat.AssetID,
 				),
-				AssetName:   assetStat.AssetName,
-				AssetType:   asset.Type(assetStat.AssetType),
+				AssetName: assetStat.AssetName,
+				AssetType: asset.Type(assetStat.AssetType),
+				GenesisHeight: uint32(
+					assetStat.GenesisHeight.Int32,
+				),
 				TotalSyncs:  uint64(assetStat.TotalSyncs),
 				TotalProofs: uint64(assetStat.TotalProofs),
+			}
+
+			if len(assetStat.GroupKey) > 0 {
+				stats.GroupKey, err = btcec.ParsePubKey(
+					assetStat.GroupKey,
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			if err := readOutPoint(
+				bytes.NewReader(assetStat.GenesisPrevOut), 0, 0,
+				&stats.GenesisPoint,
+			); err != nil {
+				return fmt.Errorf("unable to read outpoint: %w",
+					err)
 			}
 
 			resp.SyncStats = append(resp.SyncStats, stats)

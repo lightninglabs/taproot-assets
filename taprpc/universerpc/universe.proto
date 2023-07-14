@@ -120,6 +120,12 @@ service Universe {
     Results can also be sorted based on any of the main query params.
     */
     rpc QueryAssetStats (AssetStatsQuery) returns (UniverseAssetStats);
+
+    /* tapcli `universe stats events`
+    QueryEvents returns the number of sync and proof events for a given time
+    period, grouped by day.
+    */
+    rpc QueryEvents (QueryEventsRequest) returns (QueryEventsResponse);
 }
 
 message AssetRootRequest {
@@ -370,6 +376,12 @@ enum AssetQuerySort {
     SORT_BY_ASSET_ID = 2;
 
     SORT_BY_ASSET_TYPE = 3;
+
+    SORT_BY_TOTAL_SYNCS = 4;
+
+    SORT_BY_TOTAL_PROOFS = 5;
+
+    SORT_BY_GENESIS_HEIGHT = 6;
 }
 
 enum AssetTypeFilter {
@@ -397,19 +409,41 @@ message AssetStatsQuery {
 message AssetStatsSnapshot {
     bytes asset_id = 1;
 
-    int64 total_supply = 2;
+    bytes group_key = 2;
 
-    string asset_name = 3;
+    string genesis_point = 3;
 
-    taprpc.AssetType asset_type = 4;
+    int64 total_supply = 4;
 
-    int32 genesis_height = 5;
+    string asset_name = 5;
 
-    int64 total_syncs = 6;
+    taprpc.AssetType asset_type = 6;
 
-    int64 total_proofs = 7;
+    int32 genesis_height = 7;
+
+    int64 genesis_timestamp = 8;
+
+    int64 total_syncs = 9;
+
+    int64 total_proofs = 10;
 }
 
 message UniverseAssetStats {
     repeated AssetStatsSnapshot asset_stats = 1;
+}
+
+message QueryEventsRequest {
+    int64 start_timestamp = 1;
+    int64 end_timestamp = 2;
+}
+
+message QueryEventsResponse {
+    repeated GroupedUniverseEvents events = 1;
+}
+
+message GroupedUniverseEvents {
+    // The date the events occurred on, formatted as YYYY-MM-DD.
+    string date = 1;
+    uint64 sync_events = 2;
+    uint64 new_proof_events = 3;
 }

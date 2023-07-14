@@ -254,6 +254,7 @@ type UniverseEvent struct {
 	EventType      string
 	UniverseRootID int32
 	EventTime      time.Time
+	EventTimestamp int64
 }
 
 type UniverseLeafe struct {

@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/ticker"
 )
@@ -118,7 +119,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	universeStats := tapdb.NewUniverseStats(uniStatsDB)
+	universeStats := tapdb.NewUniverseStats(
+		uniStatsDB, clock.NewDefaultClock(),
+	)
 
 	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,

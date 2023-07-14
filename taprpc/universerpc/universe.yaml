@@ -58,3 +58,6 @@ http:
 
     - selector: universerpc.Universe.QueryAssetStats
       get: "/v1/taproot-assets/universe/stats/assets"
+
+    - selector: universerpc.Universe.QueryEvents
+      get: "/v1/taproot-assets/universe/stats/events"

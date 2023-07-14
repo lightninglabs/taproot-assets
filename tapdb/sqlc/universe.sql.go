@@ -140,11 +140,11 @@ WITH group_key_root_id AS (
     FROM universe_leaves leaves
              JOIN genesis_info_view gen
                   ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $3
+    WHERE gen.asset_id = $4
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'NEW_PROOF',
         CASE WHEN length($1) > 0 THEN (
@@ -152,18 +152,24 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    $2
+    $2, $3
 )
 `
 
 type InsertNewProofEventParams struct {
-	GroupKeyXOnly interface{}
-	EventTime     time.Time
-	AssetID       []byte
+	GroupKeyXOnly  interface{}
+	EventTime      time.Time
+	EventTimestamp int64
+	AssetID        []byte
 }
 
 func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewProofEvent, arg.GroupKeyXOnly, arg.EventTime, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, insertNewProofEvent,
+		arg.GroupKeyXOnly,
+		arg.EventTime,
+		arg.EventTimestamp,
+		arg.AssetID,
+	)
 	return err
 }
 
@@ -177,11 +183,11 @@ WITH group_key_root_id AS (
     FROM universe_leaves leaves
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $3 
+    WHERE gen.asset_id = $4 
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'SYNC',
         CASE WHEN length($1) > 0 THEN (
@@ -189,18 +195,24 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    $2
+    $2, $3
 )
 `
 
 type InsertNewSyncEventParams struct {
-	GroupKeyXOnly interface{}
-	EventTime     time.Time
-	AssetID       []byte
+	GroupKeyXOnly  interface{}
+	EventTime      time.Time
+	EventTimestamp int64
+	AssetID        []byte
 }
 
 func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewSyncEvent, arg.GroupKeyXOnly, arg.EventTime, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, insertNewSyncEvent,
+		arg.GroupKeyXOnly,
+		arg.EventTime,
+		arg.EventTimestamp,
+		arg.AssetID,
+	)
 	return err
 }
 
@@ -296,6 +308,98 @@ func (q *Queries) LogServerSync(ctx context.Context, arg LogServerSyncParams) er
 	return err
 }
 
+const queryAssetStatsPerDayPostgres = `-- name: QueryAssetStatsPerDayPostgres :many
+SELECT
+    to_char(to_timestamp(event_timestamp), 'YYYY-MM-DD') AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= $1 AND event_timestamp <= $2
+GROUP BY day
+ORDER BY day
+`
+
+type QueryAssetStatsPerDayPostgresParams struct {
+	StartTime int64
+	EndTime   int64
+}
+
+type QueryAssetStatsPerDayPostgresRow struct {
+	Day            string
+	SyncEvents     int64
+	NewProofEvents int64
+}
+
+func (q *Queries) QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDayPostgres, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetStatsPerDayPostgresRow
+	for rows.Next() {
+		var i QueryAssetStatsPerDayPostgresRow
+		if err := rows.Scan(&i.Day, &i.SyncEvents, &i.NewProofEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryAssetStatsPerDaySqlite = `-- name: QueryAssetStatsPerDaySqlite :many
+SELECT
+    cast(strftime('%Y-%m-%d', datetime(event_timestamp, 'unixepoch')) as text) AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= $1 AND event_timestamp <= $2
+GROUP BY day
+ORDER BY day
+`
+
+type QueryAssetStatsPerDaySqliteParams struct {
+	StartTime int64
+	EndTime   int64
+}
+
+type QueryAssetStatsPerDaySqliteRow struct {
+	Day            string
+	SyncEvents     int64
+	NewProofEvents int64
+}
+
+func (q *Queries) QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAssetStatsPerDaySqliteParams) ([]QueryAssetStatsPerDaySqliteRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDaySqlite, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryAssetStatsPerDaySqliteRow
+	for rows.Next() {
+		var i QueryAssetStatsPerDaySqliteRow
+		if err := rows.Scan(&i.Day, &i.SyncEvents, &i.NewProofEvents); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const queryUniverseAssetStats = `-- name: QueryUniverseAssetStats :many
 
 WITH asset_supply AS (
@@ -309,16 +413,26 @@ WITH asset_supply AS (
     GROUP BY gen.asset_id
 ), asset_info AS (
     SELECT asset_supply.supply, gen.asset_id AS asset_id, 
-           gen.asset_tag AS asset_name, gen.asset_type AS asset_type
+           gen.asset_tag AS asset_name, gen.asset_type AS asset_type,
+           gen.block_height AS genesis_height, gen.prev_out AS genesis_prev_out,
+           group_info.tweaked_group_key AS group_key
     FROM genesis_info_view gen
     JOIN asset_supply
         ON asset_supply.asset_id = gen.asset_id
+    -- We use a LEFT JOIN here as not every asset has a group key, so this'll
+    -- generate rows that have NULL values for the group key fields if an asset
+    -- doesn't have a group key.
+    LEFT JOIN key_group_info_view group_info
+        ON gen.gen_asset_id = group_info.gen_asset_id
     WHERE (gen.asset_tag = $4 OR $4 IS NULL) AND
           (gen.asset_type = $5 OR $5 IS NULL) AND
           (gen.asset_id = $6 OR $6 IS NULL)
 )
 SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
     asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
+    asset_info.genesis_height AS genesis_height,
+    asset_info.genesis_prev_out AS genesis_prev_out,
+    asset_info.group_key AS group_key,
     universe_stats.total_asset_syncs AS total_syncs,
     universe_stats.total_asset_proofs AS total_proofs
 FROM asset_info
@@ -336,6 +450,18 @@ ORDER BY
     CASE
         WHEN $1 = 'asset_type' THEN asset_info.asset_type
         ELSE NULL
+    END,
+    CASE
+        WHEN $1 = 'total_syncs' THEN universe_stats.total_asset_syncs
+        ELSE NULL
+        END,
+    CASE
+        WHEN $1 = 'total_proofs' THEN universe_stats.total_asset_proofs
+        ELSE NULL
+    END,
+    CASE
+        WHEN $1 = 'genesis_height' THEN asset_info.genesis_height
+        ELSE NULL
     END
 LIMIT $3 OFFSET $2
 `
@@ -350,12 +476,15 @@ type QueryUniverseAssetStatsParams struct {
 }
 
 type QueryUniverseAssetStatsRow struct {
-	AssetSupply int64
-	AssetName   string
-	AssetType   int16
-	AssetID     []byte
-	TotalSyncs  int64
-	TotalProofs int64
+	AssetSupply    int64
+	AssetName      string
+	AssetType      int16
+	AssetID        []byte
+	GenesisHeight  sql.NullInt32
+	GenesisPrevOut []byte
+	GroupKey       []byte
+	TotalSyncs     int64
+	TotalProofs    int64
 }
 
 // TODO(roasbeef): use the universe id instead for the grouping? so namespace
@@ -381,6 +510,9 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 			&i.AssetName,
 			&i.AssetType,
 			&i.AssetID,
+			&i.GenesisHeight,
+			&i.GenesisPrevOut,
+			&i.GroupKey,
 			&i.TotalSyncs,
 			&i.TotalProofs,
 		); err != nil {

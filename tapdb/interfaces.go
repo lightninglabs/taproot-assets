@@ -46,6 +46,9 @@ type BatchedTx[Q any] interface {
 	// type of concurrency control should be used.
 	ExecTx(ctx context.Context, txOptions TxOptions,
 		txBody func(Q) error) error
+
+	// Backend returns the type of the database backend used.
+	Backend() sqlc.BackendType
 }
 
 // Tx represents a database transaction that can be committed or rolled back.
@@ -79,6 +82,9 @@ type BatchedQuerier interface {
 	// BeginTx creates a new database transaction given the set of
 	// transaction options.
 	BeginTx(ctx context.Context, options TxOptions) (*sql.Tx, error)
+
+	// Backend returns the type of the database backend used.
+	Backend() sqlc.BackendType
 }
 
 // txExecutorOptions is a struct that holds the options for the transaction
@@ -234,6 +240,11 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	return ErrRetriesExceeded
 }
 
+// Backend returns the type of the database backend used.
+func (t *TransactionExecutor[Q]) Backend() sqlc.BackendType {
+	return t.BatchedQuerier.Backend()
+}
+
 // BaseDB is the base database struct that each implementation can embed to
 // gain some common functionality.
 type BaseDB struct {
@@ -251,4 +262,9 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 		Isolation: sql.LevelSerializable,
 	}
 	return s.DB.BeginTx(ctx, &sqlOptions)
+}
+
+// Backend returns the type of the database backend used.
+func (s *BaseDB) Backend() sqlc.BackendType {
+	return s.Queries.Backend()
 }

@@ -921,18 +921,44 @@ func assertUniverseStats(t *testing.T, node *tapdHarness,
 }
 
 func assertUniverseAssetStats(t *testing.T, node *tapdHarness,
-	assetIDs [][]byte) {
+	assets []*taprpc.Asset) {
 
-	assetStats, err := node.QueryAssetStats(
-		context.Background(), &unirpc.AssetStatsQuery{},
-	)
+	ctxb := context.Background()
+	assetStats, err := node.QueryAssetStats(ctxb, &unirpc.AssetStatsQuery{})
 	require.NoError(t, err)
-	require.Len(t, assetStats.AssetStats, len(assetIDs))
+	require.Len(t, assetStats.AssetStats, len(assets))
 
 	for _, assetStat := range assetStats.AssetStats {
-		found := fn.Any(assetIDs, func(id []byte) bool {
-			return bytes.Equal(assetStat.AssetId, id)
-		})
+		found := fn.Any(
+			assets, func(a *taprpc.Asset) bool {
+				groupKeyEqual := true
+				if a.AssetGroup != nil {
+					groupKeyEqual = bytes.Equal(
+						assetStat.GroupKey,
+						a.AssetGroup.TweakedGroupKey,
+					)
+				}
+
+				return groupKeyEqual && bytes.Equal(
+					assetStat.AssetId,
+					a.AssetGenesis.AssetId,
+				)
+			},
+		)
 		require.True(t, found)
+
+		require.NotZero(t, assetStat.GenesisHeight)
+		require.NotZero(t, assetStat.GenesisTimestamp)
+		require.NotEmpty(t, assetStat.GenesisPoint)
 	}
+
+	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})
+	require.NoError(t, err)
+
+	todayStr := time.Now().Format("2006-01-02")
+	require.Len(t, eventStats.Events, 1)
+
+	s := eventStats.Events[0]
+	require.Equal(t, todayStr, s.Date)
+	require.EqualValues(t, len(assets), s.NewProofEvents)
 }

@@ -191,10 +191,6 @@ type PendingAssetStore interface {
 	// that once confirmed will mint the asset.
 	AnchorPendingAssets(ctx context.Context, arg AssetAnchor) error
 
-	// AnchorGenesisPoint associates a genesis point with the transaction
-	// that mints the associated assets on disk.
-	AnchorGenesisPoint(ctx context.Context, arg GenesisPointAnchor) error
-
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
 	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)

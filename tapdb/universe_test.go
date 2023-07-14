@@ -1,13 +1,16 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"math/rand"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -53,8 +56,8 @@ func newTestUniverse(t *testing.T,
 func newTestUniverseWithDb(t *testing.T, db *BaseDB,
 	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseUniverseStore {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) BaseUniverseStore {
 			return db.WithTx(tx)
 		},
 	)
@@ -88,15 +91,31 @@ func randBaseKey(t *testing.T) universe.BaseKey {
 func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	groupKey *btcec.PublicKey) universe.MintingLeaf {
 
-	var proof [200]byte
-	_, err := rand.Read(proof[:])
-	require.NoError(t, err)
+	var buf bytes.Buffer
+	p := &proof.Proof{
+		PrevOut: wire.OutPoint{},
+		BlockHeader: wire.BlockHeader{
+			Timestamp: time.Unix(rand.Int63(), 0),
+		},
+		AnchorTx: wire.MsgTx{
+			Version: 2,
+			TxIn: []*wire.TxIn{{
+				Witness: [][]byte{[]byte("foo")},
+			}},
+		},
+		TxMerkleProof: proof.TxMerkleProof{},
+		Asset:         *asset.RandAsset(t, asset.Normal),
+		InclusionProof: proof.TaprootProof{
+			InternalKey: test.RandPubKey(t),
+		},
+	}
+	require.NoError(t, p.Encode(&buf))
 
 	leaf := universe.MintingLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
-		GenesisProof: proof[:],
+		GenesisProof: buf.Bytes(),
 		Amt:          uint64(rand.Int31()),
 	}
 	if groupKey != nil {

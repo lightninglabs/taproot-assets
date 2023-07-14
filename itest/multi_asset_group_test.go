@@ -101,7 +101,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	normalMember, err := fn.First(

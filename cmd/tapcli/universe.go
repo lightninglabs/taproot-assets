@@ -660,6 +660,7 @@ var universeStatsCommand = cli.Command{
 	Action: universeStatsSummaryCommand,
 	Subcommands: []cli.Command{
 		universeAssetStatsCommand,
+		universeEventStatsCommand,
 	},
 }
 
@@ -683,6 +684,10 @@ const (
 	assetType = "asset_type"
 
 	sortByName = "sort_by"
+
+	startTime = "start_time"
+
+	endTime = "end_time"
 )
 
 var universeAssetStatsCommand = cli.Command{
@@ -783,6 +788,48 @@ func universeStatsQueryCommand(ctx *cli.Context) error {
 		}(),
 		Limit:  int32(ctx.Int64(limitName)),
 		Offset: int32(ctx.Int64(offsetName)),
+	})
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var universeEventStatsCommand = cli.Command{
+	Name:      "events",
+	ShortName: "e",
+	Usage:     "query Universe event stats",
+	Description: `
+	Query for the number of sync and proof events for a given time
+    	period, grouped by day.
+	`,
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: startTime,
+			Usage: "(optional) the unix timestamp to start " +
+				"querying from; if not specified, will query " +
+				"from last 30 days by default",
+		},
+		cli.Int64Flag{
+			Name: offsetName,
+			Usage: "(optional) the unix timestamp to end " +
+				"querying from; if not specified, will query " +
+				"until now by default",
+		},
+	},
+	Action: universeEventStatsQueryCommand,
+}
+
+func universeEventStatsQueryCommand(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.QueryEvents(ctxc, &universerpc.QueryEventsRequest{
+		StartTimestamp: ctx.Int64(startTime),
+		EndTimestamp:   ctx.Int64(endTime),
 	})
 	if err != nil {
 		return err

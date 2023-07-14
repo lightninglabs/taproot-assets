@@ -139,7 +139,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 		}
 	}
 
-	queries := sqlc.New(db)
+	queries := sqlc.NewSqlite(db)
 
 	return &SqliteStore{
 		cfg: cfg,

@@ -12,6 +12,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func testUniverseSync(t *harnessTest) {
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
-		require.NoError(t.t, bob.stop(true))
+		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	ctxb := context.Background()
@@ -311,7 +312,7 @@ func testUniverseFederation(t *harnessTest) {
 		t.t, t, t.lndHarness.Bob, nil,
 	)
 	defer func() {
-		require.NoError(t.t, bob.stop(true))
+		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	ctxb := context.Background()
@@ -379,41 +380,55 @@ func testUniverseFederation(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.EqualValues(t.t, 1, info.NumAssets)
 
-	// We'll now make a new asset with Bob, and ensure that the state is
+	// We'll now make two new assets with Bob, and ensure that the state is
 	// properly pushed to the main node which is a part of the federation.
-	newAsset := mintAssetsConfirmBatch(t, bob, simpleAssets[1:])
+	newAssets := mintAssetsConfirmBatch(t, bob, []*mintrpc.MintAssetRequest{
+		simpleAssets[1], issuableAssets[0],
+	})
 
-	// Bob should have a new asset in its local Universe tree.
-	assetID := newAsset[0].AssetGenesis.AssetId
-	waitErr := wait.NoError(func() error {
-		_, err := bob.QueryAssetRoots(ctxt, &unirpc.AssetRootQuery{
-			Id: &unirpc.ID{
-				Id: &unirpc.ID_AssetId{
-					AssetId: assetID,
-				},
+	// Bob should have two new assets in its local Universe tree.
+	for _, newAsset := range newAssets {
+		assetID := newAsset.AssetGenesis.AssetId
+		uniID := &unirpc.ID{
+			Id: &unirpc.ID_AssetId{
+				AssetId: assetID,
 			},
-		})
-		return err
-	}, defaultTimeout)
-	require.NoError(t.t, waitErr)
+		}
+
+		if newAsset.AssetGroup != nil {
+			groupKey := newAsset.AssetGroup.TweakedGroupKey
+			uniID = &unirpc.ID{
+				Id: &unirpc.ID_GroupKey{
+					GroupKey: groupKey,
+				},
+			}
+		}
+
+		waitErr := wait.NoError(func() error {
+			_, err := bob.QueryAssetRoots(
+				ctxt, &unirpc.AssetRootQuery{
+					Id: uniID,
+				},
+			)
+			return err
+		}, defaultTimeout)
+		require.NoError(t.t, waitErr)
+	}
 
 	// At this point, both nodes should have the same Universe roots as Bob
 	// should have optimistically pushed the update to its federation
 	// members.
 	assertUniverseStateEqual(t.t, bob, t.tapd)
 
-	// Bob's stats should also now show that there're two total asset as
-	// well as two proofs.
-	assertUniverseStats(t.t, bob, 2, 0, 2)
+	// Bob's stats should also now show that there're three total asset as
+	// well as three proofs.
+	assertUniverseStats(t.t, bob, 3, 0, 3)
 
 	// We should be able to find both the new assets in the set of universe
 	// stats for an asset.
-	assertUniverseAssetStats(
-		t.t, bob, [][]byte{
-			firstAsset[0].AssetGenesis.AssetId,
-			newAsset[0].AssetGenesis.AssetId,
-		},
-	)
+	assertUniverseAssetStats(t.t, bob, []*taprpc.Asset{
+		firstAsset[0], newAssets[0], newAssets[1],
+	})
 
 	// Next, we'll try to delete the main node from the federation.
 	_, err = bob.DeleteFederationServer(

@@ -236,7 +236,8 @@ func (t *treeStoreWrapperTx) View(ctx context.Context,
 // upsertAssetGen attempts to insert an asset genesis if it doesn't already
 // exist. Otherwise, the primary key of the existing asset ID is returned.
 func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
-	assetGen asset.Genesis, groupKey *asset.GroupKey) (int32, error) {
+	assetGen asset.Genesis, groupKey *asset.GroupKey,
+	genesisProof proof.Blob) (int32, error) {
 
 	// First, given the genesis point in the passed genesis, we'll insert a
 	// new genesis point in the DB.
@@ -247,9 +248,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 
 	// With the genesis point inserted, we can now insert a genesis for the
 	// given asset.
-	genAssetID, err := upsertGenesis(
-		ctx, db, genPointID, assetGen,
-	)
+	genAssetID, err := upsertGenesis(ctx, db, genPointID, assetGen)
 	if err != nil {
 		return 0, err
 	}
@@ -265,8 +264,43 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 		}
 	}
 
-	// TODO(roasbeef): also insert on chain information?
-	//  * need to mark that this is a imported gen?
+	genProof := &proof.Proof{}
+	err = genProof.Decode(bytes.NewReader(genesisProof))
+	if err != nil {
+		return 0, fmt.Errorf("unable to decode genesis proof: %w", err)
+	}
+
+	var txBuf bytes.Buffer
+	if err := genProof.AnchorTx.Serialize(&txBuf); err != nil {
+		return 0, fmt.Errorf("unable to serialize anchor tx: %w", err)
+	}
+
+	genTXID := genProof.AnchorTx.TxHash()
+	genBlockHash := genProof.BlockHeader.BlockHash()
+	chainTXID, err := db.UpsertChainTx(ctx, ChainTxParams{
+		Txid:        genTXID[:],
+		RawTx:       txBuf.Bytes(),
+		BlockHeight: sqlInt32(genProof.BlockHeight),
+		BlockHash:   genBlockHash[:],
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unable to upsert chain tx: %w", err)
+	}
+
+	// Finally, we'll anchor the genesis point to link to the chain
+	// transaction we upserted above.
+	genesisPoint, err := encodeOutpoint(assetGen.FirstPrevOut)
+	if err != nil {
+		return 0, fmt.Errorf("unable to encode genesis point: %w", err)
+	}
+	if err := db.AnchorGenesisPoint(ctx, GenesisPointAnchor{
+		PrevOut:    genesisPoint,
+		AnchorTxID: sqlInt32(chainTXID),
+	}); err != nil {
+		return 0, fmt.Errorf("unable to anchor genesis tx: %w", err)
+	}
+
+	// TODO(roasbeef): need to mark that this is a imported gen?
 
 	return genAssetID, nil
 }
@@ -337,7 +371,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 
 		// Before we insert the asset genesis, we'll insert the meta
 		// first. The reveal may or may not be populated, which'll also
-		// insert the opauqe meta blob on disk.
+		// insert the opaque meta blob on disk.
 		_, err = maybeUpsertAssetMeta(
 			ctx, db, &leaf.Genesis, metaReveal,
 		)
@@ -346,7 +380,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		}
 
 		assetGenID, err := upsertAssetGen(
-			ctx, db, leaf.Genesis, leaf.GroupKey,
+			ctx, db, leaf.Genesis, leaf.GroupKey, leaf.GenesisProof,
 		)
 		if err != nil {
 			return err

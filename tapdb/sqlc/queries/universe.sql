@@ -116,7 +116,7 @@ WITH group_key_root_id AS (
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'SYNC',
         CASE WHEN length(@group_key_x_only) > 0 THEN (
@@ -124,7 +124,7 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    @event_time
+    @event_time, @event_timestamp
 );
 
 -- name: InsertNewProofEvent :exec
@@ -141,7 +141,7 @@ WITH group_key_root_id AS (
     LIMIT 1
 )
 INSERT INTO universe_events (
-    event_type, universe_root_id, event_time
+    event_type, universe_root_id, event_time, event_timestamp
 ) VALUES (
     'NEW_PROOF',
         CASE WHEN length(@group_key_x_only) > 0 THEN (
@@ -149,7 +149,7 @@ INSERT INTO universe_events (
         ) ELSE (
             SELECT id FROM asset_id_root_id
         ) END,
-    @event_time
+    @event_time, @event_timestamp
 );
 
 -- name: QueryUniverseStats :one
@@ -177,16 +177,26 @@ WITH asset_supply AS (
     GROUP BY gen.asset_id
 ), asset_info AS (
     SELECT asset_supply.supply, gen.asset_id AS asset_id, 
-           gen.asset_tag AS asset_name, gen.asset_type AS asset_type
+           gen.asset_tag AS asset_name, gen.asset_type AS asset_type,
+           gen.block_height AS genesis_height, gen.prev_out AS genesis_prev_out,
+           group_info.tweaked_group_key AS group_key
     FROM genesis_info_view gen
     JOIN asset_supply
         ON asset_supply.asset_id = gen.asset_id
+    -- We use a LEFT JOIN here as not every asset has a group key, so this'll
+    -- generate rows that have NULL values for the group key fields if an asset
+    -- doesn't have a group key.
+    LEFT JOIN key_group_info_view group_info
+        ON gen.gen_asset_id = group_info.gen_asset_id
     WHERE (gen.asset_tag = sqlc.narg('asset_name') OR sqlc.narg('asset_name') IS NULL) AND
           (gen.asset_type = sqlc.narg('asset_type') OR sqlc.narg('asset_type') IS NULL) AND
           (gen.asset_id = sqlc.narg('asset_id') OR sqlc.narg('asset_id') IS NULL)
 )
 SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
     asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
+    asset_info.genesis_height AS genesis_height,
+    asset_info.genesis_prev_out AS genesis_prev_out,
+    asset_info.group_key AS group_key,
     universe_stats.total_asset_syncs AS total_syncs,
     universe_stats.total_asset_proofs AS total_proofs
 FROM asset_info
@@ -204,5 +214,39 @@ ORDER BY
     CASE
         WHEN sqlc.narg('sort_by') = 'asset_type' THEN asset_info.asset_type
         ELSE NULL
+    END,
+    CASE
+        WHEN sqlc.narg('sort_by') = 'total_syncs' THEN universe_stats.total_asset_syncs
+        ELSE NULL
+        END,
+    CASE
+        WHEN sqlc.narg('sort_by') = 'total_proofs' THEN universe_stats.total_asset_proofs
+        ELSE NULL
+    END,
+    CASE
+        WHEN sqlc.narg('sort_by') = 'genesis_height' THEN asset_info.genesis_height
+        ELSE NULL
     END
 LIMIT @num_limit OFFSET @num_offset;
+
+-- name: QueryAssetStatsPerDaySqlite :many
+SELECT
+    cast(strftime('%Y-%m-%d', datetime(event_timestamp, 'unixepoch')) as text) AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= @start_time AND event_timestamp <= @end_time
+GROUP BY day
+ORDER BY day;
+
+-- name: QueryAssetStatsPerDayPostgres :many
+SELECT
+    to_char(to_timestamp(event_timestamp), 'YYYY-MM-DD') AS day,
+    SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
+    SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
+FROM universe_events
+WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
+      event_timestamp >= @start_time AND event_timestamp <= @end_time
+GROUP BY day
+ORDER BY day;

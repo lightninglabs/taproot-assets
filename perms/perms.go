@@ -180,6 +180,10 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
+		"/universerpc.Universe/QueryEvents": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 	}
 
 	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
@@ -212,6 +216,7 @@ func MacaroonWhitelist(allowPublicStats bool) map[string]struct{} {
 	if allowPublicStats {
 		whitelist["/universerpc.Universe/QueryAssetStats"] = struct{}{}
 		whitelist["/universerpc.Universe/UniverseStats"] = struct{}{}
+		whitelist["/universerpc.Universe/QueryEvents"] = struct{}{}
 	}
 
 	return whitelist

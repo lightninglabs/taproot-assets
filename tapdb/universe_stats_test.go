@@ -7,24 +7,26 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 )
 
-func newUniverseStatsWithDB(t *testing.T,
-	db *BaseDB) (*UniverseStats, sqlc.Querier) {
+func newUniverseStatsWithDB(db *BaseDB, clock clock.Clock) (*UniverseStats,
+	sqlc.Querier) {
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) UniverseStatsStore {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) UniverseStatsStore {
 			return db.WithTx(tx)
 		},
 	)
 
-	return NewUniverseStats(dbTxer), db
+	return NewUniverseStats(dbTxer, clock), db
 }
 
 type uniStatsHarness struct {
@@ -107,7 +109,9 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 	db := NewTestDB(t)
 
-	statsDB, _ := newUniverseStatsWithDB(t, db.BaseDB)
+	yesterday := time.Now().Add(-24 * time.Hour)
+	testClock := clock.NewTestClock(yesterday)
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 	ctx := context.Background()
 
@@ -127,6 +131,10 @@ func TestUniverseStatsEvents(t *testing.T) {
 	// asset above. We'll mark these each first as a new proof.
 	for i := 0; i < numAssets; i++ {
 		sh.logProofEventByIndex(i)
+
+		// Increment the clock by a full day to ensure that the event
+		// is grouped into its own day.
+		testClock.SetTime(testClock.Now().Add(24 * time.Hour))
 	}
 
 	// We'll now query for the set of aggregate Universe stats. It should
@@ -176,6 +184,29 @@ func TestUniverseStatsEvents(t *testing.T) {
 		require.Equal(t, int(assetStat.TotalProofs), 1)
 	}
 
+	timeStats, err := statsDB.QueryAssetStatsPerDay(
+		ctx, universe.GroupedStatsQuery{
+			StartTime: yesterday,
+			EndTime:   testClock.Now(),
+		},
+	)
+	require.NoError(t, err)
+
+	// There should be 4 total time stats, three for the proofs, and one
+	// for the sync event.
+	require.Len(t, timeStats, 4)
+	for idx, s := range timeStats {
+		targetDate := yesterday.Add(time.Duration(idx) * 24 * time.Hour)
+		targetDateStr := targetDate.Format("2006-01-02")
+		require.Equal(t, targetDateStr, s.Date)
+
+		if idx == 3 {
+			require.NotZero(t, s.NumTotalSyncs)
+		} else {
+			require.NotZero(t, s.NumTotalProofs)
+		}
+	}
+
 	// Finally, we should be able to delete a universe and all associated
 	// events.
 	_, err = sh.assetUniverses[assetToSync].DeleteUniverse(ctx)
@@ -193,7 +224,8 @@ func TestUniverseStatsEvents(t *testing.T) {
 func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 	db := NewTestDB(t)
 
-	statsDB, _ := newUniverseStatsWithDB(t, db.BaseDB)
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 	ctx := context.Background()
 
@@ -258,6 +290,41 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:     "total sync",
+			sortType: universe.SortByTotalSyncs,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+			) func(i, j int) bool {
+
+				return func(i, j int) bool {
+					return s[i].TotalSyncs < s[j].TotalSyncs
+				}
+			},
+		},
+		{
+			name:     "total proofs",
+			sortType: universe.SortByTotalProofs,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+			) func(i, j int) bool {
+
+				return func(i, j int) bool {
+					return s[i].TotalProofs <
+						s[j].TotalProofs
+				}
+			},
+		},
+		{
+			name:     "genesis height",
+			sortType: universe.SortByGenesisHeight,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+			) func(i, j int) bool {
+
+				return func(i, j int) bool {
+					return s[i].GenesisHeight <
+						s[j].GenesisHeight
+				}
+			},
+		},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -283,7 +350,8 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 func TestUniverseQuerySyncFilters(t *testing.T) {
 	db := NewTestDB(t)
 
-	statsDB, _ := newUniverseStatsWithDB(t, db.BaseDB)
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
 	ctx := context.Background()
 

@@ -38,7 +38,7 @@ func testAddresses(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, secondTapd.stop(true))
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	var addresses []*taprpc.Addr
@@ -165,7 +165,7 @@ func testMultiAddress(t *harnessTest) {
 		},
 	)
 	defer func() {
-		require.NoError(t.t, bob.stop(true))
+		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	runMultiSendTest(ctxt, t, alice, bob, genInfo, mintedAsset, 0, 1)

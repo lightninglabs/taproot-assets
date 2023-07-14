@@ -678,8 +678,7 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 			RawTx: txBuf.Bytes(),
 		}
 		if walletTx.Confirmations > 0 {
-			txUpsert.BlockHeight.Valid = true
-			txUpsert.BlockHeight.Int32 = walletTx.BlockHeight
+			txUpsert.BlockHeight = sqlInt32(walletTx.BlockHeight)
 
 			// We're missing the transaction index within the block,
 			// we need to update that from the proof. Fortunately we

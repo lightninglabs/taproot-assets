@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS chain_txns (
     tx_index INTEGER
 );
 
--- genesis_points stores all genesis_points relevant to tardo, which is the
+-- genesis_points stores all genesis_points relevant to tapd, which is the
 -- first outpoint of the transaction that mints assets. This table stores the
 -- outpoint itself, and also a references to the transaction that _spends_ that
 -- outpoint.

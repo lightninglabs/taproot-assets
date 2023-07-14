@@ -393,7 +393,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// from there.
 	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
 
-	// TODO(roasbeef): need tx index and block height as well
+	// TODO(roasbeef): need tx index as well
 
 	return &AssetSnapshot{
 		Asset: &p.Asset,
@@ -401,14 +401,15 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
 		},
-		AnchorBlockHash:  p.BlockHeader.BlockHash(),
-		AnchorTx:         &p.AnchorTx,
-		OutputIndex:      p.InclusionProof.OutputIndex,
-		InternalKey:      p.InclusionProof.InternalKey,
-		ScriptRoot:       tapCommitment,
-		TapscriptSibling: tapscriptPreimage,
-		SplitAsset:       splitAsset,
-		MetaReveal:       p.MetaReveal,
+		AnchorBlockHash:   p.BlockHeader.BlockHash(),
+		AnchorBlockHeight: p.BlockHeight,
+		AnchorTx:          &p.AnchorTx,
+		OutputIndex:       p.InclusionProof.OutputIndex,
+		InternalKey:       p.InclusionProof.InternalKey,
+		ScriptRoot:        tapCommitment,
+		TapscriptSibling:  tapscriptPreimage,
+		SplitAsset:        splitAsset,
+		MetaReveal:        p.MetaReveal,
 	}, nil
 }
 
