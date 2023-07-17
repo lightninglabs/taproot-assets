@@ -349,9 +349,10 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		// The suffix doesn't contain any information about the
 		// confirmed block yet, so we'll add that now.
 		err = proofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
-			Block:   confEvent.Block,
-			Tx:      confEvent.Tx,
-			TxIndex: int(confEvent.TxIndex),
+			Block:       confEvent.Block,
+			BlockHeight: confEvent.BlockHeight,
+			Tx:          confEvent.Tx,
+			TxIndex:     int(confEvent.TxIndex),
 		})
 		if err != nil {
 			return fmt.Errorf("error updating transition proof "+
@@ -474,9 +475,10 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 	// Now that we have the current proof file, we'll update the new proof
 	// with chain tx confirmation data and then append it to the proof file.
 	err = newProof.UpdateTransitionProof(&proof.BaseProofParams{
-		Block:   confEvent.Block,
-		Tx:      confEvent.Tx,
-		TxIndex: int(confEvent.TxIndex),
+		Block:       confEvent.Block,
+		BlockHeight: confEvent.BlockHeight,
+		Tx:          confEvent.Tx,
+		TxIndex:     int(confEvent.TxIndex),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error updating new proof with "+
