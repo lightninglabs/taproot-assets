@@ -256,6 +256,12 @@ type ChainBridge interface {
 	// the given height.
 	GetBlockHash(context.Context, int64) (chainhash.Hash, error)
 
+	// VerifyBlock returns an error if a block (with given header and
+	// height) is not present on-chain. It also checks to ensure that block
+	// height corresponds to the given block header.
+	VerifyBlock(ctx context.Context, header wire.BlockHeader,
+		height uint32) error
+
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)
 

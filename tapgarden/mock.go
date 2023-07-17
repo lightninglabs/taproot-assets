@@ -306,6 +306,15 @@ func (m *MockChainBridge) GetBlockHash(ctx context.Context,
 	return chainhash.Hash{}, nil
 }
 
+// VerifyBlock returns an error if a block (with given header and height) is not
+// present on-chain. It also checks to ensure that block height corresponds to
+// the given block header.
+func (m *MockChainBridge) VerifyBlock(_ context.Context,
+	_ wire.BlockHeader, _ uint32) error {
+
+	return nil
+}
+
 func (m *MockChainBridge) CurrentHeight(_ context.Context) (uint32, error) {
 	return 0, nil
 }
