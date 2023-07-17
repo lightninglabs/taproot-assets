@@ -487,10 +487,10 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// Header verifier compares given header to expected header. Verifier
 	// does not return error.
 	errHeaderVerifier := fmt.Errorf("invalid block header")
-	headerVerifier := func(blockHeader wire.BlockHeader) error {
+	headerVerifier := func(header wire.BlockHeader, height uint32) error {
 		// Compare given block header against base reference block
 		// header.
-		if blockHeader != originalBlockHeader {
+		if header != originalBlockHeader {
 			return errHeaderVerifier
 		}
 		return nil

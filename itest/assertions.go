@@ -265,14 +265,40 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness,
 	anchorTxBlockHeight := rpcAsset.ChainAnchor.BlockHeight
 	require.Greater(t, anchorTxBlockHeight, uint32(0))
 
-	headerVerifier := func(blockHeader wire.BlockHeader) error {
-		hash := blockHeader.BlockHash()
+	headerVerifier := func(header wire.BlockHeader, height uint32) error {
+		hash := header.BlockHash()
+
+		// Ensure that the block hash matches the hash of the block
+		// found at the given height.
+		blockHashReq := &chainrpc.GetBlockHashRequest{
+			BlockHeight: int64(height),
+		}
+		blockHashResp, err := tapd.cfg.LndNode.RPC.ChainKit.GetBlockHash(
+			ctxb, blockHashReq,
+		)
+		if err != nil {
+			return err
+		}
+
+		var heightHash chainhash.Hash
+		copy(heightHash[:], blockHashResp.BlockHash)
+
+		expectedHash := hash
+		if heightHash != expectedHash {
+			return fmt.Errorf("block hash and block height "+
+				"mismatch; (height: %x, hashAtHeight: %s, "+
+				"expectedHash: %s)", height, heightHash,
+				expectedHash)
+		}
+
+		// Ensure that the block header corresponds to a block on-chain.
 		req := &chainrpc.GetBlockRequest{
 			BlockHash: hash.CloneBytes(),
 		}
-		_, err := tapd.cfg.LndNode.RPC.ChainKit.GetBlock(ctxb, req)
+		_, err = tapd.cfg.LndNode.RPC.ChainKit.GetBlock(ctxb, req)
 		return err
 	}
+
 	snapshot, err := f.Verify(ctxt, headerVerifier)
 	require.NoError(t, err)
 

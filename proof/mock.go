@@ -39,6 +39,6 @@ func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
 // Header verification usually involves cross-referencing with chain data.
 // Chain data is not available in unit tests. This function is useful for unit
 // tests which are not primarily concerned with block header verification.
-func MockHeaderVerifier(blockHeader wire.BlockHeader) error {
+func MockHeaderVerifier(header wire.BlockHeader, height uint32) error {
 	return nil
 }

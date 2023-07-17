@@ -1025,12 +1025,10 @@ func GetTxFee(pkt *psbt.Packet) (int64, error) {
 // GenHeaderVerifier generates a block header on-chain verification callback
 // function given a chain bridge.
 func GenHeaderVerifier(ctx context.Context,
-	chainBridge ChainBridge) func(header wire.BlockHeader) error {
+	chainBridge ChainBridge) func(wire.BlockHeader, uint32) error {
 
-	return func(blockHeader wire.BlockHeader) error {
-		_, err := chainBridge.GetBlock(
-			ctx, blockHeader.BlockHash(),
-		)
+	return func(header wire.BlockHeader, height uint32) error {
+		err := chainBridge.VerifyBlock(ctx, header, height)
 		return err
 	}
 }
