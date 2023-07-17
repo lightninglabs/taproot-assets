@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -79,6 +78,7 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 
 	require.Equal(t, expected.PrevOut, actual.PrevOut)
 	require.Equal(t, expected.BlockHeader, actual.BlockHeader)
+	require.Equal(t, expected.BlockHeight, actual.BlockHeight)
 	require.Equal(t, expected.AnchorTx, actual.AnchorTx)
 	require.Equal(t, expected.TxMerkleProof, actual.TxMerkleProof)
 	require.Equal(t, expected.Asset, actual.Asset)
@@ -315,9 +315,14 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		[]*btcutil.Tx{btcutil.NewTx(genesisTx)}, false,
 	)
 	merkleRoot := merkleTree[len(merkleTree)-1]
+
+	// We'll use the genesis hash of the mainnet chain as the parent block.
 	blockHeader := wire.NewBlockHeader(
 		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
 	)
+
+	// We'll set the block height to 1, as the genesis block is at height 0.
+	blockHeight := uint32(1)
 
 	txMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{genesisTx}, 0)
 	require.NoError(t, err)
@@ -325,6 +330,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	return Proof{
 		PrevOut:       genesisTx.TxIn[0].PreviousOutPoint,
 		BlockHeader:   *blockHeader,
+		BlockHeight:   blockHeight,
 		AnchorTx:      *genesisTx,
 		TxMerkleProof: *txMerkleProof,
 		Asset:         *genesisAsset,
@@ -480,9 +486,12 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 		t, asset.Collectible, nil, nil, true, nil, nil,
 	)
 
-	// Create a base reference for the block header. We will later modify
-	// the proof block header.
-	originalBlockHeader := proof.BlockHeader
+	// Create a base reference for the block header and block height. We
+	// will later modify these proof fields.
+	var (
+		originalBlockHeader = proof.BlockHeader
+		originalBlockHeight = proof.BlockHeight
+	)
 
 	// Header verifier compares given header to expected header. Verifier
 	// does not return error.
@@ -490,7 +499,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	headerVerifier := func(header wire.BlockHeader, height uint32) error {
 		// Compare given block header against base reference block
 		// header.
-		if header != originalBlockHeader {
+		if header != originalBlockHeader || height != originalBlockHeight {
 			return errHeaderVerifier
 		}
 		return nil
@@ -509,8 +518,18 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	_, actualErr := proof.Verify(
 		context.Background(), nil, headerVerifier,
 	)
-	actualErrInner := errors.Unwrap(actualErr)
-	require.Equal(t, actualErrInner, errHeaderVerifier)
+	require.ErrorIs(t, actualErr, errHeaderVerifier)
+
+	// Reset proof block header.
+	proof.BlockHeader.Nonce = originalBlockHeader.Nonce
+
+	// Modify proof block height, then check that the verification function
+	// propagates the correct error.
+	proof.BlockHeight += 1
+	_, actualErr = proof.Verify(
+		context.Background(), nil, headerVerifier,
+	)
+	require.ErrorIs(t, actualErr, errHeaderVerifier)
 }
 
 // TestProofFileVerification ensures that the proof file encoding and decoding
