@@ -568,7 +568,9 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context,
 func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 	withWitness bool) (*taprpc.Asset, error) {
 
-	rpcAsset, err := MarshalAsset(ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook)
+	rpcAsset, err := MarshalAsset(
+		ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1152,8 +1154,8 @@ func (r *rpcServer) DecodeProof(ctx context.Context,
 
 // marshalProofFile turns a proof file into an RPC DecodedProof.
 func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
-	depth uint32, withPrevWitnesses, withMetaReveal bool) (*taprpc.DecodedProof,
-	error) {
+	depth uint32, withPrevWitnesses,
+	withMetaReveal bool) (*taprpc.DecodedProof, error) {
 
 	decodedProof, err := proofFile.ProofAt(depth)
 	if err != nil {
@@ -1161,7 +1163,6 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	}
 
 	var (
-		finalAsset     = decodedProof.Asset
 		rpcMeta        *taprpc.AssetMeta
 		anchorOutpoint = wire.OutPoint{
 			Hash:  decodedProof.AnchorTx.TxHash(),
@@ -1187,25 +1188,27 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	var exclusionProofs [][]byte
 	for _, exclusionProof := range decodedProof.ExclusionProofs {
 		var exclusionProofBuf bytes.Buffer
-		if err := exclusionProof.Encode(&exclusionProofBuf); err != nil {
+		err := exclusionProof.Encode(&exclusionProofBuf)
+		if err != nil {
 			return nil, fmt.Errorf("unable to encode exclusion "+
 				"proofs: %w", err)
 		}
-		exclusionProofBytes := exclusionProofBuf.Bytes()
-
-		exclusionProofs = append(exclusionProofs, exclusionProofBytes)
+		exclusionProofs = append(
+			exclusionProofs, exclusionProofBuf.Bytes(),
+		)
 	}
 
 	var splitRootProofBuf bytes.Buffer
 	if splitRootProof != nil {
-		if err := splitRootProof.Encode(&splitRootProofBuf); err != nil {
-			return nil, fmt.Errorf("unable to encode split root proof: %w",
-				err)
+		err := splitRootProof.Encode(&splitRootProofBuf)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode split root "+
+				"proof: %w", err)
 		}
 	}
 
 	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
-		Asset:             &finalAsset,
+		Asset:             &decodedProof.Asset,
 		AnchorTx:          &decodedProof.AnchorTx,
 		AnchorTxid:        decodedProof.AnchorTx.TxHash(),
 		AnchorBlockHash:   decodedProof.BlockHeader.BlockHash(),
@@ -1218,14 +1221,19 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	}
 
 	if withMetaReveal {
-		if len(rpcAsset.AssetGenesis.MetaHash) == 0 {
-			return nil, fmt.Errorf("asset does not contain meta data")
+		metaHash := rpcAsset.AssetGenesis.MetaHash
+		if len(metaHash) == 0 {
+			return nil, fmt.Errorf("asset does not contain meta " +
+				"data")
 		}
-		rpcMeta, err = r.FetchAssetMeta(ctx, &taprpc.FetchAssetMetaRequest{
-			Asset: &taprpc.FetchAssetMetaRequest_MetaHash{
-				MetaHash: rpcAsset.AssetGenesis.MetaHash,
+
+		rpcMeta, err = r.FetchAssetMeta(
+			ctx, &taprpc.FetchAssetMetaRequest{
+				Asset: &taprpc.FetchAssetMetaRequest_MetaHash{
+					MetaHash: metaHash,
+				},
 			},
-		})
+		)
 		if err != nil {
 			return nil, err
 		}
