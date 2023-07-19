@@ -67,6 +67,53 @@ func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 	return block, nil
 }
 
+// GetBlockHash returns the hash of the block in the best blockchain at the
+// given height.
+func (l *LndRpcChainBridge) GetBlockHash(ctx context.Context,
+	blockHeight int64) (chainhash.Hash, error) {
+
+	blockHash, err := l.lnd.ChainKit.GetBlockHash(ctx, blockHeight)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("unable to retrieve "+
+			"block hash: %w", err)
+	}
+
+	return blockHash, nil
+}
+
+// VerifyBlock returns an error if a block (with given header and height) is not
+// present on-chain. It also checks to ensure that block height corresponds to
+// the given block header.
+func (l *LndRpcChainBridge) VerifyBlock(ctx context.Context,
+	header wire.BlockHeader, height uint32) error {
+
+	// TODO(ffranr): Once we've released 0.3.0, every proof should have an
+	// assigned height. At that point, we should return an error for proofs
+	// with unset (zero) block heights.
+	if height == 0 {
+		_, err := l.GetBlock(ctx, header.BlockHash())
+		return err
+	}
+
+	// Ensure that the block hash matches the hash of the block
+	// found at the given height.
+	hash, err := l.GetBlockHash(ctx, int64(height))
+	if err != nil {
+		return err
+	}
+
+	expectedHash := header.BlockHash()
+	if hash != expectedHash {
+		return fmt.Errorf("block hash and block height "+
+			"mismatch; (height: %x, hashAtHeight: %s, "+
+			"expectedHash: %s)", height, hash, expectedHash)
+	}
+
+	// Ensure that the block header corresponds to a block on-chain.
+	_, err = l.GetBlock(ctx, header.BlockHash())
+	return err
+}
+
 // CurrentHeight return the current height of the main chain.
 func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
 	info, err := l.lnd.Client.GetInfo(ctx)

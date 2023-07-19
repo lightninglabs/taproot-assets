@@ -288,7 +288,7 @@ func (p *Proof) verifyMetaReveal() error {
 
 // HeaderVerifier is a callback function which returns an error if the given
 // block header is invalid (usually: not present on chain).
-type HeaderVerifier func(blockHeader wire.BlockHeader) error
+type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 
 // Verify verifies the proof by ensuring that:
 //
@@ -313,7 +313,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	}
 
 	// Cross-check block header with a bitcoin node.
-	err := headerVerifier(p.BlockHeader)
+	err := headerVerifier(p.BlockHeader, p.BlockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate proof block "+
 			"header: %w", err)
