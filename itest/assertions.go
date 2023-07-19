@@ -218,7 +218,7 @@ func assertAssetProofs(t *testing.T, tapd *tapdHarness,
 	})
 	require.NoError(t, err)
 
-	file, snapshot := verifyProofBlob(t, tapd, exportResp.RawProof)
+	file, snapshot := verifyProofBlob(t, tapd, a, exportResp.RawProof)
 
 	assetJSON, err := formatProtoJSON(a)
 	require.NoError(t, err)
@@ -235,7 +235,7 @@ func assertAssetProofs(t *testing.T, tapd *tapdHarness,
 
 // verifyProofBlob parses the given proof blob into a file, verifies it and
 // returns the resulting last asset snapshot together with the parsed file.
-func verifyProofBlob(t *testing.T, tapd *tapdHarness,
+func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 	blob proof.Blob) (*proof.File, *proof.AssetSnapshot) {
 
 	ctxb := context.Background()
@@ -258,11 +258,12 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness,
 	})
 	require.NoError(t, err)
 
-	rpcAsset := decodeResp.DecodedProof.Asset
-	require.NotEmpty(t, rpcAsset)
+	require.NotNil(t, decodeResp.DecodedProof)
+	assertAsset(t, a, decodeResp.DecodedProof.Asset)
+	proofAsset := decodeResp.DecodedProof.Asset
 
 	// Ensure anchor block height is set.
-	anchorTxBlockHeight := rpcAsset.ChainAnchor.BlockHeight
+	anchorTxBlockHeight := proofAsset.ChainAnchor.BlockHeight
 	require.Greater(t, anchorTxBlockHeight, uint32(0))
 
 	headerVerifier := func(header wire.BlockHeader, height uint32) error {
@@ -557,15 +558,35 @@ func assertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 // or if the anchor information is populated.
 func assertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 	require.Equal(t, expected.Version, actual.Version)
-	require.Equal(t, expected.AssetGenesis, actual.AssetGenesis)
+	assertAssetGenesis(t, expected.AssetGenesis, actual.AssetGenesis)
 	require.Equal(t, expected.AssetType, actual.AssetType)
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.LockTime, actual.LockTime)
 	require.Equal(t, expected.RelativeLockTime, actual.RelativeLockTime)
 	require.Equal(t, expected.ScriptVersion, actual.ScriptVersion)
 	require.Equal(t, expected.ScriptKey, actual.ScriptKey)
-	require.Equal(t, expected.AssetGroup, actual.AssetGroup)
+	require.Equal(t, expected.AssetGroup == nil, actual.AssetGroup == nil)
 	require.Equal(t, expected.PrevWitnesses, actual.PrevWitnesses)
+
+	// The raw key isn't always set as that's not contained in proofs for
+	// example.
+	if expected.AssetGroup != nil {
+		eg := expected.AssetGroup
+		ag := actual.AssetGroup
+
+		require.Equal(t, eg.AssetIdSig, ag.AssetIdSig)
+		require.Equal(t, eg.TweakedGroupKey, ag.TweakedGroupKey)
+	}
+}
+
+// assertAssetGenesis asserts that two taprpc.GenesisInfo objects are equal.
+func assertAssetGenesis(t *testing.T, expected, actual *taprpc.GenesisInfo) {
+	require.Equal(t, expected.GenesisPoint, actual.GenesisPoint)
+	require.Equal(t, expected.Name, actual.Name)
+	require.Equal(t, expected.MetaHash, actual.MetaHash)
+	require.Equal(t, expected.AssetId, actual.AssetId)
+	require.Equal(t, expected.OutputIndex, actual.OutputIndex)
+	require.Equal(t, expected.Version, actual.Version)
 }
 
 // assertBalanceByID asserts that the balance of a single asset,
