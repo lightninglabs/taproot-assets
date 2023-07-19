@@ -1185,6 +1185,27 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 			err)
 	}
 
+	if inclusionProof.CommitmentProof == nil {
+		return nil, fmt.Errorf("inclusion proof is missing " +
+			"commitment proof")
+	}
+	tsSibling, tsHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		inclusionProof.CommitmentProof.TapSiblingPreimage,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding tapscript sibling: %w",
+			err)
+	}
+
+	tapProof, err := inclusionProof.CommitmentProof.DeriveByAssetInclusion(
+		&decodedProof.Asset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving inclusion proof: %w",
+			err)
+	}
+	merkleRoot := tapProof.TapscriptRoot(tsHash)
+
 	var exclusionProofs [][]byte
 	for _, exclusionProof := range decodedProof.ExclusionProofs {
 		var exclusionProofBuf bytes.Buffer
@@ -1208,13 +1229,15 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	}
 
 	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
-		Asset:             &decodedProof.Asset,
-		AnchorTx:          &decodedProof.AnchorTx,
-		AnchorTxid:        decodedProof.AnchorTx.TxHash(),
-		AnchorBlockHash:   decodedProof.BlockHeader.BlockHash(),
-		AnchorBlockHeight: decodedProof.BlockHeight,
-		AnchorOutpoint:    anchorOutpoint,
-		AnchorInternalKey: decodedProof.InclusionProof.InternalKey,
+		Asset:                  &decodedProof.Asset,
+		AnchorTx:               &decodedProof.AnchorTx,
+		AnchorTxid:             decodedProof.AnchorTx.TxHash(),
+		AnchorBlockHash:        decodedProof.BlockHeader.BlockHash(),
+		AnchorBlockHeight:      decodedProof.BlockHeight,
+		AnchorOutpoint:         anchorOutpoint,
+		AnchorInternalKey:      decodedProof.InclusionProof.InternalKey,
+		AnchorMerkleRoot:       merkleRoot[:],
+		AnchorTapscriptSibling: tsSibling,
 	}, withPrevWitnesses)
 	if err != nil {
 		return nil, err
