@@ -75,7 +75,7 @@ service TaprootAssets {
     */
     rpc VerifyProof (ProofFile) returns (VerifyProofResponse);
 
-    /* tarocli: `proofs decode`
+    /* tapcli: `proofs decode`
     DecodeProof attempts to decode a given proof file into human readable
     format.
     */

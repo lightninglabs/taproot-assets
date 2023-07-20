@@ -440,7 +440,7 @@
     },
     "/v1/taproot-assets/proofs/decode": {
       "post": {
-        "summary": "tarocli: `proofs decode`\nDecodeProof attempts to decode a given proof file into human readable\nformat.",
+        "summary": "tapcli: `proofs decode`\nDecodeProof attempts to decode a given proof file into human readable\nformat.",
         "operationId": "TaprootAssets_DecodeProof",
         "responses": {
           "200": {
