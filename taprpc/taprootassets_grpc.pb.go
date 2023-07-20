@@ -64,7 +64,7 @@ type TaprootAssetsClient interface {
 	// VerifyProof attempts to verify a given proof file that claims to be anchored
 	// at the specified genesis point.
 	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*VerifyProofResponse, error)
-	// tarocli: `proofs decode`
+	// tapcli: `proofs decode`
 	// DecodeProof attempts to decode a given proof file into human readable
 	// format.
 	DecodeProof(ctx context.Context, in *DecodeProofRequest, opts ...grpc.CallOption) (*DecodeProofResponse, error)
@@ -346,7 +346,7 @@ type TaprootAssetsServer interface {
 	// VerifyProof attempts to verify a given proof file that claims to be anchored
 	// at the specified genesis point.
 	VerifyProof(context.Context, *ProofFile) (*VerifyProofResponse, error)
-	// tarocli: `proofs decode`
+	// tapcli: `proofs decode`
 	// DecodeProof attempts to decode a given proof file into human readable
 	// format.
 	DecodeProof(context.Context, *DecodeProofRequest) (*DecodeProofResponse, error)
