@@ -38,6 +38,7 @@ var universeCommands = []cli.Command{
 			universeProofCommand,
 			universeSyncCommand,
 			universeFederationCommand,
+			universeInfoCommand,
 			universeStatsCommand,
 		},
 	},
@@ -640,6 +641,30 @@ func universeFederationDel(ctx *cli.Context) error {
 			},
 		},
 	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var universeInfoCommand = cli.Command{
+	Name:      "info",
+	ShortName: "i",
+	Usage:     "query for info related to the active local Universe server",
+	Description: `
+	Query for information related to the local Universe server.
+	`,
+	Action: universeInfo,
+}
+
+func universeInfo(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.Info(ctxc, &universerpc.InfoRequest{})
 	if err != nil {
 		return err
 	}
