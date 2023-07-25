@@ -311,6 +311,46 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	key universe.BaseKey, leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
+	var (
+		writeTx BaseUniverseStoreOptions
+
+		err           error
+		issuanceProof *universe.IssuanceProof
+	)
+
+	// Limit to a single writer at a time.
+	b.registrationMtx.Lock()
+	defer b.registrationMtx.Unlock()
+
+	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
+		issuanceProof, _, err = universeRegisterIssuance(
+			ctx, dbTx, b.id, key, leaf, metaReveal,
+		)
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return issuanceProof, nil
+}
+
+// universeRegisterIssuance inserts a new minting leaf within the universe
+// tree, stored at the base key.
+//
+// This function returns the newly registered issuance proof and the new
+// universe root.
+//
+// NOTE: This function accepts a db transaction, as it's used when making
+// broader DB updates.
+func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
+	id universe.Identifier, key universe.BaseKey,
+	leaf *universe.MintingLeaf,
+	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, mssmt.Node,
+	error) {
+
+	namespace := idToNameSpace(id)
+
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
 	smtKey := key.UniverseKey()
@@ -320,103 +360,88 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	leafNode := leaf.SmtLeafNode()
 
 	var groupKeyBytes []byte
-	if b.id.GroupKey != nil {
-		groupKeyBytes = schnorr.SerializePubKey(b.id.GroupKey)
+	if id.GroupKey != nil {
+		groupKeyBytes = schnorr.SerializePubKey(id.GroupKey)
 	}
 
 	mintingPointBytes, err := encodeOutpoint(key.MintingOutpoint)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Up to this point many writers can perform all required read
-	// operations to prepare and validate the keys. But since we're now
-	// actually starting to write, we want to limit this to a single writer
-	// at a time.
-	b.registrationMtx.Lock()
-	defer b.registrationMtx.Unlock()
-
 	var (
-		writeTx BaseUniverseStoreOptions
-
 		leafInclusionProof *mssmt.Proof
 		universeRoot       mssmt.Node
 	)
-	dbErr := b.db.ExecTx(ctx, &writeTx, func(db BaseUniverseStore) error {
-		// First, we'll instantiate a new compact tree instance from the
-		// backing tree store.
-		universeTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, b.smtNamespace),
-		)
 
-		// Now that we have a tree instance linked to this DB
-		// transaction, we'll insert the leaf into the tree based on
-		// its SMT key.
-		_, err := universeTree.Insert(ctx, smtKey, leafNode)
-		if err != nil {
-			return err
-		}
+	// First, we'll instantiate a new compact tree instance from the
+	// backing tree store.
+	universeTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(dbTx, namespace),
+	)
 
-		// Next, we'll upsert the universe root in the DB, which gives
-		// us the root ID that we'll use to insert the universe leaf
-		// overlay.
-		universeRootID, err := db.UpsertUniverseRoot(ctx, NewUniverseRoot{
-			NamespaceRoot: b.smtNamespace,
-			AssetID:       fn.ByteSlice(leaf.ID()),
-			GroupKey:      groupKeyBytes,
-		})
-		if err != nil {
-			return err
-		}
+	// Now that we have a tree instance linked to this DB
+	// transaction, we'll insert the leaf into the tree based on
+	// its SMT key.
+	_, err = universeTree.Insert(ctx, smtKey, leafNode)
+	if err != nil {
+		return nil, nil, err
+	}
 
-		// Before we insert the asset genesis, we'll insert the meta
-		// first. The reveal may or may not be populated, which'll also
-		// insert the opaque meta blob on disk.
-		_, err = maybeUpsertAssetMeta(
-			ctx, db, &leaf.Genesis, metaReveal,
-		)
-		if err != nil {
-			return err
-		}
-
-		assetGenID, err := upsertAssetGen(
-			ctx, db, leaf.Genesis, leaf.GroupKey, leaf.GenesisProof,
-		)
-		if err != nil {
-			return err
-		}
-
-		scriptKeyBytes := schnorr.SerializePubKey(key.ScriptKey.PubKey)
-		err = db.InsertUniverseLeaf(ctx, NewUniverseLeaf{
-			AssetGenesisID:    assetGenID,
-			ScriptKeyBytes:    scriptKeyBytes,
-			UniverseRootID:    universeRootID,
-			LeafNodeKey:       smtKey[:],
-			LeafNodeNamespace: b.smtNamespace,
-			MintingPoint:      mintingPointBytes,
-		})
-		if err != nil {
-			return err
-		}
-
-		// Finally, we'll obtain the merkle proof from the tree for the
-		// leaf we just inserted.
-		leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
-		if err != nil {
-			return err
-		}
-
-		// With the insertion complete, we'll now fetch the root of the
-		// tree as it stands so we can return it to the caller.
-		universeRoot, err = universeTree.Root(ctx)
-		if err != nil {
-			return err
-		}
-
-		return nil
+	// Next, we'll upsert the universe root in the DB, which gives
+	// us the root ID that we'll use to insert the universe leaf
+	// overlay.
+	universeRootID, err := dbTx.UpsertUniverseRoot(ctx, NewUniverseRoot{
+		NamespaceRoot: namespace,
+		AssetID:       fn.ByteSlice(leaf.ID()),
+		GroupKey:      groupKeyBytes,
 	})
-	if dbErr != nil {
-		return nil, dbErr
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Before we insert the asset genesis, we'll insert the meta
+	// first. The reveal may or may not be populated, which'll also
+	// insert the opaque meta blob on disk.
+	_, err = maybeUpsertAssetMeta(
+		ctx, dbTx, &leaf.Genesis, metaReveal,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	assetGenID, err := upsertAssetGen(
+		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leaf.GenesisProof,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	scriptKeyBytes := schnorr.SerializePubKey(key.ScriptKey.PubKey)
+	err = dbTx.InsertUniverseLeaf(ctx, NewUniverseLeaf{
+		AssetGenesisID:    assetGenID,
+		ScriptKeyBytes:    scriptKeyBytes,
+		UniverseRootID:    universeRootID,
+		LeafNodeKey:       smtKey[:],
+		LeafNodeNamespace: namespace,
+		MintingPoint:      mintingPointBytes,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Finally, we'll obtain the merkle proof from the tree for the
+	// leaf we just inserted.
+	leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// With the insertion complete, we'll now fetch the root of the tree as
+	// it stands and return it to the caller.
+	universeRoot, err = universeTree.Root(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return &universe.IssuanceProof{
@@ -424,7 +449,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		UniverseRoot:   universeRoot,
 		InclusionProof: leafInclusionProof,
 		Leaf:           leaf,
-	}, nil
+	}, universeRoot, nil
 }
 
 // FetchIssuanceProof returns an issuance proof for the target key. If the key
@@ -434,9 +459,40 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
 
-	// Depending on the universeKey, we'll either be fetching the details
-	// of a specific issuance, or all of the issuances for that minting
-	// outpoint.
+	var (
+		readTx = NewBaseUniverseReadTx()
+		proofs []*universe.IssuanceProof
+	)
+
+	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseStore) error {
+		var err error
+		proofs, err = universeFetchIssuanceProof(
+			ctx, b.id, universeKey, dbTx,
+		)
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return proofs, nil
+}
+
+// universeFetchIssuanceProof returns issuance proofs for the target universe.
+//
+// If the given universe key doesn't have a script key specified, then a proof
+// will be returned for each minting outpoint.
+//
+// NOTE: This function accepts a database transaction and is called when making
+// broader DB updates.
+func universeFetchIssuanceProof(ctx context.Context,
+	id universe.Identifier, universeKey universe.BaseKey,
+	dbTx BaseUniverseStore) ([]*universe.IssuanceProof, error) {
+
+	namespace := idToNameSpace(id)
+
+	// Depending on the universeKey, we'll either be fetching the details of
+	// a specific issuance, or each issuance for that minting outpoint.
 	var targetScriptKey []byte
 	if universeKey.ScriptKey != nil {
 		targetScriptKey = schnorr.SerializePubKey(
@@ -451,108 +507,102 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 
 	var proofs []*universe.IssuanceProof
 
-	readTx := NewBaseUniverseReadTx()
-	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		// First, we'll make a new instance of the universe tree, as
-		// we'll query it directly to obtain the set of leaves we care
-		// about.
-		universeTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, b.smtNamespace),
-		)
+	// First, we'll make a new instance of the universe tree, as we'll query
+	// it directly to obtain the set of leaves we care about.
+	universeTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(dbTx, namespace),
+	)
 
-		// Each response will include a merkle proof of inclusion for
-		// the root, so we'll obtain that now.
-		rootNode, err := universeTree.Root(ctx)
+	// Each response will include a merkle proof of inclusion for the root,
+	// so we'll obtain that now.
+	rootNode, err := universeTree.Root(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we have the tree, we'll query the set of Universe leaves we
+	// have directly to determine which ones we care about.
+	//
+	// If the script key is blank, then we'll fetch all the leaves in the
+	// tree.
+	universeLeaves, err := dbTx.QueryUniverseLeaves(
+		ctx, UniverseLeafQuery{
+			MintingPointBytes: mintingPointBytes,
+			ScriptKeyBytes:    targetScriptKey,
+			Namespace:         namespace,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(universeLeaves) == 0 {
+		return nil, ErrNoUniverseProofFound
+	}
+
+	// Now that we have all the leaves we need to query, we'll look each up
+	// them up in the universe tree, obtaining a merkle proof for each of
+	// them along the way.
+	err = fn.ForEachErr(universeLeaves, func(leaf UniverseLeaf) error {
+		scriptPub, err := schnorr.ParsePubKey(leaf.ScriptKeyBytes)
+		if err != nil {
+			return err
+		}
+		scriptKey := asset.NewScriptKey(scriptPub)
+
+		// Next, we'll fetch the leaf node from the tree and also obtain
+		// a merkle proof for the leaf alongside it.
+		universeKey := universe.BaseKey{
+			MintingOutpoint: universeKey.MintingOutpoint,
+			ScriptKey:       &scriptKey,
+		}
+		smtKey := universeKey.UniverseKey()
+		leafProof, err := universeTree.MerkleProof(
+			ctx, smtKey,
+		)
 		if err != nil {
 			return err
 		}
 
-		// Now that we have the tree, we'll query the set of Universe
-		// leaves we have directly to determine which ones we care
-		// about.
-		//
-		// If the script key is blank, then we'll fetch all of the
-		// leaves in the tree.
-		universeLeaves, err := db.QueryUniverseLeaves(
-			ctx, UniverseLeafQuery{
-				MintingPointBytes: mintingPointBytes,
-				ScriptKeyBytes:    targetScriptKey,
-				Namespace:         b.smtNamespace,
-			},
+		leafAssetGen, err := fetchGenesis(
+			ctx, dbTx, leaf.GenAssetID,
 		)
 		if err != nil {
 			return err
 		}
 
-		if len(universeLeaves) == 0 {
-			return ErrNoUniverseProofFound
-		}
-
-		// Now that we have all the leaves we need to query, we'll look
-		// each up them up in the universe tree, obtaining a merkle
-		// proof for each of them along the way.
-		return fn.ForEachErr(universeLeaves, func(leaf UniverseLeaf) error {
-			scriptPub, err := schnorr.ParsePubKey(leaf.ScriptKeyBytes)
-			if err != nil {
-				return err
-			}
-			scriptKey := asset.NewScriptKey(scriptPub)
-
-			// Next, we'll fetch the leaf node from the tree and
-			// also obtain a merkle proof for the leaf along side
-			// it.
-			universeKey := universe.BaseKey{
-				MintingOutpoint: universeKey.MintingOutpoint,
-				ScriptKey:       &scriptKey,
-			}
-			smtKey := universeKey.UniverseKey()
-			leafProof, err := universeTree.MerkleProof(
-				ctx, smtKey,
-			)
-			if err != nil {
-				return err
-			}
-
-			leafAssetGen, err := fetchGenesis(
-				ctx, db, leaf.GenAssetID,
-			)
-			if err != nil {
-				return err
-			}
-
-			proof := &universe.IssuanceProof{
-				MintingKey:     universeKey,
-				UniverseRoot:   rootNode,
-				InclusionProof: leafProof,
-				Leaf: &universe.MintingLeaf{
-					GenesisWithGroup: universe.GenesisWithGroup{
-						Genesis: leafAssetGen,
-					},
-					GenesisProof: leaf.GenesisProof,
-					Amt:          uint64(leaf.SumAmt),
+		issuanceProof := &universe.IssuanceProof{
+			MintingKey:     universeKey,
+			UniverseRoot:   rootNode,
+			InclusionProof: leafProof,
+			Leaf: &universe.MintingLeaf{
+				GenesisWithGroup: universe.GenesisWithGroup{
+					Genesis: leafAssetGen,
 				},
-			}
-			if b.id.GroupKey != nil {
-				leafAssetGroup, err := fetchGroupByGenesis(
-					ctx, db, leaf.GenAssetID,
-				)
-				if err != nil {
-					return err
-				}
-
-				proof.Leaf.GroupKey = &asset.GroupKey{
-					GroupPubKey: *b.id.GroupKey,
-					Sig:         leafAssetGroup.Sig,
-				}
+				GenesisProof: leaf.GenesisProof,
+				Amt:          uint64(leaf.SumAmt),
+			},
+		}
+		if id.GroupKey != nil {
+			leafAssetGroup, err := fetchGroupByGenesis(
+				ctx, dbTx, leaf.GenAssetID,
+			)
+			if err != nil {
+				return err
 			}
 
-			proofs = append(proofs, proof)
+			issuanceProof.Leaf.GroupKey = &asset.GroupKey{
+				GroupPubKey: *id.GroupKey,
+				Sig:         leafAssetGroup.Sig,
+			}
+		}
 
-			return nil
-		})
+		proofs = append(proofs, issuanceProof)
+
+		return nil
 	})
-	if dbErr != nil {
-		return nil, dbErr
+	if err != nil {
+		return nil, err
 	}
 
 	return proofs, nil

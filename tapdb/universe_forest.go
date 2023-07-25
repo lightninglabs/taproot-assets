@@ -31,8 +31,8 @@ func (b *BaseUniverseForestOptions) ReadOnly() bool {
 	return b.readOnly
 }
 
-// NewBaseUniverseForestReadTx creates a new read-only transaction for the base
-// universe.
+// NewBaseUniverseForestReadTx creates a new read-only transaction for the
+// universe forest.
 func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
 	return BaseUniverseForestOptions{
 		readOnly: true,
@@ -40,16 +40,15 @@ func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
 }
 
 // BasedUniverseForest is a wrapper around the base universe forest that allows
-// us perform batch queries with all the relevant query interfaces.
+// us to perform batch transactional databse queries with all the relevant query
+// interfaces.
 type BatchedUniverseForest interface {
 	BaseUniverseForestStore
 
 	BatchedTx[BaseUniverseForestStore]
 }
 
-// BaseUniverseForest implements the persistent storage for the Base universe
-// for a given asset. The minting outpoints stored of the asset are used to key
-// into the universe tree.
+// BaseUniverseForest implements the persistent storage for a universe forest.
 //
 // NOTE: This implements the universe.BaseForest interface.
 type BaseUniverseForest struct {
@@ -67,12 +66,15 @@ func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
 	}
 }
 
-// RootNodes returns the complete set of known root nodes for the set of assets
-// tracked in the base Universe.
-func (b *BaseUniverseForest) RootNodes(ctx context.Context) ([]universe.BaseRoot, error) {
-	var uniRoots []universe.BaseRoot
+// RootNodes returns the complete set of known base universe root nodes for the
+// set of base universes tracked in the universe forest.
+func (b *BaseUniverseForest) RootNodes(
+	ctx context.Context) ([]universe.BaseRoot, error) {
 
-	readTx := NewBaseUniverseForestReadTx()
+	var (
+		uniRoots []universe.BaseRoot
+		readTx   = NewBaseUniverseForestReadTx()
+	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseForestStore) error {
 		dbRoots, err := db.UniverseRoots(ctx)
