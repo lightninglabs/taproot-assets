@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 
@@ -17,6 +18,16 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
+)
+
+var (
+	generatedTestVectorName = "vm_validation_generated.json"
+	errorTestVectorName     = "vm_validation_generated_error_cases.json"
+
+	allTestVectorFiles = []string{
+		generatedTestVectorName,
+		errorTestVectorName,
+	}
 )
 
 func randAsset(t *testing.T, assetType asset.Type,
@@ -602,43 +613,156 @@ func TestVM(t *testing.T) {
 		},
 	}
 
+	var (
+		validVectors = &TestVectors{}
+		errorVectors = &TestVectors{}
+	)
 	for _, testCase := range testCases {
+		testCase := testCase
+
 		success := t.Run(testCase.name, func(t *testing.T) {
 			newAsset, splitSet, inputSet := testCase.f(t)
-			verify := func(splitAssets []*commitment.SplitAsset) error {
-				vm, err := New(newAsset, splitAssets, inputSet)
-				if err != nil {
-					if testCase.err != nil {
-						require.Equal(
-							t, testCase.err, err,
-						)
-					} else {
-						t.Fatal(err)
-					}
-				}
-				return vm.Execute()
+
+			tv := &ValidTestCase{
+				Asset: asset.NewTestFromAsset(t, newAsset),
+				SplitSet: commitment.NewTestFromSplitSet(
+					t, splitSet,
+				),
+				InputSet: commitment.NewTestFromInputSet(
+					t, inputSet,
+				),
+				Comment: testCase.name,
 			}
-			if len(splitSet) == 0 {
-				err := verify(nil)
-				require.Equal(t, testCase.err, err)
-				return
+			if testCase.err == nil {
+				validVectors.ValidTestCases = append(
+					validVectors.ValidTestCases, tv,
+				)
+			} else {
+				errorVectors.ErrorTestCases = append(
+					errorVectors.ErrorTestCases,
+					&ErrorTestCase{
+						Asset:    tv.Asset,
+						SplitSet: tv.SplitSet,
+						InputSet: tv.InputSet,
+						Error:    testCase.err.Error(),
+						Comment:  tv.Comment,
+					},
+				)
 			}
 
-			// For splits, sort by ascending value so that we fail
-			// early on invalid zero-value locators.
-			splitAssets := maps.Values(splitSet)
-			sort.Slice(splitAssets, func(i, j int) bool {
-				return splitAssets[i].Asset.Amount <
-					splitAssets[j].Asset.Amount
-			})
-			err := verify(splitAssets)
-			require.Equal(t, testCase.err, err)
-			if err != nil {
-				return
-			}
+			verifyTestCase(
+				t, testCase.err, false, newAsset, splitSet,
+				inputSet,
+			)
 		})
 		if !success {
 			return
 		}
+	}
+
+	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
+	// build tag is not set.
+	test.WriteTestVectors(t, generatedTestVectorName, validVectors)
+	test.WriteTestVectors(t, errorTestVectorName, errorVectors)
+}
+
+// verifyTestCase verifies the test case by creating a new virtual machine
+// and executing it.
+func verifyTestCase(t testing.TB, expectedErr error, compareErrString bool,
+	newAsset *asset.Asset, splitSet commitment.SplitSet,
+	inputSet commitment.InputSet) {
+
+	// When feeding in the test vectors, we don't have structured errors
+	// anymore, just strings. So we need to compare the error strings
+	// instead of the errors themselves.
+	checkErr := func(err error) {
+		if compareErrString {
+			if expectedErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(
+					t, err, expectedErr.Error(),
+				)
+			}
+		} else {
+			require.Equal(t, expectedErr, err)
+		}
+	}
+
+	verify := func(splitAssets []*commitment.SplitAsset) error {
+		vm, err := New(newAsset, splitAssets, inputSet)
+		if err != nil {
+			if expectedErr != nil {
+				checkErr(err)
+			} else {
+				t.Fatal(err)
+			}
+		}
+		return vm.Execute()
+	}
+	if len(splitSet) == 0 {
+		err := verify(nil)
+		checkErr(err)
+		return
+	}
+
+	// For splits, sort by ascending value so that we fail
+	// early on invalid zero-value locators.
+	splitAssets := maps.Values(splitSet)
+	sort.Slice(splitAssets, func(i, j int) bool {
+		return splitAssets[i].Asset.Amount <
+			splitAssets[j].Asset.Amount
+	})
+	err := verify(splitAssets)
+	checkErr(err)
+}
+
+// TestBIPTestVectors tests that the BIP test vectors are passing.
+func TestBIPTestVectors(t *testing.T) {
+	t.Parallel()
+
+	for idx := range allTestVectorFiles {
+		var (
+			fileName    = allTestVectorFiles[idx]
+			testVectors = &TestVectors{}
+		)
+		test.ParseTestVectors(t, fileName, &testVectors)
+		t.Run(fileName, func(tt *testing.T) {
+			tt.Parallel()
+
+			runBIPTestVector(tt, testVectors)
+		})
+	}
+}
+
+// runBIPTestVector runs the tests in a single BIP test vector file.
+func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+	for _, validCase := range testVectors.ValidTestCases {
+		validCase := validCase
+
+		t.Run(validCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			a := validCase.Asset.ToAsset(tt)
+			ss := validCase.SplitSet.ToSplitSet(tt)
+			is := validCase.InputSet.ToInputSet(tt)
+
+			verifyTestCase(tt, nil, false, a, ss, is)
+		})
+	}
+
+	for _, invalidCase := range testVectors.ErrorTestCases {
+		invalidCase := invalidCase
+
+		t.Run(invalidCase.Comment, func(tt *testing.T) {
+			tt.Parallel()
+
+			a := invalidCase.Asset.ToAsset(tt)
+			ss := invalidCase.SplitSet.ToSplitSet(tt)
+			is := invalidCase.InputSet.ToInputSet(tt)
+			err := errors.New(invalidCase.Error)
+
+			verifyTestCase(tt, err, true, a, ss, is)
+		})
 	}
 }

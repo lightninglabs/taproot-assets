@@ -1,7 +1,6 @@
 package address
 
 import (
-	"math/rand"
 	"testing"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -18,14 +18,12 @@ import (
 func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	*asset.Genesis, *asset.GroupKey) {
 
-	scriptKeyPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
+	scriptKeyPriv := test.RandPrivKey(t)
 
-	internalKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
+	internalKey := test.RandPrivKey(t)
 
-	genesis := asset.RandGenesis(t, asset.Type(rand.Int31n(2)))
-	amount := uint64(rand.Int63())
+	genesis := asset.RandGenesis(t, asset.Type(test.RandInt31n(2)))
+	amount := test.RandInt[uint64]()
 	if genesis.Type == asset.Collectible {
 		amount = 1
 	}
@@ -36,7 +34,7 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		groupSig         *schnorr.Signature
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
-	if rand.Int31()%2 == 0 {
+	if test.RandInt[uint32]()%2 == 0 {
 		groupInfo = asset.RandGroupKey(t, genesis)
 		groupPubKey = &groupInfo.GroupPubKey
 		groupSig = &groupInfo.Sig
@@ -49,8 +47,8 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: scriptKeyPriv.PubKey(),
 		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(rand.Intn(255) + 1),
-			Index:  uint32(rand.Intn(255)),
+			Family: keychain.KeyFamily(test.RandIntn(255) + 1),
+			Index:  uint32(test.RandIntn(255)),
 		},
 	})
 
@@ -68,12 +66,128 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 		ScriptKeyTweak: *scriptKey.TweakedScriptKey,
 		InternalKeyDesc: keychain.KeyDescriptor{
 			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamily(rand.Int31()),
-				Index:  uint32(rand.Int31()),
+				Family: keychain.KeyFamily(test.RandIntn(255)),
+				Index:  test.RandInt[uint32](),
 			},
 			PubKey: internalKey.PubKey(),
 		},
 		TaprootOutputKey: *taprootOutputKey,
 		CreationTime:     time.Now(),
 	}, &genesis, groupInfo
+}
+
+type ValidTestCase struct {
+	Address  *TestAddress `json:"address"`
+	Expected string       `json:"expected"`
+	Comment  string       `json:"comment"`
+}
+
+type ErrorTestCase struct {
+	Address *TestAddress `json:"address"`
+	Error   string       `json:"error"`
+	Comment string       `json:"comment"`
+}
+
+type TestVectors struct {
+	ValidTestCases []*ValidTestCase `json:"valid_test_cases"`
+	ErrorTestCases []*ErrorTestCase `json:"error_test_cases"`
+}
+
+func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
+	t.Helper()
+
+	ta := &TestAddress{
+		ChainParamsHRP: a.ChainParams.TapHRP,
+		AssetVersion:   uint8(a.AssetVersion),
+		AssetID:        a.AssetID.String(),
+		ScriptKey:      test.HexPubKey(&a.ScriptKey),
+		InternalKey:    test.HexPubKey(&a.InternalKey),
+		Amount:         a.Amount,
+	}
+
+	if a.GroupKey != nil {
+		ta.GroupKey = test.HexPubKey(a.GroupKey)
+	}
+
+	if a.TapscriptSibling != nil {
+		ta.TapscriptSibling = commitment.HexTapscriptSibling(
+			t, a.TapscriptSibling,
+		)
+	}
+
+	return ta
+}
+
+type TestAddress struct {
+	ChainParamsHRP   string `json:"chain_params_hrp"`
+	AssetVersion     uint8  `json:"asset_version"`
+	AssetID          string `json:"asset_id"`
+	GroupKey         string `json:"group_key"`
+	ScriptKey        string `json:"script_key"`
+	InternalKey      string `json:"internal_key"`
+	TapscriptSibling string `json:"tapscript_sibling"`
+	Amount           uint64 `json:"amount"`
+}
+
+func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
+	t.Helper()
+
+	// Validate minimum fields are set. We use panic, so we can actually
+	// interpret the error message in the error test cases.
+	if ta.ChainParamsHRP == "" {
+		panic("missing chain params HRP")
+	}
+	if !IsBech32MTapPrefix(ta.ChainParamsHRP + "1") {
+		panic("invalid chain params HRP")
+	}
+
+	if ta.AssetID == "" {
+		panic("missing asset ID")
+	}
+
+	if ta.ScriptKey == "" {
+		panic("missing script key")
+	}
+	if len(ta.ScriptKey) != test.HexCompressedPubKeyLen {
+		panic("invalid script key length")
+	}
+
+	if ta.InternalKey == "" {
+		panic("missing internal key")
+	}
+	if len(ta.InternalKey) != test.HexCompressedPubKeyLen {
+		panic("invalid internal key length")
+	}
+
+	if ta.GroupKey != "" {
+		if len(ta.GroupKey) != test.HexCompressedPubKeyLen {
+			panic("invalid group key length")
+		}
+	}
+
+	chainParams, err := Net(ta.ChainParamsHRP)
+	if err != nil {
+		panic(err)
+	}
+
+	a := &Tap{
+		ChainParams:  chainParams,
+		AssetVersion: asset.Version(ta.AssetVersion),
+		AssetID:      test.Parse32Byte(t, ta.AssetID),
+		ScriptKey:    *test.ParsePubKey(t, ta.ScriptKey),
+		InternalKey:  *test.ParsePubKey(t, ta.InternalKey),
+		Amount:       ta.Amount,
+	}
+
+	if ta.GroupKey != "" {
+		a.GroupKey = test.ParsePubKey(t, ta.GroupKey)
+	}
+
+	if ta.TapscriptSibling != "" {
+		a.TapscriptSibling = commitment.ParseTapscriptSibling(
+			t, ta.TapscriptSibling,
+		)
+	}
+
+	return a
 }

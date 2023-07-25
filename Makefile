@@ -273,6 +273,22 @@ mod-check: mod-tidy
 	@$(call print, "Checking modules.")
 	if test -n "$$(git status | grep -e "go.mod\|go.sum")"; then echo "Running go mod tidy changes go.mod/go.sum"; git status; git diff; exit 1; fi
 
+gen-test-vectors:
+	@$(call print, "Generating test vectors.")
+	make unit gen-test-vectors=true pkg=address case=TestAddressEncoding
+	make unit gen-test-vectors=true pkg=asset case=TestAssetEncoding
+	make unit gen-test-vectors=true pkg=mssmt case=TestProofEncoding
+	make unit gen-test-vectors=true pkg=mssmt case=TestInsertionOverflow
+	make unit gen-test-vectors=true pkg=mssmt case=TestReplaceWithEmptyBranch
+	make unit gen-test-vectors=true pkg=mssmt case=TestReplace
+	make unit gen-test-vectors=true pkg=proof case=TestGenesisProofVerification
+	make unit gen-test-vectors=true pkg=tappsbt case=TestEncodingDecoding
+	make unit gen-test-vectors=true pkg=vm case=TestVM
+
+test-vector-check: gen-test-vectors
+	@$(call print, "Checking test vectors.")
+	if test -n "$$(git status | grep -e ".json")"; then echo "Test vectors not updated"; git status; git diff; exit 1; fi
+
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) coverage.txt
