@@ -45,10 +45,6 @@ http:
       post: "/v1/taproot-assets/proofs/export"
       body: "*"
 
-    - selector: taprpc.TaprootAssets.ImportProof
-      post: "/v1/taproot-assets/proofs/import"
-      body: "*"
-
     - selector: taprpc.TaprootAssets.ListBalances
       get: "/v1/taproot-assets/assets/balance"
 

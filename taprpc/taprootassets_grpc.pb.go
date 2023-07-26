@@ -72,11 +72,6 @@ type TaprootAssetsClient interface {
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
 	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
-	// tapcli: `proofs import`
-	// ImportProof attempts to import a proof file into the daemon. If successful,
-	// a new asset will be inserted on disk, spendable using the specified target
-	// script key, and internal key.
-	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 	// tapcli: `assets send`
 	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
 	// to complete an asset send. The method returns information w.r.t the on chain
@@ -228,15 +223,6 @@ func (c *taprootAssetsClient) ExportProof(ctx context.Context, in *ExportProofRe
 	return out, nil
 }
 
-func (c *taprootAssetsClient) ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error) {
-	out := new(ImportProofResponse)
-	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ImportProof", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *taprootAssetsClient) SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error) {
 	out := new(SendAssetResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/SendAsset", in, out, opts...)
@@ -354,11 +340,6 @@ type TaprootAssetsServer interface {
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
 	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
-	// tapcli: `proofs import`
-	// ImportProof attempts to import a proof file into the daemon. If successful,
-	// a new asset will be inserted on disk, spendable using the specified target
-	// script key, and internal key.
-	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	// tapcli: `assets send`
 	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
 	// to complete an asset send. The method returns information w.r.t the on chain
@@ -422,9 +403,6 @@ func (UnimplementedTaprootAssetsServer) DecodeProof(context.Context, *DecodeProo
 }
 func (UnimplementedTaprootAssetsServer) ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExportProof not implemented")
-}
-func (UnimplementedTaprootAssetsServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
 }
 func (UnimplementedTaprootAssetsServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
@@ -703,24 +681,6 @@ func _TaprootAssets_ExportProof_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TaprootAssets_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ImportProofRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TaprootAssetsServer).ImportProof(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/taprpc.TaprootAssets/ImportProof",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TaprootAssetsServer).ImportProof(ctx, req.(*ImportProofRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _TaprootAssets_SendAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendAssetRequest)
 	if err := dec(in); err != nil {
@@ -858,10 +818,6 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExportProof",
 			Handler:    _TaprootAssets_ExportProof_Handler,
-		},
-		{
-			MethodName: "ImportProof",
-			Handler:    _TaprootAssets_ImportProof_Handler,
 		},
 		{
 			MethodName: "SendAsset",

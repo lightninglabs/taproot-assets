@@ -504,39 +504,6 @@
         ]
       }
     },
-    "/v1/taproot-assets/proofs/import": {
-      "post": {
-        "summary": "tapcli: `proofs import`\nImportProof attempts to import a proof file into the daemon. If successful,\na new asset will be inserted on disk, spendable using the specified target\nscript key, and internal key.",
-        "operationId": "TaprootAssets_ImportProof",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/taprpcImportProofResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/taprpcImportProofRequest"
-            }
-          }
-        ],
-        "tags": [
-          "TaprootAssets"
-        ]
-      }
-    },
     "/v1/taproot-assets/proofs/verify": {
       "post": {
         "summary": "tapcli: `proofs verify`\nVerifyProof attempts to verify a given proof file that claims to be anchored\nat the specified genesis point.",
@@ -1311,21 +1278,6 @@
           "description": "A list of assets with the same group key."
         }
       }
-    },
-    "taprpcImportProofRequest": {
-      "type": "object",
-      "properties": {
-        "proof_file": {
-          "type": "string",
-          "format": "byte"
-        },
-        "genesis_point": {
-          "type": "string"
-        }
-      }
-    },
-    "taprpcImportProofResponse": {
-      "type": "object"
     },
     "taprpcKeyDescriptor": {
       "type": "object",
