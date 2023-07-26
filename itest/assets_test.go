@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
@@ -288,7 +289,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	for _, existingAsset := range assets {
 		gen := existingAsset.AssetGenesis
 		proofFile := assertAssetProofs(t.t, src, existingAsset)
-		_, err := dst.ImportProof(ctxt, &taprpc.ImportProofRequest{
+		_, err := dst.ImportProof(ctxt, &tapdevrpc.ImportProofRequest{
 			ProofFile:    proofFile,
 			GenesisPoint: gen.GenesisPoint,
 		})

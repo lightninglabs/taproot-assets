@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -276,7 +277,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 }
 
 func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
-	genInfo *taprpc.GenesisInfo) *taprpc.ImportProofResponse {
+	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
 
 	ctxb := context.Background()
 
@@ -297,7 +298,7 @@ func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 
 	t.Logf("Importing proof %x", proofResp.RawProof)
 
-	importResp, err := dst.ImportProof(ctxb, &taprpc.ImportProofRequest{
+	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
 		ProofFile:    proofResp.RawProof,
 		GenesisPoint: genInfo.GenesisPoint,
 	})
