@@ -93,7 +93,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	genesisProof, senderPrivKey := genRandomGenesisWithProof(
 		t, assetType, &amt, nil, true, nil, nil,
 	)
-	genesisBlob, err := encodeAsProofFile(&genesisProof)
+	genesisBlob, err := EncodeAsProofFile(&genesisProof)
 	require.NoError(t, err)
 
 	// Transfer the asset to a new owner.
