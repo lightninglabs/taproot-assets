@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -222,8 +222,8 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 
 	// We determine the name of the macaroon from the file itself but cut
 	// off the ".macaroon" at the end.
-	macEntry.Name = path.Base(macPath)
-	if path.Ext(macEntry.Name) == "macaroon" {
+	macEntry.Name = filepath.Base(macPath)
+	if filepath.Ext(macEntry.Name) == "macaroon" {
 		macEntry.Name = strings.TrimSuffix(macEntry.Name, ".macaroon")
 	}
 

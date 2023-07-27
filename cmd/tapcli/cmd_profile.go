@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -21,7 +21,7 @@ var (
 	defaultTapcliDir = btcutil.AppDataDir("tapcli", false)
 
 	// defaultProfileFile is the full, absolute path of the profile file.
-	defaultProfileFile = path.Join(defaultTapcliDir, "profiles.json")
+	defaultProfileFile = filepath.Join(defaultTapcliDir, "profiles.json")
 )
 
 var profileSubCommand = cli.Command{
@@ -109,7 +109,7 @@ func profileAdd(ctx *cli.Context) error {
 	switch {
 	case err == errNoProfileFile:
 		f = &profileFile{}
-		_ = os.MkdirAll(path.Dir(defaultProfileFile), 0700)
+		_ = os.MkdirAll(filepath.Dir(defaultProfileFile), 0700)
 
 	case err != nil:
 		return err

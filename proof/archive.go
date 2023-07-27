@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
@@ -210,7 +209,7 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 			return err
 		}
 
-		if err := os.MkdirAll(path.Dir(proofPath), 0750); err != nil {
+		if err := os.MkdirAll(filepath.Dir(proofPath), 0750); err != nil {
 			return err
 		}
 
