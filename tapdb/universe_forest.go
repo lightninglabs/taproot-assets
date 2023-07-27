@@ -131,6 +131,67 @@ func (b *BaseUniverseForest) RootNodes(
 	return uniRoots, nil
 }
 
+// FetchIssuanceProof returns an issuance proof for the target key. If the key
+// doesn't have a script key specified, then all the proofs for the minting
+// outpoint will be returned. If neither are specified, then proofs for all the
+// inserted leaves will be returned.
+func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
+	id universe.Identifier,
+	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
+
+	var (
+		readTx = NewBaseUniverseReadTx()
+		proofs []*universe.IssuanceProof
+	)
+
+	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseForestStore) error {
+		var err error
+		proofs, err = universeFetchIssuanceProof(
+			ctx, id, universeKey, dbTx,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Populate multiverse specific fields of proofs.
+		//
+		// Retrieve a handle to the multiverse MS-SMT tree.
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbTx, mssmtNamespace),
+		)
+
+		multiverseRoot, err := multiverseTree.Root(ctx)
+		if err != nil {
+			return err
+		}
+
+		// Use asset ID (or asset group hash) as the upper tree leaf
+		// node key. This is the same as the asset specific universe ID.
+		leafNodeKey := id.Bytes()
+
+		// Retrieve the multiverse inclusion proof for the asset
+		// specific universe.
+		multiverseInclusionProof, err := multiverseTree.MerkleProof(
+			ctx, leafNodeKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		for i := range proofs {
+			proofs[i].MultiverseRoot = multiverseRoot
+			proofs[i].MultiverseInclusionProof = multiverseInclusionProof
+		}
+
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return proofs, nil
+}
+
 // RegisterIssuance inserts a new minting leaf within the multiverse tree and
 // the universe tree that corresponds to the given base key.
 func (b *BaseUniverseForest) RegisterIssuance(ctx context.Context,

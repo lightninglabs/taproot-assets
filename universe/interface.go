@@ -235,6 +235,13 @@ type Multiverse interface {
 		leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
+	// FetchIssuanceProof returns an issuance proof for the target key. If
+	// the key doesn't have a script key specified, then all the proofs for
+	// the minting outpoint will be returned. If neither are specified, then
+	// proofs for all the inserted leaves will be returned.
+	FetchIssuanceProof(ctx context.Context, id Identifier,
+		key BaseKey) ([]*IssuanceProof, error)
+
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
 }

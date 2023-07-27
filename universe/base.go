@@ -137,15 +137,18 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
 
-	baseUni := a.fetchUniverse(id)
-
 	// We'll first check to see if we already know of this leaf within the
-	// base uni instance. If so, then we'll return the existing issuance
+	// universe forest. If so, then we'll return the existing issuance
 	// proof.
-	// TODO(roasbeef): put this logic lower down the stack?
-	if proofs, err := baseUni.FetchIssuanceProof(ctx, key); err == nil {
-		issuanceProof := proofs[0]
-		return issuanceProof, nil
+	issuanceProofs, err := a.cfg.UniverseForest.FetchIssuanceProof(
+		ctx, id, key,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(issuanceProofs) > 0 {
+		return issuanceProofs[0], nil
 	}
 
 	// Otherwise, this is a new proof, so we'll first perform validation of
@@ -156,7 +159,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	//
 	// TODO(roasbeef): add option to skip proof verification?
 	var newProof proof.Proof
-	err := newProof.Decode(bytes.NewReader(leaf.GenesisProof))
+	err = newProof.Decode(bytes.NewReader(leaf.GenesisProof))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof: %v", err)
 	}
@@ -248,11 +251,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 		}()
 	}()
 
-	return withBaseUni(
-		a, id, func(baseUni BaseBackend) ([]*IssuanceProof, error) {
-			return baseUni.FetchIssuanceProof(ctx, key)
-		},
-	)
+	return a.cfg.UniverseForest.FetchIssuanceProof(ctx, id, key)
 }
 
 // MintingKeys returns the set of minting keys known for the specified base
