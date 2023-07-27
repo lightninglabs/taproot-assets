@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/user"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -614,7 +613,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		// single macaroon instead of all of them. If the old
 		// macaroondir is used, we use the admin macaroon located in
 		// that directory.
-		cfg.Lnd.MacaroonPath = path.Join(
+		cfg.Lnd.MacaroonPath = filepath.Join(
 			lncfg.CleanAndExpandPath(cfg.Lnd.MacaroonDir),
 			defaultLndMacaroon,
 		)
@@ -633,7 +632,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	if cfg.ChainConf.Network != defaultNetwork &&
 		cfg.Lnd.MacaroonPath == defaultLndMacaroonPath {
 
-		cfg.Lnd.MacaroonPath = path.Join(
+		cfg.Lnd.MacaroonPath = filepath.Join(
 			defaultLndDir, "data", "chain", "bitcoin",
 			cfg.ChainConf.Network, defaultLndMacaroon,
 		)

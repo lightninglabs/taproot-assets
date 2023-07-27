@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -428,9 +428,9 @@ func writeToFile(fileName string, content []byte) error {
 	}
 
 	// Make sure all parent directories of the given path exist as well.
-	if err := os.MkdirAll(path.Dir(fileName), defaultDirPerms); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileName), defaultDirPerms); err != nil {
 		return fmt.Errorf("unable to create directory %v: %w",
-			path.Dir(fileName), err)
+			filepath.Dir(fileName), err)
 	}
 
 	err := os.WriteFile(fileName, content, defaultFilePerms)
