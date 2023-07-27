@@ -812,6 +812,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// the assets. In case the lnd wallet creates a P2TR change
 		// output we need to create an exclusion proof for it (and for
 		// all other P2TR outputs, we just assume BIP-0086 here).
+		batchCommitment := b.cfg.Batch.RootAssetCommitment
 		baseProof := &proof.MintParams{
 			BaseProofParams: proof.BaseProofParams{
 				Block:            confInfo.Block,
@@ -820,7 +821,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				TxIndex:          int(confInfo.TxIndex),
 				OutputIndex:      int(b.anchorOutputIndex),
 				InternalKey:      b.cfg.Batch.BatchKey.PubKey,
-				TaprootAssetRoot: b.cfg.Batch.RootAssetCommitment,
+				TaprootAssetRoot: batchCommitment,
 			},
 			GenesisPoint: extractGenesisOutpoint(
 				b.cfg.Batch.GenesisPacket.Pkt.UnsignedTx,
@@ -850,20 +851,28 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// file system as well.
 		//
 		// TODO(roasbeef): rely on the upsert here instead
-		for _, newAsset := range b.cfg.Batch.RootAssetCommitment.CommittedAssets() {
+		mintingProofBlobs := make(proof.AssetBlobs)
+		for _, newAsset := range batchCommitment.CommittedAssets() {
 			assetID := newAsset.ID()
 			scriptPubKey := newAsset.ScriptKey.PubKey
 			scriptKey := asset.ToSerialized(scriptPubKey)
 
 			mintingProof := mintingProofs[scriptKey]
 
-			err := b.cfg.ProofFiles.ImportProofs(
+			blob, err := proof.EncodeAsProofFile(mintingProof)
+			if err != nil {
+				return 0, fmt.Errorf("unable to encode proof "+
+					"file: %w", err)
+			}
+			mintingProofBlobs[scriptKey] = blob
+
+			err = b.cfg.ProofFiles.ImportProofs(
 				ctx, headerVerifier, &proof.AnnotatedProof{
 					Locator: proof.Locator{
 						AssetID:   &assetID,
 						ScriptKey: *scriptPubKey,
 					},
-					Blob: mintingProof,
+					Blob: blob,
 				},
 			)
 			if err != nil {
@@ -905,29 +914,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					ScriptKey: &newAsset.ScriptKey,
 				}
 
-				// The universe tree store the only the asset
-				// state transition and not also the proof file
+				// The universe tree store only the asset state
+				// transition and not also the proof file
 				// checksum (as the root is effectively a
-				// checksum), so we'll re-encode just the state
+				// checksum), so we'll use just the state
 				// transition.
-				//
-				// TODO(roasbeef): this path ends up doing
-				// waaay too many proof encode round trips
-				var proofFile proof.File
-				err := proofFile.Decode(
-					bytes.NewReader(mintingProof),
-				)
-				if err != nil {
-					return 0, fmt.Errorf("unable to decode "+
-						"proof: %w", err)
-				}
-
 				var proofBuf bytes.Buffer
-				issuanceProof, err := proofFile.LastProof()
-				if err != nil {
-					return 0, err
-				}
-				err = issuanceProof.Encode(&proofBuf)
+				err = mintingProof.Encode(&proofBuf)
 				if err != nil {
 					return 0, err
 				}
@@ -958,7 +951,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		err = b.cfg.Log.MarkBatchConfirmed(
 			ctx, b.cfg.Batch.BatchKey.PubKey, confInfo.BlockHash,
-			confInfo.BlockHeight, confInfo.TxIndex, mintingProofs,
+			confInfo.BlockHeight, confInfo.TxIndex,
+			mintingProofBlobs,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)
