@@ -19,6 +19,11 @@ type Blob []byte
 // This maps the script key of the asset to the serialized proof file blob.
 type AssetBlobs map[asset.SerializedKey]Blob
 
+// AssetProofs is a data structure used to pass around the native proof suffix
+// structures for a set of assets which may have been created in the same batch
+// transaction. This maps the script key of the asset to the proof suffix.
+type AssetProofs map[asset.SerializedKey]*Proof
+
 // BaseProofParams holds the set of chain level information needed to create a
 // proof.
 type BaseProofParams struct {
@@ -82,8 +87,8 @@ type MintParams struct {
 	GenesisPoint wire.OutPoint
 }
 
-// encodeAsProofFile encodes the passed proof into a blob.
-func encodeAsProofFile(proof *Proof) (Blob, error) {
+// EncodeAsProofFile encodes the passed proof into a blob.
+func EncodeAsProofFile(proof *Proof) (Blob, error) {
 	proofFile, err := NewFile(V0, *proof)
 	if err != nil {
 		return nil, err
@@ -129,9 +134,8 @@ func WithAssetMetaReveals(
 // NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
-func NewMintingBlobs(params *MintParams,
-	headerVerifier HeaderVerifier,
-	blobOpts ...MintingBlobOption) (AssetBlobs, error) {
+func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
+	blobOpts ...MintingBlobOption) (AssetProofs, error) {
 
 	opts := defaultMintingBlobOpts()
 	for _, blobOpt := range blobOpts {
@@ -149,25 +153,19 @@ func NewMintingBlobs(params *MintParams,
 	}
 
 	ctx := context.Background()
-	blobs := make(AssetBlobs, len(proofs))
+
+	// Verify the generated proofs.
 	for key := range proofs {
 		proof := proofs[key]
 
-		// Before we encode the proof file, we'll verify that we
-		// generate a valid proof.
-		if _, err := proof.Verify(ctx, nil, headerVerifier); err != nil {
+		_, err := proof.Verify(ctx, nil, headerVerifier)
+		if err != nil {
 			return nil, fmt.Errorf("invalid proof file generated: "+
 				"%w", err)
 		}
-
-		proofBlob, err := encodeAsProofFile(proof)
-		if err != nil {
-			return nil, err
-		}
-		blobs[key] = proofBlob
 	}
 
-	return blobs, nil
+	return proofs, nil
 }
 
 // baseProof creates the basic proof template that contains all anchor
@@ -213,12 +211,12 @@ func coreProof(params *BaseProofParams) (*Proof, error) {
 // committedProofs creates a map of proofs, keyed by the script key of each of
 // the assets committed to in the Taproot Asset root of the given params.
 func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitment,
-	opts *mintingBlobOpts) (map[asset.SerializedKey]*Proof, error) {
+	opts *mintingBlobOpts) (AssetProofs, error) {
 
 	// For each asset we'll construct the asset specific proof information,
 	// then encode that as a proof file blob in the blobs map.
 	assets := taprootAssetRoot.CommittedAssets()
-	proofs := make(map[asset.SerializedKey]*Proof, len(assets))
+	proofs := make(AssetProofs, len(assets))
 	for _, newAsset := range assets {
 		// First, we'll copy over the base proof and also set the asset
 		// within the proof itself.
