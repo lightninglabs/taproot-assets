@@ -1333,7 +1333,8 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
 	err := r.cfg.ProofArchive.ImportProofs(
-		ctx, headerVerifier, &proof.AnnotatedProof{Blob: in.ProofFile},
+		ctx, headerVerifier, false,
+		&proof.AnnotatedProof{Blob: in.ProofFile},
 	)
 	if err != nil {
 		return nil, err

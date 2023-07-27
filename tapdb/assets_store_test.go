@@ -255,12 +255,14 @@ func TestImportAssetProof(t *testing.T) {
 		Hash:  anchorTx.TxHash(),
 		Index: 0,
 	}
+	initialBlob := bytes.Repeat([]byte{0x0}, 100)
+	updatedBlob := bytes.Repeat([]byte{0x77}, 100)
 	testProof := &proof.AnnotatedProof{
 		Locator: proof.Locator{
 			AssetID:   &assetID,
 			ScriptKey: *testAsset.ScriptKey.PubKey,
 		},
-		Blob: bytes.Repeat([]byte{0x0}, 100),
+		Blob: initialBlob,
 		AssetSnapshot: &proof.AssetSnapshot{
 			Asset:             testAsset,
 			OutPoint:          anchorPoint,
@@ -280,20 +282,20 @@ func TestImportAssetProof(t *testing.T) {
 	// We'll now insert the internal key information as well as the script
 	// key ahead of time to reflect the address creation that happens
 	// elsewhere.
-	ctx := context.Background()
-	_, err = db.UpsertInternalKey(ctx, InternalKey{
+	ctxb := context.Background()
+	_, err = db.UpsertInternalKey(ctxb, InternalKey{
 		RawKey:    testProof.InternalKey.SerializeCompressed(),
 		KeyFamily: test.RandInt[int32](),
 		KeyIndex:  test.RandInt[int32](),
 	})
 	require.NoError(t, err)
-	rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+	rawScriptKeyID, err := db.UpsertInternalKey(ctxb, InternalKey{
 		RawKey:    testAsset.ScriptKey.RawKey.PubKey.SerializeCompressed(),
 		KeyFamily: int32(testAsset.ScriptKey.RawKey.Family),
 		KeyIndex:  int32(testAsset.ScriptKey.RawKey.Index),
 	})
 	require.NoError(t, err)
-	_, err = db.UpsertScriptKey(ctx, NewScriptKey{
+	_, err = db.UpsertScriptKey(ctxb, NewScriptKey{
 		InternalKeyID:    rawScriptKeyID,
 		TweakedScriptKey: testAsset.ScriptKey.PubKey.SerializeCompressed(),
 		Tweak:            nil,
@@ -306,7 +308,7 @@ func TestImportAssetProof(t *testing.T) {
 	err = testProof.AnchorTx.Serialize(&anchorTxBuf)
 	require.NoError(t, err)
 	anchorTXID := testProof.AnchorTx.TxHash()
-	_, err = db.UpsertChainTx(ctx, ChainTxParams{
+	_, err = db.UpsertChainTx(ctxb, ChainTxParams{
 		Txid:        anchorTXID[:],
 		RawTx:       anchorTxBuf.Bytes(),
 		BlockHeight: sqlInt32(testProof.AnchorBlockHeight),
@@ -317,17 +319,13 @@ func TestImportAssetProof(t *testing.T) {
 
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
-	require.NoError(
-		t, assetStore.ImportProofs(
-			context.Background(), proof.MockHeaderVerifier, testProof,
-		),
-	)
+	require.NoError(t, assetStore.ImportProofs(
+		ctxb, proof.MockHeaderVerifier, false, testProof,
+	))
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(
-		context.Background(), false, nil,
-	)
+	assets, err := assetStore.FetchAllAssets(ctxb, false, nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -344,10 +342,11 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should also be able to fetch the proof we just inserted using the
 	// script key of the new asset.
-	_, err = assetStore.FetchProof(ctx, proof.Locator{
+	currentBlob, err := assetStore.FetchProof(ctxb, proof.Locator{
 		ScriptKey: *testAsset.ScriptKey.PubKey,
 	})
 	require.NoError(t, err)
+	require.Equal(t, initialBlob, []byte(currentBlob))
 
 	// We should also be able to fetch the created asset above based on
 	// either the asset ID, or key group via the main coin selection
@@ -359,11 +358,43 @@ func TestImportAssetProof(t *testing.T) {
 		assetConstraints.AssetID = &assetID
 	}
 	selectedAssets, err := assetStore.ListEligibleCoins(
-		ctx, assetConstraints,
+		ctxb, assetConstraints,
 	)
 	require.NoError(t, err)
 	require.Len(t, selectedAssets, 1)
 	assertAssetEqual(t, testAsset, selectedAssets[0].Asset)
+
+	// We'll now attempt to overwrite the proof with one that has different
+	// block information (simulating a re-org).
+	testProof.AnchorBlockHash = chainhash.Hash{12, 34, 56}
+	testProof.AnchorBlockHeight = 1234
+	testProof.AnchorTxIndex = 5678
+	testProof.Blob = updatedBlob
+	require.NoError(t, assetStore.ImportProofs(
+		ctxb, proof.MockHeaderVerifier, true, testProof,
+	))
+
+	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
+		ScriptKey: *testAsset.ScriptKey.PubKey,
+	})
+	require.NoError(t, err)
+	require.Equal(t, updatedBlob, []byte(currentBlob))
+
+	// Make sure the chain TX was updated as well.
+	assets, err = assetStore.FetchAllAssets(ctxb, false, nil)
+	require.NoError(t, err)
+	require.Len(t, assets, 1)
+
+	// The DB asset should match the asset we inserted exactly.
+	dbAsset = assets[0]
+
+	assertAssetEqual(t, testAsset, dbAsset.Asset)
+
+	// Finally, we'll verify all the anchor information that was inserted
+	// on disk.
+	require.Equal(t, testProof.AnchorBlockHash, dbAsset.AnchorBlockHash)
+	require.Equal(t, testProof.OutPoint, dbAsset.AnchorOutpoint)
+	require.Equal(t, testProof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
 }
 
 // TestInternalKeyUpsert tests that if we insert an internal key that's a

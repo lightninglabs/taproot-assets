@@ -867,7 +867,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			mintingProofBlobs[scriptKey] = blob
 
 			err = b.cfg.ProofFiles.ImportProofs(
-				ctx, headerVerifier, &proof.AnnotatedProof{
+				ctx, headerVerifier, false,
+				&proof.AnnotatedProof{
 					Locator: proof.Locator{
 						AssetID:   &assetID,
 						ScriptKey: *scriptPubKey,
