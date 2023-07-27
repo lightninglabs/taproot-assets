@@ -1329,22 +1329,67 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	})
 }
 
+// upsertAssetProof updates the proof of an asset in the database, overwriting
+// the previous proof if it exists. This includes updating the chain tx, as the
+// only thing in a proof that can change is the block information.
+func (a *AssetStore) upsertAssetProof(ctx context.Context,
+	db ActiveAssetsStore, proof *proof.AnnotatedProof) error {
+
+	// We expect the asset to already exist in the database, so the chain tx
+	// should also already be there.
+	anchorTXID := proof.AnchorTx.TxHash()
+
+	chainTx, err := db.FetchChainTx(ctx, anchorTXID[:])
+	if err != nil {
+		return fmt.Errorf("unable to upsert asset proof, chain tx %v "+
+			"does not exist: %w", anchorTXID.String(), err)
+	}
+
+	_, err = db.UpsertChainTx(ctx, ChainTxParams{
+		Txid:        anchorTXID[:],
+		RawTx:       chainTx.RawTx,
+		ChainFees:   chainTx.ChainFees,
+		BlockHeight: sqlInt32(proof.AnchorBlockHeight),
+		BlockHash:   proof.AnchorBlockHash[:],
+		TxIndex:     sqlInt32(proof.AnchorTxIndex),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert chain tx: %w", err)
+	}
+
+	// As a final step, we'll insert the proof file we used to generate all
+	// the above information.
+	scriptKeyBytes := proof.Asset.ScriptKey.PubKey.SerializeCompressed()
+	return db.UpsertAssetProof(ctx, ProofUpdate{
+		TweakedScriptKey: scriptKeyBytes,
+		ProofFile:        proof.Blob,
+	})
+}
+
 // ImportProofs attempts to store fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier,
+	headerVerifier proof.HeaderVerifier, replace bool,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		for _, p := range proofs {
-			err := a.importAssetFromProof(ctx, q, p)
-			if err != nil {
-				return fmt.Errorf("unable to import asset: %w",
-					err)
+			if replace {
+				err := a.upsertAssetProof(ctx, q, p)
+				if err != nil {
+					return fmt.Errorf("unable to upsert "+
+						"asset proof: %w", err)
+				}
+			} else {
+				err := a.importAssetFromProof(ctx, q, p)
+				if err != nil {
+					return fmt.Errorf("unable to import "+
+						"asset: %w", err)
+				}
 			}
 		}
 

@@ -319,7 +319,8 @@ func TestImportAssetProof(t *testing.T) {
 	// asset into the database.
 	require.NoError(
 		t, assetStore.ImportProofs(
-			context.Background(), proof.MockHeaderVerifier, testProof,
+			context.Background(), proof.MockHeaderVerifier, false,
+			testProof,
 		),
 	)
 
