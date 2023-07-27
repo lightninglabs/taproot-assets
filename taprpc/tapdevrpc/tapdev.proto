@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package tapdevrpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc";
+
+service TapDev {
+    /* tapcli: `dev importproof`
+    ImportProof attempts to import a proof file into the daemon. If successful,
+    a new asset will be inserted on disk, spendable using the specified target
+    script key, and internal key.
+    */
+    rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
+}
+
+message ImportProofRequest {
+    bytes proof_file = 1;
+
+    string genesis_point = 2;
+}
+
+message ImportProofResponse {
+}

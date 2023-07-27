@@ -87,13 +87,6 @@ service TaprootAssets {
     */
     rpc ExportProof (ExportProofRequest) returns (ProofFile);
 
-    /* tapcli: `proofs import`
-    ImportProof attempts to import a proof file into the daemon. If successful,
-    a new asset will be inserted on disk, spendable using the specified target
-    script key, and internal key.
-    */
-    rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
-
     /* tapcli: `assets send`
     SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
     to complete an asset send. The method returns information w.r.t the on chain
@@ -749,15 +742,6 @@ message ExportProofRequest {
 
     // TODO(roasbeef): specify information to make new state transition in proof
     // file?
-}
-
-message ImportProofRequest {
-    bytes proof_file = 1;
-
-    string genesis_point = 2;
-}
-
-message ImportProofResponse {
 }
 
 enum AddrEventStatus {

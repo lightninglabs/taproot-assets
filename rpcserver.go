@@ -35,6 +35,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -77,6 +78,7 @@ type rpcServer struct {
 	wrpc.UnimplementedAssetWalletServer
 	mintrpc.UnimplementedMintServer
 	unirpc.UnimplementedUniverseServer
+	tapdevrpc.UnimplementedTapDevServer
 
 	interceptor signal.Interceptor
 
@@ -143,6 +145,7 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	mintrpc.RegisterMintServer(grpcServer, r)
 	unirpc.RegisterUniverseServer(grpcServer, r)
+	tapdevrpc.RegisterGrpcServer(grpcServer, r)
 	return nil
 }
 
@@ -1314,7 +1317,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 // new asset will be inserted on disk, spendable using the specified target
 // script key, and internal key.
 func (r *rpcServer) ImportProof(ctx context.Context,
-	in *taprpc.ImportProofRequest) (*taprpc.ImportProofResponse, error) {
+	in *tapdevrpc.ImportProofRequest) (*tapdevrpc.ImportProofResponse, error) {
 
 	// We'll perform some basic input validation before we move forward.
 	if len(in.ProofFile) == 0 {
@@ -1332,7 +1335,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, err
 	}
 
-	return &taprpc.ImportProofResponse{}, nil
+	return &tapdevrpc.ImportProofResponse{}, nil
 }
 
 // AddrReceives lists all receives for incoming asset transfers for addresses

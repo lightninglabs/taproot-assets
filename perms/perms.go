@@ -68,10 +68,6 @@ var (
 			Entity: "proofs",
 			Action: "read",
 		}},
-		"/taprpc.TaprootAssets/ImportProof": {{
-			Entity: "proofs",
-			Action: "write",
-		}},
 		"/taprpc.TaprootAssets/SendAsset": {{
 			Entity: "assets",
 			Action: "write",
@@ -183,6 +179,10 @@ var (
 		"/universerpc.Universe/QueryEvents": {{
 			Entity: "universe",
 			Action: "read",
+		}},
+		"/tapdevrpc.TapDev/ImportProof": {{
+			Entity: "proofs",
+			Action: "write",
 		}},
 	}
 

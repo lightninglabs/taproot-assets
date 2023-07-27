@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -56,6 +57,7 @@ type tapdHarness struct {
 	assetwalletrpc.AssetWalletClient
 	mintrpc.MintClient
 	universerpc.UniverseClient
+	tapdevrpc.TapDevClient
 }
 
 // tapdConfig holds all configuration items that are required to start a tapd
@@ -216,6 +218,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 	hs.AssetWalletClient = assetwalletrpc.NewAssetWalletClient(rpcConn)
 	hs.MintClient = mintrpc.NewMintClient(rpcConn)
 	hs.UniverseClient = universerpc.NewUniverseClient(rpcConn)
+	hs.TapDevClient = tapdevrpc.NewTapDevClient(rpcConn)
 
 	return nil
 }
