@@ -29,6 +29,10 @@ var (
 	// ErrDuplicateUniverse is returned when the Universe server being added
 	// to the DB already exists.
 	ErrDuplicateUniverse = fmt.Errorf("universe server already added")
+
+	// ErrNoUniverseProofFound is returned when a user attempts to look up
+	// a key in the universe that actually points to the empty leaf.
+	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
 // Identifier is the identifier for a root/base universe.
@@ -234,6 +238,13 @@ type BaseMultiverse interface {
 	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
 		leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+
+	// FetchIssuanceProof returns an issuance proof for the target key. If
+	// the key doesn't have a script key specified, then all the proofs for
+	// the minting outpoint will be returned. If neither are specified, then
+	// proofs for all the inserted leaves will be returned.
+	FetchIssuanceProof(ctx context.Context, id Identifier,
+		key BaseKey) ([]*IssuanceProof, error)
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance

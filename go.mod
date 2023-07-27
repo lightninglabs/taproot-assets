@@ -19,6 +19,7 @@ require (
 	github.com/jackc/pgconn v1.12.0
 	github.com/jackc/pgerrcode v0.0.0-20201024163028-a0d42d470451
 	github.com/jessevdk/go-flags v1.4.0
+	github.com/juju/errors v0.0.0-20220331221717-b38fca44723b
 	github.com/lib/pq v1.10.3
 	github.com/lightninglabs/aperture v0.1.20-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
