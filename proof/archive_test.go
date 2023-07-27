@@ -113,7 +113,8 @@ func TestFileArchiver(t *testing.T) {
 				}
 				require.NoError(
 					t, archive.ImportProofs(
-						ctx, MockHeaderVerifier, proof,
+						ctx, MockHeaderVerifier, false,
+						proof,
 					),
 				)
 			}
