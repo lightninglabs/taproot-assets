@@ -1102,9 +1102,13 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = proofFile.Verify(
-		ctx, headerVerifier,
-	)
+	_, err = proofFile.Verify(ctx, headerVerifier)
+	if err != nil {
+		// We don't want to fail the RPC request because of a proof
+		// verification error, but we do want to log it for easier
+		// debugging.
+		rpcsLog.Errorf("Proof verification failed with err: %v", err)
+	}
 	valid := err == nil
 
 	decodedProof, err := r.marshalProofFile(ctx, proofFile, 0, false, false)
