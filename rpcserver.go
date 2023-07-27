@@ -1099,10 +1099,12 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = proofFile.Verify(
-		ctx, headerVerifier,
-	)
+	_, err = proofFile.Verify(ctx, headerVerifier)
 	valid := err == nil
+
+	if !valid {
+		rpcsLog.Errorf("Proof verification failed with err: %v", err)
+	}
 
 	decodedProof, err := r.marshalProofFile(ctx, proofFile, 0, false, false)
 	if err != nil {
