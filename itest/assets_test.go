@@ -149,11 +149,12 @@ func withMintingTimeout(timeout time.Duration) mintOption {
 	}
 }
 
-// mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
-// batch and verifies all asset proofs of the minted assets.
-func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
+// mintAssetUnconfirmed is a helper function that mints a batch of assets and
+// waits until the minting transaction is in the mempool but does not mine a
+// block.
+func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 	assetRequests []*mintrpc.MintAssetRequest,
-	opts ...mintOption) []*taprpc.Asset {
+	opts ...mintOption) chainhash.Hash {
 
 	options := defaultMintOptions()
 	for _, opt := range opts {
@@ -209,6 +210,26 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 		)
 	}
 
+	return *hashes[0]
+}
+
+// mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
+// batch and verifies all asset proofs of the minted assets.
+func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
+	assetRequests []*mintrpc.MintAssetRequest,
+	opts ...mintOption) []*taprpc.Asset {
+
+	mintTXID := mintAssetUnconfirmed(t, tapd, assetRequests, opts...)
+
+	options := defaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
+	defer cancel()
+
 	// Mine a block to confirm the assets.
 	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	blockHash := block.BlockHash()
@@ -216,6 +237,20 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 		t, ctxt, tapd, options.mintingTimeout,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
+
+	return assertAssetsMinted(t, tapd, assetRequests, mintTXID, blockHash)
+}
+
+// assertAssetsMinted makes sure all assets in the minting request were in fact
+// minted in the given anchor TX and block. The function returns the list of
+// minted assets.
+func assertAssetsMinted(t *harnessTest, tapd *tapdHarness,
+	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
+	blockHash chainhash.Hash) []*taprpc.Asset {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
 
 	// The rest of the anchor information should now be populated as well.
 	// We also check that the anchor outpoint of all assets is the same,
@@ -237,7 +272,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 		}).MetaHash()
 		mintedAsset := assertAssetState(
 			t, confirmedAssets, assetRequest.Asset.Name,
-			metaHash[:], assetAnchorCheck(*hashes[0], blockHash),
+			metaHash[:], assetAnchorCheck(mintTXID, blockHash),
 			assetScriptKeyIsLocalCheck(true),
 			func(a *taprpc.Asset) error {
 				anchor := a.ChainAnchor
