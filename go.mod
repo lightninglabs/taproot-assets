@@ -22,7 +22,7 @@ require (
 	github.com/lib/pq v1.10.3
 	github.com/lightninglabs/aperture v0.1.20-beta
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v0.16.0-11
+	github.com/lightninglabs/lndclient v0.16.0-15
 	github.com/lightninglabs/neutrino/cache v1.1.1
 	github.com/lightningnetwork/lnd v0.16.0-beta.rc5.0.20230622162220-d0ca48a43528
 	github.com/lightningnetwork/lnd/cert v1.2.1
