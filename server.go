@@ -297,15 +297,18 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	// the interrupt handler.
 	select {
 	case <-s.cfg.SignalInterceptor.ShutdownChannel():
+		srvrLog.Infof("Received SIGINT (Ctrl+C). Shutting down...")
 
 	case err := <-mainErrChan:
 		if err == nil {
+			srvrLog.Debug("Main err chan closed")
 			return nil
 		}
 
 		// We'll report the error to the main daemon, but only if this
 		// isn't a context cancel.
 		if fn.IsCanceled(err) {
+			srvrLog.Debugf("Got context canceled error: %v", err)
 			return nil
 		}
 
