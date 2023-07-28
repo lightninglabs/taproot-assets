@@ -1,12 +1,15 @@
 package tapgarden
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -823,6 +826,59 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		if err != nil {
 			return fmt.Errorf("unable to update minted proofs: %w",
 				err)
+		}
+
+		// The universe ID serves to identify the universe root we want
+		// to update this asset in. This is either the assetID or the
+		// group key.
+		uniID := universe.Identifier{
+			AssetID: p.Asset.ID(),
+		}
+		if p.Asset.GroupKey != nil {
+			uniID.GroupKey = &p.Asset.GroupKey.GroupPubKey
+		}
+
+		log.Debugf("Updating issuance proof for asset with universe, "+
+			"key=%v", spew.Sdump(uniID))
+
+		// The base key is the set of bytes that keys into the universe,
+		// this'll be the outpoint where it was created at and the
+		// script key for that asset.
+		baseKey := universe.BaseKey{
+			MintingOutpoint: wire.OutPoint{
+				Hash:  p.AnchorTx.TxHash(),
+				Index: p.InclusionProof.OutputIndex,
+			},
+			ScriptKey: &p.Asset.ScriptKey,
+		}
+
+		// The universe tree stores only the asset state transition and
+		// not also the proof file checksum (as the root is effectively
+		// a checksum), so we'll use just the state transition.
+		var proofBuf bytes.Buffer
+		err = p.Encode(&proofBuf)
+		if err != nil {
+			return err
+		}
+
+		// With both of those assembled, we can now update issuance
+		// which takes the amount and proof of the minting event.
+		uniGen := universe.GenesisWithGroup{
+			Genesis: p.Asset.Genesis,
+		}
+		if p.Asset.GroupKey != nil {
+			uniGen.GroupKey = p.Asset.GroupKey
+		}
+		mintingLeaf := &universe.MintingLeaf{
+			GenesisWithGroup: uniGen,
+			GenesisProof:     proofBuf.Bytes(),
+			Amt:              p.Asset.Amount,
+		}
+		_, err = c.cfg.Universe.RegisterIssuance(
+			ctx, uniID, baseKey, mintingLeaf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update issuance: %v", err)
 		}
 	}
 

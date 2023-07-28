@@ -172,7 +172,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		leaf := testLeaf.MintingLeaf
 
 		issuanceProof, err := baseUniverse.RegisterIssuance(
-			ctx, targetKey, &leaf, nil,
+			ctx, targetKey, &leaf, nil, false,
 		)
 		require.NoError(t, err)
 
@@ -298,7 +298,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
 	_, err = baseUniverse.RegisterIssuance(
-		ctx, targetKey, &leaf, meta,
+		ctx, targetKey, &leaf, meta, false,
 	)
 	require.NoError(t, err)
 
@@ -326,7 +326,7 @@ func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
 	targetKey := randBaseKey(t)
 	leaf := randMintingLeaf(t, targetGen, tree.id.GroupKey)
 
-	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
+	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil, false)
 }
 
 // TestUniverseTreeIsolation tests that each Universe tree is properly isolated
@@ -438,7 +438,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 		leafToScriptKey[scriptKey] = leaf
 
 		_, err := baseUniverse.RegisterIssuance(
-			ctx, targetKey, &leaf, nil,
+			ctx, targetKey, &leaf, nil, false,
 		)
 		require.NoError(t, err)
 	}

@@ -139,13 +139,42 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	baseUni := a.fetchUniverse(id)
 
+	// We first decode the proof to make sure it's at least well-formed.
+	var newProof proof.Proof
+	err := newProof.Decode(bytes.NewReader(leaf.GenesisProof))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof: %v", err)
+	}
+
 	// We'll first check to see if we already know of this leaf within the
 	// base uni instance. If so, then we'll return the existing issuance
 	// proof.
-	// TODO(roasbeef): put this logic lower down the stack?
+	isReplacement := false
 	if proofs, err := baseUni.FetchIssuanceProof(ctx, key); err == nil {
 		issuanceProof := proofs[0]
-		return issuanceProof, nil
+
+		var existingProof proof.Proof
+		err := existingProof.Decode(
+			bytes.NewReader(issuanceProof.Leaf.GenesisProof),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode existing "+
+				"proof: %w", err)
+		}
+
+		// The only valid case for an update of a proof is if the mint
+		// TX was re-organized out of the chain. If the block hash is
+		// still the same, we don't see this as an update and just
+		// return the existing proof.
+		if existingProof.BlockHeader.BlockHash() ==
+			newProof.BlockHeader.BlockHash() {
+
+			return issuanceProof, nil
+		}
+
+		// This seems to be an update after a re-org, so we'll update it
+		// in our database.
+		isReplacement = true
 	}
 
 	// Otherwise, this is a new proof, so we'll first perform validation of
@@ -155,11 +184,6 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// it as a file first as that's what the expected wants.
 	//
 	// TODO(roasbeef): add option to skip proof verification?
-	var newProof proof.Proof
-	err := newProof.Decode(bytes.NewReader(leaf.GenesisProof))
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode proof: %v", err)
-	}
 	assetSnapshot, err := newProof.Verify(ctx, nil, a.cfg.HeaderVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %v", err)
@@ -203,7 +227,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// Now that we know the proof is valid, we'll insert it into the base
 	// universe backend, and return the new issuance proof.
 	issuanceProof, err := baseUni.RegisterIssuance(
-		ctx, key, leaf, assetSnapshot.MetaReveal,
+		ctx, key, leaf, assetSnapshot.MetaReveal, isReplacement,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register new "+
