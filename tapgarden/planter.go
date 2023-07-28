@@ -59,6 +59,9 @@ type PlanterConfig struct {
 	// all asset requests into a new batch.
 	BatchTicker *ticker.Force
 
+	// ProofUpdates is the storage backend for updated proofs.
+	ProofUpdates proof.Archiver
+
 	// ErrChan is the main error channel the planter will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -217,9 +220,10 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
-		CancelReqChan:  make(chan struct{}, 1),
-		CancelRespChan: make(chan CancelResp, 1),
-		ErrChan:        c.cfg.ErrChan,
+		CancelReqChan:       make(chan struct{}, 1),
+		CancelRespChan:      make(chan CancelResp, 1),
+		UpdateMintingProofs: c.updateMintingProofs,
+		ErrChan:             c.cfg.ErrChan,
 	})
 	c.caretakers[batchKey] = caretaker
 
@@ -798,6 +802,30 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// Now that we have the batch committed to disk, we'll return back to
 	// the caller if we should finalize the batch immediately or not based
 	// on its preference.
+	return nil
+}
+
+// updateMintingProofs is called by the re-org watcher when it detects a re-org
+// and has updated the minting proofs. This cannot be done by the caretaker
+// itself, because its job is already done at the point that a re-org can happen
+// (the batch is finalized after a single confirmation).
+func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
+	ctx, cancel := c.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	for idx := range proofs {
+		p := proofs[idx]
+
+		err := proof.ReplaceLastProofInBlob(
+			ctx, p, c.cfg.ProofUpdates, headerVerifier,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update minted proofs: %w",
+				err)
+		}
+	}
+
 	return nil
 }
 

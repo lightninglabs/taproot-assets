@@ -476,3 +476,9 @@ func (m *MockProofArchive) ImportProofs(ctx context.Context,
 
 	return nil
 }
+
+type MockProofWatcher struct {
+}
+
+func (m *MockProofWatcher) WatchProofs(_ []*proof.Proof, _ ProofUpdateCb) {
+}
