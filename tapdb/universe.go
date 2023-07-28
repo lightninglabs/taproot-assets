@@ -309,7 +309,8 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // at the base key.
 func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	key universe.BaseKey, leaf *universe.MintingLeaf,
-	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
+	metaReveal *proof.MetaReveal, replace bool) (*universe.IssuanceProof,
+	error) {
 
 	var (
 		writeTx BaseUniverseStoreOptions
@@ -323,9 +324,15 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	defer b.registrationMtx.Unlock()
 
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
-		issuanceProof, _, err = universeRegisterIssuance(
-			ctx, dbTx, b.id, key, leaf, metaReveal,
-		)
+		if replace {
+			issuanceProof, _, err = universeReplaceIssuance(
+				ctx, dbTx, b.id, key, leaf,
+			)
+		} else {
+			issuanceProof, _, err = universeRegisterIssuance(
+				ctx, dbTx, b.id, key, leaf, metaReveal,
+			)
+		}
 		return err
 	})
 	if dbErr != nil {
@@ -432,6 +439,69 @@ func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
 
 	// Finally, we'll obtain the merkle proof from the tree for the
 	// leaf we just inserted.
+	leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// With the insertion complete, we'll now fetch the root of the tree as
+	// it stands and return it to the caller.
+	universeRoot, err = universeTree.Root(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &universe.IssuanceProof{
+		MintingKey:     key,
+		UniverseRoot:   universeRoot,
+		InclusionProof: leafInclusionProof,
+		Leaf:           leaf,
+	}, universeRoot, nil
+}
+
+// universeReplaceIssuance updates an existing minting leaf within the universe
+// tree, stored at the base key.
+//
+// This function returns the updated issuance proof and the new universe root.
+//
+// NOTE: This function accepts a db transaction, as it's used when making
+// broader DB updates.
+func universeReplaceIssuance(ctx context.Context, dbTx BaseUniverseStore,
+	id universe.Identifier, key universe.BaseKey,
+	leaf *universe.MintingLeaf) (*universe.IssuanceProof, mssmt.Node,
+	error) {
+
+	namespace := idToNameSpace(id)
+
+	// With the tree store created, we'll now obtain byte representation of
+	// the minting key, as that'll be the key in the SMT itself.
+	smtKey := key.UniverseKey()
+
+	// The value stored in the MS-SMT will be the serialized MintingLeaf, so
+	// we'll convert that into raw bytes now.
+	leafNode := leaf.SmtLeafNode()
+
+	var (
+		leafInclusionProof *mssmt.Proof
+		universeRoot       mssmt.Node
+	)
+
+	// First, we'll instantiate a new compact tree instance from the backing
+	// tree store.
+	universeTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(dbTx, namespace),
+	)
+
+	// Now that we have a tree instance linked to this DB transaction, we'll
+	// insert the leaf into the tree based on its SMT key. This will replace
+	// the existing leaf if it exists.
+	_, err := universeTree.Insert(ctx, smtKey, leafNode)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Finally, we'll obtain the merkle proof from the tree for the leaf we
+	// just updated.
 	leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
 	if err != nil {
 		return nil, nil, err
