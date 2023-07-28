@@ -45,6 +45,10 @@ type GardenKit struct {
 	// Universe is used to register new asset issuance with a local/remote
 	// base universe instance.
 	Universe universe.Registrar
+
+	// ProofWatcher is used to watch new proofs for their anchor transaction
+	// to be confirmed safely with a minimum number of confirmations.
+	ProofWatcher ProofWatcher
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -237,8 +241,7 @@ func (c *ChainPlanter) Start() error {
 		// frozen state, and beyond.
 		//
 		// TODO(roasbeef): instead do RBF here? so only a single
-		// pending batch at at time? but would end up changing
-		// assetIDs.
+		// pending batch at a time? but would end up changing assetIDs.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		nonFinalBatches, err := c.cfg.Log.FetchNonFinalBatches(ctx)

@@ -142,6 +142,10 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start asset custodian: %v", err)
 	}
 
+	if err := s.cfg.ReOrgWatcher.Start(); err != nil {
+		return fmt.Errorf("unable to start re-org watcher: %v", err)
+	}
+
 	if err := s.cfg.ChainPorter.Start(); err != nil {
 		return fmt.Errorf("unable to start chain porter: %v", err)
 	}
@@ -514,6 +518,10 @@ func (s *Server) Stop() error {
 		return err
 	}
 	if err := s.cfg.AssetCustodian.Stop(); err != nil {
+		return err
+	}
+
+	if err := s.cfg.ReOrgWatcher.Stop(); err != nil {
 		return err
 	}
 
