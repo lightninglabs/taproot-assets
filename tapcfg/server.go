@@ -250,8 +250,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				Universe:     universeFederation,
 				ProofWatcher: reOrgWatcher,
 			},
-			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
-			ErrChan:     mainErrChan,
+			BatchTicker:  ticker.NewForce(cfg.BatchMintingInterval),
+			ProofUpdates: proofArchive,
+			ErrChan:      mainErrChan,
 		}),
 		AssetCustodian: tapgarden.NewCustodian(
 			&tapgarden.CustodianConfig{
