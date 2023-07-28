@@ -50,6 +50,10 @@ type CustodianConfig struct {
 	// user using an asynchronous transport mechanism.
 	ProofCourier proof.Courier[proof.Recipient]
 
+	// ProofWatcher is used to watch new proofs for their anchor transaction
+	// to be confirmed safely with a minimum number of confirmations.
+	ProofWatcher ProofWatcher
+
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -576,6 +580,15 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 func (c *Custodian) setReceiveCompleted(event *address.Event,
 	p proof.Proof) error {
 
+	// The proof is created after a single confirmation. To make sure we
+	// notice if the anchor transaction is re-organized out of the chain, we
+	// give the proof to the re-org watcher and replace the updated proof in
+	// the local proof archive if a re-org happens. The sender will do the
+	// same, so no re-send of the proof is necessary.
+	c.cfg.ProofWatcher.WatchProofs(
+		[]*proof.Proof{&p}, c.updateReceivedProofs,
+	)
+
 	// Let's not be interrupted by a shutdown.
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
@@ -588,6 +601,27 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 	return c.cfg.AddrBook.CompleteEvent(
 		ctxt, event, address.StatusCompleted, anchorPoint,
 	)
+}
+
+// updateReceivedProofs is called by the re-org watcher when it detects a re-org
+// and has updated the received proofs.
+func (c *Custodian) updateReceivedProofs(proofs []*proof.Proof) error {
+	// Let's not be interrupted by a shutdown.
+	ctxt, cancel := c.CtxBlocking()
+	defer cancel()
+
+	headerVerifier := GenHeaderVerifier(ctxt, c.cfg.ChainBridge)
+	for idx := range proofs {
+		err := proof.ReplaceLastProofInBlob(
+			ctxt, proofs[idx], c.cfg.ProofArchive, headerVerifier,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update received proofs: "+
+				"%w", err)
+		}
+	}
+
+	return nil
 }
 
 // hasWalletTaprootOutput returns true if one of the outputs of the given
