@@ -358,3 +358,15 @@ type KeyRing interface {
 	// and can be derived by it.
 	IsLocalKey(context.Context, keychain.KeyDescriptor) bool
 }
+
+// ProofUpdateCb is a callback that is called when proofs are updated because of
+// a re-org.
+type ProofUpdateCb func([]*proof.Proof) error
+
+// ProofWatcher is used to watch new proofs for their anchor transaction to be
+// confirmed safely with a minimum number of confirmations.
+type ProofWatcher interface {
+	// WatchProofs adds new proofs to the re-org watcher for their anchor
+	// transaction to be watched until it reaches a safe confirmation depth.
+	WatchProofs(newProofs []*proof.Proof, onProofUpdate ProofUpdateCb)
+}
