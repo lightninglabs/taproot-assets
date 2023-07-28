@@ -100,6 +100,10 @@ const (
 	// defaultUniverseSyncInterval is the default interval that we'll use
 	// to sync Universe state with the federation.
 	defaultUniverseSyncInterval = time.Minute * 10
+
+	// defaultReOrgSafeDepth is the default number of confirmations we'll
+	// wait for before considering a transaction safely buried in the chain.
+	defaultReOrgSafeDepth = 6
 )
 
 var (
@@ -254,6 +258,8 @@ type Config struct {
 
 	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
 
+	ReOrgSafeDepth uint32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
+
 	// The following options are used to configure the proof courier.
 	ProofCourierMode string                    `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
 	HashMailCourier  *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
@@ -325,6 +331,7 @@ func DefaultConfig() Config {
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
+		ReOrgSafeDepth:       defaultReOrgSafeDepth,
 		HashMailCourier: &proof.HashMailCourierCfg{
 			Addr:               defaultHashMailAddr,
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
