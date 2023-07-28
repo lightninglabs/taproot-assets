@@ -449,3 +449,55 @@ func (m *MultiArchiver) RemoveSubscriber(
 // A compile-time assertion to make sure MultiArchiver satisfies the
 // NotifyArchiver interface.
 var _ NotifyArchiver = (*MultiArchiver)(nil)
+
+// ReplaceLastProofInBlob attempts to replace the last proof in the blob with
+// the passed proof. This is useful when we want to update the proof with a new
+// one after a re-org.
+func ReplaceLastProofInBlob(ctx context.Context, p *Proof,
+	archive Archiver, headerVerifier HeaderVerifier) error {
+
+	assetID := p.Asset.ID()
+	scriptPubKey := p.Asset.ScriptKey.PubKey
+	locator := Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptPubKey,
+	}
+
+	blob, err := archive.FetchProof(ctx, locator)
+	if err != nil {
+		return fmt.Errorf("unable to fetch current proof: %w", err)
+	}
+
+	f := &File{}
+	if err := f.Decode(bytes.NewReader(blob)); err != nil {
+		return fmt.Errorf("unable to decode current proof: %w", err)
+	}
+
+	// Verify that the last proof in the file is the one we want to replace.
+	lastProof, err := f.LastProof()
+	if err != nil {
+		return fmt.Errorf("unable to get last proof: %w", err)
+	}
+	if !lastProof.Asset.ScriptKey.PubKey.IsEqual(scriptPubKey) {
+		return fmt.Errorf("last proof in file doesn't match script " +
+			"key of new proof")
+	}
+
+	// All good, we can now replace the last proof in the file with the new
+	// one.
+	err = f.ReplaceLastProof(*p)
+	if err != nil {
+		return fmt.Errorf("unable to replace last proof with updated "+
+			"one: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := f.Encode(&buf); err != nil {
+		return fmt.Errorf("unable to encode updated proof: %w", err)
+	}
+
+	return archive.ImportProofs(ctx, headerVerifier, true, &AnnotatedProof{
+		Locator: locator,
+		Blob:    buf.Bytes(),
+	})
+}
