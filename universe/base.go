@@ -26,7 +26,7 @@ type MintingArchiveConfig struct {
 
 	// UniverseForest is used to interact with the set of known base
 	// universe trees, and also obtain associated metadata and statistics.
-	UniverseForest BaseForest
+	UniverseForest Forest
 
 	// UniverseStats is used to export statistics related to the set of
 	// external/internal queries to the base universe instance.
