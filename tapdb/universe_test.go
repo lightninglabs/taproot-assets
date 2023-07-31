@@ -394,7 +394,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	// We should be able to delete one Universe with no effect on the other.
 	normalNamespace, err := normalUniverse.DeleteUniverse(ctx)
 	require.NoError(t, err)
-	require.Equal(t, idToNameSpace(idNormal), normalNamespace)
+	require.Equal(t, idNormal.String(), normalNamespace)
 
 	// A deleted universe should have no root stored.
 	normalRoot, _, err = normalUniverse.RootNode(ctx)
