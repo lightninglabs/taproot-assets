@@ -39,12 +39,6 @@ type (
 	UniverseLeaf = sqlc.QueryUniverseLeavesRow
 )
 
-var (
-	// ErrNoUniverseProofFound is returned when a user attempts to look up
-	// a key in the universe that actually points to the empty leaf.
-	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
-)
-
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
 // This is a composite of the capabilities to insert new asset genesis, update
 // the SMT tree, and finally fetch a genesis. We then combine that with Universe
@@ -523,7 +517,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 	}
 
 	if len(universeLeaves) == 0 {
-		return nil, ErrNoUniverseProofFound
+		return nil, universe.ErrNoUniverseProofFound
 	}
 
 	// Now that we have all the leaves we need to query, we'll look each up
