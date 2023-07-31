@@ -50,7 +50,7 @@ type BatchedUniverseForest interface {
 
 // BaseUniverseForest implements the persistent storage for a universe forest.
 //
-// NOTE: This implements the universe.BaseForest interface.
+// NOTE: This implements the universe.Multiverse interface.
 type BaseUniverseForest struct {
 	db BatchedUniverseForest
 
