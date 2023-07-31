@@ -39,9 +39,9 @@ func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
 	}
 }
 
-// BasedUniverseForest is a wrapper around the base universe forest that allows
-// us to perform batch transactional databse queries with all the relevant query
-// interfaces.
+// BatchedUniverseForest is a wrapper around the base universe forest that
+// allows us to perform batch transactional database queries with all the
+// relevant query interfaces.
 type BatchedUniverseForest interface {
 	BaseUniverseForestStore
 
