@@ -3,9 +3,7 @@ package tapdb
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -135,26 +133,14 @@ type BaseUniverseTree struct {
 	smtNamespace string
 }
 
-// idToNameSpace maps a universe ID to a string namespace.
-func idToNameSpace(id universe.Identifier) string {
-	if id.GroupKey != nil {
-		h := sha256.Sum256(schnorr.SerializePubKey(id.GroupKey))
-		return hex.EncodeToString(h[:])
-	}
-
-	return hex.EncodeToString(id.AssetID[:])
-}
-
 // NewBaseUniverseTree creates a new base Universe tree.
 func NewBaseUniverseTree(db BatchedUniverseTree,
 	id universe.Identifier) *BaseUniverseTree {
 
-	namespace := idToNameSpace(id)
-
 	return &BaseUniverseTree{
 		db:           db,
 		id:           id,
-		smtNamespace: namespace,
+		smtNamespace: id.String(),
 	}
 }
 
@@ -349,7 +335,7 @@ func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, mssmt.Node,
 	error) {
 
-	namespace := idToNameSpace(id)
+	namespace := id.String()
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
@@ -489,7 +475,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 	id universe.Identifier, universeKey universe.BaseKey,
 	dbTx BaseUniverseStore) ([]*universe.IssuanceProof, error) {
 
-	namespace := idToNameSpace(id)
+	namespace := id.String()
 
 	// Depending on the universeKey, we'll either be fetching the details of
 	// a specific issuance, or each issuance for that minting outpoint.
