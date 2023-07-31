@@ -523,7 +523,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 	}
 
 	if len(universeLeaves) == 0 {
-		return nil, ErrNoUniverseProofFound
+		return nil, nil
 	}
 
 	// Now that we have all the leaves we need to query, we'll look each up
