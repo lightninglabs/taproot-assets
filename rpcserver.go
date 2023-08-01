@@ -2293,21 +2293,27 @@ func marshalUniID(id universe.Identifier) *unirpc.ID {
 	return &uniID
 }
 
+// marshalMssmtNode marshals a MS-SMT node into the RPC counterpart.
+func marshalMssmtNode(node mssmt.Node) *unirpc.MerkleSumNode {
+	nodeHash := node.NodeHash()
+
+	return &unirpc.MerkleSumNode{
+		RootHash: nodeHash[:],
+		RootSum:  int64(node.NodeSum()),
+	}
+}
+
 // marshallUniverseRoot marshals the universe root into the RPC counterpart.
 func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 	// There was no old base root, so we'll just return a blank root.
 	if node.Node == nil {
 		return &unirpc.UniverseRoot{}, nil
 	}
-
-	nodeHash := node.Node.NodeHash()
+	mssmtRoot := marshalMssmtNode(node.Node)
 
 	return &unirpc.UniverseRoot{
-		Id: marshalUniID(node.ID),
-		MssmtRoot: &unirpc.MerkleSumNode{
-			RootHash: nodeHash[:],
-			RootSum:  int64(node.Node.NodeSum()),
-		},
+		Id:        marshalUniID(node.ID),
+		MssmtRoot: mssmtRoot,
 		AssetName: node.AssetName,
 	}, nil
 }
