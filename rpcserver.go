@@ -2662,8 +2662,8 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 	return baseKey, nil
 }
 
-// marshalUniverseProof marshals a universe proof into the RPC form.
-func marshalUniverseProof(proof *mssmt.Proof) ([]byte, error) {
+// marshalMssmtProof marshals a MS-SMT proof into the RPC form.
+func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 	compressedProof := proof.Compress()
 
 	var b bytes.Buffer
@@ -2679,7 +2679,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.IssuanceProof) (*unirpc.AssetProofResponse, error) {
 
-	uniProof, err := marshalUniverseProof(proof.InclusionProof)
+	uniProof, err := marshalMssmtProof(proof.InclusionProof)
 	if err != nil {
 		return nil, err
 	}
