@@ -1346,6 +1346,15 @@
         "asset_leaf": {
           "$ref": "#/definitions/universerpcAssetLeaf",
           "description": "The asset leaf itself, which includes the asset and the issuance proof."
+        },
+        "multiverse_root": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "MultiverseRoot is the root of the multiverse tree that includes this\nasset leaf."
+        },
+        "multiverse_inclusion_proof": {
+          "type": "string",
+          "format": "byte",
+          "description": "MultiverseInclusionProof is the inclusion proof for the asset leaf in the\nmultiverse."
         }
       }
     },
