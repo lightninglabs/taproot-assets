@@ -2699,11 +2699,23 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	uniRoot.AssetName = assetLeaf.Asset.AssetGenesis.Name
 	uniRoot.Id = req.Id
 
+	// Marshal multiverse specific fields.
+	multiverseRoot := marshalMssmtNode(proof.MultiverseRoot)
+
+	multiverseProof, err := marshalMssmtProof(
+		proof.MultiverseInclusionProof,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &unirpc.AssetProofResponse{
-		Req:                    req,
-		UniverseRoot:           uniRoot,
-		UniverseInclusionProof: uniProof,
-		AssetLeaf:              assetLeaf,
+		Req:                      req,
+		UniverseRoot:             uniRoot,
+		UniverseInclusionProof:   uniProof,
+		AssetLeaf:                assetLeaf,
+		MultiverseRoot:           multiverseRoot,
+		MultiverseInclusionProof: multiverseProof,
 	}, nil
 }
 
