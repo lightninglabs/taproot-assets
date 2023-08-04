@@ -74,6 +74,8 @@ type mintingTestHarness struct {
 
 	proofFiles *tapgarden.MockProofArchive
 
+	proofWatcher *tapgarden.MockProofWatcher
+
 	*testing.T
 
 	errChan chan error
@@ -88,14 +90,16 @@ func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
 
 	return &mintingTestHarness{
-		T:         t,
-		store:     store,
-		ticker:    ticker.NewForce(interval),
-		wallet:    tapgarden.NewMockWalletAnchor(),
-		chain:     tapgarden.NewMockChainBridge(),
-		keyRing:   keyRing,
-		genSigner: genSigner,
-		errChan:   make(chan error, 10),
+		T:            t,
+		store:        store,
+		ticker:       ticker.NewForce(interval),
+		wallet:       tapgarden.NewMockWalletAnchor(),
+		chain:        tapgarden.NewMockChainBridge(),
+		proofFiles:   &tapgarden.MockProofArchive{},
+		proofWatcher: &tapgarden.MockProofWatcher{},
+		keyRing:      keyRing,
+		genSigner:    genSigner,
+		errChan:      make(chan error, 10),
 	}
 }
 
@@ -109,15 +113,17 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 
 	t.planter = tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 		GardenKit: tapgarden.GardenKit{
-			Wallet:      t.wallet,
-			ChainBridge: t.chain,
-			Log:         t.store,
-			KeyRing:     t.keyRing,
-			GenSigner:   t.genSigner,
-			ProofFiles:  t.proofFiles,
+			Wallet:       t.wallet,
+			ChainBridge:  t.chain,
+			Log:          t.store,
+			KeyRing:      t.keyRing,
+			GenSigner:    t.genSigner,
+			ProofFiles:   t.proofFiles,
+			ProofWatcher: t.proofWatcher,
 		},
-		BatchTicker: t.ticker,
-		ErrChan:     t.errChan,
+		BatchTicker:  t.ticker,
+		ProofUpdates: t.proofFiles,
+		ErrChan:      t.errChan,
 	})
 	require.NoError(t, t.planter.Start())
 }
