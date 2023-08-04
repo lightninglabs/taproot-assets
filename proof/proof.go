@@ -38,6 +38,32 @@ var (
 	ErrMetaRevealRequired = errors.New("meta reveal required")
 )
 
+// UpdateCallback is a callback that is called when proofs are updated because
+// of a re-org.
+type UpdateCallback func([]*Proof) error
+
+// Watcher is used to watch new proofs for their anchor transaction to be
+// confirmed safely with a minimum number of confirmations.
+type Watcher interface {
+	// WatchProofs adds new proofs to the re-org watcher for their anchor
+	// transaction to be watched until it reaches a safe confirmation depth.
+	WatchProofs(newProofs []*Proof, onProofUpdate UpdateCallback) error
+
+	// MaybeWatch inspects the given proof file for any proofs that are not
+	// yet buried sufficiently deep and adds them to the re-org watcher.
+	MaybeWatch(file *File, onProofUpdate UpdateCallback) error
+
+	// ShouldWatch returns true if the proof is for a block that is not yet
+	// sufficiently deep to be considered safe.
+	ShouldWatch(proof *Proof) bool
+
+	// DefaultUpdateCallback returns the default implementation for the
+	// update callback that is called when a proof is updated. This
+	// implementation will replace the old proof in the proof archiver
+	// (multi-archive) with the new one.
+	DefaultUpdateCallback() UpdateCallback
+}
+
 // Proof encodes all of the data necessary to prove a valid state transition for
 // an asset has occurred within an on-chain transaction.
 type Proof struct {
