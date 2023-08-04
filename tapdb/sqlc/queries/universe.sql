@@ -17,7 +17,9 @@ INSERT INTO universe_roots (
 ) VALUES (
     @namespace_root, @asset_id, @group_key
 ) ON CONFLICT (namespace_root)
-    DO UPDATE SET namespace_root = @namespace_root
+    -- This is a NOP, namespace_root is the unique field that caused the
+    -- conflict.
+    DO UPDATE SET namespace_root = EXCLUDED.namespace_root
 RETURNING id;
 
 -- name: DeleteUniverseEvents :exec
@@ -33,14 +35,18 @@ WHERE universe_root_id = (SELECT id from root_id);
 DELETE FROM universe_roots
 WHERE namespace_root = @namespace_root;
 
--- name: InsertUniverseLeaf :exec
+-- name: UpsertUniverseLeaf :exec
 INSERT INTO universe_leaves (
     asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
     leaf_node_namespace, minting_point
 ) VALUES (
     @asset_genesis_id, @script_key_bytes, @universe_root_id, @leaf_node_key,
     @leaf_node_namespace, @minting_point
-);
+) ON CONFLICT (minting_point, script_key_bytes)
+    -- This is a NOP, minting_point and script_key_bytes are the unique fields
+    -- that caused the conflict.
+    DO UPDATE SET minting_point = EXCLUDED.minting_point,
+                  script_key_bytes = EXCLUDED.script_key_bytes;
 
 -- name: DeleteUniverseLeaves :exec
 DELETE FROM universe_leaves

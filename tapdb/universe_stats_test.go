@@ -62,7 +62,7 @@ func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
 		id := randUniverseID(t, false)
 		id.AssetID = randGen.ID()
 
-		assetUniverse, _ := newTestUniverseWithDb(t, db, id)
+		assetUniverse, _ := newTestUniverseWithDb(db, id)
 		stats.assetUniverses[i] = assetUniverse
 
 		uniLeaf, err := insertRandLeaf(
