@@ -50,6 +50,10 @@ type CustodianConfig struct {
 	// user using an asynchronous transport mechanism.
 	ProofCourier proof.Courier[proof.Recipient]
 
+	// ProofWatcher is used to watch new proofs for their anchor transaction
+	// to be confirmed safely with a minimum number of confirmations.
+	ProofWatcher proof.Watcher
+
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -526,7 +530,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
 	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
-		return c.setReceiveCompleted(event, *lastProof)
+		return c.setReceiveCompleted(event, lastProof, file)
 	}
 
 	return nil
@@ -564,7 +568,7 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 			// database. Therefore, all we need to do is update the
 			// state of the address event to mark it as completed
 			// successfully.
-			return c.setReceiveCompleted(event, *lastProof)
+			return c.setReceiveCompleted(event, lastProof, file)
 		}
 	}
 
@@ -574,15 +578,28 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 // setReceiveCompleted updates the address event in the database to mark it as
 // completed successfully and to link it to the proof we received.
 func (c *Custodian) setReceiveCompleted(event *address.Event,
-	p proof.Proof) error {
+	lastProof *proof.Proof, proofFile *proof.File) error {
+
+	// The proof is created after a single confirmation. To make sure we
+	// notice if the anchor transaction is re-organized out of the chain, we
+	// give all the not-yet-sufficiently-buried proofs in the received proof
+	// file to the re-org watcher and replace the updated proof in the local
+	// proof archive if a re-org happens. The sender will do the same, so no
+	// re-send of the proof is necessary.
+	err := c.cfg.ProofWatcher.MaybeWatch(
+		proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
+	)
+	if err != nil {
+		return fmt.Errorf("error watching received proof: %w", err)
+	}
 
 	// Let's not be interrupted by a shutdown.
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
 
 	anchorPoint := wire.OutPoint{
-		Hash:  p.AnchorTx.TxHash(),
-		Index: p.InclusionProof.OutputIndex,
+		Hash:  lastProof.AnchorTx.TxHash(),
+		Index: lastProof.InclusionProof.OutputIndex,
 	}
 
 	return c.cfg.AddrBook.CompleteEvent(
