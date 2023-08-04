@@ -24,8 +24,8 @@ type (
 	// UniverseRoot is the root of a universe tree.
 	UniverseRoot = sqlc.FetchUniverseRootRow
 
-	// NewUniverseLeaf is used to insert new universe leaves.
-	NewUniverseLeaf = sqlc.InsertUniverseLeafParams
+	// UpsertUniverseLeaf is used to upsert universe leaves.
+	UpsertUniverseLeaf = sqlc.UpsertUniverseLeafParams
 
 	// NewUniverseRoot is used to insert a new universe root.
 	NewUniverseRoot = sqlc.UpsertUniverseRootParams
@@ -81,8 +81,8 @@ type BaseUniverseStore interface {
 	FetchUniverseRoot(ctx context.Context,
 		namespace string) (UniverseRoot, error)
 
-	// InsertUniverseLeaf inserts a new Universe leaf into the database.
-	InsertUniverseLeaf(ctx context.Context, arg NewUniverseLeaf) error
+	// UpsertUniverseLeaf upserts a Universe leaf in the database.
+	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeaf) error
 
 	// UpsertUniverseRoot attempts to insert a universe root, returning the
 	// existing primary key of the root if already exists.
@@ -335,8 +335,8 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	return issuanceProof, nil
 }
 
-// universeRegisterIssuance inserts a new minting leaf within the universe
-// tree, stored at the base key.
+// universeRegisterIssuance upserts a minting leaf within the universe tree,
+// stored at the base key.
 //
 // This function returns the newly registered issuance proof and the new
 // universe root.
@@ -418,7 +418,7 @@ func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
 	}
 
 	scriptKeyBytes := schnorr.SerializePubKey(key.ScriptKey.PubKey)
-	err = dbTx.InsertUniverseLeaf(ctx, NewUniverseLeaf{
+	err = dbTx.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
 		AssetGenesisID:    assetGenID,
 		ScriptKeyBytes:    scriptKeyBytes,
 		UniverseRootID:    universeRootID,
