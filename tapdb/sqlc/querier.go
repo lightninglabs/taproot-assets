@@ -92,7 +92,6 @@ type Querier interface {
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
-	InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeafParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	ListUniverseServers(ctx context.Context) ([]UniverseServer, error)
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
@@ -146,6 +145,7 @@ type Querier interface {
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int32, error)
+	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int32, error)
 }
 

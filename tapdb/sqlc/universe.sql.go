@@ -216,37 +216,6 @@ func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEvent
 	return err
 }
 
-const insertUniverseLeaf = `-- name: InsertUniverseLeaf :exec
-INSERT INTO universe_leaves (
-    asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
-    leaf_node_namespace, minting_point
-) VALUES (
-    $1, $2, $3, $4,
-    $5, $6
-)
-`
-
-type InsertUniverseLeafParams struct {
-	AssetGenesisID    int32
-	ScriptKeyBytes    []byte
-	UniverseRootID    int32
-	LeafNodeKey       []byte
-	LeafNodeNamespace string
-	MintingPoint      []byte
-}
-
-func (q *Queries) InsertUniverseLeaf(ctx context.Context, arg InsertUniverseLeafParams) error {
-	_, err := q.db.ExecContext(ctx, insertUniverseLeaf,
-		arg.AssetGenesisID,
-		arg.ScriptKeyBytes,
-		arg.UniverseRootID,
-		arg.LeafNodeKey,
-		arg.LeafNodeNamespace,
-		arg.MintingPoint,
-	)
-	return err
-}
-
 const insertUniverseServer = `-- name: InsertUniverseServer :exec
 INSERT INTO universe_servers(
     server_host, last_sync_time
@@ -697,13 +666,50 @@ func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 	return items, nil
 }
 
+const upsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec
+INSERT INTO universe_leaves (
+    asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
+    leaf_node_namespace, minting_point
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6
+) ON CONFLICT (minting_point, script_key_bytes)
+    -- This is a NOP, minting_point and script_key_bytes are the unique fields
+    -- that caused the conflict.
+    DO UPDATE SET minting_point = EXCLUDED.minting_point,
+                  script_key_bytes = EXCLUDED.script_key_bytes
+`
+
+type UpsertUniverseLeafParams struct {
+	AssetGenesisID    int32
+	ScriptKeyBytes    []byte
+	UniverseRootID    int32
+	LeafNodeKey       []byte
+	LeafNodeNamespace string
+	MintingPoint      []byte
+}
+
+func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error {
+	_, err := q.db.ExecContext(ctx, upsertUniverseLeaf,
+		arg.AssetGenesisID,
+		arg.ScriptKeyBytes,
+		arg.UniverseRootID,
+		arg.LeafNodeKey,
+		arg.LeafNodeNamespace,
+		arg.MintingPoint,
+	)
+	return err
+}
+
 const upsertUniverseRoot = `-- name: UpsertUniverseRoot :one
 INSERT INTO universe_roots (
     namespace_root, asset_id, group_key
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (namespace_root)
-    DO UPDATE SET namespace_root = $1
+    -- This is a NOP, namespace_root is the unique field that caused the
+    -- conflict.
+    DO UPDATE SET namespace_root = EXCLUDED.namespace_root
 RETURNING id
 `
 
