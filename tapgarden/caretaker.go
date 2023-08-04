@@ -731,7 +731,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		confCtx, confCancel := b.WithCtxQuitNoTimeout()
 		confNtfn, errChan, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
 			confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
-			heightHint, true,
+			heightHint, true, nil,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to register for "+

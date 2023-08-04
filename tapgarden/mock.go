@@ -234,6 +234,9 @@ type MockChainBridge struct {
 	FeeEstimateSignal chan struct{}
 	PublishReq        chan *wire.MsgTx
 	ConfReqSignal     chan int
+	BlockEpochSignal  chan struct{}
+
+	NewBlocks chan int32
 
 	ReqCount int
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
@@ -245,6 +248,8 @@ func NewMockChainBridge() *MockChainBridge {
 		PublishReq:        make(chan *wire.MsgTx),
 		ConfReqs:          make(map[int]*chainntnfs.ConfirmationEvent),
 		ConfReqSignal:     make(chan int),
+		BlockEpochSignal:  make(chan struct{}, 1),
+		NewBlocks:         make(chan int32),
 	}
 }
 
@@ -263,8 +268,8 @@ func (m *MockChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 }
 
 func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	_ *chainhash.Hash, _ []byte, _, _ uint32,
-	_ bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
+	_ *chainhash.Hash, _ []byte, _, _ uint32, _ bool,
+	_ chan struct{}) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
 	case <-ctx.Done():
@@ -278,6 +283,7 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 
 	req := &chainntnfs.ConfirmationEvent{
 		Confirmed: make(chan *chainntnfs.TxConfirmation),
+		Cancel:    func() {},
 	}
 	errChan := make(chan error)
 
@@ -289,6 +295,23 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 
 	return req, errChan, nil
+}
+
+func (m *MockChainBridge) RegisterBlockEpochNtfn(
+	ctx context.Context) (chan int32, chan error, error) {
+
+	select {
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("shutting down")
+	default:
+	}
+
+	select {
+	case m.BlockEpochSignal <- struct{}{}:
+	case <-ctx.Done():
+	}
+
+	return m.NewBlocks, make(chan error), nil
 }
 
 // GetBlock returns a chain block given its hash.
