@@ -173,6 +173,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
+		ChainBridge:  chainBridge,
+		ProofArchive: proofArchive,
+		SafeDepth:    cfg.ReOrgSafeDepth,
+		ErrChan:      mainErrChan,
+	})
+
 	baseUni := universe.NewMintingArchive(uniCfg)
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
@@ -230,6 +237,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AcceptRemoteUniverseProofs: cfg.Universe.AcceptRemoteProofs,
 		Lnd:                        lndServices,
 		ChainParams:                cfg.ActiveNetParams,
+		ReOrgWatcher:               reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{
 				Wallet:      walletAnchor,
@@ -239,8 +247,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				GenSigner: tap.NewLndRpcGenSigner(
 					lndServices,
 				),
-				ProofFiles: proofFileStore,
-				Universe:   universeFederation,
+				ProofFiles:   proofFileStore,
+				Universe:     universeFederation,
+				ProofWatcher: reOrgWatcher,
 			},
 			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,

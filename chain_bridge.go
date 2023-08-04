@@ -117,7 +117,7 @@ func (l *LndRpcChainBridge) VerifyBlock(ctx context.Context,
 	expectedHash := header.BlockHash()
 	if hash != expectedHash {
 		return fmt.Errorf("block hash and block height "+
-			"mismatch; (height: %x, hashAtHeight: %s, "+
+			"mismatch; (height: %d, hashAtHeight: %s, "+
 			"expectedHash: %s)", height, hash, expectedHash)
 	}
 

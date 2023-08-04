@@ -10,9 +10,11 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/perms"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -140,6 +142,20 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// Next, we'll start the asset custodian.
 	if err := s.cfg.AssetCustodian.Start(); err != nil {
 		return fmt.Errorf("unable to start asset custodian: %v", err)
+	}
+
+	// We need to fetch all unspent assets from the database so the re-org
+	// watcher can properly detect re-orgs for not yet fully buried assets.
+	ctx := context.Background()
+	chainAssets, err := s.cfg.AssetStore.FetchAllAssets(ctx, false, nil)
+	if err != nil {
+		return fmt.Errorf("unable to fetch assets: %w", err)
+	}
+	assets := fn.Map(chainAssets, func(a *tapdb.ChainAsset) *asset.Asset {
+		return a.Asset
+	})
+	if err := s.cfg.ReOrgWatcher.Start(assets); err != nil {
+		return fmt.Errorf("unable to start re-org watcher: %v", err)
 	}
 
 	if err := s.cfg.ChainPorter.Start(); err != nil {
@@ -514,6 +530,10 @@ func (s *Server) Stop() error {
 		return err
 	}
 	if err := s.cfg.AssetCustodian.Stop(); err != nil {
+		return err
+	}
+
+	if err := s.cfg.ReOrgWatcher.Stop(); err != nil {
 		return err
 	}
 
