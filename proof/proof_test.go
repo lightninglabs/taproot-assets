@@ -634,6 +634,67 @@ func TestOwnershipProofVerification(t *testing.T) {
 	require.NotNil(t, snapshot)
 }
 
+// TestProofReplacement ensures that proofs can be replaced in a proof file.
+func TestProofReplacement(t *testing.T) {
+	amt := uint64(5000)
+
+	// Start with a minted genesis asset.
+	genesisProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, false, nil, nil,
+	)
+
+	// We create a file with 1k proofs (the same one).
+	const numProofs = 1_000
+	lotsOfProofs := make([]Proof, numProofs)
+	for i := 0; i < numProofs; i++ {
+		lotsOfProofs[i] = genesisProof
+	}
+
+	f, err := NewFile(V0, lotsOfProofs...)
+	require.NoError(t, err)
+
+	// We'll now go ahead and randomly replace 100 proofs.
+	const numReplacements = 100
+	for i := 0; i < numReplacements; i++ {
+		// We'll generate a random proof, and then replace a random
+		// proof in the file with it.
+		proof, _ := genRandomGenesisWithProof(
+			t, asset.Normal, &amt, nil, false, nil, nil,
+		)
+		idx := test.RandIntn(numProofs)
+		err := f.ReplaceProofAt(uint32(idx), proof)
+		require.NoError(t, err)
+	}
+
+	// We also replace the very first and very last ones (to test the
+	// boundary conditions).
+	firstProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, false, nil, nil,
+	)
+	err = f.ReplaceProofAt(0, firstProof)
+	require.NoError(t, err)
+
+	lastProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, false, nil, nil,
+	)
+	err = f.ReplaceProofAt(uint32(f.NumProofs()-1), lastProof)
+	require.NoError(t, err)
+
+	// Make sure we can still properly encode and decode the file.
+	var buf bytes.Buffer
+	err = f.Encode(&buf)
+	require.NoError(t, err)
+
+	f2, err := NewFile(V0)
+	require.NoError(t, err)
+
+	err = f2.Decode(&buf)
+	require.NoError(t, err)
+
+	require.Len(t, f2.proofs, numProofs)
+	require.Equal(t, f2.proofs, f.proofs)
+}
+
 func BenchmarkProofEncoding(b *testing.B) {
 	amt := uint64(5000)
 
