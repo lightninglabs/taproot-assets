@@ -229,7 +229,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
 		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
-		outboundPkg.AnchorTxHeightHint, true,
+		outboundPkg.AnchorTxHeightHint, true, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to register for package tx conf: %w",
