@@ -89,11 +89,11 @@ const (
 	// created.
 	BatchStateFinalized BatchState = 5
 
-	// BatchStateCancelled denotes that a batch has been cancelled, and
-	// will not be passed to a caretaker.
+	// BatchStateSeedlingCancelled denotes that a batch has been cancelled,
+	// and will not be passed to a caretaker.
 	BatchStateSeedlingCancelled BatchState = 6
 
-	// BatchStateSproutedCancelled denotes that a batch has been cancelled
+	// BatchStateSproutCancelled denotes that a batch has been cancelled
 	// after being passed to a caretaker and sprouting.
 	BatchStateSproutCancelled BatchState = 7
 )
@@ -246,7 +246,13 @@ type ChainBridge interface {
 	// txid reaches numConfs confirmations.
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
 		pkScript []byte, numConfs, heightHint uint32,
-		includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error,
+		includeBlock bool,
+		reOrgChan chan struct{}) (*chainntnfs.ConfirmationEvent,
+		chan error, error)
+
+	// RegisterBlockEpochNtfn registers an intent to be notified of each
+	// new block connected to the main chain.
+	RegisterBlockEpochNtfn(ctx context.Context) (chan int32, chan error,
 		error)
 
 	// GetBlock returns a chain block given its hash.
