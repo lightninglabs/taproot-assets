@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -162,6 +164,38 @@ func testUniverseSync(t *harnessTest) {
 	firstAssetUniProof, err := bob.QueryProof(ctxt, &firstAssetProofQuery)
 	require.NoError(t.t, err)
 
+	// Verify the multiverse inclusion proof for the first asset.
+	firstAssetUniMssmtRoot := unmarshalMerkleSumNode(
+		firstAssetUniProof.UniverseRoot.MssmtRoot,
+	)
+
+	multiverseRoot := unmarshalMerkleSumNode(
+		firstAssetUniProof.MultiverseRoot,
+	)
+
+	var compressedProof mssmt.CompressedProof
+	err = compressedProof.Decode(
+		bytes.NewReader(firstAssetUniProof.MultiverseInclusionProof),
+	)
+	require.NoError(t.t, err)
+
+	multiverseInclusionProof, err := compressedProof.Decompress()
+	require.NoError(t.t, err)
+
+	assetIdFixedSize := fn.ToArray[[32]byte](firstAssetID)
+
+	firstAssetAmount := rpcSimpleAssets[0].Amount
+	nodeHash := firstAssetUniMssmtRoot.NodeHash()
+	leaf := mssmt.NewLeafNode(
+		nodeHash[:], firstAssetAmount,
+	)
+
+	verifyProofResult := mssmt.VerifyMerkleProof(
+		assetIdFixedSize, leaf, multiverseInclusionProof,
+		multiverseRoot,
+	)
+	require.True(t.t, verifyProofResult)
+
 	firstAssetFromUni := firstAssetUniProof.AssetLeaf.Asset
 	firstAssetFromUni.PrevWitnesses = nil
 	assertAsset(t.t, rpcSimpleAssets[0], firstAssetFromUni)
@@ -209,6 +243,14 @@ func testUniverseSync(t *harnessTest) {
 	require.True(
 		t.t, assertUniverseRootsEqual(universeRoots, universeRootsBob),
 	)
+}
+
+// UnmarshalMerkleSumNode un-marshals a protobuf MerkleSumNode.
+func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
+	var nodeHash mssmt.NodeHash
+	copy(nodeHash[:], root.RootHash)
+
+	return mssmt.NewComputedBranch(nodeHash, uint64(root.RootSum))
 }
 
 // testUniverseREST tests that we're able to properly query the universe state
