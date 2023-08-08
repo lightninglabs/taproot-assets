@@ -431,7 +431,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		Type:              uint8(v.Type),
 		Interactive:       v.Interactive,
 		AnchorOutputIndex: v.AnchorOutputIndex,
-		AnchorOutputInternalKey: test.HexSchnorrPubKey(
+		AnchorOutputInternalKey: test.HexPubKey(
 			v.AnchorOutputInternalKey,
 		),
 		AnchorOutputTapscriptSibling: commitment.HexTapscriptSibling(
@@ -541,7 +541,7 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 		Type:              VOutputType(to.Type),
 		Interactive:       to.Interactive,
 		AnchorOutputIndex: to.AnchorOutputIndex,
-		AnchorOutputInternalKey: test.ParseSchnorrPubKey(
+		AnchorOutputInternalKey: test.ParsePubKey(
 			t, to.AnchorOutputInternalKey,
 		),
 		AnchorOutputTapscriptSibling: commitment.ParseTapscriptSibling(
