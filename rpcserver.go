@@ -1102,9 +1102,13 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = proofFile.Verify(
-		ctx, headerVerifier,
-	)
+	_, err = proofFile.Verify(ctx, headerVerifier)
+	if err != nil {
+		// We don't want to fail the RPC request because of a proof
+		// verification error, but we do want to log it for easier
+		// debugging.
+		rpcsLog.Errorf("Proof verification failed with err: %v", err)
+	}
 	valid := err == nil
 
 	decodedProof, err := r.marshalProofFile(ctx, proofFile, 0, false, false)
@@ -1329,7 +1333,8 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
 	err := r.cfg.ProofArchive.ImportProofs(
-		ctx, headerVerifier, &proof.AnnotatedProof{Blob: in.ProofFile},
+		ctx, headerVerifier, false,
+		&proof.AnnotatedProof{Blob: in.ProofFile},
 	)
 	if err != nil {
 		return nil, err

@@ -2070,6 +2070,7 @@ INSERT INTO asset_group_sigs (
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (gen_asset_id)
+    -- This is a NOP, gen_asset_id is the unique field that caused the conflict.
     DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
 RETURNING sig_id
 `
@@ -2199,7 +2200,6 @@ INSERT INTO genesis_assets (
 ) VALUES (
     $2, $3, (SELECT meta_id FROM target_meta_id), $4, $5, $6
 ) ON CONFLICT (asset_id)
-    -- This is a NOP, asset_tag is the unique field that caused the conflict.
     -- This is a NOP, asset_id is the unique field that caused the conflict.
     DO UPDATE SET asset_id = EXCLUDED.asset_id
 RETURNING gen_asset_id

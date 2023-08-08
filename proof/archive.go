@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (
@@ -96,9 +97,11 @@ type Archiver interface {
 	// ImportProofs attempts to store fully populated proofs on disk. The
 	// previous outpoint of the first state transition will be used as the
 	// Genesis point. The final resting place of the asset will be used as
-	// the script key itself.
+	// the script key itself. If replace is specified, we expect a proof to
+	// already be present, and we just update (replace) it with the new
+	// proof.
 	ImportProofs(ctx context.Context, headerVerifier HeaderVerifier,
-		proofs ...*AnnotatedProof) error
+		replace bool, proofs ...*AnnotatedProof) error
 }
 
 // NotifyArchiver is an Archiver that also allows callers to subscribe to
@@ -198,10 +201,12 @@ func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 // ImportProofs attempts to store fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
+// If replace is specified, we expect a proof to already be present, and we just
+// update (replace) it with the new proof.
 //
 // NOTE: This implements the Archiver interface.
 func (f *FileArchiver) ImportProofs(_ context.Context,
-	_ HeaderVerifier, proofs ...*AnnotatedProof) error {
+	_ HeaderVerifier, replace bool, proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
 		proofPath, err := genProofFilePath(f.proofPath, proof.Locator)
@@ -211,6 +216,12 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 
 		if err := os.MkdirAll(filepath.Dir(proofPath), 0750); err != nil {
 			return err
+		}
+
+		// Can't replace a file that doesn't exist yet.
+		if replace && !lnrpc.FileExists(proofPath) {
+			return fmt.Errorf("cannot replace proof because file "+
+				"%s does not exist", proofPath)
 		}
 
 		err = os.WriteFile(proofPath, proof.Blob, 0666)
@@ -326,7 +337,8 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
 func (m *MultiArchiver) ImportProofs(ctx context.Context,
-	headerVerifier HeaderVerifier, proofs ...*AnnotatedProof) error {
+	headerVerifier HeaderVerifier, replace bool,
+	proofs ...*AnnotatedProof) error {
 
 	// Before we import the proofs into the archive, we want to make sure
 	// that they're all valid. Along the way, we may augment the locator
@@ -373,7 +385,9 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	// additional supplementary information into the locator, we'll attempt
 	// to import each proof our archive backends.
 	for _, archive := range m.backends {
-		err := archive.ImportProofs(ctx, headerVerifier, proofs...)
+		err := archive.ImportProofs(
+			ctx, headerVerifier, replace, proofs...,
+		)
 		if err != nil {
 			return err
 		}

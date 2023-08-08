@@ -379,7 +379,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				ctx, c.cfg.ChainBridge,
 			)
 			err = c.cfg.ProofArchive.ImportProofs(
-				ctx, headerVerifier, addrProof,
+				ctx, headerVerifier, false, addrProof,
 			)
 			if err != nil {
 				log.Errorf("unable to import proofs: %v", err)
