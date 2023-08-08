@@ -2,7 +2,6 @@ package tappsbt
 
 import (
 	"fmt"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -53,9 +52,6 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	for idx := range receiverAddrs {
 		addr := receiverAddrs[idx]
 
-		schnorrInternalKey, _ := schnorr.ParsePubKey(
-			schnorr.SerializePubKey(&addr.InternalKey),
-		)
 		pkt.Outputs = append(pkt.Outputs, &VOutput{
 			Amount:            addr.Amount,
 			Interactive:       false,
@@ -63,7 +59,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 			ScriptKey: asset.NewScriptKey(
 				&addr.ScriptKey,
 			),
-			AnchorOutputInternalKey:      schnorrInternalKey,
+			AnchorOutputInternalKey:      &addr.InternalKey,
 			AnchorOutputTapscriptSibling: addr.TapscriptSibling,
 		})
 	}

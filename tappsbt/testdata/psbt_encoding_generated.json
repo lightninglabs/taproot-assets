@@ -50,7 +50,7 @@
             "type": 0,
             "interactive": false,
             "anchor_output_index": 1,
-            "anchor_output_internal_key": "4a821d5ec008712983929de448b8afb6c24e5a1b97367b9a65b6220d7f083fe3",
+            "anchor_output_internal_key": "034a821d5ec008712983929de448b8afb6c24e5a1b97367b9a65b6220d7f083fe3",
             "anchor_output_bip32_derivation": null,
             "anchor_output_tr_bip32_derivation": null,
             "anchor_output_tapscript_sibling": "",
@@ -83,7 +83,7 @@
         "version": 0,
         "chain_params_hrp": "tapbc"
       },
-      "expected": "cHNidP8BALQCAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAIlEgfHm5sm5GOJXu9WedhViULIbErSIzre8BvD5tVAs2U/4/ao62aNILSSJRIEWKkswS0BuOiJLaWO1RHTmPLOQrTWKVzwxmNGJJ9NMGAAAAAAAAAAAiUSCb/fBsMyKz8/3kPZwT22tcWIL2n7umqVjBMS9I4ccbEQAAAAABcAEBAXEFdGFwYmMBcgEAAAFwZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGq+37fMIYIQhRNK7IXx7CM1quNmCO+4hXgELi0poTfyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXEIAAAAAAAAAAABcgABcwgAAAAAAAAAAAF1AAF4AAF6AAABcAEBAXEBAAFyCAAAAAAAAAAAAAFwAQABcQEAAXIIAAAAAAAAAAEBcyECSoIdXsAIcSmDkp3kSLivtsJOWhuXNnuaZbYiDX8IP+MAAXABAAFxAQABcggAAAAAAAAAAAA=",
+      "expected": "cHNidP8BALQCAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAIlEgfHm5sm5GOJXu9WedhViULIbErSIzre8BvD5tVAs2U/4/ao62aNILSSJRIEWKkswS0BuOiJLaWO1RHTmPLOQrTWKVzwxmNGJJ9NMGAAAAAAAAAAAiUSCb/fBsMyKz8/3kPZwT22tcWIL2n7umqVjBMS9I4ccbEQAAAAABcAEBAXEFdGFwYmMBcgEAAAFwZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGq+37fMIYIQhRNK7IXx7CM1quNmCO+4hXgELi0poTfyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXEIAAAAAAAAAAABcgABcwgAAAAAAAAAAAF1AAF4AAF6AAABcAEBAXEBAAFyCAAAAAAAAAAAAAFwAQABcQEAAXIIAAAAAAAAAAEBcyEDSoIdXsAIcSmDkp3kSLivtsJOWhuXNnuaZbYiDX8IP+MAAXABAAFxAQABcggAAAAAAAAAAAA=",
       "comment": "minimal packet"
     },
     {
@@ -220,7 +220,7 @@
             "type": 1,
             "interactive": true,
             "anchor_output_index": 0,
-            "anchor_output_internal_key": "bf8fe2f725f33573b77e69e83c36f0d76d375cdbc1e3508550cc59c5b627c90c",
+            "anchor_output_internal_key": "02bf8fe2f725f33573b77e69e83c36f0d76d375cdbc1e3508550cc59c5b627c90c",
             "anchor_output_bip32_derivation": [
               {
                 "pub_key": "02bf8fe2f725f33573b77e69e83c36f0d76d375cdbc1e3508550cc59c5b627c90c",
@@ -318,7 +318,7 @@
             "type": 1,
             "interactive": false,
             "anchor_output_index": 1,
-            "anchor_output_internal_key": "bf8fe2f725f33573b77e69e83c36f0d76d375cdbc1e3508550cc59c5b627c90c",
+            "anchor_output_internal_key": "02bf8fe2f725f33573b77e69e83c36f0d76d375cdbc1e3508550cc59c5b627c90c",
             "anchor_output_bip32_derivation": [
               {
                 "pub_key": "02bf8fe2f725f33573b77e69e83c36f0d76d375cdbc1e3508550cc59c5b627c90c",
