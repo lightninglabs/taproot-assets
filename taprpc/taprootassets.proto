@@ -872,5 +872,11 @@ message FetchAssetMetaRequest {
 
         // The 32-byte meta hash of the asset meta.
         bytes meta_hash = 2;
+
+        // The hex encoded asset ID of the asset to fetch the meta for.
+        string asset_id_str = 3;
+
+        // The hex encoded meta hash of the asset meta.
+        string meta_hash_str = 4;
     }
 }

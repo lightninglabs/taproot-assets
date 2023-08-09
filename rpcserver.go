@@ -2253,6 +2253,25 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 			ctx, assetID,
 		)
 
+	case in.GetAssetIdStr() != "":
+		if len(in.GetAssetIdStr()) != hex.EncodedLen(sha256.Size) {
+			return nil, fmt.Errorf("asset ID must be 32 bytes")
+		}
+
+		var assetIDBytes []byte
+		assetIDBytes, err = hex.DecodeString(in.GetAssetIdStr())
+		if err != nil {
+			return nil, fmt.Errorf("error hex decoding asset ID: "+
+				"%w", err)
+		}
+
+		var assetID asset.ID
+		copy(assetID[:], assetIDBytes)
+
+		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaForAsset(
+			ctx, assetID,
+		)
+
 	case in.GetMetaHash() != nil:
 		if len(in.GetMetaHash()) != sha256.Size {
 			return nil, fmt.Errorf("meta hash must be 32 bytes")
@@ -2260,6 +2279,25 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 
 		var metaHash [asset.MetaHashLen]byte
 		copy(metaHash[:], in.GetMetaHash())
+
+		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaByHash(
+			ctx, metaHash,
+		)
+
+	case in.GetMetaHashStr() != "":
+		if len(in.GetMetaHashStr()) != hex.EncodedLen(sha256.Size) {
+			return nil, fmt.Errorf("meta hash must be 32 bytes")
+		}
+
+		var metaHashBytes []byte
+		metaHashBytes, err = hex.DecodeString(in.GetMetaHashStr())
+		if err != nil {
+			return nil, fmt.Errorf("error hex decoding meta hash: "+
+				"%w", err)
+		}
+
+		var metaHash [asset.MetaHashLen]byte
+		copy(metaHash[:], metaHashBytes)
 
 		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaByHash(
 			ctx, metaHash,
