@@ -285,7 +285,7 @@
         ]
       }
     },
-    "/v1/taproot-assets/assets/meta": {
+    "/v1/taproot-assets/assets/meta/asset-id/{asset_id_str}": {
       "get": {
         "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
         "operationId": "TaprootAssets_FetchAssetMeta",
@@ -305,6 +305,13 @@
         },
         "parameters": [
           {
+            "name": "asset_id_str",
+            "description": "The hex encoded asset ID of the asset to fetch the meta for.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
             "name": "asset_id",
             "description": "The asset ID of the asset to fetch the meta for.",
             "in": "query",
@@ -319,6 +326,68 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "meta_hash_str",
+            "description": "The hex encoded meta hash of the asset meta.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/meta/hash/{meta_hash_str}": {
+      "get": {
+        "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
+        "operationId": "TaprootAssets_FetchAssetMeta2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcAssetMeta"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "meta_hash_str",
+            "description": "The hex encoded meta hash of the asset meta.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "asset_id",
+            "description": "The asset ID of the asset to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "meta_hash",
+            "description": "The 32-byte meta hash of the asset meta.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "asset_id_str",
+            "description": "The hex encoded asset ID of the asset to fetch the meta for.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

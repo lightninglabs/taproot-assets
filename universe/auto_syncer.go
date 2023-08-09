@@ -131,8 +131,8 @@ func (f *FederationEnvoy) Start() error {
 		// On restart, we'll get an error for universe servers already
 		// inserted in our DB, since we can't store duplicates.
 		// We can safely ignore that error.
-		if !errors.Is(err, ErrDuplicateUniverse) {
-			log.Warnf("unable to add universe servers: %v", err)
+		if err != nil && !errors.Is(err, ErrDuplicateUniverse) {
+			log.Warnf("Unable to add universe servers: %v", err)
 		}
 
 		f.Wg.Add(1)

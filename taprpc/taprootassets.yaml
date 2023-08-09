@@ -66,4 +66,6 @@ http:
       get: "/v1/taproot-assets/assets/transfers"
 
     - selector: taprpc.TaprootAssets.FetchAssetMeta
-      get: "/v1/taproot-assets/assets/meta"
+      get: "/v1/taproot-assets/assets/meta/asset-id/{asset_id_str}"
+      additional_bindings:
+        - get: "/v1/taproot-assets/assets/meta/hash/{meta_hash_str}"
