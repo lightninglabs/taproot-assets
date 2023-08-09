@@ -267,6 +267,14 @@ message AssetProofResponse {
 
     // The asset leaf itself, which includes the asset and the issuance proof.
     AssetLeaf asset_leaf = 4;
+
+    // MultiverseRoot is the root of the multiverse tree that includes this
+    // asset leaf.
+    MerkleSumNode multiverse_root = 5;
+
+    // MultiverseInclusionProof is the inclusion proof for the asset leaf in the
+    // multiverse.
+    bytes multiverse_inclusion_proof = 6;
 }
 
 message AssetProof {

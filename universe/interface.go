@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
@@ -28,6 +29,10 @@ var (
 	// ErrDuplicateUniverse is returned when the Universe server being added
 	// to the DB already exists.
 	ErrDuplicateUniverse = fmt.Errorf("universe server already added")
+
+	// ErrNoUniverseProofFound is returned when a user attempts to look up
+	// a key in the universe that actually points to the empty leaf.
+	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
 // Identifier is the identifier for a root/base universe.
@@ -41,14 +46,18 @@ type Identifier struct {
 	GroupKey *btcec.PublicKey
 }
 
-// String returns a string representation of the ID.
-func (i *Identifier) String() string {
+// Bytes returns a bytes representation of the ID.
+func (i *Identifier) Bytes() [32]byte {
 	if i.GroupKey != nil {
-		h := sha256.Sum256(schnorr.SerializePubKey(i.GroupKey))
-		return hex.EncodeToString(h[:])
+		return sha256.Sum256(schnorr.SerializePubKey(i.GroupKey))
 	}
 
-	return hex.EncodeToString(i.AssetID[:])
+	return i.AssetID
+}
+
+// String returns a string representation of the ID.
+func (i *Identifier) String() string {
+	return hex.EncodeToString(fn.ByteSlice(i.Bytes()))
 }
 
 // StringForLog returns a string representation of the ID for logging.
@@ -141,6 +150,14 @@ type IssuanceProof struct {
 
 	// Leaf is the leaf node for the asset within the universe tree.
 	Leaf *MintingLeaf
+
+	// MultiverseRoot is the root of the multiverse tree that the asset is
+	// located within.
+	MultiverseRoot mssmt.Node
+
+	// MultiverseInclusionProof is the inclusion proof for the asset within
+	// the multiverse tree.
+	MultiverseInclusionProof *mssmt.Proof
 }
 
 // VerifyRoot verifies that the inclusion proof for the root node matches the
@@ -207,14 +224,27 @@ type BaseRoot struct {
 	AssetName string
 }
 
-// BaseForest is an interface used to keep track of the set of base universe
+// BaseMultiverse is an interface used to keep track of the set of base universe
 // roots that we know of. The BaseBackend interface is used to interact with a
 // particular base universe, while this is used to obtain aggregate information
 // about the universes.
-type BaseForest interface {
+type BaseMultiverse interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
+
+	// RegisterIssuance inserts a new minting (issuance) leaf within the
+	// multiverse tree, stored at the given base key.
+	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
+		leaf *MintingLeaf,
+		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+
+	// FetchIssuanceProof returns an issuance proof for the target key. If
+	// the key doesn't have a script key specified, then all the proofs for
+	// the minting outpoint will be returned. If neither are specified, then
+	// proofs for all the inserted leaves will be returned.
+	FetchIssuanceProof(ctx context.Context, id Identifier,
+		key BaseKey) ([]*IssuanceProof, error)
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
@@ -382,10 +412,11 @@ type Syncer interface {
 // DiffEngine is a Universe diff engine that can be used to compare the state
 // of two universes and find the set of assets that are different between them.
 type DiffEngine interface {
-	BaseForest
-
 	// RootNode returns the root node for a given base universe.
 	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
+
+	// RootNodes returns the set of root nodes for all known universes.
+	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
 	// MintingKeys returns all the keys inserted in the universe.
 	MintingKeys(ctx context.Context, id Identifier) ([]BaseKey, error)

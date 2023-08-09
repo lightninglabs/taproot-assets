@@ -2298,21 +2298,27 @@ func marshalUniID(id universe.Identifier) *unirpc.ID {
 	return &uniID
 }
 
+// marshalMssmtNode marshals a MS-SMT node into the RPC counterpart.
+func marshalMssmtNode(node mssmt.Node) *unirpc.MerkleSumNode {
+	nodeHash := node.NodeHash()
+
+	return &unirpc.MerkleSumNode{
+		RootHash: nodeHash[:],
+		RootSum:  int64(node.NodeSum()),
+	}
+}
+
 // marshallUniverseRoot marshals the universe root into the RPC counterpart.
 func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 	// There was no old base root, so we'll just return a blank root.
 	if node.Node == nil {
 		return &unirpc.UniverseRoot{}, nil
 	}
-
-	nodeHash := node.Node.NodeHash()
+	mssmtRoot := marshalMssmtNode(node.Node)
 
 	return &unirpc.UniverseRoot{
-		Id: marshalUniID(node.ID),
-		MssmtRoot: &unirpc.MerkleSumNode{
-			RootHash: nodeHash[:],
-			RootSum:  int64(node.Node.NodeSum()),
-		},
+		Id:        marshalUniID(node.ID),
+		MssmtRoot: mssmtRoot,
 		AssetName: node.AssetName,
 	}, nil
 }
@@ -2661,8 +2667,8 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 	return baseKey, nil
 }
 
-// marshalUniverseProof marshals a universe proof into the RPC form.
-func marshalUniverseProof(proof *mssmt.Proof) ([]byte, error) {
+// marshalMssmtProof marshals a MS-SMT proof into the RPC form.
+func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 	compressedProof := proof.Compress()
 
 	var b bytes.Buffer
@@ -2678,7 +2684,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.IssuanceProof) (*unirpc.AssetProofResponse, error) {
 
-	uniProof, err := marshalUniverseProof(proof.InclusionProof)
+	uniProof, err := marshalMssmtProof(proof.InclusionProof)
 	if err != nil {
 		return nil, err
 	}
@@ -2698,11 +2704,23 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	uniRoot.AssetName = assetLeaf.Asset.AssetGenesis.Name
 	uniRoot.Id = req.Id
 
+	// Marshal multiverse specific fields.
+	multiverseRoot := marshalMssmtNode(proof.MultiverseRoot)
+
+	multiverseProof, err := marshalMssmtProof(
+		proof.MultiverseInclusionProof,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &unirpc.AssetProofResponse{
-		Req:                    req,
-		UniverseRoot:           uniRoot,
-		UniverseInclusionProof: uniProof,
-		AssetLeaf:              assetLeaf,
+		Req:                      req,
+		UniverseRoot:             uniRoot,
+		UniverseInclusionProof:   uniProof,
+		AssetLeaf:                assetLeaf,
+		MultiverseRoot:           multiverseRoot,
+		MultiverseInclusionProof: multiverseProof,
 	}, nil
 }
 
