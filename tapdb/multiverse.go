@@ -36,9 +36,9 @@ func (b *BaseUniverseForestOptions) ReadOnly() bool {
 	return b.readOnly
 }
 
-// NewBaseUniverseForestReadTx creates a new read-only transaction for the
-// universe forest.
-func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
+// NewBaseMultiverseReadTx creates a new read-only transaction for the
+// multiverse.
+func NewBaseMultiverseReadTx() BaseUniverseForestOptions {
 	return BaseUniverseForestOptions{
 		readOnly: true,
 	}
@@ -78,7 +78,7 @@ func (b *BaseUniverseForest) RootNodes(
 
 	var (
 		uniRoots []universe.BaseRoot
-		readTx   = NewBaseUniverseForestReadTx()
+		readTx   = NewBaseMultiverseReadTx()
 	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
