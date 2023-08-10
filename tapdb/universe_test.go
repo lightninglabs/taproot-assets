@@ -373,7 +373,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 			return db.WithTx(tx)
 		},
 	)
-	universeForest := NewBaseUniverseForest(forestDB)
+	universeForest := NewBaseMultiverse(forestDB)
 
 	rootNodes, err := universeForest.RootNodes(ctx)
 	require.NoError(t, err)

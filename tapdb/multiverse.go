@@ -64,8 +64,8 @@ type BaseMultiverse struct {
 	// * drop base in front?
 }
 
-// NewBaseUniverseForest creates a new base universe forest.
-func NewBaseUniverseForest(db BatchedMultiverse) *BaseMultiverse {
+// NewBaseMultiverse creates a new base multiverse.
+func NewBaseMultiverse(db BatchedMultiverse) *BaseMultiverse {
 	return &BaseMultiverse{
 		db: db,
 	}
