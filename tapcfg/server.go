@@ -263,7 +263,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AssetWallet:  assetWallet,
 		ChainPorter: tapfreighter.NewChainPorter(
 			&tapfreighter.ChainPorterConfig{
-				CoinSelector: coinSelect,
 				Signer:       virtualTxSigner,
 				TxValidator:  &tap.ValidatorV0{},
 				ExportLog:    assetStore,

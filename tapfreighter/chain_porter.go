@@ -24,10 +24,6 @@ import (
 
 // ChainPorterConfig is the main config for the chain porter.
 type ChainPorterConfig struct {
-	// CoinSelector is the interface used to select input coins (assets)
-	// for the transfer.
-	CoinSelector CoinSelector
-
 	// Signer implements the Taproot Asset level signing we need to sign a
 	// virtual transaction.
 	Signer Signer
