@@ -108,7 +108,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 	uniForestDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.BaseUniverseForestStore {
+		db, func(tx *sql.Tx) tapdb.BaseMultiverseStore {
 			return db.WithTx(tx)
 		},
 	)

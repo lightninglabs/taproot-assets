@@ -369,7 +369,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	// If we make a new Universe forest, then we should be able to fetch
 	// both the roots above.
 	forestDB := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseUniverseForestStore {
+		func(tx *sql.Tx) BaseMultiverseStore {
 			return db.WithTx(tx)
 		},
 	)

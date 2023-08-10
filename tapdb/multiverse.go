@@ -18,9 +18,9 @@ type (
 	BaseUniverseRoot = sqlc.UniverseRootsRow
 )
 
-// BaseUniverseForestStore is used to interact with a set of base universe
-// roots, also known as a universe forest.
-type BaseUniverseForestStore interface {
+// BaseMultiverseStore is used to interact with a set of base universe
+// roots, also known as a multiverse.
+type BaseMultiverseStore interface {
 	BaseUniverseStore
 
 	UniverseRoots(ctx context.Context) ([]BaseUniverseRoot, error)
@@ -48,9 +48,9 @@ func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
 // allows us to perform batch transactional database queries with all the
 // relevant query interfaces.
 type BatchedUniverseForest interface {
-	BaseUniverseForestStore
+	BaseMultiverseStore
 
-	BatchedTx[BaseUniverseForestStore]
+	BatchedTx[BaseMultiverseStore]
 }
 
 // BaseUniverseForest implements the persistent storage for a universe forest.
@@ -81,7 +81,7 @@ func (b *BaseUniverseForest) RootNodes(
 		readTx   = NewBaseUniverseForestReadTx()
 	)
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseForestStore) error {
+	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
 		dbRoots, err := db.UniverseRoots(ctx)
 		if err != nil {
 			return err
@@ -144,7 +144,7 @@ func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
 		proofs []*universe.IssuanceProof
 	)
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseForestStore) error {
+	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
 		var err error
 		proofs, err = universeFetchIssuanceProof(
 			ctx, id, universeKey, dbTx,
@@ -204,7 +204,7 @@ func (b *BaseUniverseForest) RegisterIssuance(ctx context.Context,
 		issuanceProof *universe.IssuanceProof
 	)
 
-	execTxFunc := func(dbTx BaseUniverseForestStore) error {
+	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
 		// tree.
 		var (
