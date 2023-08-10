@@ -53,10 +53,10 @@ type BatchedMultiverse interface {
 	BatchedTx[BaseMultiverseStore]
 }
 
-// BaseUniverseForest implements the persistent storage for a universe forest.
+// BaseMultiverse implements the persistent storage for a multiverse.
 //
 // NOTE: This implements the universe.BaseMultiverse interface.
-type BaseUniverseForest struct {
+type BaseMultiverse struct {
 	db BatchedMultiverse
 
 	// TODO(roasbeef): actually the start of multiverse?
@@ -65,15 +65,15 @@ type BaseUniverseForest struct {
 }
 
 // NewBaseUniverseForest creates a new base universe forest.
-func NewBaseUniverseForest(db BatchedMultiverse) *BaseUniverseForest {
-	return &BaseUniverseForest{
+func NewBaseUniverseForest(db BatchedMultiverse) *BaseMultiverse {
+	return &BaseMultiverse{
 		db: db,
 	}
 }
 
 // RootNodes returns the complete set of known base universe root nodes for the
-// set of base universes tracked in the universe forest.
-func (b *BaseUniverseForest) RootNodes(
+// set of base universes tracked in the multiverse.
+func (b *BaseMultiverse) RootNodes(
 	ctx context.Context) ([]universe.BaseRoot, error) {
 
 	var (
@@ -135,7 +135,7 @@ func (b *BaseUniverseForest) RootNodes(
 // doesn't have a script key specified, then all the proofs for the minting
 // outpoint will be returned. If neither are specified, then proofs for all the
 // inserted leaves will be returned.
-func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
+func (b *BaseMultiverse) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
 	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
 
@@ -194,7 +194,7 @@ func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
 
 // RegisterIssuance inserts a new minting leaf within the multiverse tree and
 // the universe tree that corresponds to the given base key.
-func (b *BaseUniverseForest) RegisterIssuance(ctx context.Context,
+func (b *BaseMultiverse) RegisterIssuance(ctx context.Context,
 	id universe.Identifier, key universe.BaseKey,
 	leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
