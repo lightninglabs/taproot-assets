@@ -24,9 +24,11 @@ type Querier interface {
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
+	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
+	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
 	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
 	DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error
@@ -133,6 +135,7 @@ type Querier interface {
 	UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
+	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int32, error)
 	UpsertAssetGroupSig(ctx context.Context, arg UpsertAssetGroupSigParams) (int32, error)

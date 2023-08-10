@@ -413,6 +413,19 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 	return err
 }
 
+const deleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
+UPDATE managed_utxos
+SET lease_owner = NULL, lease_expiry = NULL
+WHERE lease_owner IS NOT NULL AND
+      lease_expiry IS NOT NULL AND
+      lease_expiry < $1
+`
+
+func (q *Queries) DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredUTXOLeases, now)
+	return err
+}
+
 const deleteManagedUTXO = `-- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
 WHERE outpoint = $1
@@ -420,6 +433,17 @@ WHERE outpoint = $1
 
 func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteManagedUTXO, outpoint)
+	return err
+}
+
+const deleteUTXOLease = `-- name: DeleteUTXOLease :exec
+UPDATE managed_utxos
+SET lease_owner = NULL, lease_expiry = NULL
+WHERE outpoint = $1
+`
+
+func (q *Queries) DeleteUTXOLease(ctx context.Context, outpoint []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteUTXOLease, outpoint)
 	return err
 }
 
@@ -1064,7 +1088,7 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 }
 
 const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1088,6 +1112,8 @@ type FetchManagedUTXORow struct {
 	TapscriptSibling []byte
 	MerkleRoot       []byte
 	TxnID            int32
+	LeaseOwner       []byte
+	LeaseExpiry      sql.NullTime
 	KeyID            int32
 	RawKey           []byte
 	KeyFamily        int32
@@ -1106,6 +1132,8 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 		&i.TapscriptSibling,
 		&i.MerkleRoot,
 		&i.TxnID,
+		&i.LeaseOwner,
+		&i.LeaseExpiry,
 		&i.KeyID,
 		&i.RawKey,
 		&i.KeyFamily,
@@ -1115,7 +1143,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 }
 
 const fetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
-SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, key_id, raw_key, key_family, key_index
+SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id
@@ -1130,6 +1158,8 @@ type FetchManagedUTXOsRow struct {
 	TapscriptSibling []byte
 	MerkleRoot       []byte
 	TxnID            int32
+	LeaseOwner       []byte
+	LeaseExpiry      sql.NullTime
 	KeyID            int32
 	RawKey           []byte
 	KeyFamily        int32
@@ -1154,6 +1184,8 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 			&i.TapscriptSibling,
 			&i.MerkleRoot,
 			&i.TxnID,
+			&i.LeaseOwner,
+			&i.LeaseExpiry,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -1807,6 +1839,8 @@ SELECT
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
     utxos.taproot_asset_root AS anchor_taproot_asset_root,
+    utxos.lease_owner AS anchor_lease_owner,
+    utxos.lease_expiry AS anchor_lease_expiry,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
 FROM assets
@@ -1825,16 +1859,25 @@ JOIN internal_keys
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
       (utxos.outpoint = $3 OR
-       $3 IS NULL)
+       $3 IS NULL) AND
+       CASE
+           WHEN $4 = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $5)
+           WHEN $4 = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= $5)
+           ELSE TRUE
+       END
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
     ON utxos.txn_id = txns.txn_id
 WHERE (
-    assets.amount >= COALESCE($4, assets.amount) AND
-    assets.spent = COALESCE($5, assets.spent) AND
-    (key_group_info_view.tweaked_group_key = $6 OR
-      $6 IS NULL)
+    assets.amount >= COALESCE($6, assets.amount) AND
+    assets.spent = COALESCE($7, assets.spent) AND
+    (key_group_info_view.tweaked_group_key = $8 OR
+      $8 IS NULL)
 )
 `
 
@@ -1842,6 +1885,8 @@ type QueryAssetsParams struct {
 	AssetIDFilter    []byte
 	TweakedScriptKey []byte
 	AnchorPoint      []byte
+	Leased           interface{}
+	Now              sql.NullTime
 	MinAmt           sql.NullInt64
 	Spent            sql.NullBool
 	KeyGroupFilter   []byte
@@ -1879,6 +1924,8 @@ type QueryAssetsRow struct {
 	AnchorTapscriptSibling   []byte
 	AnchorMerkleRoot         []byte
 	AnchorTaprootAssetRoot   []byte
+	AnchorLeaseOwner         []byte
+	AnchorLeaseExpiry        sql.NullTime
 	AnchorInternalKey        []byte
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
@@ -1897,6 +1944,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.AssetIDFilter,
 		arg.TweakedScriptKey,
 		arg.AnchorPoint,
+		arg.Leased,
+		arg.Now,
 		arg.MinAmt,
 		arg.Spent,
 		arg.KeyGroupFilter,
@@ -1940,6 +1989,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorTapscriptSibling,
 			&i.AnchorMerkleRoot,
 			&i.AnchorTaprootAssetRoot,
+			&i.AnchorLeaseOwner,
+			&i.AnchorLeaseExpiry,
 			&i.AnchorInternalKey,
 			&i.SplitCommitmentRootHash,
 			&i.SplitCommitmentRootValue,
@@ -2036,6 +2087,23 @@ type UpdateMintingBatchStateParams struct {
 
 func (q *Queries) UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error {
 	_, err := q.db.ExecContext(ctx, updateMintingBatchState, arg.RawKey, arg.BatchState)
+	return err
+}
+
+const updateUTXOLease = `-- name: UpdateUTXOLease :exec
+UPDATE managed_utxos
+SET lease_owner = $1, lease_expiry = $2
+WHERE outpoint = $3
+`
+
+type UpdateUTXOLeaseParams struct {
+	LeaseOwner  []byte
+	LeaseExpiry sql.NullTime
+	Outpoint    []byte
+}
+
+func (q *Queries) UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error {
+	_, err := q.db.ExecContext(ctx, updateUTXOLease, arg.LeaseOwner, arg.LeaseExpiry, arg.Outpoint)
 	return err
 }
 

@@ -73,6 +73,9 @@ type (
 	// ManagedUTXORow wraps a managed UTXO listing row.
 	ManagedUTXORow = sqlc.FetchManagedUTXOsRow
 
+	// UpdateUTXOLease wraps the params needed to lease a managed UTXO.
+	UpdateUTXOLease = sqlc.UpdateUTXOLeaseParams
+
 	// ApplyPendingOutput is used to update the script key and amount of an
 	// existing asset.
 	ApplyPendingOutput = sqlc.ApplyPendingOutputParams
@@ -201,6 +204,17 @@ type ActiveAssetsStore interface {
 	// DeleteManagedUTXO deletes the managed utxo identified by the passed
 	// serialized outpoint.
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
+
+	// UpdateUTXOLease leases a managed UTXO identified by the passed
+	// serialized outpoint.
+	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLease) error
+
+	// DeleteUTXOLease deletes the lease on a managed UTXO identified by
+	// the passed serialized outpoint.
+	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
+
+	// DeleteExpiredUTXOLeases deletes all expired UTXO leases.
+	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
 
 	// ConfirmChainAnchorTx marks a new anchor transaction that was
 	// previously unconfirmed as confirmed.
@@ -358,6 +372,19 @@ type ChainAsset struct {
 	// AnchorTapscriptSibling hash is equal to the Taproot root hash of the
 	// anchor output.
 	AnchorTapscriptSibling []byte
+
+	// AnchorLeaseOwner is the identity of the application that currently
+	// has a lease on this UTXO. If empty/nil, then the UTXO is not
+	// currently leased. A lease means that the UTXO is being
+	// reserved/locked to be spent in an upcoming transaction and that it
+	// should not be available for coin selection through any of the wallet
+	// RPCs.
+	AnchorLeaseOwner [32]byte
+
+	// AnchorLeaseExpiry is the expiry of the lease. If the expiry is nil or
+	// the time is in the past, then the lease is not valid and the UTXO is
+	// available for coin selection.
+	AnchorLeaseExpiry *time.Time
 }
 
 // ManagedUTXO holds information about a given UTXO we manage.
@@ -718,6 +745,17 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			AnchorMerkleRoot:       sprout.AnchorMerkleRoot,
 			AnchorTapscriptSibling: sprout.AnchorTapscriptSibling,
 		}
+
+		// We only set the lease info if the lease is actually still
+		// valid and hasn't expired.
+		owner := sprout.AnchorLeaseOwner
+		expiry := sprout.AnchorLeaseExpiry
+		if len(owner) > 0 && expiry.Valid &&
+			expiry.Time.After(time.Now()) {
+
+			copy(chainAssets[i].AnchorLeaseOwner[:], owner)
+			chainAssets[i].AnchorLeaseExpiry = &expiry.Time
+		}
 	}
 
 	return chainAssets, nil
@@ -726,7 +764,12 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 // constraintsToDbFilter maps application level constraints to the set of
 // filters we use in the SQL queries.
 func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
-	var assetFilter QueryAssetFilters
+	assetFilter := QueryAssetFilters{
+		Now: sql.NullTime{
+			Time:  time.Now().UTC(),
+			Valid: true,
+		},
+	}
 	if query != nil {
 		if query.MinAmt != 0 {
 			assetFilter.MinAmt = sql.NullInt64{
@@ -764,6 +807,10 @@ func specificAssetFilter(id asset.ID, anchorPoint wire.OutPoint,
 	filter := QueryAssetFilters{
 		AssetIDFilter: id[:],
 		AnchorPoint:   anchorPointBytes,
+		Now: sql.NullTime{
+			Time:  time.Now().UTC(),
+			Valid: true,
+		},
 	}
 
 	if groupKey != nil {
@@ -1470,10 +1517,14 @@ func queryChainAssets(ctx context.Context, q ActiveAssetsStore,
 }
 
 // FetchCommitment returns a specific commitment identified by the given asset
-// parameters. If no commitment is found, ErrNoCommitment is returned.
+// parameters. If no commitment is found, ErrNoCommitment is returned. With
+// mustBeLeased the caller decides whether the asset output should've been
+// leased before or not. If mustBeLeased is false, then the state of the lease
+// is not checked.
 func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 	anchorPoint wire.OutPoint, groupKey *asset.GroupKey,
-	scriptKey *asset.ScriptKey) (*tapfreighter.AnchoredCommitment, error) {
+	scriptKey *asset.ScriptKey,
+	mustBeLeased bool) (*tapfreighter.AnchoredCommitment, error) {
 
 	filter, err := specificAssetFilter(id, anchorPoint, groupKey, scriptKey)
 	if err != nil {
@@ -1482,6 +1533,13 @@ func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 
 	// We only want to select unspent commitments.
 	filter.Spent = sqlBool(false)
+
+	// The caller decides whether the asset output should've been leased
+	// before or not. If mustBeLeased is false, then the state of the lease
+	// is not checked.
+	if mustBeLeased {
+		filter.Leased = sqlBool(true)
+	}
 
 	commitments, err := a.queryCommitments(ctx, filter)
 	if err != nil {
@@ -1499,8 +1557,8 @@ func (a *AssetStore) FetchCommitment(ctx context.Context, id asset.ID,
 // ListEligibleCoins lists eligible commitments given a set of constraints.
 //
 // NOTE: This implements the tapfreighter.CoinLister interface.
-func (a *AssetStore) ListEligibleCoins(
-	ctx context.Context, constraints tapfreighter.CommitmentConstraints) (
+func (a *AssetStore) ListEligibleCoins(ctx context.Context,
+	constraints tapfreighter.CommitmentConstraints) (
 	[]*tapfreighter.AnchoredCommitment, error) {
 
 	if constraints.MinAmt > math.MaxInt64 {
@@ -1513,10 +1571,87 @@ func (a *AssetStore) ListEligibleCoins(
 		constraints,
 	})
 
-	// We only want to select unspent commitments.
+	// We only want to select unspent and non-leased commitments.
 	assetFilter.Spent = sqlBool(false)
+	assetFilter.Leased = sqlBool(false)
 
 	return a.queryCommitments(ctx, assetFilter)
+}
+
+// LeaseCoins leases/locks/reserves coins for the given lease owner until the
+// given expiry. This is used to prevent multiple concurrent coin selection
+// attempts from selecting the same coin(s).
+func (a *AssetStore) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
+	expiry time.Time, utxoOutpoints ...wire.OutPoint) error {
+
+	// We'll now update the managed UTXO entries to mark them as leased.
+	var writeTxOpts AssetStoreTxOptions
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		for _, utxoOutpoint := range utxoOutpoints {
+			outpoint, err := encodeOutpoint(utxoOutpoint)
+			if err != nil {
+				return err
+			}
+
+			err = q.UpdateUTXOLease(ctx, UpdateUTXOLease{
+				LeaseOwner: leaseOwner[:],
+				LeaseExpiry: sql.NullTime{
+					Time:  expiry,
+					Valid: true,
+				},
+				Outpoint: outpoint,
+			})
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("unable to lease coins: %w", err)
+	}
+
+	return nil
+}
+
+// ReleaseCoins releases/unlocks coins that were previously leased and makes
+// them available for coin selection again.
+func (a *AssetStore) ReleaseCoins(ctx context.Context,
+	utxoOutpoints ...wire.OutPoint) error {
+
+	// We'll now update the managed UTXO entries to mark them as leased.
+	var writeTxOpts AssetStoreTxOptions
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		for _, utxoOutpoint := range utxoOutpoints {
+			outpoint, err := encodeOutpoint(utxoOutpoint)
+			if err != nil {
+				return err
+			}
+
+			if err := q.DeleteUTXOLease(ctx, outpoint); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("unable to release coins: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteExpiredLeases deletes all expired leases from the database.
+func (a *AssetStore) DeleteExpiredLeases(ctx context.Context) error {
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		return q.DeleteExpiredUTXOLeases(ctx, sql.NullTime{
+			Time:  time.Now().UTC(),
+			Valid: true,
+		})
+	})
 }
 
 // queryCommitments queries the database for commitments matching the passed
@@ -1564,6 +1699,10 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			}
 			outpointQuery := QueryAssetFilters{
 				AnchorPoint: anchorPointBytes,
+				Now: sql.NullTime{
+					Time:  time.Now().UTC(),
+					Valid: true,
+				},
 			}
 
 			anchoredAssets, err := queryChainAssets(
