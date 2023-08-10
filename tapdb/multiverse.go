@@ -44,10 +44,10 @@ func NewBaseMultiverseReadTx() BaseUniverseForestOptions {
 	}
 }
 
-// BatchedUniverseForest is a wrapper around the base universe forest that
-// allows us to perform batch transactional database queries with all the
-// relevant query interfaces.
-type BatchedUniverseForest interface {
+// BatchedMultiverse is a wrapper around the base multiverse that allows us to
+// perform batch transactional database queries with all the relevant query
+// interfaces.
+type BatchedMultiverse interface {
 	BaseMultiverseStore
 
 	BatchedTx[BaseMultiverseStore]
@@ -57,7 +57,7 @@ type BatchedUniverseForest interface {
 //
 // NOTE: This implements the universe.BaseMultiverse interface.
 type BaseUniverseForest struct {
-	db BatchedUniverseForest
+	db BatchedMultiverse
 
 	// TODO(roasbeef): actually the start of multiverse?
 	// * mapping: assetID -> baseUniverseRoot => outpoint || scriptKey => transfer
@@ -65,7 +65,7 @@ type BaseUniverseForest struct {
 }
 
 // NewBaseUniverseForest creates a new base universe forest.
-func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
+func NewBaseUniverseForest(db BatchedMultiverse) *BaseUniverseForest {
 	return &BaseUniverseForest{
 		db: db,
 	}
