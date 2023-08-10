@@ -105,13 +105,10 @@ const (
 // CoinSelector is an interface that describes the functionality used in
 // selecting coins during the asset send process.
 type CoinSelector interface {
-	CoinLister
-
-	// SelectForAmount takes a set of commitments and a strategy, and
-	// returns a subset of the commitments that satisfy the strategy and the
-	// minimum total amount.
-	SelectForAmount(minTotalAmount uint64,
-		eligibleCommitments []*AnchoredCommitment,
+	// SelectCoins returns a set of not yet leased coins that satisfy the
+	// given constraints and strategy. The coins returned are leased for the
+	// default lease duration.
+	SelectCoins(ctx context.Context, constraints CommitmentConstraints,
 		strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
 		error)
 }

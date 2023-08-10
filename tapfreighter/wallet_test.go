@@ -123,7 +123,7 @@ func TestCoinSelection(t *testing.T) {
 		}
 		coinSelect := NewCoinSelect(coinLister)
 
-		resultCommitments, err := coinSelect.SelectForAmount(
+		resultCommitments, err := coinSelect.selectForAmount(
 			testCase.minTotalAmount, testCase.eligibleCommitments,
 			testCase.strategy,
 		)
