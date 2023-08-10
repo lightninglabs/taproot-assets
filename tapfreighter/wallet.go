@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -141,6 +142,14 @@ func NewCoinSelect(coinLister CoinLister) *CoinSelect {
 // transaction.
 type CoinSelect struct {
 	coinLister CoinLister
+
+	// coinLock is a read/write mutex that is used to ensure that only one
+	// goroutine is attempting to call any coin selection related methods at
+	// any time. This is necessary as some of the calls to the store (e.g.
+	// ListEligibleCoins -> LeaseCoin) are called after each other and
+	// cannot be placed within the same database transaction. So calls to
+	// those methods must hold this coin lock.
+	coinLock sync.Mutex
 }
 
 // SelectCoins returns a set of not yet leased coins that satisfy the given
@@ -149,6 +158,9 @@ type CoinSelect struct {
 func (s *CoinSelect) SelectCoins(ctx context.Context,
 	constraints CommitmentConstraints,
 	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment, error) {
+
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
 
 	listConstraints := CommitmentConstraints{
 		GroupKey: constraints.GroupKey,
