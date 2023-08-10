@@ -198,14 +198,10 @@ func (p *ChainPorter) assetsPorter() {
 			sendPkg := req.pkg()
 
 			// Advance the state machine for this package as far as
-			// possible.
-			err := p.advanceState(sendPkg)
-			if err != nil {
-				log.Warnf("Unable to advance state machine: %v",
-					err)
-				req.kit().errChan <- err
-				continue
-			}
+			// possible in its own goroutine. The status will be
+			// reported through the different channels of the send
+			// package.
+			go p.advanceState(sendPkg, req.kit())
 
 		case <-p.Quit:
 			return
@@ -214,7 +210,9 @@ func (p *ChainPorter) assetsPorter() {
 }
 
 // advanceState advances the state machine.
-func (p *ChainPorter) advanceState(pkg *sendPackage) error {
+//
+// NOTE: This method MUST be called as a goroutine.
+func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 	// Continue state transitions whilst state complete has not yet
 	// been reached.
 	for pkg.SendState < SendStateComplete {
@@ -225,23 +223,21 @@ func (p *ChainPorter) advanceState(pkg *sendPackage) error {
 		// we aren't trying to shut down.
 		select {
 		case <-p.Quit:
-			return nil
+			return
 
 		default:
 		}
 
 		updatedPkg, err := p.stateStep(*pkg)
 		if err != nil {
-			p.cfg.ErrChan <- err
+			kit.errChan <- err
 			log.Errorf("Error evaluating state (%v): %v",
 				pkg.SendState, err)
-			return err
+			return
 		}
 
 		pkg = updatedPkg
 	}
-
-	return nil
 }
 
 // waitForTransferTxConf waits for the confirmation of the final transaction
