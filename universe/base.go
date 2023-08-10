@@ -26,9 +26,9 @@ type MintingArchiveConfig struct {
 	// genesis proof.
 	HeaderVerifier proof.HeaderVerifier
 
-	// UniverseForest is used to interact with the set of known base
+	// Multiverse is used to interact with the set of known base
 	// universe trees, and also obtain associated metadata and statistics.
-	UniverseForest BaseMultiverse
+	Multiverse BaseMultiverse
 
 	// UniverseStats is used to export statistics related to the set of
 	// external/internal queries to the base universe instance.
@@ -126,7 +126,7 @@ func (a *MintingArchive) RootNode(ctx context.Context,
 func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
 	log.Debugf("Fetching all known Universe roots")
 
-	return a.cfg.UniverseForest.RootNodes(ctx)
+	return a.cfg.Multiverse.RootNodes(ctx)
 }
 
 // RegisterIssuance attempts to register a new issuance proof for a new minting
@@ -140,9 +140,8 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		id.StringForLog(), spew.Sdump(key))
 
 	// We'll first check to see if we already know of this leaf within the
-	// universe forest. If so, then we'll return the existing issuance
-	// proof.
-	issuanceProofs, err := a.cfg.UniverseForest.FetchIssuanceProof(
+	// multiverse. If so, then we'll return the existing issuance proof.
+	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(
 		ctx, id, key,
 	)
 	switch {
@@ -213,7 +212,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.UniverseForest.RegisterIssuance(
+	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
 		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil {
@@ -259,7 +258,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 		}()
 	}()
 
-	return a.cfg.UniverseForest.FetchIssuanceProof(ctx, id, key)
+	return a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
 }
 
 // MintingKeys returns the set of minting keys known for the specified base
