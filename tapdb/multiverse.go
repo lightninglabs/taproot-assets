@@ -26,20 +26,20 @@ type BaseMultiverseStore interface {
 	UniverseRoots(ctx context.Context) ([]BaseUniverseRoot, error)
 }
 
-// BaseUniverseForestOptions is the set of options for universe grove queries.
-type BaseUniverseForestOptions struct {
+// BaseMultiverseOptions is the set of options for multiverse queries.
+type BaseMultiverseOptions struct {
 	readOnly bool
 }
 
 // ReadOnly returns true if the transaction is read-only.
-func (b *BaseUniverseForestOptions) ReadOnly() bool {
+func (b *BaseMultiverseOptions) ReadOnly() bool {
 	return b.readOnly
 }
 
 // NewBaseMultiverseReadTx creates a new read-only transaction for the
 // multiverse.
-func NewBaseMultiverseReadTx() BaseUniverseForestOptions {
-	return BaseUniverseForestOptions{
+func NewBaseMultiverseReadTx() BaseMultiverseOptions {
+	return BaseMultiverseOptions{
 		readOnly: true,
 	}
 }
@@ -200,7 +200,7 @@ func (b *BaseUniverseForest) RegisterIssuance(ctx context.Context,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
 	var (
-		writeTx       BaseUniverseForestOptions
+		writeTx       BaseMultiverseOptions
 		issuanceProof *universe.IssuanceProof
 	)
 
