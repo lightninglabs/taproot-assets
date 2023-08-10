@@ -74,8 +74,9 @@ var (
 	// ErrMatchingAssetsNotFound is returned when an instance of
 	// AssetStoreListCoins cannot satisfy the given asset identification
 	// constraints.
-	ErrMatchingAssetsNotFound = fmt.Errorf("failed to find coin(s) which" +
-		"satisfy given constraints")
+	ErrMatchingAssetsNotFound = fmt.Errorf("failed to find coin(s) that " +
+		"satisfy given constraints; if previous transfers are un-" +
+		"confirmed, wait for them to confirm before trying again")
 )
 
 // CoinLister attracts over the coin selection process needed to be
@@ -89,6 +90,19 @@ type CoinLister interface {
 	// should be returned.
 	ListEligibleCoins(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
+
+	// LeaseCoins leases/locks/reserves coins for the given lease owner
+	// until the given expiry. This is used to prevent multiple concurrent
+	// coin selection attempts from selecting the same coin(s).
+	LeaseCoins(ctx context.Context, leaseOwner [32]byte, expiry time.Time,
+		utxoOutpoints ...wire.OutPoint) error
+
+	// ReleaseCoins releases/unlocks coins that were previously leased and
+	// makes them available for coin selection again.
+	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
+
+	// DeleteExpiredLeases deletes all expired leases from the database.
+	DeleteExpiredLeases(ctx context.Context) error
 }
 
 // MultiCommitmentSelectStrategy is an enum that describes the strategy that
