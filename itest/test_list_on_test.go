@@ -49,6 +49,10 @@ var testCases = []*testCase{
 		proofCourierType: proof.ApertureCourier,
 	},
 	{
+		name: "send multiple coins",
+		test: testSendMultipleCoins,
+	},
+	{
 		name: "multi input send non-interactive single ID",
 		test: testMultiInputSendNonInteractiveSingleID,
 	},
