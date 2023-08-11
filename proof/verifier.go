@@ -325,6 +325,32 @@ func (p *Proof) verifyGenesisReveal() error {
 
 	return nil
 }
+
+// verifyGroupKeyReveal verifies that the group key reveal can be used to derive
+// the same key as the group key specified for the asset.
+func (p *Proof) verifyGroupKeyReveal() error {
+	groupKey := p.Asset.GroupKey
+	if groupKey == nil {
+		return ErrGroupKeyRequired
+	}
+
+	reveal := p.GroupKeyReveal
+	if reveal == nil {
+		return ErrGroupKeyRevealRequired
+	}
+
+	revealedKey, err := reveal.GroupPubKey(p.Asset.ID())
+	if err != nil {
+		return err
+	}
+
+	// Make sure the derived key match what we expect.
+	if !groupKey.GroupPubKey.IsEqual(revealedKey) {
+		return ErrGroupKeyRevealMismatch
+	}
+
+	return nil
+}
 // HeaderVerifier is a callback function which returns an error if the given
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
@@ -408,7 +434,28 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		}
 	}
 
-	// 6. If this is a genesis asset, and it also has a meta reveal, then
+	// 6. Verify group key reveal for genesis assets. Not all assets have a
+	// group key, and should therefore not have a group key reveal. If a
+	// group key is present, the group key reveal must also be present.
+	hasGroupKeyReveal := p.GroupKeyReveal != nil
+	hasGroupKey := p.Asset.GroupKey != nil
+	switch {
+	case !isGenesisAsset && hasGroupKeyReveal:
+		return nil, ErrNonGenesisAssetWithGroupKeyReveal
+
+	case isGenesisAsset && hasGroupKey && !hasGroupKeyReveal:
+		return nil, ErrGroupKeyRevealRequired
+
+	case isGenesisAsset && !hasGroupKey && hasGroupKeyReveal:
+		return nil, ErrGroupKeyRequired
+
+	case isGenesisAsset && hasGroupKey && hasGroupKeyReveal:
+		if err := p.verifyGroupKeyReveal(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 7. If this is a genesis asset, and it also has a meta reveal, then
 	// we'll validate that now.
 	hasMetaReveal := p.MetaReveal != nil
 	hasMetaHash := p.Asset.MetaHash != [asset.MetaHashLen]byte{}

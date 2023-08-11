@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/slices"
@@ -460,6 +461,17 @@ type GroupKeyReveal struct {
 	// asset, these scripts are used to define witnesses more complex than
 	// a Schnorr signature for reissuing assets.
 	TapscriptRoot [sha256.Size]byte
+}
+
+// GroupPubKey returns the group public key derived from the group key reveal.
+func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
+	rawKey, err := g.RawKey.ToPubKey()
+	if err != nil {
+		return nil, err
+	}
+
+	internalKey := input.TweakPubKeyWithTweak(rawKey, assetID[:])
+	return txscript.ComputeTaprootOutputKey(internalKey, g.TapscriptRoot[:]), nil
 }
 
 // IsEqual returns true if this group key and signature are exactly equivalent

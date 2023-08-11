@@ -73,6 +73,25 @@ var (
 	// for a genesis asset has a genesis reveal where the asset type doesn't
 	// match the proof TLV field.
 	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type mismatch")
+
+	// ErrNonGenesisAssetWithGroupKeyReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a group key reveal.
+	ErrNonGenesisAssetWithGroupKeyReveal = errors.New("non genesis asset " +
+		"has meta reveal")
+
+	// ErrGroupKeyRevealMismatch is an error returned if an asset proof for
+	// a genesis asset has a group key reveal that doesn't match the group
+	// key.
+	ErrGroupKeyRevealMismatch = errors.New("meta reveal doesn't match " +
+		"meta hash")
+
+	// ErrGroupKeyRevealRequired is an error returned if an asset proof for
+	// a genesis asset with a group key is missing a group key reveal.
+	ErrGroupKeyRevealRequired = errors.New("meta reveal required")
+
+	// ErrGroupKeyRequired is an error returned if an asset proof for a
+	// genesis asset is missing a group key when it should have one.
+	ErrGroupKeyRequired = errors.New("group key required")
 )
 
 // TransitionVersion denotes the versioning scheme for an individual state
