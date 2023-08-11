@@ -36,6 +36,43 @@ var (
 	// genesis asset has a non-zero metahash, but doesn't have a meta
 	// reveal.
 	ErrMetaRevealRequired = errors.New("meta reveal required")
+
+	// ErrNonGenesisAssetWithGenesisReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a genesis reveal.
+	ErrNonGenesisAssetWithGenesisReveal = errors.New("non genesis asset " +
+		"has genesis reveal")
+
+	// ErrGenesisRevealRequired is an error returned if an asset proof for a
+	// genesis asset is missing a genesis reveal.
+	ErrGenesisRevealRequired = errors.New("genesis reveal required")
+
+	// ErrGenesisRevealAssetIDMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal that is inconsistent
+	// with the asset ID.
+	ErrGenesisRevealAssetIDMismatch = errors.New("genesis reveal asset " +
+		"ID mismatch")
+
+	// ErrGenesisRevealPrevOutMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the prev out
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealPrevOutMismatch = errors.New("prev out mismatch")
+
+	// ErrGenesisRevealMetahashMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the meta hash
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealMetahashMismatch = errors.New("genesis reveal meta " +
+		"mismatch")
+
+	// ErrGenesisRevealOutputIndexMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the output index
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealOutputIndexMismatch = errors.New("genesis reveal " +
+		"output index mismatch")
+
+	// ErrGenesisRevealTypeMismatch is an error returned if an asset proof
+	// for a genesis asset has a genesis reveal where the asset type doesn't
+	// match the proof TLV field.
+	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type mismatch")
 )
 
 // TransitionVersion denotes the versioning scheme for an individual state

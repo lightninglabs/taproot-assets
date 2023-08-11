@@ -286,6 +286,45 @@ func (p *Proof) verifyMetaReveal() error {
 	return nil
 }
 
+// verifyGenesisReveal checks that the genesis reveal present in the proof at
+// minting validates against the asset ID and proof details.
+func (p *Proof) verifyGenesisReveal() error {
+	reveal := p.GenesisReveal
+	if reveal == nil {
+		return ErrGenesisRevealRequired
+	}
+
+	// The genesis reveal determines the ID of an asset, so make sure it is
+	// consistent.
+	assetID := p.Asset.ID()
+	if reveal.ID() != assetID {
+		return ErrGenesisRevealAssetIDMismatch
+	}
+
+	// We also make sure the genesis reveal is consistent with the TLV
+	// fields in the state transition proof.
+	if reveal.FirstPrevOut != p.PrevOut {
+		return ErrGenesisRevealPrevOutMismatch
+	}
+
+	var proofMeta [asset.MetaHashLen]byte
+	if p.MetaReveal != nil {
+		proofMeta = p.MetaReveal.MetaHash()
+	}
+	if reveal.MetaHash != proofMeta {
+		return ErrGenesisRevealMetahashMismatch
+	}
+
+	if reveal.OutputIndex != p.InclusionProof.OutputIndex {
+		return ErrGenesisRevealOutputIndexMismatch
+	}
+
+	if reveal.Type != p.Asset.Type {
+		return ErrGenesisRevealTypeMismatch
+	}
+
+	return nil
+}
 // HeaderVerifier is a callback function which returns an error if the given
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
@@ -353,11 +392,26 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
-	// 5. If this is a genesis asset, and it also has a meta reveal, then
+	// 5. If this is a genesis asset, start by verifying the
+	// genesis reveal, which should be present for genesis assets.
+	isGenesisAsset := p.Asset.HasGenesisWitness()
+	hasGenesisReveal := p.GenesisReveal != nil
+
+	switch {
+	case !isGenesisAsset && hasGenesisReveal:
+		return nil, ErrNonGenesisAssetWithGenesisReveal
+	case isGenesisAsset && !hasGenesisReveal:
+		return nil, ErrGenesisRevealRequired
+	case isGenesisAsset:
+		if err := p.verifyGenesisReveal(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 6. If this is a genesis asset, and it also has a meta reveal, then
 	// we'll validate that now.
 	hasMetaReveal := p.MetaReveal != nil
 	hasMetaHash := p.Asset.MetaHash != [asset.MetaHashLen]byte{}
-	isGenesisAsset := p.Asset.HasGenesisWitness()
 	switch {
 	// If this asset doesn't have a genesis witness, and it includes a
 	// meta reveal, then we deem this to be invalid.
