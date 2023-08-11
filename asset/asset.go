@@ -34,6 +34,11 @@ const (
 // compressed, 33-byte form.
 type SerializedKey [33]byte
 
+// ToPubKey returns the public key parsed from the serialized key.
+func (s SerializedKey) ToPubKey() (*btcec.PublicKey, error) {
+	return btcec.ParsePubKey(s[:])
+}
+
 // SchnorrSerialized returns the Schnorr serialized, x-only 32-byte
 // representation of the serialized key.
 func (s SerializedKey) SchnorrSerialized() []byte {
