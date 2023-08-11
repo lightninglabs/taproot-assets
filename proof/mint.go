@@ -217,9 +217,10 @@ func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitmen
 	// then encode that as a proof file blob in the blobs map.
 	assets := taprootAssetRoot.CommittedAssets()
 	proofs := make(AssetProofs, len(assets))
-	for _, newAsset := range assets {
+	for idx := range assets {
 		// First, we'll copy over the base proof and also set the asset
 		// within the proof itself.
+		newAsset := assets[idx]
 		assetProof := *baseProof
 		assetProof.Asset = *newAsset.Copy()
 
