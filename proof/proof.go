@@ -51,7 +51,7 @@ var (
 	// ErrGenesisRevealMetaRevealRequired is an error returned if an asset
 	// proof for a genesis asset has a non-zero meta hash, but doesn't have
 	// a meta reveal.
-	ErrGenesisRevealMetaRevealRequired = errors.New("genesis reveal meta " +
+	ErrGenesisRevealMetaRevealRequired = errors.New("genesis meta reveal " +
 		"reveal required")
 
 	// ErrGenesisRevealMetaHashMismatch is an error returned if an asset
@@ -71,6 +71,25 @@ var (
 	// match the proof TLV field.
 	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type " +
 		"mismatch")
+
+	// ErrNonGenesisAssetWithGroupKeyReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a group key reveal.
+	ErrNonGenesisAssetWithGroupKeyReveal = errors.New("non genesis asset " +
+		"has group key reveal")
+
+	// ErrGroupKeyRevealMismatch is an error returned if an asset proof for
+	// a genesis asset has a group key reveal that doesn't match the group
+	// key.
+	ErrGroupKeyRevealMismatch = errors.New("group key reveal doesn't " +
+		"match group key")
+
+	// ErrGroupKeyRevealRequired is an error returned if an asset proof for
+	// a genesis asset with a group key is missing a group key reveal.
+	ErrGroupKeyRevealRequired = errors.New("group key reveal required")
+
+	// ErrGroupKeyRequired is an error returned if an asset proof for a
+	// genesis asset is missing a group key when it should have one.
+	ErrGroupKeyRequired = errors.New("group key required")
 
 	// RegtestTestVectorName is the name of the test vector file that is
 	// generated/updated by an actual integration test run on regtest. It is

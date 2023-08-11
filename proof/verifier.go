@@ -320,6 +320,38 @@ func (p *Proof) verifyGenesisReveal() error {
 	return nil
 }
 
+// verifyGroupKeyReveal verifies that the group key reveal can be used to derive
+// the same key as the group key specified for the asset.
+func (p *Proof) verifyGroupKeyReveal() error {
+	groupKey := p.Asset.GroupKey
+	if groupKey == nil {
+		return ErrGroupKeyRequired
+	}
+
+	reveal := p.GroupKeyReveal
+	if reveal == nil {
+		return ErrGroupKeyRevealRequired
+	}
+
+	// TODO(jhb): Actually use this key and compare it.
+	_, err := reveal.GroupPubKey(p.Asset.ID())
+	if err != nil {
+		return err
+	}
+
+	// TODO(jhb): Enforce this check once we update SignGenesis() to
+	// implement the same key tweaking as in GroupPubKey(), by passing
+	// the assetID as a single tweak to SignOutputRaw().
+	// Make sure the derived key matches what we expect.
+	/*
+		if !groupKey.GroupPubKey.IsEqual(revealedKey) {
+			return ErrGroupKeyRevealMismatch
+		}
+	*/
+
+	return nil
+}
+
 // HeaderVerifier is a callback function which returns an error if the given
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
@@ -410,7 +442,28 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		}
 	}
 
-	// 6. Either a set of asset inputs with valid witnesses is included that
+	// 6. Verify group key reveal for genesis assets. Not all assets have a
+	// group key, and should therefore not have a group key reveal. If a
+	// group key is present, the group key reveal must also be present.
+	hasGroupKeyReveal := p.GroupKeyReveal != nil
+	hasGroupKey := p.Asset.GroupKey != nil
+	switch {
+	case !isGenesisAsset && hasGroupKeyReveal:
+		return nil, ErrNonGenesisAssetWithGroupKeyReveal
+
+	case isGenesisAsset && hasGroupKey && !hasGroupKeyReveal:
+		return nil, ErrGroupKeyRevealRequired
+
+	case isGenesisAsset && !hasGroupKey && hasGroupKeyReveal:
+		return nil, ErrGroupKeyRequired
+
+	case isGenesisAsset && hasGroupKey && hasGroupKeyReveal:
+		if err := p.verifyGroupKeyReveal(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 7. Either a set of asset inputs with valid witnesses is included that
 	// satisfy the resulting state transition or a challenge witness is
 	// provided as part of an ownership proof.
 	var splitAsset bool
@@ -427,7 +480,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
-	// 7. At this point we know there is an inclusion proof, which must be
+	// 8. At this point we know there is an inclusion proof, which must be
 	// a commitment proof. So we can extract the tapscript preimage directly
 	// from there.
 	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
