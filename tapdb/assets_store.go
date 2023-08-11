@@ -1811,9 +1811,13 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 
 // LogPendingParcel marks an outbound parcel as pending on disk. This commits
 // the set of changes to disk (the pending inputs and outputs) but doesn't mark
-// the batched spend as being finalized.
+// the batched spend as being finalized. The final lease owner and expiry are
+// the lease parameters that are set on the input UTXOs, since we assume the
+// parcel will be broadcast after this call. So we'll want to lock the input
+// UTXOs for forever, which means the expiry should be far in the future.
 func (a *AssetStore) LogPendingParcel(ctx context.Context,
-	spend *tapfreighter.OutboundParcel) error {
+	spend *tapfreighter.OutboundParcel, finalLeaseOwner [32]byte,
+	finalLeaseExpiry time.Time) error {
 
 	// Before we enter the DB transaction below, we'll use this space to
 	// encode a few values outside the transaction closure.
@@ -1855,6 +1859,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 		for idx := range spend.Inputs {
 			err := insertAssetTransferInput(
 				ctx, q, transferID, spend.Inputs[idx],
+				finalLeaseOwner, finalLeaseExpiry,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
@@ -1880,7 +1885,8 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 // insertAssetTransferInput inserts a new asset transfer input into the DB.
 func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
-	transferID int32, input tapfreighter.TransferInput) error {
+	transferID int32, input tapfreighter.TransferInput,
+	finalLeaseOwner [32]byte, finalLeaseExpiry time.Time) error {
 
 	anchorPointBytes, err := encodeOutpoint(input.OutPoint)
 	if err != nil {
@@ -1898,7 +1904,17 @@ func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to insert transfer input: %w", err)
 	}
 
-	return nil
+	// From this point onward, we'll attempt to broadcast the anchor
+	// transaction, even if we restart. So we need to make sure the UTXO is
+	// leased for basically forever.
+	return q.UpdateUTXOLease(ctx, UpdateUTXOLease{
+		LeaseOwner: finalLeaseOwner[:],
+		LeaseExpiry: sql.NullTime{
+			Time:  finalLeaseExpiry,
+			Valid: true,
+		},
+		Outpoint: anchorPointBytes,
+	})
 }
 
 // fetchAssetTransferInputs fetches all the inputs for a given transfer ID.

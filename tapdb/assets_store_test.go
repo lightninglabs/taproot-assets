@@ -984,7 +984,9 @@ func TestAssetExportLog(t *testing.T) {
 			ProofSuffix: senderBlob,
 		}},
 	}
-	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
+	require.NoError(t, assetsStore.LogPendingParcel(
+		ctx, spendDelta, [32]byte{}, time.Now().Add(time.Hour),
+	))
 
 	assetID := inputAsset.ID()
 	proofs := map[asset.SerializedKey]*proof.AnnotatedProof{
@@ -1083,7 +1085,10 @@ func TestAssetExportLog(t *testing.T) {
 	// before.
 	require.Equal(t, numAssets+1, len(chainAssets))
 
-	var mutationFound bool
+	var (
+		mutationFound bool
+		inputLeased   bool
+	)
 	for _, chainAsset := range chainAssets {
 		// We should find the mutated asset with its _new_ script key
 		// and amount.
@@ -1101,8 +1106,22 @@ func TestAssetExportLog(t *testing.T) {
 			)
 			mutationFound = true
 		}
+
+		// The single UTXO we had at the beginning should now be leased
+		// for an hour.
+		if chainAsset.AnchorOutpoint == utxos[0].OutPoint {
+			require.Equal(
+				t, [32]byte{}, chainAsset.AnchorLeaseOwner,
+			)
+			require.True(
+				t,
+				chainAsset.AnchorLeaseExpiry.After(time.Now()),
+			)
+			inputLeased = true
+		}
 	}
 	require.True(t, mutationFound)
+	require.True(t, inputLeased)
 
 	// As a final check for the asset, we'll fetch its blob to ensure it's
 	// been updated on disk.

@@ -872,7 +872,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Infof("Committing pending parcel to disk")
 
-		err = p.cfg.ExportLog.LogPendingParcel(ctx, parcel)
+		err = p.cfg.ExportLog.LogPendingParcel(
+			ctx, parcel, defaultWalletLeaseIdentifier,
+			time.Now().Add(defaultBroadcastCoinLeaseDuration),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %v", err)
