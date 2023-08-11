@@ -311,7 +311,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 		dbAddrs, err := db.FetchAddrs(ctx, AddrQuery{
 			CreatedAfter:  params.CreatedAfter.UTC(),
 			CreatedBefore: params.CreatedBefore.UTC(),
-			NumOffset:     int32(params.Offset),
+			NumOffset:     params.Offset,
 			NumLimit:      limit,
 			UnmanagedOnly: params.UnmanagedOnly,
 		})
