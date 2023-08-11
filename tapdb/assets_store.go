@@ -1012,8 +1012,8 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 }
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
-func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent bool,
-	query *AssetQueryFilters) ([]*ChainAsset, error) {
+func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
+	includeLeased bool, query *AssetQueryFilters) ([]*ChainAsset, error) {
 
 	var (
 		dbAssets       []ConfirmedAsset
@@ -1030,6 +1030,11 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent bool,
 	// boolean to false.
 	if !includeSpent {
 		assetFilter.Spent = sqlBool(false)
+	}
+
+	// By default, we only show assets that are not leased.
+	if !includeLeased {
+		assetFilter.Leased = sqlBool(false)
 	}
 
 	// With the query constructed, we can now fetch the assets along w/

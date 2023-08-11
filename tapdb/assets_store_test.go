@@ -326,7 +326,7 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(ctxb, false, nil)
+	assets, err := assetStore.FetchAllAssets(ctxb, false, false, nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -382,7 +382,7 @@ func TestImportAssetProof(t *testing.T) {
 	require.Equal(t, updatedBlob, []byte(currentBlob))
 
 	// Make sure the chain TX was updated as well.
-	assets, err = assetStore.FetchAllAssets(ctxb, false, nil)
+	assets, err = assetStore.FetchAllAssets(ctxb, false, false, nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -893,7 +893,7 @@ func TestAssetExportLog(t *testing.T) {
 
 	chainFees := int64(100)
 
-	allAssets, err := assetsStore.FetchAllAssets(ctx, true, nil)
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
 	require.NoError(t, err)
 	require.Len(t, allAssets, numAssets)
 
@@ -1076,7 +1076,7 @@ func TestAssetExportLog(t *testing.T) {
 
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
-	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
+	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, true, nil)
 	require.NoError(t, err)
 
 	// We split one asset into two UTXOs, so there's now one more than
@@ -1260,7 +1260,7 @@ func TestFetchGroupedAssets(t *testing.T) {
 	)
 
 	// Fetch all assets to check the accuracy of other asset fields.
-	allAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
+	allAssets, err := assetsStore.FetchAllAssets(ctx, false, false, nil)
 	require.NoError(t, err)
 
 	// Sort assets to match the order of the asset descriptors.

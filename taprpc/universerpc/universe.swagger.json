@@ -1133,6 +1133,16 @@
         "is_spent": {
           "type": "boolean",
           "description": "Indicates whether the asset has been spent."
+        },
+        "lease_owner": {
+          "type": "string",
+          "format": "byte",
+          "description": "If the asset has been leased, this is the owner (application ID) of the\nlease."
+        },
+        "lease_expiry": {
+          "type": "string",
+          "format": "int64",
+          "description": "If the asset has been leased, this is the expiry of the lease as a Unix\ntimestamp in seconds."
         }
       }
     },
