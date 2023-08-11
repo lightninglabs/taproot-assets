@@ -29,15 +29,50 @@ var (
 	ErrNonGenesisAssetWithMetaReveal = errors.New("non genesis asset has " +
 		"meta reveal")
 
-	// ErrMetaRevealMismatch is an error returned if the hash of the meta
-	// reveal doesn't match the actual asset meta hash.
-	ErrMetaRevealMismatch = errors.New("meta reveal doesn't match meta " +
-		"hash")
+	// ErrNonGenesisAssetWithGenesisReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a genesis reveal.
+	ErrNonGenesisAssetWithGenesisReveal = errors.New("non genesis asset " +
+		"has genesis reveal")
 
-	// ErrMetaRevealRequired is an error returned if an asset proof for a
-	// genesis asset has a non-zero metahash, but doesn't have a meta
-	// reveal.
-	ErrMetaRevealRequired = errors.New("meta reveal required")
+	// ErrGenesisRevealRequired is an error returned if an asset proof for a
+	// genesis asset is missing a genesis reveal.
+	ErrGenesisRevealRequired = errors.New("genesis reveal required")
+
+	// ErrGenesisRevealAssetIDMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal that is inconsistent
+	// with the asset ID.
+	ErrGenesisRevealAssetIDMismatch = errors.New("genesis reveal asset " +
+		"ID mismatch")
+
+	// ErrGenesisRevealPrevOutMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the prev out
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealPrevOutMismatch = errors.New("genesis reveal prev " +
+		"out mismatch")
+
+	// ErrGenesisRevealMetaRevealRequired is an error returned if an asset
+	// proof for a genesis asset has a non-zero meta hash, but doesn't have
+	// a meta reveal.
+	ErrGenesisRevealMetaRevealRequired = errors.New("genesis reveal meta " +
+		"reveal required")
+
+	// ErrGenesisRevealMetaHashMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the meta hash
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealMetaHashMismatch = errors.New("genesis reveal meta " +
+		"hash mismatch")
+
+	// ErrGenesisRevealOutputIndexMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the output index
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealOutputIndexMismatch = errors.New("genesis reveal " +
+		"output index mismatch")
+
+	// ErrGenesisRevealTypeMismatch is an error returned if an asset proof
+	// for a genesis asset has a genesis reveal where the asset type doesn't
+	// match the proof TLV field.
+	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type " +
+		"mismatch")
 
 	// RegtestTestVectorName is the name of the test vector file that is
 	// generated/updated by an actual integration test run on regtest. It is

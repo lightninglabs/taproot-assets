@@ -272,15 +272,49 @@ func (p *Proof) verifyChallengeWitness() (bool, error) {
 	return p.Asset.HasSplitCommitmentWitness(), engine.Execute()
 }
 
-// verifyMetaReveal verifies that the "meta hash" of the contained meta reveal
-// matches that of the genesis asset included in this proof.
-func (p *Proof) verifyMetaReveal() error {
-	// TODO(roasbeef): enforce practical limit on size of meta reveal
+// verifyGenesisReveal checks that the genesis reveal present in the proof at
+// minting validates against the asset ID and proof details.
+func (p *Proof) verifyGenesisReveal() error {
+	reveal := p.GenesisReveal
+	if reveal == nil {
+		return ErrGenesisRevealRequired
+	}
 
-	metaRevealHash := p.MetaReveal.MetaHash()
-	if metaRevealHash != p.Asset.Genesis.MetaHash {
-		return fmt.Errorf("%w: %x vs %x", ErrMetaRevealMismatch,
-			metaRevealHash[:], p.Asset.Genesis.MetaHash[:])
+	// The genesis reveal determines the ID of an asset, so make sure it is
+	// consistent.
+	assetID := p.Asset.ID()
+	if reveal.ID() != assetID {
+		return ErrGenesisRevealAssetIDMismatch
+	}
+
+	// We also make sure the genesis reveal is consistent with the TLV
+	// fields in the state transition proof.
+	if reveal.FirstPrevOut != p.PrevOut {
+		return ErrGenesisRevealPrevOutMismatch
+	}
+
+	// TODO(roasbeef): enforce practical limit on size of meta reveal
+	// If this asset has an empty meta reveal, then the meta hash must be
+	// empty. Otherwise, the meta hash must match the meta reveal.
+	var proofMeta [asset.MetaHashLen]byte
+	if p.MetaReveal == nil && reveal.MetaHash != proofMeta {
+		return ErrGenesisRevealMetaRevealRequired
+	}
+
+	if p.MetaReveal != nil {
+		proofMeta = p.MetaReveal.MetaHash()
+	}
+
+	if reveal.MetaHash != proofMeta {
+		return ErrGenesisRevealMetaHashMismatch
+	}
+
+	if reveal.OutputIndex != p.InclusionProof.OutputIndex {
+		return ErrGenesisRevealOutputIndexMismatch
+	}
+
+	if reveal.Type != p.Asset.Type {
+		return ErrGenesisRevealTypeMismatch
 	}
 
 	return nil
@@ -362,31 +396,27 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
-	// 5. If this is a genesis asset, and it also has a meta reveal, then
-	// we'll validate that now.
-	hasMetaReveal := p.MetaReveal != nil
-	hasMetaHash := p.Asset.MetaHash != [asset.MetaHashLen]byte{}
+	// 5. If this is a genesis asset, start by verifying the
+	// genesis reveal, which should be present for genesis assets.
+	// Non-genesis assets must not have a genesis or meta reveal.
 	isGenesisAsset := p.Asset.HasGenesisWitness()
+	hasGenesisReveal := p.GenesisReveal != nil
+	hasMetaReveal := p.MetaReveal != nil
+
 	switch {
-	// If this asset doesn't have a genesis witness, and it includes a
-	// meta reveal, then we deem this to be invalid.
+	case !isGenesisAsset && hasGenesisReveal:
+		return nil, ErrNonGenesisAssetWithGenesisReveal
 	case !isGenesisAsset && hasMetaReveal:
 		return nil, ErrNonGenesisAssetWithMetaReveal
-
-	// If this a genesis asset, and it doesn't have a meta reveal (but it
-	// has a non-zero meta hash), then this is invalid.
-	case isGenesisAsset && hasMetaHash && !hasMetaReveal:
-		return nil, ErrMetaRevealRequired
-
-	// Otherwise, if it has a genesis witness, along with a meta reveal,
-	// then we'll validate that now.
-	case isGenesisAsset && hasMetaHash && hasMetaReveal:
-		if err := p.verifyMetaReveal(); err != nil {
+	case isGenesisAsset && !hasGenesisReveal:
+		return nil, ErrGenesisRevealRequired
+	case isGenesisAsset && hasGenesisReveal:
+		if err := p.verifyGenesisReveal(); err != nil {
 			return nil, err
 		}
 	}
 
-	// 5. Either a set of asset inputs with valid witnesses is included that
+	// 6. Either a set of asset inputs with valid witnesses is included that
 	// satisfy the resulting state transition or a challenge witness is
 	// provided as part of an ownership proof.
 	var splitAsset bool
@@ -403,7 +433,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
-	// 6. At this point we know there is an inclusion proof, which must be
+	// 7. At this point we know there is an inclusion proof, which must be
 	// a commitment proof. So we can extract the tapscript preimage directly
 	// from there.
 	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
