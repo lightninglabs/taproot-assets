@@ -45,20 +45,20 @@ var (
 	// ErrGenesisRevealPrevOutMismatch is an error returned if an asset
 	// proof for a genesis asset has a genesis reveal where the prev out
 	// doesn't match the proof TLV field.
-	ErrGenesisRevealPrevOutMismatch = errors.New("genesis reveal prev" +
+	ErrGenesisRevealPrevOutMismatch = errors.New("genesis reveal prev " +
 		"out mismatch")
 
 	// ErrGenesisRevealMetaRevealRequired is an error returned if an asset
 	// proof for a genesis asset has a non-zero metahash, but doesn't have
 	// a meta reveal.
-	ErrGenesisRevealMetaRevealRequired = errors.New("genesis reveal meta" +
+	ErrGenesisRevealMetaRevealRequired = errors.New("genesis meta reveal " +
 		"required")
 
 	// ErrGenesisRevealMetahashMismatch is an error returned if an asset
 	// proof for a genesis asset has a genesis reveal where the meta hash
 	// doesn't match the proof TLV field.
 	ErrGenesisRevealMetahashMismatch = errors.New("genesis reveal meta " +
-		"mismatch")
+		"hash mismatch")
 
 	// ErrGenesisRevealOutputIndexMismatch is an error returned if an asset
 	// proof for a genesis asset has a genesis reveal where the output index
@@ -69,8 +69,27 @@ var (
 	// ErrGenesisRevealTypeMismatch is an error returned if an asset proof
 	// for a genesis asset has a genesis reveal where the asset type doesn't
 	// match the proof TLV field.
-	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type" +
+	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type " +
 		"mismatch")
+
+	// ErrNonGenesisAssetWithGroupKeyReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a group key reveal.
+	ErrNonGenesisAssetWithGroupKeyReveal = errors.New("non genesis asset " +
+		"has group key reveal")
+
+	// ErrGroupKeyRevealMismatch is an error returned if an asset proof for
+	// a genesis asset has a group key reveal that doesn't match the group
+	// key.
+	ErrGroupKeyRevealMismatch = errors.New("group key reveal doesn't " +
+		"match group key")
+
+	// ErrGroupKeyRevealRequired is an error returned if an asset proof for
+	// a genesis asset with a group key is missing a group key reveal.
+	ErrGroupKeyRevealRequired = errors.New("group key reveal required")
+
+	// ErrGroupKeyRequired is an error returned if an asset proof for a
+	// genesis asset is missing a group key when it should have one.
+	ErrGroupKeyRequired = errors.New("group key required")
 )
 
 // UpdateCallback is a callback that is called when proofs are updated because
