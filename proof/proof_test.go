@@ -316,6 +316,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	// If we have a specified meta reveal, then we'll replace the meta hash
 	// with the hash of the reveal instead.
 	assetGenesis := asset.RandGenesis(t, assetType)
+	assetGenesis.OutputIndex = 0
 	if metaReveal != nil {
 		assetGenesis.MetaHash = metaReveal.MetaHash()
 	} else if noMetaHash {
@@ -360,7 +361,9 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	taprootScript := test.ComputeTaprootScript(t, taprootKey)
 	genesisTx := &wire.MsgTx{
 		Version: 2,
-		TxIn:    []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: assetGenesis.FirstPrevOut,
+		}},
 		TxOut: []*wire.TxOut{{
 			PkScript: taprootScript,
 			Value:    330,
@@ -384,7 +387,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	require.NoError(t, err)
 
 	return Proof{
-		PrevOut:       genesisTx.TxIn[0].PreviousOutPoint,
+		PrevOut:       assetGenesis.FirstPrevOut,
 		BlockHeader:   *blockHeader,
 		BlockHeight:   blockHeight,
 		AnchorTx:      *genesisTx,
@@ -402,6 +405,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		MetaReveal:       metaReveal,
 		ExclusionProofs:  nil,
 		AdditionalInputs: nil,
+		GenesisReveal:    &assetGenesis,
 	}, genesisPrivKey
 }
 
@@ -501,19 +505,19 @@ func TestGenesisProofVerification(t *testing.T) {
 				// invalid.
 				genesis.MetaHash[0] ^= 1
 			},
-			expectedErr: ErrMetaRevealMismatch,
+			expectedErr: ErrGenesisRevealMetaHashMismatch,
 		},
 		{
 			name:        "normal asset has meta hash no meta reveal",
 			assetType:   asset.Normal,
 			amount:      &amount,
-			expectedErr: ErrMetaRevealRequired,
+			expectedErr: ErrGenesisRevealMetaRevealRequired,
 		},
 		{
 			name: "collectible asset has meta hash no " +
 				"meta reveal",
 			assetType:   asset.Collectible,
-			expectedErr: ErrMetaRevealRequired,
+			expectedErr: ErrGenesisRevealMetaRevealRequired,
 		},
 	}
 
