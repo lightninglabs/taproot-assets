@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/slices"
@@ -460,6 +461,20 @@ type GroupKeyReveal struct {
 	TapscriptRoot []byte
 }
 
+// GroupPubKey returns the group public key derived from the group key reveal.
+func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
+	rawKey, err := g.RawKey.ToPubKey()
+	if err != nil {
+		return nil, err
+	}
+
+	internalKey := input.TweakPubKeyWithTweak(rawKey, assetID[:])
+	tweakedGroupKey := txscript.ComputeTaprootOutputKey(
+		internalKey, g.TapscriptRoot[:],
+	)
+	return tweakedGroupKey, nil
+}
+
 // IsEqual returns true if this group key and signature are exactly equivalent
 // to the passed other group key.
 func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
@@ -749,6 +764,7 @@ func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
+	// TODO(jhb): Update to two-phase tweak
 	tweakedPrivKey := txscript.TweakTaprootPrivKey(
 		*r.privKey, initialGen.GroupKeyTweak(),
 	)
