@@ -354,6 +354,15 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	}
 
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
+	groupKeyReveal := asset.GroupKeyReveal{
+		RawKey: asset.ToSerialized(
+			assetGroupKey.RawKey.PubKey,
+		),
+	}
+	if assetGroupKey.TapscriptRoot != [32]byte{} {
+		groupKeyReveal.TapscriptRoot = assetGroupKey.TapscriptRoot[:]
+	}
+
 	tapCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type: assetType,
@@ -432,6 +441,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		ExclusionProofs:  nil,
 		AdditionalInputs: nil,
 		GenesisReveal:    &assetGenesis,
+		GroupKeyReveal:   &groupKeyReveal,
 	}, genesisPrivKey
 }
 
