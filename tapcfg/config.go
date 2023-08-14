@@ -66,9 +66,13 @@ const (
 	// batch.
 	defaultBatchMintingInterval = time.Minute * 10
 
-	// defaultHashMailAddr is the default address we'll use to deliver
+	// defaultHashMailPort is the default hashmail service port we'll use to
 	// optionally deliver proofs for asynchronous sends.
-	defaultHashMailAddr = "mailbox.terminal.lightning.today:443"
+	defaultHashMailPort = 443
+
+	// defaultHashMailHostname is the default hashmail service hostname that
+	// we'll use to optionally deliver proofs for asynchronous sends.
+	defaultHashMailHostname = "mailbox.terminal.lightning.today"
 
 	// DatabaseBackendSqlite is the name of the SQLite database backend.
 	DatabaseBackendSqlite = "sqlite"
@@ -288,6 +292,10 @@ type Config struct {
 
 // DefaultConfig returns all default values for the Config struct.
 func DefaultConfig() Config {
+	hashMailAddr := fmt.Sprintf(
+		"%s:%d", defaultHashMailHostname, defaultHashMailPort,
+	)
+
 	return Config{
 		TapdDir:        DefaultTapdDir,
 		ConfigFile:     DefaultConfigFile,
@@ -325,7 +333,7 @@ func DefaultConfig() Config {
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
 		HashMailCourier: &proof.HashMailCourierCfg{
-			Addr:               defaultHashMailAddr,
+			Addr:               hashMailAddr,
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
 			BackoffCfg: &proof.BackoffCfg{
 				BackoffResetWait: defaultProofTransferBackoffResetWait,
