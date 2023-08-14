@@ -107,12 +107,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	uniForestDB := tapdb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) tapdb.BaseUniverseForestStore {
+	multiverseDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.BaseMultiverseStore {
 			return db.WithTx(tx)
 		},
 	)
-	uniForest := tapdb.NewBaseUniverseForest(uniForestDB)
+	multiverse := tapdb.NewBaseMultiverse(multiverseDB)
 
 	uniStatsDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.UniverseStatsStore {
@@ -133,7 +133,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			)
 		},
 		HeaderVerifier: headerVerifier,
-		UniverseForest: uniForest,
+		Multiverse:     multiverse,
 		UniverseStats:  universeStats,
 	}
 
@@ -282,12 +282,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseStats:      universeStats,
 		LogWriter:          cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
-			RootKeyStore:   tapdb.NewRootKeyStore(rksDB),
-			MintingStore:   assetMintingStore,
-			AssetStore:     assetStore,
-			TapAddrBook:    tapdbAddrBook,
-			UniverseForest: uniForest,
-			FederationDB:   federationDB,
+			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
+			MintingStore: assetMintingStore,
+			AssetStore:   assetStore,
+			TapAddrBook:  tapdbAddrBook,
+			Multiverse:   multiverse,
+			FederationDB: federationDB,
 		},
 	}, nil
 }

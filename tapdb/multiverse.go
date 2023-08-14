@@ -18,70 +18,70 @@ type (
 	BaseUniverseRoot = sqlc.UniverseRootsRow
 )
 
-// BaseUniverseForestStore is used to interact with a set of base universe
-// roots, also known as a universe forest.
-type BaseUniverseForestStore interface {
+// BaseMultiverseStore is used to interact with a set of base universe
+// roots, also known as a multiverse.
+type BaseMultiverseStore interface {
 	BaseUniverseStore
 
 	UniverseRoots(ctx context.Context) ([]BaseUniverseRoot, error)
 }
 
-// BaseUniverseForestOptions is the set of options for universe grove queries.
-type BaseUniverseForestOptions struct {
+// BaseMultiverseOptions is the set of options for multiverse queries.
+type BaseMultiverseOptions struct {
 	readOnly bool
 }
 
 // ReadOnly returns true if the transaction is read-only.
-func (b *BaseUniverseForestOptions) ReadOnly() bool {
+func (b *BaseMultiverseOptions) ReadOnly() bool {
 	return b.readOnly
 }
 
-// NewBaseUniverseForestReadTx creates a new read-only transaction for the
-// universe forest.
-func NewBaseUniverseForestReadTx() BaseUniverseForestOptions {
-	return BaseUniverseForestOptions{
+// NewBaseMultiverseReadTx creates a new read-only transaction for the
+// multiverse.
+func NewBaseMultiverseReadTx() BaseMultiverseOptions {
+	return BaseMultiverseOptions{
 		readOnly: true,
 	}
 }
 
-// BatchedUniverseForest is a wrapper around the base universe forest that
-// allows us to perform batch transactional database queries with all the
-// relevant query interfaces.
-type BatchedUniverseForest interface {
-	BaseUniverseForestStore
+// BatchedMultiverse is a wrapper around the base multiverse that allows us to
+// perform batch transactional database queries with all the relevant query
+// interfaces.
+type BatchedMultiverse interface {
+	BaseMultiverseStore
 
-	BatchedTx[BaseUniverseForestStore]
+	BatchedTx[BaseMultiverseStore]
 }
 
-// BaseUniverseForest implements the persistent storage for a universe forest.
+// BaseMultiverse implements the persistent storage for a multiverse.
 //
 // NOTE: This implements the universe.BaseMultiverse interface.
-type BaseUniverseForest struct {
-	db BatchedUniverseForest
+type BaseMultiverse struct {
+	db BatchedMultiverse
 
 	// TODO(roasbeef): actually the start of multiverse?
 	// * mapping: assetID -> baseUniverseRoot => outpoint || scriptKey => transfer
 	// * drop base in front?
 }
 
-// NewBaseUniverseForest creates a new base universe forest.
-func NewBaseUniverseForest(db BatchedUniverseForest) *BaseUniverseForest {
-	return &BaseUniverseForest{
+// NewBaseMultiverse creates a new base multiverse.
+func NewBaseMultiverse(db BatchedMultiverse) *BaseMultiverse {
+	return &BaseMultiverse{
 		db: db,
 	}
 }
 
 // RootNodes returns the complete set of known base universe root nodes for the
-// set of base universes tracked in the universe forest.
-func (b *BaseUniverseForest) RootNodes(
+// set of base universes tracked in the multiverse.
+func (b *BaseMultiverse) RootNodes(
 	ctx context.Context) ([]universe.BaseRoot, error) {
 
 	var (
 		uniRoots []universe.BaseRoot
-		readTx   = NewBaseUniverseForestReadTx()
+		readTx   = NewBaseMultiverseReadTx()
 	)
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseForestStore) error {
+	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
 		dbRoots, err := db.UniverseRoots(ctx)
 		if err != nil {
 			return err
@@ -135,7 +135,7 @@ func (b *BaseUniverseForest) RootNodes(
 // doesn't have a script key specified, then all the proofs for the minting
 // outpoint will be returned. If neither are specified, then proofs for all the
 // inserted leaves will be returned.
-func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
+func (b *BaseMultiverse) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
 	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
 
@@ -144,7 +144,7 @@ func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
 		proofs []*universe.IssuanceProof
 	)
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseForestStore) error {
+	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
 		var err error
 		proofs, err = universeFetchIssuanceProof(
 			ctx, id, universeKey, dbTx,
@@ -194,17 +194,17 @@ func (b *BaseUniverseForest) FetchIssuanceProof(ctx context.Context,
 
 // RegisterIssuance inserts a new minting leaf within the multiverse tree and
 // the universe tree that corresponds to the given base key.
-func (b *BaseUniverseForest) RegisterIssuance(ctx context.Context,
+func (b *BaseMultiverse) RegisterIssuance(ctx context.Context,
 	id universe.Identifier, key universe.BaseKey,
 	leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
 	var (
-		writeTx       BaseUniverseForestOptions
+		writeTx       BaseMultiverseOptions
 		issuanceProof *universe.IssuanceProof
 	)
 
-	execTxFunc := func(dbTx BaseUniverseForestStore) error {
+	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
 		// tree.
 		var (

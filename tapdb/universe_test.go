@@ -366,16 +366,16 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.Equal(t, groupLeaf.Leaf.Amt, groupRoot.NodeSum())
 	require.Equal(t, normalLeaf.Leaf.Amt, normalRoot.NodeSum())
 
-	// If we make a new Universe forest, then we should be able to fetch
-	// both the roots above.
-	forestDB := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseUniverseForestStore {
+	// If we make a new multiverse, then we should be able to fetch both the
+	// roots above.
+	multiverseDB := NewTransactionExecutor(db,
+		func(tx *sql.Tx) BaseMultiverseStore {
 			return db.WithTx(tx)
 		},
 	)
-	universeForest := NewBaseUniverseForest(forestDB)
+	multiverse := NewBaseMultiverse(multiverseDB)
 
-	rootNodes, err := universeForest.RootNodes(ctx)
+	rootNodes, err := multiverse.RootNodes(ctx)
 	require.NoError(t, err)
 
 	// We should be able to find both of the roots we've inserted above.
@@ -401,8 +401,8 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.Nil(t, normalRoot)
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 
-	// The deleted universe should not be present in the universe forest.
-	rootNodes, err = universeForest.RootNodes(ctx)
+	// The deleted universe should not be present in the multiverse.
+	rootNodes, err = multiverse.RootNodes(ctx)
 	require.NoError(t, err)
 	require.Len(t, rootNodes, 1)
 	require.True(t, mssmt.IsEqualNode(rootNodes[0].Node, groupRoot))
