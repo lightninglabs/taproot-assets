@@ -100,6 +100,8 @@ type Config struct {
 
 	AssetWallet tapfreighter.Wallet
 
+	CoinSelect *tapfreighter.CoinSelect
+
 	ChainPorter tapfreighter.Porter
 
 	BaseUniverse *universe.MintingArchive

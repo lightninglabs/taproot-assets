@@ -382,6 +382,9 @@
         }
       }
     },
+    "assetwalletrpcRemoveUTXOLeaseResponse": {
+      "type": "object"
+    },
     "assetwalletrpcSignVirtualPsbtRequest": {
       "type": "object",
       "properties": {

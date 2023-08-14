@@ -64,6 +64,13 @@ service AssetWallet {
     */
     rpc VerifyAssetOwnership (VerifyAssetOwnershipRequest)
         returns (VerifyAssetOwnershipResponse);
+
+    /*
+    RemoveUTXOLease removes the lease/lock/reservation of the given managed
+    UTXO.
+    */
+    rpc RemoveUTXOLease (RemoveUTXOLeaseRequest)
+        returns (RemoveUTXOLeaseResponse);
 }
 
 message FundVirtualPsbtRequest {
@@ -205,4 +212,12 @@ message VerifyAssetOwnershipRequest {
 
 message VerifyAssetOwnershipResponse {
     bool valid_proof = 1;
+}
+
+message RemoveUTXOLeaseRequest {
+    // The outpoint of the UTXO to remove the lease for.
+    OutPoint outpoint = 1;
+}
+
+message RemoveUTXOLeaseResponse {
 }
