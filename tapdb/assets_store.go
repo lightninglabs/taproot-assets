@@ -552,7 +552,7 @@ func dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			if err != nil {
 				return nil, err
 			}
-			groupSig, err := schnorr.ParseSignature(sprout.GenesisSig)
+			groupSig, err := schnorr.ParseSignature(sprout.WitnessStack)
 			if err != nil {
 				return nil, err
 			}

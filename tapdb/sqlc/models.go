@@ -41,7 +41,7 @@ type Asset struct {
 	GenesisID                int32
 	Version                  int32
 	ScriptKeyID              int32
-	AssetGroupSigID          sql.NullInt32
+	AssetGroupWitnessID      sql.NullInt32
 	ScriptVersion            int32
 	Amount                   int64
 	LockTime                 sql.NullInt32
@@ -55,15 +55,16 @@ type Asset struct {
 type AssetGroup struct {
 	GroupID         int32
 	TweakedGroupKey []byte
+	TapscriptRoot   []byte
 	InternalKeyID   int32
 	GenesisPointID  int32
 }
 
-type AssetGroupSig struct {
-	SigID      int32
-	GenesisSig []byte
-	GenAssetID int32
-	GroupKeyID int32
+type AssetGroupWitness struct {
+	WitnessID    int32
+	WitnessStack []byte
+	GenAssetID   int32
+	GroupKeyID   int32
 }
 
 type AssetMintingBatch struct {
@@ -187,9 +188,10 @@ type InternalKey struct {
 }
 
 type KeyGroupInfoView struct {
-	SigID           int32
+	WitnessID       int32
 	GenAssetID      int32
-	GenesisSig      []byte
+	WitnessStack    []byte
+	TapscriptRoot   []byte
 	TweakedGroupKey []byte
 	RawKey          []byte
 	KeyIndex        int32

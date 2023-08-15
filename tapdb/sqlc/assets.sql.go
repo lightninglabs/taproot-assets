@@ -12,7 +12,7 @@ import (
 )
 
 const allAssets = `-- name: AllAssets :many
-SELECT asset_id, genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent 
+SELECT asset_id, genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent 
 FROM assets
 `
 
@@ -30,7 +30,7 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyID,
-			&i.AssetGroupSigID,
+			&i.AssetGroupWitnessID,
 			&i.ScriptVersion,
 			&i.Amount,
 			&i.LockTime,
@@ -189,7 +189,7 @@ func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAsse
 }
 
 const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
-SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
+SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
 FROM assets 
 JOIN genesis_assets 
     ON assets.genesis_id = genesis_assets.gen_asset_id
@@ -203,7 +203,7 @@ type AssetsByGenesisPointRow struct {
 	GenesisID                int32
 	Version                  int32
 	ScriptKeyID              int32
-	AssetGroupSigID          sql.NullInt32
+	AssetGroupWitnessID      sql.NullInt32
 	ScriptVersion            int32
 	Amount                   int64
 	LockTime                 sql.NullInt32
@@ -238,7 +238,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyID,
-			&i.AssetGroupSigID,
+			&i.AssetGroupWitnessID,
 			&i.ScriptVersion,
 			&i.Amount,
 			&i.LockTime,
@@ -609,7 +609,7 @@ func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32
 }
 
 const fetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
-SELECT asset_id, genesis_id, version, script_key_id, asset_group_sig_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent
+SELECT asset_id, genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent
 FROM assets
 WHERE anchor_utxo_id = $1
 `
@@ -628,7 +628,7 @@ func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.Nu
 			&i.GenesisID,
 			&i.Version,
 			&i.ScriptKeyID,
-			&i.AssetGroupSigID,
+			&i.AssetGroupWitnessID,
 			&i.ScriptVersion,
 			&i.Amount,
 			&i.LockTime,
@@ -680,21 +680,23 @@ WITH genesis_info AS (
     -- assets we care about. We obtain only the assets found in the batch
     -- above, with the WHERE query at the bottom.
     SELECT 
-        sig_id, gen_asset_id, genesis_sig, tweaked_group_key, raw_key, key_index, key_family
-    FROM asset_group_sigs sigs
+        witness_id, gen_asset_id, witness_stack, tapscript_root,
+        tweaked_group_key, raw_key, key_index, key_family
+    FROM asset_group_witnesses wit
     JOIN asset_groups groups
-        ON sigs.group_key_id = groups.group_id
+        ON wit.group_key_id = groups.group_id
     JOIN internal_keys keys
         ON keys.key_id = groups.internal_key_id
     -- TODO(roasbeef): or can join do this below?
-    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
+    WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
     version, script_keys.tweak, script_keys.tweaked_script_key, 
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
-    key_group_info.genesis_sig, 
+    key_group_info.tapscript_root, 
+    key_group_info.witness_stack, 
     key_group_info.tweaked_group_key,
     key_group_info.raw_key AS group_key_raw,
     key_group_info.key_family AS group_key_family,
@@ -722,7 +724,8 @@ type FetchAssetsForBatchRow struct {
 	ScriptKeyRaw       []byte
 	ScriptKeyFam       int32
 	ScriptKeyIndex     int32
-	GenesisSig         []byte
+	TapscriptRoot      []byte
+	WitnessStack       []byte
 	TweakedGroupKey    []byte
 	GroupKeyRaw        []byte
 	GroupKeyFamily     sql.NullInt32
@@ -762,7 +765,8 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 			&i.ScriptKeyRaw,
 			&i.ScriptKeyFam,
 			&i.ScriptKeyIndex,
-			&i.GenesisSig,
+			&i.TapscriptRoot,
+			&i.WitnessStack,
 			&i.TweakedGroupKey,
 			&i.GroupKeyRaw,
 			&i.GroupKeyFamily,
@@ -934,7 +938,8 @@ SELECT
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
-    key_group_info_view.genesis_sig AS genesis_sig
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = $1
@@ -946,7 +951,8 @@ type FetchGroupByGenesisRow struct {
 	RawKey          []byte
 	KeyIndex        int32
 	KeyFamily       int32
-	GenesisSig      []byte
+	TapscriptRoot   []byte
+	WitnessStack    []byte
 }
 
 func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (FetchGroupByGenesisRow, error) {
@@ -957,7 +963,8 @@ func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (Fet
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
-		&i.GenesisSig,
+		&i.TapscriptRoot,
+		&i.WitnessStack,
 	)
 	return i, err
 }
@@ -968,21 +975,23 @@ SELECT
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
-    key_group_info_view.genesis_sig AS genesis_sig
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = $1
 )
-ORDER BY key_group_info_view.sig_id
+ORDER BY key_group_info_view.witness_id
 LIMIT 1
 `
 
 type FetchGroupByGroupKeyRow struct {
-	GenAssetID int32
-	RawKey     []byte
-	KeyIndex   int32
-	KeyFamily  int32
-	GenesisSig []byte
+	GenAssetID    int32
+	RawKey        []byte
+	KeyIndex      int32
+	KeyFamily     int32
+	TapscriptRoot []byte
+	WitnessStack  []byte
 }
 
 // Sort and limit to return the genesis ID for initial genesis of the group.
@@ -994,7 +1003,8 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
-		&i.GenesisSig,
+		&i.TapscriptRoot,
+		&i.WitnessStack,
 	)
 	return i, err
 }
@@ -1618,7 +1628,7 @@ func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitness
 
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
-    genesis_id, version, script_key_id, asset_group_sig_id, script_version, 
+    genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
@@ -1626,16 +1636,16 @@ INSERT INTO assets (
 `
 
 type InsertNewAssetParams struct {
-	GenesisID        int32
-	Version          int32
-	ScriptKeyID      int32
-	AssetGroupSigID  sql.NullInt32
-	ScriptVersion    int32
-	Amount           int64
-	LockTime         sql.NullInt32
-	RelativeLockTime sql.NullInt32
-	AnchorUtxoID     sql.NullInt32
-	Spent            bool
+	GenesisID           int32
+	Version             int32
+	ScriptKeyID         int32
+	AssetGroupWitnessID sql.NullInt32
+	ScriptVersion       int32
+	Amount              int64
+	LockTime            sql.NullInt32
+	RelativeLockTime    sql.NullInt32
+	AnchorUtxoID        sql.NullInt32
+	Spent               bool
 }
 
 func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error) {
@@ -1643,7 +1653,7 @@ func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) 
 		arg.GenesisID,
 		arg.Version,
 		arg.ScriptKeyID,
-		arg.AssetGroupSigID,
+		arg.AssetGroupWitnessID,
 		arg.ScriptVersion,
 		arg.Amount,
 		arg.LockTime,
@@ -1788,7 +1798,8 @@ SELECT
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
-    key_group_info_view.genesis_sig, 
+    key_group_info_view.tapscript_root, 
+    key_group_info_view.witness_stack, 
     key_group_info_view.tweaked_group_key,
     key_group_info_view.raw_key AS group_key_raw,
     key_group_info_view.key_family AS group_key_family,
@@ -1857,7 +1868,8 @@ type QueryAssetsRow struct {
 	ScriptKeyRaw             []byte
 	ScriptKeyFam             int32
 	ScriptKeyIndex           int32
-	GenesisSig               []byte
+	TapscriptRoot            []byte
+	WitnessStack             []byte
 	TweakedGroupKey          []byte
 	GroupKeyRaw              []byte
 	GroupKeyFamily           sql.NullInt32
@@ -1918,7 +1930,8 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.ScriptKeyRaw,
 			&i.ScriptKeyFam,
 			&i.ScriptKeyIndex,
-			&i.GenesisSig,
+			&i.TapscriptRoot,
+			&i.WitnessStack,
 			&i.TweakedGroupKey,
 			&i.GroupKeyRaw,
 			&i.GroupKeyFamily,
@@ -2041,9 +2054,9 @@ func (q *Queries) UpdateMintingBatchState(ctx context.Context, arg UpdateMinting
 
 const upsertAssetGroupKey = `-- name: UpsertAssetGroupKey :one
 INSERT INTO asset_groups (
-    tweaked_group_key, internal_key_id, genesis_point_id 
+    tweaked_group_key, tapscript_root, internal_key_id, genesis_point_id 
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 ) ON CONFLICT (tweaked_group_key)
     -- This is not a NOP, update the genesis point ID in case it wasn't set
     -- before.
@@ -2053,38 +2066,44 @@ RETURNING group_id
 
 type UpsertAssetGroupKeyParams struct {
 	TweakedGroupKey []byte
+	TapscriptRoot   []byte
 	InternalKeyID   int32
 	GenesisPointID  int32
 }
 
 func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, upsertAssetGroupKey, arg.TweakedGroupKey, arg.InternalKeyID, arg.GenesisPointID)
+	row := q.db.QueryRowContext(ctx, upsertAssetGroupKey,
+		arg.TweakedGroupKey,
+		arg.TapscriptRoot,
+		arg.InternalKeyID,
+		arg.GenesisPointID,
+	)
 	var group_id int32
 	err := row.Scan(&group_id)
 	return group_id, err
 }
 
-const upsertAssetGroupSig = `-- name: UpsertAssetGroupSig :one
-INSERT INTO asset_group_sigs (
-    genesis_sig, gen_asset_id, group_key_id
+const upsertAssetGroupWitness = `-- name: UpsertAssetGroupWitness :one
+INSERT INTO asset_group_witnesses (
+    witness_stack, gen_asset_id, group_key_id
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (gen_asset_id)
     DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
-RETURNING sig_id
+RETURNING witness_id
 `
 
-type UpsertAssetGroupSigParams struct {
-	GenesisSig []byte
-	GenAssetID int32
-	GroupKeyID int32
+type UpsertAssetGroupWitnessParams struct {
+	WitnessStack []byte
+	GenAssetID   int32
+	GroupKeyID   int32
 }
 
-func (q *Queries) UpsertAssetGroupSig(ctx context.Context, arg UpsertAssetGroupSigParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, upsertAssetGroupSig, arg.GenesisSig, arg.GenAssetID, arg.GroupKeyID)
-	var sig_id int32
-	err := row.Scan(&sig_id)
-	return sig_id, err
+func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, upsertAssetGroupWitness, arg.WitnessStack, arg.GenAssetID, arg.GroupKeyID)
+	var witness_id int32
+	err := row.Scan(&witness_id)
+	return witness_id, err
 }
 
 const upsertAssetMeta = `-- name: UpsertAssetMeta :one

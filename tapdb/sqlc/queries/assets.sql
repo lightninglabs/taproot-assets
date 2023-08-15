@@ -144,23 +144,23 @@ RETURNING genesis_id;
 
 -- name: UpsertAssetGroupKey :one
 INSERT INTO asset_groups (
-    tweaked_group_key, internal_key_id, genesis_point_id 
+    tweaked_group_key, tapscript_root, internal_key_id, genesis_point_id 
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 ) ON CONFLICT (tweaked_group_key)
     -- This is not a NOP, update the genesis point ID in case it wasn't set
     -- before.
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING group_id;
 
--- name: UpsertAssetGroupSig :one
-INSERT INTO asset_group_sigs (
-    genesis_sig, gen_asset_id, group_key_id
+-- name: UpsertAssetGroupWitness :one
+INSERT INTO asset_group_witnesses (
+    witness_stack, gen_asset_id, group_key_id
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (gen_asset_id)
     DO UPDATE SET gen_asset_id = EXCLUDED.gen_asset_id
-RETURNING sig_id;
+RETURNING witness_id;
 
 -- name: UpsertGenesisAsset :one
 WITH target_meta_id AS (
@@ -180,7 +180,7 @@ RETURNING gen_asset_id;
 
 -- name: InsertNewAsset :one
 INSERT INTO assets (
-    genesis_id, version, script_key_id, asset_group_sig_id, script_version, 
+    genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
@@ -215,21 +215,23 @@ WITH genesis_info AS (
     -- assets we care about. We obtain only the assets found in the batch
     -- above, with the WHERE query at the bottom.
     SELECT 
-        sig_id, gen_asset_id, genesis_sig, tweaked_group_key, raw_key, key_index, key_family
-    FROM asset_group_sigs sigs
+        witness_id, gen_asset_id, witness_stack, tapscript_root,
+        tweaked_group_key, raw_key, key_index, key_family
+    FROM asset_group_witnesses wit
     JOIN asset_groups groups
-        ON sigs.group_key_id = groups.group_id
+        ON wit.group_key_id = groups.group_id
     JOIN internal_keys keys
         ON keys.key_id = groups.internal_key_id
     -- TODO(roasbeef): or can join do this below?
-    WHERE sigs.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
+    WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
     version, script_keys.tweak, script_keys.tweaked_script_key, 
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
-    key_group_info.genesis_sig, 
+    key_group_info.tapscript_root, 
+    key_group_info.witness_stack, 
     key_group_info.tweaked_group_key,
     key_group_info.raw_key AS group_key_raw,
     key_group_info.key_family AS group_key_family,
@@ -328,13 +330,14 @@ SELECT
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
-    key_group_info_view.genesis_sig AS genesis_sig
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = @group_key
 )
 -- Sort and limit to return the genesis ID for initial genesis of the group.
-ORDER BY key_group_info_view.sig_id
+ORDER BY key_group_info_view.witness_id
 LIMIT 1;
 
 -- name: FetchGroupByGenesis :one
@@ -343,7 +346,8 @@ SELECT
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
-    key_group_info_view.genesis_sig AS genesis_sig
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = @genesis_id
@@ -357,7 +361,8 @@ SELECT
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
-    key_group_info_view.genesis_sig, 
+    key_group_info_view.tapscript_root, 
+    key_group_info_view.witness_stack, 
     key_group_info_view.tweaked_group_key,
     key_group_info_view.raw_key AS group_key_raw,
     key_group_info_view.key_family AS group_key_family,
