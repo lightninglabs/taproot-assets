@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -15,12 +14,7 @@ import (
 type LeafTlvType = tlv.Type
 
 const (
-	LeafVersion LeafTlvType = 0
-	// TODO: LeafID and LeafGenesis have conflicting types. The BIP
-	// specifies LeafID, but this would require wallets to store the
-	// preimage to the asset ID elsewhere, when it could be included in the
-	// TLV itself as done with LeafGenesis.
-	LeafID                  LeafTlvType = 1
+	LeafVersion             LeafTlvType = 0
 	LeafGenesis             LeafTlvType = 1
 	LeafType                LeafTlvType = 2
 	LeafAmount              LeafTlvType = 3
@@ -31,6 +25,9 @@ const (
 	LeafScriptVersion       LeafTlvType = 8
 	LeafScriptKey           LeafTlvType = 9
 	LeafGroupKey            LeafTlvType = 10
+
+	// Types for future asset format.
+	LeafAssetID LeafTlvType = 11
 )
 
 // WitnessTlvType represents the different TLV types for Asset Witness TLV
@@ -49,8 +46,11 @@ func NewLeafVersionRecord(version *Version) tlv.Record {
 	)
 }
 
-func NewLeafIDRecord(id *[sha256.Size]byte) tlv.Record {
-	return tlv.MakePrimitiveRecord(LeafID, id)
+func NewLeafIDRecord(id *ID) tlv.Record {
+	const recordSize = sha256.Size
+	return tlv.MakeStaticRecord(
+		LeafAssetID, id, recordSize, IDEncoder, IDDecoder,
+	)
 }
 
 func NewLeafGenesisRecord(genesis *Genesis) tlv.Record {
@@ -144,17 +144,10 @@ func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
 }
 
 func NewLeafGroupKeyRecord(groupKey **GroupKey) tlv.Record {
-	const recordSize = btcec.PubKeyBytesLenCompressed + schnorr.SignatureSize
+	const recordSize = btcec.PubKeyBytesLenCompressed
 	return tlv.MakeStaticRecord(
 		LeafGroupKey, groupKey, recordSize, GroupKeyEncoder,
 		GroupKeyDecoder,
-	)
-}
-
-func NewLeafGroupKeyOnlyRecord(groupKey **btcec.PublicKey) tlv.Record {
-	return tlv.MakeStaticRecord(
-		LeafGroupKey, groupKey, btcec.PubKeyBytesLenCompressed,
-		CompressedPubKeyEncoder, CompressedPubKeyDecoder,
 	)
 }
 

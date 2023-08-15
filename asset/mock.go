@@ -353,14 +353,12 @@ func NewTestFromGroupKey(t testing.TB, gk *GroupKey) *TestGroupKey {
 	t.Helper()
 
 	return &TestGroupKey{
-		GroupKey:    test.HexPubKey(&gk.GroupPubKey),
-		GroupKeySig: test.HexSignature(&gk.Sig),
+		GroupKey: test.HexPubKey(&gk.GroupPubKey),
 	}
 }
 
 type TestGroupKey struct {
-	GroupKey    string `json:"group_key"`
-	GroupKeySig string `json:"group_key_sig"`
+	GroupKey string `json:"group_key"`
 }
 
 func (tgk *TestGroupKey) ToGroupKey(t testing.TB) *GroupKey {
@@ -368,7 +366,6 @@ func (tgk *TestGroupKey) ToGroupKey(t testing.TB) *GroupKey {
 
 	return &GroupKey{
 		GroupPubKey: *test.ParsePubKey(t, tgk.GroupKey),
-		Sig:         *test.ParseSchnorrSig(t, tgk.GroupKeySig),
 	}
 }
 
