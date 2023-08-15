@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -31,13 +31,13 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	var (
 		groupInfo        *asset.GroupKey
 		groupPubKey      *btcec.PublicKey
-		groupSig         *schnorr.Signature
+		groupWitness     wire.TxWitness
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
 	if test.RandInt[uint32]()%2 == 0 {
 		groupInfo = asset.RandGroupKey(t, genesis)
 		groupPubKey = &groupInfo.GroupPubKey
-		groupSig = &groupInfo.Sig
+		groupWitness = groupInfo.Witness
 
 		tapscriptSibling = commitment.NewPreimageFromLeaf(
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
@@ -53,7 +53,7 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	})
 
 	tapAddr, err := New(
-		genesis, groupPubKey, groupSig, *scriptKey.PubKey,
+		genesis, groupPubKey, groupWitness, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
 	)
 	require.NoError(t, err)

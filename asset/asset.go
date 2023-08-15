@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/exp/slices"
 )
 
 // SerializedKey is a type for representing a public key, serialized in the
@@ -426,8 +427,17 @@ type GroupKey struct {
 	//   groupInternalKey + sha256(groupInternalKey || genesisOutPoint) * G
 	GroupPubKey btcec.PublicKey
 
-	// Sig is a signature over an asset's ID by `Key`.
-	Sig schnorr.Signature
+	// TapscriptRoot is the root of the Tapscript tree that commits to all
+	// script spend conditions for the group key. Instead of spending an
+	// asset, these scripts are used to define witnesses more complex than
+	// a Schnorr signature for reissuing assets.
+	TapscriptRoot [sha256.Size]byte
+
+	// Witness is a stack of witness elements that authorizes the membership
+	// of an asset in a particular asset group. The witness can be a single
+	// signature or a script from the tapscript tree committed to with the
+	// TapscriptRoot, and follows the witness rules in BIP-341.
+	Witness wire.TxWitness
 }
 
 // GroupKeyReveal is a type for representing the data used to derive the tweaked
@@ -463,7 +473,19 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
-	return g.Sig.IsEqual(&otherGroupKey.Sig)
+	if g.TapscriptRoot != otherGroupKey.TapscriptRoot {
+		return false
+	}
+
+	if len(g.Witness) != len(otherGroupKey.Witness) {
+		return false
+	}
+
+	return slices.EqualFunc(
+		g.Witness, otherGroupKey.Witness, func(a, b []byte) bool {
+			return bytes.Equal(a, b)
+		},
+	)
 }
 
 // IsEqualGroup returns true if this group key describes the same asset group
@@ -485,6 +507,108 @@ func (g *GroupKey) IsEqualGroup(otherGroupKey *GroupKey) bool {
 	}
 
 	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey)
+}
+
+// hasAnnex returns true if the provided witness includes an annex element,
+// otherwise returns false.
+func hasAnnex(witness wire.TxWitness) bool {
+	// By definition, the annex element can not be the sole element in the
+	// witness stack.
+	if len(witness) < 2 {
+		return false
+	}
+
+	// If an annex element is included in the witness stack, by definition,
+	// it will be the last element and will be prefixed by a Taproot annex
+	// tag.
+	lastElement := witness[len(witness)-1]
+	if len(lastElement) == 0 {
+		return false
+	}
+
+	return lastElement[0] == txscript.TaprootAnnexTag
+}
+
+// IsGroupSig checks if the given witness represents a key path spend of the
+// tweaked group key. Such a witness must include one Schnorr signature, and
+// can include an optional annex (matching the rules specified in BIP-341).
+// If the signature is valid, IsGroupSig returns true and the parsed signature.
+func IsGroupSig(witness wire.TxWitness) (*schnorr.Signature, bool) {
+	if len(witness) == 0 || len(witness) > 2 {
+		return nil, false
+	}
+
+	if len(witness[0]) != schnorr.SignatureSize {
+		return nil, false
+	}
+
+	// If we have two witness elements and the first is a signature, the
+	// second must be a valid annex.
+	if len(witness) == 2 && !hasAnnex(witness) {
+		return nil, false
+	}
+
+	groupSig, err := schnorr.ParseSignature(witness[0])
+	if err != nil {
+		return nil, false
+	}
+
+	return groupSig, true
+}
+
+// ParseGroupWitness parses a group witness that was stored as a TLV stream
+// in the DB.
+func ParseGroupWitness(witness []byte) (wire.TxWitness, error) {
+	var (
+		buf          [8]byte
+		b            = bytes.NewReader(witness)
+		witnessStack wire.TxWitness
+	)
+
+	err := TxWitnessDecoder(b, &witnessStack, &buf, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse group witness: %w", err)
+	}
+
+	return witnessStack, nil
+}
+
+// SerializeGroupWitness serializes a group witness into a TLV stream suitable
+// for storing in the DB.
+func SerializeGroupWitness(witness wire.TxWitness) ([]byte, error) {
+	if len(witness) == 0 {
+		return nil, fmt.Errorf("group witness cannot be empty")
+	}
+
+	var (
+		buf [8]byte
+		b   bytes.Buffer
+	)
+
+	err := TxWitnessEncoder(&b, &witness, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize group witness: %w",
+			err)
+	}
+
+	return b.Bytes(), nil
+}
+
+// ParseGroupSig parses a group signature that was stored as a group witness in
+// the DB. It returns an error if the witness is not a single Schnorr signature.
+func ParseGroupSig(witness []byte) (*schnorr.Signature, error) {
+	groupWitness, err := ParseGroupWitness(witness)
+	if err != nil {
+		return nil, err
+	}
+
+	groupSig, isSig := IsGroupSig(groupWitness)
+	if !isSig {
+		return nil, fmt.Errorf("group witness must be a single " +
+			"Schnorr signature")
+	}
+
+	return groupSig, nil
 }
 
 // IsLocal returns true if the private key that corresponds to this group key
@@ -670,7 +794,7 @@ func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
 	return &GroupKey{
 		RawKey:      rawKey,
 		GroupPubKey: *groupPubKey,
-		Sig:         *sig,
+		Witness:     wire.TxWitness{sig.Serialize()},
 	}, nil
 }
 
@@ -902,7 +1026,7 @@ func (a *Asset) Copy() *Asset {
 		assetCopy.GroupKey = &GroupKey{
 			RawKey:      a.GroupKey.RawKey,
 			GroupPubKey: a.GroupKey.GroupPubKey,
-			Sig:         a.GroupKey.Sig,
+			Witness:     a.GroupKey.Witness,
 		}
 	}
 

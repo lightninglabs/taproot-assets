@@ -147,7 +147,7 @@ func TestProofEncoding(t *testing.T) {
 	groupKey := asset.RandGroupKey(t, genesis)
 	groupReveal := asset.GroupKeyReveal{
 		RawKey:        asset.ToSerialized(&groupKey.GroupPubKey),
-		TapscriptRoot: genesis.ID(),
+		TapscriptRoot: test.RandHash(),
 	}
 
 	mintCommitment, assets, err := commitment.Mint(
@@ -162,6 +162,11 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 	asset := assets[0]
 	asset.GroupKey.RawKey = keychain.KeyDescriptor{}
+
+	// Empty the group witness, since it will eventually be stored as the
+	// asset's witness within the proof.
+	// TODO(guggero): Actually store the witness in the proof.
+	asset.GroupKey.Witness = nil
 
 	// Empty the raw script key, since we only serialize the tweaked
 	// pubkey. We'll also force the main script key to be an x-only key as

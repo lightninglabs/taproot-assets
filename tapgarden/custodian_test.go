@@ -307,11 +307,11 @@ func TestTransactionHandling(t *testing.T) {
 
 func mustMakeAddr(t *testing.T,
 	gen asset.Genesis, groupKey *btcec.PublicKey,
-	groupSig *schnorr.Signature, scriptKey btcec.PublicKey) *address.Tap {
+	groupWitness wire.TxWitness, scriptKey btcec.PublicKey) *address.Tap {
 
 	var p btcec.PublicKey
 	addr, err := address.New(
-		gen, groupKey, groupSig, scriptKey,
+		gen, groupKey, groupWitness, scriptKey,
 		p, 1, nil, &address.TestNet3Tap,
 	)
 	require.NoError(t, err)
@@ -352,8 +352,10 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "no group key nil",
 		addr: &address.AddrWithKeyInfo{
-			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
-				&randGroup1.Sig, blankKey),
+			Tap: mustMakeAddr(
+				t, randGen1, &randGroup1.GroupPubKey,
+				randGroup1.Witness, blankKey,
+			),
 		},
 		a: &asset.Asset{
 			Genesis:  randGen1,
@@ -392,8 +394,10 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "id mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
-				&randGroup1.Sig, *randKey1),
+			Tap: mustMakeAddr(
+				t, randGen1, &randGroup1.GroupPubKey,
+				randGroup1.Witness, *randKey1,
+			),
 		},
 		a: &asset.Asset{
 			Genesis:  randGen2,
@@ -406,8 +410,10 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "script key mismatch",
 		addr: &address.AddrWithKeyInfo{
-			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
-				&randGroup1.Sig, *randKey1),
+			Tap: mustMakeAddr(
+				t, randGen1, &randGroup1.GroupPubKey,
+				randGroup1.Witness, *randKey1,
+			),
 		},
 		a: &asset.Asset{
 			Genesis:  randGen1,
@@ -420,8 +426,10 @@ func TestAddrMatchesAsset(t *testing.T) {
 	}, {
 		name: "all match",
 		addr: &address.AddrWithKeyInfo{
-			Tap: mustMakeAddr(t, randGen1, &randGroup1.GroupPubKey,
-				&randGroup1.Sig, *randKey2),
+			Tap: mustMakeAddr(
+				t, randGen1, &randGroup1.GroupPubKey,
+				randGroup1.Witness, *randKey2,
+			),
 		},
 		a: &asset.Asset{
 			Genesis:  randGen1,
