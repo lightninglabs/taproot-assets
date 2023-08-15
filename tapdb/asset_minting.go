@@ -97,9 +97,9 @@ type (
 	// the DB.
 	GenesisAsset = sqlc.UpsertGenesisAssetParams
 
-	// AssetGroupSig is used to insert the group key signature for a given
+	// AssetGroupWitness is used to insert the group key witness for a given
 	// asset on disk.
-	AssetGroupSig = sqlc.UpsertAssetGroupSigParams
+	AssetGroupWitness = sqlc.UpsertAssetGroupWitnessParams
 
 	// AssetSprout is used to fetch the set of assets from disk.
 	AssetSprout = sqlc.FetchAssetsForBatchRow
@@ -572,7 +572,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 			if err != nil {
 				return nil, err
 			}
-			groupSig, err := schnorr.ParseSignature(sprout.GenesisSig)
+			groupSig, err := schnorr.ParseSignature(sprout.WitnessStack)
 			if err != nil {
 				return nil, err
 			}
