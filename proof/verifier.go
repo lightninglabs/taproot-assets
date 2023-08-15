@@ -429,6 +429,12 @@ func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier) (
 	default:
 	}
 
+	// Check only for the proof file version and not file emptiness,
+	// since an empty proof file should return a nil error.
+	if f.IsUnknownVersion() {
+		return nil, ErrUnknownVersion
+	}
+
 	var prev *AssetSnapshot
 	for idx := range f.proofs {
 		select {
