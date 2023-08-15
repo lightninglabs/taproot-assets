@@ -138,7 +138,7 @@ type Querier interface {
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int32, error)
-	UpsertAssetGroupSig(ctx context.Context, arg UpsertAssetGroupSigParams) (int32, error)
+	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int32, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int32, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error)

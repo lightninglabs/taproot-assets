@@ -1470,19 +1470,19 @@ func TestAssetGroupSigUpsert(t *testing.T) {
 
 	// With all the other items inserted, we'll now insert an asset group
 	// sig.
-	groupSigID, err := db.UpsertAssetGroupSig(ctx, AssetGroupSig{
-		GenesisSig: []byte{0x01},
-		GenAssetID: genAssetID,
-		GroupKeyID: groupID,
+	groupSigID, err := db.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
+		WitnessStack: []byte{0x01},
+		GenAssetID:   genAssetID,
+		GroupKeyID:   groupID,
 	})
 	require.NoError(t, err)
 
 	// If we insert the very same sig, then we should get the same group sig
 	// ID back.
-	groupSigID2, err := db.UpsertAssetGroupSig(ctx, AssetGroupSig{
-		GenesisSig: []byte{0x01},
-		GenAssetID: genAssetID,
-		GroupKeyID: groupID,
+	groupSigID2, err := db.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
+		WitnessStack: []byte{0x01},
+		GenAssetID:   genAssetID,
+		GroupKeyID:   groupID,
 	})
 	require.NoError(t, err)
 

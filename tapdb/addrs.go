@@ -362,7 +362,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				}
 
 				groupSig, err = schnorr.ParseSignature(
-					group.GenesisSig,
+					group.WitnessStack,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to decode"+
@@ -521,7 +521,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 				err)
 		}
 
-		groupSig, err = schnorr.ParseSignature(group.GenesisSig)
+		groupSig, err = schnorr.ParseSignature(group.WitnessStack)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode group sig: %w",
 				err)
@@ -949,7 +949,7 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 
 		assetGroup.GroupKey, err = parseGroupKeyInfo(
 			groupInfo.TweakedGroupKey, groupInfo.RawKey,
-			groupInfo.GenesisSig, groupInfo.KeyFamily,
+			groupInfo.WitnessStack, groupInfo.KeyFamily,
 			groupInfo.KeyIndex,
 		)
 
