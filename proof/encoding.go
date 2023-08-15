@@ -11,6 +11,25 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+func VersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*TransitionVersion); ok {
+		return tlv.EUint32T(w, uint32(*t), buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "TransitionVersion")
+}
+
+func VersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*TransitionVersion); ok {
+		var t uint32
+		if err := tlv.DUint32(r, &t, buf, l); err != nil {
+			return err
+		}
+		*typ = TransitionVersion(t)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "TransitionVersion", l, 1)
+}
+
 func BlockHeaderEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*wire.BlockHeader); ok {
 		return t.Serialize(w)

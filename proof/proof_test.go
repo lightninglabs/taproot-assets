@@ -745,6 +745,15 @@ func TestProofVerification(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, p.Asset.Encode(&buf))
 	t.Logf("Proof asset encoded: %x", buf.Bytes())
+
+	// Ensure that verification of a proof of unknown version fails.
+	p.Version = TransitionVersion(212)
+
+	lastAsset, err := p.Verify(
+		context.Background(), nil, MockHeaderVerifier,
+	)
+	require.Nil(t, lastAsset)
+	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
 // TestOwnershipProofVerification ensures that the ownership proof encoding and

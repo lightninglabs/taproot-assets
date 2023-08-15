@@ -38,9 +38,21 @@ var (
 	ErrMetaRevealRequired = errors.New("meta reveal required")
 )
 
+// TransitionVersion denotes the versioning scheme for an individual state
+// transition proof.
+type TransitionVersion uint32
+
+const (
+	// TransitionV0 is the first version of the state transition proof.
+	TransitionV0 TransitionVersion = 0
+)
+
 // Proof encodes all of the data necessary to prove a valid state transition for
 // an asset has occurred within an on-chain transaction.
 type Proof struct {
+	// Version is the version of the state transition proof.
+	Version TransitionVersion
+
 	// PrevOut is the previous on-chain outpoint of the asset.
 	PrevOut wire.OutPoint
 
@@ -116,7 +128,8 @@ type Proof struct {
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
 func (p *Proof) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 9)
+	records := make([]tlv.Record, 0, 15)
+	records = append(records, VersionRecord(&p.Version))
 	records = append(records, PrevOutRecord(&p.PrevOut))
 	records = append(records, BlockHeaderRecord(&p.BlockHeader))
 	records = append(records, AnchorTxRecord(&p.AnchorTx))
@@ -161,6 +174,7 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 // DecodeRecords returns the set of known TLV records to decode a Proof.
 func (p *Proof) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
+		VersionRecord(&p.Version),
 		PrevOutRecord(&p.PrevOut),
 		BlockHeaderRecord(&p.BlockHeader),
 		AnchorTxRecord(&p.AnchorTx),
@@ -194,4 +208,15 @@ func (p *Proof) Decode(r io.Reader) error {
 		return err
 	}
 	return stream.Decode(r)
+}
+
+// IsUnknownVersion returns true if a proof has a version that is not recognized
+// by this implementation of tap.
+func (p *Proof) IsUnknownVersion() bool {
+	switch p.Version {
+	case TransitionV0:
+		return false
+	default:
+		return true
+	}
 }
