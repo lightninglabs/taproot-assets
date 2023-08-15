@@ -29,12 +29,13 @@ import (
 
 var (
 	// proofFileHexFileName is the name of the file that contains the hex
-	// proof file data. The proof file is a random test file from an
-	// integration test run.
+	// proof file data. The proof file contains all proofs from the
+	// testdata/proof_tlv_encoding_other.json test vector file.
 	proofFileHexFileName = filepath.Join(testDataFileName, "proof-file.hex")
 
 	// proofHexFileName is the name of the file that contains the hex proof
-	// data. The proof is a random test proof from an integration test run.
+	// data. The proof is generated from the proof "valid regtest split
+	// proof" in the proof_tlv_encoding_other.json test vector file.
 	proofHexFileName = filepath.Join(testDataFileName, "proof.hex")
 
 	// ownershipProofHexFileName is the name of the file that contains the
@@ -44,11 +45,12 @@ var (
 		testDataFileName, "ownership-proof.hex",
 	)
 
+	otherTestVectorName     = "proof_tlv_encoding_other.json"
 	generatedTestVectorName = "proof_tlv_encoding_generated.json"
 
 	allTestVectorFiles = []string{
 		generatedTestVectorName,
-		"proof_tlv_encoding_other.json",
+		otherTestVectorName,
 		"proof_tlv_encoding_error_cases.json",
 	}
 )
@@ -503,6 +505,93 @@ func TestGenesisProofVerification(t *testing.T) {
 	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
 	// build tag is not set.
 	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
+}
+
+// TestUpdateManualProofs is only executed when updating test vectors and is
+// responsible for updating the following files:
+//   - testdata/proof_tlv_encoding_other.json
+//   - testdata/proof.hex
+//   - testdata/proof-file.hex
+func TestUpdateManualProofs(t *testing.T) {
+	if !test.GeneratingTestVectors {
+		t.Skip("Not generating test vectors, skipping proof file " +
+			"updates")
+	}
+
+	// First, we update the proof_tlv_encoding_other.json file. This file
+	// contains actual proofs from a random integration test run. We know
+	// that the proof's content is valid, but in case the encoding of it
+	// changes, we just re-encode it here and update the file.
+	var (
+		otherVectors = &TestVectors{}
+		fileProofs   []Proof
+	)
+
+	test.ParseTestVectors(t, otherTestVectorName, &otherVectors)
+	for idx := range otherVectors.ValidTestCases {
+		proof := otherVectors.ValidTestCases[idx].Proof.ToProof(t)
+
+		// We need to update the inclusion proofs in case anything in
+		// the asset serialization changed.
+		assetTree, err := commitment.NewAssetCommitment(&proof.Asset)
+		require.NoError(t, err)
+		assetTapTree, err := commitment.NewTapCommitment(assetTree)
+		require.NoError(t, err)
+		_, commitmentProof, err := assetTapTree.Proof(
+			proof.Asset.TapCommitmentKey(),
+			proof.Asset.AssetCommitmentKey(),
+		)
+		require.NoError(t, err)
+		proof.InclusionProof.CommitmentProof.Proof = *commitmentProof
+
+		var buf bytes.Buffer
+		require.NoError(t, proof.Encode(&buf))
+
+		expectedStr := hex.EncodeToString(buf.Bytes())
+		otherVectors.ValidTestCases[idx].Expected = expectedStr
+
+		comment := otherVectors.ValidTestCases[idx].Comment
+		switch {
+		// The proof with the comment "valid regtest split proof" is
+		// also the proof we encode in the proof.hex file.
+		case comment == "valid regtest split proof":
+			err := os.WriteFile(
+				proofHexFileName, []byte(expectedStr), 0644,
+			)
+			require.NoError(t, err)
+
+		// The proof with the comment "valid regtest ownership proof" is
+		// also the proof we encode in the ownership-proof.hex file.
+		case comment == "valid regtest ownership proof":
+			err := os.WriteFile(
+				ownershipProofHexFileName, []byte(expectedStr),
+				0644,
+			)
+			require.NoError(t, err)
+
+		// Any proof that starts with the comment "valid regtest proof
+		// file index X", we add to the proof-file.hex file.
+		case strings.Contains(comment, "valid regtest proof file index"):
+			fileProofs = append(fileProofs, *proof)
+		}
+	}
+	test.WriteTestVectors(t, otherTestVectorName, otherVectors)
+
+	// And finally, we update the proof-file.hex file to contain all the
+	// proofs from the testdata/proof_tlv_encoding_other.json file that have
+	// a comment starting with "valid regtest proof file".
+	file, err := NewFile(V0, fileProofs...)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	err = file.Encode(&buf)
+	require.NoError(t, err)
+
+	err = os.WriteFile(
+		proofFileHexFileName, []byte(hex.EncodeToString(buf.Bytes())),
+		0644,
+	)
+	require.NoError(t, err)
 }
 
 // TestProofBlockHeaderVerification ensures that an error returned by the
