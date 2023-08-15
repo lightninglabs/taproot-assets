@@ -554,11 +554,7 @@ func ScriptVersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 func GroupKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**GroupKey); ok {
 		key := &(*t).GroupPubKey
-		if err := CompressedPubKeyEncoder(w, &key, buf); err != nil {
-			return err
-		}
-		sig := (*t).Sig
-		return SchnorrSignatureEncoder(w, &sig, buf)
+		return CompressedPubKeyEncoder(w, &key, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*GroupKey")
 }
@@ -571,12 +567,6 @@ func GroupKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		)
 		err := CompressedPubKeyDecoder(
 			r, &groupPubKey, buf, btcec.PubKeyBytesLenCompressed,
-		)
-		if err != nil {
-			return err
-		}
-		err = SchnorrSignatureDecoder(
-			r, &groupKey.Sig, buf, schnorr.SignatureSize,
 		)
 		if err != nil {
 			return err
