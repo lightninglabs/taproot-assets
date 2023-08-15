@@ -292,6 +292,7 @@ type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 
 // Verify verifies the proof by ensuring that:
 //
+//  0. A proof has a valid version.
 //  1. A transaction that spends the previous asset output has a valid merkle
 //     proof within a block in the chain.
 //  2. A valid inclusion proof for the resulting asset is included.
@@ -302,6 +303,11 @@ type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 //     resulting state transition.
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
+
+	// 0. Check only for the proof version.
+	if p.IsUnknownVersion() {
+		return nil, ErrUnknownVersion
+	}
 
 	// Ensure proof asset is valid.
 	if err := p.Asset.Validate(); err != nil {
