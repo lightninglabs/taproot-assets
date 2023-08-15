@@ -40,3 +40,26 @@ func compressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error
 		val, "*btcec.PublicKey", l, btcec.PubKeyBytesLenCompressed,
 	)
 }
+
+func proofCourierAddrEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*ProofCourierAddr); ok {
+		addrBytes := []byte(*t)
+		return tlv.EVarBytes(w, &addrBytes, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*address.ProofCourierAddr")
+}
+
+func proofCourierAddrDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*ProofCourierAddr); ok {
+		var addrBytes []byte
+		err := tlv.DVarBytes(r, &addrBytes, buf, l)
+		if err != nil {
+			return err
+		}
+		*typ = addrBytes
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(
+		val, "*address.ProofCourierAddr", l, l,
+	)
+}

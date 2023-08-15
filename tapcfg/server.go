@@ -92,12 +92,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := tap.NewLndRpcChainBridge(lndServices)
+	proofCourierAddr := &proof.CourierAddr{
+		Protocol: proof.ApertureCourier,
+		Port:     defaultHashMailPort,
+		Hostname: defaultHashMailHostname,
+	}
 
 	addrBook := address.NewBook(address.BookConfig{
-		Store:        tapdbAddrBook,
-		StoreTimeout: tapdb.DefaultStoreTimeout,
-		KeyRing:      keyRing,
-		Chain:        tapChainParams,
+		Store:            tapdbAddrBook,
+		StoreTimeout:     tapdb.DefaultStoreTimeout,
+		KeyRing:          keyRing,
+		Chain:            tapChainParams,
+		ProofCourierAddr: proofCourierAddr.Bytes(),
 	})
 
 	assetStore := tapdb.NewAssetStore(assetDB)

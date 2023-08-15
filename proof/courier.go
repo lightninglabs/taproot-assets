@@ -21,6 +21,8 @@ import (
 
 // CourierType is an enum that represents the different types of proof courier
 // services.
+//
+// TODO(ffranr): rename to CourierProtocol
 type CourierType int64
 
 const (
@@ -30,8 +32,46 @@ const (
 
 	// ApertureCourier is a courier that uses the hashmail protocol to
 	// deliver proofs.
+	//
+	// TODO(ffranr): rename to HashmailCourier (use protocol name rather
+	//  than service)
 	ApertureCourier
 )
+
+// Convert CourierProtocol to string
+func (p CourierType) String() string {
+	switch p {
+	case ApertureCourier:
+		return "hashmail"
+	default:
+		return "disabled_courier"
+	}
+}
+
+// CourierAddr is the address of the proof courier that will be used to
+// distribute related proofs for this address.
+type CourierAddr struct {
+	// Protocol is the protocol of the proof courier.
+	Protocol CourierType
+
+	// Port is the port of the proof courier.
+	Port uint16
+
+	// Hostname is the hostname of the proof courier service.
+	Hostname string
+}
+
+// String returns the URI string representation of the proof courier address.
+func (a CourierAddr) String() string {
+	return fmt.Sprintf(
+		"%s://%s:%d", a.Protocol.String(), a.Hostname, a.Port,
+	)
+}
+
+// Bytes returns the byte representation of the proof courier address.
+func (a CourierAddr) Bytes() []byte {
+	return []byte(a.String())
+}
 
 // CourierHarness interface is an integration testing harness for a proof
 // courier service.

@@ -207,7 +207,7 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 		ScriptKey:        *test.ParsePubKey(t, ta.ScriptKey),
 		InternalKey:      *test.ParsePubKey(t, ta.InternalKey),
 		Amount:           ta.Amount,
-		ProofCourierAddr: test.ParseHex(t, ta.ProofCourierAddr),
+		ProofCourierAddr: ProofCourierAddr(ta.ProofCourierAddr),
 	}
 
 	if ta.GroupKey != "" {

@@ -99,7 +99,7 @@ func newProofCourierAddrRecord(addr *ProofCourierAddr) tlv.Record {
 	addrBytes := []byte(*addr)
 	recordSize := tlv.SizeVarBytes(&addrBytes)
 	return tlv.MakeDynamicRecord(
-		addrProofCourierAddrType, &addrBytes, recordSize,
-		tlv.EVarBytes, tlv.DVarBytes,
+		addrProofCourierAddrType, addr, recordSize,
+		proofCourierAddrEncoder, proofCourierAddrDecoder,
 	)
 }
