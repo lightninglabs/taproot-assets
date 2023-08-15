@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -592,7 +591,9 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			if err != nil {
 				return nil, err
 			}
-			groupSig, err := schnorr.ParseSignature(sprout.WitnessStack)
+			groupWitness, err := asset.ParseGroupWitness(
+				sprout.WitnessStack,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -610,7 +611,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 					},
 				},
 				GroupPubKey: *tweakedGroupKey,
-				Sig:         *groupSig,
+				Witness:     groupWitness,
 			}
 		}
 

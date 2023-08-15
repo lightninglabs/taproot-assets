@@ -139,8 +139,17 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		case assetGroupKey != nil:
 			// There should be a valid Schnorr sig over the asset ID
 			// in the group key struct.
+			groupSig, isSig := asset.IsGroupSig(
+				newAsset.GroupKey.Witness,
+			)
+
+			if !isSig {
+				return nil, fmt.Errorf("unsupported group " +
+					"witness")
+			}
+
 			validSig := newAsset.Genesis.VerifySignature(
-				&newAsset.GroupKey.Sig, &assetGroupKey.GroupPubKey,
+				groupSig, &assetGroupKey.GroupPubKey,
 			)
 			if !validSig {
 				return nil, ErrAssetGenesisInvalidSig
@@ -248,8 +257,13 @@ func (c *AssetCommitment) Upsert(newAsset *asset.Asset) error {
 	// There should be a valid Schnorr sig over the asset ID
 	// in the group key struct.
 	if newAsset.GroupKey != nil {
+		groupSig, isSig := asset.IsGroupSig(newAsset.GroupKey.Witness)
+		if !isSig {
+			return fmt.Errorf("unsupported group witness")
+		}
+
 		validSig := newAsset.Genesis.VerifySignature(
-			&newAsset.GroupKey.Sig, &newAsset.GroupKey.GroupPubKey,
+			groupSig, &newAsset.GroupKey.GroupPubKey,
 		)
 		if !validSig {
 			return ErrAssetGenesisInvalidSig

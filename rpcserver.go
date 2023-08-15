@@ -1390,7 +1390,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		addr.AttachGenesis(*assetGroup.Genesis)
 
 		if assetGroup.GroupKey != nil {
-			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
 		}
 
 		taprootOutputKey, err := addr.TaprootOutputKey()
@@ -1695,7 +1695,7 @@ func marshalAddr(addr *address.Tap,
 		addr.AttachGenesis(*assetGroup.Genesis)
 
 		if assetGroup.GroupKey != nil {
-			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
 		}
 
 		outputKey, err := addr.TaprootOutputKey()

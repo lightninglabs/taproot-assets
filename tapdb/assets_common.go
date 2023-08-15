@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -260,8 +259,10 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		return nullID, fmt.Errorf("unable to insert internal key: %w",
 			err)
 	}
+
 	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
 		TweakedGroupKey: tweakedKeyBytes,
+		TapscriptRoot:   groupKey.TapscriptRoot[:],
 		InternalKeyID:   keyID,
 		GenesisPointID:  genesisPointID,
 	})
@@ -273,11 +274,19 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 	// With the statement above complete, we'll now insert the
 	// asset_group_sig entry for this, which has a one-to-many relationship
 	// with group keys (there can be many sigs for a group key which link
-	// together otherwise disparate asset IDs).
-	//
-	// TODO(roasbeef): sig here doesn't actually matter?
-	groupSigID, err := q.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
-		WitnessStack: groupKey.Sig.Serialize(),
+	// together otherwise disparate asset IDs). But the witness is optional,
+	// so in case we don't have one, we can just return a nil ID.
+	if len(groupKey.Witness) == 0 {
+		return nullID, nil
+	}
+
+	witnessBytes, err := asset.SerializeGroupWitness(groupKey.Witness)
+	if err != nil {
+		return nullID, err
+	}
+
+	groupWitnessID, err := q.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
+		WitnessStack: witnessBytes,
 		GenAssetID:   genAssetID,
 		GroupKeyID:   groupID,
 	})
@@ -285,7 +294,7 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		return nullID, fmt.Errorf("unable to insert group sig: %w", err)
 	}
 
-	return sqlInt32(groupSigID), nil
+	return sqlInt32(groupWitnessID), nil
 }
 
 // upsertScriptKey inserts or updates a script key and its associated internal
@@ -474,7 +483,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 }
 
 // parseGroupKeyInfo maps information on a group key into a GroupKey.
-func parseGroupKeyInfo(tweakedKey, rawKey, genesisSig []byte,
+func parseGroupKeyInfo(tweakedKey, rawKey, witness []byte,
 	keyFamily, keyIndex int32) (*asset.GroupKey, error) {
 
 	tweakedGroupKey, err := btcec.ParsePubKey(tweakedKey)
@@ -495,15 +504,18 @@ func parseGroupKeyInfo(tweakedKey, rawKey, genesisSig []byte,
 		PubKey: untweakedKey,
 	}
 
-	groupSig, err := schnorr.ParseSignature(genesisSig)
-	if err != nil {
-		return nil, err
+	var groupWitness wire.TxWitness
+	if len(witness) != 0 {
+		groupWitness, err = asset.ParseGroupWitness(witness)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &asset.GroupKey{
 		RawKey:      groupRawKey,
 		GroupPubKey: *tweakedGroupKey,
-		Sig:         *groupSig,
+		Witness:     groupWitness,
 	}, nil
 }
 

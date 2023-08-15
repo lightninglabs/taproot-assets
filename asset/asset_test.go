@@ -32,7 +32,8 @@ var (
 			"821525f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f47" +
 			"7df4900d310536c0",
 	)
-	sig, _ = schnorr.ParseSignature(sigBytes)
+	sig, _     = schnorr.ParseSignature(sigBytes)
+	sigWitness = wire.TxWitness{sig.Serialize()}
 
 	generatedTestVectorName = "asset_tlv_encoding_generated.json"
 
@@ -74,7 +75,6 @@ var (
 		ScriptKey:           NewScriptKey(pubKey),
 		GroupKey: &GroupKey{
 			GroupPubKey: *pubKey,
-			Sig:         *sig,
 		},
 	}
 	testRootAsset = &Asset{
@@ -100,7 +100,6 @@ var (
 		ScriptKey:           NewScriptKey(pubKey),
 		GroupKey: &GroupKey{
 			GroupPubKey: *pubKey,
-			Sig:         *sig,
 		},
 	}
 )
@@ -119,7 +118,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 			PubKey: pubKey,
 		},
 		GroupPubKey: *pubKey,
-		Sig:         *sig,
+		Witness:     sigWitness,
 	}
 
 	pubKeyCopy := *pubKey
@@ -154,7 +153,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 			a: testKey,
 			b: &GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: false,
 		},
@@ -167,7 +166,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 				},
 
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: false,
 		},
@@ -179,7 +178,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 				},
 
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: false,
 		},
@@ -192,18 +191,18 @@ func TestGroupKeyIsEqual(t *testing.T) {
 				},
 
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
 		{
 			a: &GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			b: &GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
@@ -213,14 +212,14 @@ func TestGroupKeyIsEqual(t *testing.T) {
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			b: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
@@ -547,6 +546,56 @@ func TestAssetGroupKey(t *testing.T) {
 	)
 }
 
+// TestAssetWitness tests that the asset group witness can be serialized and
+// parsed correctly, and that signature detection works correctly.
+func TestAssetWitnesses(t *testing.T) {
+	t.Parallel()
+
+	nonSigWitness := test.RandTxWitnesses(t)
+	for len(nonSigWitness) == 0 {
+		nonSigWitness = test.RandTxWitnesses(t)
+	}
+
+	// A witness must be unmodified after serialization and parsing.
+	nonSigWitnessBytes, err := SerializeGroupWitness(nonSigWitness)
+	require.NoError(t, err)
+
+	nonSigWitnessParsed, err := ParseGroupWitness(nonSigWitnessBytes)
+	require.NoError(t, err)
+	require.Equal(t, nonSigWitness, nonSigWitnessParsed)
+
+	// A witness that is a single Schnorr signature must be detected
+	// correctly both before and after serialization.
+	sigWitnessParsed, isSig := IsGroupSig(sigWitness)
+	require.True(t, isSig)
+	require.NotNil(t, sigWitnessParsed)
+
+	sigWitnessBytes, err := SerializeGroupWitness(sigWitness)
+	require.NoError(t, err)
+
+	sigWitnessParsed, err = ParseGroupSig(sigWitnessBytes)
+	require.NoError(t, err)
+	require.Equal(t, sig.Serialize(), sigWitnessParsed.Serialize())
+
+	// Adding an annex to the witness stack should not affect signature
+	// parsing.
+	dummyAnnex := []byte{0x50, 0xde, 0xad, 0xbe, 0xef}
+	sigWithAnnex := wire.TxWitness{sigWitness[0], dummyAnnex}
+	sigWitnessParsed, isSig = IsGroupSig(sigWithAnnex)
+	require.True(t, isSig)
+	require.NotNil(t, sigWitnessParsed)
+
+	// Witness that are not a single Schnorr signature must also be
+	// detected correctly.
+	possibleSig, isSig := IsGroupSig(nonSigWitness)
+	require.False(t, isSig)
+	require.Nil(t, possibleSig)
+
+	possibleSig, err = ParseGroupSig(nonSigWitnessBytes)
+	require.Error(t, err)
+	require.Nil(t, possibleSig)
+}
+
 // TestUnknownVersion tests that an asset of an unknown version is rejected
 // before being inserted into an MS-SMT.
 func TestUnknownVersion(t *testing.T) {
@@ -586,7 +635,7 @@ func TestUnknownVersion(t *testing.T) {
 		ScriptKey:           NewScriptKey(pubKey),
 		GroupKey: &GroupKey{
 			GroupPubKey: *pubKey,
-			Sig:         *sig,
+			Witness:     sigWitness,
 		},
 	}
 
