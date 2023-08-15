@@ -146,6 +146,10 @@ func TestProofEncoding(t *testing.T) {
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	groupKey := asset.RandGroupKey(t, genesis)
+	groupReveal := asset.GroupKeyReveal{
+		RawKey:        asset.ToSerialized(&groupKey.GroupPubKey),
+		TapscriptRoot: test.RandBytes(32),
+	}
 
 	mintCommitment, assets, err := commitment.Mint(
 		genesis, groupKey, &commitment.AssetDetails{
@@ -241,6 +245,8 @@ func TestProofEncoding(t *testing.T) {
 		},
 		AdditionalInputs: []File{},
 		ChallengeWitness: wire.TxWitness{[]byte("foo"), []byte("bar")},
+		GenesisReveal:    &genesis,
+		GroupKeyReveal:   &groupReveal,
 	}
 	file, err := NewFile(V0, proof, proof)
 	require.NoError(t, err)
@@ -252,6 +258,19 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, decodedProof.Decode(&buf))
 
 	assertEqualProof(t, &proof, &decodedProof)
+
+	// Test with a nil tapscript root in the group reveal.
+	proof.GroupKeyReveal.TapscriptRoot = nil
+	file, err = NewFile(V0, proof, proof)
+	require.NoError(t, err)
+	proof.AdditionalInputs = []File{*file, *file}
+
+	buf.Reset()
+	require.NoError(t, proof.Encode(&buf))
+	var decodedProof2 Proof
+	require.NoError(t, decodedProof2.Decode(&buf))
+
+	assertEqualProof(t, &proof, &decodedProof2)
 }
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,

@@ -422,6 +422,24 @@ type GroupKey struct {
 	Sig schnorr.Signature
 }
 
+// GroupKeyReveal is a type for representing the data used to derive the tweaked
+// key used to identify an asset group. The final tweaked key is the result of:
+// TapTweak(groupInternalKey, tapscriptRoot)
+type GroupKeyReveal struct {
+	// RawKey is the public key that is tweaked twice to derive the final
+	// tweaked group key. The final tweaked key is the result of:
+	// 	groupInternalKey =  RawKey * sha256(assetID || RawKey) * G.
+	// 	GroupPubKey = TapTweak(groupInternalKey, TapscriptRoot)
+	RawKey SerializedKey
+
+	// TapscriptRoot is the root of the Tapscript tree that commits to all
+	// script spend conditions for the group key. Instead of spending an
+	// asset, these scripts are used to define witnesses more complex than
+	// a Schnorr signature for reissuing assets. This is either empty/nil or
+	// a 32-byte hash.
+	TapscriptRoot []byte
+}
+
 // IsEqual returns true if this group key and signature are exactly equivalent
 // to the passed other group key.
 func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -335,4 +336,59 @@ func MetaTypeDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "MetaType")
+}
+
+func GenesisRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**asset.Genesis); ok {
+		return asset.GenesisEncoder(w, (*t), buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "GenesisReveal")
+}
+
+func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(**asset.Genesis); ok {
+		var genesis asset.Genesis
+		if err := asset.GenesisDecoder(r, &genesis, buf, l); err != nil {
+			return err
+		}
+
+		*typ = &genesis
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "GenesisReveal")
+}
+
+func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**asset.GroupKeyReveal); ok {
+		key := &(*t).RawKey
+		if err := asset.SerializedKeyEncoder(w, key, buf); err != nil {
+			return err
+		}
+		root := &(*t).TapscriptRoot
+		return tlv.EVarBytes(w, root, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
+}
+
+func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(**asset.GroupKeyReveal); ok {
+		var reveal asset.GroupKeyReveal
+		err := asset.SerializedKeyDecoder(
+			r, &reveal.RawKey, buf, btcec.PubKeyBytesLenCompressed,
+		)
+		if err != nil {
+			return err
+		}
+		remaining := l - btcec.PubKeyBytesLenCompressed
+		err = tlv.DVarBytes(r, &reveal.TapscriptRoot, buf, remaining)
+		if err != nil {
+			return err
+		}
+		*typ = &reveal
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
 }
