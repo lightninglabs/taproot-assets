@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -67,6 +68,10 @@ var (
 	NUMSScriptKey     = ScriptKey{
 		PubKey: NUMSPubKey,
 	}
+
+	// ErrUnknownVersion is returned when an asset with an unknown asset
+	// version is being used.
+	ErrUnknownVersion = errors.New("asset: unknown asset version")
 )
 
 const (
@@ -714,6 +719,17 @@ type Asset struct {
 	GroupKey *GroupKey
 }
 
+// IsUnknownVersion returns true if an asset has a version that is not
+// recognized by this implementation of tap.
+func (a *Asset) IsUnknownVersion() bool {
+	switch a.Version {
+	case V0:
+		return false
+	default:
+		return true
+	}
+}
+
 // New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	scriptKey ScriptKey, groupKey *GroupKey) (*Asset, error) {
@@ -1014,6 +1030,9 @@ func (a *Asset) Decode(r io.Reader) error {
 
 // Leaf returns the asset encoded as a MS-SMT leaf node.
 func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
+	if a.IsUnknownVersion() {
+		return nil, ErrUnknownVersion
+	}
 	var buf bytes.Buffer
 	if err := a.Encode(&buf); err != nil {
 		return nil, err
