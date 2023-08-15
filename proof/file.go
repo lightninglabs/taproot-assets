@@ -24,6 +24,10 @@ var (
 	// ErrNoProofAvailable is the error that's returned when a proof is
 	// attempted to be fetched from an empty file.
 	ErrNoProofAvailable = errors.New("no proof available")
+
+	// ErrUnknownVersion is returned when a proof with an unknown proof
+	// version is being used.
+	ErrUnknownVersion = errors.New("proof: unknown proof version")
 )
 
 // Version denotes the versioning scheme for proof files.
@@ -213,9 +217,33 @@ func (f *File) Decode(r io.Reader) error {
 	return nil
 }
 
+// IsUnknownVersion returns true if a proof has a version that is not
+// recognized by this implementation of tap.
+func (f *File) IsUnknownVersion() bool {
+	switch f.Version {
+	case V0:
+		return false
+	default:
+		return true
+	}
+}
+
 // IsEmpty returns true if the file does not contain any proofs.
 func (f *File) IsEmpty() bool {
 	return len(f.proofs) == 0
+}
+
+// IsValid combines multiple sanity checks for proof file validity.
+func (f *File) IsValid() error {
+	if f.IsEmpty() {
+		return ErrNoProofAvailable
+	}
+
+	if f.IsUnknownVersion() {
+		return ErrUnknownVersion
+	}
+
+	return nil
 }
 
 // NumProofs returns the number of proofs contained in this file.
@@ -226,8 +254,8 @@ func (f *File) NumProofs() int {
 // ProofAt returns the proof at the given index. If the file is empty, this
 // returns ErrNoProofAvailable.
 func (f *File) ProofAt(index uint32) (*Proof, error) {
-	if f.IsEmpty() {
-		return nil, ErrNoProofAvailable
+	if err := f.IsValid(); err != nil {
+		return nil, err
 	}
 
 	if index > uint32(len(f.proofs))-1 {
@@ -266,8 +294,8 @@ func (f *File) LocateProof(cb func(*Proof) bool) (*Proof, uint32, error) {
 // RawProofAt returns the raw proof at the given index as a byte slice. If the
 // file is empty, this returns nil.
 func (f *File) RawProofAt(index uint32) ([]byte, error) {
-	if f.IsEmpty() {
-		return nil, ErrNoProofAvailable
+	if err := f.IsValid(); err != nil {
+		return nil, err
 	}
 
 	if index > uint32(len(f.proofs))-1 {
@@ -283,8 +311,8 @@ func (f *File) RawProofAt(index uint32) ([]byte, error) {
 // LastProof returns the last proof in the chain of proofs. If the file is
 // empty, this return nil.
 func (f *File) LastProof() (*Proof, error) {
-	if f.IsEmpty() {
-		return nil, ErrNoProofAvailable
+	if err := f.IsValid(); err != nil {
+		return nil, err
 	}
 
 	return f.ProofAt(uint32(len(f.proofs)) - 1)
@@ -293,8 +321,8 @@ func (f *File) LastProof() (*Proof, error) {
 // RawLastProof returns the raw last proof in the chain of proofs as a byte
 // slice. If the file is empty, this return nil.
 func (f *File) RawLastProof() ([]byte, error) {
-	if f.IsEmpty() {
-		return nil, ErrNoProofAvailable
+	if err := f.IsValid(); err != nil {
+		return nil, err
 	}
 
 	return f.RawProofAt(uint32(len(f.proofs)) - 1)
@@ -303,6 +331,10 @@ func (f *File) RawLastProof() ([]byte, error) {
 // AppendProof appends a proof to the file and calculates its chained hash.
 func (f *File) AppendProof(proof Proof) error {
 	var prevHash [sha256.Size]byte
+	if f.IsUnknownVersion() {
+		return ErrUnknownVersion
+	}
+
 	if !f.IsEmpty() {
 		prevHash = f.proofs[len(f.proofs)-1].hash
 	}
@@ -329,8 +361,8 @@ func (f *File) ReplaceLastProof(proof Proof) error {
 // ReplaceProofAt attempts to replace the proof at the given index with another
 // one, updating its chained hash in the process.
 func (f *File) ReplaceProofAt(index uint32, proof Proof) error {
-	if f.IsEmpty() {
-		return fmt.Errorf("file is empty")
+	if err := f.IsValid(); err != nil {
+		return err
 	}
 
 	if index >= uint32(len(f.proofs)) {
