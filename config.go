@@ -2,6 +2,7 @@ package taprootassets
 
 import (
 	"net"
+	"net/url"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -97,6 +98,8 @@ type Config struct {
 	ChainBridge tapgarden.ChainBridge
 
 	AddrBook *address.Book
+
+	DefaultProofCourierAddr *url.URL
 
 	ProofArchive proof.Archiver
 
