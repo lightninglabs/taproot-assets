@@ -121,6 +121,7 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	if groupKey != nil {
 		leaf.GroupKey = &asset.GroupKey{
 			GroupPubKey: *groupKey,
+			Witness:     wire.TxWitness{test.RandBytes(64)},
 		}
 	}
 
@@ -451,9 +452,10 @@ func TestUniverseLeafQuery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, proofs, numLeafs)
 
-	// We should be able to retreive all the leafs based on their script
+	// We should be able to retrieve all the leafs based on their script
 	// keys.
-	for scriptKeyBytes, leaf := range leafToScriptKey {
+	for scriptKeyBytes := range leafToScriptKey {
+		leaf := leafToScriptKey[scriptKeyBytes]
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 

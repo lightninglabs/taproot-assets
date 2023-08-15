@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -162,7 +162,7 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 	targetSeedling := seedlings[randAssetName]
 	targetSeedling.EnableEmission = false
 	targetSeedling.GroupInfo = group
-	targetSeedling.GroupInfo.GroupKey.Sig = schnorr.Signature{}
+	targetSeedling.GroupInfo.GroupKey.Witness = nil
 
 	// Associate the asset name and group private key so that a new group
 	// signature can be made for the selected seedling.
@@ -806,6 +806,7 @@ func TestDuplicateGroupKey(t *testing.T) {
 	// what it is. What matters is that it's unique.
 	assetKey := AssetGroupKey{
 		TweakedGroupKey: rawKey,
+		TapscriptRoot:   test.RandBytes(32),
 		InternalKeyID:   keyID,
 		GenesisPointID:  genesisPointID,
 	}
@@ -908,8 +909,8 @@ func TestGroupStore(t *testing.T) {
 			reissueGroup.GroupKey.GroupPubKey,
 		)
 		require.NotEqual(
-			t, anchorGroup.GroupKey.Sig,
-			reissueGroup.GroupKey.Sig,
+			t, anchorGroup.GroupKey.Witness,
+			reissueGroup.GroupKey.Witness,
 		)
 
 		return nil
