@@ -547,6 +547,59 @@ func TestAssetGroupKey(t *testing.T) {
 	)
 }
 
+// TestUnknownVersion tests that an asset of an unknown version is rejected
+// before being inserted into an MS-SMT.
+func TestUnknownVersion(t *testing.T) {
+	t.Parallel()
+
+	rootGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 1,
+		},
+		Tag:         "asset",
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		OutputIndex: 1,
+		Type:        1,
+	}
+
+	root := &Asset{
+		Version:          212,
+		Genesis:          rootGen,
+		Amount:           1,
+		LockTime:         1337,
+		RelativeLockTime: 6,
+		PrevWitnesses: []Witness{{
+			PrevID: &PrevID{
+				OutPoint: wire.OutPoint{
+					Hash:  hashBytes2,
+					Index: 2,
+				},
+				ID:        hashBytes2,
+				ScriptKey: ToSerialized(pubKey),
+			},
+			TxWitness:       wire.TxWitness{{2}, {2}},
+			SplitCommitment: nil,
+		}},
+		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
+		ScriptVersion:       1,
+		ScriptKey:           NewScriptKey(pubKey),
+		GroupKey: &GroupKey{
+			GroupPubKey: *pubKey,
+			Sig:         *sig,
+		},
+	}
+
+	rootLeaf, err := root.Leaf()
+	require.Nil(t, rootLeaf)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	root.Version = V0
+	rootLeaf, err = root.Leaf()
+	require.NotNil(t, rootLeaf)
+	require.Nil(t, err)
+}
+
 func FuzzAssetDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := bytes.NewReader(data)
