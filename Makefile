@@ -282,6 +282,7 @@ gen-test-vectors:
 	make unit gen-test-vectors=true pkg=mssmt case=TestReplaceWithEmptyBranch
 	make unit gen-test-vectors=true pkg=mssmt case=TestReplace
 	make unit gen-test-vectors=true pkg=proof case=TestGenesisProofVerification
+	make unit gen-test-vectors=true pkg=proof case=TestUpdateManualProofs
 	make unit gen-test-vectors=true pkg=tappsbt case=TestEncodingDecoding
 	make unit gen-test-vectors=true pkg=vm case=TestVM
 
