@@ -1,6 +1,7 @@
 package address
 
 import (
+	"net/url"
 	"testing"
 	"time"
 
@@ -14,8 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// RandProofCourierAddr returns a proof courier address with fields populated
+// with valid but random values.
+func RandProofCourierAddr(t testing.TB) *url.URL {
+	addr, err := url.ParseRequestURI(
+		"hashmail://rand.hashmail.proof.courier:443",
+	)
+	require.NoError(t, err)
+
+	return addr
+}
+
 // RandAddr creates a random address for testing.
-func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
+func RandAddr(t testing.TB, params *ChainParams,
+	proofCourierAddr *url.URL) (*AddrWithKeyInfo,
 	*asset.Genesis, *asset.GroupKey) {
 
 	scriptKeyPriv := test.RandPrivKey(t)
@@ -55,6 +68,7 @@ func RandAddr(t testing.TB, params *ChainParams) (*AddrWithKeyInfo,
 	tapAddr, err := New(
 		genesis, groupPubKey, groupSig, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
+		proofCourierAddr,
 	)
 	require.NoError(t, err)
 
@@ -97,12 +111,13 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 	t.Helper()
 
 	ta := &TestAddress{
-		ChainParamsHRP: a.ChainParams.TapHRP,
-		AssetVersion:   uint8(a.AssetVersion),
-		AssetID:        a.AssetID.String(),
-		ScriptKey:      test.HexPubKey(&a.ScriptKey),
-		InternalKey:    test.HexPubKey(&a.InternalKey),
-		Amount:         a.Amount,
+		ChainParamsHRP:   a.ChainParams.TapHRP,
+		AssetVersion:     uint8(a.AssetVersion),
+		AssetID:          a.AssetID.String(),
+		ScriptKey:        test.HexPubKey(&a.ScriptKey),
+		InternalKey:      test.HexPubKey(&a.InternalKey),
+		Amount:           a.Amount,
+		ProofCourierAddr: a.ProofCourierAddr.String(),
 	}
 
 	if a.GroupKey != nil {
@@ -127,6 +142,7 @@ type TestAddress struct {
 	InternalKey      string `json:"internal_key"`
 	TapscriptSibling string `json:"tapscript_sibling"`
 	Amount           uint64 `json:"amount"`
+	ProofCourierAddr string `json:"proof_courier_addr"`
 }
 
 func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
@@ -170,13 +186,19 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 		panic(err)
 	}
 
+	proofCourierAddr, err := url.ParseRequestURI(ta.ProofCourierAddr)
+	if err != nil {
+		panic(err)
+	}
+
 	a := &Tap{
-		ChainParams:  chainParams,
-		AssetVersion: asset.Version(ta.AssetVersion),
-		AssetID:      test.Parse32Byte(t, ta.AssetID),
-		ScriptKey:    *test.ParsePubKey(t, ta.ScriptKey),
-		InternalKey:  *test.ParsePubKey(t, ta.InternalKey),
-		Amount:       ta.Amount,
+		ChainParams:      chainParams,
+		AssetVersion:     asset.Version(ta.AssetVersion),
+		AssetID:          test.Parse32Byte(t, ta.AssetID),
+		ScriptKey:        *test.ParsePubKey(t, ta.ScriptKey),
+		InternalKey:      *test.ParsePubKey(t, ta.InternalKey),
+		Amount:           ta.Amount,
+		ProofCourierAddr: proofCourierAddr,
 	}
 
 	if ta.GroupKey != "" {

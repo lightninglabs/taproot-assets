@@ -3,6 +3,7 @@ package address
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -173,7 +174,8 @@ func NewBook(cfg BookConfig) *Book {
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
-	tapscriptSibling *commitment.TapscriptPreimage) (*AddrWithKeyInfo,
+	tapscriptSibling *commitment.TapscriptPreimage,
+	proofCourierAddr *url.URL) (*AddrWithKeyInfo,
 	error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
@@ -200,7 +202,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 
 	return b.NewAddressWithKeys(
 		ctx, assetID, amount, scriptKey, internalKeyDesc,
-		tapscriptSibling,
+		tapscriptSibling, proofCourierAddr,
 	)
 }
 
@@ -209,7 +211,8 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
-	tapscriptSibling *commitment.TapscriptPreimage) (*AddrWithKeyInfo,
+	tapscriptSibling *commitment.TapscriptPreimage,
+	proofCourierAddr *url.URL) (*AddrWithKeyInfo,
 	error) {
 
 	// Before we proceed, we'll make sure that the asset group is known to
@@ -233,6 +236,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	baseAddr, err := New(
 		*assetGroup.Genesis, groupKey, groupSig, *scriptKey.PubKey,
 		*internalKeyDesc.PubKey, amount, tapscriptSibling, &b.cfg.Chain,
+		proofCourierAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)

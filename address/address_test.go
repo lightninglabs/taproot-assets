@@ -68,9 +68,11 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 		groupSig = &groupInfo.Sig
 	}
 
+	proofCourierAddr := RandProofCourierAddr(t)
+
 	return New(
 		genesis, groupKey, groupSig, pubKeyCopy1, pubKeyCopy2, amount,
-		tapscriptSibling, net,
+		tapscriptSibling, net, proofCourierAddr,
 	)
 }
 

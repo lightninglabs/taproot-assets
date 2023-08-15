@@ -124,9 +124,12 @@ func initSpendScenario(t *testing.T) spendData {
 
 	// Addresses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
+	proofCourierAddr := address.RandProofCourierAddr(t)
+
 	address1, err := address.New(
 		state.genesis1, nil, nil, state.receiverPubKey,
 		state.receiverPubKey, state.normalAmt1, nil, &address.MainNetTap,
+		proofCourierAddr,
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
@@ -135,7 +138,7 @@ func initSpendScenario(t *testing.T) spendData {
 	address1CollectGroup, err := address.New(
 		state.genesis1collect, &state.groupKey.GroupPubKey,
 		&state.groupKey.Sig, state.receiverPubKey, state.receiverPubKey,
-		state.collectAmt, nil, &address.TestNet3Tap,
+		state.collectAmt, nil, &address.TestNet3Tap, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
@@ -144,7 +147,8 @@ func initSpendScenario(t *testing.T) spendData {
 
 	address2, err := address.New(
 		state.genesis1, nil, nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt2, nil, &address.MainNetTap,
+		state.receiverPubKey, state.normalAmt2, nil,
+		&address.MainNetTap, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	state.address2 = *address2
@@ -2019,7 +2023,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		address1testnet, err := address.New(
 			state.genesis1, nil, nil, state.receiverPubKey,
 			state.receiverPubKey, state.normalAmt1, nil,
-			&address.TestNet3Tap,
+			&address.TestNet3Tap, address.RandProofCourierAddr(t),
 		)
 		require.NoError(t, err)
 
@@ -2092,6 +2096,7 @@ func TestPayToAddrScript(t *testing.T) {
 	addr1, err := address.New(
 		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
 		sendAmt, nil, &address.RegressionNetTap,
+		address.RandProofCourierAddr(t),
 	)
 	require.NoError(t, err)
 
@@ -2108,6 +2113,7 @@ func TestPayToAddrScript(t *testing.T) {
 	addr2, err := address.New(
 		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
 		sendAmt, sibling, &address.RegressionNetTap,
+		address.RandProofCourierAddr(t),
 	)
 	require.NoError(t, err)
 
