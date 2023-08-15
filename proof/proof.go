@@ -125,6 +125,19 @@ type Proof struct {
 	// NUMS key, to prove that the creator of the proof is able to produce
 	// a valid signature to spend the asset.
 	ChallengeWitness wire.TxWitness
+
+	// GenesisReveal is the Genesis information for an asset, that must be
+	// provided for minting proofs, and must be empty for non-minting
+	// proofs. This allows for derivation of the asset ID. If the asset is
+	// part of an asset group, the Genesis information is also used for
+	// rederivation of the asset group key.
+	GenesisReveal *asset.Genesis
+
+	// GroupKeyReveal is an optional set of bytes that represent the public
+	// key and Tapscript root used to derive the final tweaked group key for
+	// the asset group. This field must be provided for issuance proofs of
+	// grouped assets.
+	GroupKeyReveal *asset.GroupKeyReveal
 }
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
@@ -160,6 +173,14 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 		))
 	}
 	records = append(records, BlockHeightRecord(&p.BlockHeight))
+	if p.GenesisReveal != nil {
+		records = append(records, GenesisRevealRecord(&p.GenesisReveal))
+	}
+	if p.GroupKeyReveal != nil {
+		records = append(records, GroupKeyRevealRecord(
+			&p.GroupKeyReveal,
+		))
+	}
 	return records
 }
 
@@ -178,6 +199,8 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		AdditionalInputsRecord(&p.AdditionalInputs),
 		ChallengeWitnessRecord(&p.ChallengeWitness),
 		BlockHeightRecord(&p.BlockHeight),
+		GenesisRevealRecord(&p.GenesisReveal),
+		GroupKeyRevealRecord(&p.GroupKeyReveal),
 	}
 }
 
