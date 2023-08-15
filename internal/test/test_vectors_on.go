@@ -16,6 +16,10 @@ var (
 	// rand is a global instance of a pseudo random generator. It is seeded
 	// with a static value to allow generating deterministic test vectors.
 	rand = prand.New(prand.NewSource(1))
+
+	// GeneratingTestVectors contains the state of the gen_test_vectors
+	// build tag as a boolean value.
+	GeneratingTestVectors = true
 )
 
 func ParseTestVectors(t testing.TB, fileName string, target any) {
