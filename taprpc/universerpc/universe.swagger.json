@@ -1149,10 +1149,10 @@
           "format": "byte",
           "description": "The tweaked group key, which is derived based on the genesis point and also\nasset type."
         },
-        "asset_id_sig": {
+        "asset_witness": {
           "type": "string",
           "format": "byte",
-          "description": "A signature over the genesis point using the above key."
+          "description": "A witness that authorizes a specific asset to be part of the asset group\nspecified by the above key."
         }
       }
     },
