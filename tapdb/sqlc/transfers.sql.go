@@ -13,19 +13,19 @@ import (
 
 const applyPendingOutput = `-- name: ApplyPendingOutput :one
 WITH spent_asset AS (
-    SELECT genesis_id, version, asset_group_sig_id, script_version, lock_time,
+    SELECT genesis_id, version, asset_group_witness_id, script_version, lock_time,
            relative_lock_time
     FROM assets
     WHERE assets.asset_id = $7
 )
 INSERT INTO assets (
-    genesis_id, version, asset_group_sig_id, script_version, lock_time,
+    genesis_id, version, asset_group_witness_id, script_version, lock_time,
     relative_lock_time, script_key_id, anchor_utxo_id, amount,
     split_commitment_root_hash, split_commitment_root_value, spent
 ) VALUES (
     (SELECT genesis_id FROM spent_asset),
     (SELECT version FROM spent_asset),
-    (SELECT asset_group_sig_id FROM spent_asset),
+    (SELECT asset_group_witness_id FROM spent_asset),
     (SELECT script_version FROM spent_asset),
     (SELECT lock_time FROM spent_asset),
     (SELECT relative_lock_time FROM spent_asset),
