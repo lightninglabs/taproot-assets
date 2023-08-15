@@ -573,7 +573,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 
 			issuanceProof.Leaf.GroupKey = &asset.GroupKey{
 				GroupPubKey: *id.GroupKey,
-				Sig:         leafAssetGroup.Sig,
+				Witness:     leafAssetGroup.Witness,
 			}
 		}
 

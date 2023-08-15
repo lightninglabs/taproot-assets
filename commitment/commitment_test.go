@@ -73,7 +73,7 @@ func TestNewAssetCommitment(t *testing.T) {
 	copyOfGroupKey1Collectible := &asset.GroupKey{
 		RawKey:      groupKey1Collectible.RawKey,
 		GroupPubKey: groupKey1Collectible.GroupPubKey,
-		Sig:         groupKey1Collectible.Sig,
+		Witness:     groupKey1Collectible.Witness,
 	}
 	group1Reissued := randAsset(t, genesis2, nil)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
@@ -868,7 +868,7 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	copyOfGroupKey1 := &asset.GroupKey{
 		RawKey:      groupKey1.RawKey,
 		GroupPubKey: groupKey1.GroupPubKey,
-		Sig:         groupKey1.Sig,
+		Witness:     groupKey1.Witness,
 	}
 	group1Reissued := randAsset(t, genesis2, nil)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(

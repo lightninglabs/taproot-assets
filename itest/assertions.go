@@ -654,7 +654,7 @@ func assertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 		eg := expected.AssetGroup
 		ag := actual.AssetGroup
 
-		require.Equal(t, eg.AssetIdSig, ag.AssetIdSig)
+		require.Equal(t, eg.AssetWitness, ag.AssetWitness)
 		require.Equal(t, eg.TweakedGroupKey, ag.TweakedGroupKey)
 	}
 }

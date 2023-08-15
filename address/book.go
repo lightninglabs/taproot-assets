@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -224,17 +223,17 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	}
 
 	var (
-		groupKey *btcec.PublicKey
-		groupSig *schnorr.Signature
+		groupKey     *btcec.PublicKey
+		groupWitness wire.TxWitness
 	)
 
 	if assetGroup.GroupKey != nil {
 		groupKey = &assetGroup.GroupPubKey
-		groupSig = &assetGroup.Sig
+		groupWitness = assetGroup.Witness
 	}
 
 	baseAddr, err := New(
-		*assetGroup.Genesis, groupKey, groupSig, *scriptKey.PubKey,
+		*assetGroup.Genesis, groupKey, groupWitness, *scriptKey.PubKey,
 		*internalKeyDesc.PubKey, amount, tapscriptSibling, &b.cfg.Chain,
 		proofCourierAddr,
 	)

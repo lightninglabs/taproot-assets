@@ -1489,6 +1489,82 @@ func TestAssetGroupSigUpsert(t *testing.T) {
 	require.Equal(t, groupSigID, groupSigID2)
 }
 
+// TestAssetGroupKeyUpsert tests that if you try to insert another asset group
+// key with the same tweaked_group_key, then only one is actually created.
+func TestAssetGroupKeyUpsert(t *testing.T) {
+	t.Parallel()
+
+	_, _, db := newAssetStore(t)
+	ctx := context.Background()
+
+	internalKey := test.RandPubKey(t)
+	groupKey := internalKey.SerializeCompressed()
+	keyIndex := test.RandInt[int32]()
+	scriptRoot := test.RandBytes(32)
+	witness := test.RandBytes(64)
+
+	// First, we'll insert all the required rows we need to satisfy the
+	// foreign key constraints needed to insert a new genesis sig.
+	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    groupKey,
+		KeyFamily: asset.TaprootAssetsKeyFamily,
+		KeyIndex:  keyIndex,
+	})
+	require.NoError(t, err)
+
+	genesisPointID, err := upsertGenesisPoint(ctx, db, test.RandOp(t))
+	require.NoError(t, err)
+
+	// Now we'll insert an asset group key. We use a non-empty tapscript
+	// root to test that we can fetch the tapscript root after the upsert,
+	// even though we only store empty tapscript roots currently.
+	groupID, err := db.UpsertAssetGroupKey(ctx, AssetGroupKey{
+		TweakedGroupKey: groupKey,
+		TapscriptRoot:   scriptRoot,
+		InternalKeyID:   keyID,
+		GenesisPointID:  genesisPointID,
+	})
+	require.NoError(t, err)
+
+	// If we insert the very same group key, then we should get the same
+	// group ID back.
+	groupID2, err := db.UpsertAssetGroupKey(ctx, AssetGroupKey{
+		TweakedGroupKey: groupKey,
+		TapscriptRoot:   scriptRoot,
+		InternalKeyID:   keyID,
+		GenesisPointID:  genesisPointID,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, groupID, groupID2)
+
+	// Insert a genesis and group sig to fill out the group key view.
+	genAssetID, err := upsertGenesis(
+		ctx, db, genesisPointID, asset.RandGenesis(t, asset.Normal),
+	)
+	require.NoError(t, err)
+
+	_, err = db.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
+		WitnessStack: witness,
+		GenAssetID:   genAssetID,
+		GroupKeyID:   groupID,
+	})
+	require.NoError(t, err)
+
+	// If we fetch the group key, it should match the inserted fields.
+	groupInfo, err := db.FetchGroupByGroupKey(ctx, groupKey[:])
+	require.NoError(t, err)
+
+	require.Equal(t, genAssetID, groupInfo.GenAssetID)
+	require.Equal(t, groupKey, groupInfo.RawKey)
+	require.EqualValues(
+		t, asset.TaprootAssetsKeyFamily, groupInfo.KeyFamily,
+	)
+	require.Equal(t, keyIndex, groupInfo.KeyIndex)
+	require.Equal(t, scriptRoot, groupInfo.TapscriptRoot)
+	require.Equal(t, witness, groupInfo.WitnessStack)
+}
+
 // TestFetchGroupedAssets tests that the FetchGroupedAssets query corectly
 // excludes assets with nil group keys, groups assets with matching group
 // keys, and returns other asset fields accurately.

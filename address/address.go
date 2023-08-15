@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -97,9 +98,11 @@ type Tap struct {
 	// asset to be made possible.
 	GroupKey *btcec.PublicKey
 
-	// groupSig is the signature of the asset genesis with the group key
-	// that is used to verify asset membership in a group.
-	groupSig *schnorr.Signature
+	// groupWitness is a stack of witness elements that authorizes the
+	// membership of an asset in a partiular asset group. The witness can
+	// be a single signature or a script from the tapscript tree committed
+	// to with the TapscriptRoot, and follows the witness rules in BIP-341.
+	groupWitness wire.TxWitness
 
 	// ScriptKey represents a tweaked Taproot output key encumbering the
 	// different ways an asset can be spent.
@@ -127,7 +130,7 @@ type Tap struct {
 
 // New creates an address for receiving a Taproot asset.
 func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
-	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
+	groupWitness wire.TxWitness, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
 	net *ChainParams, proofCourierAddr *url.URL) (*Tap, error) {
@@ -163,7 +166,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		}
 	}
 
-	if groupKey != nil && groupSig == nil {
+	if groupKey != nil && len(groupWitness) == 0 {
 		return nil, fmt.Errorf("address: missing group signature")
 	}
 
@@ -172,7 +175,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		AssetVersion:     asset.V0,
 		AssetID:          genesis.ID(),
 		GroupKey:         groupKey,
-		groupSig:         groupSig,
+		groupWitness:     groupWitness,
 		ScriptKey:        scriptKey,
 		InternalKey:      internalKey,
 		TapscriptSibling: tapscriptSibling,
@@ -191,9 +194,8 @@ func (a *Tap) Copy() *Tap {
 		groupPubKey := *a.GroupKey
 		addressCopy.GroupKey = &groupPubKey
 	}
-	if a.groupSig != nil {
-		groupSig := *a.groupSig
-		addressCopy.groupSig = &groupSig
+	if len(a.groupWitness) != 0 {
+		addressCopy.groupWitness = fn.CopySlice(a.groupWitness)
 	}
 
 	return &addressCopy
@@ -215,9 +217,9 @@ func (a *Tap) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
 }
 
-// AttachGroupSig attaches the asset's group signature to the address.
-func (a *Tap) AttachGroupSig(sig schnorr.Signature) {
-	a.groupSig = &sig
+// AttachGroupWitness attaches the asset's group witness to the address.
+func (a *Tap) AttachGroupWitness(wit wire.TxWitness) {
+	a.groupWitness = wit
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset
@@ -248,13 +250,13 @@ func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 	// it in the TLV leaf.
 	var groupKey *asset.GroupKey
 	if a.GroupKey != nil {
-		if a.groupSig == nil {
+		if len(a.groupWitness) == 0 {
 			return nil, fmt.Errorf("missing group signature")
 		}
 
 		groupKey = &asset.GroupKey{
 			GroupPubKey: *a.GroupKey,
-			Sig:         *a.groupSig,
+			Witness:     a.groupWitness,
 		}
 	}
 	newAsset, err := asset.New(
