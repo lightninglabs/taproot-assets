@@ -7,9 +7,9 @@ import (
 
 	"github.com/btcsuite/btclog"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/lightningnetwork/lnd/monitoring"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -240,7 +240,7 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 	// Get interceptors for Prometheus to gather gRPC performance metrics.
 	// If monitoring is disabled, GetPromInterceptors() will return empty
 	// slices.
-	promUnaryInterceptors, promStrmInterceptors := monitoring.GetPromInterceptors()
+	promUnaryInterceptors, promStrmInterceptors := monitoring.GetPromInterceptors(nil) //nolint:lll
 
 	// Concatenate the slices of unary and stream interceptors respectively.
 	unaryInterceptors = append(unaryInterceptors, promUnaryInterceptors...)
