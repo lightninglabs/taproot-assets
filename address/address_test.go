@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -58,21 +59,21 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	genesis := asset.RandGenesis(t, assetType)
 
 	var (
-		groupKey *btcec.PublicKey
-		groupSig *schnorr.Signature
+		groupKey     *btcec.PublicKey
+		groupWitness wire.TxWitness
 	)
 
 	if groupPubKey {
 		groupInfo := asset.RandGroupKey(t, genesis)
 		groupKey = &groupInfo.GroupPubKey
-		groupSig = &groupInfo.Sig
+		groupWitness = groupInfo.Witness
 	}
 
 	proofCourierAddr := RandProofCourierAddr(t)
 
 	return New(
-		genesis, groupKey, groupSig, pubKeyCopy1, pubKeyCopy2, amount,
-		tapscriptSibling, net, proofCourierAddr,
+		genesis, groupKey, groupWitness, pubKeyCopy1, pubKeyCopy2,
+		amount, tapscriptSibling, net, proofCourierAddr,
 	)
 }
 

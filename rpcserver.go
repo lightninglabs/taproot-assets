@@ -677,14 +677,27 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	if a.GroupKey != nil {
-		var rawKey []byte
+		var (
+			rawKey       []byte
+			groupWitness []byte
+			err          error
+		)
+
 		if a.GroupKey.RawKey.PubKey != nil {
 			rawKey = a.GroupKey.RawKey.PubKey.SerializeCompressed()
+		}
+		if len(a.GroupKey.Witness) != 0 {
+			groupWitness, err = asset.SerializeGroupWitness(
+				a.GroupKey.Witness,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 		rpcAsset.AssetGroup = &taprpc.AssetGroup{
 			RawGroupKey:     rawKey,
 			TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
-			AssetIdSig:      a.GroupKey.Sig.Serialize(),
+			AssetWitness:    groupWitness,
 		}
 	}
 
@@ -1475,7 +1488,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		addr.AttachGenesis(*assetGroup.Genesis)
 
 		if assetGroup.GroupKey != nil {
-			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
 		}
 
 		taprootOutputKey, err := addr.TaprootOutputKey()
@@ -1780,7 +1793,7 @@ func marshalAddr(addr *address.Tap,
 		addr.AttachGenesis(*assetGroup.Genesis)
 
 		if assetGroup.GroupKey != nil {
-			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
+			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
 		}
 
 		outputKey, err := addr.TaprootOutputKey()
