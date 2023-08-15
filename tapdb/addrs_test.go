@@ -149,9 +149,12 @@ func TestAddressInsertion(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr()
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		addrs[i] = *addr
 
@@ -168,6 +171,11 @@ func TestAddressInsertion(t *testing.T) {
 	dbAddrs, err := addrBook.QueryAddrs(ctx, address.QueryParams{})
 	require.NoError(t, err)
 
+	// Set proof courier addresses on dbAddrs.
+	for i := range dbAddrs {
+		dbAddrs[i].ProofCourierAddr = proofCourierAddr
+	}
+
 	// The returned addresses should match up exactly.
 	require.Len(t, dbAddrs, numAddrs)
 	assertEqualAddrs(t, addrs, dbAddrs)
@@ -179,6 +187,9 @@ func TestAddressInsertion(t *testing.T) {
 			ctx, &addr.TaprootOutputKey,
 		)
 		require.NoError(t, err)
+
+		dbAddr.ProofCourierAddr = proofCourierAddr
+
 		assertEqualAddr(t, addr, *dbAddr)
 
 		// Also make sure the script key for this address was inserted
@@ -194,6 +205,12 @@ func TestAddressInsertion(t *testing.T) {
 		UnmanagedOnly: true,
 	})
 	require.NoError(t, err)
+
+	// Set proof courier addresses on dbAddrs.
+	for i := range dbAddrs {
+		dbAddrs[i].ProofCourierAddr = proofCourierAddr
+	}
+
 	require.Len(t, dbAddrs, numAddrs)
 	assertEqualAddrs(t, addrs, dbAddrs)
 
@@ -209,6 +226,12 @@ func TestAddressInsertion(t *testing.T) {
 		UnmanagedOnly: true,
 	})
 	require.NoError(t, err)
+
+	// Set proof courier addresses on dbAddrs.
+	for i := range dbAddrs {
+		dbAddrs[i].ProofCourierAddr = proofCourierAddr
+	}
+
 	require.Len(t, dbAddrs, 3)
 
 	// The ORDER BY clause should make sure the unmanaged addresses are
@@ -240,9 +263,12 @@ func TestAddressQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr()
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
@@ -354,7 +380,10 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+	proofCourierAddr := address.RandProofCourierAddr()
+	addr, assetGen, assetGroup := address.RandAddr(
+		t, chainParams, proofCourierAddr,
+	)
 
 	var writeTxOpts AddrBookTxOptions
 	err := addrBook.db.ExecTx(
@@ -387,10 +416,13 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr()
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		var writeTxOpts AddrBookTxOptions
 		err := addrBook.db.ExecTx(
@@ -411,6 +443,7 @@ func TestAddrEventCreation(t *testing.T) {
 		)
 		require.NoError(t, err)
 
+		event.Addr.ProofCourierAddr = proofCourierAddr
 		events[i] = event
 	}
 
@@ -419,6 +452,12 @@ func TestAddrEventCreation(t *testing.T) {
 		ctx, address.EventQueryParams{},
 	)
 	require.NoError(t, err)
+
+	// Set proof courier address on pending events.
+	for idx := range pendingEvents {
+		pendingEvents[idx].Addr.ProofCourierAddr = proofCourierAddr
+	}
+
 	assertEqualAddrEvents(t, events, pendingEvents)
 
 	// If we try to create the same events again, we should just get the
@@ -429,6 +468,8 @@ func TestAddrEventCreation(t *testing.T) {
 			events[idx].Addr, txns[idx], events[idx].Outpoint.Index,
 		)
 		require.NoError(t, err)
+
+		actual.Addr.ProofCourierAddr = proofCourierAddr
 
 		assertEqualAddrEvent(t, *events[idx], *actual)
 	}
@@ -464,9 +505,12 @@ func TestAddressEventQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr()
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,

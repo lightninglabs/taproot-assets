@@ -32,6 +32,9 @@ const (
 
 	// addrAmountType is the TLV type of the amount of the asset.
 	addrAmountType addressTLVType = 8
+
+	// addrProofCourierType is the TLV type of the proof courier address.
+	addrProofCourierAddrType addressTLVType = 10
 )
 
 func newAddressVersionRecord(version *asset.Version) tlv.Record {
@@ -89,5 +92,14 @@ func newAddressAmountRecord(amount *uint64) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		addrAmountType, amount, recordSize,
 		asset.VarIntEncoder, asset.VarIntDecoder,
+	)
+}
+
+func newProofCourierAddrRecord(addr *ProofCourierAddr) tlv.Record {
+	addrBytes := []byte(*addr)
+	recordSize := tlv.SizeVarBytes(&addrBytes)
+	return tlv.MakeDynamicRecord(
+		addrProofCourierAddrType, &addrBytes, recordSize,
+		tlv.EVarBytes, tlv.DVarBytes,
 	)
 }

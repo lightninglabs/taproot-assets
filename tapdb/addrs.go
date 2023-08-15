@@ -416,7 +416,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 			tapAddr, err := address.New(
 				assetGenesis, groupKey, groupSig, *scriptKey,
 				*internalKey, uint64(addr.Amount),
-				tapscriptSibling, t.params,
+				tapscriptSibling, t.params, nil,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
@@ -552,7 +552,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 
 	tapAddr, err := address.New(
 		genesis, groupKey, groupSig, *scriptKey, *internalKey,
-		uint64(dbAddr.Amount), tapscriptSibling, params,
+		uint64(dbAddr.Amount), tapscriptSibling, params, nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)

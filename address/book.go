@@ -138,6 +138,10 @@ type BookConfig struct {
 	// Chain points to the chain the address.Book is active on.
 	Chain ChainParams
 
+	// ProofCourierAddr is the address of the proof courier service to use
+	// for proof transfer.
+	ProofCourierAddr ProofCourierAddr
+
 	// StoreTimeout is the default timeout to use for any storage
 	// interaction.
 	StoreTimeout time.Duration
@@ -233,6 +237,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	baseAddr, err := New(
 		*assetGroup.Genesis, groupKey, groupSig, *scriptKey.PubKey,
 		*internalKeyDesc.PubKey, amount, tapscriptSibling, &b.cfg.Chain,
+		b.cfg.ProofCourierAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)
@@ -327,7 +332,17 @@ func (b *Book) NextScriptKey(ctx context.Context,
 func (b *Book) ListAddrs(ctx context.Context,
 	params QueryParams) ([]AddrWithKeyInfo, error) {
 
-	return b.cfg.Store.QueryAddrs(ctx, params)
+	addrs, err := b.cfg.Store.QueryAddrs(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the proof courier address to all Tap addresses.
+	for i := range addrs {
+		addrs[i].Tap.ProofCourierAddr = b.cfg.ProofCourierAddr
+	}
+
+	return addrs, nil
 }
 
 // AddrByTaprootOutput returns a single address based on its Taproot output key
@@ -335,7 +350,13 @@ func (b *Book) ListAddrs(ctx context.Context,
 func (b *Book) AddrByTaprootOutput(ctx context.Context,
 	key *btcec.PublicKey) (*AddrWithKeyInfo, error) {
 
-	return b.cfg.Store.AddrByTaprootOutput(ctx, key)
+	addr, err := b.cfg.Store.AddrByTaprootOutput(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	addr.ProofCourierAddr = b.cfg.ProofCourierAddr
+	return addr, nil
 }
 
 // SetAddrManaged sets an address as being managed by the internal
@@ -374,7 +395,16 @@ func (b *Book) GetPendingEvents(ctx context.Context) ([]*Event, error) {
 func (b *Book) QueryEvents(ctx context.Context,
 	query EventQueryParams) ([]*Event, error) {
 
-	return b.cfg.Store.QueryAddrEvents(ctx, query)
+	events, err := b.cfg.Store.QueryAddrEvents(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range events {
+		events[i].Addr.ProofCourierAddr = b.cfg.ProofCourierAddr
+	}
+
+	return events, nil
 }
 
 // CompleteEvent updates an address event as being complete and links it with
@@ -442,4 +472,8 @@ func (b *Book) RemoveSubscriber(
 	delete(b.subscribers, subscriber.ID())
 
 	return nil
+}
+
+func (b *Book) ProofCourierAddr() ProofCourierAddr {
+	return b.cfg.ProofCourierAddr
 }

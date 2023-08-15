@@ -78,6 +78,12 @@ const (
 	TapScriptVersion uint8 = 0
 )
 
+// ProofCourierAddr is the address of the proof courier that will be used to
+// distribute related proofs for this address.
+//
+// NOTE: See the proof package for more details.
+type ProofCourierAddr []byte
+
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
 // asset, pubkey, and amount.
 type Tap struct {
@@ -118,6 +124,10 @@ type Tap struct {
 	// assetGen is the receiving asset's genesis metadata which directly
 	// maps to its unique ID within the Taproot Asset protocol.
 	assetGen asset.Genesis
+
+	// ProofCourierAddr is the address of the proof courier that will be
+	// used to distribute related proofs for this address.
+	ProofCourierAddr ProofCourierAddr
 }
 
 // New creates an address for receiving a Taproot asset.
@@ -125,7 +135,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	net *ChainParams) (*Tap, error) {
+	net *ChainParams, proofCourierAddr ProofCourierAddr) (*Tap, error) {
 
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
@@ -173,6 +183,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		TapscriptSibling: tapscriptSibling,
 		Amount:           amt,
 		assetGen:         genesis,
+		ProofCourierAddr: proofCourierAddr,
 	}
 	return &payload, nil
 }
@@ -312,6 +323,10 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	}
 	records = append(records, newAddressAmountRecord(&a.Amount))
 
+	records = append(
+		records, newProofCourierAddrRecord(&a.ProofCourierAddr),
+	)
+
 	return records
 }
 
@@ -326,6 +341,7 @@ func (a *Tap) DecodeRecords() []tlv.Record {
 		newAddressInternalKeyRecord(&a.InternalKey),
 		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
+		newProofCourierAddrRecord(&a.ProofCourierAddr),
 	}
 }
 

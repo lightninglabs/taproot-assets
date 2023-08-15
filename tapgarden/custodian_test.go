@@ -44,11 +44,13 @@ func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
 
 	addrTx := tapdb.NewTransactionExecutor(db, txCreator)
 	tapdbBook := tapdb.NewTapAddressBook(addrTx, chainParams)
+	proofCourierAddr := address.RandProofCourierAddr()
 	book := address.NewBook(address.BookConfig{
-		Store:        tapdbBook,
-		StoreTimeout: testTimeout,
-		Chain:        *chainParams,
-		KeyRing:      keyRing,
+		Store:            tapdbBook,
+		StoreTimeout:     testTimeout,
+		Chain:            *chainParams,
+		KeyRing:          keyRing,
+		ProofCourierAddr: proofCourierAddr,
 	})
 	return book, tapdbBook, db
 }
@@ -164,7 +166,9 @@ func newHarness(t *testing.T,
 }
 
 func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
-	addr, genesis, group := address.RandAddr(h.t, &address.RegressionNetTap)
+	addr, genesis, group := address.RandAddr(
+		h.t, &address.RegressionNetTap, h.addrBook.ProofCourierAddr(),
+	)
 
 	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
 	require.NoError(h.t, err)
@@ -312,7 +316,7 @@ func mustMakeAddr(t *testing.T,
 	var p btcec.PublicKey
 	addr, err := address.New(
 		gen, groupKey, groupSig, scriptKey,
-		p, 1, nil, &address.TestNet3Tap,
+		p, 1, nil, &address.TestNet3Tap, nil,
 	)
 	require.NoError(t, err)
 
