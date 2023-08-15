@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -488,9 +487,9 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				return nil, err
 			}
 
-			// Clear the group signature, which is for the group
+			// Clear the group witness, which is for the group
 			// anchor and not this seedling.
-			seedlingGroup.Sig = schnorr.Signature{}
+			seedlingGroup.Witness = nil
 
 			seedling.GroupInfo = seedlingGroup
 		}
@@ -572,7 +571,9 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 			if err != nil {
 				return nil, err
 			}
-			groupSig, err := schnorr.ParseSignature(sprout.WitnessStack)
+			groupWitness, err := asset.ParseGroupWitness(
+				sprout.WitnessStack,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -592,7 +593,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 					},
 				},
 				GroupPubKey: *tweakedGroupKey,
-				Sig:         *groupSig,
+				Witness:     groupWitness,
 			}
 		}
 

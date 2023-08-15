@@ -137,7 +137,7 @@ func initSpendScenario(t *testing.T) spendData {
 
 	address1CollectGroup, err := address.New(
 		state.genesis1collect, &state.groupKey.GroupPubKey,
-		&state.groupKey.Sig, state.receiverPubKey, state.receiverPubKey,
+		state.groupKey.Witness, state.receiverPubKey, state.receiverPubKey,
 		state.collectAmt, nil, &address.TestNet3Tap, proofCourierAddr,
 	)
 	require.NoError(t, err)
