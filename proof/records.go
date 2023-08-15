@@ -23,6 +23,8 @@ const (
 	AdditionalInputsType tlv.Type = 9
 	ChallengeWitnessType tlv.Type = 10
 	BlockHeightType      tlv.Type = 11
+	GenesisRevealType    tlv.Type = 12
+	GroupKeyRevealType   tlv.Type = 13
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 1
@@ -285,4 +287,29 @@ func MetaRevealTypeRecord(metaType *MetaType) tlv.Record {
 
 func MetaRevealDataRecord(data *[]byte) tlv.Record {
 	return tlv.MakePrimitiveRecord(MetaRevealDataType, data)
+}
+
+func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := GenesisRevealEncoder(&b, genesis, &buf); err != nil {
+			panic(err)
+		}
+		return uint64(len(b.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		GenesisRevealType, genesis, recordSize, GenesisRevealEncoder,
+		GenesisRevealDecoder,
+	)
+}
+
+func GroupKeyRevealRecord(preimage **asset.GroupKeyReveal) tlv.Record {
+	const recordSize = asset.GroupKeyRevealLen
+	return tlv.MakeStaticRecord(
+		GroupKeyRevealType, preimage, recordSize, GroupKeyRevealEncoder,
+		GroupKeyRevealDecoder,
+	)
 }
