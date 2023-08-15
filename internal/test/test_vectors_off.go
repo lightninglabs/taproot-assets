@@ -18,6 +18,10 @@ var (
 	// with the current time when the package is loaded when we don't
 	// require deterministic test vectors.
 	rand = prand.New(prand.NewSource(time.Now().Unix()))
+
+	// GeneratingTestVectors contains the state of the gen_test_vectors
+	// build tag as a boolean value.
+	GeneratingTestVectors = false
 )
 
 func ParseTestVectors(t testing.TB, fileName string, target any) {
