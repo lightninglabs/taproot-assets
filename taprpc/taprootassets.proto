@@ -230,8 +230,11 @@ message AssetGroup {
     */
     bytes tweaked_group_key = 2;
 
-    // A signature over the genesis point using the above key.
-    bytes asset_id_sig = 3;
+    /*
+    A witness that authorizes a specific asset to be part of the asset group
+    specified by the above key.
+    */
+    bytes asset_witness = 3;
 }
 
 message Asset {
