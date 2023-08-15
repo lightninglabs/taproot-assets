@@ -198,18 +198,20 @@ func TestAssetEncoding(t *testing.T) {
 		require.True(t, a.DeepEqual(&b))
 	}
 
-	split := &Asset{
-		Version: 1,
-		Genesis: Genesis{
-			FirstPrevOut: wire.OutPoint{
-				Hash:  hashBytes1,
-				Index: 1,
-			},
-			Tag:         "asset",
-			MetaHash:    [MetaHashLen]byte{1, 2, 3},
-			OutputIndex: 1,
-			Type:        1,
+	splitGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 1,
 		},
+		Tag:         "asset",
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		OutputIndex: 1,
+		Type:        1,
+	}
+
+	split := &Asset{
+		Version:          1,
+		Genesis:          splitGen,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -233,9 +235,10 @@ func TestAssetEncoding(t *testing.T) {
 			Sig:         *sig,
 		},
 	}
+
 	root := &Asset{
 		Version:          1,
-		Genesis:          split.Genesis,
+		Genesis:          splitGen,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -265,19 +268,21 @@ func TestAssetEncoding(t *testing.T) {
 	}
 	assertAssetEncoding("random split asset with root asset", split)
 
+	newGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes2,
+			Index: 2,
+		},
+		Tag:         "asset",
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		OutputIndex: 2,
+		Type:        2,
+	}
+
 	comment := "random asset with multiple previous witnesses"
 	assertAssetEncoding(comment, &Asset{
-		Version: 2,
-		Genesis: Genesis{
-			FirstPrevOut: wire.OutPoint{
-				Hash:  hashBytes2,
-				Index: 2,
-			},
-			Tag:         "asset",
-			MetaHash:    [MetaHashLen]byte{1, 2, 3},
-			OutputIndex: 2,
-			Type:        2,
-		},
+		Version:          2,
+		Genesis:          newGen,
 		Amount:           2,
 		LockTime:         1337,
 		RelativeLockTime: 6,
