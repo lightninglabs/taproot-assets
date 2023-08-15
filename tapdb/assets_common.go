@@ -57,8 +57,9 @@ type UpsertAssetStore interface {
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 
-	// UpsertAssetGroupSig inserts a new asset group sig into the DB.
-	UpsertAssetGroupSig(ctx context.Context, arg AssetGroupSig) (int32, error)
+	// UpsertAssetGroupWitness inserts a new asset group witness into the DB.
+	UpsertAssetGroupWitness(ctx context.Context,
+		arg AssetGroupWitness) (int32, error)
 
 	// UpsertAssetGroupKey inserts a new or updates an existing group key
 	// on disk, and returns the primary key.
@@ -179,7 +180,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// This asset has as key group, so we'll insert it into the
 		// database. If it doesn't exist, the UPSERT query will still
 		// return the group_id we'll need.
-		groupSigID, err := upsertGroupKey(
+		groupWitnessID, err := upsertGroupKey(
 			ctx, a.GroupKey, q, genesisPointID, genAssetID,
 		)
 		if err != nil {
@@ -203,15 +204,15 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// base asset information itself.
 		assetIDs[idx], err = q.InsertNewAsset(
 			ctx, sqlc.InsertNewAssetParams{
-				GenesisID:        genAssetID,
-				Version:          int32(a.Version),
-				ScriptKeyID:      scriptKeyID,
-				AssetGroupSigID:  groupSigID,
-				ScriptVersion:    int32(a.ScriptVersion),
-				Amount:           int64(a.Amount),
-				LockTime:         sqlInt32(a.LockTime),
-				RelativeLockTime: sqlInt32(a.RelativeLockTime),
-				AnchorUtxoID:     anchorUtxoID,
+				GenesisID:           genAssetID,
+				Version:             int32(a.Version),
+				ScriptKeyID:         scriptKeyID,
+				AssetGroupWitnessID: groupWitnessID,
+				ScriptVersion:       int32(a.ScriptVersion),
+				Amount:              int64(a.Amount),
+				LockTime:            sqlInt32(a.LockTime),
+				RelativeLockTime:    sqlInt32(a.RelativeLockTime),
+				AnchorUtxoID:        anchorUtxoID,
 			},
 		)
 		if err != nil {
@@ -275,10 +276,10 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 	// together otherwise disparate asset IDs).
 	//
 	// TODO(roasbeef): sig here doesn't actually matter?
-	groupSigID, err := q.UpsertAssetGroupSig(ctx, AssetGroupSig{
-		GenesisSig: groupKey.Sig.Serialize(),
-		GenAssetID: genAssetID,
-		GroupKeyID: groupID,
+	groupSigID, err := q.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
+		WitnessStack: groupKey.Sig.Serialize(),
+		GenAssetID:   genAssetID,
+		GroupKeyID:   groupID,
 	})
 	if err != nil {
 		return nullID, fmt.Errorf("unable to insert group sig: %w", err)
@@ -426,7 +427,7 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 
 	groupKey, err := parseGroupKeyInfo(
 		groupInfo.TweakedGroupKey, groupInfo.RawKey,
-		groupInfo.GenesisSig, groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.WitnessStack, groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -459,7 +460,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	}
 
 	groupKey, err := parseGroupKeyInfo(
-		groupKeyQuery, groupInfo.RawKey, groupInfo.GenesisSig,
+		groupKeyQuery, groupInfo.RawKey, groupInfo.WitnessStack,
 		groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
