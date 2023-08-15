@@ -257,6 +257,32 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, decodedProof.Decode(&buf))
 
 	assertEqualProof(t, &proof, &decodedProof)
+
+	// Ensure that operations on a proof of unknown version fail.
+	unknownFile, err := NewFile(Version(212), proof, proof)
+	require.NoError(t, err)
+
+	firstProof, err := unknownFile.ProofAt(0)
+	require.Nil(t, firstProof)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	firstProofBytes, err := unknownFile.RawProofAt(0)
+	require.Nil(t, firstProofBytes)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	lastProof, err := unknownFile.LastProof()
+	require.Nil(t, lastProof)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	lastProofBytes, err := unknownFile.RawLastProof()
+	require.Nil(t, lastProofBytes)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	err = unknownFile.AppendProof(proof)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	err = unknownFile.ReplaceLastProof(proof)
+	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
@@ -672,6 +698,13 @@ func TestProofFileVerification(t *testing.T) {
 
 	_, err = f.Verify(context.Background(), MockHeaderVerifier)
 	require.NoError(t, err)
+
+	// Ensure that verification of a proof of unknown version fails.
+	f.Version = Version(212)
+
+	lastAsset, err := f.Verify(context.Background(), MockHeaderVerifier)
+	require.Nil(t, lastAsset)
+	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
 // TestProofVerification ensures that the proof encoding and decoding works as
