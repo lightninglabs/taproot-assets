@@ -143,17 +143,46 @@ type CoinSelect struct {
 	coinLister CoinLister
 }
 
-// ListEligibleCoins lists eligible commitments given a set of constraints.
-func (s *CoinSelect) ListEligibleCoins(ctx context.Context,
-	constraints CommitmentConstraints) ([]*AnchoredCommitment, error) {
+// SelectCoins returns a set of not yet leased coins that satisfy the given
+// constraints and strategy. The coins returned are leased for the default lease
+// duration.
+func (s *CoinSelect) SelectCoins(ctx context.Context,
+	constraints CommitmentConstraints,
+	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment, error) {
 
-	return s.coinLister.ListEligibleCoins(ctx, constraints)
+	listConstraints := CommitmentConstraints{
+		GroupKey: constraints.GroupKey,
+		AssetID:  constraints.AssetID,
+		MinAmt:   1,
+	}
+	eligibleCommitments, err := s.coinLister.ListEligibleCoins(
+		ctx, listConstraints,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list eligible coins: %w", err)
+	}
+
+	log.Infof("Identified %v eligible asset inputs for send of %d to %x",
+		len(eligibleCommitments), constraints.MinAmt,
+		constraints.AssetID[:])
+
+	selectedCoins, err := s.selectForAmount(
+		constraints.MinAmt, eligibleCommitments, strategy,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select coins: %w", err)
+	}
+
+	// TODO(guggero): Actually lease the coins for the default lease
+	// duration.
+
+	return selectedCoins, nil
 }
 
-// SelectForAmount selects a subset of the given eligible commitments which
+// selectForAmount selects a subset of the given eligible commitments which
 // cumulatively sum to at least the minimum required amount. The selection
 // strategy determines how the commitments are selected.
-func (s *CoinSelect) SelectForAmount(minTotalAmount uint64,
+func (s *CoinSelect) selectForAmount(minTotalAmount uint64,
 	eligibleCommitments []*AnchoredCommitment,
 	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
 	error) {
@@ -383,25 +412,15 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	constraints := CommitmentConstraints{
 		GroupKey: fundDesc.GroupKey,
 		AssetID:  &fundDesc.ID,
-		MinAmt:   1,
+		MinAmt:   fundDesc.Amount,
 	}
-	eligibleCommitments, err := f.cfg.CoinSelector.ListEligibleCoins(
-		ctx, constraints,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to complete coin selection: %w",
-			err)
-	}
-
-	log.Infof("Identified %v eligible asset inputs for send of %d to %x",
-		len(eligibleCommitments), fundDesc.Amount, fundDesc.ID[:])
-
-	selectedCommitments, err := f.cfg.CoinSelector.SelectForAmount(
-		fundDesc.Amount, eligibleCommitments, PreferMaxAmount,
+	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
+		ctx, constraints, PreferMaxAmount,
 	)
 	if err != nil {
 		return nil, err
 	}
+
 	log.Infof("Selected %v asset inputs for send of %d to %x",
 		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
 
