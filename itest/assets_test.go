@@ -3,26 +3,19 @@ package itest
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
-	"google.golang.org/protobuf/proto"
 )
 
 var (
-	zeroHash chainhash.Hash
-
 	simpleAssets = []*mintrpc.MintAssetRequest{
 		{
 			Asset: &mintrpc.MintAsset{
@@ -81,34 +74,23 @@ var (
 	}
 )
 
-// CopyRequest is a helper function to copy a request so that we can modify it.
-func CopyRequest(req *mintrpc.MintAssetRequest) *mintrpc.MintAssetRequest {
-	return proto.Clone(req).(*mintrpc.MintAssetRequest)
-}
-
-// CopyRequests is a helper function to copy a slice of requests so that we can
-// modify them.
-func CopyRequests(reqs []*mintrpc.MintAssetRequest) []*mintrpc.MintAssetRequest {
-	copied := make([]*mintrpc.MintAssetRequest, len(reqs))
-	for idx := range reqs {
-		copied[idx] = CopyRequest(reqs[idx])
-	}
-	return copied
-}
-
 // testMintAssets tests that we're able to mint assets, retrieve their proofs
 // and that we're able to import the proofs into a new node.
 func testMintAssets(t *harnessTest) {
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tapd, simpleAssets)
-	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tapd, issuableAssets)
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
+	)
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, issuableAssets,
+	)
 
 	// Now that all our assets have been issued, we'll use the balance
 	// calls to ensure that we're able to retrieve the proper balance for
 	// them all.
-	assertAssetBalances(t, rpcSimpleAssets, rpcIssuableAssets)
+	AssertAssetBalances(t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets)
 
 	// Check that we can retrieve the group keys for the issuable assets.
-	assertGroups(t, issuableAssets)
+	assertGroups(t.t, t.tapd, issuableAssets)
 
 	// Make sure the proof files for the freshly minted assets can be
 	// retrieved and are fully valid.
@@ -131,189 +113,6 @@ func testMintAssets(t *harnessTest) {
 	// them, so we don't expect them to show up with script_key_is_local set
 	// to true in the list of assets.
 	transferAssetProofs(t, t.tapd, secondTapd, allAssets, false)
-}
-
-type mintOption func(*mintOptions)
-
-type mintOptions struct {
-	mintingTimeout time.Duration
-}
-
-func defaultMintOptions() *mintOptions {
-	return &mintOptions{
-		mintingTimeout: defaultWaitTimeout,
-	}
-}
-
-func withMintingTimeout(timeout time.Duration) mintOption {
-	return func(options *mintOptions) {
-		options.mintingTimeout = timeout
-	}
-}
-
-// mintAssetUnconfirmed is a helper function that mints a batch of assets and
-// waits until the minting transaction is in the mempool but does not mine a
-// block.
-func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
-	assetRequests []*mintrpc.MintAssetRequest,
-	opts ...mintOption) (chainhash.Hash, []byte) {
-
-	options := defaultMintOptions()
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
-	defer cancel()
-
-	// Mint all the assets in the same batch.
-	for idx, assetRequest := range assetRequests {
-		assetResp, err := tapd.MintAsset(ctxt, assetRequest)
-		require.NoError(t.t, err)
-		require.NotEmpty(t.t, assetResp.PendingBatch)
-		require.Len(t.t, assetResp.PendingBatch.Assets, idx+1)
-	}
-
-	// Instruct the daemon to finalize the batch.
-	batchResp, err := tapd.FinalizeBatch(
-		ctxt, &mintrpc.FinalizeBatchRequest{},
-	)
-	require.NoError(t.t, err)
-	require.NotEmpty(t.t, batchResp.Batch)
-	require.Len(t.t, batchResp.Batch.Assets, len(assetRequests))
-	require.Equal(
-		t.t, mintrpc.BatchState_BATCH_STATE_BROADCAST,
-		batchResp.Batch.State,
-	)
-
-	WaitForBatchState(
-		t.t, ctxt, tapd, options.mintingTimeout,
-		batchResp.Batch.BatchKey,
-		mintrpc.BatchState_BATCH_STATE_BROADCAST,
-	)
-	hashes, err := waitForNTxsInMempool(
-		t.lndHarness.Miner.Client, 1, options.mintingTimeout,
-	)
-	require.NoError(t.t, err)
-
-	// Make sure the assets were all minted within the same anchor but don't
-	// yet have a block hash associated with them.
-	listRespUnconfirmed, err := tapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
-	)
-	require.NoError(t.t, err)
-
-	unconfirmedAssets := groupAssetsByName(listRespUnconfirmed.Assets)
-	for _, assetRequest := range assetRequests {
-		metaHash := (&proof.MetaReveal{
-			Data: assetRequest.Asset.AssetMeta.Data,
-		}).MetaHash()
-		AssertAssetState(
-			t.t, unconfirmedAssets, assetRequest.Asset.Name,
-			metaHash[:],
-			assetAmountCheck(assetRequest.Asset.Amount),
-			assetTypeCheck(assetRequest.Asset.AssetType),
-			assetAnchorCheck(*hashes[0], zeroHash),
-			assetScriptKeyIsLocalCheck(true),
-		)
-	}
-
-	return *hashes[0], batchResp.Batch.BatchKey
-}
-
-// mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
-// batch and verifies all asset proofs of the minted assets.
-func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
-	assetRequests []*mintrpc.MintAssetRequest,
-	opts ...mintOption) []*taprpc.Asset {
-
-	mintTXID, batchKey := mintAssetUnconfirmed(
-		t, tapd, assetRequests, opts...,
-	)
-
-	options := defaultMintOptions()
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
-	defer cancel()
-
-	// Mine a block to confirm the assets.
-	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
-	blockHash := block.BlockHash()
-	WaitForBatchState(
-		t.t, ctxt, tapd, options.mintingTimeout, batchKey,
-		mintrpc.BatchState_BATCH_STATE_FINALIZED,
-	)
-
-	return assertAssetsMinted(t, tapd, assetRequests, mintTXID, blockHash)
-}
-
-// assertAssetsMinted makes sure all assets in the minting request were in fact
-// minted in the given anchor TX and block. The function returns the list of
-// minted assets.
-func assertAssetsMinted(t *harnessTest, tapd *tapdHarness,
-	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
-	blockHash chainhash.Hash) []*taprpc.Asset {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	// The rest of the anchor information should now be populated as well.
-	// We also check that the anchor outpoint of all assets is the same,
-	// since they were all minted in the same batch.
-	var (
-		firstOutpoint string
-		assetList     []*taprpc.Asset
-	)
-
-	listRespConfirmed, err := tapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
-	)
-	require.NoError(t.t, err)
-	confirmedAssets := groupAssetsByName(listRespConfirmed.Assets)
-
-	for _, assetRequest := range assetRequests {
-		metaHash := (&proof.MetaReveal{
-			Data: assetRequest.Asset.AssetMeta.Data,
-		}).MetaHash()
-		mintedAsset := AssertAssetState(
-			t.t, confirmedAssets, assetRequest.Asset.Name,
-			metaHash[:], assetAnchorCheck(mintTXID, blockHash),
-			assetScriptKeyIsLocalCheck(true),
-			func(a *taprpc.Asset) error {
-				anchor := a.ChainAnchor
-
-				if anchor.AnchorOutpoint == "" {
-					return fmt.Errorf("missing anchor " +
-						"outpoint")
-				}
-
-				if firstOutpoint == "" {
-					firstOutpoint = anchor.AnchorOutpoint
-
-					return nil
-				}
-
-				if anchor.AnchorOutpoint != firstOutpoint {
-					return fmt.Errorf("unexpected anchor "+
-						"outpoint, got %v wanted %v",
-						anchor.AnchorOutpoint,
-						firstOutpoint)
-				}
-
-				return nil
-			},
-		)
-
-		assetList = append(assetList, mintedAsset)
-	}
-
-	return assetList
 }
 
 // transferAssetProofs locates and exports the proof files for all given assets
@@ -350,7 +149,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	)
 	require.NoError(t.t, err)
 
-	importedAssets := groupAssetsByName(listResp.Assets)
+	importedAssets := GroupAssetsByName(listResp.Assets)
 	for _, existingAsset := range assets {
 		gen := existingAsset.AssetGenesis
 		anchorTxHash, err := chainhash.NewHashFromStr(
@@ -365,134 +164,12 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 
 		AssertAssetState(
 			t.t, importedAssets, gen.Name, gen.MetaHash,
-			assetAmountCheck(existingAsset.Amount),
-			assetTypeCheck(existingAsset.AssetType),
-			assetAnchorCheck(*anchorTxHash, *anchorBlockHash),
-			assetScriptKeyIsLocalCheck(shouldShowUpAsLocal),
+			AssetAmountCheck(existingAsset.Amount),
+			AssetTypeCheck(existingAsset.AssetType),
+			AssetAnchorCheck(*anchorTxHash, *anchorBlockHash),
+			AssetScriptKeyIsLocalCheck(shouldShowUpAsLocal),
 		)
 	}
-}
-
-func assertAssetBalances(t *harnessTest,
-	simpleAssets, issuableAssets []*taprpc.Asset) {
-
-	t.t.Helper()
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	// First, we'll ensure that we're able to get the balances of all the
-	// assets grouped by their asset IDs.
-	balanceReq := &taprpc.ListBalancesRequest_AssetId{
-		AssetId: true,
-	}
-	assetIDBalances, err := t.tapd.ListBalances(
-		ctxt, &taprpc.ListBalancesRequest{
-			GroupBy: balanceReq,
-		},
-	)
-	require.NoError(t.t, err)
-
-	var allAssets []*taprpc.Asset
-	allAssets = append(allAssets, simpleAssets...)
-	allAssets = append(allAssets, issuableAssets...)
-
-	require.Equal(t.t, len(allAssets), len(assetIDBalances.AssetBalances))
-
-	for _, balance := range assetIDBalances.AssetBalances {
-		for _, rpcAsset := range allAssets {
-			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
-				require.Equal(
-					t.t, balance.Balance, rpcAsset.Amount,
-				)
-				require.Equal(
-					t.t,
-					balance.AssetGenesis,
-					rpcAsset.AssetGenesis,
-				)
-			}
-		}
-	}
-
-	// We'll also ensure that we're able to get the balance by key group
-	// for all the assets that have one specified.
-	groupBalanceReq := &taprpc.ListBalancesRequest_GroupKey{
-		GroupKey: true,
-	}
-	assetGroupBalances, err := t.tapd.ListBalances(
-		ctxt, &taprpc.ListBalancesRequest{
-			GroupBy: groupBalanceReq,
-		},
-	)
-	require.NoError(t.t, err)
-
-	require.Equal(
-		t.t, len(issuableAssets),
-		len(assetGroupBalances.AssetGroupBalances),
-	)
-
-	for _, balance := range assetGroupBalances.AssetBalances {
-		for _, rpcAsset := range issuableAssets {
-			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
-				require.Equal(
-					t.t, balance.Balance, rpcAsset.Amount,
-				)
-				require.Equal(
-					t.t,
-					balance.AssetGenesis,
-					rpcAsset.AssetGenesis,
-				)
-			}
-		}
-	}
-}
-
-func assertGroups(t *harnessTest, issuableAssets []*mintrpc.MintAssetRequest) {
-	t.t.Helper()
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	// We should be able to fetch two groups of one asset each.
-	assetGroups, err := t.tapd.ListGroups(
-		ctxt, &taprpc.ListGroupsRequest{},
-	)
-	require.NoError(t.t, err)
-
-	groupKeys := maps.Keys(assetGroups.Groups)
-	require.Equal(t.t, 2, len(groupKeys))
-
-	groupedAssets := assetGroups.Groups[groupKeys[0]].Assets
-	require.Equal(t.t, 1, len(groupedAssets))
-	require.Equal(t.t, 1, len(assetGroups.Groups[groupKeys[1]].Assets))
-
-	groupedAssets = append(
-		groupedAssets, assetGroups.Groups[groupKeys[1]].Assets[0],
-	)
-
-	// Sort the listed assets to match the order of issuableAssets.
-	sort.Slice(groupedAssets, func(i, j int) bool {
-		return groupedAssets[i].Amount > groupedAssets[j].Amount
-	})
-
-	equalityCheck := func(a *mintrpc.MintAsset,
-		b *taprpc.AssetHumanReadable) {
-
-		metaHash := (&proof.MetaReveal{
-			Data: a.AssetMeta.Data,
-		}).MetaHash()
-
-		require.Equal(t.t, a.AssetType, b.Type)
-		require.Equal(t.t, a.Name, b.Tag)
-
-		require.Equal(t.t, metaHash[:], b.MetaHash)
-		require.Equal(t.t, a.Amount, b.Amount)
-	}
-
-	equalityCheck(issuableAssets[0].Asset, groupedAssets[0])
-	equalityCheck(issuableAssets[1].Asset, groupedAssets[1])
 }
 
 // testMintAssetNameCollisionError tests that no error is produced when
@@ -515,8 +192,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 			Amount: 5000,
 		},
 	}
-	rpcSimpleAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{&assetMint},
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{&assetMint},
 	)
 
 	// Ensure minted asset with requested name was successfully minted.
@@ -612,8 +290,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// Minting the asset with the name collision should work, even though
 	// it is also part of a cancelled batch.
-	rpcCollideAsset := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{&assetCollide},
+	rpcCollideAsset := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{&assetCollide},
 	)
 
 	collideAssetName := rpcCollideAsset[0].AssetGenesis.Name

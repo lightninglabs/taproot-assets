@@ -1,0 +1,244 @@
+package itest
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+)
+
+var (
+	zeroHash chainhash.Hash
+)
+
+// CopyRequest is a helper function to copy a request so that we can modify it.
+func CopyRequest(req *mintrpc.MintAssetRequest) *mintrpc.MintAssetRequest {
+	return proto.Clone(req).(*mintrpc.MintAssetRequest)
+}
+
+// CopyRequests is a helper function to copy a slice of requests so that we can
+// modify them.
+func CopyRequests(
+	reqs []*mintrpc.MintAssetRequest) []*mintrpc.MintAssetRequest {
+
+	copied := make([]*mintrpc.MintAssetRequest, len(reqs))
+	for idx := range reqs {
+		copied[idx] = CopyRequest(reqs[idx])
+	}
+	return copied
+}
+
+// ParseOutPoint
+func ParseOutPoint(s string) (*wire.OutPoint, error) {
+	split := strings.Split(s, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("expecting outpoint to be in format " +
+			"of: txid:index")
+	}
+
+	index, err := strconv.ParseInt(split[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode output index: %v", err)
+	}
+
+	txid, err := chainhash.NewHashFromStr(split[0])
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse hex string: %v", err)
+	}
+
+	return &wire.OutPoint{
+		Hash:  *txid,
+		Index: uint32(index),
+	}, nil
+}
+
+// ParseGenInfo converts a taprpc.GenesisInfo into its asset.Genesis
+// counterpart.
+func ParseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
+	genPoint, err := ParseOutPoint(genInfo.GenesisPoint)
+	require.NoError(t, err)
+
+	parsedGenesis := asset.Genesis{
+		FirstPrevOut: *genPoint,
+		Tag:          genInfo.Name,
+		OutputIndex:  genInfo.OutputIndex,
+	}
+	copy(parsedGenesis.MetaHash[:], genInfo.MetaHash)
+
+	return &parsedGenesis
+}
+
+// MineBlocks mine 'num' of blocks and check that blocks are present in
+// node blockchain. numTxs should be set to the number of transactions
+// (excluding the coinbase) we expect to be included in the first mined block.
+func MineBlocks(t *testing.T, client *rpcclient.Client,
+	num uint32, numTxs int) []*wire.MsgBlock {
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// we wait here until they are seen in the miner's mempool.
+	var txids []*chainhash.Hash
+	var err error
+	if numTxs > 0 {
+		txids, err = waitForNTxsInMempool(
+			client, numTxs, minerMempoolTimeout,
+		)
+		if err != nil {
+			t.Fatalf("unable to find txns in mempool: %v", err)
+		}
+	}
+
+	blocks := make([]*wire.MsgBlock, num)
+
+	blockHashes, err := client.Generate(num)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := client.GetBlock(blockHash)
+		if err != nil {
+			t.Fatalf("unable to get block: %v", err)
+		}
+
+		blocks[i] = block
+	}
+
+	// Finally, assert that all the transactions were included in the first
+	// block.
+	for _, txid := range txids {
+		AssertTxInBlock(t, blocks[0], txid)
+	}
+
+	return blocks
+}
+
+type MintOption func(*MintOptions)
+
+type MintOptions struct {
+	mintingTimeout time.Duration
+}
+
+func DefaultMintOptions() *MintOptions {
+	return &MintOptions{
+		mintingTimeout: defaultWaitTimeout,
+	}
+}
+
+func WithMintingTimeout(timeout time.Duration) MintOption {
+	return func(options *MintOptions) {
+		options.mintingTimeout = timeout
+	}
+}
+
+// MintAssetUnconfirmed is a helper function that mints a batch of assets and
+// waits until the minting transaction is in the mempool but does not mine a
+// block.
+func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
+	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	opts ...MintOption) (chainhash.Hash, []byte) {
+
+	options := DefaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
+	defer cancel()
+
+	// Mint all the assets in the same batch.
+	for idx, assetRequest := range assetRequests {
+		assetResp, err := tapClient.MintAsset(ctxt, assetRequest)
+		require.NoError(t, err)
+		require.NotEmpty(t, assetResp.PendingBatch)
+		require.Len(t, assetResp.PendingBatch.Assets, idx+1)
+	}
+
+	// Instruct the daemon to finalize the batch.
+	batchResp, err := tapClient.FinalizeBatch(
+		ctxt, &mintrpc.FinalizeBatchRequest{},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, batchResp.Batch)
+	require.Len(t, batchResp.Batch.Assets, len(assetRequests))
+	require.Equal(
+		t, mintrpc.BatchState_BATCH_STATE_BROADCAST,
+		batchResp.Batch.State,
+	)
+
+	WaitForBatchState(
+		t, ctxt, tapClient, options.mintingTimeout,
+		batchResp.Batch.BatchKey,
+		mintrpc.BatchState_BATCH_STATE_BROADCAST,
+	)
+	hashes, err := waitForNTxsInMempool(
+		minerClient, 1, options.mintingTimeout,
+	)
+	require.NoError(t, err)
+
+	// Make sure the assets were all minted within the same anchor but don't
+	// yet have a block hash associated with them.
+	listRespUnconfirmed, err := tapClient.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t, err)
+
+	unconfirmedAssets := GroupAssetsByName(listRespUnconfirmed.Assets)
+	for _, assetRequest := range assetRequests {
+		metaHash := (&proof.MetaReveal{
+			Data: assetRequest.Asset.AssetMeta.Data,
+		}).MetaHash()
+		AssertAssetState(
+			t, unconfirmedAssets, assetRequest.Asset.Name,
+			metaHash[:],
+			AssetAmountCheck(assetRequest.Asset.Amount),
+			AssetTypeCheck(assetRequest.Asset.AssetType),
+			AssetAnchorCheck(*hashes[0], zeroHash),
+			AssetScriptKeyIsLocalCheck(true),
+		)
+	}
+
+	return *hashes[0], batchResp.Batch.BatchKey
+}
+
+// MintAssetsConfirmBatch mints all given assets in the same batch, confirms the
+// batch and verifies all asset proofs of the minted assets.
+func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
+	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	opts ...MintOption) []*taprpc.Asset {
+
+	mintTXID, batchKey := MintAssetUnconfirmed(
+		t, minerClient, tapClient, assetRequests, opts...,
+	)
+
+	options := DefaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
+	defer cancel()
+
+	// Mine a block to confirm the assets.
+	block := MineBlocks(t, minerClient, 1, 1)[0]
+	blockHash := block.BlockHash()
+	WaitForBatchState(
+		t, ctxt, tapClient, options.mintingTimeout, batchKey,
+		mintrpc.BatchState_BATCH_STATE_FINALIZED,
+	)
+
+	return AssertAssetsMinted(t, tapClient, assetRequests, mintTXID, blockHash)
+}

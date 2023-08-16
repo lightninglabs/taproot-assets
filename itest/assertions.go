@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -32,11 +34,11 @@ var (
 	statusCompleted = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
 )
 
-// assetCheck is a function type that checks an RPC asset's property.
-type assetCheck func(a *taprpc.Asset) error
+// AssetCheck is a function type that checks an RPC asset's property.
+type AssetCheck func(a *taprpc.Asset) error
 
-// assetAmountCheck returns a check function that tests an asset's amount.
-func assetAmountCheck(amt uint64) assetCheck {
+// AssetAmountCheck returns a check function that tests an asset's amount.
+func AssetAmountCheck(amt uint64) AssetCheck {
 	return func(a *taprpc.Asset) error {
 		if a.Amount != amt {
 			return fmt.Errorf("unexpected asset amount, got %d "+
@@ -47,8 +49,8 @@ func assetAmountCheck(amt uint64) assetCheck {
 	}
 }
 
-// assetTypeCheck returns a check function that tests an asset's type.
-func assetTypeCheck(assetType taprpc.AssetType) assetCheck {
+// AssetTypeCheck returns a check function that tests an asset's type.
+func AssetTypeCheck(assetType taprpc.AssetType) AssetCheck {
 	return func(a *taprpc.Asset) error {
 		if a.AssetType != assetType {
 			return fmt.Errorf("unexpected asset type, got %v "+
@@ -59,8 +61,8 @@ func assetTypeCheck(assetType taprpc.AssetType) assetCheck {
 	}
 }
 
-// assetAnchorCheck returns a check function that tests an asset's anchor.
-func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
+// AssetAnchorCheck returns a check function that tests an asset's anchor.
+func AssetAnchorCheck(txid, blockHash chainhash.Hash) AssetCheck {
 	return func(a *taprpc.Asset) error {
 		if a.ChainAnchor == nil {
 			return fmt.Errorf("asset is missing chain anchor field")
@@ -82,9 +84,9 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 	}
 }
 
-// assetScriptKeyIsLocalCheck returns a check function that tests an asset's
+// AssetScriptKeyIsLocalCheck returns a check function that tests an asset's
 // script key for being a local key.
-func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
+func AssetScriptKeyIsLocalCheck(isLocal bool) AssetCheck {
 	return func(a *taprpc.Asset) error {
 		if a.ScriptKeyIsLocal != isLocal {
 			return fmt.Errorf("unexpected script key, wanted "+
@@ -96,9 +98,9 @@ func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
 	}
 }
 
-// assetScriptKeyIsBurnCheck returns a check function that tests an asset's
+// AssetScriptKeyIsBurnCheck returns a check function that tests an asset's
 // script key for being a burn key.
-func assetScriptKeyIsBurnCheck(isBurn bool) assetCheck {
+func AssetScriptKeyIsBurnCheck(isBurn bool) AssetCheck {
 	return func(a *taprpc.Asset) error {
 		if a.IsBurn != isBurn {
 			return fmt.Errorf("unexpected script key, wanted "+
@@ -110,9 +112,9 @@ func assetScriptKeyIsBurnCheck(isBurn bool) assetCheck {
 	}
 }
 
-// groupAssetsByName converts an unordered list of assets to a map of lists of
+// GroupAssetsByName converts an unordered list of assets to a map of lists of
 // assets, where all assets in a list have the same name.
-func groupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
+func GroupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
 	assetLists := make(map[string][]*taprpc.Asset)
 	for idx := range assets {
 		a := assets[idx]
@@ -128,7 +130,7 @@ func groupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
 func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
-	name string, metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
+	name string, metaHash []byte, assetChecks ...AssetCheck) *taprpc.Asset {
 
 	var a *taprpc.Asset
 
@@ -158,7 +160,7 @@ func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
 func AssertAssetStateByScriptKey(t *testing.T, assets []*taprpc.Asset,
-	scriptKey []byte, assetChecks ...assetCheck) *taprpc.Asset {
+	scriptKey []byte, assetChecks ...AssetCheck) *taprpc.Asset {
 
 	var a *taprpc.Asset
 	for _, rpcAsset := range assets {
@@ -178,6 +180,23 @@ func AssertAssetStateByScriptKey(t *testing.T, assets []*taprpc.Asset,
 		"found in asset list"))
 
 	return a
+}
+
+// AssertTxInBlock checks that a given transaction can be found in the block's
+// transaction list.
+func AssertTxInBlock(t *testing.T, block *wire.MsgBlock,
+	txid *chainhash.Hash) *wire.MsgTx {
+
+	for _, tx := range block.Transactions {
+		sha := tx.TxHash()
+		if bytes.Equal(txid[:], sha[:]) {
+			return tx
+		}
+	}
+
+	require.Fail(t, "tx was not included in block")
+
+	return nil
 }
 
 // WaitForBatchState polls until the planter has reached the desired state with
@@ -287,7 +306,7 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	)
 	require.NoError(t, err)
 
-	file, snapshot := verifyProofBlob(
+	file, snapshot := VerifyProofBlob(
 		t, tapClient, chainClient, a, exportResp.RawProofFile,
 	)
 
@@ -304,9 +323,9 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	return exportResp.RawProofFile
 }
 
-// assertAssetProofsInvalid makes sure the proofs for the given asset can be
+// AssertAssetProofsInvalid makes sure the proofs for the given asset can be
 // retrieved from the given daemon but fail to validate.
-func assertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
+func AssertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
 	a *taprpc.Asset) {
 
 	t.Helper()
@@ -332,9 +351,9 @@ func assertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
 	require.False(t, verifyResp.Valid)
 }
 
-// verifyProofBlob parses the given proof blob into a file, verifies it and
+// VerifyProofBlob parses the given proof blob into a file, verifies it and
 // returns the resulting last asset snapshot together with the parsed file.
-func verifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
+func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	chainClient chainrpc.ChainKitClient, a *taprpc.Asset,
 	blob proof.Blob) (*proof.File, *proof.AssetSnapshot) {
 
@@ -408,9 +427,9 @@ func verifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	return f, snapshot
 }
 
-// assertAddrCreated makes sure an address was created correctly for the given
+// AssertAddrCreated makes sure an address was created correctly for the given
 // asset.
-func assertAddrCreated(t *testing.T, client taprpc.TaprootAssetsClient,
+func AssertAddrCreated(t *testing.T, client taprpc.TaprootAssetsClient,
 	expected *taprpc.Asset, actual *taprpc.Addr) {
 
 	// Was the address created correctly?
@@ -489,9 +508,9 @@ func AssertAddrEvent(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.NoError(t, err)
 }
 
-// assertAddrEventByStatus makes sure the given number of events exist with the
+// AssertAddrEventByStatus makes sure the given number of events exist with the
 // given status.
-func assertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
+func AssertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 	filterStatus taprpc.AddrEventStatus, numEvents int) {
 
 	ctxb := context.Background()
@@ -519,39 +538,43 @@ func assertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.NoError(t, err)
 }
 
-// confirmAndAssertOutboundTransfer makes sure the given outbound transfer has
+// ConfirmAndAssertOutboundTransfer makes sure the given outbound transfer has
 // the correct state before confirming it and then asserting the confirmed state
 // with the node.
-func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tapdHarness,
+func ConfirmAndAssertOutboundTransfer(t *testing.T,
+	minerClient *rpcclient.Client, sender TapdClient,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers int) *wire.MsgBlock {
 
-	return confirmAndAssetOutboundTransferWithOutputs(
-		t, sender, sendResp, assetID, expectedAmounts,
+	return ConfirmAndAssetOutboundTransferWithOutputs(
+		t, minerClient, sender, sendResp, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, 2,
 	)
 }
 
-// confirmAndAssetOutboundTransferWithOutputs makes sure the given outbound
+// ConfirmAndAssetOutboundTransferWithOutputs makes sure the given outbound
 // transfer has the correct state and number of outputs before confirming it and
 // then asserting the confirmed state with the node.
-func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
-	sender *tapdHarness, sendResp *taprpc.SendAssetResponse,
-	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
+func ConfirmAndAssetOutboundTransferWithOutputs(t *testing.T,
+	minerClient *rpcclient.Client, sender TapdClient,
+	sendResp *taprpc.SendAssetResponse, assetID []byte,
+	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int) *wire.MsgBlock {
 
-	return assertAssetOutboundTransferWithOutputs(
-		t, sender, sendResp.Transfer, assetID, expectedAmounts,
-		currentTransferIdx, numTransfers, numOutputs, true,
+	return AssertAssetOutboundTransferWithOutputs(
+		t, minerClient, sender, sendResp.Transfer, assetID,
+		expectedAmounts, currentTransferIdx, numTransfers, numOutputs,
+		true,
 	)
 }
 
-// assertAssetOutboundTransferWithOutputs makes sure the given outbound transfer
+// AssertAssetOutboundTransferWithOutputs makes sure the given outbound transfer
 // has the correct state and number of outputs.
-func assertAssetOutboundTransferWithOutputs(t *harnessTest,
-	sender *tapdHarness, transfer *taprpc.AssetTransfer,
-	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
+func AssertAssetOutboundTransferWithOutputs(t *testing.T,
+	minerClient *rpcclient.Client, sender TapdClient,
+	transfer *taprpc.AssetTransfer, assetID []byte,
+	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int, confirm bool) *wire.MsgBlock {
 
 	ctxb := context.Background()
@@ -559,60 +582,60 @@ func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 	// Check that we now have two new outputs, and that they differ
 	// in outpoints and scripts.
 	outputs := transfer.Outputs
-	require.Len(t.t, outputs, numOutputs)
+	require.Len(t, outputs, numOutputs)
 
 	outpoints := make(map[string]struct{})
 	scripts := make(map[string]struct{})
 	for _, o := range outputs {
 		_, ok := scripts[string(o.ScriptKey)]
-		require.False(t.t, ok)
+		require.False(t, ok)
 
 		outpoints[o.Anchor.Outpoint] = struct{}{}
 		scripts[string(o.ScriptKey)] = struct{}{}
 	}
 
 	sendRespJSON, err := formatProtoJSON(transfer)
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	// Mine a block to force the send event to complete (confirm on-chain).
 	var newBlock *wire.MsgBlock
 	if confirm {
-		newBlock = mineBlocks(t, t.lndHarness, 1, 1)[0]
+		newBlock = MineBlocks(t, minerClient, 1, 1)[0]
 	}
 
 	// Confirm that we can externally view the transfer.
-	require.Eventually(t.t, func() bool {
+	require.Eventually(t, func() bool {
 		resp, err := sender.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
 		)
-		require.NoError(t.t, err)
-		require.Len(t.t, resp.Transfers, numTransfers)
+		require.NoError(t, err)
+		require.Len(t, resp.Transfers, numTransfers)
 
 		// Assert the new outpoint, script and amount is in the
 		// list.
 		transfer := resp.Transfers[currentTransferIdx]
-		require.Len(t.t, transfer.Outputs, numOutputs)
-		require.Len(t.t, expectedAmounts, numOutputs)
+		require.Len(t, transfer.Outputs, numOutputs)
+		require.Len(t, expectedAmounts, numOutputs)
 		for idx := range transfer.Outputs {
 			out := transfer.Outputs[idx]
-			require.Contains(t.t, outpoints, out.Anchor.Outpoint)
-			require.Contains(t.t, scripts, string(out.ScriptKey))
-			require.Equal(t.t, expectedAmounts[idx], out.Amount)
+			require.Contains(t, outpoints, out.Anchor.Outpoint)
+			require.Contains(t, scripts, string(out.ScriptKey))
+			require.Equal(t, expectedAmounts[idx], out.Amount)
 		}
 
 		firstIn := transfer.Inputs[0]
 		return bytes.Equal(firstIn.AssetId, assetID)
 	}, defaultTimeout, wait.PollInterval)
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 
 	transferResp, err := sender.ListTransfers(
 		ctxb, &taprpc.ListTransfersRequest{},
 	)
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 
 	transferRespJSON, err := formatProtoJSON(transferResp)
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 	t.Logf("Got response from list transfers: %v", transferRespJSON)
 
 	return newBlock
@@ -880,9 +903,9 @@ func AssertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
 // match.
 type MatchRpcAsset func(asset *taprpc.Asset) bool
 
-// assertListAssets checks that the assets returned by ListAssets match the
+// AssertListAssets checks that the assets returned by ListAssets match the
 // expected assets.
-func assertListAssets(t *testing.T, ctx context.Context,
+func AssertListAssets(t *testing.T, ctx context.Context,
 	client taprpc.TaprootAssetsClient, matchAssets []MatchRpcAsset) {
 
 	resp, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{})
@@ -1151,4 +1174,214 @@ func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	s := eventStats.Events[0]
 	require.Equal(t, todayStr, s.Date)
 	require.EqualValues(t, len(assets), s.NewProofEvents)
+}
+
+// VerifyGroupAnchor verifies that the correct asset was used as the group
+// anchor by re-deriving the group key.
+func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
+	anchorName string) *taprpc.Asset {
+
+	anchor, err := fn.First(
+		assets, func(asset *taprpc.Asset) bool {
+			return asset.AssetGenesis.Name == anchorName
+		},
+	)
+	require.NoError(t, err)
+
+	anchorGen := ParseGenInfo(t, anchor.AssetGenesis)
+	anchorGen.Type = asset.Type(anchor.AssetType)
+	AssertGroupAnchor(
+		t, anchorGen, anchor.AssetGroup.RawGroupKey,
+		anchor.AssetGroup.TweakedGroupKey,
+	)
+
+	return anchor
+}
+
+// AssertAssetsMinted makes sure all assets in the minting request were in fact
+// minted in the given anchor TX and block. The function returns the list of
+// minted assets.
+func AssertAssetsMinted(t *testing.T,
+	tapClient TapdClient,
+	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
+	blockHash chainhash.Hash) []*taprpc.Asset {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// The rest of the anchor information should now be populated as well.
+	// We also check that the anchor outpoint of all assets is the same,
+	// since they were all minted in the same batch.
+	var (
+		firstOutpoint string
+		assetList     []*taprpc.Asset
+	)
+
+	listRespConfirmed, err := tapClient.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t, err)
+	confirmedAssets := GroupAssetsByName(listRespConfirmed.Assets)
+
+	for _, assetRequest := range assetRequests {
+		metaHash := (&proof.MetaReveal{
+			Data: assetRequest.Asset.AssetMeta.Data,
+		}).MetaHash()
+		mintedAsset := AssertAssetState(
+			t, confirmedAssets, assetRequest.Asset.Name,
+			metaHash[:], AssetAnchorCheck(mintTXID, blockHash),
+			AssetScriptKeyIsLocalCheck(true),
+			func(a *taprpc.Asset) error {
+				anchor := a.ChainAnchor
+
+				if anchor.AnchorOutpoint == "" {
+					return fmt.Errorf("missing anchor " +
+						"outpoint")
+				}
+
+				if firstOutpoint == "" {
+					firstOutpoint = anchor.AnchorOutpoint
+
+					return nil
+				}
+
+				if anchor.AnchorOutpoint != firstOutpoint {
+					return fmt.Errorf("unexpected anchor "+
+						"outpoint, got %v wanted %v",
+						anchor.AnchorOutpoint,
+						firstOutpoint)
+				}
+
+				return nil
+			},
+		)
+
+		assetList = append(assetList, mintedAsset)
+	}
+
+	return assetList
+}
+
+func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
+	simpleAssets, issuableAssets []*taprpc.Asset) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// First, we'll ensure that we're able to get the balances of all the
+	// assets grouped by their asset IDs.
+	balanceReq := &taprpc.ListBalancesRequest_AssetId{
+		AssetId: true,
+	}
+	assetIDBalances, err := client.ListBalances(
+		ctxt, &taprpc.ListBalancesRequest{
+			GroupBy: balanceReq,
+		},
+	)
+	require.NoError(t, err)
+
+	var allAssets []*taprpc.Asset
+	allAssets = append(allAssets, simpleAssets...)
+	allAssets = append(allAssets, issuableAssets...)
+
+	require.Equal(t, len(allAssets), len(assetIDBalances.AssetBalances))
+
+	for _, balance := range assetIDBalances.AssetBalances {
+		for _, rpcAsset := range allAssets {
+			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
+				require.Equal(
+					t, balance.Balance, rpcAsset.Amount,
+				)
+				require.Equal(
+					t,
+					balance.AssetGenesis,
+					rpcAsset.AssetGenesis,
+				)
+			}
+		}
+	}
+
+	// We'll also ensure that we're able to get the balance by key group
+	// for all the assets that have one specified.
+	groupBalanceReq := &taprpc.ListBalancesRequest_GroupKey{
+		GroupKey: true,
+	}
+	assetGroupBalances, err := client.ListBalances(
+		ctxt, &taprpc.ListBalancesRequest{
+			GroupBy: groupBalanceReq,
+		},
+	)
+	require.NoError(t, err)
+
+	require.Equal(
+		t, len(issuableAssets),
+		len(assetGroupBalances.AssetGroupBalances),
+	)
+
+	for _, balance := range assetGroupBalances.AssetBalances {
+		for _, rpcAsset := range issuableAssets {
+			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
+				require.Equal(
+					t, balance.Balance, rpcAsset.Amount,
+				)
+				require.Equal(
+					t, balance.AssetGenesis,
+					rpcAsset.AssetGenesis,
+				)
+			}
+		}
+	}
+}
+
+func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
+	issuableAssets []*mintrpc.MintAssetRequest) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We should be able to fetch two groups of one asset each.
+	assetGroups, err := client.ListGroups(
+		ctxt, &taprpc.ListGroupsRequest{},
+	)
+	require.NoError(t, err)
+
+	groupKeys := maps.Keys(assetGroups.Groups)
+	require.Equal(t, 2, len(groupKeys))
+
+	groupedAssets := assetGroups.Groups[groupKeys[0]].Assets
+	require.Equal(t, 1, len(groupedAssets))
+	require.Equal(t, 1, len(assetGroups.Groups[groupKeys[1]].Assets))
+
+	groupedAssets = append(
+		groupedAssets, assetGroups.Groups[groupKeys[1]].Assets[0],
+	)
+
+	// Sort the listed assets to match the order of issuableAssets.
+	sort.Slice(groupedAssets, func(i, j int) bool {
+		return groupedAssets[i].Amount > groupedAssets[j].Amount
+	})
+
+	equalityCheck := func(a *mintrpc.MintAsset,
+		b *taprpc.AssetHumanReadable) {
+
+		metaHash := (&proof.MetaReveal{
+			Data: a.AssetMeta.Data,
+		}).MetaHash()
+
+		require.Equal(t, a.AssetType, b.Type)
+		require.Equal(t, a.Name, b.Tag)
+
+		require.Equal(t, metaHash[:], b.MetaHash)
+		require.Equal(t, a.Amount, b.Amount)
+	}
+
+	equalityCheck(issuableAssets[0].Asset, groupedAssets[0])
+	equalityCheck(issuableAssets[1].Asset, groupedAssets[1])
 }

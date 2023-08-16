@@ -15,8 +15,9 @@ import (
 // with split commitments.
 func testCollectibleSend(t *harnessTest) {
 	// First, we'll make a collectible with emission enabled.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			issuableAssets[1],
 			// Our "passive" asset.
 			{
@@ -74,12 +75,13 @@ func testCollectibleSend(t *harnessTest) {
 			)
 			require.NoError(t.t, err)
 
-			assertAddrCreated(
+			AssertAddrCreated(
 				t.t, secondTapd, rpcAssets[0], receiverAddr,
 			)
 			sendResp := sendAssetsToAddr(t, t.tapd, receiverAddr)
-			confirmAndAssertOutboundTransfer(
-				t, t.tapd, sendResp, genInfo.AssetId,
+			ConfirmAndAssertOutboundTransfer(
+				t.t, t.lndHarness.Miner.Client, t.tapd,
+				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
 			)
@@ -97,14 +99,15 @@ func testCollectibleSend(t *harnessTest) {
 			)
 			require.NoError(t.t, err)
 
-			assertAddrCreated(
+			AssertAddrCreated(
 				t.t, t.tapd, rpcAssets[0], receiverAddr,
 			)
 			sendResp := sendAssetsToAddr(
 				t, secondTapd, receiverAddr,
 			)
-			confirmAndAssertOutboundTransfer(
-				t, secondTapd, sendResp, genInfo.AssetId,
+			ConfirmAndAssertOutboundTransfer(
+				t.t, t.lndHarness.Miner.Client, secondTapd,
+				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, receiverTransferIdx,
 				receiverTransferIdx+1,
 			)
@@ -178,11 +181,11 @@ func testCollectibleSend(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, secondTapd, rpcAssets[1], bobAddr)
+	AssertAddrCreated(t.t, secondTapd, rpcAssets[1], bobAddr)
 	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, passiveGen.AssetId,
-		[]uint64{0, rpcAssets[1].Amount}, 2, 3,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		passiveGen.AssetId, []uint64{0, rpcAssets[1].Amount}, 2, 3,
 	)
 	_ = sendProof(
 		t, t.tapd, secondTapd, bobAddr.ScriptKey, passiveGen,

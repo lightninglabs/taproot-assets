@@ -25,10 +25,15 @@ import (
 // testUniverseSync tests that we're able to properly sync the universe state
 // between two nodes.
 func testUniverseSync(t *harnessTest) {
+	miner := t.lndHarness.Miner.Client
 	// First, we'll create out usual set of simple and also issuable
 	// assets.
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tapd, simpleAssets)
-	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tapd, issuableAssets)
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, simpleAssets,
+	)
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, issuableAssets,
+	)
 
 	// With those assets created, we'll now create a new node that we'll
 	// use to exercise the Universe sync.
@@ -256,9 +261,14 @@ func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 // testUniverseREST tests that we're able to properly query the universe state
 // via the REST interface.
 func testUniverseREST(t *harnessTest) {
+	miner := t.lndHarness.Miner.Client
 	// Mint a few assets that we then want to inspect in the universe.
-	rpcSimpleAssets := mintAssetsConfirmBatch(t, t.tapd, simpleAssets)
-	rpcIssuableAssets := mintAssetsConfirmBatch(t, t.tapd, issuableAssets)
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, simpleAssets,
+	)
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, issuableAssets,
+	)
 
 	urlPrefix := fmt.Sprintf("https://%s/v1/taproot-assets/universe",
 		t.tapd.clientCfg.RpcConf.RawRESTListeners[0])
@@ -361,8 +371,10 @@ func testUniverseFederation(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
+	miner := t.lndHarness.Miner.Client
+
 	// Now that Bob is active, we'll make a set of assets with the main node.
-	firstAsset := mintAssetsConfirmBatch(t, t.tapd, simpleAssets[:1])
+	firstAsset := MintAssetsConfirmBatch(t.t, miner, t.tapd, simpleAssets[:1])
 	require.Len(t.t, firstAsset, 1)
 
 	// Make sure we can't add ourselves to the universe.
@@ -424,9 +436,11 @@ func testUniverseFederation(t *harnessTest) {
 
 	// We'll now make two new assets with Bob, and ensure that the state is
 	// properly pushed to the main node which is a part of the federation.
-	newAssets := mintAssetsConfirmBatch(t, bob, []*mintrpc.MintAssetRequest{
-		simpleAssets[1], issuableAssets[0],
-	})
+	newAssets := MintAssetsConfirmBatch(
+		t.t, miner, bob, []*mintrpc.MintAssetRequest{
+			simpleAssets[1], issuableAssets[0],
+		},
+	)
 
 	// Bob should have two new assets in its local Universe tree.
 	for _, newAsset := range newAssets {

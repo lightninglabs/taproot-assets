@@ -19,8 +19,9 @@ func testAddresses(t *harnessTest) {
 	// We mint all of them in individual batches to avoid needing to sign
 	// for multiple internal asset transfers when only sending one of them
 	// to an external address.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
 	)
@@ -53,7 +54,7 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, err)
 		addresses = append(addresses, addr)
 
-		assertAddrCreated(t.t, secondTapd, a, addr)
+		AssertAddrCreated(t.t, secondTapd, a, addr)
 
 		sendResp := sendAssetsToAddr(t, t.tapd, addr)
 		sendRespJSON, err := formatProtoJSON(sendResp)
@@ -66,7 +67,7 @@ func testAddresses(t *harnessTest) {
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
 
 		// Mine a block to make sure the events are marked as confirmed.
-		mineBlocks(t, t.lndHarness, 1, 1)
+		MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
 
 		// Eventually the event should be marked as confirmed.
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
@@ -141,8 +142,9 @@ func testAddresses(t *harnessTest) {
 // same time.
 func testMultiAddress(t *harnessTest) {
 	// First, mint an asset, so we have one to create addresses for.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
 	)
@@ -190,7 +192,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	})
 	require.NoError(t.t, err)
 	bobAddresses = append(bobAddresses, bobAddr1)
-	assertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
+	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
 
 	bobAddr2, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
@@ -198,7 +200,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	})
 	require.NoError(t.t, err)
 	bobAddresses = append(bobAddresses, bobAddr2)
-	assertAddrCreated(t.t, bob, mintedAsset, bobAddr2)
+	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr2)
 
 	// To test that Alice can also receive to multiple addresses in a single
 	// transaction as well, we also add two addresses for her.
@@ -207,14 +209,14 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
+	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
 
 	aliceAddr2, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, alice, mintedAsset, aliceAddr2)
+	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr2)
 
 	sendResp := sendAssetsToAddr(
 		t, alice, bobAddr1, bobAddr2, aliceAddr1, aliceAddr2,
@@ -230,14 +232,14 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	AssertAddrEvent(t.t, alice, aliceAddr2, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
-	_ = mineBlocks(t, t.lndHarness, 1, 1)[0]
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)[0]
 
 	// Eventually the events should be marked as confirmed.
-	assertAddrEventByStatus(t.t, bob, statusConfirmed, 2)
+	AssertAddrEventByStatus(t.t, bob, statusConfirmed, 2)
 
 	// For local addresses, we should already have the proof in the DB at
 	// this point, so the status should go to completed directly.
-	assertAddrEventByStatus(t.t, alice, statusCompleted, numRuns*2)
+	AssertAddrEventByStatus(t.t, alice, statusCompleted, numRuns*2)
 
 	// To complete the transfer, we'll export the proof from the sender and
 	// import it into the receiver for each asset set. This should not be

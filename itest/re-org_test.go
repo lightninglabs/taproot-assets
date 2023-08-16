@@ -19,7 +19,9 @@ func testReOrgMint(t *harnessTest) {
 	mintRequests := []*mintrpc.MintAssetRequest{
 		issuableAssets[0], issuableAssets[1],
 	}
-	mintTXID, batchKey := mintAssetUnconfirmed(t, t.tapd, mintRequests)
+	mintTXID, batchKey := MintAssetUnconfirmed(
+		t.t, t.lndHarness.Miner.Client, t.tapd, mintRequests,
+	)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -31,7 +33,7 @@ func testReOrgMint(t *harnessTest) {
 	miner := t.lndHarness.Miner
 
 	// And now we mine a block to confirm the assets.
-	initialBlock := mineBlocks(t, t.lndHarness, 1, 1)[0]
+	initialBlock := MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)[0]
 	initialBlockHash := initialBlock.BlockHash()
 	WaitForBatchState(
 		t.t, ctxt, t.tapd, defaultWaitTimeout, batchKey,
@@ -42,8 +44,8 @@ func testReOrgMint(t *harnessTest) {
 	miner.AssertTxInBlock(initialBlock, &mintTXID)
 	t.Logf("Mint TX %v mined in block %v", mintTXID, initialBlockHash)
 
-	assetList := assertAssetsMinted(
-		t, t.tapd, mintRequests, mintTXID, initialBlockHash,
+	assetList := AssertAssetsMinted(
+		t.t, t.tapd, mintRequests, mintTXID, initialBlockHash,
 	)
 
 	// Now that we have the asset created, we'll make a new node that'll
@@ -73,7 +75,7 @@ func testReOrgMint(t *harnessTest) {
 	// was re-organized out.
 	for idx := range assetList {
 		a := assetList[idx]
-		assertAssetProofsInvalid(t.t, t.tapd, a)
+		AssertAssetProofsInvalid(t.t, t.tapd, a)
 	}
 
 	// Cleanup by mining the minting tx again.
@@ -124,7 +126,9 @@ func testReOrgSend(t *harnessTest) {
 	mintRequests := []*mintrpc.MintAssetRequest{
 		issuableAssets[0], issuableAssets[1],
 	}
-	assetList := mintAssetsConfirmBatch(t, t.tapd, mintRequests)
+	assetList := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, mintRequests,
+	)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -159,10 +163,11 @@ func testReOrgSend(t *harnessTest) {
 		Amt:     sendAmount,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
+	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
 	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
-	initialBlock := confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, sendAssetGen.AssetId,
+	initialBlock := ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
 	_ = sendProof(
@@ -196,11 +201,11 @@ func testReOrgSend(t *harnessTest) {
 
 	for idx := range aliceAssets.Assets {
 		a := aliceAssets.Assets[idx]
-		assertAssetProofsInvalid(t.t, t.tapd, a)
+		AssertAssetProofsInvalid(t.t, t.tapd, a)
 	}
 	for idx := range bobAssets.Assets {
 		a := bobAssets.Assets[idx]
-		assertAssetProofsInvalid(t.t, secondTapd, a)
+		AssertAssetProofsInvalid(t.t, secondTapd, a)
 	}
 
 	// Cleanup by mining the minting tx again.
@@ -251,7 +256,9 @@ func testReOrgMintAndSend(t *harnessTest) {
 	mintRequests := []*mintrpc.MintAssetRequest{
 		issuableAssets[0], issuableAssets[1],
 	}
-	assetList := mintAssetsConfirmBatch(t, t.tapd, mintRequests)
+	assetList := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, mintRequests,
+	)
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
@@ -277,10 +284,11 @@ func testReOrgMintAndSend(t *harnessTest) {
 		Amt:     sendAmount,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
+	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
 	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
-	initialBlock := confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, sendAssetGen.AssetId,
+	initialBlock := ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
 	_ = sendProof(
@@ -314,11 +322,11 @@ func testReOrgMintAndSend(t *harnessTest) {
 
 	for idx := range aliceAssets.Assets {
 		a := aliceAssets.Assets[idx]
-		assertAssetProofsInvalid(t.t, t.tapd, a)
+		AssertAssetProofsInvalid(t.t, t.tapd, a)
 	}
 	for idx := range bobAssets.Assets {
 		a := bobAssets.Assets[idx]
-		assertAssetProofsInvalid(t.t, secondTapd, a)
+		AssertAssetProofsInvalid(t.t, secondTapd, a)
 	}
 
 	// We now also stop Bob to make sure he can still detect the re-org and

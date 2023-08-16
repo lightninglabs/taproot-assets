@@ -13,8 +13,9 @@ import (
 func testFullValueSend(t *harnessTest) {
 	// First, we'll make an normal assets with enough units to allow us to
 	// send it around a few times.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
 	)
@@ -79,10 +80,11 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			)
 			require.NoError(t.t, err)
 
-			assertAddrCreated(t.t, bob, mintedAsset, receiverAddr)
+			AssertAddrCreated(t.t, bob, mintedAsset, receiverAddr)
 			sendResp := sendAssetsToAddr(t, alice, receiverAddr)
-			confirmAndAssertOutboundTransfer(
-				t, alice, sendResp, genInfo.AssetId,
+			ConfirmAndAssertOutboundTransfer(
+				t.t, t.lndHarness.Miner.Client, alice,
+				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
 			)
@@ -99,12 +101,12 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			)
 			require.NoError(t.t, err)
 
-			assertAddrCreated(t.t, alice, mintedAsset, receiverAddr)
+			AssertAddrCreated(t.t, alice, mintedAsset, receiverAddr)
 			sendResp := sendAssetsToAddr(t, bob, receiverAddr)
-			confirmAndAssertOutboundTransfer(
-				t, bob, sendResp, genInfo.AssetId,
-				[]uint64{0, fullAmount}, receiverTransferIdx,
-				receiverTransferIdx+1,
+			ConfirmAndAssertOutboundTransfer(
+				t.t, t.lndHarness.Miner.Client, bob, sendResp,
+				genInfo.AssetId, []uint64{0, fullAmount},
+				receiverTransferIdx, receiverTransferIdx+1,
 			)
 			_ = sendProof(
 				t, bob, alice, receiverAddr.ScriptKey, genInfo,

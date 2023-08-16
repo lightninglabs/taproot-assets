@@ -28,8 +28,9 @@ import (
 func testPsbtScriptHashLockSend(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	mintedAsset := rpcAssets[0]
@@ -83,7 +84,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		Amt:     numUnits / 2,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
+	AssertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
 
 	fundResp := fundAddressSendPacket(t, bob, aliceAddr)
 	t.Logf("Funded PSBT: %v",
@@ -127,9 +128,9 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId,
-		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, bob, sendResp,
+		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
@@ -149,8 +150,9 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// First, we'll make a normal asset with enough units to allow us to
 	// send it around a few times.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{issuableAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
 	mintedAsset := rpcAssets[0]
@@ -205,7 +207,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		Amt:     numUnits / 2,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
+	AssertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
 
 	fundResp := fundAddressSendPacket(t, bob, aliceAddr)
 	t.Logf("Funded PSBT: %v",
@@ -251,9 +253,9 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	confirmAndAssertOutboundTransfer(
-		t, bob, sendResp, genInfo.AssetId,
-		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, bob, sendResp,
+		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
@@ -275,8 +277,9 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
 			{
@@ -325,8 +328,9 @@ func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			issuableAssets[0],
 			// Our "passive" asset.
 			{
@@ -427,9 +431,10 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 			numOutputs = 2
 			amounts = []uint64{fullAmt, 0}
 		}
-		confirmAndAssetOutboundTransferWithOutputs(
-			t, sender, sendResp, genInfo.AssetId, amounts,
-			i/2, (i/2)+1, numOutputs,
+		ConfirmAndAssetOutboundTransferWithOutputs(
+			t.t, t.lndHarness.Miner.Client, sender,
+			sendResp, genInfo.AssetId, amounts, i/2, (i/2)+1,
+			numOutputs,
 		)
 		_ = sendProof(
 			t, sender, receiver,
@@ -457,10 +462,10 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
-		receivedAssets := groupAssetsByName(receiverAssets.Assets)
+		receivedAssets := GroupAssetsByName(receiverAssets.Assets)
 		AssertAssetState(
 			t.t, receivedAssets, genInfo.Name, genInfo.MetaHash,
-			assetAmountCheck(fullAmt),
+			AssetAmountCheck(fullAmt),
 		)
 	}
 
@@ -479,8 +484,9 @@ func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
 			{
@@ -529,8 +535,9 @@ func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			issuableAssets[0],
 			// Our "passive" asset.
 			{
@@ -641,8 +648,9 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		require.NoError(t.t, err)
 
 		numOutputs := 2
-		confirmAndAssetOutboundTransferWithOutputs(
-			t, sender, sendResp, genInfo.AssetId,
+		ConfirmAndAssetOutboundTransferWithOutputs(
+			t.t, t.lndHarness.Miner.Client, sender,
+			sendResp, genInfo.AssetId,
 			[]uint64{sendAmt, changeAmt}, i/2, (i/2)+1,
 			numOutputs,
 		)
@@ -695,8 +703,9 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -764,9 +773,9 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	confirmAndAssetOutboundTransferWithOutputs(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{sendAmt, changeAmt}, 0, 1, 2,
+	ConfirmAndAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, alice, sendResp,
+		genInfo.AssetId, []uint64{sendAmt, changeAmt}, 0, 1, 2,
 	)
 	_ = sendProof(
 		t, alice, bob,
@@ -806,8 +815,9 @@ func testPsbtMultiSend(t *harnessTest) {
 	// First, we'll make a normal asset with a bunch of units that we are
 	// going to send backand forth. We're also minting a passive asset that
 	// should remain where it is.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0],
 			// Our "passive" asset.
 			{
@@ -911,9 +921,9 @@ func testPsbtMultiSend(t *harnessTest) {
 	// addresses (sharing an anchor output) and 1 for the change. So there
 	// are 4 BTC anchor outputs but 5 asset transfer outputs.
 	numOutputs := 5
-	confirmAndAssetOutboundTransferWithOutputs(
-		t, sender, sendResp, genInfo.AssetId, outputAmounts, 0, 1,
-		numOutputs,
+	ConfirmAndAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, sender, sendResp,
+		genInfo.AssetId, outputAmounts, 0, 1, numOutputs,
 	)
 	_ = sendProof(
 		t, sender, receiver,
@@ -1009,16 +1019,16 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		InternalKey: lndKeyDescToTap(bobInternalKey),
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bob, mintedAsset, bobAddr)
+	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr)
 
 	// Send the asset to Bob using the script key with an actual script
 	// tree.
 	sendResp := sendAssetsToAddr(t, alice, bobAddr)
 
 	changeUnits := mintedAsset.Amount - numUnits
-	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{changeUnits, numUnits}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, alice, sendResp,
+		genInfo.AssetId, []uint64{changeUnits, numUnits}, 0, 1,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, bob, 1)
@@ -1038,11 +1048,12 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, bob, mintedAsset, bobAddr)
+	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr)
 	sendResp := sendAssetsToAddr(t, alice, bobAddr)
-	confirmAndAssertOutboundTransfer(
-		t, alice, sendResp, genInfo.AssetId,
-		[]uint64{change, numUnits}, outTransferIdx, numOutTransfers,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, alice, sendResp,
+		genInfo.AssetId, []uint64{change, numUnits}, outTransferIdx,
+		numOutTransfers,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 
