@@ -213,14 +213,6 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		return nil, fmt.Errorf("asset id mismatch: expected %v, got %v",
 			id.AssetID, newAsset.ID())
 
-	// The outpoint of the final resting place of the asset should match
-	// the leaf key
-	//
-	// TODO(roasbeef): this restrict to issuance
-	case assetSnapshot.OutPoint != key.MintingOutpoint:
-		return nil, fmt.Errorf("outpoint mismatch: expected %v, got %v",
-			key.MintingOutpoint, assetSnapshot.OutPoint)
-
 	// The script key should also match exactly.
 	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
 		return nil, fmt.Errorf("script key mismatch: expected %v, "+
