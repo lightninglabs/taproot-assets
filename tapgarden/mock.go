@@ -482,3 +482,26 @@ func (m *MockProofArchive) ImportProofs(ctx context.Context,
 
 	return nil
 }
+
+type MockProofWatcher struct {
+}
+
+func (m *MockProofWatcher) WatchProofs([]*proof.Proof,
+	proof.UpdateCallback) error {
+
+	return nil
+}
+
+func (m *MockProofWatcher) MaybeWatch(*proof.File, proof.UpdateCallback) error {
+	return nil
+}
+
+func (m *MockProofWatcher) ShouldWatch(*proof.Proof) bool {
+	return true
+}
+
+func (m *MockProofWatcher) DefaultUpdateCallback() proof.UpdateCallback {
+	return func([]*proof.Proof) error {
+		return nil
+	}
+}
