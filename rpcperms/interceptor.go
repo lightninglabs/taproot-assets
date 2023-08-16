@@ -203,9 +203,17 @@ func (r *InterceptorChain) Permissions() map[string][]bakery.Op {
 	return c
 }
 
+// InterceptorsOpts holds the options that need to be set in some server
+// interceptors.
+type InterceptorsOpts struct {
+	Prometheus *monitoring.PrometheusConfig
+}
+
 // CreateServerOpts creates the GRPC server options that can be added to a GRPC
 // server in order to add this InterceptorChain.
-func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
+func (r *InterceptorChain) CreateServerOpts(
+	opts *InterceptorsOpts) []grpc.ServerOption {
+
 	var unaryInterceptors []grpc.UnaryServerInterceptor
 	var strmInterceptors []grpc.StreamServerInterceptor
 
@@ -240,11 +248,11 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 	// Get interceptors for Prometheus to gather gRPC performance metrics.
 	// If monitoring is disabled, GetPromInterceptors() will return empty
 	// slices.
-	promUnaryInterceptors, promStrmInterceptors := monitoring.GetPromInterceptors(nil) //nolint:lll
+	promUnary, promStrm := monitoring.GetPromInterceptors(opts.Prometheus)
 
 	// Concatenate the slices of unary and stream interceptors respectively.
-	unaryInterceptors = append(unaryInterceptors, promUnaryInterceptors...)
-	strmInterceptors = append(strmInterceptors, promStrmInterceptors...)
+	unaryInterceptors = append(unaryInterceptors, promUnary...)
+	strmInterceptors = append(strmInterceptors, promStrm...)
 
 	// Create server options from the interceptors we just set up.
 	chainedUnary := grpc_middleware.WithUnaryServerChain(
