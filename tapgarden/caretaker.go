@@ -71,6 +71,12 @@ type BatchCaretakerConfig struct {
 	// attempted batch cancellation to the planter.
 	CancelRespChan chan CancelResp
 
+	// UpdateMintingProofs is used to update the minting proofs in the
+	// database in case of a re-org. This cannot be done by the caretaker
+	// itself, because its job is already done at the point that a re-org
+	// can happen (the batch is finalized after a single confirmation).
+	UpdateMintingProofs func([]*proof.Proof) error
+
 	// ErrChan is the main error channel the caretaker will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -957,6 +963,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)
+		}
+
+		// Now that we've confirmed the batch, we'll hand over the
+		// proofs to the re-org watcher.
+		if err := b.cfg.ProofWatcher.WatchProofs(
+			maps.Values(mintingProofs), b.cfg.UpdateMintingProofs,
+		); err != nil {
+			return 0, fmt.Errorf("error watching proof: %w", err)
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
