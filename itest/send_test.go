@@ -118,7 +118,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		_ = sendProof(
 			t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo,
 		)
-		assertNonInteractiveRecvComplete(t, secondTapd, i+1)
+		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
 	}
 
 	// Close event stream.
@@ -216,7 +216,7 @@ func testResumePendingPackageSend(t *harnessTest) {
 
 		// Confirm with the receiver node that the asset was fully
 		// received.
-		assertNonInteractiveRecvComplete(t, recvTapd, i+1)
+		AssertNonInteractiveRecvComplete(t.t, recvTapd, i+1)
 	}
 }
 
@@ -289,11 +289,11 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
 	_ = sendProof(t, t.tapd, recvTapd, recvAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, recvTapd, 1)
+	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
 
 	// Assert that the sending node returns the correct asset list via RPC.
 	assertListAssets(
-		t, ctxb, t.tapd, []MatchRpcAsset{
+		t.t, ctxb, t.tapd, []MatchRpcAsset{
 			func(asset *taprpc.Asset) bool {
 				return asset.Amount == 300 &&
 					asset.AssetGenesis.Name == "first-itestbuxx"
@@ -331,7 +331,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
 	_ = sendProof(t, t.tapd, recvTapd, recvAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, recvTapd, 2)
+	AssertNonInteractiveRecvComplete(t.t, recvTapd, 2)
 }
 
 // testReattemptFailedAssetSend tests that a failed attempt at sending an asset
@@ -542,7 +542,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	// Confirm that the receiver eventually receives the asset. Pause to
 	// give the receiver time to recognise the full send event.
 	t.Logf("Attempting to confirm asset received")
-	assertNonInteractiveRecvComplete(t, recvTapd, 1)
+	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
 
 	wg.Wait()
 }
@@ -642,7 +642,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	)
 
 	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bobTapd, 1)
+	AssertNonInteractiveRecvComplete(t.t, bobTapd, 1)
 
 	// Second of two send events from minting node to the secondary node.
 	addr, err = bobTapd.NewAddr(
@@ -662,7 +662,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	)
 
 	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bobTapd, 2)
+	AssertNonInteractiveRecvComplete(t.t, bobTapd, 2)
 
 	t.Logf("Two separate send events complete, now attempting to send " +
 		"back the full amount in a single multi input send event")
@@ -685,7 +685,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	)
 
 	_ = sendProof(t, bobTapd, t.tapd, addr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, t.tapd, 1)
+	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 }
 
 // testSendMultipleCoins tests that we can send multiple transfers at the same
@@ -741,7 +741,7 @@ func testSendMultipleCoins(t *harnessTest) {
 			unitsPerPart, unitsPerPart,
 		}, 0, 1, numParts+1,
 	)
-	assertNonInteractiveRecvComplete(t, t.tapd, 5)
+	AssertNonInteractiveRecvComplete(t.t, t.tapd, 5)
 
 	// Next, we'll attempt to complete 5 parallel transfers with distinct
 	// addresses from our main node to Bob.
@@ -786,5 +786,5 @@ func testSendMultipleCoins(t *harnessTest) {
 	for _, addr := range bobAddrs {
 		_ = sendProof(t, t.tapd, secondTapd, addr.ScriptKey, genInfo)
 	}
-	assertNonInteractiveRecvComplete(t, secondTapd, 5)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
 }

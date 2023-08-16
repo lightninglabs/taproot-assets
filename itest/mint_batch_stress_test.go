@@ -83,7 +83,7 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 	}
 
 	// Use the first asset of the batch as the asset group anchor.
-	collectibleAnchorReq := copyRequest(&collectibleRequestTemplate)
+	collectibleAnchorReq := CopyRequest(&collectibleRequestTemplate)
 	incrementMintAsset(collectibleAnchorReq.Asset, 0)
 	collectibleAnchorReq.EnableEmission = true
 	batchReqs[0] = collectibleAnchorReq
@@ -91,7 +91,7 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 	// Generate the rest of the batch, with each asset referencing the group
 	// anchor we created above.
 	for i := 1; i < batchSize; i++ {
-		groupedAsset := copyRequest(&collectibleRequestTemplate)
+		groupedAsset := CopyRequest(&collectibleRequestTemplate)
 		incrementMintAsset(groupedAsset.Asset, i)
 		groupedAsset.Asset.GroupAnchor = collectibleAnchorReq.Asset.Name
 		batchReqs[i] = groupedAsset
@@ -108,7 +108,7 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 
 	// We can re-derive the group key to verify that the correct asset was
 	// used as the group anchor.
-	collectibleAnchor := verifyGroupAnchor(
+	collectibleAnchor := VerifyGroupAnchor(
 		t.t, mintBatch, collectibleAnchorReq.Asset.Name,
 	)
 	collectGroupKey := collectibleAnchor.AssetGroup.TweakedGroupKey
@@ -118,11 +118,11 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 	// equivalent balance, since the group is made of collectibles.
 	groupCount := 1
 	groupBalance := batchSize
-	assertNumGroups(t.t, t.tapd, groupCount)
-	assertGroupSizes(
+	AssertNumGroups(t.t, t.tapd, groupCount)
+	AssertGroupSizes(
 		t.t, t.tapd, []string{collectGroupKeyStr}, []int{batchSize},
 	)
-	assertBalanceByGroup(
+	AssertBalanceByGroup(
 		t.t, t.tapd, collectGroupKeyStr, uint64(groupBalance),
 	)
 
@@ -134,7 +134,7 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 	require.NoError(t.t, err)
 	require.Len(t.t, uniRoots.UniverseRoots, groupCount)
 
-	err = assertUniverseRoot(
+	err = AssertUniverseRoot(
 		t.t, t.tapd, groupBalance, nil, collectGroupKey,
 	)
 	require.NoError(t.t, err)
@@ -183,6 +183,6 @@ func mintBatchStressTest(t *harnessTest, batchSize int,
 	require.NoError(t.t, err)
 
 	require.Eventually(t.t, func() bool {
-		return assertUniverseStateEqual(t.t, t.tapd, bob)
+		return AssertUniverseStateEqual(t.t, t.tapd, bob)
 	}, minterTimeout, time.Second)
 }

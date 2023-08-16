@@ -112,15 +112,15 @@ func testRoundTripSend(t *harnessTest) {
 	// Check the final state of both nodes. Each node should list
 	// one transfer, and Alice should have 3/4 of the total units.
 	err = wait.NoError(func() error {
-		assertTransfer(t.t, t.tapd, 0, 1, []uint64{bobAmt, bobAmt})
-		assertBalanceByID(
+		AssertTransfer(t.t, t.tapd, 0, 1, []uint64{bobAmt, bobAmt})
+		AssertBalanceByID(
 			t.t, t.tapd, genInfo.AssetId, bobAmt+aliceAmt,
 		)
 
-		assertTransfer(
+		AssertTransfer(
 			t.t, secondTapd, 0, 1, []uint64{aliceAmt, aliceAmt},
 		)
-		assertBalanceByID(t.t, secondTapd, genInfo.AssetId, aliceAmt)
+		AssertBalanceByID(t.t, secondTapd, genInfo.AssetId, aliceAmt)
 
 		return nil
 	}, defaultTimeout/2)

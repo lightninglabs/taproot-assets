@@ -33,8 +33,8 @@ func testReOrgMint(t *harnessTest) {
 	// And now we mine a block to confirm the assets.
 	initialBlock := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	initialBlockHash := initialBlock.BlockHash()
-	waitForBatchState(
-		t, ctxt, t.tapd, defaultWaitTimeout,
+	WaitForBatchState(
+		t.t, ctxt, t.tapd, defaultWaitTimeout,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
@@ -85,14 +85,15 @@ func testReOrgMint(t *harnessTest) {
 
 	// Let's wait until we see that the proof for the first asset was
 	// updated to the new block height.
-	waitForProofUpdate(t.t, t.tapd, assetList[0], newBlockHeight)
+	WaitForProofUpdate(t.t, t.tapd, assetList[0], newBlockHeight)
 
 	// We now try to validate the issuance proof of the two assets we
 	// minted again. The re-org watcher should have updated the proofs and
 	// pushed them to the proof store. They should be valid now.
+	chainClient := t.tapd.cfg.LndNode.RPC.ChainKit
 	for idx := range assetList {
 		a := assetList[idx]
-		assertAssetProofs(t.t, t.tapd, a)
+		AssertAssetProofs(t.t, t.tapd, chainClient, a)
 	}
 
 	// Let's now bury the proofs under sufficient blocks to allow the re-org
@@ -101,7 +102,7 @@ func testReOrgMint(t *harnessTest) {
 
 	// The second tapd instance should now have a different universe state
 	// since we only updated the issuance proofs in the first tapd instance.
-	assertUniverseRootEquality(t.t, t.tapd, secondTapd, false)
+	AssertUniverseRootEquality(t.t, t.tapd, secondTapd, false)
 
 	// A universe sync should now bring both nodes back into sync.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -113,7 +114,7 @@ func testReOrgMint(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, syncDiff.SyncedUniverses, len(assetList))
 
-	assertUniverseRootEquality(t.t, t.tapd, secondTapd, true)
+	AssertUniverseRootEquality(t.t, t.tapd, secondTapd, true)
 }
 
 // testReOrgSend tests that when a re-org occurs, sent asset proofs are updated
@@ -167,7 +168,7 @@ func testReOrgSend(t *harnessTest) {
 	_ = sendProof(
 		t, t.tapd, secondTapd, bobAddr.ScriptKey, sendAssetGen,
 	)
-	assertNonInteractiveRecvComplete(t, secondTapd, 1)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	initialBlockHash := initialBlock.BlockHash()
 
 	// Make sure the original send TX was mined in the first block.
@@ -211,19 +212,22 @@ func testReOrgSend(t *harnessTest) {
 
 	// Let's wait until we see that the proof for the first asset was
 	// updated to the new block height.
-	waitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
-	waitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
+	WaitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
+	WaitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
 
 	// We now try to validate the send proofs of the delivered, change and
 	// passive assets. The re-org watcher should have updated the proofs and
 	// pushed them to the proof store. They should be valid now.
+	aliceChainClient := t.tapd.cfg.LndNode.RPC.ChainKit
 	for idx := range aliceAssets.Assets {
 		a := aliceAssets.Assets[idx]
-		assertAssetProofs(t.t, t.tapd, a)
+		AssertAssetProofs(t.t, t.tapd, aliceChainClient, a)
 	}
+
+	bobChainClient := secondTapd.cfg.LndNode.RPC.ChainKit
 	for idx := range bobAssets.Assets {
 		a := bobAssets.Assets[idx]
-		assertAssetProofs(t.t, secondTapd, a)
+		AssertAssetProofs(t.t, secondTapd, bobChainClient, a)
 	}
 
 	// Let's now bury the proofs under sufficient blocks to allow the re-org
@@ -282,7 +286,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	_ = sendProof(
 		t, t.tapd, secondTapd, bobAddr.ScriptKey, sendAssetGen,
 	)
-	assertNonInteractiveRecvComplete(t, secondTapd, 1)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	initialBlockHash := initialBlock.BlockHash()
 
 	// Make sure the original send TX was mined in the first block.
@@ -335,20 +339,23 @@ func testReOrgMintAndSend(t *harnessTest) {
 
 	// Let's wait until we see that the proof for the mint, first and sent
 	// assets were updated to the new block height.
-	waitForProofUpdate(t.t, t.tapd, assetList[0], newBlockHeight)
-	waitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
-	waitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
+	WaitForProofUpdate(t.t, t.tapd, assetList[0], newBlockHeight)
+	WaitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
+	WaitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
 
 	// We now try to validate the send proofs of the delivered, change and
 	// passive assets. The re-org watcher should have updated the proofs and
 	// pushed them to the proof store. They should be valid now.
+	aliceChainClient := t.tapd.cfg.LndNode.RPC.ChainKit
 	for idx := range aliceAssets.Assets {
 		a := aliceAssets.Assets[idx]
-		assertAssetProofs(t.t, t.tapd, a)
+		AssertAssetProofs(t.t, t.tapd, aliceChainClient, a)
 	}
+
+	bobChainClient := secondTapd.cfg.LndNode.RPC.ChainKit
 	for idx := range bobAssets.Assets {
 		a := bobAssets.Assets[idx]
-		assertAssetProofs(t.t, secondTapd, a)
+		AssertAssetProofs(t.t, secondTapd, bobChainClient, a)
 	}
 
 	// Let's now bury the proofs under sufficient blocks to allow the re-org

@@ -30,7 +30,7 @@ func testReIssuance(t *harnessTest) {
 
 	// We'll confirm that the node created two separate groups during
 	// minting.
-	assertNumGroups(t.t, t.tapd, groupCount)
+	AssertNumGroups(t.t, t.tapd, groupCount)
 
 	// We'll store the group keys and geneses from the minting to use
 	// later when creating addresses.
@@ -81,12 +81,12 @@ func testReIssuance(t *harnessTest) {
 
 	// Check the state of both nodes. The first node should show one
 	// zero-value transfer representing the send of the collectible.
-	assertTransfer(t.t, t.tapd, 0, 1, []uint64{0, 1})
-	assertBalanceByID(t.t, t.tapd, collectGenInfo.AssetId, 0)
+	AssertTransfer(t.t, t.tapd, 0, 1, []uint64{0, 1})
+	AssertBalanceByID(t.t, t.tapd, collectGenInfo.AssetId, 0)
 
 	// The second node should show a balance of 1 for exactly one group.
-	assertBalanceByID(t.t, secondTapd, collectGenInfo.AssetId, 1)
-	assertBalanceByGroup(t.t, secondTapd, encodedCollectGroupKey, 1)
+	AssertBalanceByID(t.t, secondTapd, collectGenInfo.AssetId, 1)
+	AssertBalanceByGroup(t.t, secondTapd, encodedCollectGroupKey, 1)
 
 	// Send half of the normal asset to the second node before reissuance.
 	normalGroupAddr, err := secondTapd.NewAddr(
@@ -109,7 +109,7 @@ func testReIssuance(t *harnessTest) {
 
 	// Reissue one more collectible and half the original mint amount for
 	// the normal asset.
-	reissuedAssets := copyRequests(simpleAssets)
+	reissuedAssets := CopyRequests(simpleAssets)
 
 	reissuedAssets[0].Asset.Amount = normalGroupMintHalf
 	reissuedAssets[0].Asset.GroupKey = normalGroupKey
@@ -132,7 +132,7 @@ func testReIssuance(t *harnessTest) {
 
 	// Check the node state after re-issuance. The total number of groups
 	// should still be two.
-	assertNumGroups(t.t, t.tapd, groupCount)
+	AssertNumGroups(t.t, t.tapd, groupCount)
 
 	// The normal group should hold two assets, while the collectible
 	// should only hold one, since the zero-value tombstone is only visible
@@ -148,16 +148,16 @@ func testReIssuance(t *harnessTest) {
 	collectGroup := groupsAfterReissue.Groups[encodedCollectGroupKey]
 	require.Len(t.t, collectGroup.Assets, 1)
 
-	assertSplitTombstoneTransfer(t.t, t.tapd, collectGenInfo.AssetId)
+	AssertSplitTombstoneTransfer(t.t, t.tapd, collectGenInfo.AssetId)
 
 	// The normal group balance should account for the re-issuance and
 	// equal the original mint amount. The collectible group balance should
 	// be back at 1.
-	assertBalanceByGroup(
+	AssertBalanceByGroup(
 		t.t, t.tapd, hex.EncodeToString(normalGroupKey),
 		normalGroupGen[0].Amount,
 	)
-	assertBalanceByGroup(
+	AssertBalanceByGroup(
 		t.t, t.tapd, hex.EncodeToString(collectGroupKey), 1,
 	)
 
@@ -184,7 +184,7 @@ func testReIssuance(t *harnessTest) {
 
 	// The second node should show two groups, with two assets in
 	// the collectible group and a total balance of 2 for that group.
-	assertNumGroups(t.t, secondTapd, groupCount)
+	AssertNumGroups(t.t, secondTapd, groupCount)
 	groupsSecondNode, err := secondTapd.ListGroups(
 		ctxb, &taprpc.ListGroupsRequest{},
 	)
@@ -193,7 +193,7 @@ func testReIssuance(t *harnessTest) {
 	collectGroupSecondNode := groupsSecondNode.Groups[encodedCollectGroupKey]
 	require.Equal(t.t, 2, len(collectGroupSecondNode.Assets))
 
-	assertBalanceByGroup(
+	AssertBalanceByGroup(
 		t.t, secondTapd, hex.EncodeToString(collectGroupKey), 2,
 	)
 
@@ -218,10 +218,10 @@ func testReIssuance(t *harnessTest) {
 
 	// The collectible balance on the minting node should be 1, and there
 	// should still be only two groups.
-	assertBalanceByGroup(
+	AssertBalanceByGroup(
 		t.t, t.tapd, hex.EncodeToString(collectGroupKey), 1,
 	)
-	assertNumGroups(t.t, t.tapd, groupCount)
+	AssertNumGroups(t.t, t.tapd, groupCount)
 }
 
 // testReIssuanceAmountOverflow tests that an error is returned when attempting
@@ -231,7 +231,7 @@ func testReIssuanceAmountOverflow(t *harnessTest) {
 	// endpoint.
 	t.Log("Minting asset with maximum possible amount")
 
-	assetIssueReqs := copyRequests(issuableAssets)
+	assetIssueReqs := CopyRequests(issuableAssets)
 	assetIssueReq := assetIssueReqs[0]
 
 	assetIssueReq.EnableEmission = true
@@ -248,7 +248,7 @@ func testReIssuanceAmountOverflow(t *harnessTest) {
 	// amount supported by the RPC endpoint.
 	t.Log("Re-issuing asset with maximum possible amount")
 
-	assetIssueReqs = copyRequests(simpleAssets)
+	assetIssueReqs = CopyRequests(simpleAssets)
 	assetIssueReq = assetIssueReqs[0]
 
 	// Reissue an amount which is minimally sufficient to lead to an
@@ -282,7 +282,7 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 
 	// Now, create a minting request to try and reissue into the group
 	// created during minting.
-	reissueRequest := copyRequest(simpleAssets[0])
+	reissueRequest := CopyRequest(simpleAssets[0])
 	reissueRequest.Asset.GroupKey = collectGroupKey
 
 	// A request must not have the emission flag set if a group key is given.

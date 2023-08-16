@@ -171,9 +171,7 @@ func (h *harnessTest) Log(args ...interface{}) {
 }
 
 func (h *harnessTest) LogfTimestamped(format string, args ...interface{}) {
-	timestamp := time.Now().Format(time.RFC3339Nano)
-	args = append([]interface{}{timestamp}, args...)
-	h.t.Logf("%s: "+format, args...)
+	LogfTimestamped(h.t, format, args...)
 }
 
 // shutdown stops both the mock universe and tapd server.
@@ -537,4 +535,11 @@ func lndKeyDescToTap(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
 			KeyIndex:  int32(lnd.Index),
 		},
 	}
+}
+
+// LogfTimestamped logs the given message with the current timestamp.
+func LogfTimestamped(t *testing.T, format string, args ...interface{}) {
+	timestamp := time.Now().Format(time.RFC3339Nano)
+	args = append([]interface{}{timestamp}, args...)
+	t.Logf("%s: "+format, args...)
 }

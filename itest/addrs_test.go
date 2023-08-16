@@ -63,13 +63,13 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure that eventually we see a single event for the
 		// address.
-		assertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
+		AssertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
 
 		// Mine a block to make sure the events are marked as confirmed.
 		mineBlocks(t, t.lndHarness, 1, 1)
 
 		// Eventually the event should be marked as confirmed.
-		assertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
+		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
 
 		// To complete the transfer, we'll export the proof from the
 		// sender and import it into the receiver for each asset set.
@@ -78,7 +78,7 @@ func testAddresses(t *harnessTest) {
 		)
 
 		// Make sure we have imported and finalized all proofs.
-		assertNonInteractiveRecvComplete(t, secondTapd, idx+1)
+		AssertNonInteractiveRecvComplete(t.t, secondTapd, idx+1)
 
 		// Make sure the asset meta is also fetched correctly.
 		assetResp, err := secondTapd.FetchAssetMeta(
@@ -224,10 +224,10 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	// Make sure that eventually we see a single event for the address.
-	assertAddrEvent(t.t, bob, bobAddr1, 1, statusDetected)
-	assertAddrEvent(t.t, bob, bobAddr2, 1, statusDetected)
-	assertAddrEvent(t.t, alice, aliceAddr1, 1, statusDetected)
-	assertAddrEvent(t.t, alice, aliceAddr2, 1, statusDetected)
+	AssertAddrEvent(t.t, bob, bobAddr1, 1, statusDetected)
+	AssertAddrEvent(t.t, bob, bobAddr2, 1, statusDetected)
+	AssertAddrEvent(t.t, alice, aliceAddr1, 1, statusDetected)
+	AssertAddrEvent(t.t, alice, aliceAddr2, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
 	_ = mineBlocks(t, t.lndHarness, 1, 1)[0]
@@ -248,8 +248,8 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	}
 
 	// Make sure we have imported and finalized all proofs.
-	assertNonInteractiveRecvComplete(t, bob, numRuns*2)
-	assertNonInteractiveRecvComplete(t, alice, numRuns*2)
+	AssertNonInteractiveRecvComplete(t.t, bob, numRuns*2)
+	AssertNonInteractiveRecvComplete(t.t, alice, numRuns*2)
 
 	// Now sanity check that we can actually list the transfer.
 	const (

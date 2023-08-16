@@ -116,10 +116,10 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 	// Check the final state of both nodes. The main node should list 2
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
-	assertTransfer(t.t, alice, runIdx*2, numRuns*2, []uint64{0, fullAmount})
-	assertTransfer(t.t, alice, runIdx*2+1, numRuns*2, []uint64{0, fullAmount})
-	assertBalanceByID(t.t, alice, genInfo.AssetId, 0)
+	AssertTransfer(t.t, alice, runIdx*2, numRuns*2, []uint64{0, fullAmount})
+	AssertTransfer(t.t, alice, runIdx*2+1, numRuns*2, []uint64{0, fullAmount})
+	AssertBalanceByID(t.t, alice, genInfo.AssetId, 0)
 
-	assertTransfer(t.t, bob, runIdx, numRuns, []uint64{0, fullAmount})
-	assertBalanceByID(t.t, bob, genInfo.AssetId, fullAmount)
+	AssertTransfer(t.t, bob, runIdx, numRuns, []uint64{0, fullAmount})
+	AssertBalanceByID(t.t, bob, genInfo.AssetId, fullAmount)
 }
