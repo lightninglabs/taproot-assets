@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -28,6 +29,27 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+const (
+	// defaultCoinLeaseDuration is the default duration for which we lease
+	// managed UTXOs of asset outputs from the wallet.
+	defaultCoinLeaseDuration = 10 * time.Minute
+)
+
+var (
+	// defaultWalletLeaseIdentifier is the binary representation of the
+	// SHA256 hash of the string "tapd-internal-lock-id" and is used for
+	// UTXO leases/locks/reservations to identify that we ourselves are
+	// leasing an UTXO, for example when giving out a funded vPSBT. The ID
+	// corresponds to the hex value of
+	// 6d7cd7ee247587eef86766140262685819deebc034ad80664fb74ec2ad6e11d7.
+	defaultWalletLeaseIdentifier = [32]byte{
+		0x6d, 0x7c, 0xd7, 0xee, 0x24, 0x75, 0x87, 0xee,
+		0xf8, 0x67, 0x66, 0x14, 0x02, 0x62, 0x68, 0x58,
+		0x19, 0xde, 0xeb, 0xc0, 0x34, 0xad, 0x80, 0x66,
+		0x4f, 0xb7, 0x4e, 0xc2, 0xad, 0x6e, 0x11, 0xd7,
+	}
 )
 
 // AnchorTransaction is a type that holds all information about a BTC level
@@ -162,6 +184,12 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 	s.coinLock.Lock()
 	defer s.coinLock.Unlock()
 
+	// Before we select any coins, let's do some cleanup of expired leases.
+	if err := s.coinLister.DeleteExpiredLeases(ctx); err != nil {
+		return nil, fmt.Errorf("unable to delete expired leases: %w",
+			err)
+	}
+
 	listConstraints := CommitmentConstraints{
 		GroupKey: constraints.GroupKey,
 		AssetID:  constraints.AssetID,
@@ -185,10 +213,47 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		return nil, fmt.Errorf("unable to select coins: %w", err)
 	}
 
-	// TODO(guggero): Actually lease the coins for the default lease
-	// duration.
+	// We now need to lock/lease/reserve those selected coins so
+	// that they can't be used by other processes.
+	expiry := time.Now().Add(defaultCoinLeaseDuration)
+	coinOutPoints := fn.Map(
+		selectedCoins, func(c *AnchoredCommitment) wire.OutPoint {
+			return c.AnchorPoint
+		},
+	)
+	err = s.coinLister.LeaseCoins(
+		ctx, defaultWalletLeaseIdentifier, expiry, coinOutPoints...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lease coin: %w", err)
+	}
 
 	return selectedCoins, nil
+}
+
+// LeaseCoins leases/locks/reserves coins for the given lease owner until the
+// given expiry. This is used to prevent multiple concurrent coin selection
+// attempts from selecting the same coin(s).
+func (s *CoinSelect) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
+	expiry time.Time, utxoOutpoints ...wire.OutPoint) error {
+
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
+
+	return s.coinLister.LeaseCoins(
+		ctx, leaseOwner, expiry, utxoOutpoints...,
+	)
+}
+
+// ReleaseCoins releases/unlocks coins that were previously leased and makes
+// them available for coin selection again.
+func (s *CoinSelect) ReleaseCoins(ctx context.Context,
+	utxoOutpoints ...wire.OutPoint) error {
+
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
+
+	return s.coinLister.ReleaseCoins(ctx, utxoOutpoints...)
 }
 
 // selectForAmount selects a subset of the given eligible commitments which
