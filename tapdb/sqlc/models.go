@@ -22,6 +22,7 @@ type Addr struct {
 	AssetType        int16
 	CreationTime     time.Time
 	ManagedFrom      sql.NullTime
+	ProofCourierAddr []byte
 }
 
 type AddrEvent struct {
