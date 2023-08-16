@@ -3,7 +3,9 @@ package tapfreighter
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/stretchr/testify/require"
 )
@@ -18,6 +20,20 @@ func (m *mockCoinLister) ListEligibleCoins(
 	[]*AnchoredCommitment, error) {
 
 	return m.eligibleCommitments, nil
+}
+
+func (m *mockCoinLister) LeaseCoins(context.Context, [32]byte, time.Time,
+	...wire.OutPoint) error {
+
+	return nil
+}
+
+func (m *mockCoinLister) ReleaseCoins(context.Context, ...wire.OutPoint) error {
+	return nil
+}
+
+func (m *mockCoinLister) DeleteExpiredLeases(ctx context.Context) error {
+	return nil
 }
 
 // TestCoinSelection tests that the coin selection logic behaves as expected.
@@ -123,7 +139,7 @@ func TestCoinSelection(t *testing.T) {
 		}
 		coinSelect := NewCoinSelect(coinLister)
 
-		resultCommitments, err := coinSelect.SelectForAmount(
+		resultCommitments, err := coinSelect.selectForAmount(
 			testCase.minTotalAmount, testCase.eligibleCommitments,
 			testCase.strategy,
 		)

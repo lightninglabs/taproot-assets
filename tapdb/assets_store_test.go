@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -14,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -325,7 +327,7 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We should now be able to retrieve the set of all assets inserted on
 	// disk.
-	assets, err := assetStore.FetchAllAssets(ctxb, false, nil)
+	assets, err := assetStore.FetchAllAssets(ctxb, false, false, nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -381,7 +383,7 @@ func TestImportAssetProof(t *testing.T) {
 	require.Equal(t, updatedBlob, []byte(currentBlob))
 
 	// Make sure the chain TX was updated as well.
-	assets, err = assetStore.FetchAllAssets(ctxb, false, nil)
+	assets, err = assetStore.FetchAllAssets(ctxb, false, false, nil)
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 
@@ -442,6 +444,10 @@ type assetDesc struct {
 	scriptKey *asset.ScriptKey
 
 	amt uint64
+
+	spent bool
+
+	leasedUntil time.Time
 }
 
 type assetGenerator struct {
@@ -515,7 +521,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		desc := desc
 
 		opts := []assetGenOpt{
-			withAssetGenAmt(desc.amt), withAssetGenPoint(desc.anchorPoint),
+			withAssetGenAmt(desc.amt),
+			withAssetGenPoint(desc.anchorPoint),
 			withAssetGen(desc.assetGen),
 		}
 
@@ -533,14 +540,18 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			opts = append(opts, withScriptKey(asset.NUMSScriptKey))
 		}
 		if desc.groupAnchorGen != nil {
-			opts = append(opts, withGroupAnchorGen(desc.groupAnchorGen))
+			opts = append(opts, withGroupAnchorGen(
+				desc.groupAnchorGen,
+			))
 		}
-		asset := randAsset(t, opts...)
+		newAsset := randAsset(t, opts...)
 
 		// TODO(roasbeef): should actually group them all together?
-		assetCommitment, err := commitment.NewAssetCommitment(asset)
+		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
 		require.NoError(t, err)
-		tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
+		tapCommitment, err := commitment.NewTapCommitment(
+			assetCommitment,
+		)
 		require.NoError(t, err)
 
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
@@ -550,13 +561,34 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 				AssetSnapshot: &proof.AssetSnapshot{
 					AnchorTx:    anchorPoint,
 					InternalKey: test.RandPubKey(t),
-					Asset:       asset,
+					Asset:       newAsset,
 					ScriptRoot:  tapCommitment,
 				},
 				Blob: bytes.Repeat([]byte{1}, 100),
 			},
 		)
 		require.NoError(t, err)
+
+		if desc.spent {
+			var (
+				scriptKey = newAsset.ScriptKey.PubKey
+				id        = newAsset.ID()
+			)
+			params := SetAssetSpentParams{
+				ScriptKey:  scriptKey.SerializeCompressed(),
+				GenAssetID: id[:],
+			}
+			_, err := assetStore.db.SetAssetSpent(ctx, params)
+			require.NoError(t, err)
+		}
+
+		if !desc.leasedUntil.IsZero() {
+			owner := newAsset.ID()
+			err = assetStore.LeaseCoins(
+				ctx, owner, desc.leasedUntil, desc.anchorPoint,
+			)
+			require.NoError(t, err)
+		}
 	}
 }
 
@@ -582,6 +614,246 @@ func (a *assetGenerator) bindKeyGroup(i int, op wire.OutPoint) *btcec.PublicKey 
 	return tweakedPriv.PubKey()
 }
 
+// TestFetchAllAssets tests that the different AssetQueryFilters work as
+// expected.
+func TestFetchAllAssets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssetIDs  = 10
+		numGroupKeys = 2
+	)
+
+	ctx := context.Background()
+	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
+	availableAssets := []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         5,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         1,
+	}, {
+		assetGen:    assetGen.assetGens[2],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         34,
+	}, {
+		assetGen:    assetGen.assetGens[3],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         99,
+		spent:       true,
+	}, {
+		assetGen:    assetGen.assetGens[4],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         12,
+	}, {
+		assetGen:    assetGen.assetGens[5],
+		anchorPoint: assetGen.anchorPoints[2],
+		amt:         666,
+		spent:       true,
+	}, {
+		assetGen:    assetGen.assetGens[6],
+		anchorPoint: assetGen.anchorPoints[3],
+		amt:         22,
+		leasedUntil: time.Now().Add(time.Hour),
+	}, {
+		assetGen:    assetGen.assetGens[7],
+		anchorPoint: assetGen.anchorPoints[3],
+		amt:         666,
+		spent:       true,
+	}, {
+		assetGen:    assetGen.assetGens[8],
+		anchorPoint: assetGen.anchorPoints[4],
+		amt:         34,
+		leasedUntil: time.Now().Add(time.Hour),
+	}}
+	makeFilter := func(amt uint64) *AssetQueryFilters {
+		constraints := tapfreighter.CommitmentConstraints{
+			MinAmt: amt,
+		}
+		return &AssetQueryFilters{
+			CommitmentConstraints: constraints,
+		}
+	}
+
+	testCases := []struct {
+		name          string
+		includeSpent  bool
+		includeLeased bool
+		filter        *AssetQueryFilters
+		numAssets     int
+		err           error
+	}{{
+		name:      "no constraints",
+		numAssets: 4,
+	}, {
+		name:          "no constraints, include leased",
+		includeLeased: true,
+		numAssets:     6,
+	}, {
+		name:         "no constraints, include spent",
+		includeSpent: true,
+		numAssets:    6,
+	}, {
+		name:          "no constraints, include leased, include spent",
+		includeLeased: true,
+		includeSpent:  true,
+		numAssets:     9,
+	}, {
+		name:      "min amount",
+		filter:    makeFilter(12),
+		numAssets: 2,
+	}, {
+		name:         "min amount, include spent",
+		filter:       makeFilter(12),
+		includeSpent: true,
+		numAssets:    4,
+	}, {
+		name:          "min amount, include leased",
+		filter:        makeFilter(12),
+		includeLeased: true,
+		numAssets:     4,
+	}, {
+		name:          "min amount, include leased, include spent",
+		filter:        makeFilter(12),
+		includeLeased: true,
+		includeSpent:  true,
+		numAssets:     7,
+	}}
+
+	// First, we'll create a new assets store and then insert the set of
+	// assets described by the asset descriptions.
+	_, assetsStore, _ := newAssetStore(t)
+	assetGen.genAssets(t, assetsStore, availableAssets)
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			// With the assets inserted, we'll now attempt to query
+			// for the set of matching assets based on the filter.
+			selectedAssets, err := assetsStore.FetchAllAssets(
+				ctx, tc.includeSpent, tc.includeLeased,
+				tc.filter,
+			)
+			require.ErrorIs(t, tc.err, err)
+
+			require.Len(t, selectedAssets, tc.numAssets)
+		})
+	}
+}
+
+// TestUTXOLeases tests that we're able to properly lease UTXOs in the DB,
+// update and then remove them again.
+func TestUTXOLeases(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, _ := newAssetStore(t)
+	ctx := context.Background()
+
+	// First, we'll generate 3 assets, two of them sharing the same anchor
+	// transaction, but all having distinct asset IDs.
+	const numAssets = 3
+	assetGen := newAssetGenerator(t, numAssets, 3)
+	assetGen.genAssets(t, assetsStore, []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+
+			amt: 16,
+		},
+		{
+			assetGen:    assetGen.assetGens[1],
+			anchorPoint: assetGen.anchorPoints[0],
+
+			amt: 10,
+		},
+		{
+			assetGen:    assetGen.assetGens[2],
+			anchorPoint: assetGen.anchorPoints[1],
+
+			amt: 6,
+		},
+	})
+
+	// At first, none of the assets should be leased.
+	selectedAssets, err := assetsStore.FetchAllAssets(
+		ctx, false, false, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, selectedAssets, numAssets)
+
+	// Now we lease the first asset for 1 hour. This will cause the second
+	// one also to be leased, since it's on the same anchor transaction.
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour).UTC()
+	err = assetsStore.LeaseCoins(
+		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
+	)
+	require.NoError(t, err)
+
+	// Only one asset should be returned that is not leased.
+	selectedAssets, err = assetsStore.FetchAllAssets(
+		ctx, false, false, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, selectedAssets, 1)
+
+	// Let's now update the lease.
+	leaseExpiry = time.Now().Add(2 * time.Hour).UTC()
+	err = assetsStore.LeaseCoins(
+		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
+	)
+	require.NoError(t, err)
+
+	// Fetch all assets, including the leased ones, and make sure the leased
+	// ones have the updated lease time.
+	selectedAssets, err = assetsStore.FetchAllAssets(
+		ctx, false, true, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, selectedAssets, numAssets)
+
+	for idx := range selectedAssets {
+		a := selectedAssets[idx]
+		if a.AnchorOutpoint == assetGen.anchorPoints[0] {
+			require.NotNil(t, a.AnchorLeaseExpiry)
+			require.Equal(
+				t, leaseExpiry.Unix(),
+				a.AnchorLeaseExpiry.Unix(),
+			)
+			require.Equal(t, leaseOwner, a.AnchorLeaseOwner)
+		}
+	}
+
+	// Update the lease again, but into the past, so that it should be
+	// removed upon cleanup.
+	leaseExpiry = time.Now().Add(-time.Hour).UTC()
+	err = assetsStore.LeaseCoins(
+		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
+	)
+	require.NoError(t, err)
+
+	// Trigger the cleanup now.
+	err = assetsStore.DeleteExpiredLeases(ctx)
+	require.NoError(t, err)
+
+	// All assets should be returned again as non-leased.
+	selectedAssets, err = assetsStore.FetchAllAssets(
+		ctx, false, false, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, selectedAssets, numAssets)
+
+	for idx := range selectedAssets {
+		a := selectedAssets[idx]
+		if a.AnchorOutpoint == assetGen.anchorPoints[0] {
+			require.Nil(t, a.AnchorLeaseExpiry)
+			require.Equal(t, [32]byte{}, a.AnchorLeaseOwner)
+		}
+	}
+}
+
 // TestSelectCommitment tests that the coin selection logic can properly select
 // assets from a canned set that meet the specified set of constraints.
 func TestSelectCommitment(t *testing.T) {
@@ -593,6 +865,7 @@ func TestSelectCommitment(t *testing.T) {
 	)
 
 	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
+	inOneHour := time.Now().Add(time.Hour)
 
 	testCases := []struct {
 		name string
@@ -698,6 +971,36 @@ func TestSelectCommitment(t *testing.T) {
 			},
 			numAssets: 1,
 		},
+
+		// Leased assets shouldn't be returned, and neither should other
+		// assets on the same anchor transaction.
+		{
+			name: "multiple assets, one leased",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+
+					leasedUntil: inOneHour,
+				},
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+				},
+			},
+			constraints: tapfreighter.CommitmentConstraints{
+				AssetID: assetGen.bindAssetID(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 2,
+			},
+			numAssets: 0,
+			err:       tapfreighter.ErrMatchingAssetsNotFound,
+		},
 	}
 
 	ctx := context.Background()
@@ -734,7 +1037,7 @@ func TestSelectCommitment(t *testing.T) {
 			sa := selectedAssets[0]
 			assetCommitment, err := assetsStore.FetchCommitment(
 				ctx, sa.Asset.ID(), sa.AnchorPoint,
-				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
+				sa.Asset.GroupKey, &sa.Asset.ScriptKey, false,
 			)
 			require.NoError(t, err)
 
@@ -749,7 +1052,7 @@ func TestSelectCommitment(t *testing.T) {
 			wrongID[0] ^= 0x01
 			assetCommitment, err = assetsStore.FetchCommitment(
 				ctx, wrongID, sa.AnchorPoint,
-				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
+				sa.Asset.GroupKey, &sa.Asset.ScriptKey, false,
 			)
 			require.ErrorIs(
 				t, err, tapfreighter.ErrMatchingAssetsNotFound,
@@ -850,7 +1153,10 @@ func TestAssetExportLog(t *testing.T) {
 
 	chainFees := int64(100)
 
-	allAssets, err := assetsStore.FetchAllAssets(ctx, true, nil)
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour)
+
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
 	require.NoError(t, err)
 	require.Len(t, allAssets, numAssets)
 
@@ -941,7 +1247,9 @@ func TestAssetExportLog(t *testing.T) {
 			ProofSuffix: senderBlob,
 		}},
 	}
-	require.NoError(t, assetsStore.LogPendingParcel(ctx, spendDelta))
+	require.NoError(t, assetsStore.LogPendingParcel(
+		ctx, spendDelta, leaseOwner, leaseExpiry,
+	))
 
 	assetID := inputAsset.ID()
 	proofs := map[asset.SerializedKey]*proof.AnnotatedProof{
@@ -1033,14 +1341,17 @@ func TestAssetExportLog(t *testing.T) {
 
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
-	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
+	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, true, nil)
 	require.NoError(t, err)
 
 	// We split one asset into two UTXOs, so there's now one more than
 	// before.
 	require.Equal(t, numAssets+1, len(chainAssets))
 
-	var mutationFound bool
+	var (
+		mutationFound bool
+		inputLeased   bool
+	)
 	for _, chainAsset := range chainAssets {
 		// We should find the mutated asset with its _new_ script key
 		// and amount.
@@ -1058,8 +1369,23 @@ func TestAssetExportLog(t *testing.T) {
 			)
 			mutationFound = true
 		}
+
+		// The single UTXO we had at the beginning should now be leased
+		// for an hour.
+		if chainAsset.AnchorOutpoint == utxos[0].OutPoint {
+			require.Equal(
+				t, leaseOwner, chainAsset.AnchorLeaseOwner,
+			)
+			require.NotNil(t, chainAsset.AnchorLeaseExpiry)
+			require.Equal(
+				t, leaseExpiry.Unix(),
+				chainAsset.AnchorLeaseExpiry.Unix(),
+			)
+			inputLeased = true
+		}
 	}
 	require.True(t, mutationFound)
+	require.True(t, inputLeased)
 
 	// As a final check for the asset, we'll fetch its blob to ensure it's
 	// been updated on disk.
@@ -1217,7 +1543,7 @@ func TestFetchGroupedAssets(t *testing.T) {
 	)
 
 	// Fetch all assets to check the accuracy of other asset fields.
-	allAssets, err := assetsStore.FetchAllAssets(ctx, false, nil)
+	allAssets, err := assetsStore.FetchAllAssets(ctx, false, false, nil)
 	require.NoError(t, err)
 
 	// Sort assets to match the order of the asset descriptors.

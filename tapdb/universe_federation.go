@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/clock"
 )
 
 type (
@@ -18,7 +19,7 @@ type (
 	DelUniverseServer = sqlc.DeleteUniverseServerParams
 )
 
-// UniverseServerStore is used to managed the set of Universe servers as part
+// UniverseServerStore is used to manage the set of Universe servers as part
 // of a federation.
 type UniverseServerStore interface {
 	// InsertUniverseServer inserts a new universe server in to the DB.
@@ -64,20 +65,23 @@ type BatchedUniverseServerStore interface {
 // federation set.
 type UniverseFederationDB struct {
 	db BatchedUniverseServerStore
+
+	clock clock.Clock
 }
 
 // NewUniverseFederationDB makes a new Universe federation DB.
 func NewUniverseFederationDB(db BatchedUniverseServerStore,
-) *UniverseFederationDB {
+	clock clock.Clock) *UniverseFederationDB {
 
 	return &UniverseFederationDB{
-		db: db,
+		db:    db,
+		clock: clock,
 	}
 }
 
 // UniverseServers returns the set of servers in the federation.
-func (u *UniverseFederationDB) UniverseServers(ctx context.Context,
-) ([]universe.ServerAddr, error) {
+func (u *UniverseFederationDB) UniverseServers(
+	ctx context.Context) ([]universe.ServerAddr, error) {
 
 	var uniServers []universe.ServerAddr
 
@@ -163,7 +167,7 @@ func (u *UniverseFederationDB) LogNewSyncs(ctx context.Context,
 	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
 		return fn.ForEachErr(addrs, func(a universe.ServerAddr) error {
 			return db.LogServerSync(ctx, sqlc.LogServerSyncParams{
-				NewSyncTime:  time.Now(),
+				NewSyncTime:  u.clock.Now().UTC(),
 				TargetServer: a.HostStr(),
 			})
 		})

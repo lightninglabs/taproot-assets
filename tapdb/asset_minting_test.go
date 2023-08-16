@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -45,9 +46,10 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 
 	assetMintingDB := NewTransactionExecutor(db, txCreator)
 	assetsDB := NewTransactionExecutor(db, activeTxCreator)
+	testClock := clock.NewTestClock(time.Now())
 
-	return NewAssetMintingStore(assetMintingDB), NewAssetStore(assetsDB),
-		db
+	return NewAssetMintingStore(assetMintingDB),
+		NewAssetStore(assetsDB, testClock), db
 }
 
 func assertBatchState(t *testing.T, batch *tapgarden.MintingBatch,
@@ -691,7 +693,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// back the same number of seedlings.
 	//
 	// TODO(roasbeef): move into isolated test
-	assets, err := confAssets.FetchAllAssets(ctx, false, nil)
+	assets, err := confAssets.FetchAllAssets(ctx, false, false, nil)
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
 

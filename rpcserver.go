@@ -536,8 +536,14 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *taprpc.ListAssetRequest) (*taprpc.ListAssetResponse, error) {
 
+	switch {
+	case req.IncludeSpent && req.IncludeLeased:
+		return nil, fmt.Errorf("cannot specify both include_spent " +
+			"and include_leased")
+	}
+
 	rpcAssets, err := r.fetchRpcAssets(
-		ctx, req.WithWitness, req.IncludeSpent,
+		ctx, req.WithWitness, req.IncludeSpent, req.IncludeLeased,
 	)
 	if err != nil {
 		return nil, err
@@ -548,10 +554,12 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}, nil
 }
 
-func (r *rpcServer) fetchRpcAssets(ctx context.Context,
-	withWitness, includeSpent bool) ([]*taprpc.Asset, error) {
+func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
+	includeSpent, includeLeased bool) ([]*taprpc.Asset, error) {
 
-	assets, err := r.cfg.AssetStore.FetchAllAssets(ctx, includeSpent, nil)
+	assets, err := r.cfg.AssetStore.FetchAllAssets(
+		ctx, includeSpent, includeLeased, nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
 	}
@@ -598,6 +606,11 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 		MerkleRoot:       a.AnchorMerkleRoot,
 		TapscriptSibling: a.AnchorTapscriptSibling,
 		BlockHeight:      a.AnchorBlockHeight,
+	}
+
+	if a.AnchorLeaseOwner != [32]byte{} {
+		rpcAsset.LeaseOwner = a.AnchorLeaseOwner[:]
+		rpcAsset.LeaseExpiry = a.AnchorLeaseExpiry.UTC().Unix()
 	}
 
 	return rpcAsset, nil
@@ -763,9 +776,9 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 // ListUtxos lists the UTXOs managed by the target daemon, and the assets they
 // hold.
 func (r *rpcServer) ListUtxos(ctx context.Context,
-	_ *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
+	req *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx, false, false)
+	rpcAssets, err := r.fetchRpcAssets(ctx, false, false, req.IncludeLeased)
 	if err != nil {
 		return nil, err
 	}
@@ -1566,7 +1579,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 	prevID := vPacket.Inputs[0].PrevID
 	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
 		ctx, inputAsset.ID(), prevID.OutPoint, inputAsset.GroupKey,
-		&inputAsset.ScriptKey,
+		&inputAsset.ScriptKey, true,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching input commitment: %w",
@@ -2794,7 +2807,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	return r.marshalIssuanceProof(ctx, req, proof)
 }
 
-// unmarsalAssetLeaf unmarshals an asset leaf from the RPC form.
+// unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
 func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
@@ -3101,7 +3114,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	inputAsset := lastSnapshot.Asset
 	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
 		ctx, inputAsset.ID(), lastSnapshot.OutPoint,
-		inputAsset.GroupKey, &inputAsset.ScriptKey,
+		inputAsset.GroupKey, &inputAsset.ScriptKey, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching commitment: %w", err)
@@ -3321,4 +3334,32 @@ func (r *rpcServer) QueryEvents(ctx context.Context,
 	}
 
 	return rpcStats, nil
+}
+
+// RemoveUTXOLease removes the lease/lock/reservation of the given managed
+// UTXO.
+func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
+	in *wrpc.RemoveUTXOLeaseRequest) (*wrpc.RemoveUTXOLeaseResponse,
+	error) {
+
+	if in.Outpoint == nil {
+		return nil, fmt.Errorf("outpoint must be specified")
+	}
+
+	hash, err := chainhash.NewHash(in.Outpoint.Txid)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing txid: %w", err)
+	}
+
+	outPoint := wire.OutPoint{
+		Hash:  *hash,
+		Index: in.Outpoint.OutputIndex,
+	}
+
+	err = r.cfg.CoinSelect.ReleaseCoins(ctx, outPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &wrpc.RemoveUTXOLeaseResponse{}, nil
 }

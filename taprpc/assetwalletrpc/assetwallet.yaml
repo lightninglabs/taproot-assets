@@ -30,3 +30,7 @@ http:
     - selector: assetwalletrpc.AssetWallet.VerifyAssetOwnership
       post: "/v1/taproot-assets/wallet/ownership/verify"
       body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.RemoveUTXOLease
+      post: "/v1/taproot-assets/wallet/utxo-lease/delete"
+      body: "*"

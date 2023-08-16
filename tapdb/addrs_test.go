@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,9 @@ var (
 )
 
 // newAddrBook makes a new instance of the TapAddressBook book.
-func newAddrBook(t *testing.T) (*TapAddressBook, sqlc.Querier) {
+func newAddrBook(t *testing.T,
+	clock clock.Clock) (*TapAddressBook, sqlc.Querier) {
+
 	db := NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) AddrBook {
@@ -30,7 +33,7 @@ func newAddrBook(t *testing.T) (*TapAddressBook, sqlc.Querier) {
 	}
 
 	addrTx := NewTransactionExecutor(db, txCreator)
-	return NewTapAddressBook(addrTx, chainParams), db
+	return NewTapAddressBook(addrTx, chainParams, clock), db
 }
 
 func confirmTx(tx *lndclient.Transaction) {
@@ -142,7 +145,8 @@ func TestAddressInsertion(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _ := newAddrBook(t)
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
 	ctx := context.Background()
 
 	var writeTxOpts AddrBookTxOptions
@@ -232,7 +236,8 @@ func TestAddressQuery(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _ := newAddrBook(t)
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
 
 	var writeTxOpts AddrBookTxOptions
 
@@ -347,7 +352,8 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _ := newAddrBook(t)
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
 
 	ctx := context.Background()
 
@@ -381,7 +387,8 @@ func TestAddrEventCreation(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _ := newAddrBook(t)
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
 
 	ctx := context.Background()
 
@@ -456,7 +463,8 @@ func TestAddressEventQuery(t *testing.T) {
 	t.Parallel()
 
 	// First, make a new addr book instance we'll use in the test below.
-	addrBook, _ := newAddrBook(t)
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
 
 	ctx := context.Background()
 

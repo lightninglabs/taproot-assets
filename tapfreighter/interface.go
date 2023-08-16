@@ -74,8 +74,9 @@ var (
 	// ErrMatchingAssetsNotFound is returned when an instance of
 	// AssetStoreListCoins cannot satisfy the given asset identification
 	// constraints.
-	ErrMatchingAssetsNotFound = fmt.Errorf("failed to find coin(s) which" +
-		"satisfy given constraints")
+	ErrMatchingAssetsNotFound = fmt.Errorf("failed to find coin(s) that " +
+		"satisfy given constraints; if previous transfers are un-" +
+		"confirmed, wait for them to confirm before trying again")
 )
 
 // CoinLister attracts over the coin selection process needed to be
@@ -89,6 +90,19 @@ type CoinLister interface {
 	// should be returned.
 	ListEligibleCoins(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
+
+	// LeaseCoins leases/locks/reserves coins for the given lease owner
+	// until the given expiry. This is used to prevent multiple concurrent
+	// coin selection attempts from selecting the same coin(s).
+	LeaseCoins(ctx context.Context, leaseOwner [32]byte, expiry time.Time,
+		utxoOutpoints ...wire.OutPoint) error
+
+	// ReleaseCoins releases/unlocks coins that were previously leased and
+	// makes them available for coin selection again.
+	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
+
+	// DeleteExpiredLeases deletes all expired leases from the database.
+	DeleteExpiredLeases(ctx context.Context) error
 }
 
 // MultiCommitmentSelectStrategy is an enum that describes the strategy that
@@ -105,13 +119,10 @@ const (
 // CoinSelector is an interface that describes the functionality used in
 // selecting coins during the asset send process.
 type CoinSelector interface {
-	CoinLister
-
-	// SelectForAmount takes a set of commitments and a strategy, and
-	// returns a subset of the commitments that satisfy the strategy and the
-	// minimum total amount.
-	SelectForAmount(minTotalAmount uint64,
-		eligibleCommitments []*AnchoredCommitment,
+	// SelectCoins returns a set of not yet leased coins that satisfy the
+	// given constraints and strategy. The coins returned are leased for the
+	// default lease duration.
+	SelectCoins(ctx context.Context, constraints CommitmentConstraints,
 		strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
 		error)
 }
@@ -287,7 +298,8 @@ type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
 	// commits the set of changes to disk (the asset deltas) but doesn't
 	// mark the batched spend as being finalized.
-	LogPendingParcel(context.Context, *OutboundParcel) error
+	LogPendingParcel(context.Context, *OutboundParcel, [32]byte,
+		time.Time) error
 
 	// PendingParcels returns the set of parcels that haven't yet been
 	// finalized. This can be used to query the set of unconfirmed

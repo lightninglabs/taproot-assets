@@ -148,6 +148,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/wallet/utxo-lease/delete": {
+      "post": {
+        "summary": "RemoveUTXOLease removes the lease/lock/reservation of the given managed\nUTXO.",
+        "operationId": "AssetWallet_RemoveUTXOLease",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcRemoveUTXOLeaseResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcRemoveUTXOLeaseRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/virtual-psbt/anchor": {
       "post": {
         "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction.",
@@ -381,6 +414,18 @@
           "format": "byte"
         }
       }
+    },
+    "assetwalletrpcRemoveUTXOLeaseRequest": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/assetwalletrpcOutPoint",
+          "description": "The outpoint of the UTXO to remove the lease for."
+        }
+      }
+    },
+    "assetwalletrpcRemoveUTXOLeaseResponse": {
+      "type": "object"
     },
     "assetwalletrpcSignVirtualPsbtRequest": {
       "type": "object",

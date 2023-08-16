@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -43,7 +44,8 @@ func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
 	}
 
 	addrTx := tapdb.NewTransactionExecutor(db, txCreator)
-	tapdbBook := tapdb.NewTapAddressBook(addrTx, chainParams)
+	testClock := clock.NewTestClock(time.Now())
+	tapdbBook := tapdb.NewTapAddressBook(addrTx, chainParams, testClock)
 	book := address.NewBook(address.BookConfig{
 		Store:        tapdbBook,
 		StoreTimeout: testTimeout,
@@ -64,7 +66,8 @@ func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tapdb.AssetStore) {
 	assetDB := tapdb.NewTransactionExecutor(
 		db, txCreator,
 	)
-	assetStore := tapdb.NewAssetStore(assetDB)
+	testClock := clock.NewTestClock(time.Now())
+	assetStore := tapdb.NewAssetStore(assetDB, testClock)
 
 	proofArchive := proof.NewMultiArchiver(
 		proof.NewMockVerifier(t), tapdb.DefaultStoreTimeout,

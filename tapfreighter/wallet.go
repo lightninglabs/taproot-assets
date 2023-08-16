@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -27,6 +29,34 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+const (
+	// defaultCoinLeaseDuration is the default duration for which we lease
+	// managed UTXOs of asset outputs from the wallet.
+	defaultCoinLeaseDuration = 10 * time.Minute
+
+	// defaultBroadcastCoinLeaseDuration is the default duration for which
+	// we lease managed UTXOs of asset outputs from the wallet when we have
+	// broadcast a transaction that spends them. This represents a full year
+	// and avoids the same UTXO being used in another transaction if the
+	// confirmation of the first transaction takes a long time.
+	defaultBroadcastCoinLeaseDuration = 365 * 24 * time.Hour
+)
+
+var (
+	// defaultWalletLeaseIdentifier is the binary representation of the
+	// SHA256 hash of the string "tapd-internal-lock-id" and is used for
+	// UTXO leases/locks/reservations to identify that we ourselves are
+	// leasing an UTXO, for example when giving out a funded vPSBT. The ID
+	// corresponds to the hex value of
+	// 6d7cd7ee247587eef86766140262685819deebc034ad80664fb74ec2ad6e11d7.
+	defaultWalletLeaseIdentifier = [32]byte{
+		0x6d, 0x7c, 0xd7, 0xee, 0x24, 0x75, 0x87, 0xee,
+		0xf8, 0x67, 0x66, 0x14, 0x02, 0x62, 0x68, 0x58,
+		0x19, 0xde, 0xeb, 0xc0, 0x34, 0xad, 0x80, 0x66,
+		0x4f, 0xb7, 0x4e, 0xc2, 0xad, 0x6e, 0x11, 0xd7,
+	}
 )
 
 // AnchorTransaction is a type that holds all information about a BTC level
@@ -141,19 +171,102 @@ func NewCoinSelect(coinLister CoinLister) *CoinSelect {
 // transaction.
 type CoinSelect struct {
 	coinLister CoinLister
+
+	// coinLock is a read/write mutex that is used to ensure that only one
+	// goroutine is attempting to call any coin selection related methods at
+	// any time. This is necessary as some of the calls to the store (e.g.
+	// ListEligibleCoins -> LeaseCoin) are called after each other and
+	// cannot be placed within the same database transaction. So calls to
+	// those methods must hold this coin lock.
+	coinLock sync.Mutex
 }
 
-// ListEligibleCoins lists eligible commitments given a set of constraints.
-func (s *CoinSelect) ListEligibleCoins(ctx context.Context,
-	constraints CommitmentConstraints) ([]*AnchoredCommitment, error) {
+// SelectCoins returns a set of not yet leased coins that satisfy the given
+// constraints and strategy. The coins returned are leased for the default lease
+// duration.
+func (s *CoinSelect) SelectCoins(ctx context.Context,
+	constraints CommitmentConstraints,
+	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment, error) {
 
-	return s.coinLister.ListEligibleCoins(ctx, constraints)
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
+
+	// Before we select any coins, let's do some cleanup of expired leases.
+	if err := s.coinLister.DeleteExpiredLeases(ctx); err != nil {
+		return nil, fmt.Errorf("unable to delete expired leases: %w",
+			err)
+	}
+
+	listConstraints := CommitmentConstraints{
+		GroupKey: constraints.GroupKey,
+		AssetID:  constraints.AssetID,
+		MinAmt:   1,
+	}
+	eligibleCommitments, err := s.coinLister.ListEligibleCoins(
+		ctx, listConstraints,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list eligible coins: %w", err)
+	}
+
+	log.Infof("Identified %v eligible asset inputs for send of %d to %x",
+		len(eligibleCommitments), constraints.MinAmt,
+		constraints.AssetID[:])
+
+	selectedCoins, err := s.selectForAmount(
+		constraints.MinAmt, eligibleCommitments, strategy,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select coins: %w", err)
+	}
+
+	// We now need to lock/lease/reserve those selected coins so
+	// that they can't be used by other processes.
+	expiry := time.Now().Add(defaultCoinLeaseDuration)
+	coinOutPoints := fn.Map(
+		selectedCoins, func(c *AnchoredCommitment) wire.OutPoint {
+			return c.AnchorPoint
+		},
+	)
+	err = s.coinLister.LeaseCoins(
+		ctx, defaultWalletLeaseIdentifier, expiry, coinOutPoints...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lease coin: %w", err)
+	}
+
+	return selectedCoins, nil
 }
 
-// SelectForAmount selects a subset of the given eligible commitments which
+// LeaseCoins leases/locks/reserves coins for the given lease owner until the
+// given expiry. This is used to prevent multiple concurrent coin selection
+// attempts from selecting the same coin(s).
+func (s *CoinSelect) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
+	expiry time.Time, utxoOutpoints ...wire.OutPoint) error {
+
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
+
+	return s.coinLister.LeaseCoins(
+		ctx, leaseOwner, expiry, utxoOutpoints...,
+	)
+}
+
+// ReleaseCoins releases/unlocks coins that were previously leased and makes
+// them available for coin selection again.
+func (s *CoinSelect) ReleaseCoins(ctx context.Context,
+	utxoOutpoints ...wire.OutPoint) error {
+
+	s.coinLock.Lock()
+	defer s.coinLock.Unlock()
+
+	return s.coinLister.ReleaseCoins(ctx, utxoOutpoints...)
+}
+
+// selectForAmount selects a subset of the given eligible commitments which
 // cumulatively sum to at least the minimum required amount. The selection
 // strategy determines how the commitments are selected.
-func (s *CoinSelect) SelectForAmount(minTotalAmount uint64,
+func (s *CoinSelect) selectForAmount(minTotalAmount uint64,
 	eligibleCommitments []*AnchoredCommitment,
 	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
 	error) {
@@ -383,25 +496,15 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	constraints := CommitmentConstraints{
 		GroupKey: fundDesc.GroupKey,
 		AssetID:  &fundDesc.ID,
-		MinAmt:   1,
+		MinAmt:   fundDesc.Amount,
 	}
-	eligibleCommitments, err := f.cfg.CoinSelector.ListEligibleCoins(
-		ctx, constraints,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to complete coin selection: %w",
-			err)
-	}
-
-	log.Infof("Identified %v eligible asset inputs for send of %d to %x",
-		len(eligibleCommitments), fundDesc.Amount, fundDesc.ID[:])
-
-	selectedCommitments, err := f.cfg.CoinSelector.SelectForAmount(
-		fundDesc.Amount, eligibleCommitments, PreferMaxAmount,
+	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
+		ctx, constraints, PreferMaxAmount,
 	)
 	if err != nil {
 		return nil, err
 	}
+
 	log.Infof("Selected %v asset inputs for send of %d to %x",
 		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
 

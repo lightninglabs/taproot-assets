@@ -158,6 +158,7 @@ message AssetMeta {
 message ListAssetRequest {
     bool with_witness = 1;
     bool include_spent = 2;
+    bool include_leased = 3;
 }
 
 message AnchorInfo {
@@ -273,6 +274,14 @@ message Asset {
 
     // Indicates whether the asset has been spent.
     bool is_spent = 14;
+
+    // If the asset has been leased, this is the owner (application ID) of the
+    // lease.
+    bytes lease_owner = 15;
+
+    // If the asset has been leased, this is the expiry of the lease as a Unix
+    // timestamp in seconds.
+    int64 lease_expiry = 16;
 }
 
 message PrevWitness {
@@ -292,6 +301,7 @@ message ListAssetResponse {
 }
 
 message ListUtxosRequest {
+    bool include_leased = 1;
 }
 
 message ManagedUtxo {

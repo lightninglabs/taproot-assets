@@ -24,10 +24,6 @@ import (
 
 // ChainPorterConfig is the main config for the chain porter.
 type ChainPorterConfig struct {
-	// CoinSelector is the interface used to select input coins (assets)
-	// for the transfer.
-	CoinSelector CoinSelector
-
 	// Signer implements the Taproot Asset level signing we need to sign a
 	// virtual transaction.
 	Signer Signer
@@ -202,18 +198,45 @@ func (p *ChainPorter) assetsPorter() {
 			sendPkg := req.pkg()
 
 			// Advance the state machine for this package as far as
-			// possible.
-			err := p.advanceState(sendPkg)
-			if err != nil {
-				log.Warnf("Unable to advance state machine: %v",
-					err)
-				req.kit().errChan <- err
-				continue
-			}
+			// possible in its own goroutine. The status will be
+			// reported through the different channels of the send
+			// package.
+			go p.advanceState(sendPkg, req.kit())
 
 		case <-p.Quit:
 			return
 		}
+	}
+}
+
+// advanceState advances the state machine.
+//
+// NOTE: This method MUST be called as a goroutine.
+func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
+	// Continue state transitions whilst state complete has not yet
+	// been reached.
+	for pkg.SendState < SendStateComplete {
+		log.Infof("ChainPorter executing state: %v",
+			pkg.SendState)
+
+		// Before we attempt a state transition, make sure that
+		// we aren't trying to shut down.
+		select {
+		case <-p.Quit:
+			return
+
+		default:
+		}
+
+		updatedPkg, err := p.stateStep(*pkg)
+		if err != nil {
+			kit.errChan <- err
+			log.Errorf("Error evaluating state (%v): %v",
+				pkg.SendState, err)
+			return
+		}
+
+		pkg = updatedPkg
 	}
 }
 
@@ -667,37 +690,6 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 	return nil
 }
 
-// advanceState advances the state machine.
-func (p *ChainPorter) advanceState(pkg *sendPackage) error {
-	// Continue state transitions whilst state complete has not yet
-	// been reached.
-	for pkg.SendState < SendStateComplete {
-		log.Infof("ChainPorter executing state: %v",
-			pkg.SendState)
-
-		// Before we attempt a state transition, make sure that
-		// we aren't trying to shut down.
-		select {
-		case <-p.Quit:
-			return nil
-
-		default:
-		}
-
-		updatedPkg, err := p.stateStep(*pkg)
-		if err != nil {
-			p.cfg.ErrChan <- err
-			log.Errorf("Error evaluating state (%v): %v",
-				pkg.SendState, err)
-			return err
-		}
-
-		pkg = updatedPkg
-	}
-
-	return nil
-}
-
 // createDummyOutput creates a new Bitcoin transaction output that is later
 // used to embed a Taproot Asset commitment.
 func createDummyOutput() *wire.TxOut {
@@ -880,7 +872,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Infof("Committing pending parcel to disk")
 
-		err = p.cfg.ExportLog.LogPendingParcel(ctx, parcel)
+		err = p.cfg.ExportLog.LogPendingParcel(
+			ctx, parcel, defaultWalletLeaseIdentifier,
+			time.Now().Add(defaultBroadcastCoinLeaseDuration),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %v", err)

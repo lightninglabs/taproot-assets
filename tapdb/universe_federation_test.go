@@ -5,14 +5,18 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/rand"
 )
 
-func newTestFederationDb(t *testing.T) (*UniverseFederationDB, sqlc.Querier) {
+func newTestFederationDb(t *testing.T,
+	clock clock.Clock) (*UniverseFederationDB, sqlc.Querier) {
+
 	db := NewTestDB(t)
 
 	dbTxer := NewTransactionExecutor(db,
@@ -21,7 +25,7 @@ func newTestFederationDb(t *testing.T) (*UniverseFederationDB, sqlc.Querier) {
 		},
 	)
 
-	return NewUniverseFederationDB(dbTxer), db
+	return NewUniverseFederationDB(dbTxer, clock), db
 }
 
 // TestUniverseFederationCRUD tests that we can add and remove servers from the
@@ -29,7 +33,8 @@ func newTestFederationDb(t *testing.T) (*UniverseFederationDB, sqlc.Querier) {
 func TestUniverseFederationCRUD(t *testing.T) {
 	t.Parallel()
 
-	fedDB, _ := newTestFederationDb(t)
+	testClock := clock.NewTestClock(time.Now())
+	fedDB, _ := newTestFederationDb(t, testClock)
 
 	ctx := context.Background()
 

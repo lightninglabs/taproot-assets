@@ -50,6 +50,9 @@ type AssetWalletClient interface {
 	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
 	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error)
+	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
+	// UTXO.
+	RemoveUTXOLease(ctx context.Context, in *RemoveUTXOLeaseRequest, opts ...grpc.CallOption) (*RemoveUTXOLeaseResponse, error)
 }
 
 type assetWalletClient struct {
@@ -123,6 +126,15 @@ func (c *assetWalletClient) VerifyAssetOwnership(ctx context.Context, in *Verify
 	return out, nil
 }
 
+func (c *assetWalletClient) RemoveUTXOLease(ctx context.Context, in *RemoveUTXOLeaseRequest, opts ...grpc.CallOption) (*RemoveUTXOLeaseResponse, error) {
+	out := new(RemoveUTXOLeaseResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/RemoveUTXOLease", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AssetWalletServer is the server API for AssetWallet service.
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
@@ -158,6 +170,9 @@ type AssetWalletServer interface {
 	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
 	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error)
+	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
+	// UTXO.
+	RemoveUTXOLease(context.Context, *RemoveUTXOLeaseRequest) (*RemoveUTXOLeaseResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }
 
@@ -185,6 +200,9 @@ func (UnimplementedAssetWalletServer) ProveAssetOwnership(context.Context, *Prov
 }
 func (UnimplementedAssetWalletServer) VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VerifyAssetOwnership not implemented")
+}
+func (UnimplementedAssetWalletServer) RemoveUTXOLease(context.Context, *RemoveUTXOLeaseRequest) (*RemoveUTXOLeaseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveUTXOLease not implemented")
 }
 func (UnimplementedAssetWalletServer) mustEmbedUnimplementedAssetWalletServer() {}
 
@@ -325,6 +343,24 @@ func _AssetWallet_VerifyAssetOwnership_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AssetWallet_RemoveUTXOLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveUTXOLeaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).RemoveUTXOLease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/RemoveUTXOLease",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).RemoveUTXOLease(ctx, req.(*RemoveUTXOLeaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AssetWallet_ServiceDesc is the grpc.ServiceDesc for AssetWallet service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -359,6 +395,10 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VerifyAssetOwnership",
 			Handler:    _AssetWallet_VerifyAssetOwnership_Handler,
+		},
+		{
+			MethodName: "RemoveUTXOLease",
+			Handler:    _AssetWallet_RemoveUTXOLease_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

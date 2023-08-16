@@ -687,3 +687,104 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	_ = sendProof(t, bobTapd, t.tapd, addr.ScriptKey, genInfo)
 	assertNonInteractiveRecvComplete(t, t.tapd, 1)
 }
+
+// testSendMultipleCoins tests that we can send multiple transfers at the same
+// time if we have multiple managed UTXOs/asset coins available.
+func testSendMultipleCoins(t *harnessTest) {
+	ctxb := context.Background()
+
+	// First, we'll make a normal assets with enough units to allow us to
+	// send it to different UTXOs
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets. The existing tapd
+	// node will be used to synchronize universe state.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Next, we split the asset into 5 different UTXOs, each with 1k units.
+	const (
+		numParts     = 5
+		unitsPerPart = 1000
+	)
+	addrs := make([]*taprpc.Addr, numParts)
+	for i := 0; i < numParts; i++ {
+		newAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     unitsPerPart,
+		})
+		require.NoError(t.t, err)
+
+		assertAddrCreated(t.t, t.tapd, rpcAssets[0], newAddr)
+		addrs[i] = newAddr
+	}
+
+	// We created 5 addresses in our first node now, so we can initiate the
+	// transfer to send the coins back to our wallet in 5 pieces now.
+	sendResp := sendAssetsToAddr(t, t.tapd, addrs...)
+	confirmAndAssetOutboundTransferWithOutputs(
+		t, t.tapd, sendResp, genInfo.AssetId, []uint64{
+			0, unitsPerPart, unitsPerPart, unitsPerPart,
+			unitsPerPart, unitsPerPart,
+		}, 0, 1, numParts+1,
+	)
+	assertNonInteractiveRecvComplete(t, t.tapd, 5)
+
+	// Next, we'll attempt to complete 5 parallel transfers with distinct
+	// addresses from our main node to Bob.
+	bobAddrs := make([]*taprpc.Addr, numParts)
+	for i := 0; i < numParts; i++ {
+		var err error
+		bobAddrs[i], err = secondTapd.NewAddr(
+			ctxb, &taprpc.NewAddrRequest{
+				AssetId: genInfo.AssetId,
+				Amt:     unitsPerPart,
+			},
+		)
+		require.NoError(t.t, err)
+
+		sendResp := sendAssetsToAddr(t, t.tapd, bobAddrs[i])
+		assertAssetOutboundTransferWithOutputs(
+			t, t.tapd, sendResp, genInfo.AssetId,
+			[]uint64{0, unitsPerPart}, i+1, i+2, 2, false,
+		)
+	}
+
+	// Before we mine the next block, we'll make sure that we get a proper
+	// error message when trying to send more assets (there are currently no
+	// asset UTXOs available).
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     1,
+	})
+	require.NoError(t.t, err)
+
+	_, err = t.tapd.SendAsset(ctxb, &taprpc.SendAssetRequest{
+		TapAddrs: []string{bobAddr.Encoded},
+	})
+	require.ErrorContains(
+		t.t, err, "failed to find coin(s) that satisfy given "+
+			"constraints",
+	)
+
+	// Now we confirm the 5 transfers and make sure they complete as
+	// expected.
+	_ = mineBlocks(t, t.lndHarness, 1, 5)
+	for _, addr := range bobAddrs {
+		_ = sendProof(t, t.tapd, secondTapd, addr.ScriptKey, genInfo)
+	}
+	assertNonInteractiveRecvComplete(t, secondTapd, 5)
+}
