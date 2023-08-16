@@ -1,5 +1,6 @@
-DEV_TAGS = dev
+DEV_TAGS = dev $(MONITORING_TAGS)
 RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
+MONITORING_TAGS = monitoring
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = -logoutput
