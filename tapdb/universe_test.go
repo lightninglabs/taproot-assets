@@ -25,8 +25,7 @@ func randUniverseID(t *testing.T, forceGroup bool) universe.Identifier {
 	t.Helper()
 
 	var id universe.Identifier
-	_, err := rand.Read(id.AssetID[:])
-	require.NoError(t, err)
+	test.RandRead(t, id.AssetID[:])
 
 	// 50/50 chance to also add a group key, or if we're forcing it.
 	if forceGroup || rand.Intn(2) == 0 {
@@ -53,7 +52,7 @@ func newTestUniverse(t *testing.T,
 	return NewBaseUniverseTree(dbTxer, id), db
 }
 
-func newTestUniverseWithDb(t *testing.T, db *BaseDB,
+func newTestUniverseWithDb(db *BaseDB,
 	id universe.Identifier) (*BaseUniverseTree, sqlc.Querier) {
 
 	dbTxer := NewTransactionExecutor(
@@ -88,9 +87,7 @@ func randBaseKey(t *testing.T) universe.BaseKey {
 	}
 }
 
-func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
-	groupKey *btcec.PublicKey) universe.MintingLeaf {
-
+func randProof(t *testing.T) proof.Blob {
 	var buf bytes.Buffer
 	p := &proof.Proof{
 		PrevOut: wire.OutPoint{},
@@ -111,11 +108,17 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	}
 	require.NoError(t, p.Encode(&buf))
 
+	return buf.Bytes()
+}
+
+func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
+	groupKey *btcec.PublicKey) universe.MintingLeaf {
+
 	leaf := universe.MintingLeaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
-		GenesisProof: buf.Bytes(),
+		GenesisProof: randProof(t),
 		Amt:          uint64(rand.Int31()),
 	}
 	if groupKey != nil {
@@ -205,7 +208,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// The proof should have the proper values populated.
 		require.Equal(t, targetKey, uniProof.MintingKey)
-		require.True(t, mssmt.IsEqualNode(rootNode, uniProof.UniverseRoot))
+		require.True(
+			t, mssmt.IsEqualNode(rootNode, uniProof.UniverseRoot),
+		)
 
 		// The issuance proof we obtained should have a valid inclusion
 		// proof.
@@ -226,13 +231,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// The set of leaves we created above should match what was returned.
 	require.True(t, fn.All(mintingKeys, func(key universe.BaseKey) bool {
-		for _, testLeaf := range testLeaves {
-			if reflect.DeepEqual(key, testLeaf.BaseKey) {
-				return true
-			}
-		}
-
-		return false
+		return fn.Any(testLeaves, func(testLeaf leafWithKey) bool {
+			return reflect.DeepEqual(key, testLeaf.BaseKey)
+		})
 	}))
 
 	// We should be able to query for the complete set of leaves,
@@ -241,13 +242,47 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
 	require.True(t, fn.All(dbLeaves, func(leaf universe.MintingLeaf) bool {
-		for _, testLeaf := range testLeaves {
-			if leaf.Genesis.ID() == testLeaf.MintingLeaf.Genesis.ID() {
-				return true
-			}
-		}
-		return false
+		return fn.All(testLeaves, func(testLeaf leafWithKey) bool {
+			return leaf.Genesis.ID() ==
+				testLeaf.MintingLeaf.Genesis.ID()
+		})
 	}))
+
+	// Record the current root, so we can make sure updating the proofs
+	// results in a new root.
+	previousRoot, _, err := baseUniverse.RootNode(ctx)
+	require.NoError(t, err)
+
+	// Next, we'll attempt to update the issuance proofs for each of the
+	// leaves we just inserted.
+	for idx := range testLeaves {
+		testLeaf := &testLeaves[idx]
+		testLeaf.MintingLeaf.GenesisProof = randProof(t)
+
+		targetKey := testLeaf.BaseKey
+		issuanceProof, err := baseUniverse.RegisterIssuance(
+			ctx, targetKey, &testLeaf.MintingLeaf, nil,
+		)
+		require.NoError(t, err)
+
+		// The root should still reflect a proper sum value but an
+		// updated root.
+		rootNode, assetName, err := baseUniverse.RootNode(ctx)
+		require.NoError(t, err)
+		require.Equal(t, leafSum, rootNode.NodeSum())
+		require.Equal(t, testLeaf.Tag, assetName)
+
+		// The root returned in the proof should match the one we just
+		// fetched.
+		require.True(
+			t,
+			mssmt.IsEqualNode(rootNode, issuanceProof.UniverseRoot),
+		)
+
+		// Make sure the root has changed.
+		require.False(t, mssmt.IsEqualNode(previousRoot, rootNode))
+		previousRoot = rootNode
+	}
 
 	// Finally, we should be able to delete this universe and all included
 	// keys and leaves, as well as the root node.
@@ -282,12 +317,8 @@ func TestUniverseMetaBlob(t *testing.T) {
 
 	// Next, we'll modify the genesis to include a meta hash that matches a
 	// real meta blob.
-	var metaBlob [50]byte
-	_, err := rand.Read(metaBlob[:])
-	require.NoError(t, err)
-
 	meta := &proof.MetaReveal{
-		Data: metaBlob[:],
+		Data: test.RandBytes(50)[:],
 	}
 
 	assetGen.MetaHash = meta.MetaHash()
@@ -297,9 +328,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 	targetKey := randBaseKey(t)
 	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
-	_, err = baseUniverse.RegisterIssuance(
-		ctx, targetKey, &leaf, meta,
-	)
+	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, meta)
 	require.NoError(t, err)
 
 	// We should be able to fetch the leaf based on the base key we used
@@ -341,10 +370,10 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	// For this test, we'll create two different Universes: one based on a
 	// group key, and the other with a plain asset ID.
 	idGroup := randUniverseID(t, true)
-	groupUniverse, _ := newTestUniverseWithDb(t, db.BaseDB, idGroup)
+	groupUniverse, _ := newTestUniverseWithDb(db.BaseDB, idGroup)
 
 	idNormal := randUniverseID(t, false)
-	normalUniverse, _ := newTestUniverseWithDb(t, db.BaseDB, idNormal)
+	normalUniverse, _ := newTestUniverseWithDb(db.BaseDB, idNormal)
 
 	// For each of the Universes, we'll now insert a random leaf that
 	// should be inserted with the target ID.
