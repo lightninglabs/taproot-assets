@@ -262,6 +262,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AddrBook:     addrBook,
 		ProofArchive: proofArchive,
 		AssetWallet:  assetWallet,
+		CoinSelect:   coinSelect,
 		ChainPorter: tapfreighter.NewChainPorter(
 			&tapfreighter.ChainPorterConfig{
 				Signer:       virtualTxSigner,

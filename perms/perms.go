@@ -108,6 +108,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/assetwalletrpc.AssetWallet/RemoveUTXOLease": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/mintrpc.Mint/MintAsset": {{
 			Entity: "mint",
 			Action: "write",

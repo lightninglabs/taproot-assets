@@ -3335,3 +3335,31 @@ func (r *rpcServer) QueryEvents(ctx context.Context,
 
 	return rpcStats, nil
 }
+
+// RemoveUTXOLease removes the lease/lock/reservation of the given managed
+// UTXO.
+func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
+	in *wrpc.RemoveUTXOLeaseRequest) (*wrpc.RemoveUTXOLeaseResponse,
+	error) {
+
+	if in.Outpoint == nil {
+		return nil, fmt.Errorf("outpoint must be specified")
+	}
+
+	hash, err := chainhash.NewHash(in.Outpoint.Txid)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing txid: %w", err)
+	}
+
+	outPoint := wire.OutPoint{
+		Hash:  *hash,
+		Index: in.Outpoint.OutputIndex,
+	}
+
+	err = r.cfg.CoinSelect.ReleaseCoins(ctx, outPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &wrpc.RemoveUTXOLeaseResponse{}, nil
+}
