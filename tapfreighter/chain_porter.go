@@ -213,6 +213,37 @@ func (p *ChainPorter) assetsPorter() {
 	}
 }
 
+// advanceState advances the state machine.
+func (p *ChainPorter) advanceState(pkg *sendPackage) error {
+	// Continue state transitions whilst state complete has not yet
+	// been reached.
+	for pkg.SendState < SendStateComplete {
+		log.Infof("ChainPorter executing state: %v",
+			pkg.SendState)
+
+		// Before we attempt a state transition, make sure that
+		// we aren't trying to shut down.
+		select {
+		case <-p.Quit:
+			return nil
+
+		default:
+		}
+
+		updatedPkg, err := p.stateStep(*pkg)
+		if err != nil {
+			p.cfg.ErrChan <- err
+			log.Errorf("Error evaluating state (%v): %v",
+				pkg.SendState, err)
+			return err
+		}
+
+		pkg = updatedPkg
+	}
+
+	return nil
+}
+
 // waitForTransferTxConf waits for the confirmation of the final transaction
 // within the delta. Once confirmed, the parcel will be marked as delivered on
 // chain, with the goroutine cleaning up its state.
@@ -658,37 +689,6 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 		case err != nil:
 			return err
 		}
-	}
-
-	return nil
-}
-
-// advanceState advances the state machine.
-func (p *ChainPorter) advanceState(pkg *sendPackage) error {
-	// Continue state transitions whilst state complete has not yet
-	// been reached.
-	for pkg.SendState < SendStateComplete {
-		log.Infof("ChainPorter executing state: %v",
-			pkg.SendState)
-
-		// Before we attempt a state transition, make sure that
-		// we aren't trying to shut down.
-		select {
-		case <-p.Quit:
-			return nil
-
-		default:
-		}
-
-		updatedPkg, err := p.stateStep(*pkg)
-		if err != nil {
-			p.cfg.ErrChan <- err
-			log.Errorf("Error evaluating state (%v): %v",
-				pkg.SendState, err)
-			return err
-		}
-
-		pkg = updatedPkg
 	}
 
 	return nil
