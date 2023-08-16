@@ -2831,9 +2831,9 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 	}, nil
 }
 
-// InsertProof attempts to insert a new issuance proof into the Universe tree
-// specified by the UniverseKey. If valid, then the proof is inserted into the
-// database, with a new Universe root returned for the updated
+// InsertProof attempts to insert a new issuance or transfer proof into the
+// Universe tree specified by the UniverseKey. If valid, then the proof is
+// inserted into the database, with a new Universe root returned for the updated
 // asset_id/group_key.
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
