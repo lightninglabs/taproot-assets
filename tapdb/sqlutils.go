@@ -21,7 +21,7 @@ var (
 // sqlInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
-// We use this constraints.Integer constraint here which maps to all signed and
+// We use the constraints.Integer constraint here which maps to all signed and
 // unsigned integer types.
 func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
 	return sql.NullInt32{
@@ -33,7 +33,7 @@ func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
 // sqlInt16 turns a numerical integer type into the NullInt16 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
-// We use this constraints.Integer constraint here which maps to all signed and
+// We use the constraints.Integer constraint here which maps to all signed and
 // unsigned integer types.
 func sqlInt16[T constraints.Integer](num T) sql.NullInt16 {
 	return sql.NullInt16{

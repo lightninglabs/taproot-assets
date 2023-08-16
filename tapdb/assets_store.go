@@ -743,6 +743,11 @@ func constraintsToDbFilter(query *AssetQueryFilters) QueryAssetFilters {
 				Valid: true,
 			}
 		}
+		if query.MinAnchorHeight != 0 {
+			assetFilter.MinAnchorHeight = sqlInt32(
+				query.MinAnchorHeight,
+			)
+		}
 		if query.AssetID != nil {
 			assetID := query.AssetID[:]
 			assetFilter.AssetIDFilter = assetID
@@ -819,6 +824,10 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 // which lets us filter the results of the set of assets returned.
 type AssetQueryFilters struct {
 	tapfreighter.CommitmentConstraints
+
+	// MinAnchorHeight is the minimum block height the asset's anchor tx
+	// must have been confirmed at.
+	MinAnchorHeight int32
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
@@ -1574,7 +1583,7 @@ func (a *AssetStore) ListEligibleCoins(
 	// First, we'll map the commitment constraints to our database query
 	// filters.
 	assetFilter := constraintsToDbFilter(&AssetQueryFilters{
-		constraints,
+		CommitmentConstraints: constraints,
 	})
 
 	// We only want to select unspent commitments.

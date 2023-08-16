@@ -442,6 +442,8 @@ type assetDesc struct {
 	scriptKey *asset.ScriptKey
 
 	amt uint64
+
+	spent bool
 }
 
 type assetGenerator struct {
@@ -449,8 +451,9 @@ type assetGenerator struct {
 
 	anchorTxs []*wire.MsgTx
 
-	anchorPoints     []wire.OutPoint
-	anchorPointsToTx map[wire.OutPoint]*wire.MsgTx
+	anchorPoints          []wire.OutPoint
+	anchorPointsToTx      map[wire.OutPoint]*wire.MsgTx
+	anchorPointsToHeights map[wire.OutPoint]uint32
 
 	groupKeys []*btcec.PrivateKey
 }
@@ -476,6 +479,7 @@ func newAssetGenerator(t *testing.T,
 
 	anchorPoints := make([]wire.OutPoint, numAssetIDs)
 	anchorPointsToTx := make(map[wire.OutPoint]*wire.MsgTx, numAssetIDs)
+	anchorPointsToHeights := make(map[wire.OutPoint]uint32, numAssetIDs)
 	for i, tx := range anchorTxs {
 		tx := tx
 
@@ -486,6 +490,7 @@ func newAssetGenerator(t *testing.T,
 
 		anchorPoints[i] = anchorPoint
 		anchorPointsToTx[anchorPoint] = tx
+		anchorPointsToHeights[anchorPoint] = uint32(i + 500)
 	}
 
 	assetGens := make([]asset.Genesis, numAssetIDs)
@@ -499,11 +504,12 @@ func newAssetGenerator(t *testing.T,
 	}
 
 	return &assetGenerator{
-		groupKeys:        groupKeys,
-		assetGens:        assetGens,
-		anchorPoints:     anchorPoints,
-		anchorPointsToTx: anchorPointsToTx,
-		anchorTxs:        anchorTxs,
+		groupKeys:             groupKeys,
+		assetGens:             assetGens,
+		anchorPoints:          anchorPoints,
+		anchorPointsToTx:      anchorPointsToTx,
+		anchorPointsToHeights: anchorPointsToHeights,
+		anchorTxs:             anchorTxs,
 	}
 }
 
@@ -515,7 +521,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		desc := desc
 
 		opts := []assetGenOpt{
-			withAssetGenAmt(desc.amt), withAssetGenPoint(desc.anchorPoint),
+			withAssetGenAmt(desc.amt),
+			withAssetGenPoint(desc.anchorPoint),
 			withAssetGen(desc.assetGen),
 		}
 
@@ -533,30 +540,49 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			opts = append(opts, withScriptKey(asset.NUMSScriptKey))
 		}
 		if desc.groupAnchorGen != nil {
-			opts = append(opts, withGroupAnchorGen(desc.groupAnchorGen))
+			opts = append(opts, withGroupAnchorGen(
+				desc.groupAnchorGen,
+			))
 		}
-		asset := randAsset(t, opts...)
+		newAsset := randAsset(t, opts...)
 
 		// TODO(roasbeef): should actually group them all together?
-		assetCommitment, err := commitment.NewAssetCommitment(asset)
+		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
 		require.NoError(t, err)
-		tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
+		tapCommitment, err := commitment.NewTapCommitment(
+			assetCommitment,
+		)
 		require.NoError(t, err)
 
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
+		height := a.anchorPointsToHeights[desc.anchorPoint]
 
 		err = assetStore.importAssetFromProof(
 			ctx, assetStore.db, &proof.AnnotatedProof{
 				AssetSnapshot: &proof.AssetSnapshot{
-					AnchorTx:    anchorPoint,
-					InternalKey: test.RandPubKey(t),
-					Asset:       asset,
-					ScriptRoot:  tapCommitment,
+					AnchorTx:          anchorPoint,
+					InternalKey:       test.RandPubKey(t),
+					Asset:             newAsset,
+					ScriptRoot:        tapCommitment,
+					AnchorBlockHeight: height,
 				},
 				Blob: bytes.Repeat([]byte{1}, 100),
 			},
 		)
 		require.NoError(t, err)
+
+		if desc.spent {
+			var (
+				scriptKey = newAsset.ScriptKey.PubKey
+				id        = newAsset.ID()
+			)
+			params := SetAssetSpentParams{
+				ScriptKey:  scriptKey.SerializeCompressed(),
+				GenAssetID: id[:],
+			}
+			_, err := assetStore.db.SetAssetSpent(ctx, params)
+			require.NoError(t, err)
+		}
 	}
 }
 
@@ -580,6 +606,112 @@ func (a *assetGenerator) bindKeyGroup(i int, op wire.OutPoint) *btcec.PublicKey 
 	)
 
 	return tweakedPriv.PubKey()
+}
+
+// TestFetchAllAssets tests that the different AssetQueryFilters work as
+// expected.
+func TestFetchAllAssets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssetIDs  = 10
+		numGroupKeys = 2
+	)
+
+	ctx := context.Background()
+	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
+	availableAssets := []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         5,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         1,
+	}, {
+		assetGen:    assetGen.assetGens[2],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         34,
+	}, {
+		assetGen:    assetGen.assetGens[3],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         99,
+		spent:       true,
+	}, {
+		assetGen:    assetGen.assetGens[4],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         12,
+	}, {
+		assetGen:    assetGen.assetGens[5],
+		anchorPoint: assetGen.anchorPoints[2],
+		amt:         666,
+		spent:       true,
+	}}
+	makeFilter := func(amt uint64, anchorHeight int32) *AssetQueryFilters {
+		return &AssetQueryFilters{
+			CommitmentConstraints: tapfreighter.CommitmentConstraints{
+				MinAmt: amt,
+			},
+			MinAnchorHeight: anchorHeight,
+		}
+	}
+
+	testCases := []struct {
+		name         string
+		includeSpent bool
+		filter       *AssetQueryFilters
+		numAssets    int
+		err          error
+	}{{
+		name:      "no constraints",
+		numAssets: 4,
+	}, {
+		name:         "no constraints, include spent",
+		includeSpent: true,
+		numAssets:    6,
+	}, {
+		name:      "min amount",
+		filter:    makeFilter(12, 0),
+		numAssets: 2,
+	}, {
+		name:         "min amount, include spent",
+		filter:       makeFilter(12, 0),
+		includeSpent: true,
+		numAssets:    4,
+	}, {
+		name:         "default min height, include spent",
+		filter:       makeFilter(0, 500),
+		includeSpent: true,
+		numAssets:    6,
+	}, {
+		name:      "specific height",
+		filter:    makeFilter(0, 502),
+		numAssets: 0,
+	}, {
+		name:         "default min height, include spent",
+		filter:       makeFilter(0, 502),
+		includeSpent: true,
+		numAssets:    1,
+	}}
+
+	// First, we'll create a new assets store and then insert the set of
+	// assets described by the asset descriptions.
+	_, assetsStore, _ := newAssetStore(t)
+	assetGen.genAssets(t, assetsStore, availableAssets)
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			// With the assets inserted, we'll now attempt to query
+			// for the set of matching assets based on the filter.
+			selectedAssets, err := assetsStore.FetchAllAssets(
+				ctx, tc.includeSpent, tc.filter,
+			)
+			require.ErrorIs(t, tc.err, err)
+
+			require.Len(t, selectedAssets, tc.numAssets)
+		})
+	}
 }
 
 // TestSelectCommitment tests that the coin selection logic can properly select
