@@ -372,6 +372,7 @@ SELECT
     txns.raw_tx AS anchor_tx,
     txns.txid AS anchor_txid,
     txns.block_hash AS anchor_block_hash,
+    txns.block_height AS anchor_block_height,
     utxos.outpoint AS anchor_outpoint,
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
@@ -413,7 +414,8 @@ JOIN managed_utxos utxos
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
-    ON utxos.txn_id = txns.txn_id
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE(sqlc.narg('min_anchor_height'), txns.block_height, 0)
 -- This clause is used to select specific assets for a asset ID, general
 -- channel balances, and also coin selection. We use the sqlc.narg feature to
 -- make the entire statement evaluate to true, if none of these extra args are
