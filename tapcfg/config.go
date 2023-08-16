@@ -20,6 +20,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
@@ -268,6 +269,8 @@ type Config struct {
 
 	Universe *UniverseConfig `group:"universe" namespace:"universe"`
 
+	Prometheus monitoring.PrometheusConfig `group:"prometheus" namespace:"prometheus"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -323,6 +326,7 @@ func DefaultConfig() Config {
 			MaxOpenConnections: 10,
 		},
 		LogWriter:            build.NewRotatingLogWriter(),
+		Prometheus:           monitoring.DefaultPrometheusConfig(),
 		BatchMintingInterval: defaultBatchMintingInterval,
 		HashMailCourier: &proof.HashMailCourierCfg{
 			Addr:               defaultHashMailAddr,
