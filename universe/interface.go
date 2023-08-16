@@ -186,8 +186,7 @@ type BaseBackend interface {
 	// tree, stored at the base key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	RegisterIssuance(ctx context.Context,
-		key BaseKey, leaf *MintingLeaf,
+	RegisterIssuance(ctx context.Context, key BaseKey, leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
 	// FetchIssuanceProof returns an issuance proof for the target key. If
