@@ -298,7 +298,8 @@ type ExportLog interface {
 	// LogPendingParcel marks an outbound parcel as pending on disk. This
 	// commits the set of changes to disk (the asset deltas) but doesn't
 	// mark the batched spend as being finalized.
-	LogPendingParcel(context.Context, *OutboundParcel) error
+	LogPendingParcel(context.Context, *OutboundParcel, [32]byte,
+		time.Time) error
 
 	// PendingParcels returns the set of parcels that haven't yet been
 	// finalized. This can be used to query the set of unconfirmed

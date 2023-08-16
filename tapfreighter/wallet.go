@@ -35,6 +35,13 @@ const (
 	// defaultCoinLeaseDuration is the default duration for which we lease
 	// managed UTXOs of asset outputs from the wallet.
 	defaultCoinLeaseDuration = 10 * time.Minute
+
+	// defaultBroadcastCoinLeaseDuration is the default duration for which
+	// we lease managed UTXOs of asset outputs from the wallet when we have
+	// broadcast a transaction that spends them. This represents a full year
+	// and avoids the same UTXO being used in another transaction if the
+	// confirmation of the first transaction takes a long time.
+	defaultBroadcastCoinLeaseDuration = 365 * 24 * time.Hour
 )
 
 var (
