@@ -634,6 +634,83 @@ func TestOwnershipProofVerification(t *testing.T) {
 	require.NotNil(t, snapshot)
 }
 
+// TestProofReplacement ensures that proofs can be replaced in a proof file.
+func TestProofReplacement(t *testing.T) {
+	// We create a file with 1k proofs.
+	const numProofs = 1_000
+	lotsOfProofs := make([]Proof, numProofs)
+	for i := 0; i < numProofs; i++ {
+		amt := uint64(i + 1)
+		lotsOfProofs[i], _ = genRandomGenesisWithProof(
+			t, asset.Normal, &amt, nil, false, nil, nil,
+		)
+	}
+
+	f, err := NewFile(V0, lotsOfProofs...)
+	require.NoError(t, err)
+
+	assertIndex := func(idx uint32, amt uint64) {
+		p, fileIndex, err := f.LocateProof(func(proof *Proof) bool {
+			return proof.Asset.Amount == amt
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, idx, fileIndex)
+		require.Equal(t, amt, p.Asset.Amount)
+	}
+	assertIndex(0, 1)
+	assertIndex(999, 1000)
+
+	// We'll now go ahead and randomly replace 100 proofs.
+	const numReplacements = 100
+	for i := 0; i < numReplacements; i++ {
+		amt := uint64(1000*numReplacements - i)
+
+		// We'll generate a random proof, and then replace a random
+		// proof in the file with it.
+		proof, _ := genRandomGenesisWithProof(
+			t, asset.Normal, &amt, nil, false, nil, nil,
+		)
+		idx := test.RandIntn(numProofs)
+		err := f.ReplaceProofAt(uint32(idx), proof)
+		require.NoError(t, err)
+
+		assertIndex(uint32(idx), amt)
+	}
+
+	// We also replace the very first and very last ones (to test the
+	// boundary conditions).
+	amt := uint64(1337)
+	firstProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, false, nil, nil,
+	)
+	err = f.ReplaceProofAt(0, firstProof)
+	require.NoError(t, err)
+	assertIndex(0, 1337)
+
+	amt = uint64(2016)
+	lastProof, _ := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, false, nil, nil,
+	)
+	err = f.ReplaceProofAt(uint32(f.NumProofs()-1), lastProof)
+	require.NoError(t, err)
+	assertIndex(uint32(f.NumProofs()-1), 2016)
+
+	// Make sure we can still properly encode and decode the file.
+	var buf bytes.Buffer
+	err = f.Encode(&buf)
+	require.NoError(t, err)
+
+	f2, err := NewFile(V0)
+	require.NoError(t, err)
+
+	err = f2.Decode(&buf)
+	require.NoError(t, err)
+
+	require.Len(t, f2.proofs, numProofs)
+	require.Equal(t, f2.proofs, f.proofs)
+}
+
 func BenchmarkProofEncoding(b *testing.B) {
 	amt := uint64(5000)
 

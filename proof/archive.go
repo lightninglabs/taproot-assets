@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -84,8 +86,6 @@ type AnnotatedProof struct {
 
 // Archiver is the main storage backend the ProofArchiver uses to store and
 // query for proof files.
-//
-// TODO(roasbeef): other queries like fetching all proofs for a given asset?
 type Archiver interface {
 	// FetchProof fetches a proof for an asset uniquely identified by the
 	// passed ProofIdentifier.
@@ -93,6 +93,10 @@ type Archiver interface {
 	// If a proof cannot be found, then ErrProofNotFound should be
 	// returned.
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
+
+	// FetchProofs fetches all proofs for assets uniquely identified by the
+	// passed asset ID.
+	FetchProofs(ctx context.Context, id asset.ID) ([]*AnnotatedProof, error)
 
 	// ImportProofs attempts to store fully populated proofs on disk. The
 	// previous outpoint of the first state transition will be used as the
@@ -196,6 +200,61 @@ func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 	}
 
 	return proofFile, nil
+}
+
+// FetchProofs fetches all proofs for assets uniquely identified by the passed
+// asset ID.
+func (f *FileArchiver) FetchProofs(_ context.Context,
+	id asset.ID) ([]*AnnotatedProof, error) {
+
+	assetID := hex.EncodeToString(id[:])
+	assetPath := filepath.Join(f.proofPath, assetID)
+	entries, err := os.ReadDir(assetPath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read dir %s: %w", assetPath,
+			err)
+	}
+
+	proofs := make([]*AnnotatedProof, len(entries))
+	for idx := range entries {
+		// We'll skip any files that don't end with our suffix, this
+		// will include directories as well, so we don't need to check
+		// for those.
+		fileName := entries[idx].Name()
+		if !strings.HasSuffix(fileName, TaprootAssetsFileSuffix) {
+			continue
+		}
+
+		scriptKeyBytes, err := hex.DecodeString(strings.ReplaceAll(
+			fileName, TaprootAssetsFileSuffix, "",
+		))
+		if err != nil {
+			return nil, fmt.Errorf("malformed proof file name, "+
+				"unable to decode script key: %w", err)
+		}
+
+		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("malformed proof file name, "+
+				"unable to parse script key: %w", err)
+		}
+
+		fullPath := filepath.Join(assetPath, fileName)
+		proofFile, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read proof: %w", err)
+		}
+
+		proofs[idx] = &AnnotatedProof{
+			Locator: Locator{
+				AssetID:   &id,
+				ScriptKey: *scriptKey,
+			},
+			Blob: proofFile,
+		}
+	}
+
+	return proofs, nil
 }
 
 // ImportProofs attempts to store fully populated proofs on disk. The previous
@@ -333,6 +392,15 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 	return nil, ErrProofNotFound
 }
 
+// FetchProofs fetches all proofs for assets uniquely identified by the passed
+// asset ID.
+func (m *MultiArchiver) FetchProofs(ctx context.Context,
+	id asset.ID) ([]*AnnotatedProof, error) {
+
+	// We are listing proofs, so it shouldn't matter which backend we use.
+	return m.backends[0].FetchProofs(ctx, id)
+}
+
 // ImportProofs attempts to store fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
@@ -448,3 +516,95 @@ func (m *MultiArchiver) RemoveSubscriber(
 // A compile-time assertion to make sure MultiArchiver satisfies the
 // NotifyArchiver interface.
 var _ NotifyArchiver = (*MultiArchiver)(nil)
+
+// ReplaceProofInBlob attempts to replace a proof in all proof files we have for
+// assets of the same ID. This is useful when we want to update the proof with a
+// new one after a re-org.
+func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
+	headerVerifier HeaderVerifier) error {
+
+	// This is a bit of a hacky part. If we have a chain of transactions
+	// that were re-organized, we can't verify the whole chain until all of
+	// the transactions were confirmed and all proofs were updated with the
+	// new blocks and merkle roots. So we'll skip the verification here
+	// since we don't know if the whole chain has been updated yet (the
+	// confirmations might come in out of order).
+	// TODO(guggero): Find a better way to do this.
+	headerVerifier = func(wire.BlockHeader, uint32) error {
+		return nil
+	}
+
+	assetID := p.Asset.ID()
+	scriptPubKeyOfUpdate := p.Asset.ScriptKey.PubKey
+
+	// We now fetch all proofs of that same asset ID and filter out those
+	// that need updating.
+	proofs, err := archive.FetchProofs(ctx, assetID)
+	if err != nil {
+		return fmt.Errorf("unable to fetch all proofs for asset ID "+
+			"%x: %w", assetID[:], err)
+	}
+
+	for idx := range proofs {
+		existingProof := proofs[idx]
+
+		f := &File{}
+		err := f.Decode(bytes.NewReader(existingProof.Blob))
+		if err != nil {
+			return fmt.Errorf("unable to decode current proof: %w",
+				err)
+		}
+
+		// We only need to update proofs that contain this asset in the
+		// chain and haven't been updated yet (i.e. the block hash of
+		// the proof is different from the block hash of the proof we
+		// want to update).
+		_, indexToUpdate, err := f.LocateProof(func(fp *Proof) bool {
+			fileScriptKey := fp.Asset.ScriptKey.PubKey
+			fileTxHash := fp.AnchorTx.TxHash()
+			fileBlockHash := fp.BlockHeader.BlockHash()
+			return fileScriptKey.IsEqual(scriptPubKeyOfUpdate) &&
+				fileTxHash == p.AnchorTx.TxHash() &&
+				fileBlockHash != p.BlockHeader.BlockHash()
+		})
+		if err != nil {
+			// Either we failed to decode the proof for some reason,
+			// or we didn't find a proof that needs updating. In
+			// either case, we can skip this file.
+			continue
+		}
+
+		log.Debugf("Updating descendant proof at index %d "+
+			"(script_key=%x) in file with %d proofs", indexToUpdate,
+			scriptPubKeyOfUpdate.SerializeCompressed(),
+			f.NumProofs())
+
+		// All good, we can now replace the proof in the file with the
+		// new one.
+		err = f.ReplaceProofAt(indexToUpdate, *p)
+		if err != nil {
+			return fmt.Errorf("unable to replace proof at index "+
+				"%d with updated one: %w", indexToUpdate, err)
+		}
+
+		var buf bytes.Buffer
+		if err := f.Encode(&buf); err != nil {
+			return fmt.Errorf("unable to encode updated proof: %w",
+				err)
+		}
+
+		// We now update this direct proof in the archive.
+		err = archive.ImportProofs(
+			ctx, headerVerifier, true, &AnnotatedProof{
+				Locator: existingProof.Locator,
+				Blob:    buf.Bytes(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to import updated proof: %w",
+				err)
+		}
+	}
+
+	return nil
+}
