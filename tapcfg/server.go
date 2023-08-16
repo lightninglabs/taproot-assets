@@ -10,6 +10,8 @@ import (
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -173,6 +175,31 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
+	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
+		ChainBridge:  chainBridge,
+		ProofArchive: proofArchive,
+		NonBuriedAssetFetcher: func(ctx context.Context,
+			minHeight int32) ([]*asset.Asset, error) {
+
+			assets, err := assetStore.FetchAllAssets(
+				ctx, false, &tapdb.AssetQueryFilters{
+					MinAnchorHeight: minHeight,
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return fn.Map(
+				assets, func(a *tapdb.ChainAsset) *asset.Asset {
+					return a.Asset
+				},
+			), nil
+		},
+		SafeDepth: cfg.ReOrgSafeDepth,
+		ErrChan:   mainErrChan,
+	})
+
 	baseUni := universe.NewMintingArchive(uniCfg)
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
@@ -230,6 +257,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AcceptRemoteUniverseProofs: cfg.Universe.AcceptRemoteProofs,
 		Lnd:                        lndServices,
 		ChainParams:                cfg.ActiveNetParams,
+		ReOrgWatcher:               reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{
 				Wallet:      walletAnchor,
@@ -239,8 +267,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				GenSigner: tap.NewLndRpcGenSigner(
 					lndServices,
 				),
-				ProofFiles: proofFileStore,
-				Universe:   universeFederation,
+				ProofFiles:   proofFileStore,
+				Universe:     universeFederation,
+				ProofWatcher: reOrgWatcher,
 			},
 			BatchTicker: ticker.NewForce(cfg.BatchMintingInterval),
 			ErrChan:     mainErrChan,

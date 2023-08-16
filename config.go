@@ -88,6 +88,8 @@ type Config struct {
 
 	SignalInterceptor signal.Interceptor
 
+	ReOrgWatcher *tapgarden.ReOrgWatcher
+
 	AssetMinter tapgarden.Planter
 
 	AssetCustodian *tapgarden.Custodian
