@@ -1293,10 +1293,10 @@
           "$ref": "#/definitions/taprpcAsset",
           "description": "The asset included in the leaf."
         },
-        "issuance_proof": {
+        "raw_proof": {
           "type": "string",
           "format": "byte",
-          "description": "The asset issuance proof, which proves that the asset specified above\nwas issued properly."
+          "description": "The raw proof which proves that the asset was issued or transferred\ncorrectly."
         }
       }
     },

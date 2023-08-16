@@ -2575,8 +2575,8 @@ func marshalAssetLeaf(ctx context.Context, keys KeyLookup,
 	}
 
 	return &unirpc.AssetLeaf{
-		Asset:         rpcAsset,
-		IssuanceProof: assetLeaf.GenesisProof[:],
+		Asset:    rpcAsset,
+		RawProof: assetLeaf.GenesisProof[:],
 	}, nil
 }
 
@@ -2813,7 +2813,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 	// itself.
 	var assetProof proof.Proof
 	if err := assetProof.Decode(
-		bytes.NewReader(leaf.IssuanceProof),
+		bytes.NewReader(leaf.RawProof),
 	); err != nil {
 		return nil, err
 	}
@@ -2826,7 +2826,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
 		},
-		GenesisProof: leaf.IssuanceProof,
+		GenesisProof: leaf.RawProof,
 		Amt:          assetProof.Asset.Amount,
 	}, nil
 }

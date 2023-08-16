@@ -435,8 +435,8 @@ func universeProofInsert(ctx *cli.Context) error {
 			LeafKey: assetKey,
 		},
 		AssetLeaf: &universerpc.AssetLeaf{
-			Asset:         rpcAsset,
-			IssuanceProof: rawProof,
+			Asset:    rpcAsset,
+			RawProof: rawProof,
 		},
 	}
 	resp, err := client.InsertProof(ctxc, req)

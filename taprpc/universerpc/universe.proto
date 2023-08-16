@@ -233,9 +233,9 @@ message AssetLeaf {
 
     // TODO(roasbeef): only needed for display? can get from proof below ^
 
-    // The asset issuance proof, which proves that the asset specified above
-    // was issued properly.
-    bytes issuance_proof = 2;
+    // The raw proof which proves that the asset was issued or transferred
+    // correctly.
+    bytes raw_proof = 2;
 }
 
 message AssetLeafResponse {

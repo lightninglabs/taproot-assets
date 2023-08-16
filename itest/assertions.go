@@ -1008,8 +1008,8 @@ func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
 			)
 
 			require.Equal(
-				t, aLeaves.Leaves[i].IssuanceProof,
-				bLeaves.Leaves[i].IssuanceProof,
+				t, aLeaves.Leaves[i].RawProof,
+				bLeaves.Leaves[i].RawProof,
 			)
 		}
 	}
