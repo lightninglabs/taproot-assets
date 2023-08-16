@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -309,14 +310,17 @@ type AssetStore struct {
 	// eventDistributor is an event distributor that will be used to notify
 	// subscribers about new proofs that are added to the archiver.
 	eventDistributor *fn.EventDistributor[proof.Blob]
+
+	clock clock.Clock
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
 // interface.
-func NewAssetStore(db BatchedAssetStore) *AssetStore {
+func NewAssetStore(db BatchedAssetStore, clock clock.Clock) *AssetStore {
 	return &AssetStore{
 		db:               db,
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
+		clock:            clock,
 	}
 }
 
@@ -2108,7 +2112,7 @@ func (a *AssetStore) StoreProofDeliveryAttempt(ctx context.Context,
 		err := q.InsertReceiverProofTransferAttempt(
 			ctx, InsertRecvProofTxAttemptParams{
 				ProofLocatorHash: proofLocatorHash[:],
-				TimeUnix:         time.Now().UTC(),
+				TimeUnix:         a.clock.Now().UTC(),
 			},
 		)
 		if err != nil {

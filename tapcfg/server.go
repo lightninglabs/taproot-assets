@@ -61,6 +61,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, fmt.Errorf("unable to open database: %v", err)
 	}
 
+	defaultClock := clock.NewDefaultClock()
 	rksDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.KeyStore {
 			return db.WithTx(tx)
@@ -86,7 +87,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	tapChainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
 	tapdbAddrBook := tapdb.NewTapAddressBook(
-		addrBookDB, &tapChainParams,
+		addrBookDB, &tapChainParams, defaultClock,
 	)
 
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
@@ -100,7 +101,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		Chain:        tapChainParams,
 	})
 
-	assetStore := tapdb.NewAssetStore(assetDB)
+	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
@@ -119,9 +120,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	universeStats := tapdb.NewUniverseStats(
-		uniStatsDB, clock.NewDefaultClock(),
-	)
+	universeStats := tapdb.NewUniverseStats(uniStatsDB, defaultClock)
 
 	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
@@ -142,7 +141,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	federationDB := tapdb.NewUniverseFederationDB(federationStore)
+	federationDB := tapdb.NewUniverseFederationDB(
+		federationStore, defaultClock,
+	)
 
 	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
 	if err != nil {

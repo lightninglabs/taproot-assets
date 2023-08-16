@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -173,16 +174,18 @@ type BatchedAddrBook interface {
 type TapAddressBook struct {
 	db     BatchedAddrBook
 	params *address.ChainParams
+	clock  clock.Clock
 }
 
 // NewTapAddressBook creates a new TapAddressBook instance given a open
 // BatchedAddrBook storage backend.
-func NewTapAddressBook(db BatchedAddrBook,
-	params *address.ChainParams) *TapAddressBook {
+func NewTapAddressBook(db BatchedAddrBook, params *address.ChainParams,
+	clock clock.Clock) *TapAddressBook {
 
 	return &TapAddressBook{
 		db:     db,
 		params: params,
+		clock:  clock,
 	}
 }
 
@@ -722,7 +725,7 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 			TaprootOutputKey: schnorr.SerializePubKey(
 				&addr.TaprootOutputKey,
 			),
-			CreationTime:        time.Now().UTC(),
+			CreationTime:        t.clock.Now().UTC(),
 			Status:              int16(status),
 			Txid:                txHash[:],
 			ChainTxnOutputIndex: int32(outputIdx),
@@ -848,14 +851,14 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
 
 // CompleteEvent updates an address event as being complete and links it with
 // the proof and asset that was imported/created for it.
-func (a *TapAddressBook) CompleteEvent(ctx context.Context,
+func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 	event *address.Event, status address.Status,
 	anchorPoint wire.OutPoint) error {
 
 	scriptKeyBytes := event.Addr.ScriptKey.SerializeCompressed()
 
 	var writeTxOpts AddrBookTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
+	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
 		proofData, err := db.FetchAssetProof(ctx, scriptKeyBytes)
 		if err != nil {
 			return fmt.Errorf("error fetching asset proof: %w", err)
@@ -877,13 +880,13 @@ func (a *TapAddressBook) CompleteEvent(ctx context.Context,
 
 // QueryAssetGroup attempts to fetch an asset group by its asset ID. If the
 // asset group cannot be found, then ErrAssetGroupUnknown is returned.
-func (a *TapAddressBook) QueryAssetGroup(ctx context.Context,
+func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 	assetID asset.ID) (*asset.AssetGroup, error) {
 
 	var assetGroup asset.AssetGroup
 
 	readOpts := NewAddrBookReadTx()
-	err := a.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
 		assetGen, err := db.FetchGenesisByAssetID(ctx, assetID[:])
 		if err != nil {
 			return err
