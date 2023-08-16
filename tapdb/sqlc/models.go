@@ -210,6 +210,8 @@ type ManagedUtxo struct {
 	TapscriptSibling []byte
 	MerkleRoot       []byte
 	TxnID            int32
+	LeaseOwner       []byte
+	LeaseExpiry      sql.NullTime
 }
 
 type MssmtNode struct {

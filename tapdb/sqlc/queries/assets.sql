@@ -376,6 +376,8 @@ SELECT
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
     utxos.taproot_asset_root AS anchor_taproot_asset_root,
+    utxos.lease_owner AS anchor_lease_owner,
+    utxos.lease_expiry AS anchor_lease_expiry,
     utxo_internal_keys.raw_key AS anchor_internal_key,
     split_commitment_root_hash, split_commitment_root_value
 FROM assets
@@ -398,7 +400,16 @@ JOIN internal_keys
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
       (utxos.outpoint = sqlc.narg('anchor_point') OR
-       sqlc.narg('anchor_point') IS NULL)
+       sqlc.narg('anchor_point') IS NULL) AND
+       CASE
+           WHEN sqlc.narg('leased') = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
+           WHEN sqlc.narg('leased') = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= @now)
+           ELSE TRUE
+       END
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
@@ -675,6 +686,23 @@ WHERE (
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
 WHERE outpoint = $1;
+
+-- name: UpdateUTXOLease :exec
+UPDATE managed_utxos
+SET lease_owner = @lease_owner, lease_expiry = @lease_expiry
+WHERE outpoint = @outpoint;
+
+-- name: DeleteUTXOLease :exec
+UPDATE managed_utxos
+SET lease_owner = NULL, lease_expiry = NULL
+WHERE outpoint = @outpoint;
+
+-- name: DeleteExpiredUTXOLeases :exec
+UPDATE managed_utxos
+SET lease_owner = NULL, lease_expiry = NULL
+WHERE lease_owner IS NOT NULL AND
+      lease_expiry IS NOT NULL AND
+      lease_expiry < @now;
 
 -- name: ConfirmChainAnchorTx :exec
 UPDATE chain_txns

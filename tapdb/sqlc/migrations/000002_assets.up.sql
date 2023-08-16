@@ -143,7 +143,19 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
     merkle_root BLOB NOT NULL CHECK(length(merkle_root) = 32),
 
-    txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id)
+    txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id),
+
+    -- The identity of the application that currently has a lease on this UTXO.
+    -- If NULL, then the UTXO is not currently leased. A lease means that the
+    -- UTXO is being reserved/locked to be spent in an upcoming transaction and
+    -- that it should not be available for coin selection through any of the
+    -- wallet RPCs.
+    lease_owner BLOB CHECK(length(lease_owner) = 32),
+
+    -- The absolute expiry of the lease in seconds as a Unix timestamp. If the
+    -- expiry is NULL or the timestamp is in the past, then the lease is not
+    -- valid and the UTXO is available for coin selection.
+    lease_expiry TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS script_keys (

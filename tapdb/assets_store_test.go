@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -442,6 +443,8 @@ type assetDesc struct {
 	scriptKey *asset.ScriptKey
 
 	amt uint64
+
+	leasedUntil time.Time
 }
 
 type assetGenerator struct {
@@ -515,7 +518,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		desc := desc
 
 		opts := []assetGenOpt{
-			withAssetGenAmt(desc.amt), withAssetGenPoint(desc.anchorPoint),
+			withAssetGenAmt(desc.amt),
+			withAssetGenPoint(desc.anchorPoint),
 			withAssetGen(desc.assetGen),
 		}
 
@@ -535,10 +539,10 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		if desc.groupAnchorGen != nil {
 			opts = append(opts, withGroupAnchorGen(desc.groupAnchorGen))
 		}
-		asset := randAsset(t, opts...)
+		randAsset := randAsset(t, opts...)
 
 		// TODO(roasbeef): should actually group them all together?
-		assetCommitment, err := commitment.NewAssetCommitment(asset)
+		assetCommitment, err := commitment.NewAssetCommitment(randAsset)
 		require.NoError(t, err)
 		tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
 		require.NoError(t, err)
@@ -550,13 +554,21 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 				AssetSnapshot: &proof.AssetSnapshot{
 					AnchorTx:    anchorPoint,
 					InternalKey: test.RandPubKey(t),
-					Asset:       asset,
+					Asset:       randAsset,
 					ScriptRoot:  tapCommitment,
 				},
 				Blob: bytes.Repeat([]byte{1}, 100),
 			},
 		)
 		require.NoError(t, err)
+
+		if !desc.leasedUntil.IsZero() {
+			owner := randAsset.ID()
+			err = assetStore.LeaseCoins(
+				ctx, owner, desc.leasedUntil, desc.anchorPoint,
+			)
+			require.NoError(t, err)
+		}
 	}
 }
 
@@ -593,6 +605,7 @@ func TestSelectCommitment(t *testing.T) {
 	)
 
 	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
+	inOneHour := time.Now().Add(time.Hour)
 
 	testCases := []struct {
 		name string
@@ -698,6 +711,36 @@ func TestSelectCommitment(t *testing.T) {
 			},
 			numAssets: 1,
 		},
+
+		// Leased assets shouldn't be returned, and neither should other
+		// assets on the same anchor transaction.
+		{
+			name: "multiple assets, one leased",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+
+					leasedUntil: inOneHour,
+				},
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      5,
+
+					anchorPoint: assetGen.anchorPoints[0],
+				},
+			},
+			constraints: tapfreighter.CommitmentConstraints{
+				AssetID: assetGen.bindAssetID(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 2,
+			},
+			numAssets: 0,
+			err:       tapfreighter.ErrMatchingAssetsNotFound,
+		},
 	}
 
 	ctx := context.Background()
@@ -734,7 +777,7 @@ func TestSelectCommitment(t *testing.T) {
 			sa := selectedAssets[0]
 			assetCommitment, err := assetsStore.FetchCommitment(
 				ctx, sa.Asset.ID(), sa.AnchorPoint,
-				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
+				sa.Asset.GroupKey, &sa.Asset.ScriptKey, false,
 			)
 			require.NoError(t, err)
 
@@ -749,7 +792,7 @@ func TestSelectCommitment(t *testing.T) {
 			wrongID[0] ^= 0x01
 			assetCommitment, err = assetsStore.FetchCommitment(
 				ctx, wrongID, sa.AnchorPoint,
-				sa.Asset.GroupKey, &sa.Asset.ScriptKey,
+				sa.Asset.GroupKey, &sa.Asset.ScriptKey, false,
 			)
 			require.ErrorIs(
 				t, err, tapfreighter.ErrMatchingAssetsNotFound,

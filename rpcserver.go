@@ -1566,7 +1566,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 	prevID := vPacket.Inputs[0].PrevID
 	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
 		ctx, inputAsset.ID(), prevID.OutPoint, inputAsset.GroupKey,
-		&inputAsset.ScriptKey,
+		&inputAsset.ScriptKey, true,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching input commitment: %w",
@@ -3101,7 +3101,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	inputAsset := lastSnapshot.Asset
 	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
 		ctx, inputAsset.ID(), lastSnapshot.OutPoint,
-		inputAsset.GroupKey, &inputAsset.ScriptKey,
+		inputAsset.GroupKey, &inputAsset.ScriptKey, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching commitment: %w", err)
