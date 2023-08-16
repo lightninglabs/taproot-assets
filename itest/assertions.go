@@ -437,6 +437,19 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int) {
 
+	assertAssetOutboundTransferWithOutputs(
+		t, sender, sendResp, assetID, expectedAmounts,
+		currentTransferIdx, numTransfers, numOutputs, true,
+	)
+}
+
+// assertAssetOutboundTransferWithOutputs makes sure the given outbound transfer
+// has the correct state and number of outputs.
+func assertAssetOutboundTransferWithOutputs(t *harnessTest,
+	sender *tapdHarness, sendResp *taprpc.SendAssetResponse,
+	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
+	numTransfers, numOutputs int, confirm bool) {
+
 	ctxb := context.Background()
 
 	// Check that we now have two new outputs, and that they differ
@@ -459,7 +472,9 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	// Mine a block to force the send event to complete (confirm on-chain).
-	_ = mineBlocks(t, t.lndHarness, 1, 1)
+	if confirm {
+		_ = mineBlocks(t, t.lndHarness, 1, 1)
+	}
 
 	// Confirm that we can externally view the transfer.
 	require.Eventually(t.t, func() bool {
