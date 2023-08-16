@@ -639,6 +639,21 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
+-- name: FetchAssetProofsByAssetID :many
+WITH asset_info AS (
+    SELECT assets.asset_id, script_keys.tweaked_script_key
+    FROM assets
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets gen
+        ON assets.genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $1
+)
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id;
+
 -- name: FetchAssetProof :one
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key

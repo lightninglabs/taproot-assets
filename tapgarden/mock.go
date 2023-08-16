@@ -470,6 +470,12 @@ func (m *MockProofArchive) FetchProof(ctx context.Context,
 	return nil, nil
 }
 
+func (m *MockProofArchive) FetchProofs(ctx context.Context,
+	id asset.ID) ([]*proof.AnnotatedProof, error) {
+
+	return nil, nil
+}
+
 func (m *MockProofArchive) ImportProofs(ctx context.Context,
 	headerVerifier proof.HeaderVerifier, replace bool,
 	proofs ...*proof.AnnotatedProof) error {
