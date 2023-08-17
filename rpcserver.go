@@ -987,6 +987,19 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	var err error
 
+	// Parse the proof courier address if one was provided, otherwise use
+	// the default specified in the config.
+	proofCourierAddr := r.cfg.DefaultProofCourierAddr
+	if in.ProofCourierAddr != "" {
+		proofCourierAddr, err = proof.ParseCourierAddr(
+			in.ProofCourierAddr,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proof courier "+
+				"address: %w", err)
+		}
+	}
+
 	if len(in.AssetId) != 32 {
 		return nil, fmt.Errorf("invalid asset id length")
 	}
@@ -1018,6 +1031,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
 			ctx, assetID, in.Amt, tapscriptSibling,
+			proofCourierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1057,7 +1071,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
 			ctx, assetID, in.Amt, *scriptKey, internalKey,
-			tapscriptSibling,
+			tapscriptSibling, proofCourierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
