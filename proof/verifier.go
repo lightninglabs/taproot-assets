@@ -351,6 +351,7 @@ func (p *Proof) verifyGroupKeyReveal() error {
 
 	return nil
 }
+
 // HeaderVerifier is a callback function which returns an error if the given
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
@@ -428,7 +429,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, ErrNonGenesisAssetWithGenesisReveal
 	case isGenesisAsset && !hasGenesisReveal:
 		return nil, ErrGenesisRevealRequired
-	case isGenesisAsset:
+	case isGenesisAsset && hasGenesisReveal:
 		if err := p.verifyGenesisReveal(); err != nil {
 			return nil, err
 		}
