@@ -30,9 +30,13 @@ func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
 // txid reaches numConfs confirmations.
 func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
-	includeBlock bool) (*chainntnfs.ConfirmationEvent, chan error, error) {
+	includeBlock bool,
+	reOrgChan chan struct{}) (*chainntnfs.ConfirmationEvent, chan error,
+	error) {
 
-	var opts []lndclient.NotifierOption
+	opts := []lndclient.NotifierOption{
+		lndclient.WithReOrgChan(reOrgChan),
+	}
 	if includeBlock {
 		opts = append(opts, lndclient.WithIncludeBlock())
 	}
@@ -53,6 +57,14 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 		Confirmed: confChan,
 		Cancel:    cancel,
 	}, errChan, nil
+}
+
+// RegisterBlockEpochNtfn registers an intent to be notified of each new block
+// connected to the main chain.
+func (l *LndRpcChainBridge) RegisterBlockEpochNtfn(
+	ctx context.Context) (chan int32, chan error, error) {
+
+	return l.lnd.ChainNotifier.RegisterBlockEpochNtfn(ctx)
 }
 
 // GetBlock returns a chain block given its hash.
@@ -105,7 +117,7 @@ func (l *LndRpcChainBridge) VerifyBlock(ctx context.Context,
 	expectedHash := header.BlockHash()
 	if hash != expectedHash {
 		return fmt.Errorf("block hash and block height "+
-			"mismatch; (height: %x, hashAtHeight: %s, "+
+			"mismatch; (height: %d, hashAtHeight: %s, "+
 			"expectedHash: %s)", height, hash, expectedHash)
 	}
 

@@ -46,6 +46,10 @@ type (
 	// where the proofs for a specific asset are fetched.
 	AssetProofI = sqlc.FetchAssetProofRow
 
+	// AssetProofByIDRow is the asset proof for a given asset, identified by
+	// its asset ID.
+	AssetProofByIDRow = sqlc.FetchAssetProofsByAssetIDRow
+
 	// PrevInput stores the full input information including the prev out,
 	// and also the witness information itself.
 	PrevInput = sqlc.InsertAssetWitnessParams
@@ -163,6 +167,11 @@ type ActiveAssetsStore interface {
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
 		scriptKey []byte) (AssetProofI, error)
+
+	// FetchAssetProofsByAssetID fetches all asset proofs for a given asset
+	// ID.
+	FetchAssetProofsByAssetID(ctx context.Context,
+		assetID []byte) ([]AssetProofByIDRow, error)
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
@@ -783,6 +792,11 @@ func (a *AssetStore) constraintsToDbFilter(
 				Valid: true,
 			}
 		}
+		if query.MinAnchorHeight != 0 {
+			assetFilter.MinAnchorHeight = sqlInt32(
+				query.MinAnchorHeight,
+			)
+		}
 		if query.AssetID != nil {
 			assetID := query.AssetID[:]
 			assetFilter.AssetIDFilter = assetID
@@ -863,6 +877,10 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 // which lets us filter the results of the set of assets returned.
 type AssetQueryFilters struct {
 	tapfreighter.CommitmentConstraints
+
+	// MinAnchorHeight is the minimum block height the asset's anchor tx
+	// must have been confirmed at.
+	MinAnchorHeight int32
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
@@ -1179,7 +1197,7 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 // FetchProof fetches a proof for an asset uniquely identified by the passed
 // ProofIdentifier.
 //
-// NOTE: This implements the proof.ArchiveBackend interface.
+// NOTE: This implements the proof.Archiver interface.
 func (a *AssetStore) FetchProof(ctx context.Context,
 	locator proof.Locator) (proof.Blob, error) {
 
@@ -1211,6 +1229,61 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 	}
 
 	return diskProof, nil
+}
+
+// FetchProofs fetches all proofs for assets uniquely identified by the passed
+// asset ID.
+//
+// NOTE: This implements the proof.Archiver interface.
+func (a *AssetStore) FetchProofs(ctx context.Context,
+	id asset.ID) ([]*proof.AnnotatedProof, error) {
+
+	var dbProofs []*proof.AnnotatedProof
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		assetProofs, err := q.FetchAssetProofsByAssetID(ctx, id[:])
+		if err != nil {
+			return fmt.Errorf("unable to fetch asset proofs: %w",
+				err)
+		}
+
+		dbProofs, err = fn.MapErr(
+			assetProofs,
+			func(dbRow AssetProofByIDRow) (*proof.AnnotatedProof,
+				error) {
+
+				scriptKey, err := btcec.ParsePubKey(
+					dbRow.ScriptKey,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("error parsing "+
+						"script key: %w", err)
+				}
+
+				return &proof.AnnotatedProof{
+					Locator: proof.Locator{
+						AssetID:   &id,
+						ScriptKey: *scriptKey,
+					},
+					Blob: dbRow.ProofFile,
+				}, nil
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to map asset proofs: %w", err)
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, proof.ErrProofNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return dbProofs, nil
 }
 
 // insertAssetWitnesses attempts to insert the set of asset witnesses in to the
@@ -1581,7 +1654,7 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 	// First, we'll map the commitment constraints to our database query
 	// filters.
 	assetFilter := a.constraintsToDbFilter(&AssetQueryFilters{
-		constraints,
+		CommitmentConstraints: constraints,
 	})
 
 	// We only want to select unspent and non-leased commitments.

@@ -455,8 +455,9 @@ type assetGenerator struct {
 
 	anchorTxs []*wire.MsgTx
 
-	anchorPoints     []wire.OutPoint
-	anchorPointsToTx map[wire.OutPoint]*wire.MsgTx
+	anchorPoints          []wire.OutPoint
+	anchorPointsToTx      map[wire.OutPoint]*wire.MsgTx
+	anchorPointsToHeights map[wire.OutPoint]uint32
 
 	groupKeys []*btcec.PrivateKey
 }
@@ -482,6 +483,7 @@ func newAssetGenerator(t *testing.T,
 
 	anchorPoints := make([]wire.OutPoint, numAssetIDs)
 	anchorPointsToTx := make(map[wire.OutPoint]*wire.MsgTx, numAssetIDs)
+	anchorPointsToHeights := make(map[wire.OutPoint]uint32, numAssetIDs)
 	for i, tx := range anchorTxs {
 		tx := tx
 
@@ -492,6 +494,7 @@ func newAssetGenerator(t *testing.T,
 
 		anchorPoints[i] = anchorPoint
 		anchorPointsToTx[anchorPoint] = tx
+		anchorPointsToHeights[anchorPoint] = uint32(i + 500)
 	}
 
 	assetGens := make([]asset.Genesis, numAssetIDs)
@@ -505,11 +508,12 @@ func newAssetGenerator(t *testing.T,
 	}
 
 	return &assetGenerator{
-		groupKeys:        groupKeys,
-		assetGens:        assetGens,
-		anchorPoints:     anchorPoints,
-		anchorPointsToTx: anchorPointsToTx,
-		anchorTxs:        anchorTxs,
+		groupKeys:             groupKeys,
+		assetGens:             assetGens,
+		anchorPoints:          anchorPoints,
+		anchorPointsToTx:      anchorPointsToTx,
+		anchorPointsToHeights: anchorPointsToHeights,
+		anchorTxs:             anchorTxs,
 	}
 }
 
@@ -555,14 +559,16 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		require.NoError(t, err)
 
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
+		height := a.anchorPointsToHeights[desc.anchorPoint]
 
 		err = assetStore.importAssetFromProof(
 			ctx, assetStore.db, &proof.AnnotatedProof{
 				AssetSnapshot: &proof.AssetSnapshot{
-					AnchorTx:    anchorPoint,
-					InternalKey: test.RandPubKey(t),
-					Asset:       newAsset,
-					ScriptRoot:  tapCommitment,
+					AnchorTx:          anchorPoint,
+					InternalKey:       test.RandPubKey(t),
+					Asset:             newAsset,
+					ScriptRoot:        tapCommitment,
+					AnchorBlockHeight: height,
 				},
 				Blob: bytes.Repeat([]byte{1}, 100),
 			},
@@ -668,12 +674,13 @@ func TestFetchAllAssets(t *testing.T) {
 		amt:         34,
 		leasedUntil: time.Now().Add(time.Hour),
 	}}
-	makeFilter := func(amt uint64) *AssetQueryFilters {
+	makeFilter := func(amt uint64, anchorHeight int32) *AssetQueryFilters {
 		constraints := tapfreighter.CommitmentConstraints{
 			MinAmt: amt,
 		}
 		return &AssetQueryFilters{
 			CommitmentConstraints: constraints,
+			MinAnchorHeight:       anchorHeight,
 		}
 	}
 
@@ -702,24 +709,38 @@ func TestFetchAllAssets(t *testing.T) {
 		numAssets:     9,
 	}, {
 		name:      "min amount",
-		filter:    makeFilter(12),
+		filter:    makeFilter(12, 0),
 		numAssets: 2,
 	}, {
 		name:         "min amount, include spent",
-		filter:       makeFilter(12),
+		filter:       makeFilter(12, 0),
 		includeSpent: true,
 		numAssets:    4,
 	}, {
 		name:          "min amount, include leased",
-		filter:        makeFilter(12),
+		filter:        makeFilter(12, 0),
 		includeLeased: true,
 		numAssets:     4,
 	}, {
 		name:          "min amount, include leased, include spent",
-		filter:        makeFilter(12),
+		filter:        makeFilter(12, 0),
 		includeLeased: true,
 		includeSpent:  true,
 		numAssets:     7,
+	}, {
+		name:         "default min height, include spent",
+		filter:       makeFilter(0, 500),
+		includeSpent: true,
+		numAssets:    6,
+	}, {
+		name:      "specific height",
+		filter:    makeFilter(0, 502),
+		numAssets: 0,
+	}, {
+		name:         "default min height, include spent",
+		filter:       makeFilter(0, 502),
+		includeSpent: true,
+		numAssets:    1,
 	}}
 
 	// First, we'll create a new assets store and then insert the set of

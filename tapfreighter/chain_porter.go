@@ -59,6 +59,10 @@ type ChainPorterConfig struct {
 	// user using an asynchronous transport mechanism.
 	ProofCourier proof.Courier[proof.Recipient]
 
+	// ProofWatcher is used to watch new proofs for their anchor transaction
+	// to be confirmed safely with a minimum number of confirmations.
+	ProofWatcher proof.Watcher
+
 	// ErrChan is the main error channel the custodian will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -252,7 +256,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	confCtx, confCancel := p.WithCtxQuitNoTimeout()
 	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
 		confCtx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
-		outboundPkg.AnchorTxHeightHint, true,
+		outboundPkg.AnchorTxHeightHint, true, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to register for package tx conf: %w",
@@ -309,8 +313,11 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	passiveAssetProofFiles := make(
 		[]*proof.AnnotatedProof, 0, len(sendPkg.PassiveAssets),
 	)
+	passiveAssetRawProofs := make(
+		[]*proof.Proof, 0, len(sendPkg.PassiveAssets),
+	)
 	for _, passiveAsset := range sendPkg.PassiveAssets {
-		newAnnotatedProofFile, err := p.updateAssetProofFile(
+		newAnnotatedProofFile, rawProof, err := p.updateAssetProofFile(
 			ctx, passiveAsset.GenesisID,
 			passiveAsset.ScriptKey.PubKey, confEvent,
 			passiveAsset.NewProof,
@@ -323,6 +330,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		passiveAssetProofFiles = append(
 			passiveAssetProofFiles, newAnnotatedProofFile,
 		)
+		passiveAssetRawProofs = append(passiveAssetRawProofs, rawProof)
 	}
 
 	log.Infof("Importing %d passive asset proofs into local Proof "+
@@ -332,6 +340,19 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
+	}
+
+	// The proof is created after a single confirmation. To make sure we
+	// notice if the anchor transaction is re-organized out of the chain, we
+	// give the proof to the re-org watcher and replace the updated proof in
+	// the local proof archive if a re-org happens.
+	if len(passiveAssetRawProofs) > 0 {
+		if err := p.cfg.ProofWatcher.WatchProofs(
+			passiveAssetRawProofs,
+			p.cfg.ProofWatcher.DefaultUpdateCallback(),
+		); err != nil {
+			return fmt.Errorf("error watching proof: %w", err)
+		}
 	}
 
 	// If there are no active inputs/outputs (only passive assets), don't
@@ -441,6 +462,25 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 
 		log.Debugf("Updated proofs for output %d (new_len=%d)",
 			idx, inputProofFile.NumProofs())
+
+		// The proof is created after a single confirmation. To make
+		// sure we notice if the anchor transaction is re-organized out
+		// of the chain, we give the proof to the re-org watcher and
+		// replace the updated proof in the local proof archive if a
+		// re-org happens. We only watch change output proofs, as we
+		// won't keep an asset record of outbound transfers. But the
+		// receiver will also watch for re-orgs, so no re-send of the
+		// proof is necessary anyway.
+		if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
+			err := p.cfg.ProofWatcher.WatchProofs(
+				[]*proof.Proof{&proofSuffix},
+				p.cfg.ProofWatcher.DefaultUpdateCallback(),
+			)
+			if err != nil {
+				return fmt.Errorf("error watching proof: %w",
+					err)
+			}
+		}
 	}
 
 	sendPkg.SendState = SendStateReceiverProofTransfer
@@ -478,7 +518,7 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 // ID and script key with the new proof.
 func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID,
 	scriptKeyPub *btcec.PublicKey, confEvent *chainntnfs.TxConfirmation,
-	newProof *proof.Proof) (*proof.AnnotatedProof, error) {
+	newProof *proof.Proof) (*proof.AnnotatedProof, *proof.Proof, error) {
 
 	// Retrieve current proof file.
 	locator := proof.Locator{
@@ -487,12 +527,13 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 	}
 	currentProofFileBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching proof: %w", err)
+		return nil, nil, fmt.Errorf("error fetching proof: %w", err)
 	}
 	currentProofFile := proof.NewEmptyFile(proof.V0)
 	err = currentProofFile.Decode(bytes.NewReader(currentProofFileBlob))
 	if err != nil {
-		return nil, fmt.Errorf("error decoding proof file: %w", err)
+		return nil, nil, fmt.Errorf("error decoding proof file: %w",
+			err)
 	}
 
 	// Now that we have the current proof file, we'll update the new proof
@@ -504,18 +545,20 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 		TxIndex:     int(confEvent.TxIndex),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error updating new proof with "+
+		return nil, nil, fmt.Errorf("error updating new proof with "+
 			"chain transaction confirmation data: %w", err)
 	}
 
 	// With the new proof updated, we can append the proof to the
 	// current proof file.
 	if err := currentProofFile.AppendProof(*newProof); err != nil {
-		return nil, fmt.Errorf("error appending proof suffix: %w", err)
+		return nil, nil, fmt.Errorf("error appending proof suffix: %w",
+			err)
 	}
 	var newProofFileBuffer bytes.Buffer
 	if err := currentProofFile.Encode(&newProofFileBuffer); err != nil {
-		return nil, fmt.Errorf("error encoding proof file: %w", err)
+		return nil, nil, fmt.Errorf("error encoding proof file: %w",
+			err)
 	}
 	newAnnotatedProofFile := &proof.AnnotatedProof{
 		Locator: proof.Locator{
@@ -525,7 +568,7 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 		Blob: newProofFileBuffer.Bytes(),
 	}
 
-	return newAnnotatedProofFile, nil
+	return newAnnotatedProofFile, newProof, nil
 }
 
 // transferReceiverProof retrieves the sender and receiver proofs from the
@@ -934,7 +977,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, the transfer transaction is confirmed on-chain. We go
 	// on to store the sender and receiver proofs in the proof archive.
 	case SendStateReceiverProofTransfer:
-
 		// We'll set the package state to complete early here so the
 		// main loop breaks out. We'll continue to attempt proof
 		// deliver in the background.

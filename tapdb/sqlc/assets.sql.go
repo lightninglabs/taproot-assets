@@ -581,6 +581,50 @@ func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, 
 	return items, nil
 }
 
+const fetchAssetProofsByAssetID = `-- name: FetchAssetProofsByAssetID :many
+WITH asset_info AS (
+    SELECT assets.asset_id, script_keys.tweaked_script_key
+    FROM assets
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets gen
+        ON assets.genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $1
+)
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id
+`
+
+type FetchAssetProofsByAssetIDRow struct {
+	ScriptKey []byte
+	ProofFile []byte
+}
+
+func (q *Queries) FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetProofsByAssetID, assetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofsByAssetIDRow
+	for rows.Next() {
+		var i FetchAssetProofsByAssetIDRow
+		if err := rows.Scan(&i.ScriptKey, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
 SELECT 
     assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
@@ -1835,6 +1879,7 @@ SELECT
     txns.raw_tx AS anchor_tx,
     txns.txid AS anchor_txid,
     txns.block_hash AS anchor_block_hash,
+    txns.block_height AS anchor_block_height,
     utxos.outpoint AS anchor_outpoint,
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
@@ -1872,12 +1917,13 @@ JOIN managed_utxos utxos
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
-    ON utxos.txn_id = txns.txn_id
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE($6, txns.block_height, 0)
 WHERE (
-    assets.amount >= COALESCE($6, assets.amount) AND
-    assets.spent = COALESCE($7, assets.spent) AND
-    (key_group_info_view.tweaked_group_key = $8 OR
-      $8 IS NULL)
+    assets.amount >= COALESCE($7, assets.amount) AND
+    assets.spent = COALESCE($8, assets.spent) AND
+    (key_group_info_view.tweaked_group_key = $9 OR
+      $9 IS NULL)
 )
 `
 
@@ -1887,6 +1933,7 @@ type QueryAssetsParams struct {
 	AnchorPoint      []byte
 	Leased           interface{}
 	Now              sql.NullTime
+	MinAnchorHeight  sql.NullInt32
 	MinAmt           sql.NullInt64
 	Spent            sql.NullBool
 	KeyGroupFilter   []byte
@@ -1920,6 +1967,7 @@ type QueryAssetsRow struct {
 	AnchorTx                 []byte
 	AnchorTxid               []byte
 	AnchorBlockHash          []byte
+	AnchorBlockHeight        sql.NullInt32
 	AnchorOutpoint           []byte
 	AnchorTapscriptSibling   []byte
 	AnchorMerkleRoot         []byte
@@ -1946,6 +1994,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.AnchorPoint,
 		arg.Leased,
 		arg.Now,
+		arg.MinAnchorHeight,
 		arg.MinAmt,
 		arg.Spent,
 		arg.KeyGroupFilter,
@@ -1985,6 +2034,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 			&i.AnchorTx,
 			&i.AnchorTxid,
 			&i.AnchorBlockHash,
+			&i.AnchorBlockHeight,
 			&i.AnchorOutpoint,
 			&i.AnchorTapscriptSibling,
 			&i.AnchorMerkleRoot,

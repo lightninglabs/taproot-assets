@@ -68,13 +68,13 @@ func assetAnchorCheck(txid, blockHash chainhash.Hash) assetCheck {
 
 		if a.ChainAnchor.AnchorTxid != txid.String() {
 			return fmt.Errorf("unexpected asset anchor TXID, got "+
-				"%x wanted %x", a.ChainAnchor.AnchorTxid,
+				"%v wanted %x", a.ChainAnchor.AnchorTxid,
 				txid[:])
 		}
 
 		if a.ChainAnchor.AnchorBlockHash != blockHash.String() {
 			return fmt.Errorf("unexpected asset anchor block "+
-				"hash, got %x wanted %x",
+				"hash, got %v wanted %x",
 				a.ChainAnchor.AnchorBlockHash, blockHash[:])
 		}
 
@@ -201,6 +201,39 @@ func commitmentKey(t *testing.T, rpcAsset *taprpc.Asset) [32]byte {
 	return asset.AssetCommitmentKey(assetID, scriptKey, groupKey == nil)
 }
 
+// waitForProofUpdate polls until the proof for the given asset has been
+// updated, which is detected by checking the block height of the last proof.
+func waitForProofUpdate(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
+	blockHeight int32) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
+	defer cancel()
+
+	require.Eventually(t, func() bool {
+		// Export the proof, then decode it.
+		exportResp, err := tapd.ExportProof(
+			ctxt, &taprpc.ExportProofRequest{
+				AssetId:   a.AssetGenesis.AssetId,
+				ScriptKey: a.ScriptKey,
+			},
+		)
+		require.NoError(t, err)
+
+		f := &proof.File{}
+		require.NoError(
+			t, f.Decode(bytes.NewReader(exportResp.RawProof)),
+		)
+		lastProof, err := f.LastProof()
+		require.NoError(t, err)
+
+		// Check the block height of the proof.
+		return lastProof.BlockHeight == uint32(blockHeight)
+	}, defaultWaitTimeout, 200*time.Millisecond)
+}
+
 // assertAssetProofs makes sure the proofs for the given asset can be retrieved
 // from the given daemon and can be fully validated.
 func assertAssetProofs(t *testing.T, tapd *tapdHarness,
@@ -231,6 +264,34 @@ func assertAssetProofs(t *testing.T, tapd *tapdHarness,
 	)
 
 	return exportResp.RawProof
+}
+
+// assertAssetProofsInvalid makes sure the proofs for the given asset can be
+// retrieved from the given daemon but fail to validate.
+func assertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
+	a *taprpc.Asset) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	exportResp, err := tapd.ExportProof(ctxt, &taprpc.ExportProofRequest{
+		AssetId:   a.AssetGenesis.AssetId,
+		ScriptKey: a.ScriptKey,
+	})
+	require.NoError(t, err)
+
+	f := &proof.File{}
+	require.NoError(t, f.Decode(bytes.NewReader(exportResp.RawProof)))
+
+	// Also make sure that the RPC can verify the proof as well.
+	verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+		RawProof: exportResp.RawProof,
+	})
+	require.NoError(t, err)
+	require.False(t, verifyResp.Valid)
 }
 
 // verifyProofBlob parses the given proof blob into a file, verifies it and
@@ -287,7 +348,7 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 		expectedHash := hash
 		if heightHash != expectedHash {
 			return fmt.Errorf("block hash and block height "+
-				"mismatch; (height: %x, hashAtHeight: %s, "+
+				"mismatch; (height: %d, hashAtHeight: %s, "+
 				"expectedHash: %s)", height, heightHash,
 				expectedHash)
 		}
@@ -421,9 +482,10 @@ func assertAddrEventByStatus(t *testing.T, tapd *tapdHarness,
 // with the node.
 func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tapdHarness,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
-	expectedAmounts []uint64, currentTransferIdx, numTransfers int) {
+	expectedAmounts []uint64, currentTransferIdx,
+	numTransfers int) *wire.MsgBlock {
 
-	confirmAndAssetOutboundTransferWithOutputs(
+	return confirmAndAssetOutboundTransferWithOutputs(
 		t, sender, sendResp, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, 2,
 	)
@@ -435,9 +497,9 @@ func confirmAndAssertOutboundTransfer(t *harnessTest, sender *tapdHarness,
 func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	sender *tapdHarness, sendResp *taprpc.SendAssetResponse,
 	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
-	numTransfers, numOutputs int) {
+	numTransfers, numOutputs int) *wire.MsgBlock {
 
-	assertAssetOutboundTransferWithOutputs(
+	return assertAssetOutboundTransferWithOutputs(
 		t, sender, sendResp, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, numOutputs, true,
 	)
@@ -448,7 +510,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 	sender *tapdHarness, sendResp *taprpc.SendAssetResponse,
 	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
-	numTransfers, numOutputs int, confirm bool) {
+	numTransfers, numOutputs int, confirm bool) *wire.MsgBlock {
 
 	ctxb := context.Background()
 
@@ -472,8 +534,9 @@ func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
 	// Mine a block to force the send event to complete (confirm on-chain).
+	var newBlock *wire.MsgBlock
 	if confirm {
-		_ = mineBlocks(t, t.lndHarness, 1, 1)
+		newBlock = mineBlocks(t, t.lndHarness, 1, 1)[0]
 	}
 
 	// Confirm that we can externally view the transfer.
@@ -509,6 +572,8 @@ func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 	transferRespJSON, err := formatProtoJSON(transferResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from list transfers: %v", transferRespJSON)
+
+	return newBlock
 }
 
 // assertNonInteractiveRecvComplete makes sure the given receiver has the
@@ -793,6 +858,25 @@ func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 		}
 		require.True(t.t, assetMatched, "asset not matched: %v", a)
 	}
+}
+
+// assertUniverseRootEquality checks that the universe roots returned by two
+// daemons are either equal or not, depending on the expectedEquality parameter.
+func assertUniverseRootEquality(t *testing.T, a, b *tapdHarness,
+	expectedEquality bool) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	rootRequest := &unirpc.AssetRootRequest{}
+	universeRootsAlice, err := a.AssetRoots(ctxt, rootRequest)
+	require.NoError(t, err)
+	universeRootsBob, err := b.AssetRoots(ctxt, rootRequest)
+	require.NoError(t, err)
+	require.Equal(t, expectedEquality, assertUniverseRootsEqual(
+		universeRootsAlice, universeRootsBob,
+	))
 }
 
 func assertUniverseRoot(t *testing.T, tapd *tapdHarness, sum int,

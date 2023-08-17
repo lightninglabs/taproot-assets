@@ -136,6 +136,18 @@ var testCases = []*testCase{
 		name: "get info",
 		test: testGetInfo,
 	},
+	{
+		name: "re-org mint",
+		test: testReOrgMint,
+	},
+	{
+		name: "re-org send",
+		test: testReOrgSend,
+	},
+	{
+		name: "re-org mint and send",
+		test: testReOrgMintAndSend,
+	},
 }
 
 var optionalTestCases = []*testCase{

@@ -1,12 +1,15 @@
 package tapgarden
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -45,6 +48,10 @@ type GardenKit struct {
 	// Universe is used to register new asset issuance with a local/remote
 	// base universe instance.
 	Universe universe.Registrar
+
+	// ProofWatcher is used to watch new proofs for their anchor transaction
+	// to be confirmed safely with a minimum number of confirmations.
+	ProofWatcher proof.Watcher
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -54,6 +61,9 @@ type PlanterConfig struct {
 	// BatchTicker is used to notify the planter than it should assemble
 	// all asset requests into a new batch.
 	BatchTicker *ticker.Force
+
+	// ProofUpdates is the storage backend for updated proofs.
+	ProofUpdates proof.Archiver
 
 	// ErrChan is the main error channel the planter will report back
 	// critical errors to the main server.
@@ -213,9 +223,10 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker
 		SignalCompletion: func() {
 			c.completionSignals <- batchKey
 		},
-		CancelReqChan:  make(chan struct{}, 1),
-		CancelRespChan: make(chan CancelResp, 1),
-		ErrChan:        c.cfg.ErrChan,
+		CancelReqChan:       make(chan struct{}, 1),
+		CancelRespChan:      make(chan CancelResp, 1),
+		UpdateMintingProofs: c.updateMintingProofs,
+		ErrChan:             c.cfg.ErrChan,
 	})
 	c.caretakers[batchKey] = caretaker
 
@@ -237,8 +248,7 @@ func (c *ChainPlanter) Start() error {
 		// frozen state, and beyond.
 		//
 		// TODO(roasbeef): instead do RBF here? so only a single
-		// pending batch at at time? but would end up changing
-		// assetIDs.
+		// pending batch at a time? but would end up changing assetIDs.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		nonFinalBatches, err := c.cfg.Log.FetchNonFinalBatches(ctx)
@@ -795,6 +805,83 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// Now that we have the batch committed to disk, we'll return back to
 	// the caller if we should finalize the batch immediately or not based
 	// on its preference.
+	return nil
+}
+
+// updateMintingProofs is called by the re-org watcher when it detects a re-org
+// and has updated the minting proofs. This cannot be done by the caretaker
+// itself, because its job is already done at the point that a re-org can happen
+// (the batch is finalized after a single confirmation).
+func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
+	ctx, cancel := c.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	for idx := range proofs {
+		p := proofs[idx]
+
+		err := proof.ReplaceProofInBlob(
+			ctx, p, c.cfg.ProofUpdates, headerVerifier,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update minted proofs: %w",
+				err)
+		}
+
+		// The universe ID serves to identify the universe root we want
+		// to update this asset in. This is either the assetID or the
+		// group key.
+		uniID := universe.Identifier{
+			AssetID: p.Asset.ID(),
+		}
+		if p.Asset.GroupKey != nil {
+			uniID.GroupKey = &p.Asset.GroupKey.GroupPubKey
+		}
+
+		log.Debugf("Updating issuance proof for asset with universe, "+
+			"key=%v", spew.Sdump(uniID))
+
+		// The base key is the set of bytes that keys into the universe,
+		// this'll be the outpoint where it was created at and the
+		// script key for that asset.
+		baseKey := universe.BaseKey{
+			MintingOutpoint: wire.OutPoint{
+				Hash:  p.AnchorTx.TxHash(),
+				Index: p.InclusionProof.OutputIndex,
+			},
+			ScriptKey: &p.Asset.ScriptKey,
+		}
+
+		// The universe tree stores only the asset state transition and
+		// not also the proof file checksum (as the root is effectively
+		// a checksum), so we'll use just the state transition.
+		var proofBuf bytes.Buffer
+		err = p.Encode(&proofBuf)
+		if err != nil {
+			return err
+		}
+
+		// With both of those assembled, we can now update issuance
+		// which takes the amount and proof of the minting event.
+		uniGen := universe.GenesisWithGroup{
+			Genesis: p.Asset.Genesis,
+		}
+		if p.Asset.GroupKey != nil {
+			uniGen.GroupKey = p.Asset.GroupKey
+		}
+		mintingLeaf := &universe.MintingLeaf{
+			GenesisWithGroup: uniGen,
+			GenesisProof:     proofBuf.Bytes(),
+			Amt:              p.Asset.Amount,
+		}
+		_, err = c.cfg.Universe.RegisterIssuance(
+			ctx, uniID, baseKey, mintingLeaf,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update issuance: %v", err)
+		}
+	}
+
 	return nil
 }
 

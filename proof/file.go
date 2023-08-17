@@ -201,7 +201,7 @@ func (f *File) NumProofs() int {
 }
 
 // ProofAt returns the proof at the given index. If the file is empty, this
-// returns nil.
+// returns ErrNoProofAvailable.
 func (f *File) ProofAt(index uint32) (*Proof, error) {
 	if f.IsEmpty() {
 		return nil, ErrNoProofAvailable
@@ -220,6 +220,24 @@ func (f *File) ProofAt(index uint32) (*Proof, error) {
 	}
 
 	return proof, nil
+}
+
+// LocateProof calls the given predicate for each proof in the file and returns
+// the first proof (and the index) where the predicate returns true, starting
+// from the end of the file. If no proof is found, this returns
+// ErrNoProofAvailable.
+func (f *File) LocateProof(cb func(*Proof) bool) (*Proof, uint32, error) {
+	for i := f.NumProofs() - 1; i >= 0; i-- {
+		p, err := f.ProofAt(uint32(i))
+		if err != nil {
+			return nil, 0, err
+		}
+		if cb(p) {
+			return p, uint32(i), nil
+		}
+	}
+
+	return nil, 0, ErrNoProofAvailable
 }
 
 // RawProofAt returns the raw proof at the given index as a byte slice. If the
@@ -282,16 +300,25 @@ func (f *File) AppendProof(proof Proof) error {
 // ReplaceLastProof attempts to replace the last proof in the file with another
 // one, updating its chained hash in the process.
 func (f *File) ReplaceLastProof(proof Proof) error {
+	return f.ReplaceProofAt(uint32(len(f.proofs)-1), proof)
+}
+
+// ReplaceProofAt attempts to replace the proof at the given index with another
+// one, updating its chained hash in the process.
+func (f *File) ReplaceProofAt(index uint32, proof Proof) error {
 	if f.IsEmpty() {
 		return fmt.Errorf("file is empty")
 	}
 
+	if index >= uint32(len(f.proofs)) {
+		return fmt.Errorf("invalid index %d", index)
+	}
+
 	var prevHash [sha256.Size]byte
-	if f.NumProofs() > 1 {
-		// We want the prev_hash of the last proof, so we need to go
-		// back 2. If we're replacing the single proof of the file, then
-		// the prev_hash is the zero hash.
-		prevHash = f.proofs[len(f.proofs)-2].hash
+	if index > 0 {
+		// The prevHash is the hash of the previous proof. It is all
+		// zero if this is the first proof in the file.
+		prevHash = f.proofs[index-1].hash
 	}
 
 	proofBytes, err := encodeProof(&proof)
@@ -299,9 +326,16 @@ func (f *File) ReplaceLastProof(proof Proof) error {
 		return err
 	}
 
-	f.proofs[len(f.proofs)-1] = &hashedProof{
+	f.proofs[index] = &hashedProof{
 		proofBytes: proofBytes,
 		hash:       hashProof(proofBytes, prevHash),
+	}
+
+	// We now need to re-hash all proofs after this one.
+	for i := index + 1; i < uint32(len(f.proofs)); i++ {
+		f.proofs[i].hash = hashProof(
+			f.proofs[i].proofBytes, f.proofs[i-1].hash,
+		)
 	}
 
 	return nil

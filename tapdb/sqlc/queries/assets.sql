@@ -372,6 +372,7 @@ SELECT
     txns.raw_tx AS anchor_tx,
     txns.txid AS anchor_txid,
     txns.block_hash AS anchor_block_hash,
+    txns.block_height AS anchor_block_height,
     utxos.outpoint AS anchor_outpoint,
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
@@ -413,7 +414,8 @@ JOIN managed_utxos utxos
 JOIN internal_keys utxo_internal_keys
     ON utxos.internal_key_id = utxo_internal_keys.key_id
 JOIN chain_txns txns
-    ON utxos.txn_id = txns.txn_id
+    ON utxos.txn_id = txns.txn_id AND
+      COALESCE(txns.block_height, 0) >= COALESCE(sqlc.narg('min_anchor_height'), txns.block_height, 0)
 -- This clause is used to select specific assets for a asset ID, general
 -- channel balances, and also coin selection. We use the sqlc.narg feature to
 -- make the entire statement evaluate to true, if none of these extra args are
@@ -644,6 +646,21 @@ WITH asset_info AS (
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
+)
+SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id;
+
+-- name: FetchAssetProofsByAssetID :many
+WITH asset_info AS (
+    SELECT assets.asset_id, script_keys.tweaked_script_key
+    FROM assets
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets gen
+        ON assets.genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $1
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
