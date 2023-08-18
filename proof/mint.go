@@ -253,6 +253,29 @@ func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitmen
 			assetProof.MetaReveal = metaReveal
 		}
 
+		// Set the genesis reveal info on the minting proof. To save on
+		// some space, the genesis info is no longer included in
+		// transition proofs.
+		assetProof.GenesisReveal = &newAsset.Genesis
+
+		// We also need to reveal the group key.
+		if newAsset.GroupKey != nil {
+			groupKey := newAsset.GroupKey
+
+			// All zero tapscript root means there is none.
+			var tapscriptRoot []byte
+			if groupKey.TapscriptRoot != [32]byte{} {
+				tapscriptRoot = groupKey.TapscriptRoot[:]
+			}
+
+			assetProof.GroupKeyReveal = &asset.GroupKeyReveal{
+				RawKey: asset.ToSerialized(
+					groupKey.RawKey.PubKey,
+				),
+				TapscriptRoot: tapscriptRoot,
+			}
+		}
+
 		// With all the information for this asset populated, we'll
 		// now reference the proof by the script key used.
 		proofs[scriptKey] = &assetProof

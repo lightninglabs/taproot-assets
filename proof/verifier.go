@@ -335,6 +335,9 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, ErrInvalidTxMerkleProof
 	}
 
+	// TODO(jhb): check for genesis asset and populate asset fields before
+	// further verification
+
 	// 2. A valid inclusion proof for the resulting asset is included.
 	tapCommitment, err := p.verifyInclusionProof()
 	if err != nil {
