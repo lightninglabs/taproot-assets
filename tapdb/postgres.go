@@ -22,7 +22,7 @@ var (
 	// container will be terminated forcefully, even if the tests aren't
 	// fully executed yet. So this time needs to be chosen correctly to be
 	// longer than the longest expected individual test run time.
-	DefaultPostgresFixtureLifetime = 10 * time.Minute
+	DefaultPostgresFixtureLifetime = 60 * time.Minute
 )
 
 // PostgresConfig holds the postgres database configuration.

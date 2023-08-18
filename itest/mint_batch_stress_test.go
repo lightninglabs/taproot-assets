@@ -34,11 +34,11 @@ func testMintBatch100StressTest(t *harnessTest) {
 }
 
 func testMintBatch1kStressTest(t *harnessTest) {
-	mintBatchStressTest(t, 1000, defaultWaitTimeout*10)
+	mintBatchStressTest(t, 1000, defaultWaitTimeout*20)
 }
 
 func testMintBatch10kStressTest(t *harnessTest) {
-	mintBatchStressTest(t, 10000, defaultWaitTimeout*100)
+	mintBatchStressTest(t, 10000, defaultWaitTimeout*200)
 }
 
 func mintBatchStressTest(t *harnessTest, batchSize int,
