@@ -245,6 +245,11 @@ type BaseMultiverse interface {
 		leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
+	// RegisterBatchIssuance inserts a new minting leaf batch within the
+	// multiverse tree and the universe tree that corresponds to the given
+	// base key(s).
+	RegisterBatchIssuance(ctx context.Context, items []*IssuanceItem) error
+
 	// FetchIssuanceProof returns an issuance proof for the target key. If
 	// the key doesn't have a script key specified, then all the proofs for
 	// the minting outpoint will be returned. If neither are specified, then
@@ -280,6 +285,19 @@ type IssuanceItem struct {
 
 	// MetaReveal is the meta reveal that was created.
 	MetaReveal *proof.MetaReveal
+}
+
+// BatchRegistrar is an interface that allows a caller to register a batch of
+// issuance items within a base universe.
+type BatchRegistrar interface {
+	Registrar
+
+	// RegisterNewIssuanceBatch inserts a batch of new minting leaves within
+	// the target universe tree (based on the ID), stored at the base
+	// key(s). We assume the proofs within the batch have already been
+	// checked that they don't yet exist in the local database.
+	RegisterNewIssuanceBatch(ctx context.Context,
+		items []*IssuanceItem) error
 }
 
 const (
@@ -682,10 +700,17 @@ type Telemetry interface {
 	LogSyncEvent(ctx context.Context, uniID Identifier,
 		key BaseKey) error
 
+	// LogSyncEvents logs sync events for the target universe.
+	LogSyncEvents(ctx context.Context, uniIDs ...Identifier) error
+
 	// LogNewProofEvent logs a new proof insertion event for the target
 	// universe.
 	LogNewProofEvent(ctx context.Context, uniID Identifier,
 		key BaseKey) error
+
+	// LogNewProofEvents logs new proof insertion events for the target
+	// universe.
+	LogNewProofEvents(ctx context.Context, uniIDs ...Identifier) error
 
 	// QuerySyncStats attempts to query the stats for the target universe.
 	// For a given asset ID, tag, or type, the set of universe stats is

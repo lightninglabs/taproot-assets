@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
 
@@ -251,6 +252,58 @@ func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	}
 
 	return assetSnapshot, nil
+}
+
+// RegisterNewIssuanceBatch inserts a batch of new minting leaves within the
+// target universe tree (based on the ID), stored at the base key(s). We assume
+// the proofs within the batch have already been checked that they don't yet
+// exist in the local database.
+func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
+	items []*IssuanceItem) error {
+
+	log.Infof("Verifying %d new proofs for insertion into Universe",
+		len(items))
+
+	err := fn.ParSlice(
+		ctx, items, func(ctx context.Context, i *IssuanceItem) error {
+			assetSnapshot, err := a.verifyIssuanceProof(
+				ctx, i.ID, i.Key, i.Leaf,
+			)
+			if err != nil {
+				return err
+			}
+
+			i.MetaReveal = assetSnapshot.MetaReveal
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to verify issuance proofs: %w", err)
+	}
+
+	log.Infof("Inserting %d verified proofs into Universe", len(items))
+	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, items)
+	if err != nil {
+		return fmt.Errorf("unable to register new issuance proofs: %w",
+			err)
+	}
+
+	// Log a sync event for the newly inserted leaf in the background as an
+	// async goroutine.
+	ids := fn.Map(items, func(item *IssuanceItem) Identifier {
+		return item.ID
+	})
+	go func() {
+		err := a.cfg.UniverseStats.LogNewProofEvents(
+			context.Background(), ids...,
+		)
+		if err != nil {
+			log.Warnf("unable to log new proof events: %v", err)
+		}
+	}()
+
+	return nil
 }
 
 // FetchIssuanceProof attempts to fetch an issuance proof for the target base

@@ -273,3 +273,70 @@ func (b *BaseMultiverse) RegisterIssuance(ctx context.Context,
 
 	return issuanceProof, nil
 }
+
+// RegisterBatchIssuance inserts a new minting leaf batch within the multiverse
+// tree and the universe tree that corresponds to the given base key(s).
+func (b *BaseMultiverse) RegisterBatchIssuance(ctx context.Context,
+	items []*universe.IssuanceItem) error {
+
+	insertProof := func(item *universe.IssuanceItem,
+		dbTx BaseMultiverseStore) error {
+
+		// Register issuance in the asset (group) specific universe
+		// tree.
+		_, universeRoot, err := universeRegisterIssuance(
+			ctx, dbTx, item.ID, item.Key, item.Leaf,
+			item.MetaReveal,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Retrieve a handle to the multiverse tree so that we can
+		// update the tree by inserting a new issuance.
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbTx, multiverseNS),
+		)
+
+		// Construct a leaf node for insertion into the multiverse tree.
+		// The leaf node includes a reference to the lower tree via the
+		// lower tree root hash.
+		universeRootHash := universeRoot.NodeHash()
+		assetGroupSum := universeRoot.NodeSum()
+
+		leafNode := mssmt.NewLeafNode(
+			universeRootHash[:], assetGroupSum,
+		)
+
+		// Use asset ID (or asset group hash) as the upper tree leaf
+		// node key. This is the same as the asset specific universe ID.
+		leafNodeKey := item.ID.Bytes()
+
+		_, err = multiverseTree.Insert(ctx, leafNodeKey, leafNode)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	var writeTx BaseMultiverseOptions
+	dbErr := b.db.ExecTx(
+		ctx, &writeTx, func(store BaseMultiverseStore) error {
+			for idx := range items {
+				item := items[idx]
+				err := insertProof(item, store)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	)
+	if dbErr != nil {
+		return dbErr
+	}
+
+	return nil
+}

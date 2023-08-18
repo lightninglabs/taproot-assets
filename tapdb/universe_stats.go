@@ -145,6 +145,37 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 	})
 }
 
+// LogSyncEvents logs sync events for the target universe.
+func (u *UniverseStats) LogSyncEvents(ctx context.Context,
+	uniIDs ...universe.Identifier) error {
+
+	var writeOpts UniverseStatsOptions
+	return u.db.ExecTx(ctx, &writeOpts, func(db UniverseStatsStore) error {
+		for idx := range uniIDs {
+			uniID := uniIDs[idx]
+
+			var groupKeyXOnly []byte
+			if uniID.GroupKey != nil {
+				groupKeyXOnly = schnorr.SerializePubKey(
+					uniID.GroupKey,
+				)
+			}
+
+			err := db.InsertNewSyncEvent(ctx, NewSyncEvent{
+				EventTime:      u.clock.Now(),
+				EventTimestamp: u.clock.Now().UTC().Unix(),
+				AssetID:        uniID.AssetID[:],
+				GroupKeyXOnly:  groupKeyXOnly,
+			})
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
 // LogNewProofEvent logs a new proof insertion event for the target universe.
 func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 	uniID universe.Identifier, key universe.BaseKey) error {
@@ -162,6 +193,36 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 			AssetID:        uniID.AssetID[:],
 			GroupKeyXOnly:  groupKeyXOnly,
 		})
+	})
+}
+
+// LogNewProofEvents logs new proof insertion events for the target universe.
+func (u *UniverseStats) LogNewProofEvents(ctx context.Context,
+	uniIDs ...universe.Identifier) error {
+
+	var writeTxOpts UniverseStatsOptions
+	return u.db.ExecTx(ctx, &writeTxOpts, func(db UniverseStatsStore) error {
+		for idx := range uniIDs {
+			uniID := uniIDs[idx]
+			var groupKeyXOnly []byte
+			if uniID.GroupKey != nil {
+				groupKeyXOnly = schnorr.SerializePubKey(
+					uniID.GroupKey,
+				)
+			}
+
+			err := db.InsertNewProofEvent(ctx, NewProofEvent{
+				EventTime:      u.clock.Now(),
+				EventTimestamp: u.clock.Now().UTC().Unix(),
+				AssetID:        uniID.AssetID[:],
+				GroupKeyXOnly:  groupKeyXOnly,
+			})
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 
