@@ -1,7 +1,6 @@
 package tapgarden
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -921,17 +920,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 					ScriptKey: &newAsset.ScriptKey,
 				}
 
-				// The universe tree store only the asset state
-				// transition and not also the proof file
-				// checksum (as the root is effectively a
-				// checksum), so we'll use just the state
-				// transition.
-				var proofBuf bytes.Buffer
-				err = mintingProof.Encode(&proofBuf)
-				if err != nil {
-					return 0, err
-				}
-
 				// With both of those assembled, we can now
 				// register issuance which takes the amount and
 				// proof of the minting event.
@@ -943,8 +931,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				}
 				mintingLeaf := &universe.MintingLeaf{
 					GenesisWithGroup: uniGen,
-					GenesisProof:     proofBuf.Bytes(),
-					Amt:              newAsset.Amount,
+
+					// The universe tree store only the
+					// asset state transition and not also
+					// the proof file checksum (as the root
+					// is effectively a checksum), so we'll
+					// use just the state transition.
+					GenesisProof: mintingProof,
+					Amt:          newAsset.Amount,
 				}
 				_, err = b.cfg.Universe.RegisterIssuance(
 					ctx, uniID, baseKey, mintingLeaf,

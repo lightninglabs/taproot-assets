@@ -182,7 +182,12 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 			// Now that we have this leaf proof, we want to ensure
 			// that it's actually part of the remote root we were
 			// given.
-			if !leafProof.VerifyRoot(remoteRoot) {
+			validRoot, err := leafProof.VerifyRoot(remoteRoot)
+			if err != nil {
+				return fmt.Errorf("unable to verify root: %w",
+					err)
+			}
+			if !validRoot {
 				return fmt.Errorf("proof for key=%v is "+
 					"invalid", spew.Sdump(key))
 			}
