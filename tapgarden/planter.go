@@ -46,7 +46,7 @@ type GardenKit struct {
 
 	// Universe is used to register new asset issuance with a local/remote
 	// base universe instance.
-	Universe universe.Registrar
+	Universe universe.BatchRegistrar
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.

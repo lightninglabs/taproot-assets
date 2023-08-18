@@ -856,8 +856,18 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// file system as well.
 		//
 		// TODO(roasbeef): rely on the upsert here instead
-		mintingProofBlobs := make(proof.AssetBlobs)
-		for _, newAsset := range batchCommitment.CommittedAssets() {
+		var (
+			committedAssets   = batchCommitment.CommittedAssets()
+			mintingProofBlobs = make(
+				proof.AssetBlobs, len(committedAssets),
+			)
+			universeItems = make(
+				chan *universe.IssuanceItem,
+				len(committedAssets),
+			)
+		)
+		for idx := range committedAssets {
+			newAsset := committedAssets[idx]
 			assetID := newAsset.ID()
 			scriptPubKey := newAsset.ScriptKey.PubKey
 			scriptKey := asset.ToSerialized(scriptPubKey)
@@ -888,65 +898,105 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 			// Before we mark the batch as confirmed below, we'll
 			// also register the issuance of the new asset with our
-			// local base universe.
-			//
-			// TODO(roasbeef): can combine with minting proof
-			// creation above?
-			if b.cfg.Universe != nil {
-				// The universe ID serves to identifier the
-				// universe root we want to add this asset to.
-				// This is either the assetID or the group key.
-				uniID := universe.Identifier{
-					AssetID: assetID,
-				}
+			// local base universe. We skip this step if there is
+			// no universe configured.
+			if b.cfg.Universe == nil {
+				continue
+			}
 
-				groupKey := newAsset.GroupKey
-				if groupKey != nil {
-					uniID.GroupKey = &groupKey.GroupPubKey
-				}
+			// The universe ID serves to identifier the universe
+			// root we want to add this asset to. This is either the
+			// assetID or the group key.
+			uniID := universe.Identifier{
+				AssetID: assetID,
+			}
 
-				log.Debugf("Registering asset with "+
-					"universe, key=%v", spew.Sdump(uniID))
+			groupKey := newAsset.GroupKey
+			if groupKey != nil {
+				uniID.GroupKey = &groupKey.GroupPubKey
+			}
 
-				// The base key is the set of bytes that keys
-				// into the universe, this'll be the outpoint.
-				// where it was created at and the script key
-				// for that asset.
-				baseKey := universe.BaseKey{
-					MintingOutpoint: wire.OutPoint{
-						Hash:  confInfo.Tx.TxHash(),
-						Index: b.anchorOutputIndex,
-					},
-					ScriptKey: &newAsset.ScriptKey,
-				}
+			log.Debugf("Preparing asset for registration with "+
+				"universe, key=%v", spew.Sdump(uniID))
 
-				// With both of those assembled, we can now
-				// register issuance which takes the amount and
-				// proof of the minting event.
-				uniGen := universe.GenesisWithGroup{
-					Genesis: newAsset.Genesis,
-				}
-				if groupKey != nil {
-					uniGen.GroupKey = groupKey
-				}
-				mintingLeaf := &universe.MintingLeaf{
-					GenesisWithGroup: uniGen,
+			// The base key is the set of bytes that keys into the
+			// universe, this'll be the outpoint where it was
+			// created at and the script key for that asset.
+			baseKey := universe.BaseKey{
+				MintingOutpoint: wire.OutPoint{
+					Hash:  confInfo.Tx.TxHash(),
+					Index: b.anchorOutputIndex,
+				},
+				ScriptKey: &newAsset.ScriptKey,
+			}
 
-					// The universe tree store only the
-					// asset state transition and not also
-					// the proof file checksum (as the root
-					// is effectively a checksum), so we'll
-					// use just the state transition.
-					GenesisProof: mintingProof,
-					Amt:          newAsset.Amount,
-				}
-				_, err = b.cfg.Universe.RegisterIssuance(
-					ctx, uniID, baseKey, mintingLeaf,
-				)
-				if err != nil {
-					return 0, fmt.Errorf("unable to "+
-						"register issuance: %v", err)
-				}
+			// With both of those assembled, we can now register
+			// issuance which takes the amount and proof of the
+			// minting event.
+			uniGen := universe.GenesisWithGroup{
+				Genesis: newAsset.Genesis,
+			}
+			if groupKey != nil {
+				uniGen.GroupKey = groupKey
+			}
+			mintingLeaf := &universe.MintingLeaf{
+				GenesisWithGroup: uniGen,
+
+				// The universe tree store only the asset state
+				// transition and not also the proof file
+				// checksum (as the root is effectively a
+				// checksum), so we'll use just the state
+				// transition.
+				GenesisProof: mintingProof,
+				Amt:          newAsset.Amount,
+			}
+			universeItems <- &universe.IssuanceItem{
+				ID:   uniID,
+				Key:  baseKey,
+				Leaf: mintingLeaf,
+			}
+		}
+		close(universeItems)
+
+		// Batch insert the new proofs into the local universe, if we
+		// have one configured.
+		if b.cfg.Universe != nil {
+			var (
+				batchSize = 200
+				numItems  int
+				uni       = b.cfg.Universe
+			)
+			err = fn.CollectBatch(
+				ctx, universeItems, batchSize,
+				func(ctx context.Context,
+					batch []*universe.IssuanceItem) error {
+
+					numItems += len(batch)
+					log.Infof("Inserting %d new leaves "+
+						"(%d of %d) into local "+
+						"universe", len(batch),
+						numItems, len(committedAssets))
+
+					err := uni.RegisterNewIssuanceBatch(
+						ctx, batch,
+					)
+					if err != nil {
+						return fmt.Errorf("unable to "+
+							"register issuance "+
+							"batch: %w", err)
+					}
+
+					log.Infof("Inserted %d new leaves "+
+						"(%d of %d) into local "+
+						"universe", len(batch),
+						numItems, len(committedAssets))
+
+					return nil
+				},
+			)
+			if err != nil {
+				return 0, fmt.Errorf("unable to register "+
+					"issuance proofs: %w", err)
 			}
 		}
 
