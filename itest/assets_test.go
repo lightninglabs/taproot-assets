@@ -207,6 +207,7 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 	unconfirmedAssets := groupAssetsByName(listRespUnconfirmed.Assets)
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		AssertAssetState(
@@ -279,6 +280,7 @@ func assertAssetsMinted(t *harnessTest, tapd *tapdHarness,
 
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		mintedAsset := AssertAssetState(
@@ -481,6 +483,7 @@ func assertGroups(t *harnessTest, issuableAssets []*mintrpc.MintAssetRequest) {
 		b *taprpc.AssetHumanReadable) {
 
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: a.AssetMeta.Data,
 		}).MetaHash()
 
