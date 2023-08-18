@@ -414,10 +414,10 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	// Seedlings that anchor a group may be referenced by other seedlings,
 	// and therefore need to be mapped to sprouts first so that we derive
 	// the initial tweaked group key early.
-	orederedSeedlings := SortSeedlings(maps.Values(b.cfg.Batch.Seedlings))
-	newGroups := make(map[string]*asset.AssetGroup, len(orederedSeedlings))
+	orderedSeedlings := SortSeedlings(maps.Values(b.cfg.Batch.Seedlings))
+	newGroups := make(map[string]*asset.AssetGroup, len(orderedSeedlings))
 
-	for _, seedlingName := range orederedSeedlings {
+	for _, seedlingName := range orderedSeedlings {
 		seedling := b.cfg.Batch.Seedlings[seedlingName]
 
 		assetGen := asset.Genesis{
