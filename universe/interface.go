@@ -265,6 +265,23 @@ type Registrar interface {
 		leaf *MintingLeaf) (*IssuanceProof, error)
 }
 
+// IssuanceItem is an item that can be used to register a new issuance within a
+// base universe.
+type IssuanceItem struct {
+	// ID is the identifier of the base universe that the item should be
+	// registered within.
+	ID Identifier
+
+	// Key is the base key that the leaf is or will be stored at.
+	Key BaseKey
+
+	// Leaf is the minting leaf that was created.
+	Leaf *MintingLeaf
+
+	// MetaReveal is the meta reveal that was created.
+	MetaReveal *proof.MetaReveal
+}
+
 const (
 	// DefaultUniverseRPCPort is the default port that the universe RPC is
 	// hosted on.
