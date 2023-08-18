@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -37,6 +38,14 @@ type SimpleSyncCfg struct {
 // on a set difference operation between the local and remote Universe.
 type SimpleSyncer struct {
 	cfg SimpleSyncCfg
+
+	// isSyncing keeps track of whether we're currently syncing the local
+	// Universe with a remote Universe. This is used to prevent concurrent
+	// syncs.
+	isSyncing bool
+
+	// isSyncingMtx is a mutex that protects the isSyncing flag.
+	isSyncingMtx sync.Mutex
 }
 
 // NewSimpleSyncer creates a new SimpleSyncer instance.
@@ -51,6 +60,23 @@ func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
 // that need to be synced is used.
 func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	syncType SyncType, idsToSync []Identifier) ([]AssetSyncDiff, error) {
+
+	// Prevent the syncer from running twice. We also don't want to block on
+	// acquiring the mutex, so we use a secondary flag that is guarded by a
+	// mutex instead.
+	s.isSyncingMtx.Lock()
+	if s.isSyncing {
+		return nil, fmt.Errorf("sync is already in progress, please " +
+			"wait for it to finish")
+	}
+	s.isSyncing = true
+	s.isSyncingMtx.Unlock()
+
+	defer func() {
+		s.isSyncingMtx.Lock()
+		s.isSyncing = false
+		s.isSyncingMtx.Unlock()
+	}()
 
 	var (
 		targetRoots []BaseRoot
