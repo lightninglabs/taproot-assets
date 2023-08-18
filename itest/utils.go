@@ -198,6 +198,7 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 	unconfirmedAssets := GroupAssetsByName(listRespUnconfirmed.Assets)
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		AssertAssetState(

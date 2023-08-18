@@ -1226,6 +1226,7 @@ func AssertAssetsMinted(t *testing.T,
 
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		mintedAsset := AssertAssetState(
@@ -1372,6 +1373,7 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 		b *taprpc.AssetHumanReadable) {
 
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: a.AssetMeta.Data,
 		}).MetaHash()
 
