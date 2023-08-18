@@ -352,8 +352,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	if req.Asset.AssetMeta != nil {
+		metaType, err := unmarshalMetaType(req.Asset.AssetMeta.Type)
+		if err != nil {
+			return nil, err
+		}
+
 		seedling.Meta = &proof.MetaReveal{
-			Type: proof.MetaType(req.Asset.AssetMeta.Type),
+			Type: metaType,
 			Data: req.Asset.AssetMeta.Data,
 		}
 	}
@@ -3406,4 +3411,15 @@ func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
 	}
 
 	return &wrpc.RemoveUTXOLeaseResponse{}, nil
+}
+
+// unmarshalMetaType maps an RPC meta type into a concrete type.
+func unmarshalMetaType(rpcMeta taprpc.AssetMetaType) (proof.MetaType, error) {
+	switch rpcMeta {
+	case taprpc.AssetMetaType_META_TYPE_OPAQUE:
+		return proof.MetaOpaque, nil
+
+	default:
+		return 0, fmt.Errorf("unknown meta type: %v", rpcMeta)
+	}
 }
