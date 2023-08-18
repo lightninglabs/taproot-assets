@@ -3,6 +3,7 @@ package tapdb
 import (
 	"context"
 	"database/sql"
+	"math"
 	prand "math/rand"
 	"time"
 
@@ -21,9 +22,16 @@ const (
 	// repetition.
 	DefaultNumTxRetries = 10
 
-	// DefaultRetryDelay is the default delay between retries. This will be
-	// used to generate a random delay between 0 and this value.
-	DefaultRetryDelay = time.Millisecond * 50
+	// DefaultInitialRetryDelay is the default initial delay between
+	// retries. This will be used to generate a random delay between -50%
+	// and +50% of this value, so 20 to 60 milliseconds. The retry will be
+	// doubled after each attempt until we reach DefaultMaxRetryDelay. We
+	// start with a random value to avoid multiple goroutines that are
+	// created at the same time to effectively retry at the same time.
+	DefaultInitialRetryDelay = time.Millisecond * 40
+
+	// DefaultMaxRetryDelay is the default maximum delay between retries.
+	DefaultMaxRetryDelay = time.Second * 3
 )
 
 // TxOptions represents a set of options one can use to control what type of
@@ -91,23 +99,50 @@ type BatchedQuerier interface {
 // executor. This can be used to do things like retry a transaction due to an
 // error a certain amount of times.
 type txExecutorOptions struct {
-	numRetries int
-	retryDelay time.Duration
+	numRetries        int
+	initialRetryDelay time.Duration
+	maxRetryDelay     time.Duration
 }
 
 // defaultTxExecutorOptions returns the default options for the transaction
 // executor.
 func defaultTxExecutorOptions() *txExecutorOptions {
 	return &txExecutorOptions{
-		numRetries: DefaultNumTxRetries,
-		retryDelay: DefaultRetryDelay,
+		numRetries:        DefaultNumTxRetries,
+		initialRetryDelay: DefaultInitialRetryDelay,
+		maxRetryDelay:     DefaultMaxRetryDelay,
 	}
 }
 
-// randRetryDelay returns a random retry delay between 0 and the configured max
-// delay.
-func (t *txExecutorOptions) randRetryDelay() time.Duration {
-	return time.Duration(prand.Int63n(int64(t.retryDelay))) //nolint:gosec
+// randRetryDelay returns a random retry delay between -50% and +50%
+// of the configured delay that is doubled for each attempt and capped at a max
+// value.
+func (t *txExecutorOptions) randRetryDelay(attempt int) time.Duration {
+	halfDelay := t.initialRetryDelay / 2
+	randDelay := prand.Int63n(int64(t.initialRetryDelay)) //nolint:gosec
+
+	// 50% plus 0%-100% gives us the range of 50%-150%.
+	initialDelay := halfDelay + time.Duration(randDelay)
+
+	// If this is the first attempt, we just return the initial delay.
+	if attempt == 0 {
+		return initialDelay
+	}
+
+	// For each subsequent delay, we double the initial delay. This still
+	// gives us a somewhat random delay, but it still increases with each
+	// attempt. If we double something n times, that's the same as
+	// multiplying the value with 2^n. We limit the power to 32 to avoid
+	// overflows.
+	factor := time.Duration(math.Pow(2, math.Min(float64(attempt), 32)))
+	actualDelay := initialDelay * factor
+
+	// Cap the delay at the maximum configured value.
+	if actualDelay > t.maxRetryDelay {
+		return t.maxRetryDelay
+	}
+
+	return actualDelay
 }
 
 // TxExecutorOption is a functional option that allows us to pass in optional
@@ -126,7 +161,7 @@ func WithTxRetries(numRetries int) TxExecutorOption {
 // to wait before a transaction is retried.
 func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 	return func(o *txExecutorOptions) {
-		o.retryDelay = delay
+		o.initialRetryDelay = delay
 	}
 }
 
@@ -171,7 +206,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	txOptions TxOptions, txBody func(Q) error) error {
 
 	waitBeforeRetry := func(attemptNumber int) {
-		retryDelay := t.opts.randRetryDelay()
+		retryDelay := t.opts.randRetryDelay(attemptNumber)
 
 		log.Tracef("Retrying transaction due to tx serialization "+
 			"error, attempt_number=%v, delay=%v", attemptNumber,
