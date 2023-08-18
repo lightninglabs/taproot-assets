@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
@@ -121,8 +120,6 @@ type BaseUniverseTree struct {
 	db BatchedUniverseTree
 
 	id universe.Identifier
-
-	registrationMtx sync.Mutex
 
 	smtNamespace string
 }
@@ -291,11 +288,6 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		err           error
 		issuanceProof *universe.IssuanceProof
 	)
-
-	// Limit to a single writer at a time.
-	b.registrationMtx.Lock()
-	defer b.registrationMtx.Unlock()
-
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		issuanceProof, _, err = universeRegisterIssuance(
 			ctx, dbTx, b.id, key, leaf, metaReveal,
