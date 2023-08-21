@@ -157,13 +157,18 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 			receiverAckTimeout = *proofReceiverAckTimeout
 		}
 
+		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
+			"%s://%s", proof.ApertureCourier,
+			typedProofCourier.ListenAddr,
+		)
+
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
-			Addr:               typedProofCourier.ListenAddr,
 			TlsCertPath:        typedProofCourier.TlsCertPath,
 			ReceiverAckTimeout: receiverAckTimeout,
 			BackoffCfg:         backoffCfg,
 		}
 	default:
+		finalCfg.DefaultProofCourierAddr = ""
 		finalCfg.HashMailCourier = nil
 	}
 

@@ -153,9 +153,12 @@ func TestAddressInsertion(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr(t)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		addrs[i] = *addr
 
@@ -245,9 +248,12 @@ func TestAddressQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr(t)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,
@@ -360,7 +366,10 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+	proofCourierAddr := address.RandProofCourierAddr(t)
+	addr, assetGen, assetGroup := address.RandAddr(
+		t, chainParams, proofCourierAddr,
+	)
 
 	var writeTxOpts AddrBookTxOptions
 	err := addrBook.db.ExecTx(
@@ -394,10 +403,13 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr(t)
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		var writeTxOpts AddrBookTxOptions
 		err := addrBook.db.ExecTx(
@@ -472,9 +484,12 @@ func TestAddressEventQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
+	proofCourierAddr := address.RandProofCourierAddr(t)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(t, chainParams)
+		addr, assetGen, assetGroup := address.RandAddr(
+			t, chainParams, proofCourierAddr,
+		)
 
 		err := addrBook.db.ExecTx(
 			ctx, &writeTxOpts,

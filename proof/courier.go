@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -21,17 +22,57 @@ import (
 
 // CourierType is an enum that represents the different types of proof courier
 // services.
-type CourierType int64
+//
+// TODO(ffranr): Rename to CourierProtocol.
+type CourierType string
 
 const (
 	// DisabledCourier is the default courier type that is used when no
 	// courier is specified.
-	DisabledCourier CourierType = iota
+	DisabledCourier CourierType = "disabled_courier"
 
 	// ApertureCourier is a courier that uses the hashmail protocol to
 	// deliver proofs.
-	ApertureCourier
+	//
+	// TODO(ffranr): Rename to HashmailCourier (use protocol name rather
+	//  than service).
+	ApertureCourier = "hashmail"
 )
+
+// NewCourierType returns the CourierType that corresponds to the given string.
+func NewCourierType(scheme string) (CourierType, error) {
+	switch scheme {
+	case ApertureCourier:
+		return ApertureCourier, nil
+	}
+
+	return DisabledCourier, fmt.Errorf("unknown courier address "+
+		"protocol: %v", scheme)
+}
+
+func ParseCourierAddr(addr string) (*url.URL, error) {
+	// Parse URI.
+	urlAddr, err := url.ParseRequestURI(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid proof courier URI address: %w",
+			err)
+	}
+
+	// Validate port number.
+	if urlAddr.Port() == "" {
+		return nil, fmt.Errorf("proof courier URI address port "+
+			"unspecified: %w", err)
+	}
+
+	// Validate protocol supported.
+	_, err = NewCourierType(urlAddr.Scheme)
+	if err != nil {
+		return nil, fmt.Errorf("invalid proof courier protocol: %w",
+			err)
+	}
+
+	return urlAddr, nil
+}
 
 // CourierHarness interface is an integration testing harness for a proof
 // courier service.
@@ -123,14 +164,22 @@ func serverDialOpts(tlsCertPath string) ([]grpc.DialOption, error) {
 //
 // NOTE: The TLS certificate path argument (tlsCertPath) is optional. If unset,
 // then the system's TLS trust store is used.
-func NewHashMailBox(serverAddr string,
-	tlsCertPath string) (*HashMailBox, error) {
+func NewHashMailBox(courierAddr *url.URL, tlsCertPath string) (*HashMailBox,
+	error) {
+
+	if courierAddr.Scheme != ApertureCourier {
+		return nil, fmt.Errorf("unsupported courier protocol: %v",
+			courierAddr.Scheme)
+	}
 
 	dialOpts, err := serverDialOpts(tlsCertPath)
 	if err != nil {
 		return nil, err
 	}
 
+	serverAddr := fmt.Sprintf(
+		"%s:%s", courierAddr.Hostname(), courierAddr.Port(),
+	)
 	conn, err := grpc.Dial(serverAddr, dialOpts...)
 	if err != nil {
 		return nil, err
@@ -324,8 +373,6 @@ type Recipient struct {
 
 // HashMailCourierCfg is the config for the hashmail proof courier.
 type HashMailCourierCfg struct {
-	Addr string `long:"addr" description:"The full host:port of the hashmail service which is used to deliver proofs"`
-
 	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
 
 	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to

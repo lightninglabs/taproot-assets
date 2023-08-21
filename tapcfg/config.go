@@ -66,9 +66,9 @@ const (
 	// batch.
 	defaultBatchMintingInterval = time.Minute * 10
 
-	// defaultHashMailAddr is the default address we'll use to deliver
-	// optionally deliver proofs for asynchronous sends.
-	defaultHashMailAddr = "mailbox.terminal.lightning.today:443"
+	// fallbackHashMailAddr is the fallback address we'll use to deliver
+	// proofs for asynchronous sends.
+	fallbackHashMailAddr = "mailbox.terminal.lightning.today:443"
 
 	// DatabaseBackendSqlite is the name of the SQLite database backend.
 	DatabaseBackendSqlite = "sqlite"
@@ -260,8 +260,8 @@ type Config struct {
 	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
 
 	// The following options are used to configure the proof courier.
-	ProofCourierMode string                    `long:"proofcouriermode" choice:"hashmail" description:"Type of proof courier to use."`
-	HashMailCourier  *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
+	DefaultProofCourierAddr string                    `long:"proofcourieraddr" description:"Default proof courier service address."`
+	HashMailCourier         *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
 
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
@@ -331,8 +331,10 @@ func DefaultConfig() Config {
 		LogWriter:            build.NewRotatingLogWriter(),
 		BatchMintingInterval: defaultBatchMintingInterval,
 		ReOrgSafeDepth:       defaultReOrgSafeDepth,
+		DefaultProofCourierAddr: fmt.Sprintf(
+			"%s://%s", proof.ApertureCourier, fallbackHashMailAddr,
+		),
 		HashMailCourier: &proof.HashMailCourierCfg{
-			Addr:               defaultHashMailAddr,
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
 			BackoffCfg: &proof.BackoffCfg{
 				BackoffResetWait: defaultProofTransferBackoffResetWait,

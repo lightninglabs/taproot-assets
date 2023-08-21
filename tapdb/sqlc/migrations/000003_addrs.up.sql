@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS addrs (
 
     -- managed_from is the timestamp at which the address started to be managed
     -- by the internal wallet.
-    managed_from TIMESTAMP
+    managed_from TIMESTAMP,
+
+    -- proof_courier_addr is the address of the proof courier that will be
+    -- used in distributing proofs associated with a particular tap address.
+    proof_courier_addr BLOB NOT NULL
 );
 
 -- We'll create some indexes over the asset ID, group key, and also creation

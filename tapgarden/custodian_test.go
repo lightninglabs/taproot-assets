@@ -167,7 +167,10 @@ func newHarness(t *testing.T,
 }
 
 func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
-	addr, genesis, group := address.RandAddr(h.t, &address.RegressionNetTap)
+	proofCourierAddr := address.RandProofCourierAddr(h.t)
+	addr, genesis, group := address.RandAddr(
+		h.t, &address.RegressionNetTap, proofCourierAddr,
+	)
 
 	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
 	require.NoError(h.t, err)
@@ -244,8 +247,9 @@ func TestCustodianNewAddr(t *testing.T) {
 	}()
 	ctx := context.Background()
 	addr := randAddr(h)
+	proofCourierAddr := address.RandProofCourierAddr(t)
 	dbAddr, err := h.addrBook.NewAddress(
-		ctx, addr.AssetID, addr.Amount, nil,
+		ctx, addr.AssetID, addr.Amount, nil, proofCourierAddr,
 	)
 	require.NoError(t, err)
 
@@ -315,7 +319,7 @@ func mustMakeAddr(t *testing.T,
 	var p btcec.PublicKey
 	addr, err := address.New(
 		gen, groupKey, groupSig, scriptKey,
-		p, 1, nil, &address.TestNet3Tap,
+		p, 1, nil, &address.TestNet3Tap, nil,
 	)
 	require.NoError(t, err)
 

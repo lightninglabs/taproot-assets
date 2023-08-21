@@ -156,11 +156,36 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		assetStore, proofFileStore,
 	)
 
+	// If no default proof courier address is set, use the fallback hashmail
+	// address.
+	fallbackHashmailCourierAddr := fmt.Sprintf(
+		"%s://%s", proof.ApertureCourier, fallbackHashMailAddr,
+	)
+	proofCourierAddr, err := proof.ParseCourierAddr(
+		fallbackHashmailCourierAddr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse fallback proof "+
+			"courier address: %v", err)
+	}
+
+	// If default proof courier address is set, use it as the default.
+	if cfg.DefaultProofCourierAddr != "" {
+		proofCourierAddr, err = proof.ParseCourierAddr(
+			cfg.DefaultProofCourierAddr,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse default proof "+
+				"courier address: %v", err)
+		}
+	}
+
 	var hashMailCourier proof.Courier[proof.Recipient]
-	if cfg.HashMailCourier != nil {
+	if cfg.HashMailCourier != nil &&
+		proofCourierAddr.Scheme == proof.ApertureCourier {
+
 		hashMailBox, err := proof.NewHashMailBox(
-			cfg.HashMailCourier.Addr,
-			cfg.HashMailCourier.TlsCertPath,
+			proofCourierAddr, cfg.HashMailCourier.TlsCertPath,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make mailbox: %v",
@@ -289,11 +314,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ProofWatcher:  reOrgWatcher,
 			},
 		),
-		ChainBridge:  chainBridge,
-		AddrBook:     addrBook,
-		ProofArchive: proofArchive,
-		AssetWallet:  assetWallet,
-		CoinSelect:   coinSelect,
+		ChainBridge:             chainBridge,
+		AddrBook:                addrBook,
+		DefaultProofCourierAddr: proofCourierAddr,
+		ProofArchive:            proofArchive,
+		AssetWallet:             assetWallet,
+		CoinSelect:              coinSelect,
 		ChainPorter: tapfreighter.NewChainPorter(
 			&tapfreighter.ChainPorterConfig{
 				Signer:       virtualTxSigner,

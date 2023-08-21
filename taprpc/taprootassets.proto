@@ -566,6 +566,9 @@ message Addr {
     transfer assets described in this address.
     */
     bytes taproot_output_key = 9;
+
+    // The address of the proof courier service used in proof transfer.
+    string proof_courier_addr = 10;
 }
 
 message QueryAddrRequest {
@@ -624,6 +627,12 @@ message NewAddrRequest {
     commitment of the asset.
     */
     bytes tapscript_sibling = 5;
+
+    /*
+    An optional proof courier address for use in proof transfer. If unspecified,
+    the daemon configured default address will be used
+     */
+    string proof_courier_addr = 6;
 }
 
 message ScriptKey {

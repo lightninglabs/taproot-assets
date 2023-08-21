@@ -805,6 +805,10 @@
           "type": "string",
           "format": "byte",
           "description": "The tweaked internal key that commits to the asset and represents the\non-chain output key the Bitcoin transaction must send to in order to\ntransfer assets described in this address."
+        },
+        "proof_courier_addr": {
+          "type": "string",
+          "description": "The address of the proof courier service used in proof transfer."
         }
       }
     },
@@ -1524,6 +1528,10 @@
           "type": "string",
           "format": "byte",
           "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taproot Asset\ncommitment of the asset."
+        },
+        "proof_courier_addr": {
+          "type": "string",
+          "title": "An optional proof courier address for use in proof transfer. If unspecified,\nthe daemon configured default address will be used"
         }
       }
     },

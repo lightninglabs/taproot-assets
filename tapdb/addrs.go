@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -260,6 +261,11 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 			if addr.GroupKey != nil {
 				groupKeyBytes = addr.GroupKey.SerializeCompressed()
 			}
+
+			proofCourierAddrBytes := []byte(
+				addr.Tap.ProofCourierAddr.String(),
+			)
+
 			_, err = db.InsertAddr(ctx, NewAddr{
 				Version:          int16(addr.AssetVersion),
 				GenesisAssetID:   genAssetID,
@@ -270,9 +276,10 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				TaprootOutputKey: schnorr.SerializePubKey(
 					&addr.TaprootOutputKey,
 				),
-				Amount:       int64(addr.Amount),
-				AssetType:    int16(assetGen.AssetType),
-				CreationTime: addr.CreationTime.UTC(),
+				Amount:           int64(addr.Amount),
+				AssetType:        int16(assetGen.AssetType),
+				CreationTime:     addr.CreationTime.UTC(),
+				ProofCourierAddr: proofCourierAddrBytes,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert addr: %w",
@@ -314,7 +321,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 		dbAddrs, err := db.FetchAddrs(ctx, AddrQuery{
 			CreatedAfter:  params.CreatedAfter.UTC(),
 			CreatedBefore: params.CreatedBefore.UTC(),
-			NumOffset:     int32(params.Offset),
+			NumOffset:     params.Offset,
 			NumLimit:      limit,
 			UnmanagedOnly: params.UnmanagedOnly,
 		})
@@ -416,10 +423,19 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 					"sibling: %w", err)
 			}
 
+			proofCourierAddr, err := url.ParseRequestURI(
+				string(addr.ProofCourierAddr),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to parse proof "+
+					"courier address: %w", err)
+			}
+
 			tapAddr, err := address.New(
 				assetGenesis, groupKey, groupSig, *scriptKey,
 				*internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params,
+				proofCourierAddr,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
@@ -553,9 +569,18 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 			err)
 	}
 
+	proofCourierAddr, err := url.ParseRequestURI(
+		string(dbAddr.ProofCourierAddr),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse proof courier "+
+			"address: %w", err)
+	}
+
 	tapAddr, err := address.New(
 		genesis, groupKey, groupSig, *scriptKey, *internalKey,
 		uint64(dbAddr.Amount), tapscriptSibling, params,
+		proofCourierAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
