@@ -208,7 +208,7 @@ type PreSignedParcel struct {
 	inputCommitment *commitment.TapCommitment
 }
 
-// A compile-time assertion to ensure AddressParcel implements the parcel
+// A compile-time assertion to ensure PreSignedParcel implements the parcel
 // interface.
 var _ Parcel = (*PreSignedParcel)(nil)
 
