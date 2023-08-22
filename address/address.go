@@ -126,6 +126,9 @@ type Tap struct {
 }
 
 // New creates an address for receiving a Taproot asset.
+//
+// TODO(ffranr): This function takes many arguments. Add a struct to better
+// organise its arguments.
 func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,

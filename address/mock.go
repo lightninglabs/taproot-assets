@@ -18,6 +18,7 @@ import (
 // RandProofCourierAddr returns a proof courier address with fields populated
 // with valid but random values.
 func RandProofCourierAddr(t testing.TB) url.URL {
+	// TODO(ffranr): Add more randomness to the address.
 	addr, err := url.ParseRequestURI(
 		"hashmail://rand.hashmail.proof.courier:443",
 	)
