@@ -17,18 +17,18 @@ import (
 
 // RandProofCourierAddr returns a proof courier address with fields populated
 // with valid but random values.
-func RandProofCourierAddr(t testing.TB) *url.URL {
+func RandProofCourierAddr(t testing.TB) url.URL {
 	addr, err := url.ParseRequestURI(
 		"hashmail://rand.hashmail.proof.courier:443",
 	)
 	require.NoError(t, err)
 
-	return addr
+	return *addr
 }
 
 // RandAddr creates a random address for testing.
 func RandAddr(t testing.TB, params *ChainParams,
-	proofCourierAddr *url.URL) (*AddrWithKeyInfo,
+	proofCourierAddr url.URL) (*AddrWithKeyInfo,
 	*asset.Genesis, *asset.GroupKey) {
 
 	scriptKeyPriv := test.RandPrivKey(t)
@@ -198,7 +198,7 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 		ScriptKey:        *test.ParsePubKey(t, ta.ScriptKey),
 		InternalKey:      *test.ParsePubKey(t, ta.InternalKey),
 		Amount:           ta.Amount,
-		ProofCourierAddr: proofCourierAddr,
+		ProofCourierAddr: *proofCourierAddr,
 	}
 
 	if ta.GroupKey != "" {

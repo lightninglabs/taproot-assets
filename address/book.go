@@ -175,8 +175,7 @@ func NewBook(cfg BookConfig) *Book {
 // NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr *url.URL) (*AddrWithKeyInfo,
-	error) {
+	proofCourierAddr url.URL) (*AddrWithKeyInfo, error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
 	// of this asset ID already.
@@ -212,8 +211,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr *url.URL) (*AddrWithKeyInfo,
-	error) {
+	proofCourierAddr url.URL) (*AddrWithKeyInfo, error) {
 
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't

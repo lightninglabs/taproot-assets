@@ -100,7 +100,10 @@ func TestEncodingDecoding(t *testing.T) {
 	}{{
 		name: "minimal packet",
 		pkg: func(t *testing.T) *VPacket {
-			addr, _, _ := address.RandAddr(t, testParams, nil)
+			proofCourierAddr := address.RandProofCourierAddr(t)
+			addr, _, _ := address.RandAddr(
+				t, testParams, proofCourierAddr,
+			)
 
 			pkg, err := FromAddresses([]*address.Tap{addr.Tap}, 1)
 			require.NoError(t, err)
