@@ -1531,7 +1531,7 @@
         },
         "proof_courier_addr": {
           "type": "string",
-          "title": "An optional proof courier address for use in proof transfer. If unspecified,\nthe daemon configured default address will be used"
+          "description": "An optional proof courier address for use in proof transfer. If unspecified,\nthe daemon configured default address will be used."
         }
       }
     },

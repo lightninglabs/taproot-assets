@@ -630,7 +630,7 @@ message NewAddrRequest {
 
     /*
     An optional proof courier address for use in proof transfer. If unspecified,
-    the daemon configured default address will be used
+    the daemon configured default address will be used.
      */
     string proof_courier_addr = 6;
 }
