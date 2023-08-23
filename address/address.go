@@ -305,7 +305,7 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 // address at runtime.
 func (a *Tap) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 6)
-	records = append(records, newAddressVersionRecord(&a.AssetVersion))
+	records = append(records, newAddressAssetVersionRecord(&a.AssetVersion))
 	records = append(records, newAddressAssetID(&a.AssetID))
 
 	if a.GroupKey != nil {
@@ -332,7 +332,7 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 // decoding.
 func (a *Tap) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
-		newAddressVersionRecord(&a.AssetVersion),
+		newAddressAssetVersionRecord(&a.AssetVersion),
 		newAddressAssetID(&a.AssetID),
 		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),

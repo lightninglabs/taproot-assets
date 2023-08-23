@@ -39,7 +39,7 @@ const (
 	addrProofCourierAddrType addressTLVType = 10
 )
 
-func newAddressVersionRecord(version *asset.Version) tlv.Record {
+func newAddressAssetVersionRecord(version *asset.Version) tlv.Record {
 	return tlv.MakeStaticRecord(
 		addrVersionType, version, 1, asset.VersionEncoder,
 		asset.VersionDecoder,
