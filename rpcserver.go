@@ -989,9 +989,9 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// Parse the proof courier address if one was provided, otherwise use
 	// the default specified in the config.
-	proofCourierAddr := r.cfg.DefaultProofCourierAddr
+	courierAddr := r.cfg.DefaultProofCourierAddr
 	if in.ProofCourierAddr != "" {
-		proofCourierAddr, err = proof.ParseCourierAddr(
+		courierAddr, err = proof.ParseCourierAddr(
 			in.ProofCourierAddr,
 		)
 		if err != nil {
@@ -999,6 +999,14 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 				"address: %w", err)
 		}
 	}
+
+	// Check that the proof courier address is set. This should never
+	// happen, but we check anyway to avoid panics (possibly caused by
+	// future erroneous config changes).
+	if courierAddr == nil {
+		return nil, fmt.Errorf("no proof courier address provided")
+	}
+	proofCourierAddr := *courierAddr
 
 	if len(in.AssetId) != 32 {
 		return nil, fmt.Errorf("invalid asset id length")

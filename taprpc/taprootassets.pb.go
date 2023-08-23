@@ -2597,7 +2597,7 @@ type NewAddrRequest struct {
 	// commitment of the asset.
 	TapscriptSibling []byte `protobuf:"bytes,5,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
 	// An optional proof courier address for use in proof transfer. If unspecified,
-	// the daemon configured default address will be used
+	// the daemon configured default address will be used.
 	ProofCourierAddr string `protobuf:"bytes,6,opt,name=proof_courier_addr,json=proofCourierAddr,proto3" json:"proof_courier_addr,omitempty"`
 }
 

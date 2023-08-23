@@ -97,9 +97,9 @@ func newAddressAmountRecord(amount *uint64) tlv.Record {
 	)
 }
 
-func newProofCourierAddrRecord(addr **url.URL) tlv.Record {
+func newProofCourierAddrRecord(addr *url.URL) tlv.Record {
 	var addrBytes []byte
-	if *addr != nil {
+	if addr != nil {
 		addrBytes = []byte((*addr).String())
 	}
 	recordSize := tlv.SizeVarBytes(&addrBytes)

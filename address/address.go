@@ -122,15 +122,18 @@ type Tap struct {
 
 	// ProofCourierAddr is the address of the proof courier that will be
 	// used to distribute related proofs for this address.
-	ProofCourierAddr *url.URL
+	ProofCourierAddr url.URL
 }
 
 // New creates an address for receiving a Taproot asset.
+//
+// TODO(ffranr): This function takes many arguments. Add a struct to better
+// organise its arguments.
 func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	net *ChainParams, proofCourierAddr *url.URL) (*Tap, error) {
+	net *ChainParams, proofCourierAddr url.URL) (*Tap, error) {
 
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
