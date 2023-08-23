@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -116,6 +117,8 @@ type Config struct {
 	UniverseFederation *universe.FederationEnvoy
 
 	UniverseStats universe.Telemetry
+
+	Prometheus monitoring.PrometheusConfig
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.

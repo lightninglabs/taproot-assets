@@ -3,6 +3,7 @@ package taprootassets
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -98,6 +99,9 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, universe.Subsystem, interceptor, universe.UseLogger)
 	AddSubLogger(
 		root, commitment.Subsystem, interceptor, commitment.UseLogger,
+	)
+	AddSubLogger(
+		root, monitoring.Subsystem, interceptor, monitoring.UseLogger,
 	)
 }
 
