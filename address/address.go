@@ -328,9 +328,9 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	return records
 }
 
-// DecodeRecords provides all records known for an address for proper
-// decoding.
-func (a *Tap) DecodeRecords() []tlv.Record {
+// DecodeBech32mRecords provides all TLV records for decoding a bech32m encoded
+// address.
+func (a *Tap) DecodeBech32mRecords() []tlv.Record {
 	return []tlv.Record{
 		newAddressAssetVersionRecord(&a.AssetVersion),
 		newAddressAssetID(&a.AssetID),
@@ -355,7 +355,7 @@ func (a *Tap) EncodeBech32mToWriter(w io.Writer) error {
 
 // DecodeBech32mToReader decodes a bech32m encoded address from a TLV stream.
 func (a *Tap) DecodeBech32mToReader(r io.Reader) error {
-	stream, err := tlv.NewStream(a.DecodeRecords()...)
+	stream, err := tlv.NewStream(a.DecodeBech32mRecords()...)
 	if err != nil {
 		return err
 	}
