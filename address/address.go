@@ -301,9 +301,9 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 	return taprootOutputKey, nil
 }
 
-// EncodeRecords determines the non-nil records to include when encoding an
-// address at runtime.
-func (a *Tap) EncodeRecords() []tlv.Record {
+// EncodeBech32mRecords determines the non-nil records to include when encoding
+// an address with bech32m format at runtime.
+func (a *Tap) EncodeBech32mRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 6)
 	records = append(records, newAddressAssetVersionRecord(&a.AssetVersion))
 	records = append(records, newAddressAssetID(&a.AssetID))
@@ -346,7 +346,7 @@ func (a *Tap) DecodeBech32mRecords() []tlv.Record {
 // EncodeBech32mToWriter encodes an address into a given writer targeted towards
 // the bech32m address encoding.
 func (a *Tap) EncodeBech32mToWriter(w io.Writer) error {
-	stream, err := tlv.NewStream(a.EncodeRecords()...)
+	stream, err := tlv.NewStream(a.EncodeBech32mRecords()...)
 	if err != nil {
 		return err
 	}
