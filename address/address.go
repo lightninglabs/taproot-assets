@@ -353,8 +353,8 @@ func (a *Tap) EncodeBech32mToWriter(w io.Writer) error {
 	return stream.Encode(w)
 }
 
-// Decode decodes an address from a TLV stream.
-func (a *Tap) Decode(r io.Reader) error {
+// DecodeBech32mToReader decodes a bech32m encoded address from a TLV stream.
+func (a *Tap) DecodeBech32mToReader(r io.Reader) error {
 	stream, err := tlv.NewStream(a.DecodeRecords()...)
 	if err != nil {
 		return err
@@ -441,7 +441,7 @@ func DecodeBech32m(addr string, net *ChainParams) (*Tap, error) {
 
 	var a Tap
 	buf := bytes.NewBuffer(converted)
-	if err := a.Decode(buf); err != nil {
+	if err := a.DecodeBech32mToReader(buf); err != nil {
 		return nil, err
 	}
 
