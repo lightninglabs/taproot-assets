@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -70,5 +71,37 @@ func urlDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 	return tlv.NewTypeForDecodingErr(
 		val, "*url.URL", l, l,
+	)
+}
+
+// schnorrSigEncoder encodes a schnorr.Signature as a variable length byte
+// slice.
+func schnorrSigEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if s, ok := val.(**schnorr.Signature); ok {
+		sigBytes := (*s).Serialize()
+		return tlv.EVarBytes(w, &sigBytes, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*schnorr.Signature")
+}
+
+// urlDecoder decodes a variable length byte slice as a schnorr.Signature.
+func schnorrSigDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if s, ok := val.(**schnorr.Signature); ok {
+		var sigBytes []byte
+		err := tlv.DVarBytes(r, &sigBytes, buf, l)
+		if err != nil {
+			return err
+		}
+
+		sig, err := schnorr.ParseSignature(sigBytes)
+		if err != nil {
+			return err
+		}
+		*s = sig
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(
+		val, "*schnorr.Signature", l, l,
 	)
 }

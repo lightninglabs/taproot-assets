@@ -362,6 +362,24 @@ func (a *Tap) DecodeBech32mToReader(r io.Reader) error {
 	return stream.Decode(r)
 }
 
+// Encode encodes an address into a given writer.
+func (a *Tap) Encode(w io.Writer) error {
+	stream, err := tlv.NewStream(a.EncodeAllRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(w)
+}
+
+// Decode decodes an encoded address from a TLV stream.
+func (a *Tap) Decode(r io.Reader) error {
+	stream, err := tlv.NewStream(a.DecodeAllRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Decode(r)
+}
+
 // EncodeBech32m returns a bech32m string encoding of a Taproot Asset address.
 //
 // Example bech32m encoded address: taprt1qqqsqq3q0gupzcctkv6s83jndsazy0fu4m9...
@@ -388,6 +406,35 @@ func (a *Tap) EncodeBech32m() (string, error) {
 	}
 
 	return "", ErrUnsupportedHRP
+}
+
+// EncodeAllRecords returns TLV records for encoding every non-nil field.
+//
+// TODO(ffranr): Add record for ChainParams field.
+func (a *Tap) EncodeAllRecords() []tlv.Record {
+	records := a.EncodeBech32mRecords()
+
+	// Add records which are absent from the bech32m encoding.
+	// When encoding, we only include non-nil fields.
+	if a.groupSig != nil {
+		records = append(records, newAddressGroupSigRecord(&a.groupSig))
+	}
+
+	records = append(records, newAssetGenesisRecord(&a.assetGen))
+
+	return records
+}
+
+// DecodeAllRecords returns TLV records for decoding every field.
+//
+// TODO(ffranr): Add record for ChainParams field.
+func (a *Tap) DecodeAllRecords() []tlv.Record {
+	records := a.DecodeBech32mRecords()
+
+	// Add records which are absent from the bech32m encoding.
+	records = append(records, newAddressGroupSigRecord(&a.groupSig))
+	records = append(records, newAssetGenesisRecord(&a.assetGen))
+	return records
 }
 
 // String returns the string representation of a Taproot Asset address.

@@ -1,9 +1,11 @@
 package address
 
 import (
+	"bytes"
 	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -37,6 +39,19 @@ const (
 
 	// addrProofCourierType is the TLV type of the proof courier address.
 	addrProofCourierAddrType addressTLVType = 10
+
+	// addrGroupSigType is the TLV type of the signature of the asset
+	// genesis.
+	//
+	// NOTE: This field is optional. It is not included in the bech32m encoding
+	// of the address.
+	addrGroupSigType addressTLVType = 11
+
+	// addrAssetGenType is the TLV type of the asset's genesis metadata.
+	//
+	// NOTE: This field is optional. It is not included in the bech32m encoding
+	// of the address.
+	addrAssetGenType addressTLVType = 13
 )
 
 func newAddressAssetVersionRecord(version *asset.Version) tlv.Record {
@@ -56,6 +71,19 @@ func newAddressGroupKeyRecord(groupKey **btcec.PublicKey) tlv.Record {
 	return tlv.MakeStaticRecord(
 		addrGroupKeyType, groupKey, btcec.PubKeyBytesLenCompressed,
 		asset.CompressedPubKeyEncoder, asset.CompressedPubKeyDecoder,
+	)
+}
+
+func newAddressGroupSigRecord(groupSig **schnorr.Signature) tlv.Record {
+	var addrBytes []byte
+	if *groupSig != nil {
+		addrBytes = (*groupSig).Serialize()
+	}
+	recordSize := tlv.SizeVarBytes(&addrBytes)
+
+	return tlv.MakeDynamicRecord(
+		addrGroupSigType, groupSig, recordSize,
+		schnorrSigEncoder, schnorrSigDecoder,
 	)
 }
 
@@ -94,6 +122,23 @@ func newAddressAmountRecord(amount *uint64) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		addrAmountType, amount, recordSize,
 		asset.VarIntEncoder, asset.VarIntDecoder,
+	)
+}
+
+func newAssetGenesisRecord(genesis *asset.Genesis) tlv.Record {
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := asset.GenesisEncoder(&b, genesis, &buf); err != nil {
+			panic(err)
+		}
+		return uint64(len(b.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		addrAssetGenType, genesis, recordSize,
+		asset.GenesisEncoder, asset.GenesisDecoder,
 	)
 }
 
