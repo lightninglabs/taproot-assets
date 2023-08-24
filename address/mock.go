@@ -111,6 +111,10 @@ type TestVectors struct {
 func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 	t.Helper()
 
+	if a == nil {
+		return nil
+	}
+
 	ta := &TestAddress{
 		ChainParamsHRP:   a.ChainParams.TapHRP,
 		AssetVersion:     uint8(a.AssetVersion),

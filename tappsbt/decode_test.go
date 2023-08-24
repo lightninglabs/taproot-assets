@@ -85,11 +85,27 @@ func TestEncodingDecoding(t *testing.T) {
 		decoded, err := NewFromRawBytes(&buf, false)
 		require.NoError(t, err)
 
+		// Repopulate chain params in the VOutput address fields since they are
+		// not encoded/decoded.
+		for i := range pkg.Outputs {
+			if decoded.Outputs[i].Addr != nil {
+				decoded.Outputs[i].Addr.ChainParams = pkg.ChainParams
+			}
+		}
+
 		assertEqualPackets(t, pkg, decoded)
 
 		// Also make sure we can decode the packet from the base PSBT.
 		decoded, err = NewFromPsbt(packet)
 		require.NoError(t, err)
+
+		// Repopulate chain params in the VOutput address fields since they are
+		// not encoded/decoded.
+		for i := range pkg.Outputs {
+			if decoded.Outputs[i].Addr != nil {
+				decoded.Outputs[i].Addr.ChainParams = pkg.ChainParams
+			}
+		}
 
 		assertEqualPackets(t, pkg, decoded)
 	}
@@ -109,6 +125,7 @@ func TestEncodingDecoding(t *testing.T) {
 			require.NoError(t, err)
 			pkg.Outputs = append(pkg.Outputs, &VOutput{
 				ScriptKey: asset.RandScriptKey(t),
+				Addr:      addr.Tap,
 			})
 
 			return pkg

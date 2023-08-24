@@ -262,6 +262,9 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 			&o.AnchorOutputTapscriptSibling,
 			commitment.TapscriptPreimageDecoder,
 		),
+	}, {
+		key:     PsbtKeyTypeOutputTapAddr,
+		decoder: addrDecoder(&o.Addr),
 	}}
 
 	for idx := range mapping {
@@ -316,6 +319,34 @@ func assetDecoder(a **asset.Asset) decoderFunc {
 			*a = &asset.Asset{}
 		}
 		return tlvDecoder(*a, asset.LeafDecoder)(key, byteVal)
+	}
+}
+
+// addrDecoder returns a decoder function that can handle a Tap address.
+func addrDecoder(a **address.Tap) decoderFunc {
+	return func(key, byteVal []byte) error {
+		if len(byteVal) == 0 {
+			return nil
+		}
+
+		// Decode variable length byte slice into address bytes.
+		var addrBytes []byte
+		err := tlvDecoder(&addrBytes, tlv.DVarBytes)(key, byteVal)
+		if err != nil {
+			return err
+		}
+
+		// Decode address bytes into address.
+		if *a == nil {
+			*a = &address.Tap{}
+		}
+
+		buf := bytes.NewBuffer(addrBytes)
+		if err := (*a).Decode(buf); err != nil {
+			return err
+		}
+
+		return nil
 	}
 }
 

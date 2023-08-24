@@ -66,6 +66,13 @@ func RandPacket(t testing.TB) *VPacket {
 		txscript.NewTapBranch(leaf1, leaf1),
 	)
 
+	// Create two random Tap addresses, one for each virtual output.
+	proofCourierAddr1 := address.RandProofCourierAddr(t)
+	addr1, _, _ := address.RandAddr(t, testParams, proofCourierAddr1)
+
+	proofCourierAddr2 := address.RandProofCourierAddr(t)
+	addr2, _, _ := address.RandAddr(t, testParams, proofCourierAddr2)
+
 	vPacket := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: asset.PrevID{
@@ -98,6 +105,7 @@ func RandPacket(t testing.TB) *VPacket {
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			SplitAsset:                         testOutputAsset,
 			AnchorOutputTapscriptSibling:       testPreimage1,
+			Addr:                               addr1.Tap,
 		}, {
 			Amount: 345,
 			Type:   TypeSplitRoot,
@@ -110,6 +118,7 @@ func RandPacket(t testing.TB) *VPacket {
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			AnchorOutputTapscriptSibling:       testPreimage2,
+			Addr:                               addr2.Tap,
 		}},
 		ChainParams: testParams,
 	}
@@ -440,6 +449,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		PkScript: hex.EncodeToString(test.ComputeTaprootScript(
 			t, v.ScriptKey.PubKey,
 		)),
+		Addr: address.NewTestFromAddress(t, v.Addr),
 	}
 
 	if v.Asset != nil {
@@ -524,6 +534,7 @@ type TestVOutput struct {
 	TrBip32Derivation             []*TestTrBip32Derivation `json:"tr_bip32_derivation"`
 	TrInternalKey                 string                   `json:"tr_internal_key"`
 	TrMerkleRoot                  string                   `json:"tr_merkle_root"`
+	Addr                          *address.TestAddress     `json:"address"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {

@@ -50,6 +50,7 @@ var (
 	PsbtKeyTypeOutputTapAsset                              = []byte{0x76}
 	PsbtKeyTypeOutputTapSplitAsset                         = []byte{0x77}
 	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
+	PsbtKeyTypeOutputTapAddr                               = []byte{0x79}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -493,6 +494,11 @@ type VOutput struct {
 	// serialized, this will be stored in the TaprootInternalKey and
 	// TaprootDerivationPath fields of the PSBT output.
 	ScriptKey asset.ScriptKey
+
+	// The Tap address that should be used to satisfy the transfer. Some
+	// outputs may not have a tap address, in which case this field will be
+	// nil.
+	Addr *address.Tap
 }
 
 // SplitLocator creates a split locator from the output. The asset ID is passed

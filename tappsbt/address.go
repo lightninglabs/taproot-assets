@@ -61,6 +61,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 			),
 			AnchorOutputInternalKey:      &addr.InternalKey,
 			AnchorOutputTapscriptSibling: addr.TapscriptSibling,
+			Addr:                         addr,
 		})
 	}
 

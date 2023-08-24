@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -201,6 +202,9 @@ type TransferOutput struct {
 	// includes all the proof information other than the final chain
 	// information.
 	ProofSuffix []byte
+
+	// The Tap address that should be used to satisfy the transfer.
+	Addr address.Tap
 }
 
 // OutboundParcel represents the database level delta of an outbound Taproot

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -213,6 +214,11 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	}
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
+	addrEncoderFunc, err := addrEncoder(o.Addr)
+	if err != nil {
+		return pOut, nil, fmt.Errorf("error encoding address: %w", err)
+	}
+
 	mapping := []encoderMapping{{
 		key:     PsbtKeyTypeOutputTapType,
 		encoder: tlvEncoder(&o.Type, vOutputTypeEncoder),
@@ -244,6 +250,9 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 		encoder: tapscriptPreimageEncoder(
 			o.AnchorOutputTapscriptSibling,
 		),
+	}, {
+		key:     PsbtKeyTypeOutputTapAddr,
+		encoder: addrEncoderFunc,
 	}}
 
 	for idx := range mapping {
@@ -307,6 +316,30 @@ func assetEncoder(a *asset.Asset) encoderFunc {
 	}
 
 	return tlvEncoder(a, asset.LeafEncoder)
+}
+
+// addrEncoder returns an encoder function for encoding a Tap address.
+func addrEncoder(addr *address.Tap) (encoderFunc, error) {
+	// Initially set the encoder function to a no-op. If the address is nil,
+	// or we encounter an error, we will return this function as the
+	// encoder.
+	encoder := func([]byte) ([]*customPsbtField, error) {
+		return nil, nil
+	}
+
+	if addr == nil {
+		return encoder, nil
+	}
+
+	// Encode address as a variable length byte slice.
+	var buf bytes.Buffer
+	if err := addr.Encode(&buf); err != nil {
+		return encoder, err
+	}
+	addrBytes := buf.Bytes()
+
+	encoder = tlvEncoder(&addrBytes, tlv.EVarBytes)
+	return encoder, nil
 }
 
 // booleanEncoder returns a function that encodes the given boolean value as a
