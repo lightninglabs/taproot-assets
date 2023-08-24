@@ -1108,7 +1108,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 
 	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-	addr, err := address.DecodeAddress(in.Addr, &tapParams)
+	addr, err := address.DecodeBech32m(in.Addr, &tapParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
@@ -1389,7 +1389,7 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	if len(in.FilterAddr) > 0 {
 		tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-		addr, err := address.DecodeAddress(in.FilterAddr, &tapParams)
+		addr, err := address.DecodeBech32m(in.FilterAddr, &tapParams)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
@@ -1511,7 +1511,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			err  error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &tapParams)
+			addr, err = address.DecodeBech32m(a, &tapParams)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
@@ -1843,7 +1843,7 @@ func (r *rpcServer) SendAsset(_ context.Context,
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
-		tapAddrs[idx], err = address.DecodeAddress(
+		tapAddrs[idx], err = address.DecodeBech32m(
 			in.TapAddrs[idx], &tapParams,
 		)
 		if err != nil {

@@ -206,7 +206,7 @@ func TestAddressEncoding(t *testing.T) {
 		require.NoError(t, err)
 		net, err := a.Net()
 		require.NoError(t, err)
-		b, err := DecodeAddress(addr, net)
+		b, err := DecodeBech32m(addr, net)
 		require.NoError(t, err)
 		assertAddressEqual(t, a, b)
 
@@ -311,7 +311,7 @@ func TestAddressEncoding(t *testing.T) {
 					t, &TestNet3Tap, true, false,
 					asset.Collectible,
 				)
-				_, err := DecodeAddress(
+				_, err := DecodeBech32m(
 					encodedAddr, &MainNetTap,
 				)
 				return newAddr, "", err
@@ -326,7 +326,7 @@ func TestAddressEncoding(t *testing.T) {
 					asset.Collectible,
 				)
 				encodedAddr = encodedAddr[4:]
-				_, err := DecodeAddress(
+				_, err := DecodeBech32m(
 					encodedAddr[4:], &TestNet3Tap,
 				)
 				return newAddr, "", err
@@ -393,7 +393,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				chainParams, err := a.Net()
 				require.NoError(tt, err)
 
-				expectedAddress, err := DecodeAddress(
+				expectedAddress, err := DecodeBech32m(
 					validCase.Expected, chainParams,
 				)
 				require.NoError(tt, err)
@@ -412,7 +412,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			chainParams, err := a.Net()
 			require.NoError(tt, err)
 
-			decoded, err := DecodeAddress(
+			decoded, err := DecodeBech32m(
 				validCase.Expected, chainParams,
 			)
 			require.NoError(tt, err)

@@ -395,9 +395,10 @@ func (a *Tap) String() string {
 		a.AssetID, a.Amount, a.ScriptKey.SerializeCompressed())
 }
 
-// DecodeAddress parses a bech32m encoded Taproot Asset address string and
+// DecodeBech32m parses a bech32m encoded Taproot Asset address string and
 // returns the HRP and address TLV.
-func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
+// Example bech32m encoded address: taprt1qqqsqq3q0gupzcctkv6s83jndsazy0fu4m9...
+func DecodeBech32m(addr string, net *ChainParams) (*Tap, error) {
 	// Bech32m encoded Taproot Asset addresses start with a human-readable
 	// part (hrp) followed by '1'. For Bitcoin mainnet the hrp is "tap",
 	// and for testnet it is "tapt". If the address string has a prefix
