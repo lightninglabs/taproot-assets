@@ -421,7 +421,7 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 			"Asset key: %w", err)
 	}
 
-	addrStr, err := addr.EncodeAddress()
+	addrStr, err := addr.EncodeBech32m()
 	if err != nil {
 		return nil, fmt.Errorf("unable to encode address: %v", err)
 	}
@@ -456,7 +456,7 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 // lnd-internal btcwallet instance by tracking the on-chain Taproot output key
 // the assets must be sent to in order to be received.
 func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
-	addrStr, err := addr.EncodeAddress()
+	addrStr, err := addr.EncodeBech32m()
 	if err != nil {
 		return fmt.Errorf("unable to encode address: %w", err)
 	}

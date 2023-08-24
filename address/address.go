@@ -361,8 +361,10 @@ func (a *Tap) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
-// EncodeAddress returns a bech32m string encoding of a Taproot Asset address.
-func (a *Tap) EncodeAddress() (string, error) {
+// EncodeBech32m returns a bech32m string encoding of a Taproot Asset address.
+//
+// Example bech32m encoded address: taprt1qqqsqq3q0gupzcctkv6s83jndsazy0fu4m9...
+func (a *Tap) EncodeBech32m() (string, error) {
 	var buf bytes.Buffer
 	if err := a.Encode(&buf); err != nil {
 		return "", err

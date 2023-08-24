@@ -88,7 +88,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
 		return nil, "", err
 	}
 
-	encodedAddr, err := newAddr.EncodeAddress()
+	encodedAddr, err := newAddr.EncodeBech32m()
 
 	return newAddr, encodedAddr, err
 }
@@ -202,7 +202,7 @@ func TestAddressEncoding(t *testing.T) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
-		addr, err := a.EncodeAddress()
+		addr, err := a.EncodeBech32m()
 		require.NoError(t, err)
 		net, err := a.Net()
 		require.NoError(t, err)
@@ -383,7 +383,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 
 			a := validCase.Address.ToAddress(tt)
 
-			addrString, err := a.EncodeAddress()
+			addrString, err := a.EncodeBech32m()
 			require.NoError(tt, err)
 
 			areEqual := validCase.Expected == addrString

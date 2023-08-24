@@ -1690,7 +1690,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 func marshalAddr(addr *address.Tap,
 	db address.Storage) (*taprpc.Addr, error) {
 
-	addrStr, err := addr.EncodeAddress()
+	addrStr, err := addr.EncodeBech32m()
 	if err != nil {
 		return nil, fmt.Errorf("unable to encode addr: %w", err)
 	}
