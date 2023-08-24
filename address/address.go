@@ -343,8 +343,9 @@ func (a *Tap) DecodeRecords() []tlv.Record {
 	}
 }
 
-// Encode encodes an address into a TLV stream.
-func (a *Tap) Encode(w io.Writer) error {
+// EncodeBech32mToWriter encodes an address into a given writer targeted towards
+// the bech32m address encoding.
+func (a *Tap) EncodeBech32mToWriter(w io.Writer) error {
 	stream, err := tlv.NewStream(a.EncodeRecords()...)
 	if err != nil {
 		return err
@@ -366,7 +367,7 @@ func (a *Tap) Decode(r io.Reader) error {
 // Example bech32m encoded address: taprt1qqqsqq3q0gupzcctkv6s83jndsazy0fu4m9...
 func (a *Tap) EncodeBech32m() (string, error) {
 	var buf bytes.Buffer
-	if err := a.Encode(&buf); err != nil {
+	if err := a.EncodeBech32mToWriter(&buf); err != nil {
 		return "", err
 	}
 
