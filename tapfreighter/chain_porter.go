@@ -768,9 +768,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, fmt.Errorf("unable to cast parcel to " +
 				"address parcel")
 		}
-		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
-			ctx, addrParcel.destAddrs...,
-		)
+		fundSendRes, outputIdxToAddr, err :=
+			p.cfg.AssetWallet.FundAddressSend(
+				ctx, addrParcel.destAddrs...,
+			)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund address send: "+
 				"%w", err)
@@ -778,6 +779,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		currentPkg.VirtualPacket = fundSendRes.VPacket
 		currentPkg.InputCommitments = fundSendRes.InputCommitments
+		currentPkg.OutputIdxToAddr = outputIdxToAddr
 
 		currentPkg.SendState = SendStateVirtualSign
 

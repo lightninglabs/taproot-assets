@@ -105,7 +105,7 @@ func TestEncodingDecoding(t *testing.T) {
 				t, testParams, proofCourierAddr,
 			)
 
-			pkg, err := FromAddresses([]*address.Tap{addr.Tap}, 1)
+			pkg, _, err := FromAddresses([]*address.Tap{addr.Tap}, 1)
 			require.NoError(t, err)
 			pkg.Outputs = append(pkg.Outputs, &VOutput{
 				ScriptKey: asset.RandScriptKey(t),

@@ -259,6 +259,10 @@ type sendPackage struct {
 	// virtual asset transition transaction.
 	VirtualPacket *tappsbt.VPacket
 
+	// OutputIdxToAddr is a map from a VPacket's VOutput index to its
+	// associated Tap address.
+	OutputIdxToAddr tappsbt.OutputIdxToAddr
+
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments

@@ -1522,7 +1522,9 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			return nil, fmt.Errorf("no recipients specified")
 		}
 
-		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(ctx, addr)
+		fundedVPkt, _, err = r.cfg.AssetWallet.FundAddressSend(
+			ctx, addr,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
 				"%w", err)
