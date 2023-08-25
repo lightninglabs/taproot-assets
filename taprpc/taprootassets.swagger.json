@@ -1360,6 +1360,14 @@
         "is_burn": {
           "type": "boolean",
           "description": "Indicates whether the state transition this proof represents is a burn,\nmeaning that the assets were provably destroyed and can no longer be\nspent."
+        },
+        "genesis_reveal": {
+          "$ref": "#/definitions/taprpcGenesisReveal",
+          "description": "GenesisReveal is an optional field that is the Genesis information for\nthe asset. This is required for minting proofs."
+        },
+        "group_key_reveal": {
+          "$ref": "#/definitions/taprpcGroupKeyReveal",
+          "description": "GroupKeyReveal is an optional field that includes the information needed\nto derive the tweaked group key."
         }
       }
     },
@@ -1423,6 +1431,19 @@
         }
       }
     },
+    "taprpcGenesisReveal": {
+      "type": "object",
+      "properties": {
+        "genesis_base_reveal": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The base genesis information in the genesis reveal."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The asset type, not included in the base genesis info."
+        }
+      }
+    },
     "taprpcGetInfoRequest": {
       "type": "object"
     },
@@ -1437,6 +1458,21 @@
         },
         "network": {
           "type": "string"
+        }
+      }
+    },
+    "taprpcGroupKeyReveal": {
+      "type": "object",
+      "properties": {
+        "raw_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw group key which is a normal public key."
+        },
+        "tapscript_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tapscript root included in the tweaked group key, which may be empty."
         }
       }
     },

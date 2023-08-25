@@ -245,6 +245,24 @@ message AssetGroup {
     specified by the above key.
     */
     bytes asset_witness = 3;
+
+    // TODO(jhb): update to include tapscript_root
+}
+
+message GroupKeyReveal {
+    // The raw group key which is a normal public key.
+    bytes raw_group_key = 1;
+
+    // The tapscript root included in the tweaked group key, which may be empty.
+    bytes tapscript_root = 2;
+}
+
+message GenesisReveal {
+    // The base genesis information in the genesis reveal.
+    GenesisInfo genesis_base_reveal = 1;
+
+    // The asset type, not included in the base genesis info.
+    AssetType asset_type = 2;
 }
 
 message Asset {
@@ -765,6 +783,14 @@ message DecodedProof {
     // meaning that the assets were provably destroyed and can no longer be
     // spent.
     bool is_burn = 11;
+
+    // GenesisReveal is an optional field that is the Genesis information for
+    // the asset. This is required for minting proofs.
+    GenesisReveal genesis_reveal = 12;
+
+    // GroupKeyReveal is an optional field that includes the information needed
+    // to derive the tweaked group key.
+    GroupKeyReveal group_key_reveal = 13;
 }
 
 message VerifyProofResponse {

@@ -1188,6 +1188,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
+		rpcGenesis     = decodedProof.GenesisReveal
+		rpcGroupKey    = decodedProof.GroupKeyReveal
 		anchorOutpoint = wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
@@ -1286,6 +1288,27 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
+	decodedAssetID := decodedProof.Asset.ID()
+	genesisReveal := &taprpc.GenesisReveal{
+		GenesisBaseReveal: &taprpc.GenesisInfo{
+			GenesisPoint: rpcGenesis.FirstPrevOut.String(),
+			Name:         rpcGenesis.Tag,
+			MetaHash:     rpcGenesis.MetaHash[:],
+			AssetId:      decodedAssetID[:],
+			OutputIndex:  rpcGenesis.OutputIndex,
+		},
+		AssetType: taprpc.AssetType(decodedProof.Asset.Type),
+	}
+
+	var GroupKeyReveal taprpc.GroupKeyReveal
+	if rpcGroupKey != nil {
+		GroupKeyReveal.RawGroupKey = rpcGroupKey.RawKey[:]
+		if rpcGroupKey.TapscriptRoot != nil {
+			tapscriptRoot := rpcGroupKey.TapscriptRoot[:]
+			GroupKeyReveal.TapscriptRoot = tapscriptRoot
+		}
+	}
+
 	return &taprpc.DecodedProof{
 		Asset:               rpcAsset,
 		MetaReveal:          rpcMeta,
@@ -1296,6 +1319,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		NumAdditionalInputs: uint32(len(p.AdditionalInputs)),
 		ChallengeWitness:    p.ChallengeWitness,
 		IsBurn:              p.Asset.IsBurn(),
+		GenesisReveal:       genesisReveal,
+		GroupKeyReveal:      &GroupKeyReveal,
 	}, nil
 }
 
