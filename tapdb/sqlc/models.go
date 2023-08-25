@@ -124,6 +124,7 @@ type AssetTransferOutput struct {
 	ProofSuffix              []byte
 	NumPassiveAssets         int32
 	OutputType               int16
+	ProofCourierAddr         []byte
 }
 
 type AssetWitness struct {
