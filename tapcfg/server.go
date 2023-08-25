@@ -180,30 +180,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	var hashMailCourier proof.Courier
-	if cfg.HashMailCourier != nil &&
-		proofCourierAddr.Type() == proof.ApertureCourier {
-
-		hashMailBox, err := proof.NewHashMailBox(
-			proofCourierAddr.Url(), cfg.HashMailCourier.TlsCertPath,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to make mailbox: %v",
-				err)
+	var proofCourierCfg *proof.CourierCfg
+	// TODO(ffranr): This logic is leftover for integration tests which
+	//  do not yet enable a proof courier. Remove once all integration tests
+	//  support a proof courier.
+	if cfg.HashMailCourier != nil {
+		proofCourierCfg = &proof.CourierCfg{
+			TlsCertPath:        cfg.HashMailCourier.TlsCertPath,
+			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
+			BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
+			DeliveryLog:        assetStore,
 		}
-
-		hashMailCourier, err = proof.NewHashMailCourier(
-			cfg.HashMailCourier, hashMailBox, assetStore,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to make hashmail "+
-				"courier: %v", err)
-		}
-	}
-
-	proofCourierCfg := proof.CourierCfg{
-		HashMailCfg: cfg.HashMailCourier,
-		DeliveryLog: assetStore,
 	}
 
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
@@ -315,7 +302,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ProofArchive:    proofArchive,
 				ProofNotifier:   assetStore,
 				ErrChan:         mainErrChan,
-				ProofCourierCfg: &proofCourierCfg,
+				ProofCourierCfg: proofCourierCfg,
 				ProofWatcher:    reOrgWatcher,
 			},
 		),
@@ -327,17 +314,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		CoinSelect:              coinSelect,
 		ChainPorter: tapfreighter.NewChainPorter(
 			&tapfreighter.ChainPorterConfig{
-				Signer:       virtualTxSigner,
-				TxValidator:  &tap.ValidatorV0{},
-				ExportLog:    assetStore,
-				ChainBridge:  chainBridge,
-				Wallet:       walletAnchor,
-				KeyRing:      keyRing,
-				AssetWallet:  assetWallet,
-				AssetProofs:  proofFileStore,
-				ProofCourier: hashMailCourier,
-				ProofWatcher: reOrgWatcher,
-				ErrChan:      mainErrChan,
+				Signer:          virtualTxSigner,
+				TxValidator:     &tap.ValidatorV0{},
+				ExportLog:       assetStore,
+				ChainBridge:     chainBridge,
+				Wallet:          walletAnchor,
+				KeyRing:         keyRing,
+				AssetWallet:     assetWallet,
+				AssetProofs:     proofFileStore,
+				ProofCourierCfg: proofCourierCfg,
+				ProofWatcher:    reOrgWatcher,
+				ErrChan:         mainErrChan,
 			},
 		),
 		BaseUniverse:       baseUni,

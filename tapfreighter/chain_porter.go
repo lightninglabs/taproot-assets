@@ -55,9 +55,9 @@ type ChainPorterConfig struct {
 	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
 
-	// ProofCourier is used to optionally deliver the final proof to the
-	// user using an asynchronous transport mechanism.
-	ProofCourier proof.Courier
+	// ProofCourierCfg is a general config applicable to all proof courier
+	// service handles.
+	ProofCourierCfg *proof.CourierCfg
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
@@ -607,14 +607,41 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		log.Debugf("Attempting to deliver proof for script key %x",
 			key.SerializeCompressed())
 
+		proofCourierAddr, err := proof.ParseCourierAddrString(
+			string(out.ProofCourierAddr),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to parse proof courier "+
+				"address: %w", err)
+		}
+
+		// Initiate proof courier service handle from the proof
+		// courier address found in the Tap address.
 		recipient := proof.Recipient{
 			ScriptKey: key,
 			AssetID:   *receiverProof.AssetID,
 			Amount:    out.Amount,
 		}
-		err := p.cfg.ProofCourier.DeliverProof(
-			ctx, recipient, receiverProof,
+		courier, err := proofCourierAddr.NewCourier(
+			ctx, p.cfg.ProofCourierCfg, recipient,
 		)
+		if err != nil {
+			return fmt.Errorf("unable to initiate proof courier "+
+				"service handle: %w", err)
+		}
+
+		// Update courier events subscribers before attempting to
+		// deliver proof.
+		p.subscriberMtx.Lock()
+		courier.SetSubscribers(p.subscribers)
+		p.subscriberMtx.Unlock()
+
+		// Deliver proof to proof courier service.
+		err = courier.DeliverProof(ctx, receiverProof)
+		if err != nil {
+			return fmt.Errorf("failed to deliver proof via "+
+				"courier service: %w", err)
+		}
 
 		// If the proof courier returned a backoff error, then
 		// we'll just return nil here so that we can retry
@@ -632,7 +659,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// If we have a proof courier instance active, then we'll launch several
 	// goroutines to deliver the proof(s) to the receiver(s).
-	if p.cfg.ProofCourier != nil {
+	if p.cfg.ProofCourierCfg != nil {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 
@@ -1016,11 +1043,6 @@ func (p *ChainPorter) RegisterSubscriber(
 
 	p.subscribers[receiver.ID()] = receiver
 
-	// If we have a proof courier, we'll also update its subscribers.
-	if p.cfg.ProofCourier != nil {
-		p.cfg.ProofCourier.SetSubscribers(p.subscribers)
-	}
-
 	return nil
 }
 
@@ -1040,11 +1062,6 @@ func (p *ChainPorter) RemoveSubscriber(
 
 	subscriber.Stop()
 	delete(p.subscribers, subscriber.ID())
-
-	// If we have a proof courier, we'll also update its subscribers.
-	if p.cfg.ProofCourier != nil {
-		p.cfg.ProofCourier.SetSubscribers(p.subscribers)
-	}
 
 	return nil
 }
