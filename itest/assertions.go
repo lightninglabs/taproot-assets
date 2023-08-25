@@ -331,6 +331,10 @@ func verifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	AssertAsset(t, a, decodeResp.DecodedProof.Asset)
 	proofAsset := decodeResp.DecodedProof.Asset
 
+	// The decoded asset will not include the genesis or group key reveal,
+	// so check those separately.
+	assertProofReveals(t, proofAsset, decodeResp.DecodedProof)
+
 	// Ensure anchor block height is set.
 	anchorTxBlockHeight := proofAsset.ChainAnchor.BlockHeight
 	require.Greater(t, anchorTxBlockHeight, uint32(0))
@@ -660,11 +664,27 @@ func AssertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 	// The raw key isn't always set as that's not contained in proofs for
 	// example.
 	if expected.AssetGroup != nil {
-		eg := expected.AssetGroup
-		ag := actual.AssetGroup
+		require.Equal(
+			t, expected.AssetGroup.TweakedGroupKey,
+			actual.AssetGroup.TweakedGroupKey,
+		)
+	}
+}
 
-		require.Equal(t, eg.AssetWitness, ag.AssetWitness)
-		require.Equal(t, eg.TweakedGroupKey, ag.TweakedGroupKey)
+func assertProofReveals(t *testing.T, expected *taprpc.Asset,
+	actual *taprpc.DecodedProof) {
+
+	if actual.GenesisReveal != nil {
+		actual.GenesisReveal.GenesisBaseReveal.Version =
+			expected.AssetGenesis.Version
+
+		require.Equal(
+			t, expected.AssetGenesis,
+			actual.GenesisReveal.GenesisBaseReveal,
+		)
+		require.Equal(
+			t, expected.AssetType, actual.GenesisReveal.AssetType,
+		)
 	}
 }
 
