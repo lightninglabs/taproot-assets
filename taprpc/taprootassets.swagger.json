@@ -1284,6 +1284,14 @@
             "format": "byte"
           },
           "description": "ChallengeWitness is an optional virtual transaction witness that serves\nas an ownership proof for the asset. If this is non-nil, then it is a\nvalid transfer witness for a 1-input, 1-output virtual transaction that\nspends the asset in this proof and sends it to the NUMS key, to prove\nthat the creator of the proof is able to produce a valid signature to\nspend the asset."
+        },
+        "genesis_reveal": {
+          "$ref": "#/definitions/taprpcGenesisReveal",
+          "description": "GenesisReveal is an optional field that is the Genesis information for\nthe asset. This is required for minting proofs."
+        },
+        "group_key_reveal": {
+          "$ref": "#/definitions/taprpcGroupKeyReveal",
+          "description": "GroupKeyReveal is an optional field that includes the information needed\nto derive the tweaked group key."
         }
       }
     },
@@ -1347,6 +1355,19 @@
         }
       }
     },
+    "taprpcGenesisReveal": {
+      "type": "object",
+      "properties": {
+        "genesis_base_reveal": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "The base genesis information in the genesis reveal."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The asset type, not included in the base genesis info."
+        }
+      }
+    },
     "taprpcGetInfoRequest": {
       "type": "object"
     },
@@ -1361,6 +1382,21 @@
         },
         "network": {
           "type": "string"
+        }
+      }
+    },
+    "taprpcGroupKeyReveal": {
+      "type": "object",
+      "properties": {
+        "raw_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw group key which is a normal public key."
+        },
+        "tapscript_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tapscript root included in the tweaked group key, which may be empty."
         }
       }
     },
