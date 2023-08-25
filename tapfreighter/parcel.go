@@ -364,6 +364,17 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
 
+		// Convert any proof courier address associated with this output
+		// to bytes for db storage.
+		var proofCourierAddrBytes []byte
+		if s.OutputIdxToAddr != nil {
+			if addr, ok := s.OutputIdxToAddr[idx]; ok {
+				proofCourierAddrBytes = []byte(
+					addr.ProofCourierAddr.String(),
+				)
+			}
+		}
+
 		anchorInternalKey := keychain.KeyDescriptor{
 			PubKey: vOut.AnchorOutputInternalKey,
 		}
@@ -453,6 +464,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 			WitnessData:         witness,
 			SplitCommitmentRoot: splitCommitmentRoot,
 			ProofSuffix:         proofSuffixBuf.Bytes(),
+			ProofCourierAddr:    proofCourierAddrBytes,
 		}
 	}
 
