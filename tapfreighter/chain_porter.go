@@ -57,7 +57,7 @@ type ChainPorterConfig struct {
 
 	// ProofCourier is used to optionally deliver the final proof to the
 	// user using an asynchronous transport mechanism.
-	ProofCourier proof.Courier[proof.Recipient]
+	ProofCourier proof.Courier
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.

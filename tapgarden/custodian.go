@@ -46,9 +46,9 @@ type CustodianConfig struct {
 	// being available in the relational database).
 	ProofNotifier proof.NotifyArchiver
 
-	// ProofCourier is used to optionally deliver the final proof to the
-	// user using an asynchronous transport mechanism.
-	ProofCourier proof.Courier[proof.Recipient]
+	// ProofCourierCfg is a general config applicable to all proof courier
+	// service handles.
+	ProofCourierCfg *proof.CourierCfg
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
@@ -337,7 +337,11 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			return err
 		}
 
-		if c.cfg.ProofCourier == nil || addr == nil {
+		// TODO(ffranr): This proof courier disabled check should be
+		//  removed. It was implemented because some integration test do
+		//  not setup and use a proof courier.
+		skipProofCourier := c.cfg.ProofCourierCfg == nil || addr == nil
+		if skipProofCourier {
 			continue
 		}
 
@@ -351,21 +355,34 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			ctx, cancel := c.WithCtxQuitNoTimeout()
 			defer cancel()
 
+			assetID := addr.AssetID
+
 			log.Debugf("Waiting to receive proof for script key %x",
 				addr.ScriptKey.SerializeCompressed())
 
-			assetID := addr.AssetID
+			// Initiate proof courier service handle from the proof
+			// courier address found in the Tap address.
 			recipient := proof.Recipient{
 				ScriptKey: &addr.ScriptKey,
 				AssetID:   assetID,
 				Amount:    addr.Amount,
 			}
-			addrProof, err := c.cfg.ProofCourier.ReceiveProof(
-				ctx, recipient, proof.Locator{
-					AssetID:   &assetID,
-					ScriptKey: addr.ScriptKey,
-				},
+			courier, err := proof.NewCourier(
+				ctx, addr.ProofCourierAddr,
+				c.cfg.ProofCourierCfg, recipient,
 			)
+			if err != nil {
+				log.Errorf("unable to initiate proof courier "+
+					"service handle: %v", err)
+				return
+			}
+
+			// Attempt to receive proof via proof courier service.
+			loc := proof.Locator{
+				AssetID:   &assetID,
+				ScriptKey: addr.ScriptKey,
+			}
+			addrProof, err := courier.ReceiveProof(ctx, loc)
 			if err != nil {
 				log.Errorf("unable to recv proof: %v", err)
 				return

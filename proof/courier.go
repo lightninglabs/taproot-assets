@@ -39,41 +39,6 @@ const (
 	ApertureCourier = "hashmail"
 )
 
-// NewCourierType returns the CourierType that corresponds to the given string.
-func NewCourierType(scheme string) (CourierType, error) {
-	switch scheme {
-	case ApertureCourier:
-		return ApertureCourier, nil
-	}
-
-	return DisabledCourier, fmt.Errorf("unknown courier address "+
-		"protocol: %v", scheme)
-}
-
-func ParseCourierAddr(addr string) (*url.URL, error) {
-	// Parse URI.
-	urlAddr, err := url.ParseRequestURI(addr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid proof courier URI address: %w",
-			err)
-	}
-
-	// Validate port number.
-	if urlAddr.Port() == "" {
-		return nil, fmt.Errorf("proof courier URI address port "+
-			"unspecified: %w", err)
-	}
-
-	// Validate protocol supported.
-	_, err = NewCourierType(urlAddr.Scheme)
-	if err != nil {
-		return nil, fmt.Errorf("invalid proof courier protocol: %w",
-			err)
-	}
-
-	return urlAddr, nil
-}
-
 // CourierHarness interface is an integration testing harness for a proof
 // courier service.
 type CourierHarness interface {
@@ -90,18 +55,147 @@ type CourierHarness interface {
 // receiver can use this to fetch a proof from the sender.
 //
 // TODO(roasbeef): FileSystemCourier, RpcCourier
-type Courier[Addr any] interface {
+type Courier interface {
 	// DeliverProof attempts to delivery a proof to the receiver, using the
 	// information in the Addr type.
-	DeliverProof(context.Context, Addr, *AnnotatedProof) error
+	DeliverProof(context.Context, *AnnotatedProof) error
 
 	// ReceiveProof attempts to obtain a proof as identified by the passed
 	// locator from the source encapsulated within the specified address.
-	ReceiveProof(context.Context, Addr, Locator) (*AnnotatedProof, error)
+	ReceiveProof(context.Context, Locator) (*AnnotatedProof, error)
 
 	// SetSubscribers sets the set of subscribers that will be notified
 	// of proof courier related events.
 	SetSubscribers(map[uint64]*fn.EventReceiver[fn.Event])
+}
+
+// CourierAddr is a fully validated courier address (including protocol specific
+// validation).
+type CourierAddr interface {
+	// Url returns the url.URL representation of the courier address.
+	Url() *url.URL
+
+	// NewCourier generates a new courier service handle.
+	NewCourier(ctx context.Context, cfg *CourierCfg,
+		recipient Recipient) (Courier, error)
+}
+
+// ParseCourierAddrString parses a proof courier address string and returns a
+// protocol specific courier address instance.
+func ParseCourierAddrString(addr string) (CourierAddr, error) {
+	// Parse URI.
+	urlAddr, err := url.ParseRequestURI(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid proof courier URI address: %w",
+			err)
+	}
+
+	return ParseCourierAddrUrl(*urlAddr)
+}
+
+// ParseCourierAddrUrl parses a proof courier address url.URL and returns a
+// protocol specific courier address instance.
+func ParseCourierAddrUrl(addr url.URL) (CourierAddr, error) {
+	// Create new courier addr based on URL scheme.
+	switch addr.Scheme {
+	case ApertureCourier:
+		return NewHashMailCourierAddr(addr)
+	}
+
+	return nil, fmt.Errorf("unknown courier address protocol: %v",
+		addr.Scheme)
+}
+
+// HashMailCourierAddr is a hashmail protocol specific implementation of the
+// CourierAddr interface.
+type HashMailCourierAddr struct {
+	addr url.URL
+}
+
+// Url returns the url.URL representation of the hashmail courier address.
+func (h *HashMailCourierAddr) Url() *url.URL {
+	return &h.addr
+}
+
+// NewCourier generates a new courier service handle.
+func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
+	recipient Recipient) (Courier, error) {
+
+	hashMailCfg := HashMailCourierCfg{
+		TlsCertPath:        cfg.TlsCertPath,
+		ReceiverAckTimeout: cfg.ReceiverAckTimeout,
+		BackoffCfg:         cfg.BackoffCfg,
+	}
+
+	hashMailBox, err := NewHashMailBox(&h.addr, hashMailCfg.TlsCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make mailbox: %v",
+			err)
+	}
+
+	subscribers := make(
+		map[uint64]*fn.EventReceiver[fn.Event],
+	)
+	return &HashMailCourier{
+		cfg:         &hashMailCfg,
+		recipient:   recipient,
+		mailbox:     hashMailBox,
+		deliveryLog: cfg.DeliveryLog,
+		subscribers: subscribers,
+	}, nil
+}
+
+// NewHashMailCourierAddr generates a new hashmail courier address from a given
+// URL. This function also performs hashmail protocol specific address
+// validation.
+func NewHashMailCourierAddr(addr url.URL) (*HashMailCourierAddr, error) {
+	if addr.Scheme != ApertureCourier {
+		return nil, fmt.Errorf("expected hashmail courier protocol: %v",
+			addr.Scheme)
+	}
+
+	// We expect the port number to be specified for a hashmail service.
+	if addr.Port() == "" {
+		return nil, fmt.Errorf("hashmail proof courier URI address " +
+			"port unspecified")
+	}
+
+	return &HashMailCourierAddr{
+		addr,
+	}, nil
+}
+
+// NewCourier instantiates a new courier service handle given a service URL
+// address.
+func NewCourier(ctx context.Context, addr url.URL, cfg *CourierCfg,
+	recipient Recipient) (Courier, error) {
+
+	courierAddr, err := ParseCourierAddrUrl(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return courierAddr.NewCourier(ctx, cfg, recipient)
+}
+
+// CourierCfg contains general config parameters applicable to all proof
+// couriers.
+type CourierCfg struct {
+	// TlsCertPath is an optional TLS certificate file path. If unset, then
+	// the system's TLS trust store is used.
+	TlsCertPath string
+
+	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
+	// acknowledge the proof.
+	ReceiverAckTimeout time.Duration
+
+	// BackoffCfg configures the behaviour of the proof delivery
+	// functionality.
+	BackoffCfg *BackoffCfg
+
+	// DeliveryLog is the log that the courier will use to record the
+	// attempted delivery of proofs to the receiver.
+	DeliveryLog DeliveryLog
 }
 
 // ProofMailbox represents an abstract store-and-forward mailbox that can be
@@ -403,10 +497,14 @@ type BackoffCfg struct {
 	MaxBackoff time.Duration `long:"maxbackoff" description:"The maximum backoff time to wait before retrying to deliver the proof to the receiver."`
 }
 
-// HashMailCourier is an implementation of the Courier interfaces that
+// HashMailCourier is a hashmail proof courier service handle. It implements the
+// Courier interface.
 type HashMailCourier struct {
 	// cfg contains the courier's configuration parameters.
 	cfg *HashMailCourierCfg
+
+	// recipient describes the recipient of the proof.
+	recipient Recipient
 
 	mailbox ProofMailbox
 
@@ -423,36 +521,19 @@ type HashMailCourier struct {
 	subscriberMtx sync.Mutex
 }
 
-// NewHashMailCourier implements the Courier interface using the specified
-// ProofMailbox. This instance of the Courier relies on the Taproot Asset
-// address itself as the parametrized address type.
-func NewHashMailCourier(cfg *HashMailCourierCfg, mailbox ProofMailbox,
-	deliveryLog DeliveryLog) (*HashMailCourier, error) {
-
-	subscribers := make(
-		map[uint64]*fn.EventReceiver[fn.Event],
-	)
-	return &HashMailCourier{
-		cfg:         cfg,
-		mailbox:     mailbox,
-		deliveryLog: deliveryLog,
-		subscribers: subscribers,
-	}, nil
-}
-
 // DeliverProof attempts to delivery a proof to the receiver, using the
 // information in the Addr type.
 //
 // TODO(roasbeef): other delivery context as type param?
-func (h *HashMailCourier) DeliverProof(ctx context.Context, recipient Recipient,
+func (h *HashMailCourier) DeliverProof(ctx context.Context,
 	proof *AnnotatedProof) error {
 
 	log.Infof("Attempting to deliver receiver proof for send of "+
-		"asset_id=%x, amt=%v", recipient.AssetID, recipient.Amount)
+		"asset_id=%x, amt=%v", h.recipient.AssetID, h.recipient.Amount)
 
 	// Compute the stream IDs for the sender and receiver.
-	senderStreamID := deriveSenderStreamID(recipient)
-	receiverStreamID := deriveReceiverStreamID(recipient)
+	senderStreamID := deriveSenderStreamID(h.recipient)
+	receiverStreamID := deriveReceiverStreamID(h.recipient)
 
 	// Query delivery log to ensure a sensible rate of delivery attempts.
 	timestamps, err := h.deliveryLog.QueryProofDeliveryLog(
@@ -742,10 +823,10 @@ func NewReceiverProofBackoffWaitEvent(
 
 // ReceiveProof attempts to obtain a proof as identified by the passed locator
 // from the source encapsulated within the specified address.
-func (h *HashMailCourier) ReceiveProof(ctx context.Context, recipient Recipient,
+func (h *HashMailCourier) ReceiveProof(ctx context.Context,
 	loc Locator) (*AnnotatedProof, error) {
 
-	senderStreamID := deriveSenderStreamID(recipient)
+	senderStreamID := deriveSenderStreamID(h.recipient)
 	if err := h.mailbox.Init(ctx, senderStreamID); err != nil {
 		return nil, err
 	}
@@ -761,7 +842,7 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context, recipient Recipient,
 
 	// Now that we've read the proof, we'll create our mailbox (which might
 	// already exist) to send an ACK back to the sender.
-	receiverStreamID := deriveReceiverStreamID(recipient)
+	receiverStreamID := deriveReceiverStreamID(h.recipient)
 	log.Infof("Sending ACK to sender via sid=%x", receiverStreamID)
 	if err := h.mailbox.Init(ctx, receiverStreamID); err != nil {
 		return nil, err
@@ -790,7 +871,7 @@ func (h *HashMailCourier) SetSubscribers(
 
 // A compile-time assertion to ensure the HashMailCourier meets the
 // proof.Courier interface.
-var _ Courier[Recipient] = (*HashMailCourier)(nil)
+var _ Courier = (*HashMailCourier)(nil)
 
 // DeliveryLog is an interface that allows the courier to log the (attempted)
 // delivery of a proof.
