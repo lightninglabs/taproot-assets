@@ -132,7 +132,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, alice, 1)
+	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
 		WithWitness: true,
@@ -256,7 +256,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		[]uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, alice, 1)
+	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
 		WithWitness: true,
@@ -458,8 +458,8 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
 		receivedAssets := groupAssetsByName(receiverAssets.Assets)
-		assertAssetState(
-			t, receivedAssets, genInfo.Name, genInfo.MetaHash,
+		AssertAssetState(
+			t.t, receivedAssets, genInfo.Name, genInfo.MetaHash,
 			assetAmountCheck(fullAmt),
 		)
 	}
@@ -1021,7 +1021,7 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		[]uint64{changeUnits, numUnits}, 0, 1,
 	)
 	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
-	assertNonInteractiveRecvComplete(t, bob, 1)
+	AssertNonInteractiveRecvComplete(t.t, bob, 1)
 }
 
 func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
@@ -1048,5 +1048,5 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 
 	// There are now two receive events (since only non-interactive sends
 	// appear in that RPC output).
-	assertNonInteractiveRecvComplete(t, bob, numInTransfers)
+	AssertNonInteractiveRecvComplete(t.t, bob, numInTransfers)
 }

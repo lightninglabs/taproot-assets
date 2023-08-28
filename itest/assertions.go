@@ -110,15 +110,15 @@ func groupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
 	return assetLists
 }
 
-// assertAssetState makes sure that an asset with the given (possibly
+// AssertAssetState makes sure that an asset with the given (possibly
 // non-unique!) name exists in the list of assets and then performs the given
 // additional checks on that asset.
-func assertAssetState(t *harnessTest, assets map[string][]*taprpc.Asset,
+func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
 	name string, metaHash []byte, assetChecks ...assetCheck) *taprpc.Asset {
 
 	var a *taprpc.Asset
 
-	require.Contains(t.t, assets, name)
+	require.Contains(t, assets, name)
 
 	for _, rpcAsset := range assets[name] {
 		rpcGen := rpcAsset.AssetGenesis
@@ -127,23 +127,24 @@ func assertAssetState(t *harnessTest, assets map[string][]*taprpc.Asset,
 
 			for _, check := range assetChecks {
 				err := check(rpcAsset)
-				require.NoError(t.t, err)
+				require.NoError(t, err)
 			}
 
 			break
 		}
 	}
 
-	require.NotNil(t.t, a, fmt.Errorf("asset with matching metadata not"+
+	require.NotNil(t, a, fmt.Errorf("asset with matching metadata not"+
 		"found in asset list"))
 
 	return a
 }
 
-// waitForBatchState polls until the planter has reached the desired state with
+// WaitForBatchState polls until the planter has reached the desired state with
 // the current batch.
-func waitForBatchState(t *harnessTest, ctx context.Context, tapd *tapdHarness,
-	timeout time.Duration, targetState mintrpc.BatchState) bool {
+func WaitForBatchState(t *testing.T, ctx context.Context,
+	client mintrpc.MintClient, timeout time.Duration,
+	targetState mintrpc.BatchState) bool {
 
 	breakTimeout := time.After(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -154,10 +155,10 @@ func waitForBatchState(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 	}
 
 	batchCount := func() int {
-		batchResp, err := tapd.ListBatches(
+		batchResp, err := client.ListBatches(
 			ctx, &mintrpc.ListBatchRequest{},
 		)
-		require.NoError(t.t, err)
+		require.NoError(t, err)
 
 		return fn.Count(batchResp.Batches, isTargetState)
 	}
@@ -177,9 +178,9 @@ func waitForBatchState(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 	}
 }
 
-// commitmentKey returns the asset's commitment key given an RPC asset
+// CommitmentKey returns the asset's commitment key given an RPC asset
 // representation.
-func commitmentKey(t *testing.T, rpcAsset *taprpc.Asset) [32]byte {
+func CommitmentKey(t *testing.T, rpcAsset *taprpc.Asset) [32]byte {
 	t.Helper()
 
 	var assetID asset.ID
@@ -201,10 +202,10 @@ func commitmentKey(t *testing.T, rpcAsset *taprpc.Asset) [32]byte {
 	return asset.AssetCommitmentKey(assetID, scriptKey, groupKey == nil)
 }
 
-// waitForProofUpdate polls until the proof for the given asset has been
+// WaitForProofUpdate polls until the proof for the given asset has been
 // updated, which is detected by checking the block height of the last proof.
-func waitForProofUpdate(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
-	blockHeight int32) {
+func WaitForProofUpdate(t *testing.T, client taprpc.TaprootAssetsClient,
+	a *taprpc.Asset, blockHeight int32) {
 
 	t.Helper()
 
@@ -214,7 +215,7 @@ func waitForProofUpdate(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 
 	require.Eventually(t, func() bool {
 		// Export the proof, then decode it.
-		exportResp, err := tapd.ExportProof(
+		exportResp, err := client.ExportProof(
 			ctxt, &taprpc.ExportProofRequest{
 				AssetId:   a.AssetGenesis.AssetId,
 				ScriptKey: a.ScriptKey,
@@ -234,10 +235,10 @@ func waitForProofUpdate(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 	}, defaultWaitTimeout, 200*time.Millisecond)
 }
 
-// assertAssetProofs makes sure the proofs for the given asset can be retrieved
+// AssertAssetProofs makes sure the proofs for the given asset can be retrieved
 // from the given daemon and can be fully validated.
-func assertAssetProofs(t *testing.T, tapd *tapdHarness,
-	a *taprpc.Asset) []byte {
+func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
+	chainClient chainrpc.ChainKitClient, a *taprpc.Asset) []byte {
 
 	t.Helper()
 
@@ -245,13 +246,17 @@ func assertAssetProofs(t *testing.T, tapd *tapdHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	exportResp, err := tapd.ExportProof(ctxt, &taprpc.ExportProofRequest{
-		AssetId:   a.AssetGenesis.AssetId,
-		ScriptKey: a.ScriptKey,
-	})
+	exportResp, err := tapClient.ExportProof(
+		ctxt, &taprpc.ExportProofRequest{
+			AssetId:   a.AssetGenesis.AssetId,
+			ScriptKey: a.ScriptKey,
+		},
+	)
 	require.NoError(t, err)
 
-	file, snapshot := verifyProofBlob(t, tapd, a, exportResp.RawProof)
+	file, snapshot := verifyProofBlob(
+		t, tapClient, chainClient, a, exportResp.RawProof,
+	)
 
 	assetJSON, err := formatProtoJSON(a)
 	require.NoError(t, err)
@@ -260,7 +265,7 @@ func assertAssetProofs(t *testing.T, tapd *tapdHarness,
 		assetJSON)
 
 	require.Equal(
-		t, commitmentKey(t, a), snapshot.Asset.AssetCommitmentKey(),
+		t, CommitmentKey(t, a), snapshot.Asset.AssetCommitmentKey(),
 	)
 
 	return exportResp.RawProof
@@ -296,7 +301,8 @@ func assertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
 
 // verifyProofBlob parses the given proof blob into a file, verifies it and
 // returns the resulting last asset snapshot together with the parsed file.
-func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
+func verifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
+	chainClient chainrpc.ChainKitClient, a *taprpc.Asset,
 	blob proof.Blob) (*proof.File, *proof.AssetSnapshot) {
 
 	ctxb := context.Background()
@@ -307,20 +313,22 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	// Also make sure that the RPC can verify the proof as well.
-	verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+	verifyResp, err := tapClient.VerifyProof(ctxt, &taprpc.ProofFile{
 		RawProof: blob,
 	})
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)
 
 	// Also make sure that the RPC can decode the proof as well.
-	decodeResp, err := tapd.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
-		RawProof: blob,
-	})
+	decodeResp, err := tapClient.DecodeProof(
+		ctxt, &taprpc.DecodeProofRequest{
+			RawProof: blob,
+		},
+	)
 	require.NoError(t, err)
 
 	require.NotNil(t, decodeResp.DecodedProof)
-	assertAsset(t, a, decodeResp.DecodedProof.Asset)
+	AssertAsset(t, a, decodeResp.DecodedProof.Asset)
 	proofAsset := decodeResp.DecodedProof.Asset
 
 	// Ensure anchor block height is set.
@@ -335,7 +343,7 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 		blockHashReq := &chainrpc.GetBlockHashRequest{
 			BlockHeight: int64(height),
 		}
-		blockHashResp, err := tapd.cfg.LndNode.RPC.ChainKit.GetBlockHash(
+		blockHashResp, err := chainClient.GetBlockHash(
 			ctxb, blockHashReq,
 		)
 		if err != nil {
@@ -357,7 +365,7 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 		req := &chainrpc.GetBlockRequest{
 			BlockHash: hash.CloneBytes(),
 		}
-		_, err = tapd.cfg.LndNode.RPC.ChainKit.GetBlock(ctxb, req)
+		_, err = chainClient.GetBlock(ctxb, req)
 		return err
 	}
 
@@ -369,17 +377,17 @@ func verifyProofBlob(t *testing.T, tapd *tapdHarness, a *taprpc.Asset,
 
 // assertAddrCreated makes sure an address was created correctly for the given
 // asset.
-func assertAddrCreated(t *testing.T, tapd *tapdHarness,
+func assertAddrCreated(t *testing.T, client taprpc.TaprootAssetsClient,
 	expected *taprpc.Asset, actual *taprpc.Addr) {
 
 	// Was the address created correctly?
-	assertAddr(t, expected, actual)
+	AssertAddr(t, expected, actual)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	decoded, err := tapd.DecodeAddr(ctxt, &taprpc.DecodeAddrRequest{
+	decoded, err := client.DecodeAddr(ctxt, &taprpc.DecodeAddrRequest{
 		Addr: actual.Encoded,
 	})
 	require.NoError(t, err)
@@ -389,9 +397,9 @@ func assertAddrCreated(t *testing.T, tapd *tapdHarness,
 	t.Logf("Got address %s decoded as %v", actual.Encoded, decodedJSON)
 
 	// Does the decoded address still show everything correctly?
-	assertAddr(t, expected, decoded)
+	AssertAddr(t, expected, decoded)
 
-	allAddrs, err := tapd.QueryAddrs(ctxt, &taprpc.QueryAddrRequest{})
+	allAddrs, err := client.QueryAddrs(ctxt, &taprpc.QueryAddrRequest{})
 	require.NoError(t, err)
 	require.NotEmpty(t, allAddrs.Addrs)
 
@@ -406,20 +414,21 @@ func assertAddrCreated(t *testing.T, tapd *tapdHarness,
 	require.NotNil(t, rpcAddr)
 
 	// Does the address in the list contain all information we expect?
-	assertAddr(t, expected, rpcAddr)
+	AssertAddr(t, expected, rpcAddr)
 }
 
-// assertAddrEvent makes sure the given address was detected by the given
+// AssertAddrEvent makes sure the given address was detected by the given
 // daemon.
-func assertAddrEvent(t *testing.T, tapd *tapdHarness, addr *taprpc.Addr,
-	numEvents int, expectedStatus taprpc.AddrEventStatus) {
+func AssertAddrEvent(t *testing.T, client taprpc.TaprootAssetsClient,
+	addr *taprpc.Addr, numEvents int,
+	expectedStatus taprpc.AddrEventStatus) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
 	err := wait.NoError(func() error {
-		resp, err := tapd.AddrReceives(
+		resp, err := client.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{
 				FilterAddr: addr.Encoded,
 			},
@@ -449,7 +458,7 @@ func assertAddrEvent(t *testing.T, tapd *tapdHarness, addr *taprpc.Addr,
 
 // assertAddrEventByStatus makes sure the given number of events exist with the
 // given status.
-func assertAddrEventByStatus(t *testing.T, tapd *tapdHarness,
+func assertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 	filterStatus taprpc.AddrEventStatus, numEvents int) {
 
 	ctxb := context.Background()
@@ -457,7 +466,7 @@ func assertAddrEventByStatus(t *testing.T, tapd *tapdHarness,
 	defer cancel()
 
 	err := wait.NoError(func() error {
-		resp, err := tapd.AddrReceives(
+		resp, err := client.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{
 				FilterStatus: filterStatus,
 			},
@@ -576,11 +585,11 @@ func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 	return newBlock
 }
 
-// assertNonInteractiveRecvComplete makes sure the given receiver has the
+// AssertNonInteractiveRecvComplete makes sure the given receiver has the
 // correct number of completed non-interactive inbound asset transfers in their
 // list of events.
-func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tapdHarness,
-	totalInboundTransfers int) {
+func AssertNonInteractiveRecvComplete(t *testing.T,
+	receiver taprpc.TaprootAssetsClient, totalInboundTransfers int) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -592,8 +601,8 @@ func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tapdHarness,
 		resp, err := receiver.AddrReceives(
 			ctxt, &taprpc.AddrReceivesRequest{},
 		)
-		require.NoError(t.t, err)
-		require.Len(t.t, resp.Events, totalInboundTransfers)
+		require.NoError(t, err)
+		require.Len(t, resp.Events, totalInboundTransfers)
 
 		for _, event := range resp.Events {
 			if event.Status != statusCompleted {
@@ -608,12 +617,12 @@ func assertNonInteractiveRecvComplete(t *harnessTest, receiver *tapdHarness,
 
 		return nil
 	}, defaultWaitTimeout/2)
-	require.NoError(t.t, err)
+	require.NoError(t, err)
 }
 
-// assertAddr asserts that an address contains the correct information of an
+// AssertAddr asserts that an address contains the correct information of an
 // asset.
-func assertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
+func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
 	require.Equal(t, expected.AssetType, actual.AssetType)
 
@@ -636,9 +645,9 @@ func assertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 // assertEqualAsset asserts that two taprpc.Asset objects are equal, ignoring
 // node-specific fields like if script keys are local, if the asset is spent,
 // or if the anchor information is populated.
-func assertAsset(t *testing.T, expected, actual *taprpc.Asset) {
+func AssertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 	require.Equal(t, expected.Version, actual.Version)
-	assertAssetGenesis(t, expected.AssetGenesis, actual.AssetGenesis)
+	AssertAssetGenesis(t, expected.AssetGenesis, actual.AssetGenesis)
 	require.Equal(t, expected.AssetType, actual.AssetType)
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.LockTime, actual.LockTime)
@@ -659,8 +668,8 @@ func assertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 	}
 }
 
-// assertAssetGenesis asserts that two taprpc.GenesisInfo objects are equal.
-func assertAssetGenesis(t *testing.T, expected, actual *taprpc.GenesisInfo) {
+// AssertAssetGenesis asserts that two taprpc.GenesisInfo objects are equal.
+func AssertAssetGenesis(t *testing.T, expected, actual *taprpc.GenesisInfo) {
 	require.Equal(t, expected.GenesisPoint, actual.GenesisPoint)
 	require.Equal(t, expected.Name, actual.Name)
 	require.Equal(t, expected.MetaHash, actual.MetaHash)
@@ -669,13 +678,13 @@ func assertAssetGenesis(t *testing.T, expected, actual *taprpc.GenesisInfo) {
 	require.Equal(t, expected.Version, actual.Version)
 }
 
-// assertBalanceByID asserts that the balance of a single asset,
+// AssertBalanceByID asserts that the balance of a single asset,
 // specified by ID, on the given daemon is correct.
-func assertBalanceByID(t *testing.T, tapd *tapdHarness, id []byte,
-	amt uint64) {
+func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
+	id []byte, amt uint64) {
 
 	ctxb := context.Background()
-	balancesResp, err := tapd.ListBalances(
+	balancesResp, err := client.ListBalances(
 		ctxb, &taprpc.ListBalancesRequest{
 			GroupBy: &taprpc.ListBalancesRequest_AssetId{
 				AssetId: true,
@@ -695,10 +704,10 @@ func assertBalanceByID(t *testing.T, tapd *tapdHarness, id []byte,
 	require.Equal(t, uint64(amt), uint64(balance.Balance))
 }
 
-// assertBalanceByGroup asserts that the balance of a single asset group
+// AssertBalanceByGroup asserts that the balance of a single asset group
 // on the given daemon is correct.
-func assertBalanceByGroup(t *testing.T, tapd *tapdHarness, hexGroupKey string,
-	amt uint64) {
+func AssertBalanceByGroup(t *testing.T, client taprpc.TaprootAssetsClient,
+	hexGroupKey string, amt uint64) {
 
 	t.Helper()
 
@@ -706,7 +715,7 @@ func assertBalanceByGroup(t *testing.T, tapd *tapdHarness, hexGroupKey string,
 	require.NoError(t, err)
 
 	ctxb := context.Background()
-	balancesResp, err := tapd.ListBalances(
+	balancesResp, err := client.ListBalances(
 		ctxb, &taprpc.ListBalancesRequest{
 			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
 				GroupKey: true,
@@ -721,13 +730,13 @@ func assertBalanceByGroup(t *testing.T, tapd *tapdHarness, hexGroupKey string,
 	require.Equal(t, amt, balance.Balance)
 }
 
-// assertTransfer asserts that the value of each transfer initiated on the
+// AssertTransfer asserts that the value of each transfer initiated on the
 // given daemon is correct.
-func assertTransfer(t *testing.T, tapd *tapdHarness, transferIdx,
-	numTransfers int, outputAmounts []uint64) {
+func AssertTransfer(t *testing.T, client taprpc.TaprootAssetsClient,
+	transferIdx, numTransfers int, outputAmounts []uint64) {
 
 	ctxb := context.Background()
-	transferResp, err := tapd.ListTransfers(
+	transferResp, err := client.ListTransfers(
 		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
@@ -740,13 +749,13 @@ func assertTransfer(t *testing.T, tapd *tapdHarness, transferIdx,
 	}
 }
 
-// assertSplitTombstoneTransfer asserts that there is a transfer for the given
+// AssertSplitTombstoneTransfer asserts that there is a transfer for the given
 // asset ID that is a split that left over a tombstone output.
-func assertSplitTombstoneTransfer(t *testing.T, tapd *tapdHarness,
-	id []byte) {
+func AssertSplitTombstoneTransfer(t *testing.T,
+	client taprpc.TaprootAssetsClient, id []byte) {
 
 	ctxb := context.Background()
-	transferResp, err := tapd.ListTransfers(
+	transferResp, err := client.ListTransfers(
 		ctxb, &taprpc.ListTransfersRequest{},
 	)
 	require.NoError(t, err)
@@ -774,24 +783,26 @@ func assertSplitTombstoneTransfer(t *testing.T, tapd *tapdHarness,
 	require.True(t, tombstoneFound, "no tombstone output found")
 }
 
-// assertNumGroups asserts that the number of groups the daemon is aware of
+// AssertNumGroups asserts that the number of groups the daemon is aware of
 // is correct.
-func assertNumGroups(t *testing.T, tapd *tapdHarness, num int) {
+func AssertNumGroups(t *testing.T, client taprpc.TaprootAssetsClient,
+	num int) {
+
 	ctxb := context.Background()
-	groupResp, err := tapd.ListGroups(
+	groupResp, err := client.ListGroups(
 		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
 	require.Equal(t, num, len(groupResp.Groups))
 }
 
-// assertGroupSizes asserts that a set of groups the daemon is aware of contain
+// AssertGroupSizes asserts that a set of groups the daemon is aware of contain
 // the expected number of assets.
-func assertGroupSizes(t *testing.T, tapd *tapdHarness, hexGroupKeys []string,
-	sizes []int) {
+func AssertGroupSizes(t *testing.T, client taprpc.TaprootAssetsClient,
+	hexGroupKeys []string, sizes []int) {
 
 	ctxb := context.Background()
-	groupResp, err := tapd.ListGroups(
+	groupResp, err := client.ListGroups(
 		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
@@ -803,9 +814,9 @@ func assertGroupSizes(t *testing.T, tapd *tapdHarness, hexGroupKeys []string,
 	}
 }
 
-// assertGroup asserts that an asset returned from the ListGroups call matches
+// AssertGroup asserts that an asset returned from the ListGroups call matches
 // a specific asset and has the same group key.
-func assertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
+func AssertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
 	groupKey []byte) {
 
 	require.Equal(t, a.AssetGenesis.AssetId, b.Id)
@@ -818,9 +829,9 @@ func assertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
 	require.Equal(t, a.AssetGroup.TweakedGroupKey, groupKey)
 }
 
-// assertGroupAnchor asserts that a specific asset genesis was used to create
+// AssertGroupAnchor asserts that a specific asset genesis was used to create
 // a tweaked group key.
-func assertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
+func AssertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
 	internalKey, tweakedKey []byte) {
 
 	internalPubKey, err := btcec.ParsePubKey(internalKey)
@@ -838,14 +849,14 @@ type MatchRpcAsset func(asset *taprpc.Asset) bool
 
 // assertListAssets checks that the assets returned by ListAssets match the
 // expected assets.
-func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
-	matchAssets []MatchRpcAsset) {
+func assertListAssets(t *testing.T, ctx context.Context,
+	client taprpc.TaprootAssetsClient, matchAssets []MatchRpcAsset) {
 
-	resp, err := tapd.ListAssets(ctx, &taprpc.ListAssetRequest{})
-	require.NoError(t.t, err)
+	resp, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{})
+	require.NoError(t, err)
 
 	// Ensure that the number of assets returned is correct.
-	require.Equal(t.t, len(resp.Assets), len(matchAssets))
+	require.Equal(t, len(resp.Assets), len(matchAssets))
 
 	// Match each asset returned by the daemon against the expected assets.
 	for _, a := range resp.Assets {
@@ -856,31 +867,31 @@ func assertListAssets(t *harnessTest, ctx context.Context, tapd *tapdHarness,
 				break
 			}
 		}
-		require.True(t.t, assetMatched, "asset not matched: %v", a)
+		require.True(t, assetMatched, "asset not matched: %v", a)
 	}
 }
 
-// assertUniverseRootEquality checks that the universe roots returned by two
+// AssertUniverseRootEquality checks that the universe roots returned by two
 // daemons are either equal or not, depending on the expectedEquality parameter.
-func assertUniverseRootEquality(t *testing.T, a, b *tapdHarness,
-	expectedEquality bool) {
+func AssertUniverseRootEquality(t *testing.T,
+	clientA, clientB unirpc.UniverseClient, expectedEquality bool) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
 	rootRequest := &unirpc.AssetRootRequest{}
-	universeRootsAlice, err := a.AssetRoots(ctxt, rootRequest)
+	universeRootsAlice, err := clientA.AssetRoots(ctxt, rootRequest)
 	require.NoError(t, err)
-	universeRootsBob, err := b.AssetRoots(ctxt, rootRequest)
+	universeRootsBob, err := clientB.AssetRoots(ctxt, rootRequest)
 	require.NoError(t, err)
-	require.Equal(t, expectedEquality, assertUniverseRootsEqual(
+	require.Equal(t, expectedEquality, AssertUniverseRootsEqual(
 		universeRootsAlice, universeRootsBob,
 	))
 }
 
-func assertUniverseRoot(t *testing.T, tapd *tapdHarness, sum int,
-	assetID []byte, groupKey []byte) error {
+func AssertUniverseRoot(t *testing.T, client unirpc.UniverseClient,
+	sum int, assetID []byte, groupKey []byte) error {
 
 	bothSet := assetID != nil && groupKey != nil
 	neitherSet := assetID == nil && groupKey == nil
@@ -917,7 +928,7 @@ func assertUniverseRoot(t *testing.T, tapd *tapdHarness, sum int,
 
 	ctx := context.Background()
 
-	uniRoots, err := tapd.AssetRoots(ctx, &unirpc.AssetRootRequest{})
+	uniRoots, err := client.AssetRoots(ctx, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 
 	correctRoot := fn.Any(maps.Values(uniRoots.UniverseRoots), matchingRoot)
@@ -926,7 +937,7 @@ func assertUniverseRoot(t *testing.T, tapd *tapdHarness, sum int,
 	return nil
 }
 
-func assertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
+func AssertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
 	// The ids should batch exactly.
 	if !reflect.DeepEqual(a.Id.Id, b.Id.Id) {
 		return false
@@ -943,7 +954,7 @@ func assertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
 	return true
 }
 
-func assertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
+func AssertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
 	// The set of keys in the maps should match exactly, as this means the
 	// same set of asset IDs are being tracked.
 	uniKeys := maps.Keys(a.UniverseRoots)
@@ -971,13 +982,13 @@ func assertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
 			return false
 		}
 
-		return assertUniverseRootEqual(rootA, rootB)
+		return AssertUniverseRootEqual(rootA, rootB)
 	}
 
 	return true
 }
 
-func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) bool {
+func AssertUniverseStateEqual(t *testing.T, a, b unirpc.UniverseClient) bool {
 	ctxb := context.Background()
 
 	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
@@ -986,11 +997,11 @@ func assertUniverseStateEqual(t *testing.T, a, b *tapdHarness) bool {
 	rootsB, err := b.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 
-	return assertUniverseRootsEqual(rootsA, rootsB)
+	return AssertUniverseRootsEqual(rootsA, rootsB)
 }
 
-func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
-	a, b *tapdHarness) {
+func AssertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
+	a, b unirpc.UniverseClient) {
 
 	for _, uniID := range uniIDs {
 		aLeaves, err := a.AssetLeaves(context.Background(), uniID)
@@ -1015,8 +1026,8 @@ func assertUniverseLeavesEqual(t *testing.T, uniIDs []*unirpc.ID,
 	}
 }
 
-func assertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
-	a, b *tapdHarness) {
+func AssertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
+	a, b unirpc.UniverseClient) {
 
 	for _, uniID := range uniIDs {
 		aUniKeys, err := a.AssetLeafKeys(context.Background(), uniID)
@@ -1037,11 +1048,11 @@ func assertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 	}
 }
 
-func assertUniverseStats(t *testing.T, node *tapdHarness,
+func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
 	numProofs, numSyncs, numAssets int) {
 
 	err := wait.NoError(func() error {
-		uniStats, err := node.UniverseStats(
+		uniStats, err := client.UniverseStats(
 			context.Background(), &unirpc.StatsRequest{},
 		)
 		if err != nil {
@@ -1066,7 +1077,7 @@ func assertUniverseStats(t *testing.T, node *tapdHarness,
 	require.NoError(t, err)
 }
 
-func assertUniverseAssetStats(t *testing.T, node *tapdHarness,
+func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	assets []*taprpc.Asset) {
 
 	ctxb := context.Background()

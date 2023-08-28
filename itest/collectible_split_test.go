@@ -119,12 +119,12 @@ func testCollectibleSend(t *harnessTest) {
 	// Check the final state of both nodes. The main node should list 2
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
-	assertTransfer(t.t, t.tapd, 0, 2, []uint64{0, fullAmount})
-	assertTransfer(t.t, t.tapd, 1, 2, []uint64{0, fullAmount})
-	assertBalanceByID(t.t, t.tapd, genInfo.AssetId, 0)
+	AssertTransfer(t.t, t.tapd, 0, 2, []uint64{0, fullAmount})
+	AssertTransfer(t.t, t.tapd, 1, 2, []uint64{0, fullAmount})
+	AssertBalanceByID(t.t, t.tapd, genInfo.AssetId, 0)
 
-	assertTransfer(t.t, secondTapd, 0, 1, []uint64{0, fullAmount})
-	assertBalanceByID(t.t, secondTapd, genInfo.AssetId, fullAmount)
+	AssertTransfer(t.t, secondTapd, 0, 1, []uint64{0, fullAmount})
+	AssertBalanceByID(t.t, secondTapd, genInfo.AssetId, fullAmount)
 
 	// The second daemon should list one group with one asset.
 	listGroupsResp, err := secondTapd.ListGroups(
@@ -159,7 +159,7 @@ func testCollectibleSend(t *harnessTest) {
 	})
 
 	// Only compare the spendable asset.
-	assertGroup(t.t, allAssets[0], groupedAssets[0], rpcGroupKey)
+	AssertGroup(t.t, allAssets[0], groupedAssets[0], rpcGroupKey)
 
 	aliceAssetsResp, err := t.tapd.ListAssets(
 		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
@@ -189,5 +189,5 @@ func testCollectibleSend(t *harnessTest) {
 	)
 
 	// There's only one non-interactive receive event.
-	assertNonInteractiveRecvComplete(t, secondTapd, 3)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 3)
 }

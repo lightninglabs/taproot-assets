@@ -81,17 +81,17 @@ var (
 	}
 )
 
-// copyRequest is a helper function to copy a request so that we can modify it.
-func copyRequest(req *mintrpc.MintAssetRequest) *mintrpc.MintAssetRequest {
+// CopyRequest is a helper function to copy a request so that we can modify it.
+func CopyRequest(req *mintrpc.MintAssetRequest) *mintrpc.MintAssetRequest {
 	return proto.Clone(req).(*mintrpc.MintAssetRequest)
 }
 
-// copyRequests is a helper function to copy a slice of requests so that we can
+// CopyRequests is a helper function to copy a slice of requests so that we can
 // modify them.
-func copyRequests(reqs []*mintrpc.MintAssetRequest) []*mintrpc.MintAssetRequest {
+func CopyRequests(reqs []*mintrpc.MintAssetRequest) []*mintrpc.MintAssetRequest {
 	copied := make([]*mintrpc.MintAssetRequest, len(reqs))
 	for idx := range reqs {
-		copied[idx] = copyRequest(reqs[idx])
+		copied[idx] = CopyRequest(reqs[idx])
 	}
 	return copied
 }
@@ -115,8 +115,9 @@ func testMintAssets(t *harnessTest) {
 	var allAssets []*taprpc.Asset
 	allAssets = append(allAssets, rpcSimpleAssets...)
 	allAssets = append(allAssets, rpcIssuableAssets...)
+	chainClient := t.tapd.cfg.LndNode.RPC.ChainKit
 	for _, mintedAsset := range allAssets {
-		assertAssetProofs(t.t, t.tapd, mintedAsset)
+		AssertAssetProofs(t.t, t.tapd, chainClient, mintedAsset)
 	}
 
 	// Let's now create a new node and import all assets into that new node.
@@ -180,8 +181,8 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 	require.NoError(t.t, err)
 	require.NotEmpty(t.t, batchResp.BatchKey)
 
-	waitForBatchState(
-		t, ctxt, tapd, options.mintingTimeout,
+	WaitForBatchState(
+		t.t, ctxt, tapd, options.mintingTimeout,
 		mintrpc.BatchState_BATCH_STATE_BROADCAST,
 	)
 	hashes, err := waitForNTxsInMempool(
@@ -201,8 +202,8 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 		metaHash := (&proof.MetaReveal{
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
-		assertAssetState(
-			t, unconfirmedAssets, assetRequest.Asset.Name,
+		AssertAssetState(
+			t.t, unconfirmedAssets, assetRequest.Asset.Name,
 			metaHash[:],
 			assetAmountCheck(assetRequest.Asset.Amount),
 			assetTypeCheck(assetRequest.Asset.AssetType),
@@ -234,8 +235,8 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	// Mine a block to confirm the assets.
 	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	blockHash := block.BlockHash()
-	waitForBatchState(
-		t, ctxt, tapd, options.mintingTimeout,
+	WaitForBatchState(
+		t.t, ctxt, tapd, options.mintingTimeout,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
@@ -271,8 +272,8 @@ func assertAssetsMinted(t *harnessTest, tapd *tapdHarness,
 		metaHash := (&proof.MetaReveal{
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
-		mintedAsset := assertAssetState(
-			t, confirmedAssets, assetRequest.Asset.Name,
+		mintedAsset := AssertAssetState(
+			t.t, confirmedAssets, assetRequest.Asset.Name,
 			metaHash[:], assetAnchorCheck(mintTXID, blockHash),
 			assetScriptKeyIsLocalCheck(true),
 			func(a *taprpc.Asset) error {
@@ -321,9 +322,13 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	//  * we can import the proof but it's useless as is, but lets this
 	//  itest work
 
+	chainClient := src.cfg.LndNode.RPC.ChainKit
 	for _, existingAsset := range assets {
 		gen := existingAsset.AssetGenesis
-		proofFile := assertAssetProofs(t.t, src, existingAsset)
+
+		proofFile := AssertAssetProofs(
+			t.t, src, chainClient, existingAsset,
+		)
 		_, err := dst.ImportProof(ctxt, &tapdevrpc.ImportProofRequest{
 			ProofFile:    proofFile,
 			GenesisPoint: gen.GenesisPoint,
@@ -349,8 +354,8 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 		)
 		require.NoError(t.t, err)
 
-		assertAssetState(
-			t, importedAssets, gen.Name, gen.MetaHash,
+		AssertAssetState(
+			t.t, importedAssets, gen.Name, gen.MetaHash,
 			assetAmountCheck(existingAsset.Amount),
 			assetTypeCheck(existingAsset.AssetType),
 			assetAnchorCheck(*anchorTxHash, *anchorBlockHash),

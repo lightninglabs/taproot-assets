@@ -107,7 +107,7 @@ func testUniverseSync(t *harnessTest) {
 
 		srcRoot, ok := universeRoots.UniverseRoots[uniKey]
 		require.True(t.t, ok)
-		require.True(t.t, assertUniverseRootEqual(srcRoot, newRoot))
+		require.True(t.t, AssertUniverseRootEqual(srcRoot, newRoot))
 	}
 
 	// Now we'll fetch the Universe roots from Bob. These should match the
@@ -117,7 +117,7 @@ func testUniverseSync(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.True(
-		t.t, assertUniverseRootsEqual(universeRoots, universeRootsBob),
+		t.t, AssertUniverseRootsEqual(universeRoots, universeRootsBob),
 	)
 
 	// Finally, we'll ensure that the universe keys and leaves matches for
@@ -127,8 +127,8 @@ func testUniverseSync(t *harnessTest) {
 		return root.Id
 	},
 	)
-	assertUniverseKeysEqual(t.t, uniIDs, t.tapd, bob)
-	assertUniverseLeavesEqual(t.t, uniIDs, t.tapd, bob)
+	AssertUniverseKeysEqual(t.t, uniIDs, t.tapd, bob)
+	AssertUniverseLeavesEqual(t.t, uniIDs, t.tapd, bob)
 
 	// We should also be able to fetch an asset from Bob's Universe, and
 	// query for that asset with the compressed script key.
@@ -198,7 +198,7 @@ func testUniverseSync(t *harnessTest) {
 
 	firstAssetFromUni := firstAssetUniProof.AssetLeaf.Asset
 	firstAssetFromUni.PrevWitnesses = nil
-	assertAsset(t.t, rpcSimpleAssets[0], firstAssetFromUni)
+	AssertAsset(t.t, rpcSimpleAssets[0], firstAssetFromUni)
 
 	// Now we'll delete a universe root on Bob's node, and then re-sync it.
 	_, err = bob.DeleteAssetRoot(ctxt, &unirpc.DeleteRootQuery{
@@ -241,7 +241,7 @@ func testUniverseSync(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.True(
-		t.t, assertUniverseRootsEqual(universeRoots, universeRootsBob),
+		t.t, AssertUniverseRootsEqual(universeRoots, universeRootsBob),
 	)
 }
 
@@ -410,12 +410,12 @@ func testUniverseFederation(t *harnessTest) {
 
 	// At this point, both nodes should have the same Universe roots.
 	require.Eventually(t.t, func() bool {
-		return assertUniverseStateEqual(t.t, bob, t.tapd)
+		return AssertUniverseStateEqual(t.t, bob, t.tapd)
 	}, defaultWaitTimeout, wait.PollInterval)
 
 	// Bob's Universe stats should show that he now has a single asset. We
 	// should also be able to query for stats specifically for the asset.
-	assertUniverseStats(t.t, bob, 1, 0, 1)
+	AssertUniverseStats(t.t, bob, 1, 0, 1)
 
 	// Test the content of the universe info call.
 	info, err := bob.Info(ctxt, &unirpc.InfoRequest{})
@@ -460,15 +460,15 @@ func testUniverseFederation(t *harnessTest) {
 	// At this point, both nodes should have the same Universe roots as Bob
 	// should have optimistically pushed the update to its federation
 	// members.
-	assertUniverseStateEqual(t.t, bob, t.tapd)
+	AssertUniverseStateEqual(t.t, bob, t.tapd)
 
 	// Bob's stats should also now show that there're three total asset as
 	// well as three proofs.
-	assertUniverseStats(t.t, bob, 3, 0, 3)
+	AssertUniverseStats(t.t, bob, 3, 0, 3)
 
 	// We should be able to find both the new assets in the set of universe
 	// stats for an asset.
-	assertUniverseAssetStats(t.t, bob, []*taprpc.Asset{
+	AssertUniverseAssetStats(t.t, bob, []*taprpc.Asset{
 		firstAsset[0], newAssets[0], newAssets[1],
 	})
 
