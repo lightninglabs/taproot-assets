@@ -7,6 +7,7 @@ import (
 
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -417,7 +418,7 @@ func universeProofInsert(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	rpcAsset, err := tap.MarshalAsset(
+	rpcAsset, err := taprpc.MarshalAsset(
 		ctxc, &assetProof.Asset, false, true, nil,
 	)
 	if err != nil {

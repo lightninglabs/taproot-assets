@@ -583,7 +583,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 	withWitness bool) (*taprpc.Asset, error) {
 
-	rpcAsset, err := MarshalAsset(
+	rpcAsset, err := taprpc.MarshalAsset(
 		ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook,
 	)
 	if err != nil {
@@ -615,96 +615,6 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 	if a.AnchorLeaseOwner != [32]byte{} {
 		rpcAsset.LeaseOwner = a.AnchorLeaseOwner[:]
 		rpcAsset.LeaseExpiry = a.AnchorLeaseExpiry.UTC().Unix()
-	}
-
-	return rpcAsset, nil
-}
-
-// KeyLookup is used to determine whether a key is under the control of the
-// local wallet.
-type KeyLookup interface {
-	// IsLocalKey returns true if the key is under the control of the
-	// wallet and can be derived by it.
-	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
-}
-
-func MarshalAsset(ctx context.Context, a *asset.Asset,
-	isSpent, withWitness bool,
-	keyRing KeyLookup) (*taprpc.Asset, error) {
-
-	assetID := a.Genesis.ID()
-	scriptKeyIsLocal := false
-	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
-		scriptKeyIsLocal = keyRing.IsLocalKey(
-			ctx, a.ScriptKey.RawKey,
-		)
-	}
-
-	rpcAsset := &taprpc.Asset{
-		Version: int32(a.Version),
-		AssetGenesis: &taprpc.GenesisInfo{
-			GenesisPoint: a.Genesis.FirstPrevOut.String(),
-			Name:         a.Genesis.Tag,
-			MetaHash:     a.Genesis.MetaHash[:],
-			AssetId:      assetID[:],
-			OutputIndex:  a.Genesis.OutputIndex,
-		},
-		AssetType:        taprpc.AssetType(a.Type),
-		Amount:           a.Amount,
-		LockTime:         int32(a.LockTime),
-		RelativeLockTime: int32(a.RelativeLockTime),
-		ScriptVersion:    int32(a.ScriptVersion),
-		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
-		ScriptKeyIsLocal: scriptKeyIsLocal,
-		IsSpent:          isSpent,
-	}
-
-	if a.GroupKey != nil {
-		var rawKey []byte
-		if a.GroupKey.RawKey.PubKey != nil {
-			rawKey = a.GroupKey.RawKey.PubKey.SerializeCompressed()
-		}
-		rpcAsset.AssetGroup = &taprpc.AssetGroup{
-			RawGroupKey:     rawKey,
-			TweakedGroupKey: a.GroupKey.GroupPubKey.SerializeCompressed(),
-			AssetIdSig:      a.GroupKey.Sig.Serialize(),
-		}
-	}
-
-	if withWitness {
-		for idx := range a.PrevWitnesses {
-			witness := a.PrevWitnesses[idx]
-
-			prevID := witness.PrevID
-			rpcPrevID := &taprpc.PrevInputAsset{
-				AnchorPoint: prevID.OutPoint.String(),
-				AssetId:     prevID.ID[:],
-				ScriptKey:   prevID.ScriptKey[:],
-			}
-
-			var rpcSplitCommitment *taprpc.SplitCommitment
-			if witness.SplitCommitment != nil {
-				rootAsset, err := MarshalAsset(
-					ctx, &witness.SplitCommitment.RootAsset,
-					false, true, nil,
-				)
-				if err != nil {
-					return nil, err
-				}
-
-				rpcSplitCommitment = &taprpc.SplitCommitment{
-					RootAsset: rootAsset,
-				}
-			}
-
-			rpcAsset.PrevWitnesses = append(
-				rpcAsset.PrevWitnesses, &taprpc.PrevWitness{
-					PrevId:          rpcPrevID,
-					TxWitness:       witness.TxWitness,
-					SplitCommitment: rpcSplitCommitment,
-				},
-			)
-		}
 	}
 
 	return rpcAsset, nil
@@ -2636,7 +2546,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	return resp, nil
 }
 
-func marshalAssetLeaf(ctx context.Context, keys KeyLookup,
+func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
 
 	// In order to display the full asset, we'll also encode the genesis
@@ -2646,7 +2556,7 @@ func marshalAssetLeaf(ctx context.Context, keys KeyLookup,
 		return nil, err
 	}
 
-	rpcAsset, err := MarshalAsset(
+	rpcAsset, err := taprpc.MarshalAsset(
 		ctx, &assetLeaf.GenesisProof.Asset, false, true, keys,
 	)
 	if err != nil {
