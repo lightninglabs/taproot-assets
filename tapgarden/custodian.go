@@ -386,6 +386,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			loc := proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: addr.ScriptKey,
+				OutPoint:  &op,
 			}
 			addrProof, err := courier.ReceiveProof(ctx, loc)
 			if err != nil {

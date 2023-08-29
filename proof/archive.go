@@ -57,6 +57,10 @@ type Locator struct {
 	// ScriptKey specifies the script key of the asset to fetch/store. This
 	// field MUST be specified.
 	ScriptKey btcec.PublicKey
+
+	// OutPoint is the outpoint of the associated asset. This field is
+	// optional.
+	OutPoint *wire.OutPoint
 }
 
 // Hash returns a SHA256 hash of the bytes serialized locator.

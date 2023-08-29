@@ -14,6 +14,8 @@ import (
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/taprpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -32,6 +34,10 @@ const (
 	// HashmailCourierType is a courier that uses the hashmail protocol to
 	// deliver proofs.
 	HashmailCourierType = "hashmail"
+
+	// UniverseRpcCourierType is a courier that uses the daemon universe RPC
+	// endpoints to deliver proofs.
+	UniverseRpcCourierType = "universerpc"
 )
 
 // CourierHarness interface is an integration testing harness for a proof
@@ -95,6 +101,8 @@ func ParseCourierAddrUrl(addr url.URL) (CourierAddr, error) {
 	switch addr.Scheme {
 	case HashmailCourierType:
 		return NewHashMailCourierAddr(addr)
+	case UniverseRpcCourierType:
+		return NewUniverseRpcCourierAddr(addr)
 	}
 
 	return nil, fmt.Errorf("unknown courier address protocol "+
@@ -155,6 +163,70 @@ func NewHashMailCourierAddr(addr url.URL) (*HashMailCourierAddr, error) {
 	}
 
 	return &HashMailCourierAddr{
+		addr,
+	}, nil
+}
+
+// UniverseRpcCourierAddr is a universe RPC protocol specific implementation of
+// the CourierAddr interface.
+type UniverseRpcCourierAddr struct {
+	addr url.URL
+}
+
+// Url returns the url.URL representation of the courier address.
+func (h *UniverseRpcCourierAddr) Url() *url.URL {
+	return &h.addr
+}
+
+// NewCourier generates a new courier service handle.
+func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
+	cfg *CourierCfg, recipient Recipient) (Courier, error) {
+
+	// Ensure that the courier address is a universe RPC address.
+	if h.addr.Scheme != UniverseRpcCourierType {
+		return nil, fmt.Errorf("unsupported courier protocol: %v",
+			h.addr.Scheme)
+	}
+
+	// Connect to the universe RPC server.
+	dialOpts, err := serverDialOpts()
+	if err != nil {
+		return nil, err
+	}
+
+	serverAddr := fmt.Sprintf(
+		"%s:%s", h.addr.Hostname(), h.addr.Port(),
+	)
+	conn, err := grpc.Dial(serverAddr, dialOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	client := unirpc.NewUniverseClient(conn)
+
+	// Instantiate the events subscribers map.
+	subscribers := make(
+		map[uint64]*fn.EventReceiver[fn.Event],
+	)
+
+	return &UniverseRpcCourier{
+		recipient:   recipient,
+		client:      client,
+		deliveryLog: cfg.DeliveryLog,
+		subscribers: subscribers,
+	}, nil
+}
+
+// NewUniverseRpcCourierAddr generates a new universe RPC courier address from a
+// given URL. This function also performs protocol specific address validation.
+func NewUniverseRpcCourierAddr(addr url.URL) (*UniverseRpcCourierAddr, error) {
+	// We expect the port number to be specified.
+	if addr.Port() == "" {
+		return nil, fmt.Errorf("proof courier URI address port " +
+			"unspecified")
+	}
+
+	return &UniverseRpcCourierAddr{
 		addr,
 	}, nil
 }
@@ -848,6 +920,219 @@ func (h *HashMailCourier) SetSubscribers(
 // A compile-time assertion to ensure the HashMailCourier meets the
 // proof.Courier interface.
 var _ Courier = (*HashMailCourier)(nil)
+
+// UniverseRpcCourier is a universe RPC proof courier service handle. It
+// implements the Courier interface.
+type UniverseRpcCourier struct {
+	// recipient describes the recipient of the proof.
+	recipient Recipient
+
+	// client is the RPC client that the courier will use to interact with
+	// the universe RPC server.
+	client unirpc.UniverseClient
+
+	// deliveryLog is the log that the courier will use to record the
+	// attempted delivery of proofs to the receiver.
+	deliveryLog DeliveryLog
+
+	// subscribers is a map of components that want to be notified on new
+	// events, keyed by their subscription ID.
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]
+
+	// subscriberMtx guards the subscribers map and access to the
+	// subscriptionID.
+	subscriberMtx sync.Mutex
+}
+
+// DeliverProof attempts to delivery a proof file to the receiver.
+func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
+	annotatedProof *AnnotatedProof) error {
+
+	// Decode annotated proof into proof file.
+	proofFile := &File{}
+	err := proofFile.Decode(bytes.NewReader(annotatedProof.Blob))
+	if err != nil {
+		return err
+	}
+
+	// Iterate over each proof in the proof file and submit to the courier
+	// service.
+	for i := 0; i < proofFile.NumProofs(); i++ {
+		transitionProof, err := proofFile.ProofAt(uint32(i))
+		if err != nil {
+			return err
+		}
+		proofAsset := transitionProof.Asset
+
+		// Construct asset leaf.
+		rpcAsset, err := taprpc.MarshalAsset(
+			ctx, &proofAsset, true, true, nil,
+		)
+		if err != nil {
+			return err
+		}
+
+		var proofBuf bytes.Buffer
+		if err := transitionProof.Encode(&proofBuf); err != nil {
+			return fmt.Errorf("error encoding proof file: %w", err)
+		}
+
+		assetLeaf := unirpc.AssetLeaf{
+			Asset:         rpcAsset,
+			IssuanceProof: proofBuf.Bytes(),
+		}
+
+		// Construct universe key.
+		outPoint := transitionProof.OutPoint()
+		assetKey := unirpc.MarshalAssetKey(
+			outPoint, proofAsset.ScriptKey.PubKey,
+		)
+		assetID := proofAsset.ID()
+		universeID := unirpc.MarshalUniverseID(assetID[:], nil)
+		universeKey := unirpc.UniverseKey{
+			Id:      universeID,
+			LeafKey: assetKey,
+		}
+
+		// Before attempting to deliver the proof, log that an attempted
+		// delivery is about to occur.
+		var groupPubKey *btcec.PublicKey
+		if proofAsset.GroupKey != nil {
+			groupPubKey = &proofAsset.GroupKey.GroupPubKey
+		}
+		loc := Locator{
+			AssetID:   &assetID,
+			GroupKey:  groupPubKey,
+			ScriptKey: *proofAsset.ScriptKey.PubKey,
+			OutPoint:  &outPoint,
+		}
+		err = c.deliveryLog.StoreProofDeliveryAttempt(ctx, loc)
+		if err != nil {
+			return fmt.Errorf("unable to log proof delivery "+
+				"attempt: %w", err)
+		}
+
+		// Submit proof to courier.
+		_, err = c.client.InsertProof(ctx, &unirpc.AssetProof{
+			Key:       &universeKey,
+			AssetLeaf: &assetLeaf,
+		})
+		if err != nil {
+			return fmt.Errorf("error inserting proof into "+
+				"universe courier service: %w", err)
+		}
+	}
+
+	return err
+}
+
+// ReceiveProof attempts to obtain a proof file from the courier service. The
+// final proof in the target proof file is identified by the given locator.
+func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
+	originLocator Locator) (*AnnotatedProof, error) {
+
+	// In order to reconstruct the proof file we must collect all the
+	// transition proofs that make up the main chain of proofs. That is
+	// accomplished by iterating backwards through the main chain of proofs
+	// until we reach the genesis point (minting proof).
+
+	// We will update the locator at each iteration.
+	loc := originLocator
+
+	// revProofs is a slice of transition proofs ordered from latest to
+	// earliest (the issuance proof comes last in the slice). This ordering
+	// is a reversal of that found in the proof file.
+	var revProofs []Proof
+
+	for {
+		assetID := *loc.AssetID
+		universeID := unirpc.MarshalUniverseID(assetID[:], nil)
+		assetKey := unirpc.MarshalAssetKey(
+			*loc.OutPoint, &loc.ScriptKey,
+		)
+		universeKey := unirpc.UniverseKey{
+			Id:      universeID,
+			LeafKey: assetKey,
+		}
+
+		resp, err := c.client.QueryProof(ctx, &universeKey)
+		if err != nil {
+			return nil, err
+		}
+
+		// Decode transition proof from query response.
+		proofBlob := resp.AssetLeaf.IssuanceProof
+		var transitionProof Proof
+		if err := transitionProof.Decode(
+			bytes.NewReader(proofBlob),
+		); err != nil {
+			return nil, err
+		}
+
+		revProofs = append(revProofs, transitionProof)
+
+		// Break if we've reached the genesis point (the asset is the
+		// genesis asset).
+		if transitionProof.Asset.HasGenesisWitness() {
+			break
+		}
+
+		// Update locator with principal input to the current outpoint.
+		prevID, err := transitionProof.Asset.PrimaryPrevID()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse script key public key.
+		scriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse script key "+
+				"public key from Proof.PrevID: %w", err)
+		}
+		loc.ScriptKey = *scriptKeyPubKey
+
+		loc.AssetID = &prevID.ID
+		loc.OutPoint = &prevID.OutPoint
+	}
+
+	// Append proofs to proof file in reverse order to their collected
+	// order.
+	proofFile := &File{}
+	for i := len(revProofs) - 1; i >= 0; i-- {
+		err := proofFile.AppendProof(revProofs[i])
+		if err != nil {
+			return nil, fmt.Errorf("error appending proof to "+
+				"proof file: %w", err)
+		}
+	}
+
+	// Encode the full proof file.
+	var buf bytes.Buffer
+	if err := proofFile.Encode(&buf); err != nil {
+		return nil, fmt.Errorf("error encoding proof file: %w", err)
+	}
+	proofFileBlob := buf.Bytes()
+
+	return &AnnotatedProof{
+		Locator: originLocator,
+		Blob:    proofFileBlob,
+	}, nil
+}
+
+// SetSubscribers sets the subscribers for the courier. This method is
+// thread-safe.
+func (c *UniverseRpcCourier) SetSubscribers(
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]) {
+
+	c.subscriberMtx.Lock()
+	defer c.subscriberMtx.Unlock()
+
+	c.subscribers = subscribers
+}
+
+// A compile-time assertion to ensure the UniverseRpcCourier meets the
+// proof.Courier interface.
+var _ Courier = (*UniverseRpcCourier)(nil)
 
 // DeliveryLog is an interface that allows the courier to log the (attempted)
 // delivery of a proof.
