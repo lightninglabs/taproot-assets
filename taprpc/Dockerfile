@@ -4,7 +4,7 @@
 # /dev.Dockerfile
 # /make/builder.Dockerfile
 # /tools/Dockerfile
-FROM golang:1.20.5-buster
+FROM golang:1.21.0-buster
 
 RUN apt-get update && apt-get install -y \
   git \
