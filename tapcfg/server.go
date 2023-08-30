@@ -186,7 +186,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	//  support a proof courier.
 	if cfg.HashMailCourier != nil {
 		proofCourierCfg = &proof.CourierCfg{
-			TlsCertPath:        cfg.HashMailCourier.TlsCertPath,
 			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
 			BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
 			DeliveryLog:        assetStore,

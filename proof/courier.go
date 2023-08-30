@@ -122,12 +122,11 @@ func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
 	recipient Recipient) (Courier, error) {
 
 	hashMailCfg := HashMailCourierCfg{
-		TlsCertPath:        cfg.TlsCertPath,
 		ReceiverAckTimeout: cfg.ReceiverAckTimeout,
 		BackoffCfg:         cfg.BackoffCfg,
 	}
 
-	hashMailBox, err := NewHashMailBox(&h.addr, hashMailCfg.TlsCertPath)
+	hashMailBox, err := NewHashMailBox(&h.addr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make mailbox: %v",
 			err)
@@ -181,10 +180,6 @@ func NewCourier(ctx context.Context, addr url.URL, cfg *CourierCfg,
 // CourierCfg contains general config parameters applicable to all proof
 // couriers.
 type CourierCfg struct {
-	// TlsCertPath is an optional TLS certificate file path. If unset, then
-	// the system's TLS trust store is used.
-	TlsCertPath string
-
 	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
 	// acknowledge the proof.
 	ReceiverAckTimeout time.Duration
@@ -230,25 +225,13 @@ type HashMailBox struct {
 
 // serverDialOpts returns the set of server options needed to connect to the
 // server using a TLS connection.
-func serverDialOpts(tlsCertPath string) ([]grpc.DialOption, error) {
+func serverDialOpts() ([]grpc.DialOption, error) {
 	var opts []grpc.DialOption
 
-	if tlsCertPath != "" {
-		// Read in the specified TLS certificate and build transport
-		// credentials with it.
-		creds, err := credentials.NewClientTLSFromFile(tlsCertPath, "")
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-
-		return opts, nil
-	}
-
-	// If TLS certificate file path not given, use the system's TLS trust
-	// store.
-	creds := credentials.NewTLS(&tls.Config{})
-	opts = append(opts, grpc.WithTransportCredentials(creds))
+	// Skip TLS certificate verification.
+	tlsConfig := tls.Config{InsecureSkipVerify: true}
+	transportCredentials := credentials.NewTLS(&tlsConfig)
+	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
 
 	return opts, nil
 }
@@ -258,7 +241,7 @@ func serverDialOpts(tlsCertPath string) ([]grpc.DialOption, error) {
 //
 // NOTE: The TLS certificate path argument (tlsCertPath) is optional. If unset,
 // then the system's TLS trust store is used.
-func NewHashMailBox(courierAddr *url.URL, tlsCertPath string) (*HashMailBox,
+func NewHashMailBox(courierAddr *url.URL) (*HashMailBox,
 	error) {
 
 	if courierAddr.Scheme != ApertureCourier {
@@ -266,7 +249,7 @@ func NewHashMailBox(courierAddr *url.URL, tlsCertPath string) (*HashMailBox,
 			courierAddr.Scheme)
 	}
 
-	dialOpts, err := serverDialOpts(tlsCertPath)
+	dialOpts, err := serverDialOpts()
 	if err != nil {
 		return nil, err
 	}
@@ -467,8 +450,6 @@ type Recipient struct {
 
 // HashMailCourierCfg is the config for the hashmail proof courier.
 type HashMailCourierCfg struct {
-	TlsCertPath string `long:"tlscertpath" description:"Service TLS certificate file path"`
-
 	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
 	// acknowledge the proof.
 	ReceiverAckTimeout time.Duration `long:"receiveracktimeout" description:"The maximum time to wait for the receiver to acknowledge the proof."`

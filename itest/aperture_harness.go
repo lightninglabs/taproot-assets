@@ -21,10 +21,6 @@ type ApertureHarness struct {
 	// ListenAddr is the address that the aperture service is listening on.
 	ListenAddr string
 
-	// TlsCertPath is the path to the TLS certificate that the aperture
-	// service is using.
-	TlsCertPath string
-
 	// service is the instance of the aperture service that is running.
 	Service *aperture.Aperture
 }
@@ -59,9 +55,8 @@ func NewApertureHarness(t *testing.T, port int) ApertureHarness {
 	service := aperture.NewAperture(cfg)
 
 	return ApertureHarness{
-		ListenAddr:  listenAddr,
-		TlsCertPath: filepath.Join(baseDir, "tls.cert"),
-		Service:     service,
+		ListenAddr: listenAddr,
+		Service:    service,
 	}
 }
 
