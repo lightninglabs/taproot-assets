@@ -161,7 +161,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	fallbackHashmailCourierAddr := fmt.Sprintf(
 		"%s://%s", proof.ApertureCourier, fallbackHashMailAddr,
 	)
-	proofCourierAddr, err := proof.ParseCourierAddr(
+	proofCourierAddr, err := proof.ParseCourierAddrString(
 		fallbackHashmailCourierAddr,
 	)
 	if err != nil {
@@ -171,7 +171,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	// If default proof courier address is set, use it as the default.
 	if cfg.DefaultProofCourierAddr != "" {
-		proofCourierAddr, err = proof.ParseCourierAddr(
+		proofCourierAddr, err = proof.ParseCourierAddrString(
 			cfg.DefaultProofCourierAddr,
 		)
 		if err != nil {
@@ -180,24 +180,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	var hashMailCourier proof.Courier[proof.Recipient]
-	if cfg.HashMailCourier != nil &&
-		proofCourierAddr.Scheme == proof.ApertureCourier {
-
-		hashMailBox, err := proof.NewHashMailBox(
-			proofCourierAddr, cfg.HashMailCourier.TlsCertPath,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to make mailbox: %v",
-				err)
-		}
-
-		hashMailCourier, err = proof.NewHashMailCourier(
-			cfg.HashMailCourier, hashMailBox, assetStore,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to make hashmail "+
-				"courier: %v", err)
+	var proofCourierCfg *proof.CourierCfg
+	// TODO(ffranr): This logic is leftover for integration tests which
+	//  do not yet enable a proof courier. Remove once all integration tests
+	//  support a proof courier.
+	if cfg.HashMailCourier != nil {
+		proofCourierCfg = &proof.CourierCfg{
+			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
+			BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
+			DeliveryLog:        assetStore,
 		}
 	}
 
@@ -303,36 +294,36 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}),
 		AssetCustodian: tapgarden.NewCustodian(
 			&tapgarden.CustodianConfig{
-				ChainParams:   &tapChainParams,
-				WalletAnchor:  walletAnchor,
-				ChainBridge:   chainBridge,
-				AddrBook:      addrBook,
-				ProofArchive:  proofArchive,
-				ProofNotifier: assetStore,
-				ErrChan:       mainErrChan,
-				ProofCourier:  hashMailCourier,
-				ProofWatcher:  reOrgWatcher,
+				ChainParams:     &tapChainParams,
+				WalletAnchor:    walletAnchor,
+				ChainBridge:     chainBridge,
+				AddrBook:        addrBook,
+				ProofArchive:    proofArchive,
+				ProofNotifier:   assetStore,
+				ErrChan:         mainErrChan,
+				ProofCourierCfg: proofCourierCfg,
+				ProofWatcher:    reOrgWatcher,
 			},
 		),
 		ChainBridge:             chainBridge,
 		AddrBook:                addrBook,
-		DefaultProofCourierAddr: proofCourierAddr,
+		DefaultProofCourierAddr: proofCourierAddr.Url(),
 		ProofArchive:            proofArchive,
 		AssetWallet:             assetWallet,
 		CoinSelect:              coinSelect,
 		ChainPorter: tapfreighter.NewChainPorter(
 			&tapfreighter.ChainPorterConfig{
-				Signer:       virtualTxSigner,
-				TxValidator:  &tap.ValidatorV0{},
-				ExportLog:    assetStore,
-				ChainBridge:  chainBridge,
-				Wallet:       walletAnchor,
-				KeyRing:      keyRing,
-				AssetWallet:  assetWallet,
-				AssetProofs:  proofFileStore,
-				ProofCourier: hashMailCourier,
-				ProofWatcher: reOrgWatcher,
-				ErrChan:      mainErrChan,
+				Signer:          virtualTxSigner,
+				TxValidator:     &tap.ValidatorV0{},
+				ExportLog:       assetStore,
+				ChainBridge:     chainBridge,
+				Wallet:          walletAnchor,
+				KeyRing:         keyRing,
+				AssetWallet:     assetWallet,
+				AssetProofs:     proofFileStore,
+				ProofCourierCfg: proofCourierCfg,
+				ProofWatcher:    reOrgWatcher,
+				ErrChan:         mainErrChan,
 			},
 		),
 		BaseUniverse:       baseUni,

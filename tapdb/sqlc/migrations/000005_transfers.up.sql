@@ -51,7 +51,12 @@ CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
 
     num_passive_assets INTEGER NOT NULL,
 
-    output_type SMALLINT NOT NULL
+    output_type SMALLINT NOT NULL,
+
+    -- proof_courier_addr is the proof courier service address associated with
+    -- the output. This value will be NULL for outputs that do not require proof
+    -- transfer.
+    proof_courier_addr BLOB
 );
 CREATE INDEX IF NOT EXISTS transfer_outputs_idx
     ON asset_transfer_outputs (transfer_id);

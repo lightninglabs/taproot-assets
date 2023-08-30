@@ -201,6 +201,10 @@ type TransferOutput struct {
 	// includes all the proof information other than the final chain
 	// information.
 	ProofSuffix []byte
+
+	// ProofCourierAddr is the bytes encoded proof courier service address
+	// associated with this output.
+	ProofCourierAddr []byte
 }
 
 // OutboundParcel represents the database level delta of an outbound Taproot

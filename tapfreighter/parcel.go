@@ -208,7 +208,7 @@ type PreSignedParcel struct {
 	inputCommitment *commitment.TapCommitment
 }
 
-// A compile-time assertion to ensure AddressParcel implements the parcel
+// A compile-time assertion to ensure PreSignedParcel implements the parcel
 // interface.
 var _ Parcel = (*PreSignedParcel)(nil)
 
@@ -258,6 +258,10 @@ type sendPackage struct {
 	// VirtualPacket is the virtual packet that we'll use to construct the
 	// virtual asset transition transaction.
 	VirtualPacket *tappsbt.VPacket
+
+	// OutputIdxToAddr is a map from a VPacket's VOutput index to its
+	// associated Tap address.
+	OutputIdxToAddr tappsbt.OutputIdxToAddr
 
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
@@ -360,6 +364,17 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
 
+		// Convert any proof courier address associated with this output
+		// to bytes for db storage.
+		var proofCourierAddrBytes []byte
+		if s.OutputIdxToAddr != nil {
+			if addr, ok := s.OutputIdxToAddr[idx]; ok {
+				proofCourierAddrBytes = []byte(
+					addr.ProofCourierAddr.String(),
+				)
+			}
+		}
+
 		anchorInternalKey := keychain.KeyDescriptor{
 			PubKey: vOut.AnchorOutputInternalKey,
 		}
@@ -449,6 +464,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 			WitnessData:         witness,
 			SplitCommitmentRoot: splitCommitmentRoot,
 			ProofSuffix:         proofSuffixBuf.Bytes(),
+			ProofCourierAddr:    proofCourierAddrBytes,
 		}
 	}
 

@@ -2139,6 +2139,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		ProofSuffix:         output.ProofSuffix,
 		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
 		OutputType:          int16(output.Type),
+		ProofCourierAddr:    output.ProofCourierAddr,
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -2260,8 +2261,9 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				splitRootHash,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
 			),
-			ProofSuffix: dbOut.ProofSuffix,
-			Type:        tappsbt.VOutputType(dbOut.OutputType),
+			ProofSuffix:      dbOut.ProofSuffix,
+			Type:             tappsbt.VOutputType(dbOut.OutputType),
+			ProofCourierAddr: dbOut.ProofCourierAddr,
 		}
 
 		err = readOutPoint(

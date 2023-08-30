@@ -163,7 +163,6 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 		)
 
 		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
-			TlsCertPath:        typedProofCourier.TlsCertPath,
 			ReceiverAckTimeout: receiverAckTimeout,
 			BackoffCfg:         backoffCfg,
 		}

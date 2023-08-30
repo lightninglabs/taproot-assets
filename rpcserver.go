@@ -991,13 +991,19 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	// the default specified in the config.
 	courierAddr := r.cfg.DefaultProofCourierAddr
 	if in.ProofCourierAddr != "" {
-		courierAddr, err = proof.ParseCourierAddr(
+		addr, err := proof.ParseCourierAddrString(
 			in.ProofCourierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof courier "+
 				"address: %w", err)
 		}
+
+		// At this point, we do not intend on creating a proof courier
+		// service instance. We are only interested in parsing and
+		// validating the address. We therefore convert the address into
+		// an url.URL type for storage in the address book.
+		courierAddr = addr.Url()
 	}
 
 	// Check that the proof courier address is set. This should never
@@ -1522,7 +1528,9 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			return nil, fmt.Errorf("no recipients specified")
 		}
 
-		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(ctx, addr)
+		fundedVPkt, _, err = r.cfg.AssetWallet.FundAddressSend(
+			ctx, addr,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
 				"%w", err)
