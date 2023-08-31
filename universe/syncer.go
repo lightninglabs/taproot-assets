@@ -103,60 +103,76 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// Now that we know the set of Universes we need to sync, we'll execute
 	// the diff operation for each of them.
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
-	err = fn.ParSlice(ctx, targetRoots, func(ctx context.Context, remoteRoot BaseRoot) error {
-		// First, we'll compare the remote root against the local root.
-		uniID := remoteRoot.ID
-		localRoot, err := s.cfg.LocalDiffEngine.RootNode(ctx, uniID)
-		switch {
-		// If we don't have this root, then we don't have anything to
-		// compare to so we'll proceed as normal.
-		case errors.Is(err, ErrNoUniverseRoot):
-			// TODO(roasbeef): abstraction leak, error should be in
-			// universe package
+	err = fn.ParSlice(
+		ctx, targetRoots, func(ctx context.Context, r BaseRoot) error {
+			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
 
-		// If the local root matches the remote root, then we're done
-		// here.
-		case err == nil && mssmt.IsEqualNode(localRoot, remoteRoot):
-			log.Infof("Root for %v matches, no sync needed",
-				uniID.String())
+	// Finally, we'll collect all the diffs and return them to the caller.
+	return fn.Collect(syncDiffs), nil
+}
 
-			return nil
+// syncRoot attempts to sync the local Universe with the remote diff engine for
+// a specific base root.
+func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
+	diffEngine DiffEngine, result chan<- AssetSyncDiff) error {
 
-		case err != nil:
-			return fmt.Errorf("unable to fetch local root: %v", err)
-		}
+	// First, we'll compare the remote root against the local root.
+	uniID := remoteRoot.ID
+	localRoot, err := s.cfg.LocalDiffEngine.RootNode(ctx, uniID)
+	switch {
+	// If we don't have this root, then we don't have anything to compare
+	// to, so we'll proceed as normal.
+	case errors.Is(err, ErrNoUniverseRoot):
+		// TODO(roasbeef): abstraction leak, error should be in
+		// universe package
 
-		log.Infof("UniverseRoot(%v) diverges, performing leaf diff...",
+	// If the local root matches the remote root, then we're done here.
+	case err == nil && mssmt.IsEqualNode(localRoot, remoteRoot):
+		log.Infof("Root for %v matches, no sync needed",
 			uniID.String())
 
-		// Otherwise, we'll need to perform a diff operation to find
-		// the set of keys we need to fetch.
-		remoteUnikeys, err := diffEngine.MintingKeys(ctx, uniID)
-		if err != nil {
-			return err
-		}
-		localUnikeys, err := s.cfg.LocalDiffEngine.MintingKeys(
-			ctx, uniID,
-		)
-		if err != nil {
-			return err
-		}
+		return nil
 
-		// With the set of keys fetched, we can now find the set of
-		// keys that need to be synced.
-		keysToFetch := fn.SetDiff(remoteUnikeys, localUnikeys)
+	case err != nil:
+		return fmt.Errorf("unable to fetch local root: %v", err)
+	}
 
-		log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
-			len(keysToFetch))
-		log.Tracef("UniverseRoot(%v): diff_size=%v, diff=%v",
-			uniID.String(), len(keysToFetch),
-			spew.Sdump(keysToFetch))
+	log.Infof("UniverseRoot(%v) diverges, performing leaf diff...",
+		uniID.String())
 
-		// Now that we know where the divergence is, we can fetch the
-		// issuance proofs from the remote party.
-		newLeaves := make(chan *MintingLeaf, len(keysToFetch))
-		err = fn.ParSlice(ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
-			newProof, err := diffEngine.FetchIssuanceProof(ctx, uniID, key)
+	// Otherwise, we'll need to perform a diff operation to find the set of
+	// keys we need to fetch.
+	remoteUniKeys, err := diffEngine.MintingKeys(ctx, uniID)
+	if err != nil {
+		return err
+	}
+	localUniKeys, err := s.cfg.LocalDiffEngine.MintingKeys(ctx, uniID)
+	if err != nil {
+		return err
+	}
+
+	// With the set of keys fetched, we can now find the set of keys that
+	// need to be synced.
+	keysToFetch := fn.SetDiff(remoteUniKeys, localUniKeys)
+
+	log.Infof("UniverseRoot(%v): diff_size=%v", uniID.String(),
+		len(keysToFetch))
+	log.Tracef("UniverseRoot(%v): diff_size=%v, diff=%v", uniID.String(),
+		len(keysToFetch), spew.Sdump(keysToFetch))
+
+	// Now that we know where the divergence is, we can fetch the issuance
+	// proofs from the remote party.
+	newLeaves := make(chan *MintingLeaf, len(keysToFetch))
+	err = fn.ParSlice(
+		ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
+			newProof, err := diffEngine.FetchIssuanceProof(
+				ctx, uniID, key,
+			)
 			if err != nil {
 				return err
 			}
@@ -191,38 +207,31 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 			newLeaves <- leafProof.Leaf
 			return nil
-		})
-		if err != nil {
-			return err
-		}
-
-		log.Infof("Universe sync for UniverseRoot(%v) complete, %d "+
-			"new leaves inserted", uniID.String(), len(keysToFetch))
-
-		// TODO(roabseef): sanity check local and remote roots match
-		// now?
-
-		// To wrap up, we'll collect the set of leaves then convert
-		// them into a final sync diff.
-		syncDiffs <- AssetSyncDiff{
-			OldUniverseRoot: localRoot,
-			NewUniverseRoot: remoteRoot,
-			NewLeafProofs:   fn.Collect(newLeaves),
-		}
-
-		log.Infof("Sync for UniverseRoot(%v) complete!", uniID.String())
-		log.Tracef("Sync for UniverseRoot(%v) complete! New "+
-			"universe_root=%v", uniID.String(),
-			spew.Sdump(remoteRoot))
-
-		return nil
-	})
+		},
+	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Finally, we'll collect all the diffs and return them to the caller.
-	return fn.Collect(syncDiffs), nil
+	log.Infof("Universe sync for UniverseRoot(%v) complete, %d "+
+		"new leaves inserted", uniID.String(), len(keysToFetch))
+
+	// TODO(roabseef): sanity check local and remote roots match now?
+
+	// To wrap up, we'll collect the set of leaves then convert them into a
+	// final sync diff.
+	result <- AssetSyncDiff{
+		OldUniverseRoot: localRoot,
+		NewUniverseRoot: remoteRoot,
+		NewLeafProofs:   fn.Collect(newLeaves),
+	}
+
+	log.Infof("Sync for UniverseRoot(%v) complete!", uniID.String())
+	log.Tracef("Sync for UniverseRoot(%v) complete! New "+
+		"universe_root=%v", uniID.String(),
+		spew.Sdump(remoteRoot))
+
+	return nil
 }
 
 // SyncUniverse attempts to synchronize the local universe with the remote
