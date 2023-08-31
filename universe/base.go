@@ -173,7 +173,44 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// it as a file first as that's what the expected wants.
 	//
 	// TODO(roasbeef): add option to skip proof verification?
-	assetSnapshot, err := newProof.Verify(ctx, nil, a.cfg.HeaderVerifier)
+	assetSnapshot, err := a.verifyIssuanceProof(ctx, id, key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we know the proof is valid, we'll insert it into the base
+	// multiverse backend, and return the new issuance proof.
+	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
+		ctx, id, key, leaf, assetSnapshot.MetaReveal,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register new "+
+			"issuance: %v", err)
+	}
+
+	// Log a sync event for the newly inserted leaf in the background as an
+	// async goroutine.
+	go func() {
+		err := a.cfg.UniverseStats.LogNewProofEvent(
+			context.Background(), id, key,
+		)
+		if err != nil {
+			log.Warnf("unable to log new proof event (id=%v): %v",
+				id.StringForLog(), err)
+		}
+	}()
+
+	return issuanceProof, nil
+}
+
+// verifyIssuanceProof verifies the passed minting leaf is a valid issuance
+// proof, returning the asset snapshot if so.
+func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
+	key BaseKey, leaf *MintingLeaf) (*proof.AssetSnapshot, error) {
+
+	assetSnapshot, err := leaf.GenesisProof.Verify(
+		ctx, nil, a.cfg.HeaderVerifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %v", err)
 	}
@@ -208,34 +245,12 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// The script key should also match exactly.
 	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
-		return nil, fmt.Errorf("script key mismatch: expected %v, "+
-			"got %v", key.ScriptKey.PubKey.SerializeCompressed(),
+		return nil, fmt.Errorf("script key mismatch: expected %v, got "+
+			"%v", key.ScriptKey.PubKey.SerializeCompressed(),
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
-	// Now that we know the proof is valid, we'll insert it into the base
-	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
-		ctx, id, key, leaf, assetSnapshot.MetaReveal,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to register new "+
-			"issuance: %v", err)
-	}
-
-	// Log a sync event for the newly inserted leaf in the background as an
-	// async goroutine.
-	go func() {
-		err := a.cfg.UniverseStats.LogNewProofEvent(
-			context.Background(), id, key,
-		)
-		if err != nil {
-			log.Warnf("unable to log new proof event (id=%v): %v",
-				id.StringForLog(), err)
-		}
-	}()
-
-	return issuanceProof, nil
+	return assetSnapshot, nil
 }
 
 // FetchIssuanceProof attempts to fetch an issuance proof for the target base
