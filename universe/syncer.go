@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -41,6 +42,11 @@ type SimpleSyncCfg struct {
 // on a set difference operation between the local and remote Universe.
 type SimpleSyncer struct {
 	cfg SimpleSyncCfg
+
+	// isSyncing keeps track of whether we're currently syncing the local
+	// Universe with a remote Universe. This is used to prevent concurrent
+	// syncs.
+	isSyncing atomic.Bool
 }
 
 // NewSimpleSyncer creates a new SimpleSyncer instance.
@@ -55,6 +61,16 @@ func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
 // that need to be synced is used.
 func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	syncType SyncType, idsToSync []Identifier) ([]AssetSyncDiff, error) {
+
+	// Prevent the syncer from running twice.
+	if !s.isSyncing.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("sync is already in progress, please " +
+			"wait for it to finish")
+	}
+
+	defer func() {
+		s.isSyncing.Store(false)
+	}()
 
 	var (
 		targetRoots []BaseRoot
