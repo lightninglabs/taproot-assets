@@ -175,7 +175,7 @@ func (h *harnessTest) LogfTimestamped(format string, args ...interface{}) {
 }
 
 // shutdown stops both the mock universe and tapd server.
-func (h *harnessTest) shutdown(t *testing.T) error {
+func (h *harnessTest) shutdown(_ *testing.T) error {
 	h.universeServer.stop()
 
 	if h.proofCourier != nil {

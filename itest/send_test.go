@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testBasicSend tests that we can properly send assets back and forth between
-// nodes.
+// testBasicSendUnidirectional tests that we can properly send assets back and
+// forth between nodes.
 func testBasicSendUnidirectional(t *harnessTest) {
 	var (
 		ctxb = context.Background()
