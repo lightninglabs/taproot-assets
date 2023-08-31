@@ -53,7 +53,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	syncType SyncType, idsToSync []Identifier) ([]AssetSyncDiff, error) {
 
 	var (
-		rootsToSync = make(chan BaseRoot, len(idsToSync))
+		targetRoots []BaseRoot
 		err         error
 	)
 	switch {
@@ -66,9 +66,9 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 		// We'll use an error group to fetch each Universe root we need
 		// as a series of parallel requests backed by a worker pool.
-		//
-		// TODO(roasbeef): can actually make non-blocking..
-		err = fn.ParSlice(ctx, idsToSync,
+		rootsToSync := make(chan BaseRoot, len(idsToSync))
+		err = fn.ParSlice(
+			ctx, idsToSync,
 			func(ctx context.Context, id Identifier) error {
 				root, err := diffEngine.RootNode(ctx, id)
 				if err != nil {
@@ -79,26 +79,21 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 				return nil
 			},
 		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch roots for "+
+				"universe sync: %w", err)
+		}
+
+		targetRoots = fn.Collect(rootsToSync)
 
 	// Otherwise, we'll just fetch all the roots from the remote universe.
 	default:
 		log.Infof("Fetching all roots for remote Universe server...")
-		roots, err := diffEngine.RootNodes(ctx)
+		targetRoots, err = diffEngine.RootNodes(ctx)
 		if err != nil {
 			return nil, err
 		}
-
-		rootsToSync = make(chan BaseRoot, len(roots))
-
-		// TODO(roasbeef): can make non-blocking w/ goroutine
-		fn.SendAll(rootsToSync, roots...)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch roots for "+
-			"universe sync: %w", err)
-	}
-
-	targetRoots := fn.Collect(rootsToSync)
 
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
