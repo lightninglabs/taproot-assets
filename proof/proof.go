@@ -36,6 +36,26 @@ var (
 	// genesis asset has a non-zero metahash, but doesn't have a meta
 	// reveal.
 	ErrMetaRevealRequired = errors.New("meta reveal required")
+
+	// RegtestTestVectorName is the name of the test vector file that is
+	// generated/updated by an actual integration test run on regtest. It is
+	// exported here, so we can use it in the integration tests.
+	RegtestTestVectorName = "proof_tlv_encoding_regtest.json"
+
+	// RegtestProofFileName is the name of the file that is generated/
+	// updated by an actual integration test run on regtest. It is exported
+	// here, so we can use it in the integration tests.
+	RegtestProofFileName = "proof-file.hex"
+
+	// RegtestProofName is the name of the file that is generated/updated by
+	// an actual integration test run on regtest. It is exported here, so we
+	// can use it in the integration tests.
+	RegtestProofName = "proof.hex"
+
+	// RegtestOwnershipProofName is the name of the ownership proof that is
+	// generated/updated by an actual integration test run on regtest. It is
+	// exported here, so we can use it in the integration tests.
+	RegtestOwnershipProofName = "ownership-proof.hex"
 )
 
 // UpdateCallback is a callback that is called when proofs are updated because

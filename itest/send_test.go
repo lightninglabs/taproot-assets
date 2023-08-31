@@ -1,16 +1,22 @@
 package itest
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"io"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -250,6 +256,13 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	secondAsset := rpcAssets[1]
 	genInfo2 := secondAsset.AssetGenesis
 
+	testVectors := &proof.TestVectors{}
+	addProofTestVectorFromFile(
+		t.t, "valid regtest genesis proof with meta reveal", t.tapd,
+		testVectors, rpcAssets[0].AssetGenesis, rpcAssets[0].ScriptKey,
+		0, "",
+	)
+
 	// Set up a new node that will serve as the receiving node.
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
@@ -277,6 +290,16 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 
 	// Send the assets to the receiving node.
 	sendResp := sendAssetsToAddr(t, t.tapd, recvAddr)
+
+	addProofTestVectorFromProof(
+		t.t, "valid regtest proof for split root", testVectors,
+		sendResp.Transfer.Outputs[0].NewProofBlob,
+		proof.RegtestProofName,
+	)
+	addProofTestVectorFromProof(
+		t.t, "valid regtest split proof", testVectors,
+		sendResp.Transfer.Outputs[1].NewProofBlob, "",
+	)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := assets[0].Asset.Amount - numUnitsSend
@@ -318,6 +341,55 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 2)
+
+	// And now send part of the first asset back again, so we get a bit of a
+	// longer proof chain in the file.
+	newAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnitsSend / 2,
+	})
+	require.NoError(t.t, err)
+	assertAddrCreated(t.t, t.tapd, firstAsset, newAddr)
+
+	// Send the assets back to the first node.
+	sendResp = sendAssetsToAddr(t, recvTapd, newAddr)
+
+	// Assert that the outbound transfer was confirmed.
+	expectedAmtAfterSend = numUnitsSend - numUnitsSend/2
+	confirmAndAssertOutboundTransfer(
+		t, recvTapd, sendResp, genInfo.AssetId,
+		[]uint64{expectedAmtAfterSend, numUnitsSend / 2}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
+
+	// We also want to generate an ownership proof of the asset we received
+	// back.
+	proveResp, err := t.tapd.ProveAssetOwnership(
+		ctxb, &wrpc.ProveAssetOwnershipRequest{
+			AssetId:   genInfo.AssetId,
+			ScriptKey: newAddr.ScriptKey,
+		},
+	)
+	require.NoError(t.t, err)
+	addProofTestVectorFromProof(
+		t.t, "valid regtest ownership proof", testVectors,
+		proveResp.ProofWithWitness, proof.RegtestOwnershipProofName,
+	)
+
+	addProofTestVectorFromFile(
+		t.t, "valid regtest proof file index 0", t.tapd, testVectors,
+		genInfo, newAddr.ScriptKey, 0, proof.RegtestProofFileName,
+	)
+	addProofTestVectorFromFile(
+		t.t, "valid regtest proof file index 1", t.tapd, testVectors,
+		genInfo, newAddr.ScriptKey, 1, "",
+	)
+	addProofTestVectorFromFile(
+		t.t, "valid regtest proof file index 2", t.tapd, testVectors,
+		genInfo, newAddr.ScriptKey, 2, "",
+	)
+
+	test.WriteTestVectors(t.t, proof.RegtestTestVectorName, testVectors)
 }
 
 // testReattemptFailedAssetSend tests that a failed attempt at sending an asset
@@ -769,4 +841,77 @@ func testSendMultipleCoins(t *harnessTest) {
 		_ = sendProof(t, t.tapd, secondTapd, addr.ScriptKey, genInfo)
 	}
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
+}
+
+// addProofTestVectorFromFile adds a proof test vector by extracting it from the
+// proof file found at the given asset ID and script key.
+func addProofTestVectorFromFile(t *testing.T, testName string,
+	tapd *tapdHarness, vectors *proof.TestVectors,
+	genInfo *taprpc.GenesisInfo, scriptKey []byte, fileIndex int,
+	binaryFileName string) {
+
+	ctxb := context.Background()
+
+	var proofResp *taprpc.ProofFile
+	waitErr := wait.NoError(func() error {
+		resp, err := tapd.ExportProof(ctxb, &taprpc.ExportProofRequest{
+			AssetId:   genInfo.AssetId,
+			ScriptKey: scriptKey,
+		})
+		if err != nil {
+			return err
+		}
+
+		proofResp = resp
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t, waitErr)
+
+	if binaryFileName != "" {
+		test.WriteTestFileHex(t, binaryFileName, proofResp.RawProof)
+	}
+
+	var f proof.File
+	err := f.Decode(bytes.NewReader(proofResp.RawProof))
+	require.NoError(t, err)
+
+	if f.NumProofs() <= fileIndex {
+		t.Fatalf("Not enough proofs in file")
+	}
+
+	p, err := f.ProofAt(uint32(fileIndex))
+	require.NoError(t, err)
+
+	rawProof, err := f.RawProofAt(uint32(fileIndex))
+	require.NoError(t, err)
+
+	vectors.ValidTestCases = append(
+		vectors.ValidTestCases, &proof.ValidTestCase{
+			Proof:    proof.NewTestFromProof(t, p),
+			Expected: hex.EncodeToString(rawProof),
+			Comment:  testName,
+		},
+	)
+}
+
+// addProofTestVectorFromProof adds the given proof blob to the proof test
+// vector.
+func addProofTestVectorFromProof(t *testing.T, testName string,
+	vectors *proof.TestVectors, blob proof.Blob, binaryFileName string) {
+
+	var p proof.Proof
+	err := p.Decode(bytes.NewReader(blob))
+	require.NoError(t, err)
+
+	vectors.ValidTestCases = append(
+		vectors.ValidTestCases, &proof.ValidTestCase{
+			Proof:    proof.NewTestFromProof(t, &p),
+			Expected: hex.EncodeToString(blob),
+			Comment:  testName,
+		},
+	)
+
+	if binaryFileName != "" {
+		test.WriteTestFileHex(t, binaryFileName, blob)
+	}
 }
