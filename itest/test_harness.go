@@ -284,6 +284,9 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 		port := nextAvailablePort()
 		apHarness := NewApertureHarness(ht.t, port)
 		proofCourier = &apHarness
+
+	case proof.UniverseRpcCourierType:
+		proofCourier = NewUniverseRPCHarness(t, ht, lndHarness.Bob)
 	}
 
 	// Start the proof courier harness if specified.
