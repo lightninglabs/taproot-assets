@@ -94,12 +94,10 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	currentUnits := simpleAssets[0].Asset.Amount
 
 	// Issue a single address which will be reused for each send.
-	bobAddr, err := secondTapd.NewAddr(
-		ctxb, &taprpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     numUnits,
-		},
-	)
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
+	})
 	require.NoError(t.t, err)
 
 	for i := 0; i < numSends; i++ {
@@ -161,12 +159,10 @@ func testResumePendingPackageSend(t *harnessTest) {
 	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
 
 	// The receiver node generates a new address.
-	recvAddr, err := recvTapd.NewAddr(
-		ctxb, &taprpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     10,
-		},
-	)
+	recvAddr, err := recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     10,
+	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
@@ -250,6 +246,9 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	}
 	rpcAssets := mintAssetsConfirmBatch(t, t.tapd, assets)
 	firstAsset := rpcAssets[0]
+	genInfo := firstAsset.AssetGenesis
+	secondAsset := rpcAssets[1]
+	genInfo2 := secondAsset.AssetGenesis
 
 	// Set up a new node that will serve as the receiving node.
 	recvTapd := setupTapdHarness(
@@ -269,13 +268,10 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 
 	// Get a new address (which accepts the first asset) from the
 	// receiving node.
-	genInfo := firstAsset.AssetGenesis
-	recvAddr, err := recvTapd.NewAddr(
-		ctxb, &taprpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     numUnitsSend,
-		},
-	)
+	recvAddr, err := recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnitsSend,
+	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, recvTapd, firstAsset, recvAddr)
 
@@ -288,36 +284,27 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		t, t.tapd, sendResp, genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
-	_ = sendProof(t, t.tapd, recvTapd, recvAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
 
 	// Assert that the sending node returns the correct asset list via RPC.
-	assertListAssets(
-		t.t, ctxb, t.tapd, []MatchRpcAsset{
-			func(asset *taprpc.Asset) bool {
-				return asset.Amount == 300 &&
-					asset.AssetGenesis.Name == "first-itestbuxx"
-			},
-			func(asset *taprpc.Asset) bool {
-				return asset.Amount == 2000 &&
-					asset.AssetGenesis.Name == "second-itestbuxx"
-			},
+	assertListAssets(t.t, ctxb, t.tapd, []MatchRpcAsset{
+		func(asset *taprpc.Asset) bool {
+			return asset.Amount == 300 &&
+				asset.AssetGenesis.Name == "first-itestbuxx"
 		},
-	)
+		func(asset *taprpc.Asset) bool {
+			return asset.Amount == 2000 &&
+				asset.AssetGenesis.Name == "second-itestbuxx"
+		},
+	})
 
 	t.Logf("First send complete, now attempting to send passive asset")
 
-	// Inspect the state of the second asset on the sending node.
-	secondAsset := rpcAssets[1]
-	genInfo = secondAsset.AssetGenesis
-
 	// Send previously passive asset (the "second" asset).
-	recvAddr, err = recvTapd.NewAddr(
-		ctxb, &taprpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     numUnitsSend,
-		},
-	)
+	recvAddr, err = recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo2.AssetId,
+		Amt:     numUnitsSend,
+	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, recvTapd, secondAsset, recvAddr)
 
@@ -327,10 +314,9 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
 	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, genInfo.AssetId,
+		t, t.tapd, sendResp, genInfo2.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
-	_ = sendProof(t, t.tapd, recvTapd, recvAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 2)
 }
 
@@ -411,12 +397,10 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	t.syncUniverseState(sendTapd, t.tapd, len(rpcAssets))
 
 	// Create a new address for the receiver node.
-	recvAddr, err := t.tapd.NewAddr(
-		ctxb, &taprpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     10,
-		},
-	)
+	recvAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     10,
+	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, t.tapd, rpcAssets[0], recvAddr)
 
@@ -514,12 +498,10 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
 
 	// Create a new address for the receiver node.
-	recvAddr, err := recvTapd.NewAddr(
-		ctxb, &taprpc.NewAddrRequest{
-			AssetId: genInfo.AssetId,
-			Amt:     10,
-		},
-	)
+	recvAddr, err := recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     10,
+	})
 	require.NoError(t.t, err)
 	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 

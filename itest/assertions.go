@@ -607,7 +607,7 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 		for _, event := range resp.Events {
 			if event.Status != statusCompleted {
 				return fmt.Errorf("got status %v, wanted %v",
-					resp.Events[0].Status, statusCompleted)
+					event.Status, statusCompleted)
 			}
 
 			if !event.HasProof {
