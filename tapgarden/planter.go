@@ -46,11 +46,15 @@ type GardenKit struct {
 
 	// Universe is used to register new asset issuance with a local/remote
 	// base universe instance.
-	Universe universe.Registrar
+	Universe universe.BatchRegistrar
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
+
+	// UniversePushBatchSize is the number of minted items to push to the
+	// local universe in a single batch.
+	UniversePushBatchSize int
 }
 
 // PlanterConfig is the main config for the ChainPlanter.

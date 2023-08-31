@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"golang.org/x/exp/maps"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -857,40 +858,77 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			committedAssets   = batchCommitment.CommittedAssets()
 			numAssets         = len(committedAssets)
 			mintingProofBlobs = make(proof.AssetBlobs, numAssets)
+			universeItems     chan *universe.IssuanceItem
 			mintTxHash        = confInfo.Tx.TxHash()
+			proofMutex        sync.Mutex
+			batchSyncEG       errgroup.Group
 		)
+
+		// If we have a universe configured, we'll batch stream the
+		// issuance items to it. We start this as a goroutine/err group
+		// now, so we can already start streaming while the proofs are
+		// still being stored to the local proof store.
+		if b.cfg.Universe != nil {
+			universeItems = make(
+				chan *universe.IssuanceItem, numAssets,
+			)
+
+			// We use an error group to simply the error handling of
+			// a goroutine.
+			batchSyncEG.Go(func() error {
+				return b.batchStreamUniverseItems(
+					ctx, universeItems, numAssets,
+				)
+			})
+		}
 
 		// Before we confirm the batch, we'll also update the on disk
 		// file system as well.
 		//
 		// TODO(roasbeef): rely on the upsert here instead
-		for idx := range committedAssets {
-			newAsset := committedAssets[idx]
-			scriptPubKey := newAsset.ScriptKey.PubKey
-			scriptKey := asset.ToSerialized(scriptPubKey)
+		err = fn.ParSlice(
+			ctx, committedAssets,
+			func(ctx context.Context, newAsset *asset.Asset) error {
+				scriptPubKey := newAsset.ScriptKey.PubKey
+				scriptKey := asset.ToSerialized(scriptPubKey)
 
-			mintingProof := mintingProofs[scriptKey]
+				mintingProof := mintingProofs[scriptKey]
 
-			proofBlob, uniProof, err := b.storeMintingProof(
-				ctx, newAsset, mintingProof, mintTxHash,
-				headerVerifier,
-			)
-			if err != nil {
-				return 0, fmt.Errorf("unable to store "+
-					"proof: %w", err)
-			}
-
-			mintingProofBlobs[scriptKey] = proofBlob
-
-			if uniProof != nil {
-				_, err = b.cfg.Universe.RegisterIssuance(
-					ctx, uniProof.ID, uniProof.Key,
-					uniProof.Leaf,
+				proofBlob, uniProof, err := b.storeMintingProof(
+					ctx, newAsset, mintingProof, mintTxHash,
+					headerVerifier,
 				)
 				if err != nil {
-					return 0, fmt.Errorf("unable to "+
-						"register issuance: %v", err)
+					return fmt.Errorf("unable to store "+
+						"proof: %w", err)
 				}
+
+				proofMutex.Lock()
+				mintingProofBlobs[scriptKey] = proofBlob
+				proofMutex.Unlock()
+
+				if uniProof != nil {
+					universeItems <- uniProof
+				}
+
+				return nil
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to update asset proofs: "+
+				"%w", err)
+		}
+
+		// The local proof store inserts are now completed, but we also
+		// need to wait for the batch sync to complete before we can
+		// confirm the batch.
+		if b.cfg.Universe != nil {
+			close(universeItems)
+
+			err = batchSyncEG.Wait()
+			if err != nil {
+				return 0, fmt.Errorf("unable to batch sync "+
+					"universe: %w", err)
 			}
 		}
 
@@ -1018,6 +1056,45 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		Key:  baseKey,
 		Leaf: mintingLeaf,
 	}, nil
+}
+
+// batchStreamUniverseItems streams the issuance items for a batch to the
+// universe.
+func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
+	universeItems chan *universe.IssuanceItem, numTotal int) error {
+
+	var (
+		numItems int
+		uni      = b.cfg.Universe
+	)
+	err := fn.CollectBatch(
+		ctx, universeItems, b.cfg.UniversePushBatchSize,
+		func(ctx context.Context,
+			batch []*universe.IssuanceItem) error {
+
+			numItems += len(batch)
+			log.Infof("Inserting %d new leaves (%d of %d) into "+
+				"local universe", len(batch), numItems,
+				numTotal)
+
+			err := uni.RegisterNewIssuanceBatch(ctx, batch)
+			if err != nil {
+				return fmt.Errorf("unable to register "+
+					"issuance batch: %w", err)
+			}
+
+			log.Infof("Inserted %d new leaves (%d of %d) into "+
+				"local universe", len(batch), numItems,
+				numTotal)
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to register issuance proofs: %w", err)
+	}
+
+	return nil
 }
 
 // SortSeedlings sorts the seedling names such that all seedlings that will be
