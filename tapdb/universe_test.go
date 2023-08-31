@@ -1,7 +1,6 @@
 package tapdb
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"math/rand"
@@ -87,9 +86,8 @@ func randBaseKey(t *testing.T) universe.BaseKey {
 	}
 }
 
-func randProof(t *testing.T) proof.Blob {
-	var buf bytes.Buffer
-	p := &proof.Proof{
+func randProof(t *testing.T) *proof.Proof {
+	return &proof.Proof{
 		PrevOut: wire.OutPoint{},
 		BlockHeader: wire.BlockHeader{
 			Timestamp: time.Unix(rand.Int63(), 0),
@@ -106,9 +104,6 @@ func randProof(t *testing.T) proof.Blob {
 			InternalKey: test.RandPubKey(t),
 		},
 	}
-	require.NoError(t, p.Encode(&buf))
-
-	return buf.Bytes()
 }
 
 func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
@@ -194,8 +189,10 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// We should be able to verify the issuance proof given the
 		// root of the SMT.
+		node, err := leaf.SmtLeafNode()
+		require.NoError(t, err)
 		proofRoot := issuanceProof.InclusionProof.Root(
-			targetKey.UniverseKey(), leaf.SmtLeafNode(),
+			targetKey.UniverseKey(), node,
 		)
 		require.True(t, mssmt.IsEqualNode(rootNode, proofRoot))
 
@@ -214,9 +211,10 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// The issuance proof we obtained should have a valid inclusion
 		// proof.
+		node, err = uniProof.Leaf.SmtLeafNode()
+		require.NoError(t, err)
 		dbProofRoot := uniProof.InclusionProof.Root(
-			uniProof.MintingKey.UniverseKey(),
-			uniProof.Leaf.SmtLeafNode(),
+			uniProof.MintingKey.UniverseKey(), node,
 		)
 		require.True(
 			t, mssmt.IsEqualNode(uniProof.UniverseRoot, dbProofRoot),
@@ -495,6 +493,19 @@ func TestUniverseLeafQuery(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, p, 1)
 
-		require.Equal(t, leaf, *p[0].Leaf)
+		// We can't compare the raw leaves as the proofs looks slightly
+		// differently after an encode->decode cycle (nil vs. empty
+		// slices and so on).
+		require.Equal(
+			t, leaf.GenesisWithGroup, p[0].Leaf.GenesisWithGroup,
+		)
+
+		expectedNode, err := leaf.SmtLeafNode()
+		require.NoError(t, err)
+
+		actualNode, err := p[0].Leaf.SmtLeafNode()
+		require.NoError(t, err)
+
+		require.True(t, mssmt.IsEqualNode(expectedNode, actualNode))
 	}
 }

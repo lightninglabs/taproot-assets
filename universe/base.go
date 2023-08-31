@@ -138,35 +138,20 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
 
-	// We first decode the proof to make sure it's at least well-formed.
-	var newProof proof.Proof
-	err := newProof.Decode(bytes.NewReader(leaf.GenesisProof))
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode proof: %v", err)
-	}
+	newProof := leaf.GenesisProof
 
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
-	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(
-		ctx, id, key,
-	)
+	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
 	switch {
 	case err == nil && len(issuanceProofs) > 0:
 		issuanceProof := issuanceProofs[0]
-
-		var existingProof proof.Proof
-		err := existingProof.Decode(
-			bytes.NewReader(issuanceProof.Leaf.GenesisProof),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to decode existing "+
-				"proof: %w", err)
-		}
 
 		// The only valid case for an update of a proof is if the mint
 		// TX was re-organized out of the chain. If the block hash is
 		// still the same, we don't see this as an update and just
 		// return the existing proof.
+		existingProof := issuanceProof.Leaf.GenesisProof
 		if existingProof.BlockHeader.BlockHash() ==
 			newProof.BlockHeader.BlockHash() {
 

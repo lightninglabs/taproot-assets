@@ -1,6 +1,7 @@
 package universe
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -88,18 +89,20 @@ type MintingLeaf struct {
 	GenesisWithGroup
 
 	// GenesisProof is the proof of the newly created asset.
-	//
-	// TODO(roasbeef): have instead be a reader? easier to mmap in the
-	// future
-	GenesisProof proof.Blob
+	GenesisProof *proof.Proof
 
 	// Amt is the amount of units created.
 	Amt uint64
 }
 
 // SmtLeafNode returns the SMT leaf node for the given minting leaf.
-func (m *MintingLeaf) SmtLeafNode() *mssmt.LeafNode {
-	return mssmt.NewLeafNode(m.GenesisProof[:], m.Amt)
+func (m *MintingLeaf) SmtLeafNode() (*mssmt.LeafNode, error) {
+	var buf bytes.Buffer
+	if err := m.GenesisProof.Encode(&buf); err != nil {
+		return nil, err
+	}
+
+	return mssmt.NewLeafNode(buf.Bytes(), m.Amt), nil
 }
 
 // BaseKey is the top level key for a Base/Root universe. This will be used to
@@ -163,14 +166,18 @@ type IssuanceProof struct {
 // VerifyRoot verifies that the inclusion proof for the root node matches the
 // specified root. This is useful for sanity checking an issuance proof against
 // the purported root, and the included leaf.
-func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) bool {
+func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
+	leafNode, err := i.Leaf.SmtLeafNode()
+	if err != nil {
+		return false, err
+	}
+
 	reconstructedRoot := i.InclusionProof.Root(
-		i.MintingKey.UniverseKey(),
-		i.Leaf.SmtLeafNode(),
+		i.MintingKey.UniverseKey(), leafNode,
 	)
 
 	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
-		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
+		mssmt.IsEqualNode(reconstructedRoot, expectedRoot), nil
 }
 
 // BaseBackend is the backend storage interface for a base universe. The
