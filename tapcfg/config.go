@@ -101,6 +101,10 @@ const (
 	// to sync Universe state with the federation.
 	defaultUniverseSyncInterval = time.Minute * 10
 
+	// defaultUniverseSyncBatchSize is the default number of proofs we'll
+	// sync in a single batch.
+	defaultUniverseSyncBatchSize = 200
+
 	// defaultReOrgSafeDepth is the default number of confirmations we'll
 	// wait for before considering a transaction safely buried in the chain.
 	defaultReOrgSafeDepth = 6

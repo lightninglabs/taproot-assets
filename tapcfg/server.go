@@ -223,6 +223,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		LocalDiffEngine:     baseUni,
 		NewRemoteDiffEngine: tap.NewRpcUniverseDiff,
 		LocalRegistrar:      baseUni,
+		SyncBatchSize:       defaultUniverseSyncBatchSize,
 	})
 
 	federationMembers := cfg.Universe.FederationServers

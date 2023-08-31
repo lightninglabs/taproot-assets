@@ -8,6 +8,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -30,7 +31,10 @@ type SimpleSyncCfg struct {
 	// LocalRegistrar is the registrar tied to a local Universe instance.
 	// This is used to insert new proof into the local DB as a result of
 	// the diff operation.
-	LocalRegistrar Registrar
+	LocalRegistrar BatchRegistrar
+
+	// SyncBatchSize is the number of items to sync in a single batch.
+	SyncBatchSize int
 }
 
 // SimpleSyncer is a simple implementation of the Syncer interface. It's based
@@ -165,9 +169,25 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	log.Tracef("UniverseRoot(%v): diff_size=%v, diff=%v", uniID.String(),
 		len(keysToFetch), spew.Sdump(keysToFetch))
 
+	// Before we start fetching leaves, we already start our batch stream
+	// for the new leaves. This allows us to stream the new leaves to the
+	// local registrar as they're fetched.
+	var (
+		fetchedLeaves = make(chan *IssuanceItem, len(keysToFetch))
+		newLeafProofs []*MintingLeaf
+		batchSyncEG   errgroup.Group
+	)
+
+	// We use an error group to simply the error handling of a goroutine.
+	batchSyncEG.Go(func() error {
+		newLeafProofs, err = s.batchStreamNewItems(
+			ctx, uniID, fetchedLeaves, len(keysToFetch),
+		)
+		return err
+	})
+
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
-	newLeaves := make(chan *MintingLeaf, len(keysToFetch))
 	err = fn.ParSlice(
 		ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
 			newProof, err := diffEngine.FetchIssuanceProof(
@@ -195,25 +215,22 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 			// TODO(roasbeef): inclusion w/ root here, also that
 			// it's the expected asset ID
 
-			log.Infof("UniverseRoot(%v): inserting new leaf",
-				uniID.String())
-			log.Tracef("UniverseRoot(%v): inserting new leaf for "+
-				"key=%v", uniID.String(), spew.Sdump(key))
-
-			// TODO(roasbeef): this is actually giving a lagging
-			// proof for each of them
-			_, err = s.cfg.LocalRegistrar.RegisterIssuance(
-				ctx, uniID, key, leafProof.Leaf,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to register "+
-					"issuance proof: %w", err)
+			fetchedLeaves <- &IssuanceItem{
+				ID:   uniID,
+				Key:  key,
+				Leaf: leafProof.Leaf,
 			}
 
-			newLeaves <- leafProof.Leaf
 			return nil
 		},
 	)
+	if err != nil {
+		return err
+	}
+
+	// And now we wait for the batch streamer to finish as well.
+	close(fetchedLeaves)
+	err = batchSyncEG.Wait()
 	if err != nil {
 		return err
 	}
@@ -228,15 +245,62 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	result <- AssetSyncDiff{
 		OldUniverseRoot: localRoot,
 		NewUniverseRoot: remoteRoot,
-		NewLeafProofs:   fn.Collect(newLeaves),
+		NewLeafProofs:   newLeafProofs,
 	}
 
 	log.Infof("Sync for UniverseRoot(%v) complete!", uniID.String())
 	log.Tracef("Sync for UniverseRoot(%v) complete! New "+
-		"universe_root=%v", uniID.String(),
-		spew.Sdump(remoteRoot))
+		"universe_root=%v", uniID.String(), spew.Sdump(remoteRoot))
 
 	return nil
+}
+
+// batchStreamNewItems streams the set of new items to the local registrar in
+// batches and returns the new leaf proofs.
+func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
+	uniID Identifier, fetchedLeaves chan *IssuanceItem,
+	numTotal int) ([]*MintingLeaf, error) {
+
+	var (
+		numItems      int
+		newLeafProofs []*MintingLeaf
+	)
+	err := fn.CollectBatch(
+		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
+		func(ctx context.Context, batch []*IssuanceItem) error {
+			numItems += len(batch)
+			log.Infof("UniverseRoot(%v): Inserting %d new leaves "+
+				"(%d of %d)", uniID.String(), len(batch),
+				numItems, numTotal)
+
+			err := s.cfg.LocalRegistrar.RegisterNewIssuanceBatch(
+				ctx, batch,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to register "+
+					"issuance proofs: %w", err)
+			}
+
+			log.Infof("UniverseRoot(%v): Inserted %d new leaves "+
+				"(%d of %d)", uniID.String(), len(batch),
+				numItems, numTotal)
+
+			newLeaves := fn.Map(
+				batch, func(i *IssuanceItem) *MintingLeaf {
+					return i.Leaf
+				},
+			)
+			newLeafProofs = append(newLeafProofs, newLeaves...)
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register issuance proofs: %w",
+			err)
+	}
+
+	return newLeafProofs, nil
 }
 
 // SyncUniverse attempts to synchronize the local universe with the remote
