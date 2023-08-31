@@ -35,7 +35,9 @@ type TestPgFixture struct {
 // NewTestPgFixture constructs a new TestPgFixture starting up a docker
 // container running Postgres 11. The started container will expire in after
 // the passed duration.
-func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
+func NewTestPgFixture(t *testing.T, expiry time.Duration,
+	autoRemove bool) *TestPgFixture {
+
 	// Use a sensible default on Windows (tcp/http) and linux/osx (socket)
 	// by specifying an empty endpoint.
 	pool, err := dockertest.NewPool("")
@@ -58,8 +60,8 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 		},
 	}, func(config *docker.HostConfig) {
 		// Set AutoRemove to true so that stopped container goes away
-		// by itself.
-		config.AutoRemove = true
+		// by itself, unless we want to keep it around for debugging.
+		config.AutoRemove = autoRemove
 		config.RestartPolicy = docker.RestartPolicy{Name: "no"}
 	})
 	require.NoError(t, err, "Could not start resource")

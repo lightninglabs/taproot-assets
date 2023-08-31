@@ -127,7 +127,7 @@ func NewTestPostgresDB(t *testing.T) *PostgresStore {
 
 	t.Logf("Creating new Postgres DB for testing")
 
-	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime)
+	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
 	store, err := NewPostgresStore(sqlFixture.GetConfig())
 	require.NoError(t, err)
 
