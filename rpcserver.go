@@ -352,8 +352,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	if req.Asset.AssetMeta != nil {
+		metaType, err := unmarshalMetaType(req.Asset.AssetMeta.Type)
+		if err != nil {
+			return nil, err
+		}
+
 		seedling.Meta = &proof.MetaReveal{
-			Type: proof.MetaType(req.Asset.AssetMeta.Type),
+			Type: metaType,
 			Data: req.Asset.AssetMeta.Data,
 		}
 	}
@@ -1219,6 +1224,8 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
+		rpcGenesis     = decodedProof.GenesisReveal
+		rpcGroupKey    = decodedProof.GroupKeyReveal
 		anchorOutpoint = wire.OutPoint{
 			Hash:  decodedProof.AnchorTx.TxHash(),
 			Index: decodedProof.InclusionProof.OutputIndex,
@@ -1317,6 +1324,27 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 		}
 	}
 
+	decodedAssetID := decodedProof.Asset.ID()
+	genesisReveal := &taprpc.GenesisReveal{
+		GenesisBaseReveal: &taprpc.GenesisInfo{
+			GenesisPoint: rpcGenesis.FirstPrevOut.String(),
+			Name:         rpcGenesis.Tag,
+			MetaHash:     rpcGenesis.MetaHash[:],
+			AssetId:      decodedAssetID[:],
+			OutputIndex:  rpcGenesis.OutputIndex,
+		},
+		AssetType: taprpc.AssetType(decodedProof.Asset.Type),
+	}
+
+	var GroupKeyReveal taprpc.GroupKeyReveal
+	if rpcGroupKey != nil {
+		GroupKeyReveal.RawGroupKey = rpcGroupKey.RawKey[:]
+		if rpcGroupKey.TapscriptRoot != nil {
+			tapscriptRoot := rpcGroupKey.TapscriptRoot[:]
+			GroupKeyReveal.TapscriptRoot = tapscriptRoot
+		}
+	}
+
 	return &taprpc.DecodedProof{
 		ProofAtDepth:        depth,
 		NumberOfProofs:      uint32(proofFile.NumProofs()),
@@ -1328,6 +1356,8 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 		SplitRootProof:      splitRootProofBuf.Bytes(),
 		NumAdditionalInputs: uint32(len(decodedProof.AdditionalInputs)),
 		ChallengeWitness:    decodedProof.ChallengeWitness,
+		GenesisReveal:       genesisReveal,
+		GroupKeyReveal:      &GroupKeyReveal,
 	}, nil
 }
 
@@ -3398,4 +3428,15 @@ func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
 	}
 
 	return &wrpc.RemoveUTXOLeaseResponse{}, nil
+}
+
+// unmarshalMetaType maps an RPC meta type into a concrete type.
+func unmarshalMetaType(rpcMeta taprpc.AssetMetaType) (proof.MetaType, error) {
+	switch rpcMeta {
+	case taprpc.AssetMetaType_META_TYPE_OPAQUE:
+		return proof.MetaOpaque, nil
+
+	default:
+		return 0, fmt.Errorf("unknown meta type: %v", rpcMeta)
+	}
 }
