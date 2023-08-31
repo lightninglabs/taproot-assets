@@ -177,6 +177,13 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 			ReceiverAckTimeout: receiverAckTimeout,
 			BackoffCfg:         backoffCfg,
 		}
+
+	case *UniverseRPCHarness:
+		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
+			"%s://%s", proof.UniverseRpcCourierType,
+			typedProofCourier.ListenAddr,
+		)
+
 	default:
 		finalCfg.DefaultProofCourierAddr = ""
 		finalCfg.HashMailCourier = nil
