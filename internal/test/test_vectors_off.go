@@ -32,3 +32,8 @@ func WriteTestVectors(t testing.TB, fileName string, target any) {
 	// Nothing to do here, the build tag to enable generating test vectors
 	// is turned off.
 }
+
+func WriteTestFileHex(t testing.TB, fileName string, content []byte) {
+	// Nothing to do here, the build tag to enable generating test vectors
+	// is turned off.
+}

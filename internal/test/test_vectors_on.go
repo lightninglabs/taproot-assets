@@ -3,6 +3,7 @@
 package test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	prand "math/rand"
 	"os"
@@ -32,5 +33,12 @@ func WriteTestVectors(t testing.TB, fileName string, target any) {
 
 	filePath := filepath.Join("testdata", fileName)
 	err = os.WriteFile(filePath, fileBytes, 0644)
+	require.NoError(t, err)
+}
+
+func WriteTestFileHex(t testing.TB, fileName string, content []byte) {
+	filePath := filepath.Join("testdata", fileName)
+	contentHex := hex.EncodeToString(content)
+	err := os.WriteFile(filePath, []byte(contentHex), 0644)
 	require.NoError(t, err)
 }

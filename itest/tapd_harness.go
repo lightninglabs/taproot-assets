@@ -109,10 +109,12 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 
 	case tapcfg.DatabaseBackendPostgres:
 		fixture := tapdb.NewTestPgFixture(
-			ht.t, tapdb.DefaultPostgresFixtureLifetime,
+			ht.t, tapdb.DefaultPostgresFixtureLifetime, !*noDelete,
 		)
 		ht.t.Cleanup(func() {
-			fixture.TearDown(ht.t)
+			if !*noDelete {
+				fixture.TearDown(ht.t)
+			}
 		})
 		tapCfg.DatabaseBackend = tapcfg.DatabaseBackendPostgres
 		tapCfg.Postgres = fixture.GetConfig()
