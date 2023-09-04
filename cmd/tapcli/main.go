@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -354,4 +355,30 @@ func readPassword(text string) ([]byte, error) {
 	pw, err := term.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
 	fmt.Println()
 	return pw, err
+}
+
+// promptForConfirmation continuously prompts the user for the message until
+// receiving a response of "yes" or "no" and returns their answer as a bool.
+func promptForConfirmation(msg string) bool {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print(msg)
+
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return false
+		}
+
+		answer = strings.ToLower(strings.TrimSpace(answer))
+
+		switch {
+		case answer == "yes":
+			return true
+		case answer == "no":
+			return false
+		default:
+			continue
+		}
+	}
 }
