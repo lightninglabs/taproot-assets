@@ -2445,22 +2445,44 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		for idx := range outputs {
 			out := outputs[idx]
 
-			isNumsKey := bytes.Equal(
-				out.ScriptKeyBytes, asset.NUMSBytes,
+			// Decode the witness first, so we can find out if this
+			// is a burn or not.
+			var witnessData []asset.Witness
+			err = asset.WitnessDecoder(
+				bytes.NewReader(out.SerializedWitnesses),
+				&witnessData, &[8]byte{},
+				uint64(len(out.SerializedWitnesses)),
 			)
+			if err != nil {
+				return fmt.Errorf("unable to decode "+
+					"witness: %w", err)
+			}
+
+			scriptPubKey, err := btcec.ParsePubKey(
+				out.ScriptKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to decode script "+
+					"key: %w", err)
+			}
+
+			isNumsKey := scriptPubKey.IsEqual(asset.NUMSPubKey)
 			isTombstone := isNumsKey &&
 				out.Amount == 0 &&
 				out.OutputType != int16(
 					tappsbt.TypePassiveAssetsOnly,
 				)
+			isBurn := !isNumsKey && len(witnessData) > 0 &&
+				asset.IsBurnKey(scriptPubKey, witnessData[0])
 
 			// If this is an outbound transfer (meaning that our
-			// node doesn't control the script key), we don't create
-			// an asset entry in the DB. The transfer will be the
-			// only reference to the asset leaving the node. The
-			// same goes for outputs that are only used to anchor
-			// passive assets, which are handled separately.
-			if !isTombstone && !out.ScriptKeyLocal {
+			// node doesn't control the script key, and it isn't a
+			// burn), we don't create an asset entry in the DB. The
+			// transfer will be the only reference to the asset
+			// leaving the node. The same goes for outputs that are
+			// only used to anchor passive assets, which are handled
+			// separately.
+			if !isTombstone && !isBurn && !out.ScriptKeyLocal {
 				continue
 			}
 
@@ -2483,7 +2505,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
 				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
 				SpentAssetID:             templateID,
-				Spent:                    isTombstone,
+				Spent:                    isTombstone || isBurn,
 			}
 			newAssetID, err := q.ApplyPendingOutput(ctx, params)
 			if err != nil {
@@ -2493,16 +2515,6 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 
 			// With the old witnesses removed, we'll insert the new
 			// set on disk.
-			var witnessData []asset.Witness
-			err = asset.WitnessDecoder(
-				bytes.NewReader(out.SerializedWitnesses),
-				&witnessData, &[8]byte{},
-				uint64(len(out.SerializedWitnesses)),
-			)
-			if err != nil {
-				return fmt.Errorf("unable to decode "+
-					"witness: %w", err)
-			}
 			err = a.insertAssetWitnesses(
 				ctx, q, newAssetID, witnessData,
 			)
