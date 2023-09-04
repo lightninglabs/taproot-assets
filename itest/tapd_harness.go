@@ -144,7 +144,7 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 	case *ApertureHarness:
 		// Use passed in backoff config or default config.
 		backoffCfg := &proof.BackoffCfg{
-			BackoffResetWait: 20 * time.Second,
+			BackoffResetWait: 2 * time.Second,
 			NumTries:         3,
 			InitialBackoff:   2 * time.Second,
 			MaxBackoff:       2 * time.Second,
