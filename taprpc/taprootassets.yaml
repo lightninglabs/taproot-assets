@@ -58,6 +58,10 @@ http:
       post: "/v1/taproot-assets/send"
       body: "*"
 
+    - selector: taprpc.TaprootAssets.BurnAsset
+      post: "/v1/taproot-assets/burn"
+      body: "*"
+
     - selector: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns
       post: "/v1/taproot-assets/send/ntfs"
       body: "*"

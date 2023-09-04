@@ -55,6 +55,10 @@ const (
 	// 800kB of memory (4 bytes for the block height and 4 bytes for the
 	// timestamp, not including any map/cache overhead).
 	maxNumBlocksInCache = 100_000
+
+	// AssetBurnConfirmationText is the text that needs to be set on the
+	// RPC to confirm an asset burn.
+	AssetBurnConfirmationText = "assets will be destroyed"
 )
 
 // cacheableTimestamp is a wrapper around a uint32 that can be used as a value
@@ -657,6 +661,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
 		ScriptKeyIsLocal: scriptKeyIsLocal,
 		IsSpent:          isSpent,
+		IsBurn:           a.IsBurn(),
 	}
 
 	if a.GroupKey != nil {
@@ -1359,6 +1364,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		SplitRootProof:      splitRootProofBuf.Bytes(),
 		NumAdditionalInputs: uint32(len(p.AdditionalInputs)),
 		ChallengeWitness:    p.ChallengeWitness,
+		IsBurn:              p.Asset.IsBurn(),
 	}, nil
 }
 
@@ -1946,6 +1952,98 @@ func (r *rpcServer) SendAsset(_ context.Context,
 
 	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
+	}, nil
+}
+
+// BurnAsset burns the given number of units of a given asset by sending them
+// to a provably un-spendable script key. Burning means irrevocably destroying
+// a certain number of assets, reducing the total supply of the asset. Because
+// burning is such a destructive and non-reversible operation, some specific
+// values need to be set in the request to avoid accidental burns.
+func (r *rpcServer) BurnAsset(ctx context.Context,
+	in *taprpc.BurnAssetRequest) (*taprpc.BurnAssetResponse, error) {
+
+	var assetID asset.ID
+	switch {
+	case len(in.GetAssetId()) > 0:
+		copy(assetID[:], in.GetAssetId())
+
+	case len(in.GetAssetIdStr()) > 0:
+		assetIDBytes, err := hex.DecodeString(in.GetAssetIdStr())
+		if err != nil {
+			return nil, fmt.Errorf("error decoding asset ID: %w",
+				err)
+		}
+
+		copy(assetID[:], assetIDBytes)
+
+	default:
+		return nil, fmt.Errorf("asset ID must be specified")
+	}
+
+	if in.AmountToBurn == 0 {
+		return nil, fmt.Errorf("amount to burn must be specified")
+	}
+	if in.ConfirmationText != AssetBurnConfirmationText {
+		return nil, fmt.Errorf("invalid confirmation text, please " +
+			"read API doc and confirm safety measure to avoid " +
+			"accidental asset burns")
+	}
+
+	fundResp, err := r.cfg.AssetWallet.FundBurn(
+		ctx, &tapscript.FundingDescriptor{
+			ID:     assetID,
+			Amount: in.AmountToBurn,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error funding burn: %w", err)
+	}
+
+	// Now we can sign the packet and send it to the chain.
+	_, err = r.cfg.AssetWallet.SignVirtualPacket(fundResp.VPacket)
+	if err != nil {
+		return nil, fmt.Errorf("error signing packet: %w", err)
+	}
+
+	resp, err := r.cfg.ChainPorter.RequestShipment(
+		tapfreighter.NewPreSignedParcel(
+			fundResp.VPacket, fundResp.InputCommitments,
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	parcel, err := marshalOutboundParcel(resp)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
+			err)
+	}
+
+	var burnProof *taprpc.DecodedProof
+	for idx := range resp.Outputs {
+		vOut := fundResp.VPacket.Outputs[idx]
+		tOut := resp.Outputs[idx]
+		if vOut.Asset.IsBurn() {
+			var p proof.Proof
+			err = p.Decode(bytes.NewReader(tOut.ProofSuffix))
+			if err != nil {
+				return nil, fmt.Errorf("error decoding "+
+					"burn proof: %w", err)
+			}
+
+			burnProof, err = r.marshalProof(ctx, &p, true, false)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding "+
+					"burn proof: %w", err)
+			}
+		}
+	}
+
+	return &taprpc.BurnAssetResponse{
+		BurnTransfer: parcel,
+		BurnProof:    burnProof,
 	}, nil
 }
 

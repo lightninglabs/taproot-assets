@@ -1143,6 +1143,10 @@
           "type": "string",
           "format": "int64",
           "description": "If the asset has been leased, this is the expiry of the lease as a Unix\ntimestamp in seconds."
+        },
+        "is_burn": {
+          "type": "boolean",
+          "description": "Indicates whether this transfer was an asset burn. If true, the number of\nassets in this output are destroyed and can no longer be spent."
         }
       }
     },
