@@ -374,3 +374,13 @@ func (tgk *TestGroupKey) ToGroupKey(t testing.TB) *GroupKey {
 
 type TestScriptKey struct {
 }
+
+type ValidBurnTestCase struct {
+	PrevID   *TestPrevID `json:"prev_id"`
+	Expected string      `json:"expected"`
+	Comment  string      `json:"comment"`
+}
+
+type BurnTestVectors struct {
+	ValidTestCases []*ValidBurnTestCase `json:"valid_test_cases"`
+}
