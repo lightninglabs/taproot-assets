@@ -119,9 +119,6 @@ func testBasicSendUnidirectional(t *harnessTest) {
 			t, t.tapd, sendResp, genInfo.AssetId,
 			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
-		_ = sendProof(
-			t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo,
-		)
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
 	}
 
@@ -211,10 +208,6 @@ func testResumePendingPackageSend(t *harnessTest) {
 			// node.
 			t.lndHarness.MineBlocks(6)
 		}
-
-		_ = sendProof(
-			t, sendTapd, recvTapd, recvAddr.ScriptKey, genInfo,
-		)
 
 		// Confirm with the receiver node that the asset was fully
 		// received.
