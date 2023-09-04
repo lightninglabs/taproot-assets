@@ -151,6 +151,10 @@ var testCases = []*testCase{
 		name: "get info",
 		test: testGetInfo,
 	},
+	{
+		name: "burn test",
+		test: testBurnAssets,
+	},
 }
 
 var optionalTestCases = []*testCase{

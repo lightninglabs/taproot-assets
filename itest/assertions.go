@@ -96,6 +96,20 @@ func assetScriptKeyIsLocalCheck(isLocal bool) assetCheck {
 	}
 }
 
+// assetScriptKeyIsBurnCheck returns a check function that tests an asset's
+// script key for being a burn key.
+func assetScriptKeyIsBurnCheck(isBurn bool) assetCheck {
+	return func(a *taprpc.Asset) error {
+		if a.IsBurn != isBurn {
+			return fmt.Errorf("unexpected script key, wanted "+
+				"is_burn=%v but is is_burn=%v", isBurn,
+				a.IsBurn)
+		}
+
+		return nil
+	}
+}
+
 // groupAssetsByName converts an unordered list of assets to a map of lists of
 // assets, where all assets in a list have the same name.
 func groupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
@@ -123,6 +137,32 @@ func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
 	for _, rpcAsset := range assets[name] {
 		rpcGen := rpcAsset.AssetGenesis
 		if bytes.Equal(rpcGen.MetaHash, metaHash[:]) {
+			a = rpcAsset
+
+			for _, check := range assetChecks {
+				err := check(rpcAsset)
+				require.NoError(t, err)
+			}
+
+			break
+		}
+	}
+
+	require.NotNil(t, a, fmt.Errorf("asset with matching metadata not"+
+		"found in asset list"))
+
+	return a
+}
+
+// AssertAssetStateByScriptKey makes sure that an asset with the given (possibly
+// non-unique!) name exists in the list of assets and then performs the given
+// additional checks on that asset.
+func AssertAssetStateByScriptKey(t *testing.T, assets []*taprpc.Asset,
+	scriptKey []byte, assetChecks ...assetCheck) *taprpc.Asset {
+
+	var a *taprpc.Asset
+	for _, rpcAsset := range assets {
+		if bytes.Equal(rpcAsset.ScriptKey, scriptKey) {
 			a = rpcAsset
 
 			for _, check := range assetChecks {
@@ -509,7 +549,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 	numTransfers, numOutputs int) *wire.MsgBlock {
 
 	return assertAssetOutboundTransferWithOutputs(
-		t, sender, sendResp, assetID, expectedAmounts,
+		t, sender, sendResp.Transfer, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, numOutputs, true,
 	)
 }
@@ -517,7 +557,7 @@ func confirmAndAssetOutboundTransferWithOutputs(t *harnessTest,
 // assertAssetOutboundTransferWithOutputs makes sure the given outbound transfer
 // has the correct state and number of outputs.
 func assertAssetOutboundTransferWithOutputs(t *harnessTest,
-	sender *tapdHarness, sendResp *taprpc.SendAssetResponse,
+	sender *tapdHarness, transfer *taprpc.AssetTransfer,
 	assetID []byte, expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int, confirm bool) *wire.MsgBlock {
 
@@ -525,7 +565,7 @@ func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 
 	// Check that we now have two new outputs, and that they differ
 	// in outpoints and scripts.
-	outputs := sendResp.Transfer.Outputs
+	outputs := transfer.Outputs
 	require.Len(t.t, outputs, numOutputs)
 
 	outpoints := make(map[string]struct{})
@@ -538,7 +578,7 @@ func assertAssetOutboundTransferWithOutputs(t *harnessTest,
 		scripts[string(o.ScriptKey)] = struct{}{}
 	}
 
-	sendRespJSON, err := formatProtoJSON(sendResp)
+	sendRespJSON, err := formatProtoJSON(transfer)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
