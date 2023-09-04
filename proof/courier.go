@@ -510,7 +510,7 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 	proof *AnnotatedProof) error {
 
 	log.Infof("Attempting to deliver receiver proof for send of "+
-		"asset_id=%x, amt=%v", h.recipient.AssetID, h.recipient.Amount)
+		"asset_id=%v, amt=%v", h.recipient.AssetID, h.recipient.Amount)
 
 	// Compute the stream IDs for the sender and receiver.
 	senderStreamID := deriveSenderStreamID(h.recipient)
