@@ -624,9 +624,17 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 		Index: lastProof.InclusionProof.OutputIndex,
 	}
 
-	return c.cfg.AddrBook.CompleteEvent(
+	err = c.cfg.AddrBook.CompleteEvent(
 		ctxt, event, address.StatusCompleted, anchorPoint,
 	)
+	if err != nil {
+		return fmt.Errorf("error completing event: %w", err)
+	}
+
+	// Remove event from our cache of ongoing events.
+	delete(c.events, event.Outpoint)
+
+	return nil
 }
 
 // hasWalletTaprootOutput returns true if one of the outputs of the given
