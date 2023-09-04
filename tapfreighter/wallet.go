@@ -1152,17 +1152,20 @@ func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
 		return nil
 	}
 
-	// First, we remove any tombstones that might be in the commitment. We
-	// needed to select them from the DB to arrive at the correct input
-	// Taproot Asset tree but can now remove them for good as they are no
-	// longer relevant and don't need to be carried over to the next tree.
+	// First, we remove any tombstones or burns that might be in the
+	// commitment. We needed to select them from the DB to arrive at the
+	// correct input Taproot Asset tree but can now remove them for good as
+	// they are no longer relevant and don't need to be carried over to the
+	// next tree.
 	for tapKey := range passiveCommitments {
 		assetCommitment := passiveCommitments[tapKey]
 		committedAssets := assetCommitment.Assets()
 
 		for assetKey := range committedAssets {
 			committedAsset := committedAssets[assetKey]
-			if committedAsset.IsUnSpendable() {
+			if committedAsset.IsUnSpendable() ||
+				committedAsset.IsBurn() {
+
 				err := removeAsset(
 					assetCommitment, committedAsset, tapKey,
 				)
