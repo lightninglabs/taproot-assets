@@ -2036,6 +2036,9 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 	case tappsbt.TypePassiveSplitRoot:
 		return taprpc.OutputType_OUTPUT_TYPE_PASSIVE_SPLIT_ROOT, nil
 
+	case tappsbt.TypeSimplePassiveAssets:
+		return taprpc.OutputType_OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS, nil
+
 	default:
 		return 0, fmt.Errorf("unknown output type: %d", outputType)
 	}

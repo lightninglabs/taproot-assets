@@ -1076,13 +1076,13 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 		// change output present, since we created one in a previous
 		// step if there was none to begin with.
 		anchorPoint := vPkt.Inputs[inputIdx].PrevID.OutPoint
-		changeOut, err := vPkt.SplitRootOutput()
+		passiveOut, err := vPkt.PassiveAssetsOutput()
 		if err != nil {
-			return nil, fmt.Errorf("missing split root output "+
-				"for passive assets: %w", err)
+			return nil, fmt.Errorf("missing passive asset "+
+				"carrying output: %w", err)
 		}
 
-		changeInternalKey, err := changeOut.AnchorKeyToDesc()
+		changeInternalKey, err := passiveOut.AnchorKeyToDesc()
 		if err != nil {
 			return nil, fmt.Errorf("unable to get change "+
 				"internal key: %w", err)
@@ -1092,7 +1092,7 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 			for _, passiveAsset := range passiveCommitment.Assets() {
 				passivePkt := f.passiveAssetVPacket(
 					passiveAsset, anchorPoint,
-					changeOut.AnchorOutputIndex,
+					passiveOut.AnchorOutputIndex,
 					&changeInternalKey,
 				)
 				reAnchor := &PassiveAssetReAnchor{

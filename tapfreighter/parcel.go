@@ -699,11 +699,11 @@ func (s *sendPackage) createReAnchorProof(
 	passiveIn := passivePkt.Inputs[0]
 	passiveOut := passivePkt.Outputs[0]
 
-	// Passive assets are always anchored at the "split root", which
+	// Passive assets are always anchored at a specific marked output, which
 	// normally contains asset change. But it can also be that the split
 	// root output was just created for the passive assets, if there is no
 	// active transfer or no change.
-	changeOut, err := s.VirtualPacket.SplitRootOutput()
+	passiveCarrierOut, err := s.VirtualPacket.PassiveAssetsOutput()
 	if err != nil {
 		return nil, fmt.Errorf("anchor output for passive assets not "+
 			"found: %w", err)
@@ -717,8 +717,8 @@ func (s *sendPackage) createReAnchorProof(
 	// in the split root output.
 	passiveParams := newParams(
 		s.AnchorTx, passiveOut.Asset, int(passiveOutputIndex),
-		changeOut.AnchorOutputInternalKey, passiveTapTree,
-		changeOut.AnchorOutputTapscriptSibling,
+		passiveCarrierOut.AnchorOutputInternalKey, passiveTapTree,
+		passiveCarrierOut.AnchorOutputTapscriptSibling,
 	)
 
 	// Since a transfer might contain other anchor outputs, we need to
