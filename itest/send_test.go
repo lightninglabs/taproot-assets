@@ -805,7 +805,7 @@ func testSendMultipleCoins(t *harnessTest) {
 
 		sendResp := sendAssetsToAddr(t, t.tapd, bobAddrs[i])
 		assertAssetOutboundTransferWithOutputs(
-			t, t.tapd, sendResp, genInfo.AssetId,
+			t, t.tapd, sendResp.Transfer, genInfo.AssetId,
 			[]uint64{0, unitsPerPart}, i+1, i+2, 2, false,
 		)
 	}
