@@ -125,6 +125,10 @@ type CoinSelector interface {
 	SelectCoins(ctx context.Context, constraints CommitmentConstraints,
 		strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
 		error)
+
+	// ReleaseCoins releases/unlocks coins that were previously leased and
+	// makes them available for coin selection again.
+	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
 }
 
 // TransferInput represents the database level input to an asset transfer.
