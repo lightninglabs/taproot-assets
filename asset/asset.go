@@ -795,10 +795,7 @@ func (a *Asset) HasSplitCommitmentWitness() bool {
 		return false
 	}
 
-	witness := a.PrevWitnesses[0]
-
-	return witness.PrevID != nil && len(witness.TxWitness) == 0 &&
-		witness.SplitCommitment != nil
+	return IsSplitCommitWitness(a.PrevWitnesses[0])
 }
 
 // IsUnSpendable returns true if an asset uses the un-spendable script key and
@@ -806,6 +803,23 @@ func (a *Asset) HasSplitCommitmentWitness() bool {
 func (a *Asset) IsUnSpendable() bool {
 	return ToSerialized(a.ScriptKey.PubKey) == NUMSCompressedKey &&
 		a.Amount == 0
+}
+
+// IsBurn returns true if an asset uses an un-spendable script key that was
+// constructed using the proof-of-burn scheme.
+func (a *Asset) IsBurn() bool {
+	// If the script key is nil, then we can't say if this is a burn or not.
+	if a.ScriptKey.PubKey == nil {
+		return false
+	}
+
+	// The same goes for the witness, if there is none (yet?), then we can't
+	// tell if this is a burn or not.
+	if len(a.PrevWitnesses) == 0 {
+		return false
+	}
+
+	return IsBurnKey(a.ScriptKey.PubKey, a.PrevWitnesses[0])
 }
 
 // Copy returns a deep copy of an Asset.

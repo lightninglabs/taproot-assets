@@ -40,6 +40,68 @@ var (
 		generatedTestVectorName,
 		"asset_tlv_encoding_error_cases.json",
 	}
+
+	testSplitAsset = &Asset{
+		Version: 1,
+		Genesis: Genesis{
+			FirstPrevOut: wire.OutPoint{
+				Hash:  hashBytes1,
+				Index: 1,
+			},
+			Tag:         "asset",
+			MetaHash:    [MetaHashLen]byte{1, 2, 3},
+			OutputIndex: 1,
+			Type:        1,
+		},
+		Amount:           1,
+		LockTime:         1337,
+		RelativeLockTime: 6,
+		PrevWitnesses: []Witness{{
+			PrevID: &PrevID{
+				OutPoint: wire.OutPoint{
+					Hash:  hashBytes1,
+					Index: 1,
+				},
+				ID:        hashBytes1,
+				ScriptKey: ToSerialized(pubKey),
+			},
+			TxWitness:       nil,
+			SplitCommitment: nil,
+		}},
+		SplitCommitmentRoot: nil,
+		ScriptVersion:       1,
+		ScriptKey:           NewScriptKey(pubKey),
+		GroupKey: &GroupKey{
+			GroupPubKey: *pubKey,
+			Sig:         *sig,
+		},
+	}
+	testRootAsset = &Asset{
+		Version:          1,
+		Genesis:          testSplitAsset.Copy().Genesis,
+		Amount:           1,
+		LockTime:         1337,
+		RelativeLockTime: 6,
+		PrevWitnesses: []Witness{{
+			PrevID: &PrevID{
+				OutPoint: wire.OutPoint{
+					Hash:  hashBytes2,
+					Index: 2,
+				},
+				ID:        hashBytes2,
+				ScriptKey: ToSerialized(pubKey),
+			},
+			TxWitness:       wire.TxWitness{{2}, {2}},
+			SplitCommitment: nil,
+		}},
+		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
+		ScriptVersion:       1,
+		ScriptKey:           NewScriptKey(pubKey),
+		GroupKey: &GroupKey{
+			GroupPubKey: *pubKey,
+			Sig:         *sig,
+		},
+	}
 )
 
 // TestGroupKeyIsEqual tests that GroupKey.IsEqual is correct.
@@ -197,68 +259,8 @@ func TestAssetEncoding(t *testing.T) {
 
 		require.True(t, a.DeepEqual(&b))
 	}
-
-	split := &Asset{
-		Version: 1,
-		Genesis: Genesis{
-			FirstPrevOut: wire.OutPoint{
-				Hash:  hashBytes1,
-				Index: 1,
-			},
-			Tag:         "asset",
-			MetaHash:    [MetaHashLen]byte{1, 2, 3},
-			OutputIndex: 1,
-			Type:        1,
-		},
-		Amount:           1,
-		LockTime:         1337,
-		RelativeLockTime: 6,
-		PrevWitnesses: []Witness{{
-			PrevID: &PrevID{
-				OutPoint: wire.OutPoint{
-					Hash:  hashBytes1,
-					Index: 1,
-				},
-				ID:        hashBytes1,
-				ScriptKey: ToSerialized(pubKey),
-			},
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		}},
-		SplitCommitmentRoot: nil,
-		ScriptVersion:       1,
-		ScriptKey:           NewScriptKey(pubKey),
-		GroupKey: &GroupKey{
-			GroupPubKey: *pubKey,
-			Sig:         *sig,
-		},
-	}
-	root := &Asset{
-		Version:          1,
-		Genesis:          split.Genesis,
-		Amount:           1,
-		LockTime:         1337,
-		RelativeLockTime: 6,
-		PrevWitnesses: []Witness{{
-			PrevID: &PrevID{
-				OutPoint: wire.OutPoint{
-					Hash:  hashBytes2,
-					Index: 2,
-				},
-				ID:        hashBytes2,
-				ScriptKey: ToSerialized(pubKey),
-			},
-			TxWitness:       wire.TxWitness{{2}, {2}},
-			SplitCommitment: nil,
-		}},
-		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
-		ScriptVersion:       1,
-		ScriptKey:           NewScriptKey(pubKey),
-		GroupKey: &GroupKey{
-			GroupPubKey: *pubKey,
-			Sig:         *sig,
-		},
-	}
+	root := testRootAsset.Copy()
+	split := testSplitAsset.Copy()
 	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
 		Proof:     *mssmt.RandProof(t),
 		RootAsset: *root,
@@ -317,6 +319,27 @@ func TestAssetEncoding(t *testing.T) {
 	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
 	// build tag is not set.
 	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
+}
+
+// TestAssetIsBurn asserts that the IsBurn method is correct.
+func TestAssetIsBurn(t *testing.T) {
+	root := testRootAsset.Copy()
+	split := testSplitAsset.Copy()
+	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
+		Proof:     *mssmt.RandProof(t),
+		RootAsset: *root,
+	}
+
+	require.False(t, root.IsBurn())
+	require.False(t, split.IsBurn())
+
+	// Update the script key to a burn script key for both of the assets.
+	rootPrevID := root.PrevWitnesses[0].PrevID
+	root.ScriptKey = NewScriptKey(DeriveBurnKey(*rootPrevID))
+	split.ScriptKey = NewScriptKey(DeriveBurnKey(*rootPrevID))
+
+	require.True(t, root.IsBurn())
+	require.True(t, split.IsBurn())
 }
 
 // TestAssetType asserts that the number of issued assets is set according to
