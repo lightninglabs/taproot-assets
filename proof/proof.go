@@ -147,6 +147,15 @@ type Proof struct {
 	ChallengeWitness wire.TxWitness
 }
 
+// OutPoint returns the outpoint that commits to the asset associated with this
+// proof.
+func (p *Proof) OutPoint() wire.OutPoint {
+	return wire.OutPoint{
+		Hash:  p.AnchorTx.TxHash(),
+		Index: p.InclusionProof.OutputIndex,
+	}
+}
+
 // EncodeRecords returns the set of known TLV records to encode a Proof.
 func (p *Proof) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 9)
