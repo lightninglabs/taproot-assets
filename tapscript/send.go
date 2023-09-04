@@ -430,9 +430,6 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 			if !vPkt.HasSplitRootOutput() {
 				return ErrInvalidCollectibleSplit
 			}
-			if vPkt.HasInteractiveOutput() {
-				return ErrInvalidCollectibleSplit
-			}
 
 			rootOut, err := vPkt.SplitRootOutput()
 			if err != nil {
@@ -440,6 +437,17 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 			}
 			recipientOut, err := vPkt.FirstNonSplitRootOutput()
 			if err != nil {
+				return ErrInvalidCollectibleSplit
+			}
+
+			// There should only be a tombstone output in an
+			// interactive flow if we need to transport passive
+			// assets. Otherwise, for an interactive send we don't
+			// need a tombstone output and this wouldn't be a two
+			// output collectible send.
+			if !rootOut.Type.CanCarryPassive() &&
+				recipientOut.Interactive {
+
 				return ErrInvalidCollectibleSplit
 			}
 
