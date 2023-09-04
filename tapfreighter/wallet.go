@@ -508,6 +508,14 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
+	return f.fundPacketWithInputs(ctx, fundDesc, vPkt, selectedCommitments)
+}
+
+// fundPacketWithInputs funds a virtual transaction with the given inputs.
+func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
+	fundDesc *tapscript.FundingDescriptor, vPkt *tappsbt.VPacket,
+	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
+
 	log.Infof("Selected %v asset inputs for send of %d to %x",
 		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
 
