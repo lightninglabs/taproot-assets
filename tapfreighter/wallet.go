@@ -515,6 +515,16 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	totalInputAmt := uint64(0)
 	for _, anchorAsset := range selectedCommitments {
+		// We only use the sum of all assets of the same TAP commitment
+		// key to avoid counting passive assets as well. We'll filter
+		// out the passive assets from the selected commitments in a
+		// later step.
+		if anchorAsset.Asset.TapCommitmentKey() !=
+			fundDesc.TapCommitmentKey() {
+
+			continue
+		}
+
 		totalInputAmt += anchorAsset.Asset.Amount
 	}
 
