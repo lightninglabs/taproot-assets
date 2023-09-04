@@ -1621,7 +1621,9 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
-			vPacket, inputCommitment.Commitment,
+			vPacket, tappsbt.InputCommitments{
+				0: inputCommitment.Commitment,
+			},
 		),
 	)
 	if err != nil {
