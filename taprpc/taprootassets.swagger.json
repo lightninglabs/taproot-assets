@@ -455,6 +455,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/burn": {
+      "post": {
+        "summary": "tapcli: `assets burn`\nBurnAsset burns the given number of units of a given asset by sending them\nto a provably un-spendable script key. Burning means irrevocably destroying\na certain number of assets, reducing the total supply of the asset. Because\nburning is such a destructive and non-reversible operation, some specific\nvalues need to be set in the request to avoid accidental burns.",
+        "operationId": "TaprootAssets_BurnAsset",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcBurnAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcBurnAssetRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/debuglevel": {
       "post": {
         "summary": "tapcli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntapd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
@@ -1003,6 +1036,10 @@
           "type": "string",
           "format": "int64",
           "description": "If the asset has been leased, this is the expiry of the lease as a Unix\ntimestamp in seconds."
+        },
+        "is_burn": {
+          "type": "boolean",
+          "description": "Indicates whether this transfer was an asset burn. If true, the number of\nassets in this output are destroyed and can no longer be spent."
         }
       }
     },
@@ -1169,6 +1206,41 @@
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
     },
+    "taprpcBurnAssetRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the asset to burn units of."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The hex encoded asset ID of the asset to burn units of."
+        },
+        "amount_to_burn": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "confirmation_text": {
+          "type": "string",
+          "description": "A safety check to ensure the user is aware of the destructive nature of\nthe burn. This needs to be set to the value \"assets will be destroyed\"\nfor the burn to succeed."
+        }
+      }
+    },
+    "taprpcBurnAssetResponse": {
+      "type": "object",
+      "properties": {
+        "burn_transfer": {
+          "$ref": "#/definitions/taprpcAssetTransfer",
+          "description": "The asset transfer that contains the asset burn as an output."
+        },
+        "burn_proof": {
+          "$ref": "#/definitions/taprpcDecodedProof",
+          "description": "The burn transition proof for the asset burn output."
+        }
+      }
+    },
     "taprpcDebugLevelRequest": {
       "type": "object",
       "properties": {
@@ -1284,6 +1356,10 @@
             "format": "byte"
           },
           "description": "ChallengeWitness is an optional virtual transaction witness that serves\nas an ownership proof for the asset. If this is non-nil, then it is a\nvalid transfer witness for a 1-input, 1-output virtual transaction that\nspends the asset in this proof and sends it to the NUMS key, to prove\nthat the creator of the proof is able to produce a valid signature to\nspend the asset."
+        },
+        "is_burn": {
+          "type": "boolean",
+          "description": "Indicates whether the state transition this proof represents is a burn,\nmeaning that the assets were provably destroyed and can no longer be\nspent."
         }
       }
     },

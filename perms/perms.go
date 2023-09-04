@@ -72,6 +72,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/taprpc.TaprootAssets/BurnAsset": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/taprpc.TaprootAssets/FetchAssetMeta": {{
 			Entity: "assets",
 			Action: "read",
