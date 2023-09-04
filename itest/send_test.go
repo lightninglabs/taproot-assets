@@ -119,9 +119,6 @@ func testBasicSendUnidirectional(t *harnessTest) {
 			t, t.tapd, sendResp, genInfo.AssetId,
 			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
-		_ = sendProof(
-			t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo,
-		)
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
 	}
 
