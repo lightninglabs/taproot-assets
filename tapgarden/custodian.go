@@ -337,11 +337,16 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			return err
 		}
 
+		// We are not interested in the outpoint if we don't know of a
+		// pre-stored address associated with it.
+		if addr == nil {
+			continue
+		}
+
 		// TODO(ffranr): This proof courier disabled check should be
 		//  removed. It was implemented because some integration test do
 		//  not setup and use a proof courier.
-		skipProofCourier := c.cfg.ProofCourierCfg == nil || addr == nil
-		if skipProofCourier {
+		if c.cfg.ProofCourierCfg == nil {
 			continue
 		}
 
