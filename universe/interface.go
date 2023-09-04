@@ -531,6 +531,22 @@ const (
 
 	// SortByGenesisHeight sorts the returned stats by the genesis height.
 	SortByGenesisHeight
+
+	// SortByTotalSupply sorts the returned stats by the total supply.
+	SortByTotalSupply
+)
+
+// SortDirection is an enum used to specify the sort direction of the returned.
+type SortDirection uint8
+
+const (
+	// SortAscending is a sentinel value that indicates that the sort
+	// should be in ascending order.
+	SortAscending SortDirection = iota
+
+	// SortDescending is a sentinel value that indicates that the sort
+	// should be in descending order.
+	SortDescending
 )
 
 // SyncStatsQuery packages a set of query parameters to retrieve stats related
@@ -550,6 +566,9 @@ type SyncStatsQuery struct {
 
 	// SortBy is the sort order to use when returning the stats.
 	SortBy SyncStatsSort
+
+	// SortDirection is the sort direction to use when returning the stats.
+	SortDirection SortDirection
 
 	// Offset is the offset to use when returning the stats. This can be
 	// used to paginate the response.

@@ -247,82 +247,216 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 
 	// sortCheck is used to generate an IsSorted func bound to the
 	// response, for each sort type below.
-	type sortCheck func([]universe.AssetSyncSnapshot) func(i, j int) bool
+	type sortCheck func([]universe.AssetSyncSnapshot,
+		universe.SortDirection) func(i, j int) bool
+
+	// isSortedWithDirection is a helper function that returns a function
+	// that can be used to check if the response is sorted in the given
+	// direction.
+	isSortedWithDirection := func(s []universe.AssetSyncSnapshot,
+		t universe.SyncStatsSort,
+		d universe.SortDirection) func(i, j int) bool {
+
+		asc := d == universe.SortAscending
+		desc := d == universe.SortDescending
+
+		return func(i, j int) bool {
+			switch {
+			case t == universe.SortByAssetName && asc:
+				return s[i].AssetName < s[j].AssetName
+			case t == universe.SortByAssetName && desc:
+				return s[i].AssetName > s[j].AssetName
+			case t == universe.SortByAssetType && asc:
+				return s[i].AssetType < s[j].AssetType
+			case t == universe.SortByAssetType && desc:
+				return s[i].AssetType > s[j].AssetType
+			case t == universe.SortByAssetID && asc:
+				return bytes.Compare(s[i].AssetID[:],
+					s[j].AssetID[:]) < 0
+			case t == universe.SortByAssetID && desc:
+				return bytes.Compare(s[i].AssetID[:],
+					s[j].AssetID[:]) > 0
+			case t == universe.SortByTotalSyncs && asc:
+				return s[i].TotalSyncs < s[j].TotalSyncs
+			case t == universe.SortByTotalSyncs && desc:
+				return s[i].TotalSyncs > s[j].TotalSyncs
+			case t == universe.SortByTotalProofs && asc:
+				return s[i].TotalProofs < s[j].TotalProofs
+			case t == universe.SortByTotalProofs && desc:
+				return s[i].TotalProofs > s[j].TotalProofs
+			case t == universe.SortByGenesisHeight && asc:
+				return s[i].GenesisHeight < s[j].GenesisHeight
+			case t == universe.SortByGenesisHeight && desc:
+				return s[i].GenesisHeight > s[j].GenesisHeight
+			case t == universe.SortByTotalSupply && asc:
+				return s[i].TotalSupply < s[j].TotalSupply
+			case t == universe.SortByTotalSupply && desc:
+				return s[i].TotalSupply > s[j].TotalSupply
+			}
+			panic("unknown sort type")
+		}
+	}
 
 	// With the events above logged, we'll now make sure we can properly
 	// retrieve each of the events by their sorted order.
 	var tests = []struct {
 		name         string
 		sortType     universe.SyncStatsSort
+		direction    universe.SortDirection
 		isSortedFunc sortCheck
 	}{
 		{
-			name:     "asset name",
-			sortType: universe.SortByAssetName,
+			name:      "asset name sort ascending",
+			sortType:  universe.SortByAssetName,
+			direction: universe.SortAscending,
 			isSortedFunc: func(s []universe.AssetSyncSnapshot,
-			) func(i, j int) bool {
+				d universe.SortDirection) func(i, j int) bool {
 
-				return func(i, j int) bool {
-					return s[i].AssetName < s[j].AssetName
-				}
+				return isSortedWithDirection(
+					s, universe.SortByAssetName, d)
 			},
 		},
 		{
-			name:     "asset type",
-			sortType: universe.SortByAssetType,
+			name:      "asset name sort descending",
+			sortType:  universe.SortByAssetName,
+			direction: universe.SortDescending,
 			isSortedFunc: func(s []universe.AssetSyncSnapshot,
-			) func(i, j int) bool {
+				d universe.SortDirection) func(i, j int) bool {
 
-				return func(i, j int) bool {
-					return s[i].AssetType < s[j].AssetType
-				}
+				return isSortedWithDirection(
+					s, universe.SortByAssetName, d)
 			},
 		},
 		{
-			name:     "asset id",
-			sortType: universe.SortByAssetID,
+			name:      "asset type sort ascending",
+			sortType:  universe.SortByAssetType,
+			direction: universe.SortAscending,
 			isSortedFunc: func(s []universe.AssetSyncSnapshot,
-			) func(i, j int) bool {
+				d universe.SortDirection) func(i, j int) bool {
 
-				return func(i, j int) bool {
-					return bytes.Compare(s[i].AssetID[:],
-						s[j].AssetID[:]) < 0
-				}
+				return isSortedWithDirection(
+					s, universe.SortByAssetType, d)
 			},
 		},
 		{
-			name:     "total sync",
-			sortType: universe.SortByTotalSyncs,
+			name:      "asset type sort descending",
+			sortType:  universe.SortByAssetType,
+			direction: universe.SortDescending,
 			isSortedFunc: func(s []universe.AssetSyncSnapshot,
-			) func(i, j int) bool {
+				d universe.SortDirection) func(i, j int) bool {
 
-				return func(i, j int) bool {
-					return s[i].TotalSyncs < s[j].TotalSyncs
-				}
+				return isSortedWithDirection(
+					s, universe.SortByAssetType, d)
 			},
 		},
 		{
-			name:     "total proofs",
-			sortType: universe.SortByTotalProofs,
+			name:      "asset id ascending",
+			sortType:  universe.SortByAssetID,
+			direction: universe.SortAscending,
 			isSortedFunc: func(s []universe.AssetSyncSnapshot,
-			) func(i, j int) bool {
+				d universe.SortDirection) func(i, j int) bool {
 
-				return func(i, j int) bool {
-					return s[i].TotalProofs <
-						s[j].TotalProofs
-				}
+				return isSortedWithDirection(
+					s, universe.SortByAssetID, d)
 			},
 		},
 		{
-			name:     "genesis height",
-			sortType: universe.SortByGenesisHeight,
+			name:      "asset id descending",
+			sortType:  universe.SortByAssetID,
+			direction: universe.SortDescending,
 			isSortedFunc: func(s []universe.AssetSyncSnapshot,
-			) func(i, j int) bool {
+				d universe.SortDirection) func(i, j int) bool {
 
-				return func(i, j int) bool {
-					return s[i].GenesisHeight <
-						s[j].GenesisHeight
-				}
+				return isSortedWithDirection(
+					s, universe.SortByAssetID, d)
+			},
+		},
+		{
+			name:      "total sync ascending",
+			sortType:  universe.SortByTotalSyncs,
+			direction: universe.SortAscending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByTotalSyncs, d)
+			},
+		},
+		{
+			name:      "total sync descending",
+			sortType:  universe.SortByTotalSyncs,
+			direction: universe.SortDescending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByTotalSyncs, d)
+			},
+		},
+		{
+			name:      "total proofs ascending",
+			sortType:  universe.SortByTotalProofs,
+			direction: universe.SortAscending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByTotalProofs, d)
+			},
+		},
+		{
+			name:      "total proofs descending",
+			sortType:  universe.SortByTotalProofs,
+			direction: universe.SortDescending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByTotalProofs, d)
+			},
+		},
+		{
+			name:      "genesis height ascending",
+			sortType:  universe.SortByGenesisHeight,
+			direction: universe.SortAscending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByGenesisHeight, d)
+			},
+		},
+		{
+			name:      "genesis height descending",
+			sortType:  universe.SortByGenesisHeight,
+			direction: universe.SortDescending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByGenesisHeight, d)
+			},
+		},
+		{
+			name:      "total supply descending",
+			sortType:  universe.SortByTotalSupply,
+			direction: universe.SortDescending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByTotalSupply, d)
+			},
+		},
+		{
+			name:      "total supply ascending",
+			sortType:  universe.SortByTotalSupply,
+			direction: universe.SortAscending,
+			isSortedFunc: func(s []universe.AssetSyncSnapshot,
+				d universe.SortDirection) func(i, j int) bool {
+
+				return isSortedWithDirection(
+					s, universe.SortByTotalSupply, d)
 			},
 		},
 	}
@@ -330,7 +464,8 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			syncStats, err := statsDB.QuerySyncStats(
 				ctx, universe.SyncStatsQuery{
-					SortBy: testCase.sortType,
+					SortBy:        testCase.sortType,
+					SortDirection: testCase.direction,
 				},
 			)
 			require.NoError(t, err)
@@ -338,7 +473,8 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 
 			require.True(t, sort.SliceIsSorted(
 				syncStats.SyncStats,
-				testCase.isSortedFunc(syncStats.SyncStats),
+				testCase.isSortedFunc(syncStats.SyncStats,
+					testCase.direction),
 			))
 		})
 	}

@@ -390,6 +390,14 @@ enum AssetQuerySort {
     SORT_BY_TOTAL_PROOFS = 5;
 
     SORT_BY_GENESIS_HEIGHT = 6;
+
+    SORT_BY_TOTAL_SUPPLY = 7;
+}
+
+enum SortDirection {
+    SORT_DIRECTION_ASC = 0;
+
+    SORT_DIRECTION_DESC = 1;
 }
 
 enum AssetTypeFilter {
@@ -412,6 +420,8 @@ message AssetStatsQuery {
     int32 offset = 5;
 
     int32 limit = 6;
+
+    SortDirection direction = 7;
 }
 
 message AssetStatsSnapshot {

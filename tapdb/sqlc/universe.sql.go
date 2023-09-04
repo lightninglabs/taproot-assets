@@ -393,9 +393,9 @@ WITH asset_supply AS (
     -- doesn't have a group key.
     LEFT JOIN key_group_info_view group_info
         ON gen.gen_asset_id = group_info.gen_asset_id
-    WHERE (gen.asset_tag = $4 OR $4 IS NULL) AND
-          (gen.asset_type = $5 OR $5 IS NULL) AND
-          (gen.asset_id = $6 OR $6 IS NULL)
+    WHERE (gen.asset_tag = $5 OR $5 IS NULL) AND
+          (gen.asset_type = $6 OR $6 IS NULL) AND
+          (gen.asset_id = $7 OR $7 IS NULL)
 )
 SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
     asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
@@ -408,40 +408,45 @@ FROM asset_info
 JOIN universe_stats
     ON asset_info.asset_id = universe_stats.asset_id
 ORDER BY
-    CASE
-        WHEN $1 = 'asset_id' THEN asset_info.asset_id
-        ELSE NULL
-    END,
-    CASE
-        WHEN $1 = 'asset_name' THEN asset_info.asset_name
-        ELSE NULL
-    END,
-    CASE
-        WHEN $1 = 'asset_type' THEN asset_info.asset_type
-        ELSE NULL
-    END,
-    CASE
-        WHEN $1 = 'total_syncs' THEN universe_stats.total_asset_syncs
-        ELSE NULL
-        END,
-    CASE
-        WHEN $1 = 'total_proofs' THEN universe_stats.total_asset_proofs
-        ELSE NULL
-    END,
-    CASE
-        WHEN $1 = 'genesis_height' THEN asset_info.genesis_height
-        ELSE NULL
-    END
-LIMIT $3 OFFSET $2
+    CASE WHEN $1 = 'asset_id' AND $2 = 0 THEN
+             asset_info.asset_id END ASC,
+    CASE WHEN $1 = 'asset_id' AND $2 = 1 THEN
+             asset_info.asset_id END DESC,
+    CASE WHEN $1 = 'asset_name' AND $2 = 0 THEN
+             asset_info.asset_name END ASC ,
+    CASE WHEN $1 = 'asset_name' AND $2 = 1 THEN
+             asset_info.asset_name END DESC ,
+    CASE WHEN $1 = 'asset_type' AND $2 = 0 THEN
+             asset_info.asset_type END ASC ,
+    CASE WHEN $1 = 'asset_type' AND $2 = 1 THEN
+             asset_info.asset_type END DESC,
+    CASE WHEN $1 = 'total_syncs' AND $2 = 0 THEN
+             universe_stats.total_asset_syncs END ASC ,
+    CASE WHEN $1 = 'total_syncs' AND $2 = 1 THEN
+             universe_stats.total_asset_syncs END DESC,
+    CASE WHEN $1 = 'total_proofs' AND $2 = 0 THEN
+             universe_stats.total_asset_proofs END ASC ,
+    CASE WHEN $1 = 'total_proofs' AND $2 = 1 THEN
+             universe_stats.total_asset_proofs END DESC,
+    CASE WHEN $1 = 'genesis_height' AND $2 = 0 THEN
+             asset_info.genesis_height END ASC ,
+    CASE WHEN $1 = 'genesis_height' AND $2 = 1 THEN
+             asset_info.genesis_height END DESC,
+    CASE WHEN $1 = 'total_supply' AND $2 = 0 THEN
+             asset_info.supply END ASC ,
+    CASE WHEN $1 = 'total_supply' AND $2 = 1 THEN
+             asset_info.supply END DESC
+LIMIT $4 OFFSET $3
 `
 
 type QueryUniverseAssetStatsParams struct {
-	SortBy    interface{}
-	NumOffset int32
-	NumLimit  int32
-	AssetName sql.NullString
-	AssetType sql.NullInt16
-	AssetID   []byte
+	SortBy        interface{}
+	SortDirection interface{}
+	NumOffset     int32
+	NumLimit      int32
+	AssetName     sql.NullString
+	AssetType     sql.NullInt16
+	AssetID       []byte
 }
 
 type QueryUniverseAssetStatsRow struct {
@@ -461,6 +466,7 @@ type QueryUniverseAssetStatsRow struct {
 func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryUniverseAssetStats,
 		arg.SortBy,
+		arg.SortDirection,
 		arg.NumOffset,
 		arg.NumLimit,
 		arg.AssetName,

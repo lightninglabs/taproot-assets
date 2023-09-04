@@ -243,6 +243,9 @@ func sortTypeToOrderBy(s universe.SyncStatsSort) string {
 	case universe.SortByGenesisHeight:
 		return "genesis_height"
 
+	case universe.SortByTotalSupply:
+		return "total_supply"
+
 	default:
 		return ""
 	}
@@ -354,8 +357,9 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 
 				return sqlInt16(*q.AssetTypeFilter)
 			}(),
-			SortBy:    sqlStr(sortTypeToOrderBy(q.SortBy)),
-			NumOffset: int32(q.Offset),
+			SortBy:        sqlStr(sortTypeToOrderBy(q.SortBy)),
+			SortDirection: sqlInt16(q.SortDirection),
+			NumOffset:     int32(q.Offset),
 			NumLimit: func() int32 {
 				if q.Limit == 0 {
 					return int32(math.MaxInt32)
