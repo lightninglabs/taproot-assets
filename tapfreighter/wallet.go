@@ -508,6 +508,14 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
+	return f.fundPacketWithInputs(ctx, fundDesc, vPkt, selectedCommitments)
+}
+
+// fundPacketWithInputs funds a virtual transaction with the given inputs.
+func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
+	fundDesc *tapscript.FundingDescriptor, vPkt *tappsbt.VPacket,
+	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
+
 	log.Infof("Selected %v asset inputs for send of %d to %x",
 		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
 
@@ -515,6 +523,16 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 
 	totalInputAmt := uint64(0)
 	for _, anchorAsset := range selectedCommitments {
+		// We only use the sum of all assets of the same TAP commitment
+		// key to avoid counting passive assets as well. We'll filter
+		// out the passive assets from the selected commitments in a
+		// later step.
+		if anchorAsset.Asset.TapCommitmentKey() !=
+			fundDesc.TapCommitmentKey() {
+
+			continue
+		}
+
 		totalInputAmt += anchorAsset.Asset.Amount
 	}
 

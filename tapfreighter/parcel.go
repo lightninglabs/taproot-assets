@@ -203,9 +203,9 @@ type PreSignedParcel struct {
 	// vPkt is the virtual transaction that should be delivered.
 	vPkt *tappsbt.VPacket
 
-	// inputCommitment is the commitment for the input that is being spent
-	// in the virtual transaction.
-	inputCommitment *commitment.TapCommitment
+	// inputCommitments are the commitments for the input that are being
+	// spent in the virtual transaction.
+	inputCommitments tappsbt.InputCommitments
 }
 
 // A compile-time assertion to ensure PreSignedParcel implements the parcel
@@ -213,18 +213,16 @@ type PreSignedParcel struct {
 var _ Parcel = (*PreSignedParcel)(nil)
 
 // NewPreSignedParcel creates a new PreSignedParcel.
-//
-// TODO(ffranr): Add support for multiple inputs (commitments).
 func NewPreSignedParcel(vPkt *tappsbt.VPacket,
-	inputCommitment *commitment.TapCommitment) *PreSignedParcel {
+	inputCommitments tappsbt.InputCommitments) *PreSignedParcel {
 
 	return &PreSignedParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		vPkt:            vPkt,
-		inputCommitment: inputCommitment,
+		vPkt:             vPkt,
+		inputCommitments: inputCommitments,
 	}
 }
 
@@ -236,12 +234,10 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 	// Initialize a package the signed virtual transaction and input
 	// commitment.
 	return &sendPackage{
-		Parcel:        p,
-		SendState:     SendStateAnchorSign,
-		VirtualPacket: p.vPkt,
-		InputCommitments: tappsbt.InputCommitments{
-			0: p.inputCommitment,
-		},
+		Parcel:           p,
+		SendState:        SendStateAnchorSign,
+		VirtualPacket:    p.vPkt,
+		InputCommitments: p.inputCommitments,
 	}
 }
 

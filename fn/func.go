@@ -34,7 +34,7 @@ func Map[I, O any, S []I](s S, f func(I) O) []O {
 // slice and generates a new slice containing only the elements for which the
 // predicate returned true.
 func Filter[T any](s []T, f func(T) bool) []T {
-	output := make([]T, len(s))
+	output := make([]T, 0, len(s))
 
 	for _, x := range s {
 		if f(x) {
