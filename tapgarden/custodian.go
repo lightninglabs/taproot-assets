@@ -337,11 +337,16 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			return err
 		}
 
+		// We are not interested in the outpoint if we don't know of a
+		// pre-stored address associated with it.
+		if addr == nil {
+			continue
+		}
+
 		// TODO(ffranr): This proof courier disabled check should be
 		//  removed. It was implemented because some integration test do
 		//  not setup and use a proof courier.
-		skipProofCourier := c.cfg.ProofCourierCfg == nil || addr == nil
-		if skipProofCourier {
+		if c.cfg.ProofCourierCfg == nil {
 			continue
 		}
 
@@ -580,12 +585,20 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
-		if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
+		if AddrMatchesAsset(event.Addr, &lastProof.Asset) &&
+			event.Outpoint == lastProof.OutPoint() {
+
 			// Importing a proof already creates the asset in the
 			// database. Therefore, all we need to do is update the
 			// state of the address event to mark it as completed
 			// successfully.
-			return c.setReceiveCompleted(event, lastProof, file)
+			err = c.setReceiveCompleted(event, lastProof, file)
+			if err != nil {
+				return fmt.Errorf("error updating event: %w",
+					err)
+			}
+
+			delete(c.events, event.Outpoint)
 		}
 	}
 
