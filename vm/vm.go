@@ -191,15 +191,24 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 		return ErrInvalidScriptVersion
 	}
 
-	// An input MUST have a prev out and also a valid witness.
-	if witness.PrevID == nil || len(witness.TxWitness) == 0 {
+	// An input must have a valid witness.
+	if len(witness.TxWitness) == 0 {
 		return newErrKind(ErrInvalidTransferWitness)
 	}
 
-	// The parameters of the new and old asset much match exactly.
-	err := matchesAssetParams(vm.newAsset, prevAsset, witness)
-	if err != nil {
-		return err
+	// Genesis grouped assets will have a nil PrevID and match the prevAsset
+	// since it is a copy of the original asset.
+	if !vm.newAsset.HasGenesisWitnessForGroup() {
+		// An input MUST have a prev out and also a valid witness.
+		if witness.PrevID == nil {
+			return newErrKind(ErrInvalidTransferWitness)
+		}
+
+		// The parameters of the new and old asset much match exactly.
+		err := matchesAssetParams(vm.newAsset, prevAsset, witness)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Update the virtual transaction input with details for the specific
@@ -288,6 +297,21 @@ func (vm *Engine) Execute() error {
 			return newErrKind(ErrInvalidGenesisStateTransition)
 		}
 		return nil
+	}
+
+	// Genesis assets in an asset group have a witness that must be
+	// verified to prove group membership.
+	// TODO(jhb): Set group witness in PrevWitnesses
+	if vm.newAsset.HasGenesisWitnessForGroup() {
+		if len(vm.splitAssets) > 0 || len(vm.prevAssets) > 0 {
+			return newErrKind(ErrInvalidGenesisStateTransition)
+		}
+
+		// For genesis assets in an asset group, set the previous asset
+		// as the genesis asset.
+		vm.prevAssets = commitment.InputSet{
+			asset.ZeroPrevID: vm.newAsset,
+		}
 	}
 
 	// If we have an asset split, then we need to validate the state
