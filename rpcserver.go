@@ -2909,16 +2909,27 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		return nil, err
 	}
 
+	rpcsLog.Debugf("[QueryProof]: fetching proof at "+
+		"(universeID=%x, leafKey=%x)", universeID,
+		leafKey.UniverseKey())
+
 	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
 		ctx, universeID, leafKey,
 	)
 	if err != nil {
+		rpcsLog.Debugf("[QueryProof]: error querying for proof at "+
+			"(universeID=%x, leafKey=%x)", universeID,
+			leafKey.UniverseKey())
 		return nil, err
 	}
 
 	// TODO(roasbeef): query may return multiple proofs, if allow key to
 	// not be fully specified
 	proof := proofs[0]
+
+	rpcsLog.Debugf("[QueryProof]: found proof at "+
+		"(universeID=%x, leafKey=%x)", universeID,
+		leafKey.UniverseKey())
 
 	return r.marshalIssuanceProof(ctx, req, proof)
 }
@@ -2976,12 +2987,20 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, err
 	}
 
+	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
+		"(universeID=%x, leafKey=%x)", universeID,
+		leafKey.UniverseKey())
+
 	newUniverseState, err := r.cfg.BaseUniverse.RegisterIssuance(
 		ctx, universeID, leafKey, assetLeaf,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	universeRootHash := newUniverseState.UniverseRoot.NodeHash()
+	rpcsLog.Debugf("[InsertProof]: proof inserted, new universe root: %x",
+		universeRootHash[:])
 
 	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
 }
