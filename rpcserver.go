@@ -1136,8 +1136,9 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 func (r *rpcServer) VerifyProof(ctx context.Context,
 	req *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
-	if len(req.RawProof) == 0 {
-		return nil, fmt.Errorf("proof file must be specified")
+	if !proof.IsProofFile(req.RawProof) {
+		return nil, fmt.Errorf("invalid raw proof, expect single " +
+			"encoded mint or transition proof")
 	}
 
 	var proofFile proof.File
@@ -1156,10 +1157,17 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}
 	valid := err == nil
 
-	decodedProof, err := r.marshalProofFile(ctx, proofFile, 0, false, false)
+	p, err := proofFile.LastProof()
+	if err != nil {
+		return nil, err
+	}
+	decodedProof, err := r.marshalProof(ctx, p, false, false)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal proof: %w", err)
 	}
+
+	decodedProof.ProofAtDepth = 0
+	decodedProof.NumberOfProofs = uint32(proofFile.NumProofs())
 
 	return &taprpc.VerifyProofResponse{
 		Valid:        valid,
@@ -1172,58 +1180,85 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 func (r *rpcServer) DecodeProof(ctx context.Context,
 	req *taprpc.DecodeProofRequest) (*taprpc.DecodeProofResponse, error) {
 
-	if len(req.RawProof) == 0 {
-		return nil, fmt.Errorf("proof file must be specified")
-	}
-
-	var proofFile proof.File
-	if err := proofFile.Decode(bytes.NewReader(req.RawProof)); err != nil {
-		return nil, fmt.Errorf("unable to decode proof file: %w", err)
-	}
-
-	latestProofIndex := uint32(proofFile.NumProofs() - 1)
-
-	if req.ProofAtDepth > latestProofIndex {
-		return nil, fmt.Errorf("invalid depth %d is greater than "+
-			"latest proof index of %d", req.ProofAtDepth,
-			latestProofIndex)
-	}
-
-	// Default to latest proof.
-	depth := latestProofIndex - req.ProofAtDepth
-
-	decodedProof, err := r.marshalProofFile(
-		ctx, proofFile, depth, req.WithPrevWitnesses,
-		req.WithMetaReveal,
+	var (
+		proofReader = bytes.NewReader(req.RawProof)
+		rpcProof    *taprpc.DecodedProof
 	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to marshal proof: %w", err)
+	switch {
+	case proof.IsSingleProof(req.RawProof):
+		var p proof.Proof
+		err := p.Decode(proofReader)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode proof: %w",
+				err)
+		}
+
+		rpcProof, err = r.marshalProof(
+			ctx, &p, req.WithPrevWitnesses, req.WithMetaReveal,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal proof: %w",
+				err)
+		}
+
+		rpcProof.NumberOfProofs = 1
+
+	case proof.IsProofFile(req.RawProof):
+		var proofFile proof.File
+		if err := proofFile.Decode(proofReader); err != nil {
+			return nil, fmt.Errorf("unable to decode proof file: "+
+				"%w", err)
+		}
+
+		latestProofIndex := uint32(proofFile.NumProofs() - 1)
+		if req.ProofAtDepth > latestProofIndex {
+			return nil, fmt.Errorf("invalid depth %d is greater "+
+				"than latest proof index of %d",
+				req.ProofAtDepth, latestProofIndex)
+		}
+
+		// Default to latest proof.
+		index := latestProofIndex - req.ProofAtDepth
+		p, err := proofFile.ProofAt(index)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcProof, err = r.marshalProof(
+			ctx, p, req.WithPrevWitnesses,
+			req.WithMetaReveal,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal proof: %w",
+				err)
+		}
+
+		rpcProof.ProofAtDepth = req.ProofAtDepth
+		rpcProof.NumberOfProofs = uint32(proofFile.NumProofs())
+
+	default:
+		return nil, fmt.Errorf("invalid raw proof, could not " +
+			"identify decoding format")
 	}
 
 	return &taprpc.DecodeProofResponse{
-		DecodedProof: decodedProof,
+		DecodedProof: rpcProof,
 	}, nil
 }
 
-// marshalProofFile turns a proof file into an RPC DecodedProof.
-func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
-	depth uint32, withPrevWitnesses,
-	withMetaReveal bool) (*taprpc.DecodedProof, error) {
-
-	decodedProof, err := proofFile.ProofAt(depth)
-	if err != nil {
-		return nil, err
-	}
+// marshalProof turns a transition proof into an RPC DecodedProof.
+func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
+	withPrevWitnesses, withMetaReveal bool) (*taprpc.DecodedProof, error) {
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
 		anchorOutpoint = wire.OutPoint{
-			Hash:  decodedProof.AnchorTx.TxHash(),
-			Index: decodedProof.InclusionProof.OutputIndex,
+			Hash:  p.AnchorTx.TxHash(),
+			Index: p.InclusionProof.OutputIndex,
 		}
-		txMerkleProof  = decodedProof.TxMerkleProof
-		inclusionProof = decodedProof.InclusionProof
-		splitRootProof = decodedProof.SplitRootProof
+		txMerkleProof  = p.TxMerkleProof
+		inclusionProof = p.InclusionProof
+		splitRootProof = p.SplitRootProof
 	)
 
 	var txMerkleProofBuf bytes.Buffer
@@ -1251,7 +1286,7 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	}
 
 	tapProof, err := inclusionProof.CommitmentProof.DeriveByAssetInclusion(
-		&decodedProof.Asset,
+		&p.Asset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error deriving inclusion proof: %w",
@@ -1260,7 +1295,7 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	merkleRoot := tapProof.TapscriptRoot(tsHash)
 
 	var exclusionProofs [][]byte
-	for _, exclusionProof := range decodedProof.ExclusionProofs {
+	for _, exclusionProof := range p.ExclusionProofs {
 		var exclusionProofBuf bytes.Buffer
 		err := exclusionProof.Encode(&exclusionProofBuf)
 		if err != nil {
@@ -1282,13 +1317,13 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	}
 
 	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
-		Asset:                  &decodedProof.Asset,
-		AnchorTx:               &decodedProof.AnchorTx,
-		AnchorTxid:             decodedProof.AnchorTx.TxHash(),
-		AnchorBlockHash:        decodedProof.BlockHeader.BlockHash(),
-		AnchorBlockHeight:      decodedProof.BlockHeight,
+		Asset:                  &p.Asset,
+		AnchorTx:               &p.AnchorTx,
+		AnchorTxid:             p.AnchorTx.TxHash(),
+		AnchorBlockHash:        p.BlockHeader.BlockHash(),
+		AnchorBlockHeight:      p.BlockHeight,
 		AnchorOutpoint:         anchorOutpoint,
-		AnchorInternalKey:      decodedProof.InclusionProof.InternalKey,
+		AnchorInternalKey:      p.InclusionProof.InternalKey,
 		AnchorMerkleRoot:       merkleRoot[:],
 		AnchorTapscriptSibling: tsSibling,
 	}, withPrevWitnesses)
@@ -1316,16 +1351,14 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 	}
 
 	return &taprpc.DecodedProof{
-		ProofAtDepth:        depth,
-		NumberOfProofs:      uint32(proofFile.NumProofs()),
 		Asset:               rpcAsset,
 		MetaReveal:          rpcMeta,
 		TxMerkleProof:       txMerkleProofBuf.Bytes(),
 		InclusionProof:      inclusionProofBuf.Bytes(),
 		ExclusionProofs:     exclusionProofs,
 		SplitRootProof:      splitRootProofBuf.Bytes(),
-		NumAdditionalInputs: uint32(len(decodedProof.AdditionalInputs)),
-		ChallengeWitness:    decodedProof.ChallengeWitness,
+		NumAdditionalInputs: uint32(len(p.AdditionalInputs)),
+		ChallengeWitness:    p.ChallengeWitness,
 	}, nil
 }
 
