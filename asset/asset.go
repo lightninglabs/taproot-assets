@@ -244,6 +244,7 @@ type PrevID struct {
 }
 
 // Hash returns the SHA-256 hash of all items encapsulated by PrevID.
+// TODO(jhb): Is this safe to call on empty PrevIDs?
 func (id PrevID) Hash() [sha256.Size]byte {
 	h := sha256.New()
 	_ = wire.WriteOutPoint(h, 0, 0, &id.OutPoint)
@@ -959,6 +960,27 @@ func (a *Asset) HasGenesisWitness() bool {
 
 	witness := a.PrevWitnesses[0]
 	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
+		witness.SplitCommitment != nil {
+
+		return false
+	}
+
+	return *witness.PrevID == ZeroPrevID
+}
+
+// HasGenesisWitnessForGroup determines whether an asset has a valid witness
+// for a genesis asset in an asset group. This asset must have a non-empty group
+// key, and a single prevWitness with a zero PrevID, empty split commitment
+// proof, and non-empty witness.
+func (a *Asset) HasGenesisWitnessForGroup() bool {
+	if a.GroupKey == nil || len(a.PrevWitnesses) != 1 {
+		return false
+	}
+
+	// The single PrevWitness must have a ZeroPrevID, non-empty witness, and
+	// nil split commitment.
+	witness := a.PrevWitnesses[0]
+	if witness.PrevID == nil || len(witness.TxWitness) == 0 ||
 		witness.SplitCommitment != nil {
 
 		return false
