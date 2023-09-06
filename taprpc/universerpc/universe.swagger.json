@@ -1296,7 +1296,7 @@
         "issuance_proof": {
           "type": "string",
           "format": "byte",
-          "description": "The asset issuance proof, which proves that the asset specified above\nwas issued properly."
+          "description": "The asset issuance proof, which proves that the asset specified above\nwas issued properly. This is always just an individual mint/transfer\nproof and never a proof file."
         }
       }
     },

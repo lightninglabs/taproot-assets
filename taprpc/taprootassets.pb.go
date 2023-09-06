@@ -2042,13 +2042,15 @@ type TransferOutput struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Anchor              *TransferOutputAnchor `protobuf:"bytes,1,opt,name=anchor,proto3" json:"anchor,omitempty"`
-	ScriptKey           []byte                `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	ScriptKeyIsLocal    bool                  `protobuf:"varint,3,opt,name=script_key_is_local,json=scriptKeyIsLocal,proto3" json:"script_key_is_local,omitempty"`
-	Amount              uint64                `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
-	NewProofBlob        []byte                `protobuf:"bytes,5,opt,name=new_proof_blob,json=newProofBlob,proto3" json:"new_proof_blob,omitempty"`
-	SplitCommitRootHash []byte                `protobuf:"bytes,6,opt,name=split_commit_root_hash,json=splitCommitRootHash,proto3" json:"split_commit_root_hash,omitempty"`
-	OutputType          OutputType            `protobuf:"varint,7,opt,name=output_type,json=outputType,proto3,enum=taprpc.OutputType" json:"output_type,omitempty"`
+	Anchor           *TransferOutputAnchor `protobuf:"bytes,1,opt,name=anchor,proto3" json:"anchor,omitempty"`
+	ScriptKey        []byte                `protobuf:"bytes,2,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
+	ScriptKeyIsLocal bool                  `protobuf:"varint,3,opt,name=script_key_is_local,json=scriptKeyIsLocal,proto3" json:"script_key_is_local,omitempty"`
+	Amount           uint64                `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	// The new individual transition proof (not a full proof file) that proves
+	// the inclusion of the new asset within the new AnchorTx.
+	NewProofBlob        []byte     `protobuf:"bytes,5,opt,name=new_proof_blob,json=newProofBlob,proto3" json:"new_proof_blob,omitempty"`
+	SplitCommitRootHash []byte     `protobuf:"bytes,6,opt,name=split_commit_root_hash,json=splitCommitRootHash,proto3" json:"split_commit_root_hash,omitempty"`
+	OutputType          OutputType `protobuf:"varint,7,opt,name=output_type,json=outputType,proto3,enum=taprpc.OutputType" json:"output_type,omitempty"`
 }
 
 func (x *TransferOutput) Reset() {
@@ -2910,6 +2912,8 @@ type ProofFile struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The raw proof file encoded as bytes. Must be a file and not just an
+	// individual mint/transfer proof.
 	RawProof     []byte `protobuf:"bytes,1,opt,name=raw_proof,json=rawProof,proto3" json:"raw_proof,omitempty"`
 	GenesisPoint string `protobuf:"bytes,2,opt,name=genesis_point,json=genesisPoint,proto3" json:"genesis_point,omitempty"`
 }
@@ -2967,7 +2971,9 @@ type DecodedProof struct {
 
 	// The index depth of the decoded proof, with 0 being the latest proof.
 	ProofAtDepth uint32 `protobuf:"varint,1,opt,name=proof_at_depth,json=proofAtDepth,proto3" json:"proof_at_depth,omitempty"`
-	// The total number of proofs contained in the raw proof.
+	// The total number of proofs contained in the decoded proof file (this will
+	// always be 1 if a single mint/transition proof was given as the raw_proof
+	// instead of a file).
 	NumberOfProofs uint32 `protobuf:"varint,2,opt,name=number_of_proofs,json=numberOfProofs,proto3" json:"number_of_proofs,omitempty"`
 	// The asset referenced in the proof.
 	Asset *Asset `protobuf:"bytes,3,opt,name=asset,proto3" json:"asset,omitempty"`
@@ -3105,7 +3111,8 @@ type VerifyProofResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Valid        bool          `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	Valid bool `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	// The decoded last proof in the file if the proof file was valid.
 	DecodedProof *DecodedProof `protobuf:"bytes,2,opt,name=decoded_proof,json=decodedProof,proto3" json:"decoded_proof,omitempty"`
 }
 
@@ -3160,9 +3167,14 @@ type DecodeProofRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The raw proof in bytes to decode, which may contain multiple proofs.
+	// The raw proof bytes to decode. This can be a full proof file or a single
+	// mint/transition proof. If it is a full proof file, the proof_at_depth
+	// field will be used to determine which individual proof within the file to
+	// decode.
 	RawProof []byte `protobuf:"bytes,1,opt,name=raw_proof,json=rawProof,proto3" json:"raw_proof,omitempty"`
-	// The index depth of the decoded proof, with 0 being the latest proof.
+	// The index depth of the decoded proof, with 0 being the latest proof. This
+	// is ignored if the raw_proof is a single mint/transition proof and not a
+	// proof file.
 	ProofAtDepth uint32 `protobuf:"varint,2,opt,name=proof_at_depth,json=proofAtDepth,proto3" json:"proof_at_depth,omitempty"`
 	// An option to include previous witnesses in decoding.
 	WithPrevWitnesses bool `protobuf:"varint,3,opt,name=with_prev_witnesses,json=withPrevWitnesses,proto3" json:"with_prev_witnesses,omitempty"`

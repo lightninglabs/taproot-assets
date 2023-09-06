@@ -1203,12 +1203,12 @@
         "raw_proof": {
           "type": "string",
           "format": "byte",
-          "description": "The raw proof in bytes to decode, which may contain multiple proofs."
+          "description": "The raw proof bytes to decode. This can be a full proof file or a single\nmint/transition proof. If it is a full proof file, the proof_at_depth\nfield will be used to determine which individual proof within the file to\ndecode."
         },
         "proof_at_depth": {
           "type": "integer",
           "format": "int64",
-          "description": "The index depth of the decoded proof, with 0 being the latest proof."
+          "description": "The index depth of the decoded proof, with 0 being the latest proof. This\nis ignored if the raw_proof is a single mint/transition proof and not a\nproof file."
         },
         "with_prev_witnesses": {
           "type": "boolean",
@@ -1239,7 +1239,7 @@
         "number_of_proofs": {
           "type": "integer",
           "format": "int64",
-          "description": "The total number of proofs contained in the raw proof."
+          "description": "The total number of proofs contained in the decoded proof file (this will\nalways be 1 if a single mint/transition proof was given as the raw_proof\ninstead of a file)."
         },
         "asset": {
           "$ref": "#/definitions/taprpcAsset",
@@ -1589,7 +1589,8 @@
       "properties": {
         "raw_proof": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The raw proof file encoded as bytes. Must be a file and not just an\nindividual mint/transfer proof."
         },
         "genesis_point": {
           "type": "string"
@@ -1738,7 +1739,8 @@
         },
         "new_proof_blob": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The new individual transition proof (not a full proof file) that proves\nthe inclusion of the new asset within the new AnchorTx."
         },
         "split_commit_root_hash": {
           "type": "string",
@@ -1789,7 +1791,8 @@
           "type": "boolean"
         },
         "decoded_proof": {
-          "$ref": "#/definitions/taprpcDecodedProof"
+          "$ref": "#/definitions/taprpcDecodedProof",
+          "description": "The decoded last proof in the file if the proof file was valid."
         }
       }
     }

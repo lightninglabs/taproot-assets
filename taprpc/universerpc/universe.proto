@@ -234,7 +234,8 @@ message AssetLeaf {
     // TODO(roasbeef): only needed for display? can get from proof below ^
 
     // The asset issuance proof, which proves that the asset specified above
-    // was issued properly.
+    // was issued properly. This is always just an individual mint/transfer
+    // proof and never a proof file.
     bytes issuance_proof = 2;
 }
 
