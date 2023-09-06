@@ -1003,8 +1003,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		err := p.storeProofs(&currentPkg)
 		return &currentPkg, err
 
-	// At this point, the transfer transaction is confirmed on-chain. We go
-	// on to store the sender and receiver proofs in the proof archive.
+	// At this point, the transfer transaction is confirmed on-chain, and
+	// we've stored the sender and receiver proofs in the proof archive.
+	// We'll now attempt to transfer the receiver proof to the receiver.
 	case SendStateReceiverProofTransfer:
 		// We'll set the package state to complete early here so the
 		// main loop breaks out. We'll continue to attempt proof
