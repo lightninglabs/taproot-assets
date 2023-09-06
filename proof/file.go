@@ -97,7 +97,15 @@ func NewFile(v Version, proofs ...Proof) (*File, error) {
 
 // Encode encodes the proof file into `w` including its checksum.
 func (f *File) Encode(w io.Writer) error {
-	err := binary.Write(w, binary.BigEndian, uint32(f.Version))
+	num, err := w.Write(FilePrefixMagicBytes[:])
+	if err != nil {
+		return err
+	}
+	if num != PrefixMagicBytesLength {
+		return errors.New("failed to write prefix magic bytes")
+	}
+
+	err = binary.Write(w, binary.BigEndian, uint32(f.Version))
 	if err != nil {
 		return err
 	}
@@ -137,6 +145,21 @@ func (f *File) Encode(w io.Writer) error {
 
 // Decode decodes a proof file from `r`.
 func (f *File) Decode(r io.Reader) error {
+	var prefixMagicBytes [PrefixMagicBytesLength]byte
+	num, err := r.Read(prefixMagicBytes[:])
+	if err != nil {
+		return err
+	}
+	if num != PrefixMagicBytesLength {
+		return errors.New("failed to read prefix magic bytes")
+	}
+
+	if prefixMagicBytes != FilePrefixMagicBytes {
+		return fmt.Errorf("invalid prefix magic bytes, expected %s, "+
+			"got %s", string(FilePrefixMagicBytes[:]),
+			string(prefixMagicBytes[:]))
+	}
+
 	var version uint32
 	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
 		return err

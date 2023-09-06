@@ -246,12 +246,38 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 	proof.AdditionalInputs = []File{*file, *file}
 
-	var buf bytes.Buffer
-	require.NoError(t, proof.Encode(&buf))
+	var proofBuf bytes.Buffer
+	require.NoError(t, proof.Encode(&proofBuf))
+	proofBytes := proofBuf.Bytes()
+
 	var decodedProof Proof
-	require.NoError(t, decodedProof.Decode(&buf))
+	require.NoError(t, decodedProof.Decode(bytes.NewReader(proofBytes)))
 
 	assertEqualProof(t, &proof, &decodedProof)
+
+	// Make sure the proof and proof file prefixes are checked correctly.
+	var fileBuf bytes.Buffer
+	require.NoError(t, file.Encode(&fileBuf))
+	fileBytes := fileBuf.Bytes()
+
+	p := &Proof{}
+	err = p.Decode(bytes.NewReader(fileBytes))
+	require.ErrorContains(
+		t, err, "invalid prefix magic bytes, expected TAPP",
+	)
+
+	f := &File{}
+	err = f.Decode(bytes.NewReader(proofBytes))
+	require.ErrorContains(
+		t, err, "invalid prefix magic bytes, expected TAPF",
+	)
+
+	require.True(t, IsSingleProof(proofBytes))
+	require.True(t, IsProofFile(fileBytes))
+	require.False(t, IsProofFile(proofBytes))
+	require.False(t, IsSingleProof(fileBytes))
+	require.False(t, IsProofFile(nil))
+	require.False(t, IsSingleProof(nil))
 }
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
