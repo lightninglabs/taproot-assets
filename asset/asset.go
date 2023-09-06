@@ -12,9 +12,13 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -469,10 +473,21 @@ func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	internalKey := input.TweakPubKeyWithTweak(rawKey, assetID[:])
+	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot[:])
+}
+
+func GroupPubKey(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
+	*btcec.PublicKey, error) {
+
+	if len(singleTweak) != sha256.Size || len(tapTweak) != sha256.Size {
+		return nil, fmt.Errorf("tweaks must be %d bytes", sha256.Size)
+	}
+
+	internalKey := input.TweakPubKeyWithTweak(rawKey, singleTweak)
 	tweakedGroupKey := txscript.ComputeTaprootOutputKey(
-		internalKey, g.TapscriptRoot[:],
+		internalKey, tapTweak,
 	)
+
 	return tweakedGroupKey, nil
 }
 
@@ -727,14 +742,11 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 // GenesisSigner is used to sign the assetID using the group key public key
 // for a given asset.
 type GenesisSigner interface {
-	// SignGenesis tweaks the public key identified by the passed key
-	// descriptor with the the first passed Genesis description, and signs
-	// the second passed Genesis description with the tweaked public key.
-	// For minting the first asset in a group, only one Genesis object is
-	// needed, since we tweak with and sign over the same Genesis object.
-	// The final tweaked public key and the signature are returned.
-	SignGenesis(keychain.KeyDescriptor, Genesis,
-		*Genesis) (*btcec.PublicKey, *schnorr.Signature, error)
+	// SignVirtualTx generates a signature according to the passed signing
+	// descriptor and TX.
+	SignVirtualTx(signDesc *lndclient.SignDescriptor, tx *wire.MsgTx,
+		prevOut *wire.TxOut) (*btcec.PublicKey, *schnorr.Signature,
+		error)
 }
 
 // RawKeyGenesisSigner implements the GenesisSigner interface using a raw
@@ -757,42 +769,27 @@ func NewRawKeyGenesisSigner(priv *btcec.PrivateKey) *RawKeyGenesisSigner {
 // For minting the first asset in a group, only one Genesis object is
 // needed, since we tweak with and sign over the same Genesis object.
 // The final tweaked public key and the signature are returned.
-func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*btcec.PublicKey,
+func (r *RawKeyGenesisSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*btcec.PublicKey,
 	*schnorr.Signature, error) {
 
-	if !keyDesc.PubKey.IsEqual(r.privKey.PubKey()) {
+	signerPubKey := r.privKey.PubKey()
+
+	if !signDesc.KeyDesc.PubKey.IsEqual(signerPubKey) {
 		return nil, nil, fmt.Errorf("cannot sign with key")
 	}
 
-	// TODO(jhb): Update to two-phase tweak
-	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		*r.privKey, initialGen.GroupKeyTweak(),
+	sig, err := SignVirtualTx(r.privKey, signDesc, virtualTx, prevOut)
+
+	// Derive the final tweaked public key also used for signing.
+	tweakedGroupKey, err := GroupPubKey(
+		signerPubKey, signDesc.SingleTweak, signDesc.TapTweak,
 	)
-
-	// If the current genesis is not set, we are minting the first asset in
-	// the group. This means that we use the same Genesis object for both
-	// the key tweak and to create the asset ID we sign. If the current
-	// genesis is set, the asset type of the new asset must match the type
-	// of the first asset in the group.
-	id := initialGen.ID()
-	if currentGen != nil {
-		if initialGen.Type != currentGen.Type {
-			return nil, nil, fmt.Errorf("asset group type mismatch")
-		}
-
-		id = currentGen.ID()
-	}
-
-	// TODO(roasbeef): this actually needs to sign the digest of the asset
-	// itself
-	idHash := sha256.Sum256(id[:])
-	sig, err := schnorr.Sign(tweakedPrivKey, idHash[:])
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("cannot tweak group key: %w", err)
 	}
 
-	return tweakedPrivKey.PubKey(), sig, nil
+	return tweakedGroupKey, sig, nil
 }
 
 // A compile-time assertion to ensure RawKeyGenesisSigner meets the
@@ -801,20 +798,105 @@ var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.
-func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*GroupKey, error) {
+func DeriveGroupKey(genSigner GenesisSigner, groupKey *GroupKey,
+	scriptLeaf *psbt.TaprootTapLeafScript, initialGen Genesis,
+	newAsset *Asset) (*GroupKey, error) {
 
-	groupPubKey, sig, err := genSigner.SignGenesis(
-		rawKey, initialGen, currentGen,
+	// First, perform the final checks on the asset being authorized for
+	// group membership.
+	if newAsset == nil || newAsset.IsUnknownVersion() {
+		return nil, fmt.Errorf("genesis asset is missing or unknown " +
+			"version")
+	}
+
+	if newAsset.Genesis != initialGen && initialGen.Type != newAsset.Type {
+		return nil, fmt.Errorf("asset group type mismatch")
+	}
+
+	if scriptLeaf != nil && groupKey.TapscriptRoot == [32]byte{} {
+		return nil, fmt.Errorf("cannot script spend group key with " +
+			"empty tapscript root")
+	}
+
+	// Populate the sign descriptor with static and default fields.
+	genesisTweak := initialGen.ID()
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:       groupKey.RawKey,
+		SingleTweak:   genesisTweak[:],
+		DoubleTweak:   nil,
+		TapTweak:      []byte{},
+		WitnessScript: []byte{},
+		HashType:      txscript.SigHashDefault,
+		InputIndex:    0,
+	}
+	if groupKey.TapscriptRoot != [32]byte{} {
+		signDesc.TapTweak = groupKey.TapscriptRoot[:]
+	}
+
+	tweakedGroupKey, err := GroupPubKey(
+		signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
+		signDesc.TapTweak,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+
+	// Reimplement tapscript.InputAssetPrevOut to avoid a dependency cycle.
+	prevOutScript, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_1).
+		AddData(schnorr.SerializePubKey(tweakedGroupKey)).
+		Script()
+	prevOut := &wire.TxOut{
+		Value:    int64(newAsset.Amount),
+		PkScript: prevOutScript,
+	}
+	prevAssets := commitment.InputSet{
+		ZeroPrevID: {newAsset},
+	}
+
+	// Now, create the virtual transaction that represents this asset
+	// minting.
+	// TODO(jhb): resolve import cycles with tapscript package
+	virtualTx, _, err := tapscript.VirtualTx(newAsset, prevAssets)
+	if err != nil {
+		return nil, err
+	}
+	populatedVirtualTx := tapscript.VirtualTxWithInput(
+		virtualTx, newAsset, 0, nil,
+	)
+
+	// The last field to set for signing is the signing method needed, which
+	// can be inferred from the group key tapscript root and provided
+	// script leaf.
+	switch {
+	case bytes.Equal(signDesc.TapTweak, []byte{}):
+		signDesc.SignMethod = input.TaprootKeySpendBIP0086SignMethod
+	case scriptLeaf != nil:
+		signDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		// TODO(jhb): extra validation here?
+		signDesc.WitnessScript = scriptLeaf.Script
+	case scriptLeaf == nil:
+		signDesc.SignMethod = input.TaprootKeySpendSignMethod
+	}
+
+	_, sig, err := genSigner.SignVirtualTx(
+		signDesc, populatedVirtualTx, prevOut,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	witness := wire.TxWitness{sig.Serialize()}
+	if signDesc.SignMethod == input.TaprootScriptSpendSignMethod {
+		witness = append(witness, signDesc.WitnessScript)
+		witness = append(witness, scriptLeaf.ControlBlock)
+	}
+
 	return &GroupKey{
-		RawKey:      rawKey,
-		GroupPubKey: *groupPubKey,
-		Witness:     wire.TxWitness{sig.Serialize()},
+		RawKey:        groupKey.RawKey,
+		GroupPubKey:   *tweakedGroupKey,
+		TapscriptRoot: groupKey.TapscriptRoot,
+		Witness:       witness,
 	}, nil
 }
 
