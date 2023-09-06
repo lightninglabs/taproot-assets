@@ -808,6 +808,44 @@ func (a *Asset) IsUnSpendable() bool {
 		a.Amount == 0
 }
 
+// IsSplitCommitWitness returns true if the witness is a split-commitment
+// witness.
+func IsSplitCommitWitness(witness Witness) bool {
+	return witness.PrevID != nil && len(witness.TxWitness) == 0 &&
+		witness.SplitCommitment != nil
+}
+
+// PrimaryPrevID returns the primary prev ID of an asset. This is the prev ID of
+// the first witness, unless the first witness is a split-commitment witness,
+// in which case it is the prev ID of the first witness of the root asset.
+// The first witness effectively corresponds to the asset's direct lineage.
+func (a *Asset) PrimaryPrevID() (*PrevID, error) {
+	if len(a.PrevWitnesses) == 0 {
+		return nil, fmt.Errorf("asset missing previous witnesses")
+	}
+
+	// The primary prev ID is stored on the root asset if this asset is a
+	// split output. We determine whether this asset is a split output by
+	// inspecting the first previous witness.
+	primaryWitness := a.PrevWitnesses[0]
+	isSplitOutput := IsSplitCommitWitness(primaryWitness)
+
+	// If this is a split output, then we need to look up the first PrevID
+	// in the split root asset.
+	if isSplitOutput {
+		rootAsset := primaryWitness.SplitCommitment.RootAsset
+		if len(rootAsset.PrevWitnesses) == 0 {
+			return nil, fmt.Errorf("asset missing previous " +
+				"witnesses")
+		}
+		return rootAsset.PrevWitnesses[0].PrevID, nil
+	}
+
+	// This asset is not a split output, so we can just return the PrevID
+	// found in the first witness.
+	return primaryWitness.PrevID, nil
+}
+
 // Copy returns a deep copy of an Asset.
 func (a *Asset) Copy() *Asset {
 	assetCopy := *a
