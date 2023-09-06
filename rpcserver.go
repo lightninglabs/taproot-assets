@@ -294,6 +294,10 @@ func (r *rpcServer) GetInfo(context.Context,
 func (r *rpcServer) MintAsset(ctx context.Context,
 	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
 
+	if req.Asset == nil {
+		return nil, fmt.Errorf("asset cannot be nil")
+	}
+
 	// An asset name is mandatory, and cannot be the empty string.
 	if len(req.Asset.Name) == 0 {
 		return nil, fmt.Errorf("asset name cannot be empty")
@@ -2870,6 +2874,10 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 // asset_id/group_key.
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
+
+	if req.Key == nil {
+		return nil, fmt.Errorf("key cannot be nil")
+	}
 
 	if !r.cfg.AcceptRemoteUniverseProofs {
 		return nil, fmt.Errorf("remote proofs not accepted")
