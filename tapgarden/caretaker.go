@@ -60,6 +60,17 @@ type BatchCaretakerConfig struct {
 
 	GardenKit
 
+	// BroadcastCompleteChan is used to signal back to the caller that the
+	// batch has been broadcast and is now waiting for confirmation. Either
+	// this channel _or_ BroadcastErrChan is sent on, never both.
+	BroadcastCompleteChan chan struct{}
+
+	// BroadcastErrChan is used to signal back to the caller that while
+	// attempting to proceed the batch to the state of broadcasting the
+	// batch transaction, an error occurred. Either this channel _or_
+	// BroadcastCompleteChan is sent on, never both.
+	BroadcastErrChan chan error
+
 	// SignalCompletion is used to signal back to the BatchPlanter that
 	// their batch has been finalized.
 	SignalCompletion func()
@@ -171,6 +182,8 @@ func (b *BatchCaretaker) Cancel() CancelResp {
 				"cancel failed: %w", batchKey, batchState, err)
 		}
 
+		b.cfg.BroadcastErrChan <- fmt.Errorf("caretaker canceled")
+
 		return CancelResp{&finalBatchState, err}
 
 	case BatchStateCommitted:
@@ -183,6 +196,8 @@ func (b *BatchCaretaker) Cancel() CancelResp {
 			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
 				"cancel failed: %w", batchKey, batchState, err)
 		}
+
+		b.cfg.BroadcastErrChan <- fmt.Errorf("caretaker canceled")
 
 		return CancelResp{&finalBatchState, err}
 
@@ -283,8 +298,14 @@ func (b *BatchCaretaker) assetCultivator() {
 	)
 	if err != nil {
 		log.Errorf("unable to advance state machine: %v", err)
+		b.cfg.BroadcastErrChan <- err
 		return
 	}
+
+	// We've now broadcast the minting transaction, so we can inform the
+	// caller that the synchronous part is over, and we're now entering the
+	// long-running, asynchronous part.
+	b.cfg.BroadcastCompleteChan <- struct{}{}
 
 	// TODO(roasbeef): proper restart logic?
 

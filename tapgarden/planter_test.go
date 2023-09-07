@@ -220,19 +220,87 @@ func (t *mintingTestHarness) assertNoPendingBatch() {
 
 // tickMintingBatch first the ticker that forces the planter to create a new
 // batch.
-func (t *mintingTestHarness) tickMintingBatch(noBatch bool) *btcec.PublicKey {
+func (t *mintingTestHarness) tickMintingBatch(
+	noBatch bool) *tapgarden.MintingBatch {
+
 	t.Helper()
 
-	batchKey, err := t.planter.FinalizeBatch()
+	// Before we tick the batch, we record all existing batches, so we can
+	// make sure a new one was created.
+	existingBatches, err := t.planter.ListBatches(nil)
+	require.NoError(t, err)
+
+	// We only want to know if a new batch gets to the frozen state. So the
+	// list of existing batches should only contain the already frozen.
+	existingBatches = fn.Filter(
+		existingBatches, func(batch *tapgarden.MintingBatch) bool {
+			return batch.State() == tapgarden.BatchStateFrozen
+		},
+	)
+
+	// We now trigger the ticker to tick the batch.
+	t.ticker.Force <- time.Now()
+
 	if noBatch {
-		require.ErrorContains(t, err, "no pending batch")
-		require.Nil(t, batchKey)
+		t.assertNoPendingBatch()
 		return nil
 	}
 
+	return t.assertNewBatchFrozen(existingBatches)
+}
+
+func (t *mintingTestHarness) assertNewBatchFrozen(
+	existingBatches []*tapgarden.MintingBatch) *tapgarden.MintingBatch {
+
+	batchExists := func(batch *tapgarden.MintingBatch) bool {
+		return fn.Count(
+			existingBatches, func(b *tapgarden.MintingBatch) bool {
+				return b.BatchKey.PubKey.IsEqual(
+					batch.BatchKey.PubKey,
+				)
+			},
+		) > 0
+	}
+
+	var newBatches []*tapgarden.MintingBatch
+	err := wait.NoError(func() error {
+		currentBatches, err := t.planter.ListBatches(nil)
+		if err != nil {
+			return err
+		}
+
+		if len(currentBatches) > len(existingBatches) {
+			for _, batch := range currentBatches {
+				if batch.State() != tapgarden.BatchStateFrozen {
+					continue
+				}
+
+				if !batchExists(batch) {
+					newBatches = append(newBatches, batch)
+				}
+			}
+			return nil
+		}
+
+		return fmt.Errorf("no new batches created")
+	}, defaultTimeout)
 	require.NoError(t, err)
-	require.NotNil(t, batchKey)
-	return batchKey
+
+	require.Len(t, newBatches, 1)
+
+	return newBatches[0]
+}
+
+func (t *mintingTestHarness) assertNoBatchCreated(
+	existingBatches []*tapgarden.MintingBatch) {
+
+	err := wait.Invariant(func() bool {
+		currentBatches, err := t.planter.ListBatches(nil)
+		require.NoError(t, err)
+
+		return len(currentBatches) == len(existingBatches)
+	}, time.Second)
+	require.NoError(t, err)
 }
 
 func (t *mintingTestHarness) cancelMintingBatch(noBatch bool) *btcec.PublicKey {
@@ -814,8 +882,10 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	t.assertSeedlingsExist(seedlings, nil)
 
 	// Now, finalize the pending batch to continue with minting.
-	thirdBatchKey := t.tickMintingBatch(false)
-	require.NotNil(t, thirdBatchKey)
+	thirdBatch := t.tickMintingBatch(false)
+	require.NotNil(t, thirdBatch)
+	require.NotNil(t, thirdBatch.BatchKey.PubKey)
+	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
 	_ = t.assertGenesisTxFunded()
 	t.assertNumCaretakersActive(1)
