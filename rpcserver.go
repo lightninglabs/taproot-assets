@@ -294,6 +294,10 @@ func (r *rpcServer) GetInfo(context.Context,
 func (r *rpcServer) MintAsset(ctx context.Context,
 	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
 
+	if req.Asset == nil {
+		return nil, fmt.Errorf("asset cannot be nil")
+	}
+
 	// An asset name is mandatory, and cannot be the empty string.
 	if len(req.Asset.Name) == 0 {
 		return nil, fmt.Errorf("asset name cannot be empty")
@@ -866,22 +870,22 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 
 // ListBalances lists the asset balances owned by the daemon.
 func (r *rpcServer) ListBalances(ctx context.Context,
-	in *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
+	req *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
 
-	switch groupBy := in.GroupBy.(type) {
+	switch groupBy := req.GroupBy.(type) {
 	case *taprpc.ListBalancesRequest_AssetId:
 		if !groupBy.AssetId {
 			return nil, fmt.Errorf("invalid group_by")
 		}
 
 		var assetID *asset.ID
-		if len(in.AssetFilter) != 0 {
+		if len(req.AssetFilter) != 0 {
 			assetID = &asset.ID{}
-			if len(in.AssetFilter) != len(assetID) {
+			if len(req.AssetFilter) != len(assetID) {
 				return nil, fmt.Errorf("invalid asset filter")
 			}
 
-			copy(assetID[:], in.AssetFilter)
+			copy(assetID[:], req.AssetFilter)
 		}
 
 		return r.listBalancesByAsset(ctx, assetID)
@@ -892,9 +896,9 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 		}
 
 		var groupKey *btcec.PublicKey
-		if len(in.GroupKeyFilter) != 0 {
+		if len(req.GroupKeyFilter) != 0 {
 			var err error
-			groupKey, err = btcec.ParsePubKey(in.GroupKeyFilter)
+			groupKey, err = btcec.ParsePubKey(req.GroupKeyFilter)
 			if err != nil {
 				return nil, fmt.Errorf("invalid group key "+
 					"filter: %v", err)
@@ -910,7 +914,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 
 // ListTransfers lists all asset transfers managed by this deamon.
 func (r *rpcServer) ListTransfers(ctx context.Context,
-	in *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
+	_ *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
 	error) {
 
 	parcels, err := r.cfg.AssetStore.QueryParcels(ctx, false)
@@ -935,21 +939,21 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 
 // QueryAddrs queries the set of Taproot Asset addresses stored in the database.
 func (r *rpcServer) QueryAddrs(ctx context.Context,
-	in *taprpc.QueryAddrRequest) (*taprpc.QueryAddrResponse, error) {
+	req *taprpc.QueryAddrRequest) (*taprpc.QueryAddrResponse, error) {
 
 	query := address.QueryParams{
-		Limit:  in.Limit,
-		Offset: in.Offset,
+		Limit:  req.Limit,
+		Offset: req.Offset,
 	}
 
 	// The unix time of 0 (1970-01-01) is not the same as an empty Time
 	// struct (0000-00-00). For our query to succeed, we need to set the
 	// time values the way the address book expects them.
-	if in.CreatedBefore > 0 {
-		query.CreatedBefore = time.Unix(in.CreatedBefore, 0)
+	if req.CreatedBefore > 0 {
+		query.CreatedBefore = time.Unix(req.CreatedBefore, 0)
 	}
-	if in.CreatedAfter > 0 {
-		query.CreatedAfter = time.Unix(in.CreatedAfter, 0)
+	if req.CreatedAfter > 0 {
+		query.CreatedAfter = time.Unix(req.CreatedAfter, 0)
 	}
 
 	rpcsLog.Debugf("[QueryAddrs]: addr query params: %v",
@@ -983,16 +987,16 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 
 // NewAddr makes a new address from the set of request params.
 func (r *rpcServer) NewAddr(ctx context.Context,
-	in *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
+	req *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
 
 	var err error
 
 	// Parse the proof courier address if one was provided, otherwise use
 	// the default specified in the config.
 	courierAddr := r.cfg.DefaultProofCourierAddr
-	if in.ProofCourierAddr != "" {
+	if req.ProofCourierAddr != "" {
 		addr, err := proof.ParseCourierAddrString(
-			in.ProofCourierAddr,
+			req.ProofCourierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof courier "+
@@ -1014,24 +1018,24 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	}
 	proofCourierAddr := *courierAddr
 
-	if len(in.AssetId) != 32 {
+	if len(req.AssetId) != 32 {
 		return nil, fmt.Errorf("invalid asset id length")
 	}
 
 	var assetID asset.ID
-	copy(assetID[:], in.AssetId)
+	copy(assetID[:], req.AssetId)
 
 	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v",
-		assetID[:], in.Amt)
+		assetID[:], req.Amt)
 
-	err = r.checkBalanceOverflow(ctx, &assetID, nil, in.Amt)
+	err = r.checkBalanceOverflow(ctx, &assetID, nil, req.Amt)
 	if err != nil {
 		return nil, err
 	}
 
 	// Was there a tapscript sibling preimage specified?
 	tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
-		in.TapscriptSibling,
+		req.TapscriptSibling,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tapscript sibling: %w", err)
@@ -1040,11 +1044,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
-	case in.ScriptKey == nil && in.InternalKey == nil:
+	case req.ScriptKey == nil && req.InternalKey == nil:
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, assetID, in.Amt, tapscriptSibling,
+			ctx, assetID, req.Amt, tapscriptSibling,
 			proofCourierAddr,
 		)
 		if err != nil {
@@ -1053,18 +1057,18 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		}
 
 	// Only the script key was specified.
-	case in.ScriptKey != nil && in.InternalKey == nil:
+	case req.ScriptKey != nil && req.InternalKey == nil:
 		return nil, fmt.Errorf("internal key must also be specified " +
 			"if script key is specified")
 
 	// Only the internal key was specified.
-	case in.ScriptKey == nil && in.InternalKey != nil:
+	case req.ScriptKey == nil && req.InternalKey != nil:
 		return nil, fmt.Errorf("script key must also be specified " +
 			"if internal key is specified")
 
 	// Both the script and internal keys were specified.
 	default:
-		scriptKey, err := UnmarshalScriptKey(in.ScriptKey)
+		scriptKey, err := UnmarshalScriptKey(req.ScriptKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
@@ -1075,7 +1079,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			scriptKey.RawKey.PubKey.SerializeCompressed(),
 			scriptKey.Tweak[:])
 
-		internalKey, err := UnmarshalKeyDescriptor(in.InternalKey)
+		internalKey, err := UnmarshalKeyDescriptor(req.InternalKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode internal "+
 				"key: %w", err)
@@ -1084,7 +1088,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, assetID, in.Amt, *scriptKey, internalKey,
+			ctx, assetID, req.Amt, *scriptKey, internalKey,
 			tapscriptSibling, proofCourierAddr,
 		)
 		if err != nil {
@@ -1106,15 +1110,15 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 // DecodeAddr decode a Taproot Asset address into a partial asset message that
 // represents the asset it wants to receive.
 func (r *rpcServer) DecodeAddr(_ context.Context,
-	in *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
+	req *taprpc.DecodeAddrRequest) (*taprpc.Addr, error) {
 
-	if len(in.Addr) == 0 {
+	if len(req.Addr) == 0 {
 		return nil, fmt.Errorf("must specify an addr")
 	}
 
 	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-	addr, err := address.DecodeAddress(in.Addr, &tapParams)
+	addr, err := address.DecodeAddress(req.Addr, &tapParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
@@ -1130,14 +1134,14 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 // VerifyProof attempts to verify a given proof file that claims to be anchored
 // at the specified genesis point.
 func (r *rpcServer) VerifyProof(ctx context.Context,
-	in *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
+	req *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
-	if len(in.RawProof) == 0 {
+	if len(req.RawProof) == 0 {
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
 	var proofFile proof.File
-	err := proofFile.Decode(bytes.NewReader(in.RawProof))
+	err := proofFile.Decode(bytes.NewReader(req.RawProof))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
@@ -1166,30 +1170,31 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 // DecodeProof attempts to decode a given proof file that claims to be anchored
 // at the specified genesis point.
 func (r *rpcServer) DecodeProof(ctx context.Context,
-	in *taprpc.DecodeProofRequest) (*taprpc.DecodeProofResponse, error) {
+	req *taprpc.DecodeProofRequest) (*taprpc.DecodeProofResponse, error) {
 
-	if len(in.RawProof) == 0 {
+	if len(req.RawProof) == 0 {
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
 	var proofFile proof.File
-	if err := proofFile.Decode(bytes.NewReader(in.RawProof)); err != nil {
+	if err := proofFile.Decode(bytes.NewReader(req.RawProof)); err != nil {
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
 
 	latestProofIndex := uint32(proofFile.NumProofs() - 1)
 
-	if in.ProofAtDepth > latestProofIndex {
+	if req.ProofAtDepth > latestProofIndex {
 		return nil, fmt.Errorf("invalid depth %d is greater than "+
-			"latest proof index of %d", in.ProofAtDepth,
+			"latest proof index of %d", req.ProofAtDepth,
 			latestProofIndex)
 	}
 
 	// Default to latest proof.
-	depth := latestProofIndex - in.ProofAtDepth
+	depth := latestProofIndex - req.ProofAtDepth
 
 	decodedProof, err := r.marshalProofFile(
-		ctx, proofFile, depth, in.WithPrevWitnesses, in.WithMetaReveal,
+		ctx, proofFile, depth, req.WithPrevWitnesses,
+		req.WithMetaReveal,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal proof: %w", err)
@@ -1327,23 +1332,23 @@ func (r *rpcServer) marshalProofFile(ctx context.Context, proofFile proof.File,
 // ExportProof exports the latest raw proof file anchored at the specified
 // script_key.
 func (r *rpcServer) ExportProof(ctx context.Context,
-	in *taprpc.ExportProofRequest) (*taprpc.ProofFile, error) {
+	req *taprpc.ExportProofRequest) (*taprpc.ProofFile, error) {
 
-	if len(in.ScriptKey) == 0 {
+	if len(req.ScriptKey) == 0 {
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := parseUserKey(in.ScriptKey)
+	scriptKey, err := parseUserKey(req.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
 
-	if len(in.AssetId) != 32 {
+	if len(req.AssetId) != 32 {
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
 	var assetID asset.ID
-	copy(assetID[:], in.AssetId)
+	copy(assetID[:], req.AssetId)
 
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
@@ -1362,10 +1367,11 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 // new asset will be inserted on disk, spendable using the specified target
 // script key, and internal key.
 func (r *rpcServer) ImportProof(ctx context.Context,
-	in *tapdevrpc.ImportProofRequest) (*tapdevrpc.ImportProofResponse, error) {
+	req *tapdevrpc.ImportProofRequest) (*tapdevrpc.ImportProofResponse,
+	error) {
 
 	// We'll perform some basic input validation before we move forward.
-	if len(in.ProofFile) == 0 {
+	if len(req.ProofFile) == 0 {
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
@@ -1375,7 +1381,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	// to import it into the main archive.
 	err := r.cfg.ProofArchive.ImportProofs(
 		ctx, headerVerifier, false,
-		&proof.AnnotatedProof{Blob: in.ProofFile},
+		&proof.AnnotatedProof{Blob: req.ProofFile},
 	)
 	if err != nil {
 		return nil, err
@@ -1387,15 +1393,15 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 // AddrReceives lists all receives for incoming asset transfers for addresses
 // that were created previously.
 func (r *rpcServer) AddrReceives(ctx context.Context,
-	in *taprpc.AddrReceivesRequest) (*taprpc.AddrReceivesResponse,
+	req *taprpc.AddrReceivesRequest) (*taprpc.AddrReceivesResponse,
 	error) {
 
 	var sqlQuery address.EventQueryParams
 
-	if len(in.FilterAddr) > 0 {
+	if len(req.FilterAddr) > 0 {
 		tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
 
-		addr, err := address.DecodeAddress(in.FilterAddr, &tapParams)
+		addr, err := address.DecodeAddress(req.FilterAddr, &tapParams)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
@@ -1433,8 +1439,8 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 		)
 	}
 
-	if in.FilterStatus != taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
-		status, err := unmarshalAddrEventStatus(in.FilterStatus)
+	if req.FilterStatus != taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
+		status, err := unmarshalAddrEventStatus(req.FilterStatus)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing status: %w", err)
 		}
@@ -1468,14 +1474,14 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 // FundVirtualPsbt selects inputs from the available asset commitments to fund
 // a virtual transaction matching the template.
 func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
-	in *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
+	req *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
 	var fundedVPkt *tapfreighter.FundedVPacket
 	switch {
-	case in.GetPsbt() != nil:
+	case req.GetPsbt() != nil:
 		vPkt, err := tappsbt.NewFromRawBytes(
-			bytes.NewReader(in.GetPsbt()), false,
+			bytes.NewReader(req.GetPsbt()), false,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode psbt: %w", err)
@@ -1499,8 +1505,8 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			return nil, fmt.Errorf("error funding packet: %w", err)
 		}
 
-	case in.GetRaw() != nil:
-		raw := in.GetRaw()
+	case req.GetRaw() != nil:
+		raw := req.GetRaw()
 		if len(raw.Inputs) > 0 {
 			return nil, fmt.Errorf("template inputs not yet " +
 				"supported")
@@ -1555,11 +1561,15 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 // SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
 // commitments of the inputs and outputs.
 func (r *rpcServer) SignVirtualPsbt(_ context.Context,
-	in *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
+	req *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
 	error) {
 
+	if req.FundedPsbt == nil {
+		return nil, fmt.Errorf("request cannot be nil")
+	}
+
 	vPkt, err := tappsbt.NewFromRawBytes(
-		bytes.NewReader(in.FundedPsbt), false,
+		bytes.NewReader(req.FundedPsbt), false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding packet: %w", err)
@@ -1587,15 +1597,19 @@ func (r *rpcServer) SignVirtualPsbt(_ context.Context,
 // TODO(guggero): Actually implement accepting and merging multiple
 // transactions.
 func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
-	in *wrpc.AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse,
+	req *wrpc.AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse,
 	error) {
 
-	if len(in.VirtualPsbts) > 1 {
+	if len(req.VirtualPsbts) == 0 {
+		return nil, fmt.Errorf("no virtual PSBTs specified")
+	}
+
+	if len(req.VirtualPsbts) > 1 {
 		return nil, fmt.Errorf("only one virtual PSBT supported")
 	}
 
 	vPacket, err := tappsbt.NewFromRawBytes(
-		bytes.NewReader(in.VirtualPsbts[0]), false,
+		bytes.NewReader(req.VirtualPsbts[0]), false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding packet: %w", err)
@@ -1837,24 +1851,24 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 // send, as well as the proof file information the receiver needs to fully
 // receive the asset.
 func (r *rpcServer) SendAsset(_ context.Context,
-	in *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
+	req *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
-	if len(in.TapAddrs) == 0 {
+	if len(req.TapAddrs) == 0 {
 		return nil, fmt.Errorf("at least one addr is required")
 	}
 
 	var (
 		tapParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		tapAddrs  = make([]*address.Tap, len(in.TapAddrs))
+		tapAddrs  = make([]*address.Tap, len(req.TapAddrs))
 		err       error
 	)
-	for idx := range in.TapAddrs {
-		if len(in.TapAddrs[idx]) == 0 {
+	for idx := range req.TapAddrs {
+		if req.TapAddrs[idx] == "" {
 			return nil, fmt.Errorf("addr %d must be specified", idx)
 		}
 
 		tapAddrs[idx], err = address.DecodeAddress(
-			in.TapAddrs[idx], &tapParams,
+			req.TapAddrs[idx], &tapParams,
 		)
 		if err != nil {
 			return nil, err
@@ -1997,7 +2011,7 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
-	in *taprpc.SubscribeSendAssetEventNtfnsRequest,
+	_ *taprpc.SubscribeSendAssetEventNtfnsRequest,
 	ntfnStream taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsServer) error {
 
 	// Create a new event subscriber and pass a copy to the chain porter.
@@ -2280,32 +2294,33 @@ func UnmarshalKeyDescriptor(
 // FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 // either by the asset ID for that asset, or a meta hash.
 func (r *rpcServer) FetchAssetMeta(ctx context.Context,
-	in *taprpc.FetchAssetMetaRequest) (*taprpc.AssetMeta, error) {
+	req *taprpc.FetchAssetMetaRequest) (*taprpc.AssetMeta, error) {
 
 	var (
 		assetMeta *proof.MetaReveal
 		err       error
 	)
+
 	switch {
-	case in.GetAssetId() != nil:
-		if len(in.GetAssetId()) != sha256.Size {
+	case req.GetAssetId() != nil:
+		if len(req.GetAssetId()) != sha256.Size {
 			return nil, fmt.Errorf("asset ID must be 32 bytes")
 		}
 
 		var assetID asset.ID
-		copy(assetID[:], in.GetAssetId())
+		copy(assetID[:], req.GetAssetId())
 
 		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaForAsset(
 			ctx, assetID,
 		)
 
-	case in.GetAssetIdStr() != "":
-		if len(in.GetAssetIdStr()) != hex.EncodedLen(sha256.Size) {
+	case req.GetAssetIdStr() != "":
+		if len(req.GetAssetIdStr()) != hex.EncodedLen(sha256.Size) {
 			return nil, fmt.Errorf("asset ID must be 32 bytes")
 		}
 
 		var assetIDBytes []byte
-		assetIDBytes, err = hex.DecodeString(in.GetAssetIdStr())
+		assetIDBytes, err = hex.DecodeString(req.GetAssetIdStr())
 		if err != nil {
 			return nil, fmt.Errorf("error hex decoding asset ID: "+
 				"%w", err)
@@ -2318,25 +2333,25 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 			ctx, assetID,
 		)
 
-	case in.GetMetaHash() != nil:
-		if len(in.GetMetaHash()) != sha256.Size {
+	case req.GetMetaHash() != nil:
+		if len(req.GetMetaHash()) != sha256.Size {
 			return nil, fmt.Errorf("meta hash must be 32 bytes")
 		}
 
 		var metaHash [asset.MetaHashLen]byte
-		copy(metaHash[:], in.GetMetaHash())
+		copy(metaHash[:], req.GetMetaHash())
 
 		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaByHash(
 			ctx, metaHash,
 		)
 
-	case in.GetMetaHashStr() != "":
-		if len(in.GetMetaHashStr()) != hex.EncodedLen(sha256.Size) {
+	case req.GetMetaHashStr() != "":
+		if len(req.GetMetaHashStr()) != hex.EncodedLen(sha256.Size) {
 			return nil, fmt.Errorf("meta hash must be 32 bytes")
 		}
 
 		var metaHashBytes []byte
-		metaHashBytes, err = hex.DecodeString(in.GetMetaHashStr())
+		metaHashBytes, err = hex.DecodeString(req.GetMetaHashStr())
 		if err != nil {
 			return nil, fmt.Errorf("error hex decoding meta hash: "+
 				"%w", err)
@@ -2410,7 +2425,7 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
 func (r *rpcServer) AssetRoots(ctx context.Context,
-	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
+	_ *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	// First, we'll retrieve the full set of known asset Universe roots.
 	assetRoots, err := r.cfg.BaseUniverse.RootNodes(ctx)
@@ -2869,6 +2884,10 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
 
+	if req.Key == nil {
+		return nil, fmt.Errorf("key cannot be nil")
+	}
+
 	if !r.cfg.AcceptRemoteUniverseProofs {
 		return nil, fmt.Errorf("remote proofs not accepted")
 	}
@@ -2899,7 +2918,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 
 // Info returns a set of information about the current state of the Universe.
 func (r *rpcServer) Info(ctx context.Context,
-	req *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
+	_ *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
 
 	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
 	if err != nil {
@@ -3034,7 +3053,7 @@ func marshalUniverseServer(server universe.ServerAddr,
 // of the local Universe server. This servers are used to push out new proofs,
 // and also periodically call sync new proofs from the remote server.
 func (r *rpcServer) ListFederationServers(ctx context.Context,
-	in *unirpc.ListFederationServersRequest,
+	_ *unirpc.ListFederationServersRequest,
 ) (*unirpc.ListFederationServersResponse, error) {
 
 	uniServers, err := r.cfg.FederationDB.UniverseServers(ctx)
@@ -3057,10 +3076,10 @@ func unmarshalUniverseServer(server *unirpc.UniverseFederationServer,
 // Universe server. Once a server is added, this call can also optionally be
 // used to trigger a sync of the remote server.
 func (r *rpcServer) AddFederationServer(ctx context.Context,
-	in *unirpc.AddFederationServerRequest,
+	req *unirpc.AddFederationServerRequest,
 ) (*unirpc.AddFederationServerResponse, error) {
 
-	serversToAdd := fn.Map(in.Servers, unmarshalUniverseServer)
+	serversToAdd := fn.Map(req.Servers, unmarshalUniverseServer)
 
 	for idx := range serversToAdd {
 		server := serversToAdd[idx]
@@ -3087,10 +3106,10 @@ func (r *rpcServer) AddFederationServer(ctx context.Context,
 // DeleteFederationServer removes a server from the federation of the local
 // Universe server.
 func (r *rpcServer) DeleteFederationServer(ctx context.Context,
-	in *unirpc.DeleteFederationServerRequest,
+	req *unirpc.DeleteFederationServerRequest,
 ) (*unirpc.DeleteFederationServerResponse, error) {
 
-	serversToDel := fn.Map(in.Servers, unmarshalUniverseServer)
+	serversToDel := fn.Map(req.Servers, unmarshalUniverseServer)
 
 	err := r.cfg.FederationDB.RemoveServers(ctx, serversToDel...)
 	if err != nil {
@@ -3105,23 +3124,23 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 // spending the asset with a valid witness to prove the prover owns the keys
 // that can spend the asset.
 func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
-	in *wrpc.ProveAssetOwnershipRequest) (*wrpc.ProveAssetOwnershipResponse,
+	req *wrpc.ProveAssetOwnershipRequest) (*wrpc.ProveAssetOwnershipResponse,
 	error) {
 
-	if len(in.ScriptKey) == 0 {
+	if len(req.ScriptKey) == 0 {
 		return nil, fmt.Errorf("a valid script key must be specified")
 	}
 
-	scriptKey, err := parseUserKey(in.ScriptKey)
+	scriptKey, err := parseUserKey(req.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid script key: %w", err)
 	}
 
-	if len(in.AssetId) != 32 {
+	if len(req.AssetId) != 32 {
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
-	assetID := fn.ToArray[asset.ID](in.AssetId)
+	assetID := fn.ToArray[asset.ID](req.AssetId)
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
@@ -3178,15 +3197,15 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 // VerifyAssetOwnership verifies the asset ownership proof embedded in the
 // given transition proof of an asset and returns true if the proof is valid.
 func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
-	in *wrpc.VerifyAssetOwnershipRequest) (*wrpc.VerifyAssetOwnershipResponse,
+	req *wrpc.VerifyAssetOwnershipRequest) (*wrpc.VerifyAssetOwnershipResponse,
 	error) {
 
-	if len(in.ProofWithWitness) == 0 {
+	if len(req.ProofWithWitness) == 0 {
 		return nil, fmt.Errorf("a valid proof must be specified")
 	}
 
 	p := &proof.Proof{}
-	err := p.Decode(bytes.NewReader(in.ProofWithWitness))
+	err := p.Decode(bytes.NewReader(req.ProofWithWitness))
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode proof file: %w", err)
 	}
@@ -3205,7 +3224,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 // UniverseStats returns a set of aggregate statistics for the current state
 // of the Universe.
 func (r *rpcServer) UniverseStats(ctx context.Context,
-	req *unirpc.StatsRequest) (*unirpc.StatsResponse, error) {
+	_ *unirpc.StatsRequest) (*unirpc.StatsResponse, error) {
 
 	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
 	if err != nil {
@@ -3370,21 +3389,21 @@ func (r *rpcServer) QueryEvents(ctx context.Context,
 // RemoveUTXOLease removes the lease/lock/reservation of the given managed
 // UTXO.
 func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
-	in *wrpc.RemoveUTXOLeaseRequest) (*wrpc.RemoveUTXOLeaseResponse,
+	req *wrpc.RemoveUTXOLeaseRequest) (*wrpc.RemoveUTXOLeaseResponse,
 	error) {
 
-	if in.Outpoint == nil {
+	if req.Outpoint == nil {
 		return nil, fmt.Errorf("outpoint must be specified")
 	}
 
-	hash, err := chainhash.NewHash(in.Outpoint.Txid)
+	hash, err := chainhash.NewHash(req.Outpoint.Txid)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing txid: %w", err)
 	}
 
 	outPoint := wire.OutPoint{
 		Hash:  *hash,
-		Index: in.Outpoint.OutputIndex,
+		Index: req.Outpoint.OutputIndex,
 	}
 
 	err = r.cfg.CoinSelect.ReleaseCoins(ctx, outPoint)
