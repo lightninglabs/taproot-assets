@@ -280,7 +280,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	case proof.DisabledCourier:
 		// Proof courier disabled, do nothing.
 
-	case proof.ApertureCourier:
+	case proof.HashmailCourierType:
 		port := nextAvailablePort()
 		apHarness := NewApertureHarness(ht.t, port)
 		proofCourier = &apHarness

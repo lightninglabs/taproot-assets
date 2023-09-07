@@ -159,7 +159,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// If no default proof courier address is set, use the fallback hashmail
 	// address.
 	fallbackHashmailCourierAddr := fmt.Sprintf(
-		"%s://%s", proof.ApertureCourier, fallbackHashMailAddr,
+		"%s://%s", proof.HashmailCourierType, fallbackHashMailAddr,
 	)
 	proofCourierAddr, err := proof.ParseCourierAddrString(
 		fallbackHashmailCourierAddr,

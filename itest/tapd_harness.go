@@ -169,7 +169,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		}
 
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
-			"%s://%s", proof.ApertureCourier,
+			"%s://%s", proof.HashmailCourierType,
 			typedProofCourier.ListenAddr,
 		)
 
