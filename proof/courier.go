@@ -20,10 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// CourierType is an enum that represents the different types of proof courier
-// services.
-//
-// TODO(ffranr): Rename to CourierProtocol.
+// CourierType is an enum that represents the different proof courier services
+// protocols that are supported.
 type CourierType string
 
 const (
