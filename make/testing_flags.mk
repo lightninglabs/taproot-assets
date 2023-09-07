@@ -36,6 +36,11 @@ ifneq ($(nodelete),)
 ITEST_FLAGS += -nodelete
 endif
 
+# Run the optional tests.
+ifneq ($(optional),)
+ITEST_FLAGS += -optional -postgrestimeout=240m
+endif
+
 # Run itests with specified db backend.
 ifneq ($(dbbackend),)
 ITEST_FLAGS += -dbbackend=$(dbbackend)
@@ -69,6 +74,8 @@ endif
 # test command. If not, we set 60m (up from the default 10m).
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
+else ifneq ($(optional),)
+TEST_FLAGS += -test.timeout=240m
 else
 TEST_FLAGS += -test.timeout=60m
 endif

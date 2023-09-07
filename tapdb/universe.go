@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
@@ -122,8 +121,6 @@ type BaseUniverseTree struct {
 
 	id universe.Identifier
 
-	registrationMtx sync.Mutex
-
 	smtNamespace string
 }
 
@@ -217,7 +214,7 @@ func (t *treeStoreWrapperTx) View(ctx context.Context,
 // exist. Otherwise, the primary key of the existing asset ID is returned.
 func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	assetGen asset.Genesis, groupKey *asset.GroupKey,
-	genesisProof proof.Blob) (int32, error) {
+	genesisProof *proof.Proof) (int32, error) {
 
 	// First, given the genesis point in the passed genesis, we'll insert a
 	// new genesis point in the DB.
@@ -244,23 +241,17 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 		}
 	}
 
-	genProof := &proof.Proof{}
-	err = genProof.Decode(bytes.NewReader(genesisProof))
-	if err != nil {
-		return 0, fmt.Errorf("unable to decode genesis proof: %w", err)
-	}
-
 	var txBuf bytes.Buffer
-	if err := genProof.AnchorTx.Serialize(&txBuf); err != nil {
+	if err := genesisProof.AnchorTx.Serialize(&txBuf); err != nil {
 		return 0, fmt.Errorf("unable to serialize anchor tx: %w", err)
 	}
 
-	genTXID := genProof.AnchorTx.TxHash()
-	genBlockHash := genProof.BlockHeader.BlockHash()
+	genTXID := genesisProof.AnchorTx.TxHash()
+	genBlockHash := genesisProof.BlockHeader.BlockHash()
 	chainTXID, err := db.UpsertChainTx(ctx, ChainTxParams{
 		Txid:        genTXID[:],
 		RawTx:       txBuf.Bytes(),
-		BlockHeight: sqlInt32(genProof.BlockHeight),
+		BlockHeight: sqlInt32(genesisProof.BlockHeight),
 		BlockHash:   genBlockHash[:],
 	})
 	if err != nil {
@@ -297,11 +288,6 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		err           error
 		issuanceProof *universe.IssuanceProof
 	)
-
-	// Limit to a single writer at a time.
-	b.registrationMtx.Lock()
-	defer b.registrationMtx.Unlock()
-
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		issuanceProof, _, err = universeRegisterIssuance(
 			ctx, dbTx, b.id, key, leaf, metaReveal,
@@ -337,7 +323,10 @@ func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
 
 	// The value stored in the MS-SMT will be the serialized MintingLeaf,
 	// so we'll convert that into raw bytes now.
-	leafNode := leaf.SmtLeafNode()
+	leafNode, err := leaf.SmtLeafNode()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	var groupKeyBytes []byte
 	if id.GroupKey != nil {
@@ -551,6 +540,12 @@ func universeFetchIssuanceProof(ctx context.Context,
 			return err
 		}
 
+		var genProof proof.Proof
+		err = genProof.Decode(bytes.NewReader(leaf.GenesisProof))
+		if err != nil {
+			return fmt.Errorf("unable to decode proof: %w", err)
+		}
+
 		issuanceProof := &universe.IssuanceProof{
 			MintingKey:     universeKey,
 			UniverseRoot:   rootNode,
@@ -559,7 +554,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				GenesisProof: leaf.GenesisProof,
+				GenesisProof: &genProof,
 				Amt:          uint64(leaf.SumAmt),
 			},
 		}
@@ -635,8 +630,8 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 }
 
 // MintingLeaves returns all the minting leaves inserted into the universe.
-func (b *BaseUniverseTree) MintingLeaves(ctx context.Context,
-) ([]universe.MintingLeaf, error) {
+func (b *BaseUniverseTree) MintingLeaves(
+	ctx context.Context) ([]universe.MintingLeaf, error) {
 
 	var leaves []universe.MintingLeaf
 
@@ -665,13 +660,22 @@ func (b *BaseUniverseTree) MintingLeaves(ctx context.Context,
 				return err
 			}
 
+			var genProof proof.Proof
+			err = genProof.Decode(bytes.NewReader(
+				dbLeaf.GenesisProof,
+			))
+			if err != nil {
+				return fmt.Errorf("unable to decode proof: %w",
+					err)
+			}
+
 			// Now that we have the leaves, we'll encode them all
 			// into the set of minting leaves.
 			leaf := universe.MintingLeaf{
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				GenesisProof: dbLeaf.GenesisProof,
+				GenesisProof: &genProof,
 				Amt:          uint64(dbLeaf.SumAmt),
 			}
 			if b.id.GroupKey != nil {

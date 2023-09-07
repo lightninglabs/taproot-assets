@@ -36,7 +36,7 @@ type FederationConfig struct {
 	// LocalRegistrar is the local register. This'll be used to add new
 	// leaves (minting events) to our local server before pushing them out
 	// to the federation.
-	LocalRegistrar Registrar
+	LocalRegistrar BatchRegistrar
 
 	// SyncInterval is the period that we'll use to synchronize with the
 	// set of Universe servers.
@@ -73,6 +73,15 @@ type FederationPushReq struct {
 	err  chan error
 }
 
+// FederationIssuanceBatchPushReq is used to push out a batch of new issuance
+// events to all or some members of the federation.
+type FederationIssuanceBatchPushReq struct {
+	IssuanceBatch []*IssuanceItem
+
+	resp chan struct{}
+	err  chan error
+}
+
 // FederationEnvoy is used to manage synchronization between the set of
 // federated Universe servers. It handles the periodic sync between universe
 // servers, and can also be used to push out new locally created proofs to the
@@ -87,13 +96,16 @@ type FederationEnvoy struct {
 	stopOnce sync.Once
 
 	pushRequests chan *FederationPushReq
+
+	batchPushRequests chan *FederationIssuanceBatchPushReq
 }
 
 // NewFederationEnvoy creates a new federation envoy from the passed config.
 func NewFederationEnvoy(cfg FederationConfig) *FederationEnvoy {
 	return &FederationEnvoy{
-		cfg:          cfg,
-		pushRequests: make(chan *FederationPushReq),
+		cfg:               cfg,
+		pushRequests:      make(chan *FederationPushReq),
+		batchPushRequests: make(chan *FederationIssuanceBatchPushReq),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -213,8 +225,8 @@ func (f *FederationEnvoy) syncUniverseState(ctx context.Context,
 
 // pushProofToFederation attempts to push out a new proof to the current
 // federation in parallel.
-func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
-	newProof *IssuanceProof) {
+func (f *FederationEnvoy) pushProofToFederation(uniID Identifier, key BaseKey,
+	leaf *MintingLeaf) {
 
 	ctx, cancel := f.WithCtxQuit()
 	defer cancel()
@@ -234,7 +246,7 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
 	}
 
 	log.Infof("Pushing new proof to %v federation members, proof_key=%v",
-		len(fedServers), spew.Sdump(newProof.MintingKey))
+		len(fedServers), spew.Sdump(key))
 
 	ctx, cancel = f.WithCtxQuitNoTimeout()
 	defer cancel()
@@ -250,7 +262,7 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier,
 		}
 
 		_, err = remoteUniverseServer.RegisterIssuance(
-			ctx, uniID, newProof.MintingKey, newProof.Leaf,
+			ctx, uniID, key, leaf,
 		)
 		return err
 	}
@@ -326,13 +338,13 @@ func (f *FederationEnvoy) syncer() {
 		// members.
 		case pushReq := <-f.pushRequests:
 			ctx, cancel := f.WithCtxQuit()
-			defer cancel()
 
 			// First, we'll attempt to registrar the issuance with
 			// the local registrar server.
 			newProof, err := f.cfg.LocalRegistrar.RegisterIssuance(
 				ctx, pushReq.ID, pushReq.Key, pushReq.Leaf,
 			)
+			cancel()
 			if err != nil {
 				err := fmt.Errorf("unable to insert proof "+
 					"into local universe: %w", err)
@@ -350,7 +362,43 @@ func (f *FederationEnvoy) syncer() {
 
 			// With the response sent above, we'll push this out to
 			// all the Universe servers in the background.
-			go f.pushProofToFederation(pushReq.ID, newProof)
+			go f.pushProofToFederation(
+				pushReq.ID, pushReq.Key, pushReq.Leaf,
+			)
+
+		case pushReq := <-f.batchPushRequests:
+			ctx, cancel := f.WithCtxQuitNoTimeout()
+
+			// First, we'll attempt to registrar the issuance with
+			// the local registrar server.
+			err := f.cfg.LocalRegistrar.RegisterNewIssuanceBatch(
+				ctx, pushReq.IssuanceBatch,
+			)
+			cancel()
+			if err != nil {
+				err := fmt.Errorf("unable to insert proof "+
+					"batch into local universe: %w", err)
+
+				log.Warnf(err.Error())
+
+				pushReq.err <- err
+				continue
+			}
+
+			// Now that we know we were able to register the proof,
+			// we'll return back to the caller.
+			pushReq.resp <- struct{}{}
+
+			// With the response sent above, we'll push this out to
+			// all the Universe servers in the background.
+			go func() {
+				for idx := range pushReq.IssuanceBatch {
+					item := pushReq.IssuanceBatch[idx]
+					f.pushProofToFederation(
+						item.ID, item.Key, item.Leaf,
+					)
+				}
+			}()
 
 		case <-f.Quit:
 			return
@@ -364,7 +412,7 @@ func (f *FederationEnvoy) syncer() {
 // sent to the set of active universe servers.
 //
 // NOTE: This is part of the universe.Registrar interface.
-func (f *FederationEnvoy) RegisterIssuance(ctx context.Context, id Identifier,
+func (f *FederationEnvoy) RegisterIssuance(_ context.Context, id Identifier,
 	key BaseKey, leaf *MintingLeaf) (*IssuanceProof, error) {
 
 	pushReq := &FederationPushReq{
@@ -380,6 +428,29 @@ func (f *FederationEnvoy) RegisterIssuance(ctx context.Context, id Identifier,
 	}
 
 	return fn.RecvResp(pushReq.resp, pushReq.err, f.Quit)
+}
+
+// RegisterNewIssuanceBatch inserts a batch of new minting leaves within the
+// target universe tree (based on the ID), stored at the base key(s). We assume
+// the proofs within the batch have already been checked that they don't yet
+// exist in the local database.
+//
+// NOTE: This is part of the universe.BatchRegistrar interface.
+func (f *FederationEnvoy) RegisterNewIssuanceBatch(_ context.Context,
+	items []*IssuanceItem) error {
+
+	pushReq := &FederationIssuanceBatchPushReq{
+		IssuanceBatch: items,
+		resp:          make(chan struct{}, 1),
+		err:           make(chan error, 1),
+	}
+
+	if !fn.SendOrQuit(f.batchPushRequests, pushReq, f.Quit) {
+		return fmt.Errorf("unable to push new proof event batch")
+	}
+
+	_, err := fn.RecvResp(pushReq.resp, pushReq.err, f.Quit)
+	return err
 }
 
 // AddServer adds a new set of servers to the federation, then immediately

@@ -1,7 +1,6 @@
 package tapgarden
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -47,11 +46,15 @@ type GardenKit struct {
 
 	// Universe is used to register new asset issuance with a local/remote
 	// base universe instance.
-	Universe universe.Registrar
+	Universe universe.BatchRegistrar
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
+
+	// UniversePushBatchSize is the number of minted items to push to the
+	// local universe in a single batch.
+	UniversePushBatchSize int
 }
 
 // PlanterConfig is the main config for the ChainPlanter.
@@ -852,15 +855,6 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 			ScriptKey: &p.Asset.ScriptKey,
 		}
 
-		// The universe tree stores only the asset state transition and
-		// not also the proof file checksum (as the root is effectively
-		// a checksum), so we'll use just the state transition.
-		var proofBuf bytes.Buffer
-		err = p.Encode(&proofBuf)
-		if err != nil {
-			return err
-		}
-
 		// With both of those assembled, we can now update issuance
 		// which takes the amount and proof of the minting event.
 		uniGen := universe.GenesisWithGroup{
@@ -871,7 +865,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		}
 		mintingLeaf := &universe.MintingLeaf{
 			GenesisWithGroup: uniGen,
-			GenesisProof:     proofBuf.Bytes(),
+			GenesisProof:     p,
 			Amt:              p.Asset.Amount,
 		}
 		_, err = c.cfg.Universe.RegisterIssuance(

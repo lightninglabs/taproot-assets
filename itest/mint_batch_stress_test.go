@@ -39,14 +39,14 @@ func testMintBatch100StressTest(t *harnessTest) {
 
 func testMintBatch1kStressTest(t *harnessTest) {
 	batchSize := 1_000
-	timeout := defaultWaitTimeout * 10
+	timeout := defaultWaitTimeout * 20
 
 	testMintBatchNStressTest(t, batchSize, timeout)
 }
 
 func testMintBatch10kStressTest(t *harnessTest) {
 	batchSize := 10_000
-	timeout := defaultWaitTimeout * 100
+	timeout := defaultWaitTimeout * 200
 
 	testMintBatchNStressTest(t, batchSize, timeout)
 }

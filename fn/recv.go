@@ -1,6 +1,7 @@
 package fn
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -40,8 +41,6 @@ func RecvResp[T any](r <-chan T, e <-chan error, q <-chan struct{}) (T, error) {
 //
 // NOTE: This function closes the channel to be able to collect all items at
 // once.
-//
-// TODO(roasbeef): instead could take a number of items to recv?
 func Collect[T any](c chan T) []T {
 	close(c)
 
@@ -51,4 +50,36 @@ func Collect[T any](c chan T) []T {
 	}
 
 	return out
+}
+
+// CollectBatch reads from the given channel and returns batchSize items at a
+// time and a boolean that indicates whether we expect more items to be sent
+// on the channel. If the context is canceled, the function returns the items
+// that have been read so far and the context's error.
+//
+// NOTE: The channel MUST be closed for this function to return.
+func CollectBatch[V any](ctx context.Context, values <-chan V,
+	batchSize int, cb func(ctx context.Context, batch []V) error) error {
+
+	batch := make([]V, 0, batchSize)
+	for {
+		select {
+		case v, ok := <-values:
+			if !ok {
+				return cb(ctx, batch)
+			}
+			batch = append(batch, v)
+
+			if len(batch) == batchSize {
+				err := cb(ctx, batch)
+				if err != nil {
+					return err
+				}
+				batch = make([]V, 0, batchSize)
+			}
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }

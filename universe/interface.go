@@ -1,6 +1,7 @@
 package universe
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -88,18 +89,20 @@ type MintingLeaf struct {
 	GenesisWithGroup
 
 	// GenesisProof is the proof of the newly created asset.
-	//
-	// TODO(roasbeef): have instead be a reader? easier to mmap in the
-	// future
-	GenesisProof proof.Blob
+	GenesisProof *proof.Proof
 
 	// Amt is the amount of units created.
 	Amt uint64
 }
 
 // SmtLeafNode returns the SMT leaf node for the given minting leaf.
-func (m *MintingLeaf) SmtLeafNode() *mssmt.LeafNode {
-	return mssmt.NewLeafNode(m.GenesisProof[:], m.Amt)
+func (m *MintingLeaf) SmtLeafNode() (*mssmt.LeafNode, error) {
+	var buf bytes.Buffer
+	if err := m.GenesisProof.Encode(&buf); err != nil {
+		return nil, err
+	}
+
+	return mssmt.NewLeafNode(buf.Bytes(), m.Amt), nil
 }
 
 // BaseKey is the top level key for a Base/Root universe. This will be used to
@@ -163,14 +166,18 @@ type IssuanceProof struct {
 // VerifyRoot verifies that the inclusion proof for the root node matches the
 // specified root. This is useful for sanity checking an issuance proof against
 // the purported root, and the included leaf.
-func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) bool {
+func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
+	leafNode, err := i.Leaf.SmtLeafNode()
+	if err != nil {
+		return false, err
+	}
+
 	reconstructedRoot := i.InclusionProof.Root(
-		i.MintingKey.UniverseKey(),
-		i.Leaf.SmtLeafNode(),
+		i.MintingKey.UniverseKey(), leafNode,
 	)
 
 	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
-		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
+		mssmt.IsEqualNode(reconstructedRoot, expectedRoot), nil
 }
 
 // BaseBackend is the backend storage interface for a base universe. The
@@ -238,6 +245,11 @@ type BaseMultiverse interface {
 		leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
+	// RegisterBatchIssuance inserts a new minting leaf batch within the
+	// multiverse tree and the universe tree that corresponds to the given
+	// base key(s).
+	RegisterBatchIssuance(ctx context.Context, items []*IssuanceItem) error
+
 	// FetchIssuanceProof returns an issuance proof for the target key. If
 	// the key doesn't have a script key specified, then all the proofs for
 	// the minting outpoint will be returned. If neither are specified, then
@@ -256,6 +268,36 @@ type Registrar interface {
 	// universe tree (based on the ID), stored at the base key.
 	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
 		leaf *MintingLeaf) (*IssuanceProof, error)
+}
+
+// IssuanceItem is an item that can be used to register a new issuance within a
+// base universe.
+type IssuanceItem struct {
+	// ID is the identifier of the base universe that the item should be
+	// registered within.
+	ID Identifier
+
+	// Key is the base key that the leaf is or will be stored at.
+	Key BaseKey
+
+	// Leaf is the minting leaf that was created.
+	Leaf *MintingLeaf
+
+	// MetaReveal is the meta reveal that was created.
+	MetaReveal *proof.MetaReveal
+}
+
+// BatchRegistrar is an interface that allows a caller to register a batch of
+// issuance items within a base universe.
+type BatchRegistrar interface {
+	Registrar
+
+	// RegisterNewIssuanceBatch inserts a batch of new minting leaves within
+	// the target universe tree (based on the ID), stored at the base
+	// key(s). We assume the proofs within the batch have already been
+	// checked that they don't yet exist in the local database.
+	RegisterNewIssuanceBatch(ctx context.Context,
+		items []*IssuanceItem) error
 }
 
 const (
@@ -658,10 +700,17 @@ type Telemetry interface {
 	LogSyncEvent(ctx context.Context, uniID Identifier,
 		key BaseKey) error
 
+	// LogSyncEvents logs sync events for the target universe.
+	LogSyncEvents(ctx context.Context, uniIDs ...Identifier) error
+
 	// LogNewProofEvent logs a new proof insertion event for the target
 	// universe.
 	LogNewProofEvent(ctx context.Context, uniID Identifier,
 		key BaseKey) error
+
+	// LogNewProofEvents logs new proof insertion events for the target
+	// universe.
+	LogNewProofEvents(ctx context.Context, uniIDs ...Identifier) error
 
 	// QuerySyncStats attempts to query the stats for the target universe.
 	// For a given asset ID, tag, or type, the set of universe stats is

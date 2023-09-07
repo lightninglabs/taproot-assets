@@ -2591,17 +2591,15 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 func marshalAssetLeaf(ctx context.Context, keys KeyLookup,
 	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
 
-	// In order to display the full asset, we'll parse the genesis
-	// proof so we can map that to the asset being proved.
-	var assetProof proof.Proof
-	if err := assetProof.Decode(
-		bytes.NewReader(assetLeaf.GenesisProof),
-	); err != nil {
+	// In order to display the full asset, we'll also encode the genesis
+	// proof.
+	var buf bytes.Buffer
+	if err := assetLeaf.GenesisProof.Encode(&buf); err != nil {
 		return nil, err
 	}
 
 	rpcAsset, err := MarshalAsset(
-		ctx, &assetProof.Asset, false, true, keys,
+		ctx, &assetLeaf.GenesisProof.Asset, false, true, keys,
 	)
 	if err != nil {
 		return nil, err
@@ -2609,7 +2607,7 @@ func marshalAssetLeaf(ctx context.Context, keys KeyLookup,
 
 	return &unirpc.AssetLeaf{
 		Asset:         rpcAsset,
-		IssuanceProof: assetLeaf.GenesisProof[:],
+		IssuanceProof: buf.Bytes(),
 	}, nil
 }
 
@@ -2859,7 +2857,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
 		},
-		GenesisProof: leaf.IssuanceProof,
+		GenesisProof: &assetProof,
 		Amt:          assetProof.Asset.Amount,
 	}, nil
 }

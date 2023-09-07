@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
 
@@ -138,35 +139,20 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
 
-	// We first decode the proof to make sure it's at least well-formed.
-	var newProof proof.Proof
-	err := newProof.Decode(bytes.NewReader(leaf.GenesisProof))
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode proof: %v", err)
-	}
+	newProof := leaf.GenesisProof
 
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
-	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(
-		ctx, id, key,
-	)
+	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
 	switch {
 	case err == nil && len(issuanceProofs) > 0:
 		issuanceProof := issuanceProofs[0]
-
-		var existingProof proof.Proof
-		err := existingProof.Decode(
-			bytes.NewReader(issuanceProof.Leaf.GenesisProof),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to decode existing "+
-				"proof: %w", err)
-		}
 
 		// The only valid case for an update of a proof is if the mint
 		// TX was re-organized out of the chain. If the block hash is
 		// still the same, we don't see this as an update and just
 		// return the existing proof.
+		existingProof := issuanceProof.Leaf.GenesisProof
 		if existingProof.BlockHeader.BlockHash() ==
 			newProof.BlockHeader.BlockHash() {
 
@@ -188,7 +174,44 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// it as a file first as that's what the expected wants.
 	//
 	// TODO(roasbeef): add option to skip proof verification?
-	assetSnapshot, err := newProof.Verify(ctx, nil, a.cfg.HeaderVerifier)
+	assetSnapshot, err := a.verifyIssuanceProof(ctx, id, key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we know the proof is valid, we'll insert it into the base
+	// multiverse backend, and return the new issuance proof.
+	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
+		ctx, id, key, leaf, assetSnapshot.MetaReveal,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register new "+
+			"issuance: %v", err)
+	}
+
+	// Log a sync event for the newly inserted leaf in the background as an
+	// async goroutine.
+	go func() {
+		err := a.cfg.UniverseStats.LogNewProofEvent(
+			context.Background(), id, key,
+		)
+		if err != nil {
+			log.Warnf("unable to log new proof event (id=%v): %v",
+				id.StringForLog(), err)
+		}
+	}()
+
+	return issuanceProof, nil
+}
+
+// verifyIssuanceProof verifies the passed minting leaf is a valid issuance
+// proof, returning the asset snapshot if so.
+func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
+	key BaseKey, leaf *MintingLeaf) (*proof.AssetSnapshot, error) {
+
+	assetSnapshot, err := leaf.GenesisProof.Verify(
+		ctx, nil, a.cfg.HeaderVerifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %v", err)
 	}
@@ -223,34 +246,64 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// The script key should also match exactly.
 	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
-		return nil, fmt.Errorf("script key mismatch: expected %v, "+
-			"got %v", key.ScriptKey.PubKey.SerializeCompressed(),
+		return nil, fmt.Errorf("script key mismatch: expected %v, got "+
+			"%v", key.ScriptKey.PubKey.SerializeCompressed(),
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
-	// Now that we know the proof is valid, we'll insert it into the base
-	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
-		ctx, id, key, leaf, assetSnapshot.MetaReveal,
+	return assetSnapshot, nil
+}
+
+// RegisterNewIssuanceBatch inserts a batch of new minting leaves within the
+// target universe tree (based on the ID), stored at the base key(s). We assume
+// the proofs within the batch have already been checked that they don't yet
+// exist in the local database.
+func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
+	items []*IssuanceItem) error {
+
+	log.Infof("Verifying %d new proofs for insertion into Universe",
+		len(items))
+
+	err := fn.ParSlice(
+		ctx, items, func(ctx context.Context, i *IssuanceItem) error {
+			assetSnapshot, err := a.verifyIssuanceProof(
+				ctx, i.ID, i.Key, i.Leaf,
+			)
+			if err != nil {
+				return err
+			}
+
+			i.MetaReveal = assetSnapshot.MetaReveal
+
+			return nil
+		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to register new "+
-			"issuance: %v", err)
+		return fmt.Errorf("unable to verify issuance proofs: %w", err)
+	}
+
+	log.Infof("Inserting %d verified proofs into Universe", len(items))
+	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, items)
+	if err != nil {
+		return fmt.Errorf("unable to register new issuance proofs: %w",
+			err)
 	}
 
 	// Log a sync event for the newly inserted leaf in the background as an
 	// async goroutine.
+	ids := fn.Map(items, func(item *IssuanceItem) Identifier {
+		return item.ID
+	})
 	go func() {
-		err := a.cfg.UniverseStats.LogNewProofEvent(
-			context.Background(), id, key,
+		err := a.cfg.UniverseStats.LogNewProofEvents(
+			context.Background(), ids...,
 		)
 		if err != nil {
-			log.Warnf("unable to log new proof event (id=%v): %v",
-				id.StringForLog(), err)
+			log.Warnf("unable to log new proof events: %v", err)
 		}
 	}()
 
-	return issuanceProof, nil
+	return nil
 }
 
 // FetchIssuanceProof attempts to fetch an issuance proof for the target base

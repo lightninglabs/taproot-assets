@@ -1,7 +1,6 @@
 package tapgarden
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"golang.org/x/exp/maps"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -853,106 +854,81 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"proofs: %w", err)
 		}
 
+		var (
+			committedAssets   = batchCommitment.CommittedAssets()
+			numAssets         = len(committedAssets)
+			mintingProofBlobs = make(proof.AssetBlobs, numAssets)
+			universeItems     chan *universe.IssuanceItem
+			mintTxHash        = confInfo.Tx.TxHash()
+			proofMutex        sync.Mutex
+			batchSyncEG       errgroup.Group
+		)
+
+		// If we have a universe configured, we'll batch stream the
+		// issuance items to it. We start this as a goroutine/err group
+		// now, so we can already start streaming while the proofs are
+		// still being stored to the local proof store.
+		if b.cfg.Universe != nil {
+			universeItems = make(
+				chan *universe.IssuanceItem, numAssets,
+			)
+
+			// We use an error group to simply the error handling of
+			// a goroutine.
+			batchSyncEG.Go(func() error {
+				return b.batchStreamUniverseItems(
+					ctx, universeItems, numAssets,
+				)
+			})
+		}
+
 		// Before we confirm the batch, we'll also update the on disk
 		// file system as well.
 		//
 		// TODO(roasbeef): rely on the upsert here instead
-		mintingProofBlobs := make(proof.AssetBlobs)
-		for _, newAsset := range batchCommitment.CommittedAssets() {
-			assetID := newAsset.ID()
-			scriptPubKey := newAsset.ScriptKey.PubKey
-			scriptKey := asset.ToSerialized(scriptPubKey)
+		err = fn.ParSlice(
+			ctx, committedAssets,
+			func(ctx context.Context, newAsset *asset.Asset) error {
+				scriptPubKey := newAsset.ScriptKey.PubKey
+				scriptKey := asset.ToSerialized(scriptPubKey)
 
-			mintingProof := mintingProofs[scriptKey]
+				mintingProof := mintingProofs[scriptKey]
 
-			blob, err := proof.EncodeAsProofFile(mintingProof)
-			if err != nil {
-				return 0, fmt.Errorf("unable to encode proof "+
-					"file: %w", err)
-			}
-			mintingProofBlobs[scriptKey] = blob
-
-			err = b.cfg.ProofFiles.ImportProofs(
-				ctx, headerVerifier, false,
-				&proof.AnnotatedProof{
-					Locator: proof.Locator{
-						AssetID:   &assetID,
-						ScriptKey: *scriptPubKey,
-					},
-					Blob: blob,
-				},
-			)
-			if err != nil {
-				return 0, fmt.Errorf("unable to insert "+
-					"proofs: %w", err)
-			}
-
-			// Before we mark the batch as confirmed below, we'll
-			// also register the issuance of the new asset with our
-			// local base universe.
-			//
-			// TODO(roasbeef): can combine with minting proof
-			// creation above?
-			if b.cfg.Universe != nil {
-				// The universe ID serves to identifier the
-				// universe root we want to add this asset to.
-				// This is either the assetID or the group key.
-				uniID := universe.Identifier{
-					AssetID: assetID,
-				}
-
-				groupKey := newAsset.GroupKey
-				if groupKey != nil {
-					uniID.GroupKey = &groupKey.GroupPubKey
-				}
-
-				log.Debugf("Registering asset with "+
-					"universe, key=%v", spew.Sdump(uniID))
-
-				// The base key is the set of bytes that keys
-				// into the universe, this'll be the outpoint.
-				// where it was created at and the script key
-				// for that asset.
-				baseKey := universe.BaseKey{
-					MintingOutpoint: wire.OutPoint{
-						Hash:  confInfo.Tx.TxHash(),
-						Index: b.anchorOutputIndex,
-					},
-					ScriptKey: &newAsset.ScriptKey,
-				}
-
-				// The universe tree store only the asset state
-				// transition and not also the proof file
-				// checksum (as the root is effectively a
-				// checksum), so we'll use just the state
-				// transition.
-				var proofBuf bytes.Buffer
-				err = mintingProof.Encode(&proofBuf)
-				if err != nil {
-					return 0, err
-				}
-
-				// With both of those assembled, we can now
-				// register issuance which takes the amount and
-				// proof of the minting event.
-				uniGen := universe.GenesisWithGroup{
-					Genesis: newAsset.Genesis,
-				}
-				if groupKey != nil {
-					uniGen.GroupKey = groupKey
-				}
-				mintingLeaf := &universe.MintingLeaf{
-					GenesisWithGroup: uniGen,
-					GenesisProof:     proofBuf.Bytes(),
-					Amt:              newAsset.Amount,
-				}
-				_, err = b.cfg.Universe.RegisterIssuance(
-					ctx, uniID, baseKey, mintingLeaf,
+				proofBlob, uniProof, err := b.storeMintingProof(
+					ctx, newAsset, mintingProof, mintTxHash,
+					headerVerifier,
 				)
 				if err != nil {
-					return 0, fmt.Errorf("unable to "+
-						"register issuance: %v", err)
+					return fmt.Errorf("unable to store "+
+						"proof: %w", err)
 				}
+
+				proofMutex.Lock()
+				mintingProofBlobs[scriptKey] = proofBlob
+				proofMutex.Unlock()
+
+				if uniProof != nil {
+					universeItems <- uniProof
+				}
+
+				return nil
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to update asset proofs: "+
+				"%w", err)
+		}
+
+		// The local proof store inserts are now completed, but we also
+		// need to wait for the batch sync to complete before we can
+		// confirm the batch.
+		if b.cfg.Universe != nil {
+			close(universeItems)
+
+			err = batchSyncEG.Wait()
+			if err != nil {
+				return 0, fmt.Errorf("unable to batch sync "+
+					"universe: %w", err)
 			}
 		}
 
@@ -995,6 +971,130 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	default:
 		return 0, fmt.Errorf("unknown state: %v", currentState)
 	}
+}
+
+// storeMintingProof stores the minting proof for a new asset in the proof
+// store. If a universe is configured, it also returns the issuance item that
+// can be used to register the asset with the universe.
+func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
+	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
+	headerVerifier proof.HeaderVerifier) (proof.Blob,
+	*universe.IssuanceItem, error) {
+
+	assetID := a.ID()
+	blob, err := proof.EncodeAsProofFile(mintingProof)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to encode proof file: %w",
+			err)
+	}
+
+	err = b.cfg.ProofFiles.ImportProofs(
+		ctx, headerVerifier, false, &proof.AnnotatedProof{
+			Locator: proof.Locator{
+				AssetID:   &assetID,
+				ScriptKey: *a.ScriptKey.PubKey,
+			},
+			Blob: blob,
+		},
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)
+	}
+
+	// Before we continue with the next item, we'll also register the
+	// issuance of the new asset with our local base universe. We skip this
+	// step if there is no universe configured.
+	if b.cfg.Universe == nil {
+		return blob, nil, nil
+	}
+
+	// The universe ID serves to identifier the universe root we want to add
+	// this asset to. This is either the assetID or the group key.
+	uniID := universe.Identifier{
+		AssetID: assetID,
+	}
+
+	groupKey := a.GroupKey
+	if groupKey != nil {
+		uniID.GroupKey = &groupKey.GroupPubKey
+	}
+
+	log.Debugf("Preparing asset for registration with universe, key=%v",
+		spew.Sdump(uniID))
+
+	// The base key is the set of bytes that keys into the universe, this'll
+	// be the outpoint where it was created at and the script key for that
+	// asset.
+	baseKey := universe.BaseKey{
+		MintingOutpoint: wire.OutPoint{
+			Hash:  mintTxHash,
+			Index: b.anchorOutputIndex,
+		},
+		ScriptKey: &a.ScriptKey,
+	}
+
+	// With both of those assembled, we can now register issuance which
+	// takes the amount and proof of the minting event.
+	uniGen := universe.GenesisWithGroup{
+		Genesis: a.Genesis,
+	}
+	if groupKey != nil {
+		uniGen.GroupKey = groupKey
+	}
+	mintingLeaf := &universe.MintingLeaf{
+		GenesisWithGroup: uniGen,
+
+		// The universe tree store only the asset state transition and
+		// not also the proof file checksum (as the root is effectively
+		// a checksum), so we'll use just the state transition.
+		GenesisProof: mintingProof,
+		Amt:          a.Amount,
+	}
+
+	return blob, &universe.IssuanceItem{
+		ID:   uniID,
+		Key:  baseKey,
+		Leaf: mintingLeaf,
+	}, nil
+}
+
+// batchStreamUniverseItems streams the issuance items for a batch to the
+// universe.
+func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
+	universeItems chan *universe.IssuanceItem, numTotal int) error {
+
+	var (
+		numItems int
+		uni      = b.cfg.Universe
+	)
+	err := fn.CollectBatch(
+		ctx, universeItems, b.cfg.UniversePushBatchSize,
+		func(ctx context.Context,
+			batch []*universe.IssuanceItem) error {
+
+			numItems += len(batch)
+			log.Infof("Inserting %d new leaves (%d of %d) into "+
+				"local universe", len(batch), numItems,
+				numTotal)
+
+			err := uni.RegisterNewIssuanceBatch(ctx, batch)
+			if err != nil {
+				return fmt.Errorf("unable to register "+
+					"issuance batch: %w", err)
+			}
+
+			log.Infof("Inserted %d new leaves (%d of %d) into "+
+				"local universe", len(batch), numItems,
+				numTotal)
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to register issuance proofs: %w", err)
+	}
+
+	return nil
 }
 
 // SortSeedlings sorts the seedling names such that all seedlings that will be

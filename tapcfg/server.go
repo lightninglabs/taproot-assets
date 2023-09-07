@@ -223,6 +223,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		LocalDiffEngine:     baseUni,
 		NewRemoteDiffEngine: tap.NewRpcUniverseDiff,
 		LocalRegistrar:      baseUni,
+		SyncBatchSize:       defaultUniverseSyncBatchSize,
 	})
 
 	federationMembers := cfg.Universe.FederationServers
@@ -284,9 +285,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				GenSigner: tap.NewLndRpcGenSigner(
 					lndServices,
 				),
-				ProofFiles:   proofFileStore,
-				Universe:     universeFederation,
-				ProofWatcher: reOrgWatcher,
+				ProofFiles:            proofFileStore,
+				Universe:              universeFederation,
+				ProofWatcher:          reOrgWatcher,
+				UniversePushBatchSize: defaultUniverseSyncBatchSize,
 			},
 			BatchTicker:  ticker.NewForce(cfg.BatchMintingInterval),
 			ProofUpdates: proofArchive,

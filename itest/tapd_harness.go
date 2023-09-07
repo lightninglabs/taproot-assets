@@ -34,6 +34,14 @@ var (
 	// to use when starting a tap daemon.
 	dbbackend = flag.String("dbbackend", "sqlite", "Set the database "+
 		"backend to use when starting a tap daemon.")
+
+	// postgresTimeout is a command line flag for specifying the amount of
+	// time to allow the postgres fixture to run in total. Needs to be
+	// increased for long-running tests.
+	postgresTimeout = flag.Duration("postgrestimeout",
+		tapdb.DefaultPostgresFixtureLifetime, "The amount of time to "+
+			"allow the postgres fixture to run in total. Needs "+
+			"to be increased for long-running tests.")
 )
 
 const (
@@ -109,7 +117,7 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 
 	case tapcfg.DatabaseBackendPostgres:
 		fixture := tapdb.NewTestPgFixture(
-			ht.t, tapdb.DefaultPostgresFixtureLifetime, !*noDelete,
+			ht.t, *postgresTimeout, !*noDelete,
 		)
 		ht.t.Cleanup(func() {
 			if !*noDelete {
