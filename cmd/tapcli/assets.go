@@ -45,6 +45,7 @@ var (
 	batchKeyName          = "batch_key"
 	groupByGroupName      = "by_group"
 	assetIDName           = "asset_id"
+	shortResponseName     = "short"
 )
 
 var mintAssetCommand = cli.Command{
@@ -54,8 +55,9 @@ var mintAssetCommand = cli.Command{
 	Description: "Attempt to mint a new asset with the specified parameters",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  assetTypeName,
-			Usage: "the type of asset, must either be: normal, or collectible",
+			Name: assetTypeName,
+			Usage: "the type of asset, must either be: normal, " +
+				"or collectible",
 		},
 		cli.StringFlag{
 			Name:  assetTagName,
@@ -84,12 +86,21 @@ var mintAssetCommand = cli.Command{
 				"emission",
 		},
 		cli.StringFlag{
-			Name:  assetGroupKeyName,
-			Usage: "the specific group key to use to mint the asset",
+			Name: assetGroupKeyName,
+			Usage: "the specific group key to use to mint the " +
+				"asset",
 		},
 		cli.StringFlag{
-			Name:  assetGroupAnchorName,
-			Usage: "the other asset in this batch that the new asset be grouped with",
+			Name: assetGroupAnchorName,
+			Usage: "the other asset in this batch that the new " +
+				"asset be grouped with",
+		},
+		cli.BoolFlag{
+			Name: shortResponseName,
+			Usage: "if true, then the current assets within the " +
+				"batch will not be returned in the response " +
+				"in order to avoid printing a large amount " +
+				"of data in case of large batches",
 		},
 	},
 	Action: mintAsset,
@@ -173,6 +184,7 @@ func mintAsset(ctx *cli.Context) error {
 			GroupAnchor: ctx.String(assetGroupAnchorName),
 		},
 		EnableEmission: ctx.Bool(assetEmissionName),
+		ShortResponse:  ctx.Bool(shortResponseName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to mint asset: %w", err)
@@ -187,7 +199,16 @@ var finalizeBatchCommand = cli.Command{
 	ShortName:   "f",
 	Usage:       "finalize a batch",
 	Description: "Attempt to finalize a pending batch.",
-	Action:      finalizeBatch,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: shortResponseName,
+			Usage: "if true, then the current assets within the " +
+				"batch will not be returned in the response " +
+				"in order to avoid printing a large amount " +
+				"of data in case of large batches",
+		},
+	},
+	Action: finalizeBatch,
 }
 
 func finalizeBatch(ctx *cli.Context) error {
@@ -195,7 +216,9 @@ func finalizeBatch(ctx *cli.Context) error {
 	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.FinalizeBatch(ctxc, &mintrpc.FinalizeBatchRequest{})
+	resp, err := client.FinalizeBatch(ctxc, &mintrpc.FinalizeBatchRequest{
+		ShortResponse: ctx.Bool(shortResponseName),
+	})
 	if err != nil {
 		return fmt.Errorf("unable to finalize batch: %w", err)
 	}

@@ -367,7 +367,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, fmt.Errorf("unable to mint new asset: %w", err)
 	}
 
-	// Wait for an initial update so we can report back if things succeeded
+	// Wait for an initial update, so we can report back if things succeeded
 	// or failed.
 	select {
 	case <-ctx.Done():
@@ -379,29 +379,57 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 				update.Error)
 		}
 
+		batches, err := r.cfg.AssetMinter.ListBatches(update.BatchKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to list batches: %w",
+				err)
+		}
+
+		rpcBatches, err := fn.MapErr(
+			batches,
+			func(b *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
+				error) {
+
+				return marshalMintingBatch(b, req.ShortResponse)
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(rpcBatches) != 1 {
+			return nil, fmt.Errorf("expected one batch, got %d",
+				len(rpcBatches))
+		}
+
 		return &mintrpc.MintAssetResponse{
-			BatchKey: update.BatchKey.SerializeCompressed(),
+			Batch: rpcBatches[0],
 		}, nil
 	}
 }
 
 // FinalizeBatch attempts to finalize the current pending batch.
 func (r *rpcServer) FinalizeBatch(_ context.Context,
-	_ *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
+	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
-	batchKey, err := r.cfg.AssetMinter.FinalizeBatch()
+	batch, err := r.cfg.AssetMinter.FinalizeBatch()
 	if err != nil {
 		return nil, fmt.Errorf("unable to finalize batch: %w", err)
 	}
 
 	// If there was no batch to finalize, return an empty response.
-	if batchKey == nil {
+	if batch == nil {
 		return &mintrpc.FinalizeBatchResponse{}, nil
 	}
 
+	rpcBatch, err := marshalMintingBatch(batch, req.ShortResponse)
+	if err != nil {
+		return nil, err
+	}
+
 	return &mintrpc.FinalizeBatchResponse{
-		BatchKey: batchKey.SerializeCompressed(),
+		Batch: rpcBatch,
 	}, nil
 }
 
@@ -464,7 +492,12 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		return nil, fmt.Errorf("unable to list batches: %w", err)
 	}
 
-	rpcBatches, err := fn.MapErr(batches, marshalMintingBatch)
+	rpcBatches, err := fn.MapErr(
+		batches,
+		func(b *tapgarden.MintingBatch) (*mintrpc.MintingBatch, error) {
+			return marshalMintingBatch(b, false)
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2135,10 +2168,25 @@ func marshallSendAssetEvent(
 }
 
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
-func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
-	error) {
+func marshalMintingBatch(batch *tapgarden.MintingBatch,
+	skipSeedlings bool) (*mintrpc.MintingBatch, error) {
 
-	rpcAssets := make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
+	rpcBatchState, err := marshalBatchState(batch)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcBatch := &mintrpc.MintingBatch{
+		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
+		State:    rpcBatchState,
+	}
+
+	// If we don't need to include the seedlings, we can return here.
+	if skipSeedlings {
+		return rpcBatch, nil
+	}
+
+	rpcBatch.Assets = make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
 	for _, seedling := range batch.Seedlings {
 		var groupKeyBytes []byte
 		if seedling.HasGroupKey() {
@@ -2160,7 +2208,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
 			}
 		}
 
-		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
+		rpcBatch.Assets = append(rpcBatch.Assets, &mintrpc.MintAsset{
 			AssetType: taprpc.AssetType(seedling.AssetType),
 			Name:      seedling.AssetName,
 			AssetMeta: seedlingMeta,
@@ -2169,16 +2217,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
 		})
 	}
 
-	rpcBatchState, err := marshalBatchState(batch)
-	if err != nil {
-		return nil, err
-	}
-
-	return &mintrpc.MintingBatch{
-		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
-		State:    rpcBatchState,
-		Assets:   rpcAssets,
-	}, nil
+	return rpcBatch, nil
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.

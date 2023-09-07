@@ -186,15 +186,20 @@
       }
     },
     "mintrpcFinalizeBatchRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "short_response": {
+          "type": "boolean",
+          "description": "If true, then the assets currently in the batch won't be returned in the\nresponse. This is mainly to avoid a lot of data being transmitted and\npossibly printed on the command line in the case of a very large batch."
+        }
+      }
     },
     "mintrpcFinalizeBatchResponse": {
       "type": "object",
       "properties": {
-        "batch_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The internal public key of the batch."
+        "batch": {
+          "$ref": "#/definitions/mintrpcMintingBatch",
+          "description": "The finalized batch."
         }
       }
     },
@@ -250,16 +255,19 @@
         "enable_emission": {
           "type": "boolean",
           "description": "If true, then the asset will be created with a group key, which allows for\nfuture asset issuance."
+        },
+        "short_response": {
+          "type": "boolean",
+          "description": "If true, then the assets currently in the batch won't be returned in the\nresponse. This is mainly to avoid a lot of data being transmitted and\npossibly printed on the command line in the case of a very large batch."
         }
       }
     },
     "mintrpcMintAssetResponse": {
       "type": "object",
       "properties": {
-        "batch_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
+        "batch": {
+          "$ref": "#/definitions/mintrpcMintingBatch",
+          "description": "The batch the asset was added to."
         }
       }
     },
@@ -269,7 +277,7 @@
         "batch_key": {
           "type": "string",
           "format": "byte",
-          "description": "The internal public key of the batch."
+          "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
         },
         "assets": {
           "type": "array",

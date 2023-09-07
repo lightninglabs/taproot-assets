@@ -468,35 +468,16 @@ func (c *ChainPlanter) gardener() {
 	for {
 		select {
 		case <-c.cfg.BatchTicker.Ticks():
-			// No pending batch, so we can just continue back to
-			// the top of the loop.
+			// There is no pending batch, so we can just abort.
 			if c.pendingBatch == nil {
 				log.Debugf("No batches pending...doing nothing")
 				continue
 			}
 
-			// Prep the new care taker that'll be launched assuming
-			// the call below to freeze the batch succeeds.
-			caretaker := c.newCaretakerForBatch(c.pendingBatch)
-
-			// At this point, we have a non-empty batch, so we'll
-			// first finalize it on disk. This means no further
-			// seedlings can be added to this batch.
-			ctx, cancel := c.WithCtxQuit()
-			err := freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
-			cancel()
+			err := c.finalizeBatch()
 			if err != nil {
 				c.cfg.ErrChan <- fmt.Errorf("unable to freeze "+
 					"minting batch: %w", err)
-				continue
-			}
-
-			// Now that the batch has been frozen, we'll launch a
-			// new caretaker state machine for the batch that'll
-			// drive all the seedlings do adulthood.
-			if err := caretaker.Start(); err != nil {
-				c.cfg.ErrChan <- fmt.Errorf("unable to start "+
-					"new caretaker: %w", err)
 				continue
 			}
 
@@ -569,8 +550,8 @@ func (c *ChainPlanter) gardener() {
 			case reqTypeListBatches:
 				batchKey, err := typedParam[*btcec.PublicKey](req)
 				if err != nil {
-					req.Error(fmt.Errorf("Bad batch key: %w",
-						err))
+					req.Error(fmt.Errorf("bad batch key: "+
+						"%w", err))
 					break
 				}
 
@@ -595,12 +576,22 @@ func (c *ChainPlanter) gardener() {
 				log.Infof("Finalizing batch %x",
 					batchKey.SerializeCompressed())
 
-				// A force tick must be sent in a separate
-				// goroutine to prevent deadlock.
-				go func() {
-					c.cfg.BatchTicker.Force <- time.Time{}
-				}()
-				req.Resolve(batchKey)
+				err := c.finalizeBatch()
+				if err != nil {
+					c.cfg.ErrChan <- fmt.Errorf("unable "+
+						"to freeze minting batch: %w",
+						err)
+					continue
+				}
+
+				// Before we update the pending batch, we return
+				// it to the caller.
+				req.Resolve(c.pendingBatch)
+
+				// Now that we have a caretaker launched for
+				// this batch, we'll set the pending batch to
+				// nil.
+				c.pendingBatch = nil
 			case reqTypeCancelBatch:
 				batchKey, err := c.canCancelBatch()
 				if err != nil {
@@ -624,6 +615,31 @@ func (c *ChainPlanter) gardener() {
 			return
 		}
 	}
+}
+
+// finalizeBatch creates a new caretaker for the batch and starts it.
+func (c *ChainPlanter) finalizeBatch() error {
+	// Prep the new care taker that'll be launched assuming the call below
+	// to freeze the batch succeeds.
+	caretaker := c.newCaretakerForBatch(c.pendingBatch)
+
+	// At this point, we have a non-empty batch, so we'll first finalize it
+	// on disk. This means no further seedlings can be added to this batch.
+	ctx, cancel := c.WithCtxQuit()
+	err := freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("unable to freeze minting batch: %w", err)
+	}
+
+	// Now that the batch has been frozen, we'll launch a new caretaker
+	// state machine for the batch that'll drive all the seedlings do
+	// adulthood.
+	if err := caretaker.Start(); err != nil {
+		return fmt.Errorf("unable to start new caretaker: %w", err)
+	}
+
+	return nil
 }
 
 // PendingBatch returns the current pending batch. If there's no pending batch,
@@ -665,8 +681,8 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 }
 
 // FinalizeBatch sends a signal to the planter to finalize the current batch.
-func (c *ChainPlanter) FinalizeBatch() (*btcec.PublicKey, error) {
-	req := newStateReq[*btcec.PublicKey](reqTypeFinalizeBatch)
+func (c *ChainPlanter) FinalizeBatch() (*MintingBatch, error) {
+	req := newStateReq[*MintingBatch](reqTypeFinalizeBatch)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
@@ -880,7 +896,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 }
 
 // QueueNewSeedling attempts to queue a new seedling request (the intent for
-// New asset creation or on going issuance) to the ChainPlanter. A channel is
+// New asset creation or ongoing issuance) to the ChainPlanter. A channel is
 // returned where future updates will be sent over. If an error is returned no
 // issuance operation was possible.
 //
