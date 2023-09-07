@@ -1712,6 +1712,14 @@
         "asset_name": {
           "type": "string",
           "description": "The name of the asset."
+        },
+        "amounts_by_asset_id": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "A map of hex encoded asset IDs to the number of units minted for that\nasset. This only contains more than one entry for grouped assets and in\nthat case represents the whole list of assets currently known to exist\nwithin the group. For single (non-grouped) assets, this is equal to the\nasset ID above and the sum in the mssmt_root. A hex encoded string is\nused as the map key because gRPC does not support using raw bytes for a\nmap key."
         }
       }
     },

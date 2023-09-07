@@ -285,9 +285,9 @@ func testUniverseREST(t *harnessTest) {
 			fmt.Sprintf("%s/roots/asset-id/%s", urlPrefix, assetID),
 		)
 		require.NoError(t.t, err)
-		require.Equal(
-			t.t, roots.UniverseRoots[assetID], assetRoot.AssetRoot,
-		)
+		require.True(t.t, AssertUniverseRootEqual(
+			roots.UniverseRoots[assetID], assetRoot.AssetRoot,
+		))
 	}
 
 	// Re-issuable assets are keyed by their group keys.
@@ -311,10 +311,10 @@ func testUniverseREST(t *harnessTest) {
 		assetRoot, err := getJSON[*unirpc.QueryRootResponse](queryURI)
 		require.NoError(t.t, err)
 
-		require.Equal(
-			t.t, roots.UniverseRoots[groupKeyID],
+		require.True(t.t, AssertUniverseRootEqual(
+			roots.UniverseRoots[groupKeyID],
 			assetRoot.AssetRoot,
-		)
+		))
 	}
 }
 

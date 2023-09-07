@@ -228,6 +228,10 @@ type BaseRoot struct {
 	// AssetName is the name of the asset. This might not always be set for
 	// performance reasons.
 	AssetName string
+
+	// GroupedAssets is an optional map of asset IDs to the minted amount.
+	// This is only set for grouped assets.
+	GroupedAssets map[asset.ID]uint64
 }
 
 // BaseMultiverse is an interface used to keep track of the set of base universe

@@ -2487,10 +2487,16 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 	}
 	mssmtRoot := marshalMssmtNode(node.Node)
 
+	rpcGroupedAssets := make(map[string]uint64, len(node.GroupedAssets))
+	for assetID, amount := range node.GroupedAssets {
+		rpcGroupedAssets[assetID.String()] = amount
+	}
+
 	return &unirpc.UniverseRoot{
-		Id:        marshalUniID(node.ID),
-		MssmtRoot: mssmtRoot,
-		AssetName: node.AssetName,
+		Id:               marshalUniID(node.ID),
+		MssmtRoot:        mssmtRoot,
+		AssetName:        node.AssetName,
+		AmountsByAssetId: rpcGroupedAssets,
 	}, nil
 }
 
@@ -2514,9 +2520,7 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	for _, assetRoot := range assetRoots {
 		idStr := assetRoot.ID.String()
 
-		resp.UniverseRoots[idStr], err = marshalUniverseRoot(
-			assetRoot,
-		)
+		resp.UniverseRoots[idStr], err = marshalUniverseRoot(assetRoot)
 		if err != nil {
 			return nil, err
 		}
