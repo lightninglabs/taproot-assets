@@ -54,8 +54,6 @@ type CourierHarness interface {
 // part of the non-interactive send flow. A sender can use this given the
 // abstracted Addr/source type to send a proof to the receiver. Conversely, a
 // receiver can use this to fetch a proof from the sender.
-//
-// TODO(roasbeef): FileSystemCourier, RpcCourier
 type Courier interface {
 	// DeliverProof attempts to delivery a proof to the receiver, using the
 	// information in the Addr type.
