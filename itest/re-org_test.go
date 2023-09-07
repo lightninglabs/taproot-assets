@@ -19,7 +19,7 @@ func testReOrgMint(t *harnessTest) {
 	mintRequests := []*mintrpc.MintAssetRequest{
 		issuableAssets[0], issuableAssets[1],
 	}
-	mintTXID := mintAssetUnconfirmed(t, t.tapd, mintRequests)
+	mintTXID, batchKey := mintAssetUnconfirmed(t, t.tapd, mintRequests)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -34,7 +34,7 @@ func testReOrgMint(t *harnessTest) {
 	initialBlock := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	initialBlockHash := initialBlock.BlockHash()
 	WaitForBatchState(
-		t.t, ctxt, t.tapd, defaultWaitTimeout,
+		t.t, ctxt, t.tapd, defaultWaitTimeout, batchKey,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 

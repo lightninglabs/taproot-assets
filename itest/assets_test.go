@@ -156,7 +156,7 @@ func withMintingTimeout(timeout time.Duration) mintOption {
 // block.
 func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 	assetRequests []*mintrpc.MintAssetRequest,
-	opts ...mintOption) chainhash.Hash {
+	opts ...mintOption) (chainhash.Hash, []byte) {
 
 	options := defaultMintOptions()
 	for _, opt := range opts {
@@ -168,10 +168,11 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 	defer cancel()
 
 	// Mint all the assets in the same batch.
-	for _, assetRequest := range assetRequests {
+	for idx, assetRequest := range assetRequests {
 		assetResp, err := tapd.MintAsset(ctxt, assetRequest)
 		require.NoError(t.t, err)
-		require.NotEmpty(t.t, assetResp.BatchKey)
+		require.NotEmpty(t.t, assetResp.Batch)
+		require.Len(t.t, assetResp.Batch.Assets, idx+1)
 	}
 
 	// Instruct the daemon to finalize the batch.
@@ -179,10 +180,16 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 		ctxt, &mintrpc.FinalizeBatchRequest{},
 	)
 	require.NoError(t.t, err)
-	require.NotEmpty(t.t, batchResp.BatchKey)
+	require.NotEmpty(t.t, batchResp.Batch)
+	require.Len(t.t, batchResp.Batch.Assets, len(assetRequests))
+	require.Equal(
+		t.t, mintrpc.BatchState_BATCH_STATE_BROADCAST,
+		batchResp.Batch.State,
+	)
 
 	WaitForBatchState(
 		t.t, ctxt, tapd, options.mintingTimeout,
+		batchResp.Batch.BatchKey,
 		mintrpc.BatchState_BATCH_STATE_BROADCAST,
 	)
 	hashes, err := waitForNTxsInMempool(
@@ -212,7 +219,7 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 		)
 	}
 
-	return *hashes[0]
+	return *hashes[0], batchResp.Batch.BatchKey
 }
 
 // mintAssetsConfirmBatch mints all given assets in the same batch, confirms the
@@ -221,7 +228,9 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...mintOption) []*taprpc.Asset {
 
-	mintTXID := mintAssetUnconfirmed(t, tapd, assetRequests, opts...)
+	mintTXID, batchKey := mintAssetUnconfirmed(
+		t, tapd, assetRequests, opts...,
+	)
 
 	options := defaultMintOptions()
 	for _, opt := range opts {
@@ -236,7 +245,7 @@ func mintAssetsConfirmBatch(t *harnessTest, tapd *tapdHarness,
 	block := mineBlocks(t, t.lndHarness, 1, 1)[0]
 	blockHash := block.BlockHash()
 	WaitForBatchState(
-		t.t, ctxt, tapd, options.mintingTimeout,
+		t.t, ctxt, tapd, options.mintingTimeout, batchKey,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
@@ -541,9 +550,11 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// If we attempt to add both assets to the same batch, the second mint
 	// call should fail.
-	collideBatchKey, err := t.tapd.MintAsset(ctxt, &assetCollide)
+	collideResp, err := t.tapd.MintAsset(ctxt, &assetCollide)
 	require.NoError(t.t, err)
-	require.NotNil(t.t, collideBatchKey.BatchKey)
+	require.NotNil(t.t, collideResp.Batch)
+	require.NotNil(t.t, collideResp.Batch.BatchKey)
+	require.Len(t.t, collideResp.Batch.Assets, 1)
 
 	_, batchNameErr := t.tapd.MintAsset(ctxt, &assetMint)
 	require.ErrorContains(t.t, batchNameErr, "already in batch")
@@ -575,14 +586,16 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 		ctxt, &mintrpc.CancelBatchRequest{},
 	)
 	require.NoError(t.t, err)
-	require.Equal(t.t, cancelBatchKey.BatchKey, collideBatchKey.BatchKey)
+	require.Equal(
+		t.t, cancelBatchKey.BatchKey, collideResp.Batch.BatchKey,
+	)
 
 	// The only change in the returned batch after cancellation should be
 	// the batch state.
 	cancelBatch, err := t.tapd.ListBatches(
 		ctxt, &mintrpc.ListBatchRequest{
 			Filter: &mintrpc.ListBatchRequest_BatchKey{
-				BatchKey: collideBatchKey.BatchKey,
+				BatchKey: collideResp.Batch.BatchKey,
 			},
 		})
 	require.NoError(t.t, err)
