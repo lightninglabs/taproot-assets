@@ -688,7 +688,7 @@ message DecodeAddrRequest {
 message ProofFile {
     // The raw proof file encoded as bytes. Must be a file and not just an
     // individual mint/transfer proof.
-    bytes raw_proof = 1;
+    bytes raw_proof_file = 1;
 
     string genesis_point = 2;
 }

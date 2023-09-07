@@ -1136,13 +1136,13 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 func (r *rpcServer) VerifyProof(ctx context.Context,
 	req *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
-	if !proof.IsProofFile(req.RawProof) {
+	if !proof.IsProofFile(req.RawProofFile) {
 		return nil, fmt.Errorf("invalid raw proof, expect single " +
 			"encoded mint or transition proof")
 	}
 
 	var proofFile proof.File
-	err := proofFile.Decode(bytes.NewReader(req.RawProof))
+	err := proofFile.Decode(bytes.NewReader(req.RawProofFile))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
@@ -1392,7 +1392,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 	}
 
 	return &taprpc.ProofFile{
-		RawProof: proofBlob,
+		RawProofFile: proofBlob,
 	}, nil
 }
 

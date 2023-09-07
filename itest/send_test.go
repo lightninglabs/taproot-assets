@@ -861,11 +861,11 @@ func addProofTestVectorFromFile(t *testing.T, testName string,
 	require.NoError(t, waitErr)
 
 	if binaryFileName != "" {
-		test.WriteTestFileHex(t, binaryFileName, proofResp.RawProof)
+		test.WriteTestFileHex(t, binaryFileName, proofResp.RawProofFile)
 	}
 
 	var f proof.File
-	err := f.Decode(bytes.NewReader(proofResp.RawProof))
+	err := f.Decode(bytes.NewReader(proofResp.RawProofFile))
 	require.NoError(t, err)
 
 	if f.NumProofs() <= fileIndex {

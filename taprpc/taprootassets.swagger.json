@@ -1587,7 +1587,7 @@
     "taprpcProofFile": {
       "type": "object",
       "properties": {
-        "raw_proof": {
+        "raw_proof_file": {
           "type": "string",
           "format": "byte",
           "description": "The raw proof file encoded as bytes. Must be a file and not just an\nindividual mint/transfer proof."

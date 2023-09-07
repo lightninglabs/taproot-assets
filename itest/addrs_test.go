@@ -296,10 +296,10 @@ func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	}, defaultWaitTimeout)
 	require.NoError(t.t, waitErr)
 
-	t.Logf("Importing proof %x", proofResp.RawProof)
+	t.Logf("Importing proof %x", proofResp.RawProofFile)
 
 	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
-		ProofFile:    proofResp.RawProof,
+		ProofFile:    proofResp.RawProofFile,
 		GenesisPoint: genInfo.GenesisPoint,
 	})
 	require.NoError(t.t, err)
