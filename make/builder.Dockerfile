@@ -4,7 +4,7 @@
 # /dev.Dockerfile
 # /taprpc/Dockerfile
 # /tools/Dockerfile
-FROM golang:1.20.5-buster
+FROM golang:1.21.0-bookworm
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
 

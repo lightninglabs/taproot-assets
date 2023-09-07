@@ -4,7 +4,7 @@
 # /dev.Dockerfile
 # /make/builder.Dockerfile
 # /taprpc/Dockerfile
-FROM golang:1.20.5-buster
+FROM golang:1.21.0-bookworm
 
 RUN apt-get update && apt-get install -y git
 ENV GOCACHE=/tmp/build/.cache

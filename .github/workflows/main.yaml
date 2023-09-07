@@ -28,7 +28,7 @@ env:
   # /make/builder.Dockerfile
   # /taprpc/Dockerfile
   # /tools/Dockerfile
-  GO_VERSION: '1.20.5'
+  GO_VERSION: '1.21.0'
 
 jobs:
   #######################

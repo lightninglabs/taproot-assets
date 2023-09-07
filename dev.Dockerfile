@@ -4,7 +4,7 @@
 # /make/builder.Dockerfile
 # /taprpc/Dockerfile
 # /tools/Dockerfile
-FROM golang:1.20.5 as builder 
+FROM golang:1.21.0 as builder 
 
 WORKDIR /app
 
