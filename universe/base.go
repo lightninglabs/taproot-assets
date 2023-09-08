@@ -145,7 +145,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
-	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
+	issuanceProofs, err := a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 	switch {
 	case err == nil && len(issuanceProofs) > 0:
 		issuanceProof := issuanceProofs[0]
@@ -347,7 +347,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 		ScriptKey:       &prevScriptKey,
 	}
 
-	prevProofs, err := a.cfg.Multiverse.FetchIssuanceProof(
+	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
 		ctx, uniID, prevBaseKey,
 	)
 	if err != nil {
@@ -390,7 +390,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 		}()
 	}()
 
-	return a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
+	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
 
 // MintingKeys returns the set of minting keys known for the specified base

@@ -152,11 +152,11 @@ func (b *MultiverseStore) RootNodes(
 	return uniRoots, nil
 }
 
-// FetchIssuanceProof returns an issuance proof for the target key. If the key
-// doesn't have a script key specified, then all the proofs for the minting
-// outpoint will be returned. If neither are specified, then proofs for all the
-// inserted leaves will be returned.
-func (b *MultiverseStore) FetchIssuanceProof(ctx context.Context,
+// FetchProofLeaf returns a proof leaf for the target key. If the key
+// doesn't have a script key specified, then all the proof leafs for the minting
+// outpoint will be returned. If neither are specified, then all inserted proof
+// leafs will be returned.
+func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
 	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
 
