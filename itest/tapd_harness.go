@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -78,7 +79,7 @@ type tapdConfig struct {
 
 // newTapdHarness creates a new tapd server harness with the given
 // configuration.
-func newTapdHarness(ht *harnessTest, cfg tapdConfig,
+func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	proofCourier proof.CourierHarness,
 	proofSendBackoffCfg *proof.BackoffCfg,
 	proofReceiverAckTimeout *time.Duration) (*tapdHarness, error) {
@@ -117,11 +118,11 @@ func newTapdHarness(ht *harnessTest, cfg tapdConfig,
 
 	case tapcfg.DatabaseBackendPostgres:
 		fixture := tapdb.NewTestPgFixture(
-			ht.t, *postgresTimeout, !*noDelete,
+			t, *postgresTimeout, !*noDelete,
 		)
-		ht.t.Cleanup(func() {
+		t.Cleanup(func() {
 			if !*noDelete {
-				fixture.TearDown(ht.t)
+				fixture.TearDown(t)
 			}
 		})
 		tapCfg.DatabaseBackend = tapcfg.DatabaseBackendPostgres

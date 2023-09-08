@@ -363,7 +363,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 	}
 
 	tapdHarness, err := newTapdHarness(
-		ht, tapdConfig{
+		t, ht, tapdConfig{
 			NetParams: harnessNetParams,
 			LndNode:   node,
 		}, selectedProofCourier,

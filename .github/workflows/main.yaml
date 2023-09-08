@@ -17,10 +17,7 @@ defaults:
 
 env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
-  GOCACHE: /home/runner/work/go/pkg/build
-  GOMODCACHE: /home/runner/work/go/pkg/mod
   GOPATH: /home/runner/work/go
-  GO111MODULE: on
 
   # If you change this value, please change it in the following files as well:
   # /Dockerfile
@@ -96,6 +93,33 @@ jobs:
 
       - name: compile code
         run: go install -v ./...
+
+  ########################
+  # Docker build check.
+  ########################
+  docker-build-check:
+    name: Docker build check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build default image
+        uses: docker/build-push-action@v4
+        with:
+          tags: "default-taproot-assets"
+
+      - name: Build dev image
+        uses: docker/build-push-action@v4
+        with:
+          file: dev.Dockerfile
+          tags: "dev-taproot-assets"
 
   ########################
   # cross compilation
@@ -209,7 +233,7 @@ jobs:
   ########################
   integration-test-postgres:
     name: run itests postgres
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - name: git checkout
         uses: actions/checkout@v3

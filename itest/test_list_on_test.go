@@ -23,6 +23,21 @@ var testCases = []*testCase{
 		name: "multi address",
 		test: testMultiAddress,
 	},
+	// For some (yet unknown) reason, the Postgres itest is much more flaky
+	// if the re-org tests run last. So we run them toward the beginning to
+	// reduce the flakiness of the Postgres itest.
+	{
+		name: "re-org mint",
+		test: testReOrgMint,
+	},
+	{
+		name: "re-org send",
+		test: testReOrgSend,
+	},
+	{
+		name: "re-org mint and send",
+		test: testReOrgMintAndSend,
+	},
 	{
 		name:             "basic send unidirectional",
 		test:             testBasicSendUnidirectional,
@@ -135,18 +150,6 @@ var testCases = []*testCase{
 	{
 		name: "get info",
 		test: testGetInfo,
-	},
-	{
-		name: "re-org mint",
-		test: testReOrgMint,
-	},
-	{
-		name: "re-org send",
-		test: testReOrgSend,
-	},
-	{
-		name: "re-org mint and send",
-		test: testReOrgMintAndSend,
 	},
 }
 
