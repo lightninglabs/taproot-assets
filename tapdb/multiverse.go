@@ -52,10 +52,10 @@ type BatchedMultiverse interface {
 	BatchedTx[BaseMultiverseStore]
 }
 
-// BaseMultiverse implements the persistent storage for a multiverse.
+// MultiverseStore implements the persistent storage for a multiverse.
 //
 // NOTE: This implements the universe.BaseMultiverse interface.
-type BaseMultiverse struct {
+type MultiverseStore struct {
 	db BatchedMultiverse
 
 	// TODO(roasbeef): actually the start of multiverse?
@@ -64,15 +64,15 @@ type BaseMultiverse struct {
 }
 
 // NewBaseMultiverse creates a new base multiverse.
-func NewBaseMultiverse(db BatchedMultiverse) *BaseMultiverse {
-	return &BaseMultiverse{
+func NewBaseMultiverse(db BatchedMultiverse) *MultiverseStore {
+	return &MultiverseStore{
 		db: db,
 	}
 }
 
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the multiverse.
-func (b *BaseMultiverse) RootNodes(
+func (b *MultiverseStore) RootNodes(
 	ctx context.Context) ([]universe.BaseRoot, error) {
 
 	var (
@@ -156,7 +156,7 @@ func (b *BaseMultiverse) RootNodes(
 // doesn't have a script key specified, then all the proofs for the minting
 // outpoint will be returned. If neither are specified, then proofs for all the
 // inserted leaves will be returned.
-func (b *BaseMultiverse) FetchIssuanceProof(ctx context.Context,
+func (b *MultiverseStore) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
 	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
 
@@ -215,7 +215,7 @@ func (b *BaseMultiverse) FetchIssuanceProof(ctx context.Context,
 
 // RegisterIssuance inserts a new minting leaf within the multiverse tree and
 // the universe tree that corresponds to the given base key.
-func (b *BaseMultiverse) RegisterIssuance(ctx context.Context,
+func (b *MultiverseStore) RegisterIssuance(ctx context.Context,
 	id universe.Identifier, key universe.BaseKey,
 	leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
@@ -297,7 +297,7 @@ func (b *BaseMultiverse) RegisterIssuance(ctx context.Context,
 
 // RegisterBatchIssuance inserts a new minting leaf batch within the multiverse
 // tree and the universe tree that corresponds to the given base key(s).
-func (b *BaseMultiverse) RegisterBatchIssuance(ctx context.Context,
+func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 	items []*universe.IssuanceItem) error {
 
 	insertProof := func(item *universe.IssuanceItem,

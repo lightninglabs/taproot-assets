@@ -69,7 +69,7 @@ type DatabaseConfig struct {
 
 	TapAddrBook *tapdb.TapAddressBook
 
-	Multiverse *tapdb.BaseMultiverse
+	Multiverse *tapdb.MultiverseStore
 
 	FederationDB *tapdb.UniverseFederationDB
 }
