@@ -54,7 +54,7 @@ type BatchedMultiverse interface {
 
 // MultiverseStore implements the persistent storage for a multiverse.
 //
-// NOTE: This implements the universe.BaseMultiverse interface.
+// NOTE: This implements the universe.MultiverseArchive interface.
 type MultiverseStore struct {
 	db BatchedMultiverse
 

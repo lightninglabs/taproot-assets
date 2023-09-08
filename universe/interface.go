@@ -234,11 +234,11 @@ type BaseRoot struct {
 	GroupedAssets map[asset.ID]uint64
 }
 
-// BaseMultiverse is an interface used to keep track of the set of base universe
+// MultiverseArchive is an interface used to keep track of the set of universe
 // roots that we know of. The BaseBackend interface is used to interact with a
 // particular base universe, while this is used to obtain aggregate information
 // about the universes.
-type BaseMultiverse interface {
+type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)

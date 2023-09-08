@@ -30,7 +30,7 @@ type MintingArchiveConfig struct {
 
 	// Multiverse is used to interact with the set of known base
 	// universe trees, and also obtain associated metadata and statistics.
-	Multiverse BaseMultiverse
+	Multiverse MultiverseArchive
 
 	// UniverseStats is used to export statistics related to the set of
 	// external/internal queries to the base universe instance.
