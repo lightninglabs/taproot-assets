@@ -13,36 +13,42 @@ import (
 type addressTLVType = tlv.Type
 
 const (
-	// addrAssetVersionType is the TLV type of the address's asset version.
-	addrAssetVersionType addressTLVType = 0
+	// addrVersionType is the TLV type of the address format version.
+	addrVersionType addressTLVType = 0
+
+	// addrAssetVersionType is the TLV type of the asset version.
+	addrAssetVersionType addressTLVType = 2
 
 	// addrAssetIDType is the TLV type of the asset ID.
-	addrAssetIDType addressTLVType = 2
+	addrAssetIDType addressTLVType = 4
 
 	// addrGroupKeyType is the TLV type of the group key of the asset.
-	addrGroupKeyType addressTLVType = 3
+	addrGroupKeyType addressTLVType = 5
 
 	// addrScriptKeyType is the TLV type of the script key for the asset.
-	addrScriptKeyType addressTLVType = 4
+	addrScriptKeyType addressTLVType = 6
 
 	// addrInternalKeyType is the TLV type of the internal key for the asset.
-	addrInternalKeyType addressTLVType = 6
+	addrInternalKeyType addressTLVType = 8
 
 	// addrTapscriptSiblingType is the TLV type of the tapscript sibling for
 	// the asset commitment.
-	addrTapscriptSiblingType addressTLVType = 7
+	addrTapscriptSiblingType addressTLVType = 9
 
 	// addrAmountType is the TLV type of the amount of the asset.
-	addrAmountType addressTLVType = 8
+	addrAmountType addressTLVType = 10
 
 	// addrProofCourierType is the TLV type of the proof courier address.
-	addrProofCourierAddrType addressTLVType = 10
-
-	// addrVersionType is the TLV type of the address's version.
-	addrVersionType addressTLVType = 12
+	addrProofCourierAddrType addressTLVType = 12
 )
 
-func newAddressVersionRecord(version *asset.Version) tlv.Record {
+func newAddressVersionRecord(version *Version) tlv.Record {
+	return tlv.MakeStaticRecord(
+		addrVersionType, version, 1, VersionEncoder, VersionDecoder,
+	)
+}
+
+func newAddressAssetVersionRecord(version *asset.Version) tlv.Record {
 	return tlv.MakeStaticRecord(
 		addrAssetVersionType, version, 1, asset.VersionEncoder,
 		asset.VersionDecoder,
@@ -110,11 +116,5 @@ func newProofCourierAddrRecord(addr *url.URL) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		addrProofCourierAddrType, addr, recordSize,
 		urlEncoder, urlDecoder,
-	)
-}
-
-func newVersionRecord(version *Version) tlv.Record {
-	return tlv.MakeStaticRecord(
-		addrVersionType, version, 1, VersionEncoder, VersionDecoder,
 	)
 }

@@ -127,18 +127,19 @@ func initSpendScenario(t *testing.T) spendData {
 	proofCourierAddr := address.RandProofCourierAddr(t)
 
 	address1, err := address.New(
-		state.genesis1, nil, nil, state.receiverPubKey,
-		state.receiverPubKey, state.normalAmt1, nil, &address.MainNetTap,
-		proofCourierAddr,
+		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
+		state.receiverPubKey, state.normalAmt1, nil,
+		&address.MainNetTap, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
 	state.address1StateKey = state.address1.AssetCommitmentKey()
 
 	address1CollectGroup, err := address.New(
-		state.genesis1collect, &state.groupKey.GroupPubKey,
-		&state.groupKey.Sig, state.receiverPubKey, state.receiverPubKey,
-		state.collectAmt, nil, &address.TestNet3Tap, proofCourierAddr,
+		address.V0, state.genesis1collect, &state.groupKey.GroupPubKey,
+		&state.groupKey.Sig, state.receiverPubKey,
+		state.receiverPubKey, state.collectAmt, nil,
+		&address.TestNet3Tap, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
@@ -146,7 +147,7 @@ func initSpendScenario(t *testing.T) spendData {
 		AssetCommitmentKey()
 
 	address2, err := address.New(
-		state.genesis1, nil, nil, state.receiverPubKey,
+		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
 		state.receiverPubKey, state.normalAmt2, nil,
 		&address.MainNetTap, proofCourierAddr,
 	)
@@ -2051,9 +2052,10 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		state := initSpendScenario(t)
 
 		address1testnet, err := address.New(
-			state.genesis1, nil, nil, state.receiverPubKey,
-			state.receiverPubKey, state.normalAmt1, nil,
-			&address.TestNet3Tap, address.RandProofCourierAddr(t),
+			address.V0, state.genesis1, nil, nil,
+			state.receiverPubKey, state.receiverPubKey,
+			state.normalAmt1, nil, &address.TestNet3Tap,
+			address.RandProofCourierAddr(t),
 		)
 		require.NoError(t, err)
 
@@ -2124,8 +2126,8 @@ func TestPayToAddrScript(t *testing.T) {
 	// Create an address for receiving the 2 units and make sure it matches
 	// the script above.
 	addr1, err := address.New(
-		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
-		sendAmt, nil, &address.RegressionNetTap,
+		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
+		*internalKey, sendAmt, nil, &address.RegressionNetTap,
 		address.RandProofCourierAddr(t),
 	)
 	require.NoError(t, err)
@@ -2141,8 +2143,8 @@ func TestPayToAddrScript(t *testing.T) {
 		[]byte("not a valid script"),
 	))
 	addr2, err := address.New(
-		gen, nil, nil, *recipientScriptKey.PubKey, *internalKey,
-		sendAmt, sibling, &address.RegressionNetTap,
+		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
+		*internalKey, sendAmt, sibling, &address.RegressionNetTap,
 		address.RandProofCourierAddr(t),
 	)
 	require.NoError(t, err)

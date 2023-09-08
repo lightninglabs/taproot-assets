@@ -232,9 +232,9 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	}
 
 	baseAddr, err := New(
-		*assetGroup.Genesis, groupKey, groupSig, *scriptKey.PubKey,
-		*internalKeyDesc.PubKey, amount, tapscriptSibling, &b.cfg.Chain,
-		proofCourierAddr,
+		V0, *assetGroup.Genesis, groupKey, groupSig,
+		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
+		tapscriptSibling, &b.cfg.Chain, proofCourierAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make new addr: %w", err)

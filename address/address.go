@@ -23,23 +23,17 @@ var (
 	// ErrUnsupportedHRP is an error returned when we attempt to encode a
 	// Taproot Asset address with an HRP for a network without Taproot Asset
 	// support.
-	ErrUnsupportedHRP = errors.New(
-		"address: unsupported HRP value",
-	)
+	ErrUnsupportedHRP = errors.New("address: unsupported HRP value")
 
 	// ErrMismatchedHRP is an error returned when we attempt to decode a
 	// Taproot Asset address with an HRP that does not match the expected
 	// network.
-	ErrMismatchedHRP = errors.New(
-		"address: network mismatch",
-	)
+	ErrMismatchedHRP = errors.New("address: network mismatch")
 
 	// ErrInvalidBech32m is an error returned when we attempt to decode a
 	// Taproot Asset address from a string that is not a valid bech32m
 	// string.
-	ErrInvalidBech32m = errors.New(
-		"address: invalid bech32m string",
-	)
+	ErrInvalidBech32m = errors.New("address: invalid bech32m string")
 
 	// ErrInvalidAmountCollectible is an error returned when we attempt to
 	// create a Taproot Asset address for a Collectible asset with an amount
@@ -57,34 +51,28 @@ var (
 
 	// ErrUnsupportedAssetType is an error returned when we attempt to
 	// create a Taproot Asset address for a non-standard asset type.
-	ErrUnsupportedAssetType = errors.New(
-		"address: unsupported asset type",
-	)
+	ErrUnsupportedAssetType = errors.New("address: unsupported asset type")
 
 	// ErrNoAddr is returned if no address is found in the address store.
-	ErrNoAddr = errors.New(
-		"address: no address found",
-	)
+	ErrNoAddr = errors.New("address: no address found")
 
 	// ErrScriptKeyNotFound is returned when a script key is not found in
 	// the local database.
-	ErrScriptKeyNotFound = errors.New(
-		"script key not found",
-	)
+	ErrScriptKeyNotFound = errors.New("script key not found")
 
 	// ErrUnknownVersion is returned when encountering an address with an
 	// unrecognised version number.
-	ErrUnknownVersion = errors.New("unknown address version number")
+	ErrUnknownVersion = errors.New("address: unknown version number")
 )
 
-// Version denotes the version of the Tap address.
+// Version denotes the version of a Taproot Asset address format.
 type Version uint8
 
 const (
-	// V0 is the initial Tap address version.
+	// V0 is the initial Taproot Asset address format version.
 	V0 Version = 0
 
-	// LatestVersion is the latest supported Tap address version.
+	// LatestVersion is the latest supported Taproot Asset address version.
 	latestVersion = V0
 )
 
@@ -141,7 +129,7 @@ type Tap struct {
 //
 // TODO(ffranr): This function takes many arguments. Add a struct to better
 // organise its arguments.
-func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
+func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupSig *schnorr.Signature, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
@@ -169,6 +157,11 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 		return nil, ErrUnsupportedHRP
 	}
 
+	// Check the version of the address format.
+	if IsUnknownVersion(version) {
+		return nil, ErrUnknownVersion
+	}
+
 	// We can only use a tapscript sibling that is not a Taproot Asset
 	// commitment.
 	if tapscriptSibling != nil {
@@ -183,7 +176,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	}
 
 	payload := Tap{
-		Version:          V0,
+		Version:          version,
 		ChainParams:      net,
 		AssetVersion:     asset.V0,
 		AssetID:          genesis.ID(),
@@ -317,8 +310,9 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 // EncodeRecords determines the non-nil records to include when encoding an
 // address at runtime.
 func (a *Tap) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 6)
-	records = append(records, newAddressVersionRecord(&a.AssetVersion))
+	records := make([]tlv.Record, 0, 9)
+	records = append(records, newAddressVersionRecord(&a.Version))
+	records = append(records, newAddressAssetVersionRecord(&a.AssetVersion))
 	records = append(records, newAddressAssetID(&a.AssetID))
 
 	if a.GroupKey != nil {
@@ -337,7 +331,6 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	records = append(
 		records, newProofCourierAddrRecord(&a.ProofCourierAddr),
 	)
-	records = append(records, newVersionRecord(&a.Version))
 
 	return records
 }
@@ -346,7 +339,8 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 // decoding.
 func (a *Tap) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
-		newAddressVersionRecord(&a.AssetVersion),
+		newAddressVersionRecord(&a.Version),
+		newAddressAssetVersionRecord(&a.AssetVersion),
 		newAddressAssetID(&a.AssetID),
 		newAddressGroupKeyRecord(&a.GroupKey),
 		newAddressScriptKeyRecord(&a.ScriptKey),
@@ -354,7 +348,6 @@ func (a *Tap) DecodeRecords() []tlv.Record {
 		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
 		newProofCourierAddrRecord(&a.ProofCourierAddr),
-		newVersionRecord(&a.Version),
 	}
 }
 
@@ -406,6 +399,17 @@ func (a *Tap) EncodeAddress() (string, error) {
 func (a *Tap) String() string {
 	return fmt.Sprintf("TapAddr{id=%s, amount=%d, script_key=%x}",
 		a.AssetID, a.Amount, a.ScriptKey.SerializeCompressed())
+}
+
+// IsUnknownVersion returns true if the address version is not recognized by
+// this implementation of tap.
+func IsUnknownVersion(v Version) bool {
+	switch v {
+	case V0:
+		return false
+	default:
+		return true
+	}
 }
 
 // DecodeAddress parses a bech32m encoded Taproot Asset address string and
