@@ -27,7 +27,7 @@ func testReOrgMint(t *harnessTest) {
 
 	// Before we mine a block to confirm the mint TX, we create a temporary
 	// miner.
-	tempMiner := t.lndHarness.Miner.SpawnTempMiner()
+	tempMiner := spawnTempMiner(t.t, t, ctxt)
 	miner := t.lndHarness.Miner
 
 	// And now we mine a block to confirm the assets.
@@ -146,7 +146,7 @@ func testReOrgSend(t *harnessTest) {
 
 	// Before we mine a block to confirm the mint TX, we create a temporary
 	// miner.
-	tempMiner := t.lndHarness.Miner.SpawnTempMiner()
+	tempMiner := spawnTempMiner(t.t, t, ctxt)
 	miner := t.lndHarness.Miner
 
 	// Now to the second part of the test: We'll send an asset to Bob, and
@@ -238,9 +238,13 @@ func testReOrgSend(t *harnessTest) {
 // testReOrgMintAndSend tests that when a re-org occurs, minted and directly
 // sent asset proofs are updated accordingly.
 func testReOrgMintAndSend(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
 	// Before we do anything, we spawn a miner. This is where the fork in
 	// the chain starts.
-	tempMiner := t.lndHarness.Miner.SpawnTempMiner()
+	tempMiner := spawnTempMiner(t.t, t, ctxt)
 	miner := t.lndHarness.Miner
 
 	// Then, we'll mint a few assets and confirm the batch TX.
@@ -248,10 +252,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 		issuableAssets[0], issuableAssets[1],
 	}
 	assetList := mintAssetsConfirmBatch(t, t.tapd, mintRequests)
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
@@ -361,6 +361,16 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// Let's now bury the proofs under sufficient blocks to allow the re-org
 	// watcher to stop watching the TX.
 	t.lndHarness.MineBlocks(8)
+}
+
+// spawnTempMiner creates a temporary miner that uses the same chain backend
+// and client as the main miner.
+func spawnTempMiner(t *testing.T, ht *harnessTest,
+	ctx context.Context) *lntest.HarnessMiner {
+
+	tempHarness := lntest.NewMiner(ctx, t)
+	tempHarness.Client = ht.lndHarness.Miner.Client
+	return tempHarness.SpawnTempMiner()
 }
 
 // generateReOrg generates a re-org by mining a longer chain with a temporary
