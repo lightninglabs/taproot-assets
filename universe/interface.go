@@ -243,9 +243,9 @@ type BaseMultiverse interface {
 	// of assets tracked in the base Universe.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
-	// RegisterIssuance inserts a new minting (issuance) leaf within the
-	// multiverse tree, stored at the given base key.
-	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
+	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
+	// the universe tree that corresponds to the given key.
+	UpsertProofLeaf(ctx context.Context, id Identifier, key BaseKey,
 		leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 

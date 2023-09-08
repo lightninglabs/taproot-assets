@@ -193,7 +193,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
+	issuanceProof, err := a.cfg.Multiverse.UpsertProofLeaf(
 		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil {

@@ -213,9 +213,9 @@ func (b *MultiverseStore) FetchIssuanceProof(ctx context.Context,
 	return proofs, nil
 }
 
-// RegisterIssuance inserts a new minting leaf within the multiverse tree and
-// the universe tree that corresponds to the given base key.
-func (b *MultiverseStore) RegisterIssuance(ctx context.Context,
+// UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
+// universe tree that corresponds to the given key.
+func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.BaseKey,
 	leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
