@@ -63,8 +63,8 @@ type MultiverseStore struct {
 	// * drop base in front?
 }
 
-// NewBaseMultiverse creates a new base multiverse.
-func NewBaseMultiverse(db BatchedMultiverse) *MultiverseStore {
+// NewMultiverseStore creates a new multiverse DB store handle.
+func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
 	return &MultiverseStore{
 		db: db,
 	}

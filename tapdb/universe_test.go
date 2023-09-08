@@ -400,7 +400,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 			return db.WithTx(tx)
 		},
 	)
-	multiverse := NewBaseMultiverse(multiverseDB)
+	multiverse := NewMultiverseStore(multiverseDB)
 
 	rootNodes, err := multiverse.RootNodes(ctx)
 	require.NoError(t, err)
