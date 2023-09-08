@@ -340,7 +340,7 @@ func DefaultConfig() Config {
 		BatchMintingInterval: defaultBatchMintingInterval,
 		ReOrgSafeDepth:       defaultReOrgSafeDepth,
 		DefaultProofCourierAddr: fmt.Sprintf(
-			"%s://%s", proof.ApertureCourier, fallbackHashMailAddr,
+			"%s://%s", proof.HashmailCourierType, fallbackHashMailAddr,
 		),
 		HashMailCourier: &proof.HashMailCourierCfg{
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,

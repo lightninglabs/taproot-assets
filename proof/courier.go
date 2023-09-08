@@ -20,10 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// CourierType is an enum that represents the different types of proof courier
-// services.
-//
-// TODO(ffranr): Rename to CourierProtocol.
+// CourierType is an enum that represents the different proof courier services
+// protocols that are supported.
 type CourierType string
 
 const (
@@ -31,12 +29,9 @@ const (
 	// courier is specified.
 	DisabledCourier CourierType = "disabled_courier"
 
-	// ApertureCourier is a courier that uses the hashmail protocol to
+	// HashmailCourierType is a courier that uses the hashmail protocol to
 	// deliver proofs.
-	//
-	// TODO(ffranr): Rename to HashmailCourier (use protocol name rather
-	//  than service).
-	ApertureCourier = "hashmail"
+	HashmailCourierType = "hashmail"
 )
 
 // CourierHarness interface is an integration testing harness for a proof
@@ -98,7 +93,7 @@ func ParseCourierAddrString(addr string) (CourierAddr, error) {
 func ParseCourierAddrUrl(addr url.URL) (CourierAddr, error) {
 	// Create new courier addr based on URL scheme.
 	switch addr.Scheme {
-	case ApertureCourier:
+	case HashmailCourierType:
 		return NewHashMailCourierAddr(addr)
 	}
 
@@ -148,7 +143,7 @@ func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
 // URL. This function also performs hashmail protocol specific address
 // validation.
 func NewHashMailCourierAddr(addr url.URL) (*HashMailCourierAddr, error) {
-	if addr.Scheme != ApertureCourier {
+	if addr.Scheme != HashmailCourierType {
 		return nil, fmt.Errorf("expected hashmail courier protocol: %v",
 			addr.Scheme)
 	}
@@ -244,7 +239,7 @@ func serverDialOpts() ([]grpc.DialOption, error) {
 func NewHashMailBox(courierAddr *url.URL) (*HashMailBox,
 	error) {
 
-	if courierAddr.Scheme != ApertureCourier {
+	if courierAddr.Scheme != HashmailCourierType {
 		return nil, fmt.Errorf("unsupported courier protocol: %v",
 			courierAddr.Scheme)
 	}

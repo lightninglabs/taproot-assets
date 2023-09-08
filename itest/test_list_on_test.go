@@ -41,27 +41,27 @@ var testCases = []*testCase{
 	{
 		name:             "basic send unidirectional",
 		test:             testBasicSendUnidirectional,
-		proofCourierType: proof.ApertureCourier,
+		proofCourierType: proof.HashmailCourierType,
 	},
 	{
 		name:             "resume pending package send",
 		test:             testResumePendingPackageSend,
-		proofCourierType: proof.ApertureCourier,
+		proofCourierType: proof.HashmailCourierType,
 	},
 	{
 		name:             "reattempt failed asset send",
 		test:             testReattemptFailedAssetSend,
-		proofCourierType: proof.ApertureCourier,
+		proofCourierType: proof.HashmailCourierType,
 	},
 	{
 		name:             "offline receiver eventually receives",
 		test:             testOfflineReceiverEventuallyReceives,
-		proofCourierType: proof.ApertureCourier,
+		proofCourierType: proof.HashmailCourierType,
 	},
 	{
 		name:             "basic send passive asset",
 		test:             testBasicSendPassiveAsset,
-		proofCourierType: proof.ApertureCourier,
+		proofCourierType: proof.HashmailCourierType,
 	},
 	{
 		name: "send multiple coins",
