@@ -225,7 +225,7 @@ func WaitForProofUpdate(t *testing.T, client taprpc.TaprootAssetsClient,
 
 		f := &proof.File{}
 		require.NoError(
-			t, f.Decode(bytes.NewReader(exportResp.RawProof)),
+			t, f.Decode(bytes.NewReader(exportResp.RawProofFile)),
 		)
 		lastProof, err := f.LastProof()
 		require.NoError(t, err)
@@ -255,7 +255,7 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	require.NoError(t, err)
 
 	file, snapshot := verifyProofBlob(
-		t, tapClient, chainClient, a, exportResp.RawProof,
+		t, tapClient, chainClient, a, exportResp.RawProofFile,
 	)
 
 	assetJSON, err := formatProtoJSON(a)
@@ -268,7 +268,7 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		t, CommitmentKey(t, a), snapshot.Asset.AssetCommitmentKey(),
 	)
 
-	return exportResp.RawProof
+	return exportResp.RawProofFile
 }
 
 // assertAssetProofsInvalid makes sure the proofs for the given asset can be
@@ -289,11 +289,11 @@ func assertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,
 	require.NoError(t, err)
 
 	f := &proof.File{}
-	require.NoError(t, f.Decode(bytes.NewReader(exportResp.RawProof)))
+	require.NoError(t, f.Decode(bytes.NewReader(exportResp.RawProofFile)))
 
 	// Also make sure that the RPC can verify the proof as well.
 	verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
-		RawProof: exportResp.RawProof,
+		RawProofFile: exportResp.RawProofFile,
 	})
 	require.NoError(t, err)
 	require.False(t, verifyResp.Valid)
@@ -314,7 +314,7 @@ func verifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 	// Also make sure that the RPC can verify the proof as well.
 	verifyResp, err := tapClient.VerifyProof(ctxt, &taprpc.ProofFile{
-		RawProof: blob,
+		RawProofFile: blob,
 	})
 	require.NoError(t, err)
 	require.True(t, verifyResp.Valid)

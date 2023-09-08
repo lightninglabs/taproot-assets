@@ -75,7 +75,7 @@ func verifyProof(ctx *cli.Context) error {
 	defer cleanUp()
 
 	resp, err := client.VerifyProof(ctxc, &taprpc.ProofFile{
-		RawProof: rawFile,
+		RawProofFile: rawFile,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to verify proof file: %w", err)
@@ -273,7 +273,7 @@ func exportProof(ctx *cli.Context) error {
 	// JSON format.
 	if ctx.String(proofPathName) != "" {
 		filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
-		return writeToFile(filePath, resp.RawProof)
+		return writeToFile(filePath, resp.RawProofFile)
 	}
 
 	printRespJSON(resp)

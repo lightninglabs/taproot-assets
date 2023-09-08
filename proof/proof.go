@@ -1,7 +1,9 @@
 package proof
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
@@ -57,6 +59,48 @@ var (
 	// exported here, so we can use it in the integration tests.
 	RegtestOwnershipProofName = "ownership-proof.hex"
 )
+
+const (
+	// PrefixMagicBytesLength is the length of the magic bytes that are
+	// prefixed to individual proofs or proof files.
+	PrefixMagicBytesLength = 4
+)
+
+var (
+	// PrefixMagicBytes are the magic bytes that are prefixed to an
+	// individual transition or mint proof when encoding it. This is the
+	// ASCII encoding of the string "TAPP" (Taproot Assets Protocol Proof)
+	// in hex.
+	PrefixMagicBytes = [PrefixMagicBytesLength]byte{0x54, 0x41, 0x50, 0x50}
+
+	// FilePrefixMagicBytes are the magic bytes that are prefixed to a proof
+	// file when encoding it. This is the ASCII encoding of the string
+	// "TAPF" (Taproot Assets Protocol File) in hex.
+	FilePrefixMagicBytes = [PrefixMagicBytesLength]byte{
+		0x54, 0x41, 0x50, 0x46,
+	}
+)
+
+// IsSingleProof returns true if the given blob is an encoded individual
+// mint/transition proof.
+func IsSingleProof(blob Blob) bool {
+	if len(blob) < PrefixMagicBytesLength {
+		return false
+	}
+
+	return bytes.Equal(blob[:PrefixMagicBytesLength], PrefixMagicBytes[:])
+}
+
+// IsProofFile returns true if the given blob is an encoded proof file.
+func IsProofFile(blob Blob) bool {
+	if len(blob) < PrefixMagicBytesLength {
+		return false
+	}
+
+	return bytes.Equal(
+		blob[:PrefixMagicBytesLength], FilePrefixMagicBytes[:],
+	)
+}
 
 // UpdateCallback is a callback that is called when proofs are updated because
 // of a re-org.
@@ -212,6 +256,14 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 
 // Encode encodes a Proof into `w`.
 func (p *Proof) Encode(w io.Writer) error {
+	num, err := w.Write(PrefixMagicBytes[:])
+	if err != nil {
+		return err
+	}
+	if num != PrefixMagicBytesLength {
+		return errors.New("failed to write prefix magic bytes")
+	}
+
 	stream, err := tlv.NewStream(p.EncodeRecords()...)
 	if err != nil {
 		return err
@@ -221,6 +273,21 @@ func (p *Proof) Encode(w io.Writer) error {
 
 // Decode decodes a Proof from `r`.
 func (p *Proof) Decode(r io.Reader) error {
+	var prefixMagicBytes [PrefixMagicBytesLength]byte
+	num, err := r.Read(prefixMagicBytes[:])
+	if err != nil {
+		return err
+	}
+	if num != PrefixMagicBytesLength {
+		return errors.New("failed to read prefix magic bytes")
+	}
+
+	if prefixMagicBytes != PrefixMagicBytes {
+		return fmt.Errorf("invalid prefix magic bytes, expected %s, "+
+			"got %s", string(PrefixMagicBytes[:]),
+			string(prefixMagicBytes[:]))
+	}
+
 	stream, err := tlv.NewStream(p.DecodeRecords()...)
 	if err != nil {
 		return err

@@ -504,6 +504,8 @@ message TransferOutput {
 
     uint64 amount = 4;
 
+    // The new individual transition proof (not a full proof file) that proves
+    // the inclusion of the new asset within the new AnchorTx.
     bytes new_proof_blob = 5;
 
     bytes split_commit_root_hash = 6;
@@ -684,7 +686,9 @@ message DecodeAddrRequest {
 }
 
 message ProofFile {
-    bytes raw_proof = 1;
+    // The raw proof file encoded as bytes. Must be a file and not just an
+    // individual mint/transfer proof.
+    bytes raw_proof_file = 1;
 
     string genesis_point = 2;
 }
@@ -693,7 +697,9 @@ message DecodedProof {
     // The index depth of the decoded proof, with 0 being the latest proof.
     uint32 proof_at_depth = 1;
 
-    // The total number of proofs contained in the raw proof.
+    // The total number of proofs contained in the decoded proof file (this will
+    // always be 1 if a single mint/transition proof was given as the raw_proof
+    // instead of a file).
     uint32 number_of_proofs = 2;
 
     // The asset referenced in the proof.
@@ -734,14 +740,21 @@ message DecodedProof {
 
 message VerifyProofResponse {
     bool valid = 1;
+
+    // The decoded last proof in the file if the proof file was valid.
     DecodedProof decoded_proof = 2;
 }
 
 message DecodeProofRequest {
-    // The raw proof in bytes to decode, which may contain multiple proofs.
+    // The raw proof bytes to decode. This can be a full proof file or a single
+    // mint/transition proof. If it is a full proof file, the proof_at_depth
+    // field will be used to determine which individual proof within the file to
+    // decode.
     bytes raw_proof = 1;
 
-    // The index depth of the decoded proof, with 0 being the latest proof.
+    // The index depth of the decoded proof, with 0 being the latest proof. This
+    // is ignored if the raw_proof is a single mint/transition proof and not a
+    // proof file.
     uint32 proof_at_depth = 2;
 
     // An option to include previous witnesses in decoding.

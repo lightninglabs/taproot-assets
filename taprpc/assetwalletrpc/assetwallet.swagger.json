@@ -668,7 +668,8 @@
         },
         "new_proof_blob": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The new individual transition proof (not a full proof file) that proves\nthe inclusion of the new asset within the new AnchorTx."
         },
         "split_commit_root_hash": {
           "type": "string",

@@ -930,7 +930,8 @@ type AssetLeaf struct {
 	// The asset included in the leaf.
 	Asset *taprpc.Asset `protobuf:"bytes,1,opt,name=asset,proto3" json:"asset,omitempty"`
 	// The asset issuance proof, which proves that the asset specified above
-	// was issued properly.
+	// was issued properly. This is always just an individual mint/transfer
+	// proof and never a proof file.
 	IssuanceProof []byte `protobuf:"bytes,2,opt,name=issuance_proof,json=issuanceProof,proto3" json:"issuance_proof,omitempty"`
 }
 
