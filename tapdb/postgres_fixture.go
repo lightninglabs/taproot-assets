@@ -19,7 +19,7 @@ const (
 	testPgUser   = "test"
 	testPgPass   = "test"
 	testPgDBName = "test"
-	PostgresTag  = "11"
+	PostgresTag  = "15"
 )
 
 // TestPgFixture is a test fixture that starts a Postgres 11 instance in a
