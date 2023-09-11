@@ -172,6 +172,15 @@ func (p *ChainPorter) Stop() error {
 // RequestShipment is the main external entry point to the porter. This request
 // a new transfer take place.
 func (p *ChainPorter) RequestShipment(req Parcel) (*OutboundParcel, error) {
+	// Perform validation on the parcel before we continue. This is a good
+	// point to perform validation because it is at the external entry point
+	// to the porter. We will therefore catch invalid parcels before locking
+	// coins or broadcasting.
+	err := req.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate parcel: %w", err)
+	}
+
 	if !fn.SendOrQuit(p.exportReqs, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
