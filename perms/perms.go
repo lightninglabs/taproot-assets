@@ -201,19 +201,26 @@ var (
 		"/universerpc.Universe/QueryAssetRoots": {},
 		"/universerpc.Universe/AssetLeafKeys":   {},
 		"/universerpc.Universe/AssetLeaves":     {},
-		"/universerpc.Universe/QueryProof":      {},
-		"/universerpc.Universe/InsertProof":     {},
 		"/universerpc.Universe/Info":            {},
 	}
 )
 
 // MacaroonWhitelist returns the set of RPC endpoints that don't require
 // macaroon authentication.
-func MacaroonWhitelist(allowPublicStats bool) map[string]struct{} {
+func MacaroonWhitelist(allowPublicUniProofCourier bool,
+	allowPublicStats bool) map[string]struct{} {
+
 	// Make a copy of the default whitelist.
 	whitelist := make(map[string]struct{})
 	for k, v := range defaultMacaroonWhitelist {
 		whitelist[k] = v
+	}
+
+	// Conditionally add public multiverse proof courier RPC endpoints to
+	// the whitelist.
+	if allowPublicUniProofCourier {
+		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
+		whitelist["/universerpc.Universe/InsertProof"] = struct{}{}
 	}
 
 	// Conditionally add public stats RPC endpoints to the whitelist.

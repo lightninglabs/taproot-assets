@@ -109,6 +109,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	tapCfg.TapdDir = cfg.BaseDir
 	tapCfg.DebugLevel = *logLevel
 
+	// Enable universe proof courier RPC endpoints. These endpoints are
+	// also used within some tests for transferring proofs.
+	tapCfg.RpcConf.AllowPublicUniProofCourier = true
+
 	tapCfg.Universe.AcceptRemoteProofs = true
 
 	// Decide which DB backend to use.

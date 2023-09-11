@@ -228,6 +228,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 	// Get RPC endpoints which don't require macaroons.
 	macaroonWhitelist := perms.MacaroonWhitelist(
+		s.cfg.RPCConfig.AllowPublicUniProofCourier,
 		s.cfg.RPCConfig.AllowPublicStats,
 	)
 

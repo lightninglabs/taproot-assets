@@ -45,6 +45,8 @@ type RPCConfig struct {
 
 	MacaroonPath string
 
+	AllowPublicUniProofCourier bool
+
 	AllowPublicStats bool
 
 	LetsEncryptDir string
