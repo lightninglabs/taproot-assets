@@ -209,30 +209,34 @@ FROM asset_info
 JOIN universe_stats
     ON asset_info.asset_id = universe_stats.asset_id
 ORDER BY
-    CASE
-        WHEN sqlc.narg('sort_by') = 'asset_id' THEN asset_info.asset_id
-        ELSE NULL
-    END,
-    CASE
-        WHEN sqlc.narg('sort_by') = 'asset_name' THEN asset_info.asset_name
-        ELSE NULL
-    END,
-    CASE
-        WHEN sqlc.narg('sort_by') = 'asset_type' THEN asset_info.asset_type
-        ELSE NULL
-    END,
-    CASE
-        WHEN sqlc.narg('sort_by') = 'total_syncs' THEN universe_stats.total_asset_syncs
-        ELSE NULL
-        END,
-    CASE
-        WHEN sqlc.narg('sort_by') = 'total_proofs' THEN universe_stats.total_asset_proofs
-        ELSE NULL
-    END,
-    CASE
-        WHEN sqlc.narg('sort_by') = 'genesis_height' THEN asset_info.genesis_height
-        ELSE NULL
-    END
+    CASE WHEN sqlc.narg('sort_by') = 'asset_id' AND sqlc.narg('sort_direction') = 0 THEN
+             asset_info.asset_id END ASC,
+    CASE WHEN sqlc.narg('sort_by') = 'asset_id' AND sqlc.narg('sort_direction') = 1 THEN
+             asset_info.asset_id END DESC,
+    CASE WHEN sqlc.narg('sort_by') = 'asset_name' AND sqlc.narg('sort_direction') = 0 THEN
+             asset_info.asset_name END ASC ,
+    CASE WHEN sqlc.narg('sort_by') = 'asset_name' AND sqlc.narg('sort_direction') = 1 THEN
+             asset_info.asset_name END DESC ,
+    CASE WHEN sqlc.narg('sort_by') = 'asset_type' AND sqlc.narg('sort_direction') = 0 THEN
+             asset_info.asset_type END ASC ,
+    CASE WHEN sqlc.narg('sort_by') = 'asset_type' AND sqlc.narg('sort_direction') = 1 THEN
+             asset_info.asset_type END DESC,
+    CASE WHEN sqlc.narg('sort_by') = 'total_syncs' AND sqlc.narg('sort_direction') = 0 THEN
+             universe_stats.total_asset_syncs END ASC ,
+    CASE WHEN sqlc.narg('sort_by') = 'total_syncs' AND sqlc.narg('sort_direction') = 1 THEN
+             universe_stats.total_asset_syncs END DESC,
+    CASE WHEN sqlc.narg('sort_by') = 'total_proofs' AND sqlc.narg('sort_direction') = 0 THEN
+             universe_stats.total_asset_proofs END ASC ,
+    CASE WHEN sqlc.narg('sort_by') = 'total_proofs' AND sqlc.narg('sort_direction') = 1 THEN
+             universe_stats.total_asset_proofs END DESC,
+    CASE WHEN sqlc.narg('sort_by') = 'genesis_height' AND sqlc.narg('sort_direction') = 0 THEN
+             asset_info.genesis_height END ASC ,
+    CASE WHEN sqlc.narg('sort_by') = 'genesis_height' AND sqlc.narg('sort_direction') = 1 THEN
+             asset_info.genesis_height END DESC,
+    CASE WHEN sqlc.narg('sort_by') = 'total_supply' AND sqlc.narg('sort_direction') = 0 THEN
+             asset_info.supply END ASC ,
+    CASE WHEN sqlc.narg('sort_by') = 'total_supply' AND sqlc.narg('sort_direction') = 1 THEN
+             asset_info.supply END DESC
 LIMIT @num_limit OFFSET @num_offset;
 
 -- name: QueryAssetStatsPerDaySqlite :many

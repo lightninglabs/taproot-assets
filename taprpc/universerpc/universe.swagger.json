@@ -901,7 +901,8 @@
               "SORT_BY_ASSET_TYPE",
               "SORT_BY_TOTAL_SYNCS",
               "SORT_BY_TOTAL_PROOFS",
-              "SORT_BY_GENESIS_HEIGHT"
+              "SORT_BY_GENESIS_HEIGHT",
+              "SORT_BY_TOTAL_SUPPLY"
             ],
             "default": "SORT_BY_NONE"
           },
@@ -918,6 +919,17 @@
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_ASC",
+              "SORT_DIRECTION_DESC"
+            ],
+            "default": "SORT_DIRECTION_ASC"
           }
         ],
         "tags": [
@@ -1377,7 +1389,8 @@
         "SORT_BY_ASSET_TYPE",
         "SORT_BY_TOTAL_SYNCS",
         "SORT_BY_TOTAL_PROOFS",
-        "SORT_BY_GENESIS_HEIGHT"
+        "SORT_BY_GENESIS_HEIGHT",
+        "SORT_BY_TOTAL_SUPPLY"
       ],
       "default": "SORT_BY_NONE"
     },
@@ -1564,6 +1577,14 @@
           "description": "The asset root for the given asset ID or group key."
         }
       }
+    },
+    "universerpcSortDirection": {
+      "type": "string",
+      "enum": [
+        "SORT_DIRECTION_ASC",
+        "SORT_DIRECTION_DESC"
+      ],
+      "default": "SORT_DIRECTION_ASC"
     },
     "universerpcStatsResponse": {
       "type": "object",

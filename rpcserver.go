@@ -3319,9 +3319,10 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 			AssetIDFilter: fn.ToArray[asset.ID](
 				req.AssetIdFilter,
 			),
-			SortBy: universe.SyncStatsSort(req.SortBy),
-			Offset: int(req.Offset),
-			Limit:  int(req.Limit),
+			SortBy:        universe.SyncStatsSort(req.SortBy),
+			SortDirection: universe.SortDirection(req.Direction),
+			Offset:        int(req.Offset),
+			Limit:         int(req.Limit),
 		},
 	)
 	if err != nil {
