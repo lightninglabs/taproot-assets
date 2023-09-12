@@ -73,12 +73,6 @@ var (
 	)
 )
 
-const (
-	// TapScriptVersion is the highest version of Taproot Assets script
-	// supported.
-	TapScriptVersion uint8 = 0
-)
-
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
 // asset, pubkey, and amount.
 type Tap struct {
