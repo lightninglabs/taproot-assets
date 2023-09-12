@@ -107,6 +107,9 @@ type Parcel interface {
 
 	// kit returns the parcel kit used for delivery.
 	kit() *parcelKit
+
+	// Validate validates the parcel.
+	Validate() error
 }
 
 // parcelKit is a struct that contains the channels that are used to deliver
@@ -160,6 +163,28 @@ func (p *AddressParcel) kit() *parcelKit {
 	return p.parcelKit
 }
 
+// Validate validates the parcel.
+func (p *AddressParcel) Validate() error {
+	// We need at least one address to send to in an address parcel.
+	if len(p.destAddrs) < 1 {
+		return fmt.Errorf("at least one Tap address must be " +
+			"specified in address parcel")
+	}
+
+	for idx := range p.destAddrs {
+		tapAddr := p.destAddrs[idx]
+
+		// Validate proof courier addresses.
+		_, err := proof.ParseCourierAddrUrl(tapAddr.ProofCourierAddr)
+		if err != nil {
+			return fmt.Errorf("invalid proof courier address: %w",
+				err)
+		}
+	}
+
+	return nil
+}
+
 // PendingParcel is a parcel that has not yet completed delivery.
 type PendingParcel struct {
 	*parcelKit
@@ -192,6 +217,12 @@ func (p *PendingParcel) pkg() *sendPackage {
 // kit returns the parcel kit used for delivery.
 func (p *PendingParcel) kit() *parcelKit {
 	return p.parcelKit
+}
+
+// Validate validates the parcel.
+func (p *PendingParcel) Validate() error {
+	// A pending parcel should have already been validated.
+	return nil
 }
 
 // PreSignedParcel is a request to issue an asset transfer of a pre-signed
@@ -244,6 +275,12 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 // kit returns the parcel kit used for delivery.
 func (p *PreSignedParcel) kit() *parcelKit {
 	return p.parcelKit
+}
+
+// Validate validates the parcel.
+func (p *PreSignedParcel) Validate() error {
+	// TODO(ffranr): Add validation where appropriate.
+	return nil
 }
 
 // sendPackage houses the information we need to complete a package transfer.

@@ -97,8 +97,8 @@ func ParseCourierAddrUrl(addr url.URL) (CourierAddr, error) {
 		return NewHashMailCourierAddr(addr)
 	}
 
-	return nil, fmt.Errorf("unknown courier address protocol: %v",
-		addr.Scheme)
+	return nil, fmt.Errorf("unknown courier address protocol "+
+		"(consider updating tapd): %v", addr.Scheme)
 }
 
 // HashMailCourierAddr is a hashmail protocol specific implementation of the
