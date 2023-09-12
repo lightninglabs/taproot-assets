@@ -171,8 +171,8 @@ func mintAssetUnconfirmed(t *harnessTest, tapd *tapdHarness,
 	for idx, assetRequest := range assetRequests {
 		assetResp, err := tapd.MintAsset(ctxt, assetRequest)
 		require.NoError(t.t, err)
-		require.NotEmpty(t.t, assetResp.Batch)
-		require.Len(t.t, assetResp.Batch.Assets, idx+1)
+		require.NotEmpty(t.t, assetResp.PendingBatch)
+		require.Len(t.t, assetResp.PendingBatch.Assets, idx+1)
 	}
 
 	// Instruct the daemon to finalize the batch.
@@ -552,9 +552,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	// call should fail.
 	collideResp, err := t.tapd.MintAsset(ctxt, &assetCollide)
 	require.NoError(t.t, err)
-	require.NotNil(t.t, collideResp.Batch)
-	require.NotNil(t.t, collideResp.Batch.BatchKey)
-	require.Len(t.t, collideResp.Batch.Assets, 1)
+	require.NotNil(t.t, collideResp.PendingBatch)
+	require.NotNil(t.t, collideResp.PendingBatch.BatchKey)
+	require.Len(t.t, collideResp.PendingBatch.Assets, 1)
 
 	_, batchNameErr := t.tapd.MintAsset(ctxt, &assetMint)
 	require.ErrorContains(t.t, batchNameErr, "already in batch")
@@ -587,7 +587,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Equal(
-		t.t, cancelBatchKey.BatchKey, collideResp.Batch.BatchKey,
+		t.t, cancelBatchKey.BatchKey, collideResp.PendingBatch.BatchKey,
 	)
 
 	// The only change in the returned batch after cancellation should be
@@ -595,7 +595,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	cancelBatch, err := t.tapd.ListBatches(
 		ctxt, &mintrpc.ListBatchRequest{
 			Filter: &mintrpc.ListBatchRequest_BatchKey{
-				BatchKey: collideResp.Batch.BatchKey,
+				BatchKey: collideResp.PendingBatch.BatchKey,
 			},
 		})
 	require.NoError(t.t, err)

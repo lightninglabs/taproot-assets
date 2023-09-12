@@ -9,7 +9,10 @@ option go_package = "github.com/lightninglabs/taproot-assets/taprpc/mintrpc";
 service Mint {
     /* tapcli: `assets mint`
     MintAsset will attempt to mint the set of assets (async by default to
-    ensure proper batching) specified in the request.
+    ensure proper batching) specified in the request. The pending batch is
+    returned that shows the other pending assets that are part of the next
+    batch. This call will block until the operation succeeds (asset is staged
+    in the batch) or fails.
     */
     rpc MintAsset (MintAssetRequest) returns (MintAssetResponse);
 
@@ -82,8 +85,8 @@ message MintAssetRequest {
 }
 
 message MintAssetResponse {
-    // The batch the asset was added to.
-    MintingBatch batch = 1;
+    // The pending batch the asset was added to.
+    MintingBatch pending_batch = 1;
 }
 
 message MintingBatch {

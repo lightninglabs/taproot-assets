@@ -20,7 +20,10 @@ const _ = grpc.SupportPackageIsVersion7
 type MintClient interface {
 	// tapcli: `assets mint`
 	// MintAsset will attempt to mint the set of assets (async by default to
-	// ensure proper batching) specified in the request.
+	// ensure proper batching) specified in the request. The pending batch is
+	// returned that shows the other pending assets that are part of the next
+	// batch. This call will block until the operation succeeds (asset is staged
+	// in the batch) or fails.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
 	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
@@ -84,7 +87,10 @@ func (c *mintClient) ListBatches(ctx context.Context, in *ListBatchRequest, opts
 type MintServer interface {
 	// tapcli: `assets mint`
 	// MintAsset will attempt to mint the set of assets (async by default to
-	// ensure proper batching) specified in the request.
+	// ensure proper batching) specified in the request. The pending batch is
+	// returned that shows the other pending assets that are part of the next
+	// batch. This call will block until the operation succeeds (asset is staged
+	// in the batch) or fails.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
 	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.

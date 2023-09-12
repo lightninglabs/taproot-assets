@@ -18,7 +18,7 @@
   "paths": {
     "/v1/taproot-assets/assets": {
       "post": {
-        "summary": "tapcli: `assets mint`\nMintAsset will attempt to mint the set of assets (async by default to\nensure proper batching) specified in the request.",
+        "summary": "tapcli: `assets mint`\nMintAsset will attempt to mint the set of assets (async by default to\nensure proper batching) specified in the request. The pending batch is\nreturned that shows the other pending assets that are part of the next\nbatch. This call will block until the operation succeeds (asset is staged\nin the batch) or fails.",
         "operationId": "Mint_MintAsset",
         "responses": {
           "200": {
@@ -265,9 +265,9 @@
     "mintrpcMintAssetResponse": {
       "type": "object",
       "properties": {
-        "batch": {
+        "pending_batch": {
           "$ref": "#/definitions/mintrpcMintingBatch",
-          "description": "The batch the asset was added to."
+          "description": "The pending batch the asset was added to."
         }
       }
     },
