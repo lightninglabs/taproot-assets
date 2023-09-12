@@ -63,8 +63,8 @@ type MintingBatch struct {
 	// reveal for that asset, if it has one.
 	AssetMetas AssetMetas
 
-	// mintingPubKey is the top-level Taproot output key that will be
-	// used to commit to the Taproot Asset commitment above.
+	// mintingPubKey is the top-level Taproot output key that will be used
+	// to commit to the Taproot Asset commitment above.
 	mintingPubKey *btcec.PublicKey
 
 	// taprootAssetScriptRoot is the root hash of the Taproot Asset

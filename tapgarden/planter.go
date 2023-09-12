@@ -515,8 +515,8 @@ func (c *ChainPlanter) gardener() {
 			// TODO(roasbeef): extend the ticker by a certain
 			// portion?
 			req.updates <- SeedlingUpdate{
-				BatchKey: c.pendingBatch.BatchKey.PubKey,
-				NewState: MintingStateSeed,
+				PendingBatch: c.pendingBatch,
+				NewState:     MintingStateSeed,
 			}
 
 		// A caretaker has finished processing their batch to full

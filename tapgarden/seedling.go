@@ -3,7 +3,6 @@ package tapgarden
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
@@ -54,10 +53,9 @@ type SeedlingUpdate struct {
 	// NewState is the new state a seedling has transitioned to.
 	NewState MintingState
 
-	// BatchKey is the key for the batch that the seedling is a part of.
-	// This is only populated once the seedling has reached the
-	// MintingStateSeed state.
-	BatchKey *btcec.PublicKey
+	// PendingBatch is the current pending batch that the seedling has been
+	// added to.
+	PendingBatch *MintingBatch
 
 	// Error if non-nil, denotes that an terminal error state has been
 	// reached.

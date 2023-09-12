@@ -379,31 +379,15 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 				update.Error)
 		}
 
-		batches, err := r.cfg.AssetMinter.ListBatches(update.BatchKey)
-		if err != nil {
-			return nil, fmt.Errorf("unable to list batches: %w",
-				err)
-		}
-
-		rpcBatches, err := fn.MapErr(
-			batches,
-			func(b *tapgarden.MintingBatch) (*mintrpc.MintingBatch,
-				error) {
-
-				return marshalMintingBatch(b, req.ShortResponse)
-			},
+		rpcBatch, err := marshalMintingBatch(
+			update.PendingBatch, req.ShortResponse,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(rpcBatches) != 1 {
-			return nil, fmt.Errorf("expected one batch, got %d",
-				len(rpcBatches))
-		}
-
 		return &mintrpc.MintAssetResponse{
-			Batch: rpcBatches[0],
+			PendingBatch: rpcBatch,
 		}, nil
 	}
 }

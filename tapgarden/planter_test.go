@@ -291,18 +291,6 @@ func (t *mintingTestHarness) assertNewBatchFrozen(
 	return newBatches[0]
 }
 
-func (t *mintingTestHarness) assertNoBatchCreated(
-	existingBatches []*tapgarden.MintingBatch) {
-
-	err := wait.Invariant(func() bool {
-		currentBatches, err := t.planter.ListBatches(nil)
-		require.NoError(t, err)
-
-		return len(currentBatches) == len(existingBatches)
-	}, time.Second)
-	require.NoError(t, err)
-}
-
 func (t *mintingTestHarness) cancelMintingBatch(noBatch bool) *btcec.PublicKey {
 	t.Helper()
 
