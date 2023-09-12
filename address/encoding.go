@@ -72,3 +72,22 @@ func urlDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		val, "*url.URL", l, l,
 	)
 }
+
+func VersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*Version); ok {
+		return tlv.EUint8T(w, uint8(*t), buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "Version")
+}
+
+func VersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*Version); ok {
+		var t uint8
+		if err := tlv.DUint8(r, &t, buf, l); err != nil {
+			return err
+		}
+		*typ = Version(t)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "Version", l, 1)
+}

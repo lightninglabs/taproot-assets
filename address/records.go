@@ -37,6 +37,9 @@ const (
 
 	// addrProofCourierType is the TLV type of the proof courier address.
 	addrProofCourierAddrType addressTLVType = 10
+
+	// addrVersionType is the TLV type of the address's version.
+	addrVersionType addressTLVType = 12
 )
 
 func newAddressVersionRecord(version *asset.Version) tlv.Record {
@@ -107,5 +110,11 @@ func newProofCourierAddrRecord(addr *url.URL) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		addrProofCourierAddrType, addr, recordSize,
 		urlEncoder, urlDecoder,
+	)
+}
+
+func newVersionRecord(version *Version) tlv.Record {
+	return tlv.MakeStaticRecord(
+		addrVersionType, version, 1, VersionEncoder, VersionDecoder,
 	)
 }

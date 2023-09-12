@@ -73,9 +73,20 @@ var (
 	)
 )
 
+// Version denotes the version of the Tap address.
+type Version uint8
+
+const (
+	// V0 is the initial Tap address version.
+	V0 Version = 0
+)
+
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
 // asset, pubkey, and amount.
 type Tap struct {
+	// Version is the version of the address.
+	Version Version
+
 	// ChainParams is the reference to the chain parameters that were used
 	// to encode the Taproot Asset address.
 	ChainParams *ChainParams
@@ -165,6 +176,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	}
 
 	payload := Tap{
+		Version:          V0,
 		ChainParams:      net,
 		AssetVersion:     asset.V0,
 		AssetID:          genesis.ID(),
@@ -318,6 +330,7 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	records = append(
 		records, newProofCourierAddrRecord(&a.ProofCourierAddr),
 	)
+	records = append(records, newVersionRecord(&a.Version))
 
 	return records
 }
@@ -334,6 +347,7 @@ func (a *Tap) DecodeRecords() []tlv.Record {
 		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
 		newProofCourierAddrRecord(&a.ProofCourierAddr),
+		newVersionRecord(&a.Version),
 	}
 }
 
