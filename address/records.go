@@ -13,8 +13,8 @@ import (
 type addressTLVType = tlv.Type
 
 const (
-	// addrVersionType is the TLV type of the addr version.
-	addrVersionType addressTLVType = 0
+	// addrAssetVersionType is the TLV type of the address's asset version.
+	addrAssetVersionType addressTLVType = 0
 
 	// addrAssetIDType is the TLV type of the asset ID.
 	addrAssetIDType addressTLVType = 2
@@ -41,7 +41,7 @@ const (
 
 func newAddressVersionRecord(version *asset.Version) tlv.Record {
 	return tlv.MakeStaticRecord(
-		addrVersionType, version, 1, asset.VersionEncoder,
+		addrAssetVersionType, version, 1, asset.VersionEncoder,
 		asset.VersionDecoder,
 	)
 }
