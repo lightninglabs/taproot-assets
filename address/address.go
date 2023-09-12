@@ -71,6 +71,10 @@ var (
 	ErrScriptKeyNotFound = errors.New(
 		"script key not found",
 	)
+
+	// ErrUnknownVersion is returned when encountering an address with an
+	// unrecognised version number.
+	ErrUnknownVersion = errors.New("unknown address version number")
 )
 
 // Version denotes the version of the Tap address.
@@ -79,6 +83,9 @@ type Version uint8
 const (
 	// V0 is the initial Tap address version.
 	V0 Version = 0
+
+	// LatestVersion is the latest supported Tap address version.
+	latestVersion = V0
 )
 
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
@@ -450,6 +457,11 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	}
 
 	a.ChainParams = net
+
+	// Ensure that the address version is known.
+	if a.Version > latestVersion {
+		return nil, ErrUnknownVersion
+	}
 
 	return &a, nil
 }
