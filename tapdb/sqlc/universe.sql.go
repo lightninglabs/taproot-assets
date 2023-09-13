@@ -506,7 +506,7 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 
 const queryUniverseLeaves = `-- name: QueryUniverseLeaves :many
 SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value genesis_proof, 
-       nodes.sum sum_amt
+       nodes.sum sum_amt, gen.asset_id
 FROM universe_leaves leaves
 JOIN mssmt_nodes nodes
     ON leaves.leaf_node_key = nodes.key AND
@@ -533,6 +533,7 @@ type QueryUniverseLeavesRow struct {
 	GenAssetID     int32
 	GenesisProof   []byte
 	SumAmt         int64
+	AssetID        []byte
 }
 
 func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error) {
@@ -549,6 +550,7 @@ func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeav
 			&i.GenAssetID,
 			&i.GenesisProof,
 			&i.SumAmt,
+			&i.AssetID,
 		); err != nil {
 			return nil, err
 		}

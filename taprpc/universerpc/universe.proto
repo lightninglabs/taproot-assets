@@ -171,6 +171,15 @@ message UniverseRoot {
 
     // The name of the asset.
     string asset_name = 4;
+
+    // A map of hex encoded asset IDs to the number of units minted for that
+    // asset. This only contains more than one entry for grouped assets and in
+    // that case represents the whole list of assets currently known to exist
+    // within the group. For single (non-grouped) assets, this is equal to the
+    // asset ID above and the sum in the mssmt_root. A hex encoded string is
+    // used as the map key because gRPC does not support using raw bytes for a
+    // map key.
+    map<string, uint64> amounts_by_asset_id = 5;
 }
 
 message AssetRootResponse {

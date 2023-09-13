@@ -141,41 +141,34 @@ func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
 }
 
 // WaitForBatchState polls until the planter has reached the desired state with
-// the current batch.
+// the given batch.
 func WaitForBatchState(t *testing.T, ctx context.Context,
-	client mintrpc.MintClient, timeout time.Duration,
-	targetState mintrpc.BatchState) bool {
+	client mintrpc.MintClient, timeout time.Duration, batchKey []byte,
+	targetState mintrpc.BatchState) {
 
-	breakTimeout := time.After(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	isTargetState := func(b *mintrpc.MintingBatch) bool {
-		return b.State == targetState
-	}
-
-	batchCount := func() int {
+	err := wait.NoError(func() error {
 		batchResp, err := client.ListBatches(
-			ctx, &mintrpc.ListBatchRequest{},
+			ctx, &mintrpc.ListBatchRequest{
+				Filter: &mintrpc.ListBatchRequest_BatchKey{
+					BatchKey: batchKey,
+				},
+			},
 		)
 		require.NoError(t, err)
 
-		return fn.Count(batchResp.Batches, isTargetState)
-	}
-
-	initialBatchCount := batchCount()
-
-	for {
-		select {
-		case <-breakTimeout:
-			return false
-		case <-ticker.C:
-			currentBatchCount := batchCount()
-			if currentBatchCount-initialBatchCount == 1 {
-				return true
-			}
+		if len(batchResp.Batches) != 1 {
+			return fmt.Errorf("expected one batch, got %d",
+				len(batchResp.Batches))
 		}
-	}
+
+		if batchResp.Batches[0].State != targetState {
+			return fmt.Errorf("expected batch state %v, got %v",
+				targetState, batchResp.Batches[0].State)
+		}
+
+		return nil
+	}, timeout)
+	require.NoError(t, err)
 }
 
 // CommitmentKey returns the asset's commitment key given an RPC asset

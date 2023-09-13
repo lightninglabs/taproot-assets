@@ -9,7 +9,10 @@ option go_package = "github.com/lightninglabs/taproot-assets/taprpc/mintrpc";
 service Mint {
     /* tapcli: `assets mint`
     MintAsset will attempt to mint the set of assets (async by default to
-    ensure proper batching) specified in the request.
+    ensure proper batching) specified in the request. The pending batch is
+    returned that shows the other pending assets that are part of the next
+    batch. This call will block until the operation succeeds (asset is staged
+    in the batch) or fails.
     */
     rpc MintAsset (MintAssetRequest) returns (MintAssetResponse);
 
@@ -72,19 +75,26 @@ message MintAssetRequest {
     future asset issuance.
     */
     bool enable_emission = 2;
+
+    /*
+    If true, then the assets currently in the batch won't be returned in the
+    response. This is mainly to avoid a lot of data being transmitted and
+    possibly printed on the command line in the case of a very large batch.
+    */
+    bool short_response = 3;
 }
 
 message MintAssetResponse {
+    // The pending batch the asset was added to.
+    MintingBatch pending_batch = 1;
+}
+
+message MintingBatch {
     /*
     A public key serialized in compressed format that can be used to uniquely
     identify a pending minting batch. Responses that share the same key will be
     batched into the same minting transaction.
     */
-    bytes batch_key = 1;
-}
-
-message MintingBatch {
-    // The internal public key of the batch.
     bytes batch_key = 1;
 
     // The assets that are part of the batch.
@@ -107,11 +117,17 @@ enum BatchState {
 }
 
 message FinalizeBatchRequest {
+    /*
+    If true, then the assets currently in the batch won't be returned in the
+    response. This is mainly to avoid a lot of data being transmitted and
+    possibly printed on the command line in the case of a very large batch.
+    */
+    bool short_response = 1;
 }
 
 message FinalizeBatchResponse {
-    // The internal public key of the batch.
-    bytes batch_key = 1;
+    // The finalized batch.
+    MintingBatch batch = 1;
 }
 
 message CancelBatchRequest {

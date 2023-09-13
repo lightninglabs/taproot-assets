@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -89,34 +88,56 @@ func (b *BaseMultiverse) RootNodes(
 
 		for _, dbRoot := range dbRoots {
 			var (
-				assetID  asset.ID
-				groupKey *btcec.PublicKey
+				id            universe.Identifier
+				groupedAssets map[asset.ID]uint64
 			)
 
 			if dbRoot.AssetID != nil {
-				copy(assetID[:], dbRoot.AssetID)
+				copy(id.AssetID[:], dbRoot.AssetID)
 			}
 
 			if dbRoot.GroupKey != nil {
-				groupKey, err = schnorr.ParsePubKey(
+				id.GroupKey, err = schnorr.ParsePubKey(
 					dbRoot.GroupKey,
 				)
 				if err != nil {
 					return err
+				}
+
+				groupLeaves, err := db.QueryUniverseLeaves(
+					ctx, UniverseLeafQuery{
+						Namespace: id.String(),
+					},
+				)
+				if err != nil {
+					return err
+				}
+
+				groupedAssets = make(
+					map[asset.ID]uint64, len(groupLeaves),
+				)
+				for _, leaf := range groupLeaves {
+					var id asset.ID
+					copy(id[:], leaf.AssetID)
+					groupedAssets[id] = uint64(leaf.SumAmt)
+				}
+			} else {
+				// For non-grouped assets, there's exactly one
+				// member, the asset itself.
+				groupedAssets = map[asset.ID]uint64{
+					id.AssetID: uint64(dbRoot.RootSum),
 				}
 			}
 
 			var nodeHash mssmt.NodeHash
 			copy(nodeHash[:], dbRoot.RootHash)
 			uniRoot := universe.BaseRoot{
-				ID: universe.Identifier{
-					AssetID:  assetID,
-					GroupKey: groupKey,
-				},
+				ID: id,
 				Node: mssmt.NewComputedBranch(
 					nodeHash, uint64(dbRoot.RootSum),
 				),
-				AssetName: dbRoot.AssetName,
+				AssetName:     dbRoot.AssetName,
+				GroupedAssets: groupedAssets,
 			}
 
 			uniRoots = append(uniRoots, uniRoot)
