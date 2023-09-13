@@ -3,7 +3,6 @@ package universerpc
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taproot-assets/asset"
 )
 
 // MarshalOutpoint marshals a wire.OutPoint into an RPC ready Outpoint.
@@ -34,11 +33,21 @@ func MarshalAssetKey(outPoint wire.OutPoint,
 }
 
 // MarshalUniverseID returns an RPC ready universe ID.
-func MarshalUniverseID(assetID asset.ID) *ID {
-	// TODO(ffranr): Determine whether to use asset ID or group key.
+func MarshalUniverseID(assetIDBytes []byte, groupKeyBytes []byte) *ID {
+	// We will marshal either a group key ID or an asset ID. If group key
+	// bytes are given, we marshal a group key ID, otherwise we marshal an
+	// asset ID.
+	if groupKeyBytes != nil {
+		return &ID{
+			Id: &ID_GroupKey{
+				GroupKey: groupKeyBytes,
+			},
+		}
+	}
+
 	return &ID{
 		Id: &ID_AssetId{
-			AssetId: assetID[:],
+			AssetId: assetIDBytes,
 		},
 	}
 }
