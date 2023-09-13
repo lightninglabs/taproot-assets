@@ -992,6 +992,24 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			LeafKey: assetKey,
 		}
 
+		// Before attempting to deliver the proof, log that an attempted
+		// delivery is about to occur.
+		var groupPubKey *btcec.PublicKey
+		if proofAsset.GroupKey != nil {
+			groupPubKey = &proofAsset.GroupKey.GroupPubKey
+		}
+		loc := Locator{
+			AssetID:   &assetID,
+			GroupKey:  groupPubKey,
+			ScriptKey: *proofAsset.ScriptKey.PubKey,
+			OutPoint:  &outPoint,
+		}
+		err = c.deliveryLog.StoreProofDeliveryAttempt(ctx, loc)
+		if err != nil {
+			return fmt.Errorf("unable to log proof delivery "+
+				"attempt: %w", err)
+		}
+
 		// Submit proof to courier.
 		_, err = c.client.InsertProof(ctx, &unirpc.AssetProof{
 			Key:       &universeKey,
