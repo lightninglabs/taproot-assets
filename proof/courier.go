@@ -1029,13 +1029,6 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 	originLocator Locator) (*AnnotatedProof, error) {
 
-	// Sleep for a bit to give the sender sufficient time to transfer the
-	// proof to the proof courier service.
-	//
-	// TODO(ffranr): Replace this with the backoff procedure as found in the
-	// hashmail courier.
-	time.Sleep(5 * time.Second)
-
 	// In order to reconstruct the proof file we must collect all the
 	// transition proofs that make up the main chain of proofs. That is
 	// accomplished by iterating backwards through the main chain of proofs
