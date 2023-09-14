@@ -723,19 +723,6 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 	}
 }
 
-// GenesisSigner is used to sign the assetID using the group key public key
-// for a given asset.
-type GenesisSigner interface {
-	// SignGenesis tweaks the public key identified by the passed key
-	// descriptor with the the first passed Genesis description, and signs
-	// the second passed Genesis description with the tweaked public key.
-	// For minting the first asset in a group, only one Genesis object is
-	// needed, since we tweak with and sign over the same Genesis object.
-	// The final tweaked public key and the signature are returned.
-	SignGenesis(keychain.KeyDescriptor, Genesis,
-		*Genesis) (*btcec.PublicKey, *schnorr.Signature, error)
-}
-
 // RawKeyGenesisSigner implements the GenesisSigner interface using a raw
 // private key.
 type RawKeyGenesisSigner struct {
@@ -756,47 +743,61 @@ func NewRawKeyGenesisSigner(priv *btcec.PrivateKey) *RawKeyGenesisSigner {
 // For minting the first asset in a group, only one Genesis object is
 // needed, since we tweak with and sign over the same Genesis object.
 // The final tweaked public key and the signature are returned.
-func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*btcec.PublicKey,
-	*schnorr.Signature, error) {
+func (r *RawKeyGenesisSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
+	error) {
 
-	if !keyDesc.PubKey.IsEqual(r.privKey.PubKey()) {
-		return nil, nil, fmt.Errorf("cannot sign with key")
+	signerPubKey := r.privKey.PubKey()
+
+	if !signDesc.KeyDesc.PubKey.IsEqual(signerPubKey) {
+		return nil, fmt.Errorf("cannot sign with key")
 	}
 
-	// TODO(jhb): Update to two-phase tweak
-	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		*r.privKey, initialGen.GroupKeyTweak(),
-	)
-
-	// If the current genesis is not set, we are minting the first asset in
-	// the group. This means that we use the same Genesis object for both
-	// the key tweak and to create the asset ID we sign. If the current
-	// genesis is set, the asset type of the new asset must match the type
-	// of the first asset in the group.
-	id := initialGen.ID()
-	if currentGen != nil {
-		if initialGen.Type != currentGen.Type {
-			return nil, nil, fmt.Errorf("asset group type mismatch")
-		}
-
-		id = currentGen.ID()
-	}
-
-	// TODO(roasbeef): this actually needs to sign the digest of the asset
-	// itself
-	idHash := sha256.Sum256(id[:])
-	sig, err := schnorr.Sign(tweakedPrivKey, idHash[:])
+	sig, err := SignVirtualTx(r.privKey, signDesc, virtualTx, prevOut)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return tweakedPrivKey.PubKey(), sig, nil
+	return sig, nil
 }
 
 // A compile-time assertion to ensure RawKeyGenesisSigner meets the
 // GenesisSigner interface.
 var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
+
+type RawGroupTxBuilder struct{}
+
+func (m *RawGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
+	*wire.TxOut, error) {
+
+	// First, we check that the passed asset is a genesis grouped asset
+	// that has no group witness.
+	if !newAsset.NeedsGenesisWitnessForGroup() {
+		return nil, nil, fmt.Errorf("asset is not a genesis grouped" +
+			"asset")
+	}
+
+	prevOut, err := inputGenesisAssetPrevOut(*newAsset)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Now, create the virtual transaction that represents this asset
+	// minting.
+	virtualTx, err := virtualGenesisTx(newAsset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+	populatedVirtualTx := virtualGenesisTxWithInput(
+		virtualTx, newAsset, 0, nil,
+	)
+
+	return populatedVirtualTx, prevOut, nil
+}
+
+// A compile time assertion to ensure that RawGroupTxBuilder meets the
+// GenesisTxBuilder interface.
+var _ GenesisTxBuilder = (*RawGroupTxBuilder)(nil)
 
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.
