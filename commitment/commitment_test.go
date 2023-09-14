@@ -63,22 +63,35 @@ func TestNewAssetCommitment(t *testing.T) {
 
 	genesis1 := asset.RandGenesis(t, asset.Normal)
 	genesis1Collectible := asset.RandGenesis(t, asset.Collectible)
+	genesis1CollectibleScriptKey := asset.RandScriptKey(t)
+	genesis1CollectibleProtoAsset := asset.AssetNoErr(
+		t, genesis1Collectible, 1, 0, 0, genesis1CollectibleScriptKey,
+		nil,
+	)
 	genesis2 := asset.RandGenesis(t, asset.Normal)
-	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(t, genesis1)
-	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	genesis2ProtoAsset := asset.RandAssetWithValues(
+		t, genesis2, nil, asset.RandScriptKey(t),
+	)
 	group1Anchor := randAsset(t, genesis1, nil)
+	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(
+		t, genesis1, group1Anchor,
+	)
+	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
 	group1Anchor.GroupKey = groupKey1
-	groupKey1Collectible := asset.RandGroupKey(t, genesis1Collectible)
-	groupKey2 := asset.RandGroupKey(t, genesis2)
+	groupKey1Collectible := asset.RandGroupKey(
+		t, genesis1Collectible, genesis1CollectibleProtoAsset,
+	)
+	groupKey2 := asset.RandGroupKey(t, genesis2, genesis2ProtoAsset)
 	copyOfGroupKey1Collectible := &asset.GroupKey{
 		RawKey:      groupKey1Collectible.RawKey,
 		GroupPubKey: groupKey1Collectible.GroupPubKey,
 		Witness:     groupKey1Collectible.Witness,
 	}
 	group1Reissued := randAsset(t, genesis2, nil)
+	genTxBuilder := asset.RawGroupTxBuilder{}
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
-		asset.NewRawKeyGenesisSigner(group1Priv),
-		test.PubToKeyDesc(group1Pub), genesis1, &genesis2,
+		asset.NewRawKeyGenesisSigner(group1Priv), &genTxBuilder,
+		test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
 	)
 	require.NoError(t, err)
 	group1Reissued.GroupKey = group1ReissuedGroupKey
@@ -329,8 +342,28 @@ func TestMintTapCommitment(t *testing.T) {
 	for _, testCase := range testCases {
 		success := t.Run(testCase.name, func(t *testing.T) {
 			details := testCase.f()
-			groupKey := asset.RandGroupKey(t, testCase.g)
-			_, _, err := Mint(testCase.g, groupKey, details)
+			// Test cases with a nil amount should fail in the call
+			// to Mint() below, not on asset creation. Use the safe
+			// amount of 1 here, and pass the original amount to
+			// Min() below.
+			var amt uint64
+			if details.Amount == nil {
+				amt = 1
+			} else {
+				amt = *details.Amount
+			}
+
+			// TOO(jhb): fix nil amount issues, use this err
+			protoAsset, err := asset.New(
+				testCase.g, amt, details.LockTime,
+				details.RelativeLockTime,
+				asset.NewScriptKeyBip86(details.ScriptKey), nil,
+			)
+
+			groupKey := asset.RandGroupKey(
+				t, testCase.g, protoAsset,
+			)
+			_, _, err = Mint(testCase.g, groupKey, details)
 			if testCase.valid {
 				require.NoError(t, err)
 			} else {
@@ -352,14 +385,25 @@ func TestMintAndDeriveTapCommitment(t *testing.T) {
 
 	const assetType = asset.Normal
 	const numAssets = 5
+	var genesis1protoasset *asset.Asset
+	var anchorDetails *AssetDetails
 
 	genesis1 := asset.RandGenesis(t, assetType)
-	groupKey1 := asset.RandGroupKey(t, genesis1)
 	assetDetails := make([]*AssetDetails, 0, numAssets)
 	for i := 0; i < numAssets; i++ {
 		details := randAssetDetails(t, assetType)
 		assetDetails = append(assetDetails, details)
+		if i == 0 {
+			anchorDetails = details
+		}
 	}
+
+	genesis1protoasset = asset.AssetNoErr(
+		t, genesis1, *anchorDetails.Amount, anchorDetails.LockTime,
+		anchorDetails.RelativeLockTime,
+		asset.NewScriptKeyBip86(anchorDetails.ScriptKey), nil,
+	)
+	groupKey1 := asset.RandGroupKey(t, genesis1, genesis1protoasset)
 
 	// Mint a new Taproot Asset commitment with the included assets.
 	commitment, assets, err := Mint(genesis1, groupKey1, assetDetails...)
@@ -422,7 +466,12 @@ func TestMintAndDeriveTapCommitment(t *testing.T) {
 	// proofs). We'll reuse the same asset details, except we'll mint them
 	// with a distinct genesis and group key.
 	genesis2 := asset.RandGenesis(t, assetType)
-	groupKey2 := asset.RandGroupKey(t, genesis2)
+	genesis2protoasset := asset.AssetNoErr(
+		t, genesis2, *anchorDetails.Amount, anchorDetails.LockTime,
+		anchorDetails.RelativeLockTime,
+		asset.NewScriptKeyBip86(anchorDetails.ScriptKey), nil,
+	)
+	groupKey2 := asset.RandGroupKey(t, genesis2, genesis2protoasset)
 	_, nonExistentAssetGroup, err := Mint(
 		genesis2, groupKey2, assetDetails...,
 	)
@@ -438,8 +487,16 @@ func TestSplitCommitment(t *testing.T) {
 	outPoint := wire.OutPoint{}
 	genesisNormal := asset.RandGenesis(t, asset.Normal)
 	genesisCollectible := asset.RandGenesis(t, asset.Collectible)
-	groupKeyNormal := asset.RandGroupKey(t, genesisNormal)
-	groupKeyCollectible := asset.RandGroupKey(t, genesisCollectible)
+	normalProtoAsset := randAsset(t, genesisNormal, nil)
+	collectibleProtoAsset := randAsset(t, genesisCollectible, nil)
+	groupKeyNormal := asset.RandGroupKey(t, genesisNormal, normalProtoAsset)
+	groupKeyCollectible := asset.RandGroupKey(
+		t, genesisCollectible, collectibleProtoAsset,
+	)
+	normalInputAsset := normalProtoAsset.Copy()
+	normalInputAsset.GroupKey = groupKeyNormal
+	collectibleInputAsset := collectibleProtoAsset.Copy()
+	collectibleInputAsset.GroupKey = groupKeyCollectible
 
 	testCases := []struct {
 		name string
@@ -449,10 +506,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "collectible split with excess external locators",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisCollectible,
-					groupKeyCollectible,
-				)
+				input := collectibleInputAsset.Copy()
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisCollectible.ID(),
@@ -477,10 +531,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "collectible split commitment",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisCollectible,
-					groupKeyCollectible,
-				)
+				input := collectibleInputAsset.Copy()
 				root := &SplitLocator{
 					OutputIndex: 0,
 					AssetID:     genesisCollectible.ID(),
@@ -500,9 +551,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "invalid split amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				splitAmount := input.Amount / 4
 				root := &SplitLocator{
 					OutputIndex: 0,
@@ -527,9 +576,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "single input split commitment",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				root := &SplitLocator{
@@ -560,9 +607,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "no external splits",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				root := &SplitLocator{
@@ -581,9 +626,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "un-spendable root locator with non-zero amount",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				root := &SplitLocator{
@@ -606,9 +649,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "invalid zero-value root locator",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				root := &SplitLocator{
@@ -633,9 +674,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "zero-value external locator",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				root := &SplitLocator{
@@ -660,9 +699,7 @@ func TestSplitCommitment(t *testing.T) {
 		{
 			name: "full value split commitment",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				root := &SplitLocator{
@@ -690,9 +727,7 @@ func TestSplitCommitment(t *testing.T) {
 			// The underflow attempt should fail and an error
 			// should be returned.
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
-				input := randAsset(
-					t, genesisNormal, groupKeyNormal,
-				)
+				input := normalInputAsset.Copy()
 				input.Amount = 3
 
 				rootScriptKey := asset.ToSerialized(
@@ -826,13 +861,14 @@ func TestTapCommitmentKeyPopulation(t *testing.T) {
 		}
 
 		genesis := asset.RandGenesis(t, assetType)
+		a := randAsset(t, genesis, nil)
 
 		var groupKey *asset.GroupKey
 		if assetDesc.HasGroupKey {
-			groupKey = asset.RandGroupKey(t, genesis)
+			groupKey = asset.RandGroupKey(t, genesis, a)
+			a.GroupKey = groupKey
 		}
 
-		a := randAsset(t, genesis, groupKey)
 		commitment, err := NewAssetCommitment(a)
 		require.NoError(t, err)
 
@@ -860,20 +896,24 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	genesis2 := asset.RandGenesis(t, asset.Normal)
 	genesis1collect := genesis1
 	genesis1collect.Type = asset.Collectible
-	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(t, genesis1)
-	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
 	group1Anchor := randAsset(t, genesis1, nil)
+	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(
+		t, genesis1, group1Anchor,
+	)
+	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
 	group1Anchor.GroupKey = groupKey1
-	groupKey2 := asset.RandGroupKey(t, genesis2)
+	group2Anchor := randAsset(t, genesis2, nil)
+	groupKey2 := asset.RandGroupKey(t, genesis2, group2Anchor)
 	copyOfGroupKey1 := &asset.GroupKey{
 		RawKey:      groupKey1.RawKey,
 		GroupPubKey: groupKey1.GroupPubKey,
 		Witness:     groupKey1.Witness,
 	}
-	group1Reissued := randAsset(t, genesis2, nil)
+	group1Reissued := group2Anchor.Copy()
+	genTxBuilder := asset.RawGroupTxBuilder{}
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
-		asset.NewRawKeyGenesisSigner(group1Priv),
-		test.PubToKeyDesc(group1Pub), genesis1, &genesis2,
+		asset.NewRawKeyGenesisSigner(group1Priv), &genTxBuilder,
+		test.PubToKeyDesc(group1Pub), genesis1, group1Reissued,
 	)
 	require.NoError(t, err)
 	group1Reissued.GroupKey = group1ReissuedGroupKey
@@ -933,10 +973,15 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			name: "insertion of asset with group key",
 			f: func() (*asset.Asset, error) {
 				group1Reissued := randAsset(t, genesis2, nil)
+				genTxBuilder := asset.RawGroupTxBuilder{}
+				gen2ProtoAsset := asset.RandAssetWithValues(
+					t, genesis2, nil, asset.RandScriptKey(t),
+				)
 				group1ReissuedGroupKey, err := asset.DeriveGroupKey(
 					asset.NewRawKeyGenesisSigner(group1Priv),
+					&genTxBuilder,
 					test.PubToKeyDesc(group1Priv.PubKey()),
-					genesis1, &genesis2,
+					genesis1, gen2ProtoAsset,
 				)
 				require.NoError(t, err)
 				group1Reissued.GroupKey = group1ReissuedGroupKey
@@ -1014,11 +1059,15 @@ func TestUpdateTapCommitment(t *testing.T) {
 	// they are not in the same AssetCommitment.
 	genesis1 := asset.RandGenesis(t, asset.Normal)
 	genesis2 := asset.RandGenesis(t, asset.Normal)
-	groupKey1 := asset.RandGroupKey(t, genesis1)
-	groupKey2 := asset.RandGroupKey(t, genesis2)
+	protoAsset1 := randAsset(t, genesis1, nil)
+	protoAsset2 := randAsset(t, genesis2, nil)
+	groupKey1 := asset.RandGroupKey(t, genesis1, protoAsset1)
+	groupKey2 := asset.RandGroupKey(t, genesis2, protoAsset2)
 
-	asset1 := randAsset(t, genesis1, groupKey1)
-	asset2 := randAsset(t, genesis2, groupKey2)
+	asset1 := protoAsset1.Copy()
+	asset1.GroupKey = groupKey1
+	asset2 := protoAsset2.Copy()
+	asset2.GroupKey = groupKey2
 	assetCommitment1, err := NewAssetCommitment(asset1)
 	require.NoError(t, err)
 	commitmentKey1 := assetCommitment1.TapCommitmentKey()
@@ -1138,12 +1187,16 @@ func TestTapCommitmentDeepCopy(t *testing.T) {
 	// Fist, we'll make two asset commitments with a random asset, then
 	// make a Taproot Asset commitment out of that.
 	genesis1 := asset.RandGenesis(t, asset.Normal)
-	groupKey1 := asset.RandGroupKey(t, genesis1)
-	asset1 := randAsset(t, genesis1, groupKey1)
+	protoAsset1 := randAsset(t, genesis1, nil)
+	groupKey1 := asset.RandGroupKey(t, genesis1, protoAsset1)
+	asset1 := protoAsset1.Copy()
+	asset1.GroupKey = groupKey1
 
 	genesis2 := asset.RandGenesis(t, asset.Normal)
-	groupKey2 := asset.RandGroupKey(t, genesis2)
-	asset2 := randAsset(t, genesis2, groupKey2)
+	protoAsset2 := randAsset(t, genesis2, nil)
+	groupKey2 := asset.RandGroupKey(t, genesis2, protoAsset2)
+	asset2 := protoAsset2.Copy()
+	asset2.GroupKey = groupKey2
 
 	assetCommitment1, err := NewAssetCommitment(asset1)
 	require.NoError(t, err)

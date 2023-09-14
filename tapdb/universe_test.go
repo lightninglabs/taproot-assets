@@ -116,10 +116,21 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 		GenesisProof: randProof(t),
 		Amt:          uint64(rand.Int31()),
 	}
+	// The asset within the genesis proof is random; reset the asset genesis
+	// and group key to match the universe minting leaf.
+	leaf.GenesisProof.Asset.Genesis = assetGen
+	leaf.GenesisProof.GenesisReveal = &assetGen
+
 	if groupKey != nil {
-		leaf.GroupKey = &asset.GroupKey{
+		assetGroupKey := &asset.GroupKey{
 			GroupPubKey: *groupKey,
-			Witness:     wire.TxWitness{test.RandBytes(64)},
+			Witness:     leaf.GenesisProof.Asset.GroupKey.Witness,
+		}
+
+		leaf.GroupKey = assetGroupKey
+		leaf.GenesisProof.Asset.GroupKey = assetGroupKey
+		leaf.GenesisProof.GroupKeyReveal = &asset.GroupKeyReveal{
+			RawKey: asset.ToSerialized(groupKey),
 		}
 	}
 
@@ -449,6 +460,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	const numLeafs = 3
+	var sharedWitness wire.TxWitness
 
 	// We'll create three new leaves, all of them will share the exact same
 	// minting outpoint, but will have distinct script keys.
@@ -460,6 +472,20 @@ func TestUniverseLeafQuery(t *testing.T) {
 		targetKey.MintingOutpoint = rootMintingPoint
 
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+		if id.GroupKey != nil {
+			// All assets are sharing the same genesis and group
+			// key, so they must also shae the same group witness.
+			switch {
+			case sharedWitness == nil:
+				sharedWitness =
+					leaf.GroupKey.Witness
+			default:
+				leaf.GroupKey.Witness =
+					sharedWitness
+				leaf.GenesisProof.Asset.GroupKey.Witness =
+					sharedWitness
+			}
+		}
 
 		scriptKey := asset.ToSerialized(targetKey.ScriptKey.PubKey)
 
