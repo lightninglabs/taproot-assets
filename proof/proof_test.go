@@ -145,7 +145,12 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
-	groupKey := asset.RandGroupKey(t, genesis)
+	scriptKey := test.RandPubKey(t)
+	tweakedScriptKey := asset.NewScriptKey(scriptKey)
+	protoAsset := asset.NewAssetNoErr(
+		t, genesis, 1, 0, 0, tweakedScriptKey, nil,
+	)
+	groupKey := asset.RandGroupKey(t, genesis, protoAsset)
 	groupReveal := asset.GroupKeyReveal{
 		RawKey:        asset.ToSerialized(&groupKey.GroupPubKey),
 		TapscriptRoot: test.RandBytes(32),
@@ -154,7 +159,7 @@ func TestProofEncoding(t *testing.T) {
 	mintCommitment, assets, err := commitment.Mint(
 		genesis, groupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        test.PubToKeyDesc(test.RandPubKey(t)),
+			ScriptKey:        test.PubToKeyDesc(scriptKey),
 			Amount:           nil,
 			LockTime:         1337,
 			RelativeLockTime: 6,
@@ -338,6 +343,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
+	genesisPubKey := test.PubToKeyDesc(genesisPrivKey.PubKey())
 
 	// If we have a specified meta reveal, then we'll replace the meta hash
 	// with the hash of the reveal instead.
@@ -353,7 +359,16 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		genesisMutator(&assetGenesis)
 	}
 
-	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
+	groupAmt := uint64(1)
+	if amt != nil {
+		groupAmt = *amt
+	}
+
+	protoAsset := asset.NewAssetNoErr(
+		t, assetGenesis, groupAmt, 0, 0,
+		asset.NewScriptKeyBip86(genesisPubKey), nil,
+	)
+	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
 	groupKeyReveal := asset.GroupKeyReveal{
 		RawKey: asset.ToSerialized(
 			assetGroupKey.RawKey.PubKey,
@@ -363,10 +378,8 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 
 	tapCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
-			Type: assetType,
-			ScriptKey: test.PubToKeyDesc(
-				genesisPrivKey.PubKey(),
-			),
+			Type:             assetType,
+			ScriptKey:        genesisPubKey,
 			Amount:           amt,
 			LockTime:         0,
 			RelativeLockTime: 0,
