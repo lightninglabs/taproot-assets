@@ -39,7 +39,7 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
 	privateKey := test.RandPrivKey(t)
 
-	genSigner := NewRawKeyGenesisSigner(privateKey)
+	genSigner := NewMockGenesisSigner(privateKey)
 
 	groupKey, err := DeriveGroupKey(
 		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
@@ -54,7 +54,7 @@ func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
 func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
 	privateKey := test.RandPrivKey(t)
 
-	genSigner := NewRawKeyGenesisSigner(privateKey)
+	genSigner := NewMockGenesisSigner(privateKey)
 	groupKey, err := DeriveGroupKey(
 		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
 		genesis, nil,
@@ -63,6 +63,44 @@ func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
 
 	return groupKey, privateKey.Serialize()
 }
+
+// MockGenesisSigner implements the GenesisSigner interface using a raw
+// private key.
+type MockGenesisSigner struct {
+	privKey *btcec.PrivateKey
+}
+
+// NewMockGenesisSigner creates a new MockGenesisSigner instance given the
+// passed public key.
+func NewMockGenesisSigner(priv *btcec.PrivateKey) *MockGenesisSigner {
+	return &MockGenesisSigner{
+		privKey: priv,
+	}
+}
+
+// SignVirtualTx generates a signature according to the passed signing
+// descriptor and virtual TX.
+func (r *MockGenesisSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
+	error) {
+
+	signerPubKey := r.privKey.PubKey()
+
+	if !signDesc.KeyDesc.PubKey.IsEqual(signerPubKey) {
+		return nil, fmt.Errorf("cannot sign with key")
+	}
+
+	sig, err := SignVirtualTx(r.privKey, signDesc, virtualTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
+
+// A compile-time assertion to ensure MockGenesisSigner meets the
+// GenesisSigner interface.
+var _ GenesisSigner = (*MockGenesisSigner)(nil)
 
 // Forked from tapscript/tx/virtualTxOut to remove checks for split commitments
 // and witness stripping.
@@ -104,7 +142,7 @@ func virtualGenesisTxOut(newAsset *Asset) (*wire.TxOut, error) {
 }
 
 // Forked from tapscript/tx/virtualTx to be used only with the
-// RawGroupTxBuilder.
+// MockGroupTxBuilder.
 func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
 	var (
 		txIn *wire.TxIn
@@ -130,6 +168,43 @@ func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
 	virtualTx.AddTxOut(txOut)
 	return virtualTx, nil
 }
+
+type MockGroupTxBuilder struct{}
+
+// BuildGenesisTx constructs a virtual transaction and prevOut that represent
+// the genesis state transition for a grouped asset. This ouput is used to
+// create a group witness for the grouped asset.
+func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
+	*wire.TxOut, error) {
+
+	// First, we check that the passed asset is a genesis grouped asset
+	// that has no group witness.
+	if !newAsset.NeedsGenesisWitnessForGroup() {
+		return nil, nil, fmt.Errorf("asset is not a genesis grouped" +
+			"asset")
+	}
+
+	prevOut, err := InputGenesisAssetPrevOut(*newAsset)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Now, create the virtual transaction that represents this asset
+	// minting.
+	virtualTx, err := virtualGenesisTx(newAsset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+	populatedVirtualTx := VirtualTxWithInput(
+		virtualTx, newAsset, 0, nil,
+	)
+
+	return populatedVirtualTx, prevOut, nil
+}
+
+// A compile time assertion to ensure that MockGroupTxBuilder meets the
+// GenesisTxBuilder interface.
+var _ GenesisTxBuilder = (*MockGroupTxBuilder)(nil)
 
 // SignOutputRaw creates a signature for a single input.
 // Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw

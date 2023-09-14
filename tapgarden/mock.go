@@ -452,14 +452,18 @@ func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
 	}
 }
 
-func (m *MockGenSigner) SignGenesis(desc keychain.KeyDescriptor,
-	initialGen asset.Genesis, currentGen *asset.Genesis) (*btcec.PublicKey,
-	*schnorr.Signature, error) {
+func (m *MockGenSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
+	error) {
 
-	priv := m.KeyRing.Keys[desc.KeyLocator]
-	signer := asset.NewRawKeyGenesisSigner(priv)
-	return signer.SignGenesis(desc, initialGen, currentGen)
+	priv := m.KeyRing.Keys[signDesc.KeyDesc.KeyLocator]
+	signer := asset.NewMockGenesisSigner(priv)
+	return signer.SignVirtualTx(signDesc, virtualTx, prevOut)
 }
+
+// A compile-time assertion to ensure MockGenSigner meets the GenesisSigner
+// interface.
+var _ asset.GenesisSigner = (*MockGenSigner)(nil)
 
 type MockProofArchive struct {
 }
