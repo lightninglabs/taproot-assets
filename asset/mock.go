@@ -36,28 +36,23 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 }
 
 // RandGroupKey creates a random group key for testing.
-func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
-	privateKey := test.RandPrivKey(t)
-
-	genSigner := NewRawKeyGenesisSigner(privateKey)
-
-	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
-		genesis, nil,
-	)
-	require.NoError(t, err)
+func RandGroupKey(t testing.TB, genesis Genesis, newAsset *Asset) *GroupKey {
+	groupKey, _ := RandGroupKeyWithSigner(t, genesis, newAsset)
 	return groupKey
 }
 
 // RandGroupKeyWithSigner creates a random group key for testing, and provides
 // the signer for reissuing assets into the same group.
-func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
+func RandGroupKeyWithSigner(t testing.TB, genesis Genesis,
+	newAsset *Asset) (*GroupKey, []byte) {
+
 	privateKey := test.RandPrivKey(t)
 
 	genSigner := NewRawKeyGenesisSigner(privateKey)
+	genBuilder := RawGroupTxBuilder{}
 	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
-		genesis, nil,
+		genSigner, &genBuilder, test.PubToKeyDesc(privateKey.PubKey()),
+		genesis, newAsset,
 	)
 	require.NoError(t, err)
 
@@ -266,15 +261,29 @@ func RandID(t testing.TB) ID {
 	return a
 }
 
+// AssetNoErr creates an asset and fails the test if asset creation fails.
+func AssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
+	scriptKey ScriptKey, groupKey *GroupKey) *Asset {
+
+	a, err := New(gen, amt, locktime, relocktime, scriptKey, groupKey)
+	require.NoError(t, err)
+
+	return a
+}
+
 // RandAsset creates a random asset of the given type for testing.
 func RandAsset(t testing.TB, assetType Type) *Asset {
 	t.Helper()
 
 	genesis := RandGenesis(t, assetType)
-	familyKey := RandGroupKey(t, genesis)
 	scriptKey := RandScriptKey(t)
+	protoAsset := RandAssetWithValues(t, genesis, nil, scriptKey)
+	familyKey := RandGroupKey(t, genesis, protoAsset)
 
-	return RandAssetWithValues(t, genesis, familyKey, scriptKey)
+	return AssetNoErr(
+		t, genesis, protoAsset.Amount, protoAsset.LockTime,
+		protoAsset.RelativeLockTime, scriptKey, familyKey,
+	)
 }
 
 // RandAssetWithValues creates a random asset with the given genesis and keys
