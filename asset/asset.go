@@ -872,18 +872,26 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 			genesis.Type)
 	}
 
+	// Valid genesis asset witness.
+	genesisWitness := Witness{
+		PrevID:          &PrevID{},
+		TxWitness:       nil,
+		SplitCommitment: nil,
+	}
+
+	// Genesis assets with an asset group must have the group witness stored
+	// in the genesis asset witness, if present.
+	if groupKey != nil && groupKey.Witness != nil {
+		genesisWitness.TxWitness = groupKey.Witness
+	}
+
 	return &Asset{
-		Version:          V0,
-		Genesis:          genesis,
-		Amount:           amount,
-		LockTime:         locktime,
-		RelativeLockTime: relativeLocktime,
-		PrevWitnesses: []Witness{{
-			// Valid genesis asset witness.
-			PrevID:          &PrevID{},
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		}},
+		Version:             V0,
+		Genesis:             genesis,
+		Amount:              amount,
+		LockTime:            locktime,
+		RelativeLockTime:    relativeLocktime,
+		PrevWitnesses:       []Witness{genesisWitness},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       ScriptV0,
 		ScriptKey:           scriptKey,
