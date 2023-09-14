@@ -76,9 +76,13 @@ func TestNewAssetCommitment(t *testing.T) {
 		Witness:     groupKey1Collectible.Witness,
 	}
 	group1Reissued := randAsset(t, genesis2, nil)
+	genTxBuilder := asset.RawGroupTxBuilder{}
+	gen2ProtoAsset := asset.RandAssetWithValues(
+		t, genesis2, nil, asset.RandScriptKey(t),
+	)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
-		asset.NewRawKeyGenesisSigner(group1Priv),
-		test.PubToKeyDesc(group1Pub), genesis1, &genesis2,
+		asset.NewRawKeyGenesisSigner(group1Priv), &genTxBuilder,
+		test.PubToKeyDesc(group1Pub), genesis1, gen2ProtoAsset,
 	)
 	require.NoError(t, err)
 	group1Reissued.GroupKey = group1ReissuedGroupKey
@@ -871,9 +875,13 @@ func TestUpdateAssetCommitment(t *testing.T) {
 		Witness:     groupKey1.Witness,
 	}
 	group1Reissued := randAsset(t, genesis2, nil)
+	genTxBuilder := asset.RawGroupTxBuilder{}
+	gen2ProtoAsset := asset.RandAssetWithValues(
+		t, genesis2, nil, asset.RandScriptKey(t),
+	)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
-		asset.NewRawKeyGenesisSigner(group1Priv),
-		test.PubToKeyDesc(group1Pub), genesis1, &genesis2,
+		asset.NewRawKeyGenesisSigner(group1Priv), &genTxBuilder,
+		test.PubToKeyDesc(group1Pub), genesis1, gen2ProtoAsset,
 	)
 	require.NoError(t, err)
 	group1Reissued.GroupKey = group1ReissuedGroupKey
@@ -933,10 +941,15 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			name: "insertion of asset with group key",
 			f: func() (*asset.Asset, error) {
 				group1Reissued := randAsset(t, genesis2, nil)
+				genTxBuilder := asset.RawGroupTxBuilder{}
+				gen2ProtoAsset := asset.RandAssetWithValues(
+					t, genesis2, nil, asset.RandScriptKey(t),
+				)
 				group1ReissuedGroupKey, err := asset.DeriveGroupKey(
 					asset.NewRawKeyGenesisSigner(group1Priv),
+					&genTxBuilder,
 					test.PubToKeyDesc(group1Priv.PubKey()),
-					genesis1, &genesis2,
+					genesis1, gen2ProtoAsset,
 				)
 				require.NoError(t, err)
 				group1Reissued.GroupKey = group1ReissuedGroupKey

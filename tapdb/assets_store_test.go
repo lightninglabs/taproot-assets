@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -117,15 +118,18 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	groupPriv := *opts.groupKeyPriv
 
 	genSigner := asset.NewRawKeyGenesisSigner(&groupPriv)
+	genTxBuilder := tapscript.BaseGroupTxBuilder{}
 
 	var (
 		groupKeyDesc = keychain.KeyDescriptor{
 			PubKey: groupPriv.PubKey(),
 		}
-		assetGroupKey *asset.GroupKey
-		err           error
-		initialGen    = genesis
-		currentGen    *asset.Genesis
+		assetGroupKey    *asset.GroupKey
+		err              error
+		initialGen       = genesis
+		currentGen       *asset.Genesis
+		lockTime         = uint64(test.RandInt[int32]())
+		relativeLockTime = uint64(test.RandInt[int32]())
 	)
 
 	if opts.groupAnchorGen != nil {
@@ -133,8 +137,14 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		currentGen = &genesis
 	}
 
+	protoAsset, err := asset.New(
+		*currentGen, opts.amt, lockTime, relativeLockTime,
+		opts.scriptKey, nil,
+	)
+	require.NoError(t, err)
+
 	assetGroupKey, err = asset.DeriveGroupKey(
-		genSigner, groupKeyDesc, initialGen, currentGen,
+		genSigner, &genTxBuilder, groupKeyDesc, initialGen, protoAsset,
 	)
 
 	require.NoError(t, err)
@@ -142,8 +152,8 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	newAsset := &asset.Asset{
 		Genesis:          genesis,
 		Amount:           opts.amt,
-		LockTime:         uint64(test.RandInt[int32]()),
-		RelativeLockTime: uint64(test.RandInt[int32]()),
+		LockTime:         lockTime,
+		RelativeLockTime: relativeLockTime,
 		ScriptKey:        opts.scriptKey,
 	}
 

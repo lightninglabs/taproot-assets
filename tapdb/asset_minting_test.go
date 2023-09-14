@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -98,16 +99,20 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 
 	// Generate the signature for our group genesis asset.
 	genSigner := asset.NewRawKeyGenesisSigner(groupPriv)
-	groupKey, err := asset.DeriveGroupKey(
-		genSigner, privDesc, initGen, currentGen,
-	)
-	require.NoError(t, err)
+	genTxBuilder := asset.RawGroupTxBuilder{}
 
 	// Select the correct genesis for the new asset.
 	assetGen := initGen
 	if currentGen != nil {
 		assetGen = *currentGen
 	}
+	genProtoAsset := asset.RandAssetWithValues(
+		t, assetGen, nil, asset.RandScriptKey(t),
+	)
+	groupKey, err := asset.DeriveGroupKey(
+		genSigner, &genTxBuilder, privDesc, initGen, genProtoAsset,
+	)
+	require.NoError(t, err)
 
 	initialAsset := asset.RandAssetWithValues(
 		t, assetGen, groupKey, asset.RandScriptKey(t),
@@ -346,14 +351,25 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		}
 
 		scriptKey, _ := randKeyDesc(t)
+		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
-			groupPriv *btcec.PrivateKey
-			groupKey  *asset.GroupKey
-			groupInfo *asset.AssetGroup
-			ok        bool
-			err       error
+			genTxBuilder = tapscript.BaseGroupTxBuilder{}
+			groupPriv    *btcec.PrivateKey
+			groupKey     *asset.GroupKey
+			groupInfo    *asset.AssetGroup
+			protoAsset   *asset.Asset
+			amount       uint64
+			ok           bool
+			err          error
 		)
+
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
 
 		if seedling.HasGroupKey() {
 			groupPriv, ok = groupKeys[seedling.AssetName]
@@ -368,11 +384,18 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			require.True(t, ok)
 		}
 
+		if groupInfo != nil || seedling.EnableEmission {
+			protoAsset, err = asset.New(
+				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+			)
+			require.NoError(t, err)
+		}
+
 		if groupInfo != nil {
 			groupKey, err = asset.DeriveGroupKey(
 				asset.NewRawKeyGenesisSigner(groupPriv),
-				groupInfo.GroupKey.RawKey,
-				*groupInfo.Genesis, &assetGen,
+				&genTxBuilder, groupInfo.GroupKey.RawKey,
+				*groupInfo.Genesis, protoAsset,
 			)
 		}
 
@@ -380,7 +403,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			groupKeyRaw, newGroupPriv := randKeyDesc(t)
 			groupKey, err = asset.DeriveGroupKey(
 				asset.NewRawKeyGenesisSigner(newGroupPriv),
-				groupKeyRaw, assetGen, nil,
+				&genTxBuilder, groupKeyRaw, assetGen, protoAsset,
 			)
 			newGroupPrivs[seedling.AssetName] = newGroupPriv
 			newGroupInfo[seedling.AssetName] = &asset.AssetGroup{
@@ -391,17 +414,8 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		require.NoError(t, err)
 
-		var amount uint64
-		switch seedling.AssetType {
-		case asset.Normal:
-			amount = seedling.Amount
-		case asset.Collectible:
-			amount = 1
-		}
-
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBip86(scriptKey), groupKey,
+			assetGen, amount, 0, 0, tweakedScriptKey, groupKey,
 		)
 		require.NoError(t, err)
 
