@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 type (
@@ -232,9 +233,27 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 
 	// Finally, if there's a group key associated with the asset, then
 	// we'll insert that now as well.
-	if groupKey != nil {
-		_, err := upsertGroupKey(
-			ctx, groupKey, db, genPointID, genAssetID,
+	if groupKey != nil && genesisProof.GroupKeyReveal == nil {
+		fmt.Printf("nil group reveal!")
+	}
+
+	if groupKey != nil && genesisProof.GroupKeyReveal != nil {
+		reveal := genesisProof.GroupKeyReveal
+		rawKey, err := reveal.RawKey.ToPubKey()
+		if err != nil {
+			return 0, err
+		}
+
+		fullGroupKey := &asset.GroupKey{
+			GroupPubKey: groupKey.GroupPubKey,
+			RawKey: keychain.KeyDescriptor{
+				PubKey: rawKey,
+			},
+			Witness: genesisProof.Asset.PrevWitnesses[0].TxWitness,
+		}
+		fullGroupKey.TapscriptRoot = reveal.TapscriptRoot
+		_, err = upsertGroupKey(
+			ctx, fullGroupKey, db, genPointID, genAssetID,
 		)
 		if err != nil {
 			return 0, err
