@@ -333,21 +333,15 @@ func (p *Proof) verifyGroupKeyReveal() error {
 		return ErrGroupKeyRevealRequired
 	}
 
-	// TODO(jhb): Actually use this key and compare it.
-	_, err := reveal.GroupPubKey(p.Asset.ID())
+	revealedKey, err := reveal.GroupPubKey(p.Asset.ID())
 	if err != nil {
 		return err
 	}
 
-	// TODO(jhb): Enforce this check once we update SignGenesis() to
-	// implement the same key tweaking as in GroupPubKey(), by passing
-	// the assetID as a single tweak to SignOutputRaw().
 	// Make sure the derived key matches what we expect.
-	/*
-		if !groupKey.GroupPubKey.IsEqual(revealedKey) {
-			return ErrGroupKeyRevealMismatch
-		}
-	*/
+	if !groupKey.GroupPubKey.IsEqual(revealedKey) {
+		return ErrGroupKeyRevealMismatch
+	}
 
 	return nil
 }
@@ -425,7 +419,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 5. If this is a genesis asset, start by verifying the
 	// genesis reveal, which should be present for genesis assets.
 	// Non-genesis assets must not have a genesis or meta reveal.
-	isGenesisAsset := p.Asset.HasGenesisWitness()
+	isGenesisAsset := p.Asset.HasGenesisWitness() ||
+		p.Asset.HasGenesisWitnessForGroup()
 	hasGenesisReveal := p.GenesisReveal != nil
 	hasMetaReveal := p.MetaReveal != nil
 
