@@ -333,6 +333,32 @@ func TestAddressEncoding(t *testing.T) {
 			},
 			err: ErrInvalidBech32m,
 		},
+		{
+			name: "unknown version number",
+			f: func() (*Tap, string, error) {
+				newAddr, err := randAddress(
+					t, &TestNet3Tap, false, true, nil,
+					asset.Collectible,
+				)
+				require.NoError(t, err)
+
+				// Patch address version to unknown version.
+				newAddr.Version = 255
+
+				// Attempt to encode then decode address.
+				// We don't expect an error when encoding.
+				encodedAddr, err := newAddr.EncodeAddress()
+				require.NoError(t, err)
+
+				// We expect an error to occur here when
+				// decoding.
+				_, err = DecodeAddress(
+					encodedAddr, &TestNet3Tap,
+				)
+				return newAddr, "", err
+			},
+			err: ErrUnknownVersion,
+		},
 	}
 
 	for _, testCase := range testCases {

@@ -71,17 +71,29 @@ var (
 	ErrScriptKeyNotFound = errors.New(
 		"script key not found",
 	)
+
+	// ErrUnknownVersion is returned when encountering an address with an
+	// unrecognised version number.
+	ErrUnknownVersion = errors.New("unknown address version number")
 )
 
+// Version denotes the version of the Tap address.
+type Version uint8
+
 const (
-	// TapScriptVersion is the highest version of Taproot Assets script
-	// supported.
-	TapScriptVersion uint8 = 0
+	// V0 is the initial Tap address version.
+	V0 Version = 0
+
+	// LatestVersion is the latest supported Tap address version.
+	latestVersion = V0
 )
 
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
 // asset, pubkey, and amount.
 type Tap struct {
+	// Version is the version of the address.
+	Version Version
+
 	// ChainParams is the reference to the chain parameters that were used
 	// to encode the Taproot Asset address.
 	ChainParams *ChainParams
@@ -171,6 +183,7 @@ func New(genesis asset.Genesis, groupKey *btcec.PublicKey,
 	}
 
 	payload := Tap{
+		Version:          V0,
 		ChainParams:      net,
 		AssetVersion:     asset.V0,
 		AssetID:          genesis.ID(),
@@ -324,6 +337,7 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 	records = append(
 		records, newProofCourierAddrRecord(&a.ProofCourierAddr),
 	)
+	records = append(records, newVersionRecord(&a.Version))
 
 	return records
 }
@@ -340,6 +354,7 @@ func (a *Tap) DecodeRecords() []tlv.Record {
 		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
 		newProofCourierAddrRecord(&a.ProofCourierAddr),
+		newVersionRecord(&a.Version),
 	}
 }
 
@@ -442,6 +457,11 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	}
 
 	a.ChainParams = net
+
+	// Ensure that the address version is known.
+	if a.Version > latestVersion {
+		return nil, ErrUnknownVersion
+	}
 
 	return &a, nil
 }

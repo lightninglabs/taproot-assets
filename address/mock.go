@@ -112,6 +112,7 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 	t.Helper()
 
 	ta := &TestAddress{
+		Version:          uint8(a.Version),
 		ChainParamsHRP:   a.ChainParams.TapHRP,
 		AssetVersion:     uint8(a.AssetVersion),
 		AssetID:          a.AssetID.String(),
@@ -135,6 +136,7 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 }
 
 type TestAddress struct {
+	Version          uint8  `json:"version"`
 	ChainParamsHRP   string `json:"chain_params_hrp"`
 	AssetVersion     uint8  `json:"asset_version"`
 	AssetID          string `json:"asset_id"`
@@ -193,6 +195,7 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 	}
 
 	a := &Tap{
+		Version:          Version(ta.Version),
 		ChainParams:      chainParams,
 		AssetVersion:     asset.Version(ta.AssetVersion),
 		AssetID:          test.Parse32Byte(t, ta.AssetID),
