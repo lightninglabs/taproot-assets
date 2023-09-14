@@ -47,7 +47,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 
 	t.Helper()
 
-	virtualTxCopy := tapscript.VirtualTxWithInput(
+	virtualTxCopy := asset.VirtualTxWithInput(
 		virtualTx, input, idx, nil,
 	)
 	sigHash, err := tapscript.InputKeySpendSigHash(
@@ -73,7 +73,7 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	require.NoError(t, err)
 
 	if scriptWitness == nil {
-		virtualTxCopy := tapscript.VirtualTxWithInput(
+		virtualTxCopy := asset.VirtualTxWithInput(
 			virtualTx, input, idx, nil,
 		)
 		sigHash, err := tapscript.InputScriptSpendSigHash(
