@@ -419,11 +419,22 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			return nil, fmt.Errorf("unable to obtain script "+
 				"key: %w", err)
 		}
+		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
+			amount         uint64
 			groupInfo      *asset.AssetGroup
+			protoAsset     *asset.Asset
 			sproutGroupKey *asset.GroupKey
 		)
+
+		// Determine the amount for the actual asset.
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
 
 		// If the seedling has a group key specified,
 		// that group key was validated earlier. We need to
@@ -440,10 +451,23 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			groupInfo = newGroups[*seedling.GroupAnchor]
 		}
 
+		// If a group witness needs to be produced, then we will need a
+		// partially filled asset as part of the signing process.
+		if groupInfo != nil || seedling.EnableEmission {
+			protoAsset, err = asset.New(
+				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create"+
+					"asset for group key signing: %w", err)
+			}
+		}
+
 		if groupInfo != nil {
 			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, groupInfo.GroupKey.RawKey,
-				*groupInfo.Genesis, &assetGen,
+				b.cfg.GenSigner, b.cfg.GenTxBuilder,
+				groupInfo.GroupKey.RawKey,
+				*groupInfo.Genesis, protoAsset,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to"+
@@ -463,9 +487,10 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				return nil, fmt.Errorf("unable to"+
 					"derive group key: %w", err)
 			}
+
 			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, rawGroupKey,
-				assetGen, nil,
+				b.cfg.GenSigner, b.cfg.GenTxBuilder,
+				rawGroupKey, assetGen, protoAsset,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to"+
@@ -480,17 +505,9 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 		// With the necessary keys components assembled, we'll create
 		// the actual asset now.
-		var amount uint64
-		switch seedling.AssetType {
-		case asset.Normal:
-			amount = seedling.Amount
-		case asset.Collectible:
-			amount = 1
-		}
-
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBip86(scriptKey), sproutGroupKey,
+			assetGen, amount, 0, 0, tweakedScriptKey,
+			sproutGroupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %w",
