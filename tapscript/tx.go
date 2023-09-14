@@ -77,59 +77,54 @@ func virtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	*wire.TxIn, mssmt.Tree, error) {
 
-	// Genesis assets shouldn't have any inputs committed, so they'll have
-	// an empty input tree.
-	isGenesisAsset := newAsset.HasGenesisWitness()
 	inputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-	if !isGenesisAsset {
-		// For each input we'll locate the asset UTXO beign spent, then
-		// insert that into a new SMT, with the key being the hash of
-		// the prevID pointer, and the value being the leaf itself.
-		inputsConsumed := make(
-			map[asset.PrevID]struct{}, len(prevAssets),
-		)
+	// For each input we'll locate the asset UTXO being spent, then
+	// insert that into a new SMT, with the key being the hash of
+	// the prevID pointer, and the value being the leaf itself.
+	inputsConsumed := make(
+		map[asset.PrevID]struct{}, len(prevAssets),
+	)
 
-		// TODO(bhandras): thread the context through.
-		ctx := context.TODO()
+	// TODO(bhandras): thread the context through.
+	ctx := context.TODO()
 
-		for _, input := range newAsset.PrevWitnesses {
-			// At this point, each input MUST have a prev ID.
-			if input.PrevID == nil {
-				return nil, nil, ErrNoInputs
-			}
-
-			// The set of prev assets are similar to the prev
-			// output fetcher used in taproot.
-			prevAsset, ok := prevAssets[*input.PrevID]
-			if !ok {
-				return nil, nil, ErrNoInputs
-			}
-
-			// Now we'll insert this prev asset leaf into the tree.
-			// The generated leaf includes the amount of the asset,
-			// so the sum of this tree will be the total amount
-			// being spent.
-			key := input.PrevID.Hash()
-			leaf, err := prevAsset.Leaf()
-			if err != nil {
-				return nil, nil, err
-			}
-			_, err = inputTree.Insert(ctx, key, leaf)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			inputsConsumed[*input.PrevID] = struct{}{}
+	for _, input := range newAsset.PrevWitnesses {
+		// At this point, each input MUST have a prev ID.
+		if input.PrevID == nil {
+			return nil, nil, ErrNoInputs
 		}
 
-		// In this context, the set of referenced inputs should match
-		// the set of previous assets. This ensures no duplicate inputs
-		// are being spent.
-		//
-		// TODO(roasbeef): make further explicit?
-		if len(inputsConsumed) != len(prevAssets) {
-			return nil, nil, ErrInputMismatch
+		// The set of prev assets are similar to the prev
+		// output fetcher used in taproot.
+		prevAsset, ok := prevAssets[*input.PrevID]
+		if !ok {
+			return nil, nil, ErrNoInputs
 		}
+
+		// Now we'll insert this prev asset leaf into the tree.
+		// The generated leaf includes the amount of the asset,
+		// so the sum of this tree will be the total amount
+		// being spent.
+		key := input.PrevID.Hash()
+		leaf, err := prevAsset.Leaf()
+		if err != nil {
+			return nil, nil, err
+		}
+		_, err = inputTree.Insert(ctx, key, leaf)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		inputsConsumed[*input.PrevID] = struct{}{}
+	}
+
+	// In this context, the set of referenced inputs should match
+	// the set of previous assets. This ensures no duplicate inputs
+	// are being spent.
+	//
+	// TODO(roasbeef): make further explicit?
+	if len(inputsConsumed) != len(prevAssets) {
+		return nil, nil, ErrInputMismatch
 	}
 
 	treeRoot, err := inputTree.Root(context.Background())
@@ -220,8 +215,18 @@ func virtualTxOut(asset *asset.Asset) (*wire.TxOut, error) {
 func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	*wire.MsgTx, mssmt.Tree, error) {
 
+	var (
+		txIn      *wire.TxIn
+		inputTree mssmt.Tree
+		err       error
+	)
+
 	// We'll start by mapping all inputs into a MS-SMT.
-	txIn, inputTree, err := virtualTxIn(newAsset, prevAssets)
+	if newAsset.NeedsGenesisWitnessForGroup() {
+		txIn, inputTree, err = asset.VirtualGenesisTxIn(newAsset)
+	} else {
+		txIn, inputTree, err = virtualTxIn(newAsset, prevAssets)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -263,8 +268,19 @@ func InputAssetPrevOut(prevAsset asset.Asset) (*wire.TxOut, error) {
 	var pkScript []byte
 	switch prevAsset.ScriptVersion {
 	case asset.ScriptV0:
-		var err error
-		pkScript, err = PayToTaprootScript(prevAsset.ScriptKey.PubKey)
+		var (
+			err           error
+			validationKey = prevAsset.ScriptKey.PubKey
+		)
+
+		// If the input asset is a genesis asset that is part of an
+		// asset group, we need to validate the group witness against
+		// the tweaked group key and not the genesis asset script key.
+		if prevAsset.NeedsGenesisWitnessForGroup() {
+			validationKey = &prevAsset.GroupKey.GroupPubKey
+		}
+
+		pkScript, err = PayToTaprootScript(validationKey)
 		if err != nil {
 			return nil, err
 		}
