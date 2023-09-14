@@ -333,10 +333,17 @@ func TestAddrMatchesAsset(t *testing.T) {
 	t.Parallel()
 
 	randKey1, randKey2 := test.RandPubKey(t), test.RandPubKey(t)
+	randScriptKey1, randScriptKey2 := test.RandPubKey(t), test.RandPubKey(t)
 	randGen1 := asset.RandGenesis(t, asset.Normal)
 	randGen2 := asset.RandGenesis(t, asset.Normal)
-	randGroup1 := asset.RandGroupKey(t, randGen1)
-	randGroup2 := asset.RandGroupKey(t, randGen2)
+	protoAsset1 := asset.RandAssetWithValues(
+		t, randGen1, nil, asset.NewScriptKey(randScriptKey1),
+	)
+	protoAsset2 := asset.RandAssetWithValues(
+		t, randGen2, nil, asset.NewScriptKey(randScriptKey2),
+	)
+	randGroup1 := asset.RandGroupKey(t, randGen1, protoAsset1)
+	randGroup2 := asset.RandGroupKey(t, randGen2, protoAsset2)
 
 	var blankKey btcec.PublicKey
 
