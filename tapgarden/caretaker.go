@@ -514,6 +514,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				err)
 		}
 
+		// Verify the group witness if present.
+		if sproutGroupKey != nil {
+			err := b.cfg.TxValidator.Execute(newAsset, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("unable to verify"+
+					"asset group witness: %w", err)
+			}
+		}
+
 		newAssets = append(newAssets, newAsset)
 	}
 
