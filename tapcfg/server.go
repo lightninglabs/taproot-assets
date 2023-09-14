@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
@@ -277,13 +278,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ReOrgWatcher: reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{
-				Wallet:      walletAnchor,
-				ChainBridge: chainBridge,
-				Log:         assetMintingStore,
-				KeyRing:     keyRing,
-				GenSigner: tap.NewLndRpcGenSigner(
-					lndServices,
-				),
+				Wallet:                walletAnchor,
+				ChainBridge:           chainBridge,
+				Log:                   assetMintingStore,
+				KeyRing:               keyRing,
+				GenSigner:             virtualTxSigner,
+				GenTxBuilder:          &tapscript.GroupTxBuilder{},
+				TxValidator:           &tap.ValidatorV0{},
 				ProofFiles:            proofFileStore,
 				Universe:              universeFederation,
 				ProofWatcher:          reOrgWatcher,
