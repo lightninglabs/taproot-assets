@@ -967,6 +967,33 @@ func (a *Asset) HasGenesisWitness() bool {
 	return *witness.PrevID == ZeroPrevID
 }
 
+// NeedsGenesisWitnessForGroup determines whether an asset is a genesis grouped
+// asset, which does not yet have a group witness.
+func (a *Asset) NeedsGenesisWitnessForGroup() bool {
+	return a.HasGenesisWitness() && a.GroupKey != nil
+}
+
+// HasGenesisWitnessForGroup determines whether an asset has a witness for a
+// genesis asset in an asset group. This asset must have a non-empty group key
+// and a single prevWitness with a zero PrevID, empty split commitment proof,
+// and non-empty witness.
+func (a *Asset) HasGenesisWitnessForGroup() bool {
+	if a.GroupKey == nil || len(a.PrevWitnesses) != 1 {
+		return false
+	}
+
+	// The single PrevWitness must have a ZeroPrevID, non-empty witness, and
+	// nil split commitment.
+	witness := a.PrevWitnesses[0]
+	if witness.PrevID == nil || len(witness.TxWitness) == 0 ||
+		witness.SplitCommitment != nil {
+
+		return false
+	}
+
+	return *witness.PrevID == ZeroPrevID
+}
+
 // HasSplitCommitmentWitness returns true if an asset has a split commitment
 // witness.
 func (a *Asset) HasSplitCommitmentWitness() bool {
