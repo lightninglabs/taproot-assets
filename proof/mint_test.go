@@ -23,9 +23,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	// First, we'll create a fake, but legit looking set of minting params
 	// to generate a proof with.
 	genesisPrivKey := test.RandPrivKey(t)
-	genesisScriptKey := txscript.ComputeTaprootKeyNoScript(
-		genesisPrivKey.PubKey(),
-	)
+	genesisScriptKey := test.PubToKeyDesc(genesisPrivKey.PubKey())
 
 	// We'll modify the returned genesis to instead commit to some actual
 	// metadata (known pre-image).
@@ -37,12 +35,17 @@ func TestNewMintingBlobs(t *testing.T) {
 	}
 	assetGenesis := asset.RandGenesis(t, asset.Collectible)
 	assetGenesis.MetaHash = metaReveal.MetaHash()
+	assetGenesis.OutputIndex = 0
+	protoAsset := asset.AssetNoErr(
+		t, assetGenesis, 1, 0, 0,
+		asset.NewScriptKeyBip86(genesisScriptKey), nil,
+	)
 
-	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
+	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
 	tapCommitment, _, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        test.PubToKeyDesc(genesisScriptKey),
+			ScriptKey:        genesisScriptKey,
 			Amount:           nil,
 			LockTime:         0,
 			RelativeLockTime: 0,
@@ -64,7 +67,9 @@ func TestNewMintingBlobs(t *testing.T) {
 
 	genesisTx := &wire.MsgTx{
 		Version: 2,
-		TxIn:    []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: assetGenesis.FirstPrevOut,
+		}},
 		TxOut: []*wire.TxOut{{
 			PkScript: taprootScript,
 			Value:    330,
