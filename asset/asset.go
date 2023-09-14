@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -468,10 +469,25 @@ func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	internalKey := input.TweakPubKeyWithTweak(rawKey, assetID[:])
+	if g.TapscriptRoot != nil {
+		return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot[:])
+	}
+
+	return GroupPubKey(rawKey, assetID[:], nil)
+}
+
+func GroupPubKey(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
+	*btcec.PublicKey, error) {
+
+	if len(singleTweak) != sha256.Size || len(tapTweak) != sha256.Size {
+		return nil, fmt.Errorf("tweaks must be %d bytes", sha256.Size)
+	}
+
+	internalKey := input.TweakPubKeyWithTweak(rawKey, singleTweak)
 	tweakedGroupKey := txscript.ComputeTaprootOutputKey(
-		internalKey, g.TapscriptRoot[:],
+		internalKey, tapTweak,
 	)
+
 	return tweakedGroupKey, nil
 }
 
@@ -801,19 +817,58 @@ var _ GenesisTxBuilder = (*RawGroupTxBuilder)(nil)
 
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.
-func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*GroupKey, error) {
+func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
+	rawKey keychain.KeyDescriptor, initialGen Genesis,
+	newAsset *Asset) (*GroupKey, error) {
 
-	groupPubKey, sig, err := genSigner.SignGenesis(
-		rawKey, initialGen, currentGen,
-	)
+	// First, perform the final checks on the asset being authorized for
+	// group membership.
+	if !newAsset.HasGenesisWitness() {
+		return nil, fmt.Errorf("asset is not a genesis asset")
+	}
+
+	if initialGen.Type != newAsset.Type {
+		return nil, fmt.Errorf("asset group type mismatch")
+	}
+
+	// Compute the tweaked group key and set it in the asset before
+	// creating the virtual minting transaction.
+	genesisTweak := initialGen.ID()
+	tweakedGroupKey, err := GroupPubKey(rawKey.PubKey, genesisTweak[:], nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+
+	assetWithGroup := newAsset.Copy()
+	assetWithGroup.GroupKey = &GroupKey{
+		GroupPubKey: *tweakedGroupKey,
+	}
+
+	// Build the virtual transaction that represents the minting of the new
+	// asset, which will be signed to generate the group witness.
+	genesisTx, prevOut, err := genBuilder.BuildGenesisTx(assetWithGroup)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build virtual tx: %w", err)
+	}
+
+	// Build the static signing descriptor needed to sign the virtual
+	// minting transaction. This is restricted to group keys with an empty
+	// tapscript root and key path spends.
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:     rawKey,
+		SingleTweak: genesisTweak[:],
+		SignMethod:  input.TaprootKeySpendBIP0086SignMethod,
+		HashType:    txscript.SigHashDefault,
+		InputIndex:  0,
+	}
+	sig, err := genSigner.SignVirtualTx(signDesc, genesisTx, prevOut)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GroupKey{
 		RawKey:      rawKey,
-		GroupPubKey: *groupPubKey,
+		GroupPubKey: *tweakedGroupKey,
 		Witness:     wire.TxWitness{sig.Serialize()},
 	}, nil
 }

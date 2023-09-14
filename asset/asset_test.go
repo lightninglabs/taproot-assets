@@ -413,9 +413,11 @@ func TestAssetGroupKey(t *testing.T) {
 	require.NoError(t, err)
 	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
 	genSigner := NewRawKeyGenesisSigner(privKeyCopy)
+	genBuilder := RawGroupTxBuilder{}
 	fakeKeyDesc := keychain.KeyDescriptor{
 		PubKey: privKeyCopy.PubKey(),
 	}
+	fakeScriptKey := NewScriptKeyBip86(fakeKeyDesc)
 
 	g := Genesis{
 		FirstPrevOut: wire.OutPoint{
@@ -428,6 +430,7 @@ func TestAssetGroupKey(t *testing.T) {
 		Type:        Collectible,
 	}
 
+	// TODO(jhb): Update manaual tweaking here
 	var groupBytes bytes.Buffer
 	_ = wire.WriteOutPoint(&groupBytes, 0, 0, &g.FirstPrevOut)
 	_, _ = groupBytes.Write([]byte{0, 0, 0, 21, 1})
@@ -436,7 +439,11 @@ func TestAssetGroupKey(t *testing.T) {
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	keyGroup, err := DeriveGroupKey(genSigner, fakeKeyDesc, g, nil)
+	protoAsset, err := New(g, 1, 0, 0, fakeScriptKey, nil)
+	require.NoError(t, err)
+	keyGroup, err := DeriveGroupKey(
+		genSigner, &genBuilder, fakeKeyDesc, g, protoAsset,
+	)
 	require.NoError(t, err)
 
 	require.Equal(

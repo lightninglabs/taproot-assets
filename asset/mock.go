@@ -39,15 +39,7 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 
 // RandGroupKey creates a random group key for testing.
 func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
-	privateKey := test.RandPrivKey(t)
-
-	genSigner := NewRawKeyGenesisSigner(privateKey)
-
-	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
-		genesis, nil,
-	)
-	require.NoError(t, err)
+	groupKey, _ := RandGroupKeyWithSigner(t, genesis)
 	return groupKey
 }
 
@@ -57,8 +49,9 @@ func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
 	privateKey := test.RandPrivKey(t)
 
 	genSigner := NewRawKeyGenesisSigner(privateKey)
+	genBuilder := RawGroupTxBuilder{}
 	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
+		genSigner, &genBuilder, test.PubToKeyDesc(privateKey.PubKey()),
 		genesis, nil,
 	)
 	require.NoError(t, err)
