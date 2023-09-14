@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -722,81 +723,6 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 		},
 	}
 }
-
-// GenesisSigner is used to sign the assetID using the group key public key
-// for a given asset.
-type GenesisSigner interface {
-	// SignGenesis tweaks the public key identified by the passed key
-	// descriptor with the the first passed Genesis description, and signs
-	// the second passed Genesis description with the tweaked public key.
-	// For minting the first asset in a group, only one Genesis object is
-	// needed, since we tweak with and sign over the same Genesis object.
-	// The final tweaked public key and the signature are returned.
-	SignGenesis(keychain.KeyDescriptor, Genesis,
-		*Genesis) (*btcec.PublicKey, *schnorr.Signature, error)
-}
-
-// RawKeyGenesisSigner implements the GenesisSigner interface using a raw
-// private key.
-type RawKeyGenesisSigner struct {
-	privKey *btcec.PrivateKey
-}
-
-// NewRawKeyGenesisSigner creates a new RawKeyGenesisSigner instance given the
-// passed public key.
-func NewRawKeyGenesisSigner(priv *btcec.PrivateKey) *RawKeyGenesisSigner {
-	return &RawKeyGenesisSigner{
-		privKey: priv,
-	}
-}
-
-// SignGenesis tweaks the public key identified by the passed key
-// descriptor with the the first passed Genesis description, and signs
-// the second passed Genesis description with the tweaked public key.
-// For minting the first asset in a group, only one Genesis object is
-// needed, since we tweak with and sign over the same Genesis object.
-// The final tweaked public key and the signature are returned.
-func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*btcec.PublicKey,
-	*schnorr.Signature, error) {
-
-	if !keyDesc.PubKey.IsEqual(r.privKey.PubKey()) {
-		return nil, nil, fmt.Errorf("cannot sign with key")
-	}
-
-	// TODO(jhb): Update to two-phase tweak
-	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		*r.privKey, initialGen.GroupKeyTweak(),
-	)
-
-	// If the current genesis is not set, we are minting the first asset in
-	// the group. This means that we use the same Genesis object for both
-	// the key tweak and to create the asset ID we sign. If the current
-	// genesis is set, the asset type of the new asset must match the type
-	// of the first asset in the group.
-	id := initialGen.ID()
-	if currentGen != nil {
-		if initialGen.Type != currentGen.Type {
-			return nil, nil, fmt.Errorf("asset group type mismatch")
-		}
-
-		id = currentGen.ID()
-	}
-
-	// TODO(roasbeef): this actually needs to sign the digest of the asset
-	// itself
-	idHash := sha256.Sum256(id[:])
-	sig, err := schnorr.Sign(tweakedPrivKey, idHash[:])
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return tweakedPrivKey.PubKey(), sig, nil
-}
-
-// A compile-time assertion to ensure RawKeyGenesisSigner meets the
-// GenesisSigner interface.
-var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
 
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.

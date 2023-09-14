@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 )
 
@@ -109,3 +112,79 @@ func InputGenesisAssetPrevOut(prevAsset Asset) (*wire.TxOut, error) {
 		return nil, ErrUnknownVersion
 	}
 }
+
+// RawKeyGenesisSigner implements the GenesisSigner interface using a raw
+// private key.
+type RawKeyGenesisSigner struct {
+	privKey *btcec.PrivateKey
+}
+
+// NewRawKeyGenesisSigner creates a new RawKeyGenesisSigner instance given the
+// passed public key.
+func NewRawKeyGenesisSigner(priv *btcec.PrivateKey) *RawKeyGenesisSigner {
+	return &RawKeyGenesisSigner{
+		privKey: priv,
+	}
+}
+
+// SignGenesis tweaks the public key identified by the passed key
+// descriptor with the the first passed Genesis description, and signs
+// the second passed Genesis description with the tweaked public key.
+// For minting the first asset in a group, only one Genesis object is
+// needed, since we tweak with and sign over the same Genesis object.
+// The final tweaked public key and the signature are returned.
+func (r *RawKeyGenesisSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
+	error) {
+
+	signerPubKey := r.privKey.PubKey()
+
+	if !signDesc.KeyDesc.PubKey.IsEqual(signerPubKey) {
+		return nil, fmt.Errorf("cannot sign with key")
+	}
+
+	sig, err := SignVirtualTx(r.privKey, signDesc, virtualTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
+
+// A compile-time assertion to ensure RawKeyGenesisSigner meets the
+// GenesisSigner interface.
+var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
+
+type RawGroupTxBuilder struct{}
+
+func (m *RawGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
+	*wire.TxOut, error) {
+
+	// First, we check that the passed asset is a genesis grouped asset
+	// that has no group witness.
+	if !newAsset.NeedsGenesisWitnessForGroup() {
+		return nil, nil, fmt.Errorf("asset is not a genesis grouped" +
+			"asset")
+	}
+
+	prevOut, err := InputGenesisAssetPrevOut(*newAsset)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Now, create the virtual transaction that represents this asset
+	// minting.
+	virtualTx, err := virtualGenesisTx(newAsset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+	populatedVirtualTx := virtualGenesisTxWithInput(
+		virtualTx, newAsset, 0, nil,
+	)
+
+	return populatedVirtualTx, prevOut, nil
+}
+
+// A compile time assertion to ensure that RawGroupTxBuilder meets the
+// GenesisTxBuilder interface.
+var _ GenesisTxBuilder = (*RawGroupTxBuilder)(nil)
