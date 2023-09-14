@@ -438,7 +438,9 @@ type GroupKey struct {
 	// GroupPubKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
 	// asset to be made possible. The tweaked public key is the result of:
-	//   groupInternalKey + sha256(groupInternalKey || genesisOutPoint) * G
+	//
+	// 	internalKey = rawKey + singleTweak * G
+	// 	tweakedGroupKey = TapTweak(internalKey, tapTweak)
 	GroupPubKey btcec.PublicKey
 
 	// TapscriptRoot is the root of the Tapscript tree that commits to all
@@ -461,8 +463,8 @@ type GroupKey struct {
 type GroupKeyReveal struct {
 	// RawKey is the public key that is tweaked twice to derive the final
 	// tweaked group key. The final tweaked key is the result of:
-	// 	groupInternalKey =  RawKey * sha256(assetID || RawKey) * G.
-	// 	GroupPubKey = TapTweak(groupInternalKey, TapscriptRoot)
+	// internalKey = rawKey + singleTweak * G
+	// tweakedGroupKey = TapTweak(internalKey, tapTweak)
 	RawKey SerializedKey
 
 	// TapscriptRoot is the root of the Tapscript tree that commits to all
@@ -480,11 +482,38 @@ func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	internalKey := input.TweakPubKeyWithTweak(rawKey, assetID[:])
-	tweakedGroupKey := txscript.ComputeTaprootOutputKey(
-		internalKey, g.TapscriptRoot[:],
-	)
-	return tweakedGroupKey, nil
+	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot)
+}
+
+// GroupPubKey derives a tweaked group key from a public key and two tweaks;
+// the single tweak is the asset ID of the group anchor asset, and the tapTweak
+// is the root of a tapscript tree that commits to script-based conditions for
+// reissuing assets as part of this asset group. The tweaked key is defined by:
+//
+//	internalKey = rawKey + singleTweak * G
+//	tweakedGroupKey = TapTweak(internalKey, tapTweak)
+func GroupPubKey(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
+	*btcec.PublicKey, error) {
+
+	if len(singleTweak) != sha256.Size {
+		return nil, fmt.Errorf("genesis tweak must be %d bytes",
+			sha256.Size)
+	}
+
+	internalKey := input.TweakPubKeyWithTweak(rawKey, singleTweak)
+
+	switch len(tapTweak) {
+	case 0:
+		return txscript.ComputeTaprootKeyNoScript(internalKey), nil
+
+	case sha256.Size:
+		return txscript.ComputeTaprootOutputKey(internalKey, tapTweak),
+			nil
+
+	default:
+		return nil, fmt.Errorf("tapscript tweaks must be %d bytes",
+			sha256.Size)
+	}
 }
 
 // IsEqual returns true if this group key and signature are exactly equivalent
@@ -737,19 +766,63 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.
-func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*GroupKey, error) {
+func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
+	rawKey keychain.KeyDescriptor, initialGen Genesis,
+	newAsset *Asset) (*GroupKey, error) {
 
-	groupPubKey, sig, err := genSigner.SignGenesis(
-		rawKey, initialGen, currentGen,
-	)
+	// First, perform the final checks on the asset being authorized for
+	// group membership.
+	if newAsset == nil {
+		return nil, fmt.Errorf("grouped asset cannot be nil")
+	}
+
+	if !newAsset.HasGenesisWitness() {
+		return nil, fmt.Errorf("asset is not a genesis asset")
+	}
+
+	if initialGen.Type != newAsset.Type {
+		return nil, fmt.Errorf("asset group type mismatch")
+	}
+
+	// Compute the tweaked group key and set it in the asset before
+	// creating the virtual minting transaction.
+	genesisTweak := initialGen.ID()
+	tweakedGroupKey, err := GroupPubKey(rawKey.PubKey, genesisTweak[:], nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+
+	assetWithGroup := newAsset.Copy()
+	assetWithGroup.GroupKey = &GroupKey{
+		GroupPubKey: *tweakedGroupKey,
+	}
+
+	// Build the virtual transaction that represents the minting of the new
+	// asset, which will be signed to generate the group witness.
+	genesisTx, prevOut, err := genBuilder.BuildGenesisTx(assetWithGroup)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build virtual tx: %w", err)
+	}
+
+	// Build the static signing descriptor needed to sign the virtual
+	// minting transaction. This is restricted to group keys with an empty
+	// tapscript root and key path spends.
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:     rawKey,
+		SingleTweak: genesisTweak[:],
+		SignMethod:  input.TaprootKeySpendBIP0086SignMethod,
+		Output:      prevOut,
+		HashType:    txscript.SigHashDefault,
+		InputIndex:  0,
+	}
+	sig, err := genSigner.SignVirtualTx(signDesc, genesisTx, prevOut)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GroupKey{
 		RawKey:      rawKey,
-		GroupPubKey: *groupPubKey,
+		GroupPubKey: *tweakedGroupKey,
 		Witness:     wire.TxWitness{sig.Serialize()},
 	}, nil
 }
@@ -820,18 +893,28 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 			genesis.Type)
 	}
 
+	// Valid genesis asset witness.
+	genesisWitness := Witness{
+		PrevID:          &PrevID{},
+		TxWitness:       nil,
+		SplitCommitment: nil,
+	}
+
+	// Genesis assets with an asset group must have the group witness stored
+	// in the genesis asset witness, if present.
+	if groupKey != nil && groupKey.Witness != nil &&
+		len(groupKey.Witness) != 0 {
+
+		genesisWitness.TxWitness = groupKey.Witness
+	}
+
 	return &Asset{
-		Version:          V0,
-		Genesis:          genesis,
-		Amount:           amount,
-		LockTime:         locktime,
-		RelativeLockTime: relativeLocktime,
-		PrevWitnesses: []Witness{{
-			// Valid genesis asset witness.
-			PrevID:          &PrevID{},
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		}},
+		Version:             V0,
+		Genesis:             genesis,
+		Amount:              amount,
+		LockTime:            locktime,
+		RelativeLockTime:    relativeLocktime,
+		PrevWitnesses:       []Witness{genesisWitness},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       ScriptV0,
 		ScriptKey:           scriptKey,
