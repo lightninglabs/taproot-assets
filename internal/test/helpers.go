@@ -308,11 +308,17 @@ func HexTx(t testing.TB, tx *wire.MsgTx) string {
 	return hex.EncodeToString(buf.Bytes())
 }
 
-func ComputeTaprootScript(t testing.TB, taprootKey *btcec.PublicKey) []byte {
-	script, err := txscript.NewScriptBuilder().
+func ComputeTaprootScriptErr(witnessProgram []byte) ([]byte, error) {
+	return txscript.NewScriptBuilder().
 		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(taprootKey)).
+		AddData(witnessProgram[:]).
 		Script()
+}
+
+func ComputeTaprootScript(t testing.TB, taprootKey *btcec.PublicKey) []byte {
+	script, err := ComputeTaprootScriptErr(
+		schnorr.SerializePubKey(taprootKey),
+	)
 	require.NoError(t, err)
 	return script
 }

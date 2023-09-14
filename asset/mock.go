@@ -2,6 +2,8 @@ package asset
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"testing"
@@ -61,6 +63,74 @@ func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
 
 	return groupKey, privateKey.Serialize()
 }
+
+// Forked from tapscript/tx/virtualTxOut to remove checks for split commitments
+// and witness stripping.
+func virtualGenesisTxOut(newAsset *Asset) (*wire.TxOut, error) {
+	// Commit to the new asset directly. In this case, the output script is
+	// derived from the root of a MS-SMT containing the new asset.
+	groupKey := schnorr.SerializePubKey(&newAsset.GroupKey.GroupPubKey)
+	assetID := newAsset.Genesis.ID()
+
+	h := sha256.New()
+	_, _ = h.Write(groupKey)
+	_, _ = h.Write(assetID[:])
+	_, _ = h.Write(schnorr.SerializePubKey(newAsset.ScriptKey.PubKey))
+
+	key := *(*[32]byte)(h.Sum(nil))
+	leaf, err := newAsset.Leaf()
+	if err != nil {
+		return nil, err
+	}
+	outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// TODO(bhandras): thread the context through.
+	tree, err := outputTree.Insert(context.TODO(), key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	treeRoot, err := tree.Root(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	rootKey := treeRoot.NodeHash()
+	pkScript, err := test.ComputeTaprootScriptErr(rootKey[:])
+	if err != nil {
+		return nil, err
+	}
+	return wire.NewTxOut(int64(newAsset.Amount), pkScript), nil
+}
+
+// Forked from tapscript/tx/virtualTx to be used only with the
+// RawGroupTxBuilder.
+func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
+	var (
+		txIn *wire.TxIn
+		err  error
+	)
+
+	// We'll start by mapping all inputs into a MS-SMT.
+	txIn, _, err = VirtualGenesisTxIn(newAsset)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then we'll map all asset outputs into a single UTXO.
+	txOut, err := virtualGenesisTxOut(newAsset)
+	if err != nil {
+		return nil, err
+	}
+
+	// With our single input and output mapped, we're ready to construct our
+	// virtual transaction.
+	virtualTx := wire.NewMsgTx(2)
+	virtualTx.AddTxIn(txIn)
+	virtualTx.AddTxOut(txOut)
+	return virtualTx, nil
+}
+
 // SignOutputRaw creates a signature for a single input.
 // Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw
 func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
