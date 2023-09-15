@@ -175,16 +175,6 @@ func (g Genesis) GroupKeyTweak() []byte {
 	return keyGroupBytes.Bytes()
 }
 
-// VerifySignature verifies the given signature that it is valid over the
-// asset's unique identifier with the given public key.
-func (g Genesis) VerifySignature(sig *schnorr.Signature,
-	pubKey *btcec.PublicKey) bool {
-
-	msg := g.ID()
-	digest := sha256.Sum256(msg[:])
-	return sig.Verify(digest[:], pubKey)
-}
-
 // Encode encodes an asset genesis.
 func (g Genesis) Encode(w io.Writer) error {
 	var buf [8]byte
