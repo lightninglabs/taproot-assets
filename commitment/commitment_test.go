@@ -125,16 +125,6 @@ func TestNewAssetCommitment(t *testing.T) {
 			err: ErrAssetGenesisMismatch,
 		},
 		{
-			name: "same group with invalid signature",
-			f: func() []*asset.Asset {
-				return []*asset.Asset{
-					randAsset(t, genesis1, groupKey1),
-					randAsset(t, genesis2, groupKey1),
-				}
-			},
-			err: ErrAssetGenesisInvalidSig,
-		},
-		{
 			name: "duplicate script key",
 			f: func() []*asset.Asset {
 				asset1 := randAsset(t, genesis1, groupKey1)
@@ -371,10 +361,13 @@ func TestMintTapCommitment(t *testing.T) {
 					nil,
 				)
 
-			groupKey := asset.RandGroupKey(
-				t, testCase.g, protoAsset,
-			)
-			_, _, err = Mint(testCase.g, groupKey, details)
+				groupKey := asset.RandGroupKey(
+					t, testCase.g, protoAsset,
+				)
+
+				_, _, err = Mint(testCase.g, groupKey, details)
+			}
+
 			if testCase.valid {
 				require.NoError(t, err)
 			} else {
@@ -936,11 +929,6 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	group1Anchor.GroupKey = groupKey1
 	group2Anchor := randAsset(t, genesis2, nil)
 	groupKey2 := asset.RandGroupKey(t, genesis2, group2Anchor)
-	copyOfGroupKey1 := &asset.GroupKey{
-		RawKey:      groupKey1.RawKey,
-		GroupPubKey: groupKey1.GroupPubKey,
-		Witness:     groupKey1.Witness,
-	}
 	group1Reissued := group2Anchor.Copy()
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
@@ -983,15 +971,6 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			},
 			numAssets: 0,
 			err:       ErrAssetTypeMismatch,
-		},
-		{
-			name: "invalid group signature",
-			f: func() (*asset.Asset, error) {
-				mismatchedAsset := randAsset(t, genesis2, copyOfGroupKey1)
-				return nil, groupAssetCommitment.Upsert(mismatchedAsset)
-			},
-			numAssets: 0,
-			err:       ErrAssetGenesisInvalidSig,
 		},
 		{
 			name: "fresh asset commitment",

@@ -47,13 +47,6 @@ var (
 	ErrAssetDuplicateScriptKey = errors.New(
 		"asset commitment: duplicate script key",
 	)
-
-	// ErrAssetGenesisInvalidSig is an error returned when we attempt to
-	// create a new asset commitment from a genesis with an invalid
-	// signature with their group key.
-	ErrAssetGenesisInvalidSig = errors.New(
-		"asset commitment: invalid genesis signature",
-	)
 )
 
 // CommittedAssets is the set of Assets backing an AssetCommitment.
@@ -134,25 +127,6 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		case assetGroupKey == nil:
 			if assetGenesis != newAsset.Genesis.ID() {
 				return nil, ErrAssetGenesisMismatch
-			}
-
-		case assetGroupKey != nil:
-			// There should be a valid Schnorr sig over the asset ID
-			// in the group key struct.
-			groupSig, isSig := asset.IsGroupSig(
-				newAsset.GroupKey.Witness,
-			)
-
-			if !isSig {
-				return nil, fmt.Errorf("unsupported group " +
-					"witness")
-			}
-
-			validSig := newAsset.Genesis.VerifySignature(
-				groupSig, &assetGroupKey.GroupPubKey,
-			)
-			if !validSig {
-				return nil, ErrAssetGenesisInvalidSig
 			}
 		}
 
@@ -252,22 +226,6 @@ func (c *AssetCommitment) Upsert(newAsset *asset.Asset) error {
 			return ErrAssetGroupKeyMismatch
 		}
 		return ErrAssetGenesisMismatch
-	}
-
-	// There should be a valid Schnorr sig over the asset ID
-	// in the group key struct.
-	if newAsset.GroupKey != nil {
-		groupSig, isSig := asset.IsGroupSig(newAsset.GroupKey.Witness)
-		if !isSig {
-			return fmt.Errorf("unsupported group witness")
-		}
-
-		validSig := newAsset.Genesis.VerifySignature(
-			groupSig, &newAsset.GroupKey.GroupPubKey,
-		)
-		if !validSig {
-			return ErrAssetGenesisInvalidSig
-		}
 	}
 
 	key := newAsset.AssetCommitmentKey()
