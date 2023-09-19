@@ -44,6 +44,11 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
+		name:             "basic b",
+		test:             testB,
+		proofCourierType: proof.HashmailCourierType,
+	},
+	{
 		name:             "basic send universerpc proof courier",
 		test:             testBasicSendUnidirectional,
 		proofCourierType: proof.UniverseRpcCourierType,

@@ -129,6 +129,83 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	wg.Wait()
 }
 
+// testBasicSend tests that we can properly send assets back and forth between
+// nodes.
+func testB(t *harnessTest) {
+	ctxb := context.Background()
+	const numUnits = 10
+
+	// First, we'll make a normal assets with enough units to allow us to
+	// send it around a few times.
+	rpcAssets := mintAssetsConfirmBatch(
+		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets. The existing tapd
+	// node will be used to synchronize universe state.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
+			params.startupSyncNumAssets = len(rpcAssets)
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Next, we'll attempt to complete two transfers with distinct
+	// addresses from our main node to Bob.
+	currentUnits := simpleAssets[0].Asset.Amount
+
+	// Issue a single address which will be reused for each send.
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnits,
+	})
+	require.NoError(t.t, err)
+
+	assertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
+
+	// Attempt to send and do not mine afterward.
+	currentUnits -= numUnits
+	sendAssetsToAddr(t, t.tapd, bobAddr)
+
+	// Attempt to send for a second time. This should fail because the
+	// previous send was not mined.
+	receiverAddrs := make([]*taprpc.Addr, 1)
+	receiverAddrs[0] = bobAddr
+	encodedAddrs := make([]string, len(receiverAddrs))
+	for i, addr := range receiverAddrs {
+		encodedAddrs[i] = addr.Encoded
+	}
+	_, err = t.tapd.SendAsset(ctxb, &taprpc.SendAssetRequest{
+		TapAddrs: encodedAddrs,
+	})
+	require.True(t.t, err != nil)
+
+	// Try to complete the first send by mining.
+	mineBlocks(t, t.lndHarness, 6, 1)
+
+	time.Sleep(10 * time.Second)
+
+	// At this point we've already mined which means that we should be able
+	// to re-use the same address and complete a second send.
+	currentUnits -= numUnits
+
+	// This call should fail because of the coin lock bug.
+	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
+
+	confirmAndAssertOutboundTransfer(
+		t, t.tapd, sendResp, genInfo.AssetId,
+		[]uint64{currentUnits, numUnits}, 1, 2,
+	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 2)
+}
+
 // testResumePendingPackageSend tests that we can properly resume a pending
 // package send after a restart.
 func testResumePendingPackageSend(t *harnessTest) {
