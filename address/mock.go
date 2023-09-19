@@ -33,6 +33,13 @@ func RandAddr(t testing.TB, params *ChainParams,
 	*asset.Genesis, *asset.GroupKey) {
 
 	scriptKeyPriv := test.RandPrivKey(t)
+	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: scriptKeyPriv.PubKey(),
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(test.RandIntn(255) + 1),
+			Index:  uint32(test.RandIntn(255)),
+		},
+	})
 
 	internalKey := test.RandPrivKey(t)
 
@@ -49,7 +56,10 @@ func RandAddr(t testing.TB, params *ChainParams,
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
 	if test.RandInt[uint32]()%2 == 0 {
-		groupInfo = asset.RandGroupKey(t, genesis)
+		protoAsset := asset.AssetNoErr(
+			t, genesis, amount, 0, 0, scriptKey, nil,
+		)
+		groupInfo = asset.RandGroupKey(t, genesis, protoAsset)
 		groupPubKey = &groupInfo.GroupPubKey
 		groupWitness = groupInfo.Witness
 
@@ -57,14 +67,6 @@ func RandAddr(t testing.TB, params *ChainParams,
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
 		)
 	}
-
-	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
-		PubKey: scriptKeyPriv.PubKey(),
-		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(test.RandIntn(255) + 1),
-			Index:  uint32(test.RandIntn(255)),
-		},
-	})
 
 	tapAddr, err := New(
 		genesis, groupPubKey, groupWitness, *scriptKey.PubKey,
