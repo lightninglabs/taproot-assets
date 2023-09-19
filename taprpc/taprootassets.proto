@@ -95,6 +95,15 @@ service TaprootAssets {
     */
     rpc SendAsset (SendAssetRequest) returns (SendAssetResponse);
 
+    /* tapcli: `assets burn`
+    BurnAsset burns the given number of units of a given asset by sending them
+    to a provably un-spendable script key. Burning means irrevocably destroying
+    a certain number of assets, reducing the total supply of the asset. Because
+    burning is such a destructive and non-reversible operation, some specific
+    values need to be set in the request to avoid accidental burns.
+    */
+    rpc BurnAsset (BurnAssetRequest) returns (BurnAssetResponse);
+
     /* tapcli: `getinfo`
     GetInfo returns the information for the node.
     */
@@ -282,6 +291,10 @@ message Asset {
     // If the asset has been leased, this is the expiry of the lease as a Unix
     // timestamp in seconds.
     int64 lease_expiry = 16;
+
+    // Indicates whether this transfer was an asset burn. If true, the number of
+    // assets in this output are destroyed and can no longer be spent.
+    bool is_burn = 17;
 }
 
 message PrevWitness {
@@ -493,6 +506,14 @@ enum OutputType {
     // change from a split or a tombstone from a non-interactive full value send
     // output, as well as passive assets.
     OUTPUT_TYPE_PASSIVE_SPLIT_ROOT = 3;
+
+    // OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS is a plain full-value interactive send
+    // output that also carries passive assets. This is a special case where we
+    // send the full value of a single asset in a commitment to a new script
+    // key, but also carry passive assets in the same output. This is useful for
+    // key rotation (send-to-self) scenarios or asset burns where we burn the
+    // full supply of a single asset within a commitment.
+    OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS = 4;
 }
 
 message TransferOutput {
@@ -736,6 +757,11 @@ message DecodedProof {
     // that the creator of the proof is able to produce a valid signature to
     // spend the asset.
     repeated bytes challenge_witness = 10;
+
+    // Indicates whether the state transition this proof represents is a burn,
+    // meaning that the assets were provably destroyed and can no longer be
+    // spent.
+    bool is_burn = 11;
 }
 
 message VerifyProofResponse {
@@ -911,4 +937,29 @@ message FetchAssetMetaRequest {
         // The hex encoded meta hash of the asset meta.
         string meta_hash_str = 4;
     }
+}
+
+message BurnAssetRequest {
+    oneof asset {
+        // The asset ID of the asset to burn units of.
+        bytes asset_id = 1;
+
+        // The hex encoded asset ID of the asset to burn units of.
+        string asset_id_str = 2;
+    }
+
+    uint64 amount_to_burn = 3;
+
+    // A safety check to ensure the user is aware of the destructive nature of
+    // the burn. This needs to be set to the value "assets will be destroyed"
+    // for the burn to succeed.
+    string confirmation_text = 4;
+}
+
+message BurnAssetResponse {
+    // The asset transfer that contains the asset burn as an output.
+    AssetTransfer burn_transfer = 1;
+
+    // The burn transition proof for the asset burn output.
+    DecodedProof burn_proof = 2;
 }

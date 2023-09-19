@@ -78,6 +78,13 @@ type TaprootAssetsClient interface {
 	// send, as well as the proof file information the receiver needs to fully
 	// receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
+	// tapcli: `assets burn`
+	// BurnAsset burns the given number of units of a given asset by sending them
+	// to a provably un-spendable script key. Burning means irrevocably destroying
+	// a certain number of assets, reducing the total supply of the asset. Because
+	// burning is such a destructive and non-reversible operation, some specific
+	// values need to be set in the request to avoid accidental burns.
+	BurnAsset(ctx context.Context, in *BurnAssetRequest, opts ...grpc.CallOption) (*BurnAssetResponse, error)
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
@@ -232,6 +239,15 @@ func (c *taprootAssetsClient) SendAsset(ctx context.Context, in *SendAssetReques
 	return out, nil
 }
 
+func (c *taprootAssetsClient) BurnAsset(ctx context.Context, in *BurnAssetRequest, opts ...grpc.CallOption) (*BurnAssetResponse, error) {
+	out := new(BurnAssetResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/BurnAsset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taprootAssetsClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error) {
 	out := new(GetInfoResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/GetInfo", in, out, opts...)
@@ -346,6 +362,13 @@ type TaprootAssetsServer interface {
 	// send, as well as the proof file information the receiver needs to fully
 	// receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
+	// tapcli: `assets burn`
+	// BurnAsset burns the given number of units of a given asset by sending them
+	// to a provably un-spendable script key. Burning means irrevocably destroying
+	// a certain number of assets, reducing the total supply of the asset. Because
+	// burning is such a destructive and non-reversible operation, some specific
+	// values need to be set in the request to avoid accidental burns.
+	BurnAsset(context.Context, *BurnAssetRequest) (*BurnAssetResponse, error)
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
@@ -406,6 +429,9 @@ func (UnimplementedTaprootAssetsServer) ExportProof(context.Context, *ExportProo
 }
 func (UnimplementedTaprootAssetsServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
+}
+func (UnimplementedTaprootAssetsServer) BurnAsset(context.Context, *BurnAssetRequest) (*BurnAssetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BurnAsset not implemented")
 }
 func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
@@ -699,6 +725,24 @@ func _TaprootAssets_SendAsset_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_BurnAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BurnAssetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).BurnAsset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/BurnAsset",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).BurnAsset(ctx, req.(*BurnAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_GetInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetInfoRequest)
 	if err := dec(in); err != nil {
@@ -822,6 +866,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendAsset",
 			Handler:    _TaprootAssets_SendAsset_Handler,
+		},
+		{
+			MethodName: "BurnAsset",
+			Handler:    _TaprootAssets_BurnAsset_Handler,
 		},
 		{
 			MethodName: "GetInfo",

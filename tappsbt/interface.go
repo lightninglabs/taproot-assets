@@ -79,6 +79,12 @@ var (
 		return o.Type.IsSplitRoot()
 	}
 
+	// VOutCanCarryPassive is a predicate that returns true if the virtual
+	// output can carry passive assets.
+	VOutCanCarryPassive = func(o *VOutput) bool {
+		return o.Type.CanCarryPassive()
+	}
+
 	// VOutIsNotSplitRoot is a predicate that returns true if the virtual
 	// output is NOT a split root output.
 	VOutIsNotSplitRoot = func(o *VOutput) bool {
@@ -215,6 +221,18 @@ func (p *VPacket) SplitRootOutput() (*VOutput, error) {
 	}
 
 	return fn.First(p.Outputs, VOutIsSplitRoot)
+}
+
+// PassiveAssetsOutput returns the output in the virtual transaction that can
+// carry passive assets, or an error if there is none or more than one.
+func (p *VPacket) PassiveAssetsOutput() (*VOutput, error) {
+	count := fn.Count(p.Outputs, VOutCanCarryPassive)
+	if count != 1 {
+		return nil, fmt.Errorf("expected 1 passive assets carrier "+
+			"output, got %d", count)
+	}
+
+	return fn.First(p.Outputs, VOutCanCarryPassive)
 }
 
 // FirstNonSplitRootOutput returns the first non-change output in the virtual
@@ -376,6 +394,14 @@ const (
 	// from a split or a tombstone from a non-interactive full value send
 	// output, as well as passive assets.
 	TypePassiveSplitRoot VOutputType = 3
+
+	// TypeSimplePassiveAssets is a plain full-value interactive send output
+	// that also carries passive assets. This is a special case where we
+	// send the full value of a single asset in a commitment to a new script
+	// key, but also carry passive assets in the same output. This is useful
+	// for key rotation (send-to-self) scenarios or asset burns where we
+	// burn the full supply of a single asset within a commitment.
+	TypeSimplePassiveAssets VOutputType = 4
 )
 
 // IsSplitRoot returns true if the output type is a split root, indicating that
@@ -389,7 +415,7 @@ func (t VOutputType) IsSplitRoot() bool {
 func (t VOutputType) CanBeInteractive() bool {
 	switch t {
 	case TypeSimple, TypeSplitRoot, TypePassiveAssetsOnly,
-		TypePassiveSplitRoot:
+		TypePassiveSplitRoot, TypeSimplePassiveAssets:
 
 		return true
 
@@ -402,7 +428,9 @@ func (t VOutputType) CanBeInteractive() bool {
 // passive assets.
 func (t VOutputType) CanCarryPassive() bool {
 	switch t {
-	case TypePassiveAssetsOnly, TypePassiveSplitRoot:
+	case TypePassiveAssetsOnly, TypePassiveSplitRoot,
+		TypeSimplePassiveAssets:
+
 		return true
 
 	default:
@@ -424,6 +452,9 @@ func (t VOutputType) String() string {
 
 	case TypePassiveSplitRoot:
 		return "passive_split_root"
+
+	case TypeSimplePassiveAssets:
+		return "simple_passive_assets"
 
 	default:
 		return fmt.Sprintf("unknown <%d>", t)

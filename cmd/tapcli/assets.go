@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -24,6 +25,7 @@ var assetsCommands = []cli.Command{
 			listGroupsCommand,
 			listAssetBalancesCommand,
 			sendAssetsCommand,
+			burnAssetsCommand,
 			listTransfersCommand,
 			fetchMetaCommand,
 		},
@@ -31,21 +33,23 @@ var assetsCommands = []cli.Command{
 }
 
 var (
-	assetTypeName         = "type"
-	assetTagName          = "name"
-	assetSupplyName       = "supply"
-	assetMetaBytesName    = "meta_bytes"
-	assetMetaFilePathName = "meta_file_path"
-	assetMetaTypeName     = "meta_type"
-	assetEmissionName     = "enable_emission"
-	assetShowWitnessName  = "show_witness"
-	assetShowSpentName    = "show_spent"
-	assetGroupKeyName     = "group_key"
-	assetGroupAnchorName  = "group_anchor"
-	batchKeyName          = "batch_key"
-	groupByGroupName      = "by_group"
-	assetIDName           = "asset_id"
-	shortResponseName     = "short"
+	assetTypeName                = "type"
+	assetTagName                 = "name"
+	assetSupplyName              = "supply"
+	assetMetaBytesName           = "meta_bytes"
+	assetMetaFilePathName        = "meta_file_path"
+	assetMetaTypeName            = "meta_type"
+	assetEmissionName            = "enable_emission"
+	assetShowWitnessName         = "show_witness"
+	assetShowSpentName           = "show_spent"
+	assetGroupKeyName            = "group_key"
+	assetGroupAnchorName         = "group_anchor"
+	batchKeyName                 = "batch_key"
+	groupByGroupName             = "by_group"
+	assetIDName                  = "asset_id"
+	shortResponseName            = "short"
+	assetAmountName              = "amount"
+	burnOverrideConfirmationName = "override_confirmation_destroy_assets"
 )
 
 var mintAssetCommand = cli.Command{
@@ -471,6 +475,106 @@ func sendAssets(ctx *cli.Context) error {
 
 	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
 		TapAddrs: addrs,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to send assets: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var burnAssetsCommand = cli.Command{
+	Name:  "burn",
+	Usage: "burn a number of asset units",
+	Description: `
+	Burn (destroy, remove from circulation) a number of asset units in a
+	provable way. The returned burn proof is cryptographic evidence that the
+	assets can no longer be spent and that the supply has been reduced by
+	the specified amount.
+
+	To avoid a dangling BTC output, not all assets within a commitment can
+	be burned completely, there always must be a change output (either with
+	a change amount or another asset that resides in the same commitment).
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "the asset ID to burn units from",
+		},
+		cli.Uint64Flag{
+			Name:  assetAmountName,
+			Usage: "the amount of units to burn/destroy",
+		},
+		cli.BoolFlag{
+			Name: burnOverrideConfirmationName,
+			Usage: "if set, the confirmation prompt will be " +
+				"skipped and the assets are burned/destroyed " +
+				"immediately",
+		},
+	},
+	Action: burnAssets,
+}
+
+func burnAssets(ctx *cli.Context) error {
+	if ctx.NArg() != 0 || ctx.NumFlags() == 0 {
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
+	assetIDHex := ctx.String(assetIDName)
+	assetIDBytes, err := hex.DecodeString(assetIDHex)
+	if err != nil {
+		return fmt.Errorf("invalid asset ID")
+	}
+
+	burnAmount := ctx.Uint64(assetAmountName)
+	if burnAmount == 0 {
+		return fmt.Errorf("invalid burn amount")
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	if !ctx.Bool(burnOverrideConfirmationName) {
+		balance, err := client.ListBalances(
+			ctxc, &taprpc.ListBalancesRequest{
+				GroupBy: &taprpc.ListBalancesRequest_AssetId{
+					AssetId: true,
+				},
+				AssetFilter: assetIDBytes,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to list current asset "+
+				"balances: %w", err)
+		}
+
+		assetBalance, ok := balance.AssetBalances[assetIDHex]
+		if !ok {
+			return fmt.Errorf("couldn't fetch balance for asset %x",
+				assetIDBytes)
+		}
+
+		msg := fmt.Sprintf("Please confirm destructive action.\n"+
+			"Asset ID: %x\nCurrent available balance: %d\n"+
+			"Amount to burn: %d\n Are you sure you want to "+
+			"irreversibly burn (destroy, remove from circulation) "+
+			"the specified amount of assets?\nPlease answer 'yes' "+
+			"or 'no' and press enter: ", assetIDBytes,
+			assetBalance.Balance, burnAmount)
+
+		if !promptForConfirmation(msg) {
+			return nil
+		}
+	}
+
+	resp, err := client.BurnAsset(ctxc, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: assetIDBytes,
+		},
+		AmountToBurn:     burnAmount,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)

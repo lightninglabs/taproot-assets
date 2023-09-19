@@ -812,6 +812,36 @@ var prepareOutputAssetsTestCases = []testCase{{
 		return tapscript.PrepareOutputAssets(context.Background(), pkt)
 	},
 	err: commitment.ErrInvalidScriptKey,
+}, {
+	name: "asset split interactive send with collectible",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			state.address1CollectGroup,
+			state.asset1CollectGroupPrevID,
+			state, state.asset1CollectGroupInputAssets, false,
+		)
+
+		// A split root cannot be interactive in the case of a
+		// collectible. Because then we wouldn't need to have a split
+		// root in the first place.
+		pkt.Outputs[0].Interactive = true
+
+		// We expect an error because an interactive output cannot be
+		// un-spendable.
+		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
+		require.ErrorIs(t, err, commitment.ErrInvalidScriptKey)
+
+		// We also need to update the slit root's type to one that can
+		// carry passive assets.
+		pkt.Outputs[0].Type = tappsbt.TypePassiveSplitRoot
+
+		// Now we shouldn't get an error anymore.
+		return tapscript.PrepareOutputAssets(context.Background(), pkt)
+	},
+	err: nil,
 }}
 
 // TestSignVirtualTransaction tests edge cases around signing a witness for
