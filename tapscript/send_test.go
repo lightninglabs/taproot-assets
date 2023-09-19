@@ -103,6 +103,9 @@ func initSpendScenario(t *testing.T) spendData {
 	state.genesis1.MetaHash = [32]byte{}
 	state.genesis1collect.MetaHash = [32]byte{}
 
+	// Our mock genesis TXs always use an output index of 0.
+	state.genesis1.OutputIndex = 0
+
 	// Keys for sender, receiver, and group. Default to keypath spend
 	// for the spender ScriptKey.
 	spenderPrivKey, spenderPubKey := btcec.PrivKeyFromBytes(key1Bytes)
@@ -119,7 +122,12 @@ func initSpendScenario(t *testing.T) spendData {
 	state.receiverPrivKey = *receiverPrivKey
 	state.receiverPubKey = *receiverPubKey
 
-	groupKey := asset.RandGroupKey(t, state.genesis1collect)
+	genesis1collectProtoAsset := asset.NewAssetNoErr(
+		t, state.genesis1collect, 1, 0, 0, spenderScriptKey, nil,
+	)
+	groupKey := asset.RandGroupKey(
+		t, state.genesis1collect, genesis1collectProtoAsset,
+	)
 	state.groupKey = *groupKey
 
 	// Addresses to cover both asset types and all three asset values.
@@ -271,7 +279,9 @@ func createGenesisProof(t *testing.T, state *spendData) {
 	require.NoError(t, err)
 	asset2GenesisTx := &wire.MsgTx{
 		Version: 2,
-		TxIn:    []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: state.genesis1.FirstPrevOut,
+		}},
 		TxOut: []*wire.TxOut{{
 			PkScript: senderScript,
 			Value:    330,
@@ -311,6 +321,7 @@ func createGenesisProof(t *testing.T, state *spendData) {
 				Proof: *asset2CommitmentProof,
 			},
 		},
+		GenesisReveal: &state.asset2.Genesis,
 	}
 
 	state.asset2GenesisProof = asset2GenesisProof
@@ -1725,7 +1736,7 @@ func TestProofVerify(t *testing.T) {
 	// Add a PrevID to represent our fake genesis TX.
 	genesisOutPoint := &wire.OutPoint{
 		Hash:  state.asset2GenesisProof.AnchorTx.TxHash(),
-		Index: state.asset2GenesisProof.PrevOut.Index,
+		Index: state.asset2GenesisProof.InclusionProof.OutputIndex,
 	}
 	state.asset2PrevID = asset.PrevID{
 		OutPoint:  *genesisOutPoint,
@@ -1796,7 +1807,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	// Add a PrevID to represent our fake genesis TX.
 	genesisOutPoint := &wire.OutPoint{
 		Hash:  state.asset2GenesisProof.AnchorTx.TxHash(),
-		Index: state.asset2GenesisProof.PrevOut.Index,
+		Index: state.asset2GenesisProof.InclusionProof.OutputIndex,
 	}
 	state.asset2PrevID = asset.PrevID{
 		OutPoint:  *genesisOutPoint,
