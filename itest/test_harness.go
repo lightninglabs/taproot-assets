@@ -175,7 +175,7 @@ func (h *harnessTest) LogfTimestamped(format string, args ...interface{}) {
 }
 
 // shutdown stops both the mock universe and tapd server.
-func (h *harnessTest) shutdown(t *testing.T) error {
+func (h *harnessTest) shutdown(_ *testing.T) error {
 	h.universeServer.stop()
 
 	if h.proofCourier != nil {
@@ -284,6 +284,9 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 		port := nextAvailablePort()
 		apHarness := NewApertureHarness(ht.t, port)
 		proofCourier = &apHarness
+
+	case proof.UniverseRpcCourierType:
+		proofCourier = NewUniverseRPCHarness(t, ht, lndHarness.Bob)
 	}
 
 	// Start the proof courier harness if specified.

@@ -18,6 +18,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
+const (
+	defaultProofRetrievalDelay = 5 * time.Second
+)
+
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
 type CustodianConfig struct {
@@ -382,10 +386,15 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				return
 			}
 
+			// Sleep to give the sender an opportunity to transfer
+			// the proof to the proof courier service.
+			time.Sleep(defaultProofRetrievalDelay)
+
 			// Attempt to receive proof via proof courier service.
 			loc := proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: addr.ScriptKey,
+				OutPoint:  &op,
 			}
 			addrProof, err := courier.ReceiveProof(ctx, loc)
 			if err != nil {

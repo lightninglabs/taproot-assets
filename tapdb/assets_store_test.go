@@ -339,7 +339,9 @@ func TestImportAssetProof(t *testing.T) {
 	// Finally, we'll verify all the anchor information that was inserted
 	// on disk.
 	require.Equal(t, testProof.AnchorBlockHash, dbAsset.AnchorBlockHash)
-	require.Equal(t, testProof.OutPoint, dbAsset.AnchorOutpoint)
+	require.Equal(
+		t, testProof.AssetSnapshot.OutPoint, dbAsset.AnchorOutpoint,
+	)
 	require.Equal(t, testProof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
 
 	// We should also be able to fetch the proof we just inserted using the
@@ -395,7 +397,9 @@ func TestImportAssetProof(t *testing.T) {
 	// Finally, we'll verify all the anchor information that was inserted
 	// on disk.
 	require.Equal(t, testProof.AnchorBlockHash, dbAsset.AnchorBlockHash)
-	require.Equal(t, testProof.OutPoint, dbAsset.AnchorOutpoint)
+	require.Equal(
+		t, testProof.AssetSnapshot.OutPoint, dbAsset.AnchorOutpoint,
+	)
 	require.Equal(t, testProof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
 }
 

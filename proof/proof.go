@@ -131,7 +131,9 @@ type Watcher interface {
 // Proof encodes all of the data necessary to prove a valid state transition for
 // an asset has occurred within an on-chain transaction.
 type Proof struct {
-	// PrevOut is the previous on-chain outpoint of the asset.
+	// PrevOut is the previous on-chain outpoint of the asset. This outpoint
+	// is that of the first on-chain input. Outpoints which correspond to
+	// the other inputs can be found in AdditionalInputs.
 	PrevOut wire.OutPoint
 
 	// BlockHeader is the current block header committing to the on-chain
