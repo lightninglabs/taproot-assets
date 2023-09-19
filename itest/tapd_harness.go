@@ -113,8 +113,6 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// also used within some tests for transferring proofs.
 	tapCfg.RpcConf.AllowPublicUniProofCourier = true
 
-	tapCfg.Universe.AcceptRemoteProofs = true
-
 	// Decide which DB backend to use.
 	switch *dbbackend {
 	case tapcfg.DatabaseBackendSqlite:

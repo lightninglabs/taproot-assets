@@ -270,12 +270,11 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	})
 
 	return &tap.Config{
-		DebugLevel:                 cfg.DebugLevel,
-		RuntimeID:                  runtimeID,
-		AcceptRemoteUniverseProofs: cfg.Universe.AcceptRemoteProofs,
-		Lnd:                        lndServices,
-		ChainParams:                cfg.ActiveNetParams,
-		ReOrgWatcher:               reOrgWatcher,
+		DebugLevel:   cfg.DebugLevel,
+		RuntimeID:    runtimeID,
+		Lnd:          lndServices,
+		ChainParams:  cfg.ActiveNetParams,
+		ReOrgWatcher: reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{
 				Wallet:      walletAnchor,

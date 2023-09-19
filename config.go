@@ -83,8 +83,6 @@ type Config struct {
 	// connecting to itself as a federation member.
 	RuntimeID int64
 
-	AcceptRemoteUniverseProofs bool
-
 	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?
 	ChainParams chaincfg.Params
 

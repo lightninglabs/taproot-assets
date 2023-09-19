@@ -51,8 +51,6 @@ const (
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
 
-	defaultAcceptRemoteProofs = false
-
 	defaultTestnetFederationServer = "testnet.universe.lightning.finance:10029"
 
 	// DefaultAutogenValidity is the default validity of a self-signed
@@ -353,8 +351,7 @@ func DefaultConfig() Config {
 			},
 		},
 		Universe: &UniverseConfig{
-			SyncInterval:       defaultUniverseSyncInterval,
-			AcceptRemoteProofs: defaultAcceptRemoteProofs,
+			SyncInterval: defaultUniverseSyncInterval,
 		},
 	}
 }
