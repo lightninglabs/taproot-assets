@@ -53,8 +53,8 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 		)
 	}
 
-	pubKeyCopy1 := *pubKey
-	pubKeyCopy2 := *pubKey
+	scriptKey := *pubKey
+	internalKey := *pubKey
 
 	genesis := asset.RandGenesis(t, assetType)
 
@@ -64,7 +64,11 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	)
 
 	if groupPubKey {
-		groupInfo := asset.RandGroupKey(t, genesis)
+		protoAsset := asset.AssetNoErr(
+			t, genesis, amount, 0, 0,
+			asset.NewScriptKey(&scriptKey), nil,
+		)
+		groupInfo := asset.RandGroupKey(t, genesis, protoAsset)
 		groupKey = &groupInfo.GroupPubKey
 		groupWitness = groupInfo.Witness
 	}
@@ -72,7 +76,7 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	proofCourierAddr := RandProofCourierAddr(t)
 
 	return New(
-		genesis, groupKey, groupWitness, pubKeyCopy1, pubKeyCopy2,
+		genesis, groupKey, groupWitness, scriptKey, internalKey,
 		amount, tapscriptSibling, net, proofCourierAddr,
 	)
 }

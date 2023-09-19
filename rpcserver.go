@@ -1287,8 +1287,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
-		rpcGenesis     = decodedProof.GenesisReveal
-		rpcGroupKey    = decodedProof.GroupKeyReveal
+		rpcGenesis     = p.GenesisReveal
+		rpcGroupKey    = p.GroupKeyReveal
 		anchorOutpoint = wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
@@ -1387,7 +1387,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	decodedAssetID := decodedProof.Asset.ID()
+	decodedAssetID := p.Asset.ID()
 	genesisReveal := &taprpc.GenesisReveal{
 		GenesisBaseReveal: &taprpc.GenesisInfo{
 			GenesisPoint: rpcGenesis.FirstPrevOut.String(),
@@ -1396,7 +1396,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 			AssetId:      decodedAssetID[:],
 			OutputIndex:  rpcGenesis.OutputIndex,
 		},
-		AssetType: taprpc.AssetType(decodedProof.Asset.Type),
+		AssetType: taprpc.AssetType(p.Asset.Type),
 	}
 
 	var GroupKeyReveal taprpc.GroupKeyReveal
