@@ -270,12 +270,11 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	})
 
 	return &tap.Config{
-		DebugLevel:                 cfg.DebugLevel,
-		RuntimeID:                  runtimeID,
-		AcceptRemoteUniverseProofs: cfg.Universe.AcceptRemoteProofs,
-		Lnd:                        lndServices,
-		ChainParams:                cfg.ActiveNetParams,
-		ReOrgWatcher:               reOrgWatcher,
+		DebugLevel:   cfg.DebugLevel,
+		RuntimeID:    runtimeID,
+		Lnd:          lndServices,
+		ChainParams:  cfg.ActiveNetParams,
+		ReOrgWatcher: reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{
 				Wallet:      walletAnchor,
@@ -384,22 +383,23 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	serverCfg.SignalInterceptor = shutdownInterceptor
 
 	serverCfg.RPCConfig = &tap.RPCConfig{
-		LisCfg:            &lnd.ListenerCfg{},
-		RPCListeners:      cfg.rpcListeners,
-		RESTListeners:     cfg.restListeners,
-		GrpcServerOpts:    serverOpts,
-		RestDialOpts:      restDialOpts,
-		RestListenFunc:    restListen,
-		WSPingInterval:    cfg.RpcConf.WSPingInterval,
-		WSPongWait:        cfg.RpcConf.WSPongWait,
-		RestCORS:          cfg.RpcConf.RestCORS,
-		NoMacaroons:       cfg.RpcConf.NoMacaroons,
-		MacaroonPath:      cfg.RpcConf.MacaroonPath,
-		AllowPublicStats:  cfg.RpcConf.AllowPublicStats,
-		LetsEncryptDir:    cfg.RpcConf.LetsEncryptDir,
-		LetsEncryptListen: cfg.RpcConf.LetsEncryptListen,
-		LetsEncryptEmail:  cfg.RpcConf.LetsEncryptEmail,
-		LetsEncryptDomain: cfg.RpcConf.LetsEncryptDomain,
+		LisCfg:                     &lnd.ListenerCfg{},
+		RPCListeners:               cfg.rpcListeners,
+		RESTListeners:              cfg.restListeners,
+		GrpcServerOpts:             serverOpts,
+		RestDialOpts:               restDialOpts,
+		RestListenFunc:             restListen,
+		WSPingInterval:             cfg.RpcConf.WSPingInterval,
+		WSPongWait:                 cfg.RpcConf.WSPongWait,
+		RestCORS:                   cfg.RpcConf.RestCORS,
+		NoMacaroons:                cfg.RpcConf.NoMacaroons,
+		MacaroonPath:               cfg.RpcConf.MacaroonPath,
+		AllowPublicUniProofCourier: cfg.RpcConf.AllowPublicUniProofCourier,
+		AllowPublicStats:           cfg.RpcConf.AllowPublicStats,
+		LetsEncryptDir:             cfg.RpcConf.LetsEncryptDir,
+		LetsEncryptListen:          cfg.RpcConf.LetsEncryptListen,
+		LetsEncryptEmail:           cfg.RpcConf.LetsEncryptEmail,
+		LetsEncryptDomain:          cfg.RpcConf.LetsEncryptDomain,
 	}
 
 	return tap.NewServer(serverCfg), nil

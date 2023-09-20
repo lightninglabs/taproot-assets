@@ -2969,10 +2969,6 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, fmt.Errorf("key cannot be nil")
 	}
 
-	if !r.cfg.AcceptRemoteUniverseProofs {
-		return nil, fmt.Errorf("remote proofs not accepted")
-	}
-
 	universeID, err := unmarshalUniID(req.Key.Id)
 	if err != nil {
 		return nil, err

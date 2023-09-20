@@ -45,6 +45,8 @@ type RPCConfig struct {
 
 	MacaroonPath string
 
+	AllowPublicUniProofCourier bool
+
 	AllowPublicStats bool
 
 	LetsEncryptDir string
@@ -80,8 +82,6 @@ type Config struct {
 	// starts. It is used to identify the server to itself, to avoid
 	// connecting to itself as a federation member.
 	RuntimeID int64
-
-	AcceptRemoteUniverseProofs bool
 
 	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?
 	ChainParams chaincfg.Params
