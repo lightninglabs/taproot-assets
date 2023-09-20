@@ -267,7 +267,8 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 			)
 
 			_, err = db.InsertAddr(ctx, NewAddr{
-				Version:          int16(addr.AssetVersion),
+				Version:          int16(addr.Version),
+				AssetVersion:     int16(addr.AssetVersion),
 				GenesisAssetID:   genAssetID,
 				GroupKey:         groupKeyBytes,
 				ScriptKeyID:      scriptKeyID,
@@ -432,15 +433,15 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 			}
 
 			tapAddr, err := address.New(
-				assetGenesis, groupKey, groupSig, *scriptKey,
+				address.Version(addr.Version), assetGenesis,
+				groupKey, groupSig, *scriptKey,
 				*internalKey, uint64(addr.Amount),
-				tapscriptSibling, t.params,
-				*proofCourierAddr,
+				tapscriptSibling, t.params, *proofCourierAddr,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
-			tapAddr.AssetVersion = asset.Version(addr.Version)
+			tapAddr.AssetVersion = asset.Version(addr.AssetVersion)
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Tap: tapAddr,
@@ -578,14 +579,14 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	}
 
 	tapAddr, err := address.New(
-		genesis, groupKey, groupSig, *scriptKey, *internalKey,
-		uint64(dbAddr.Amount), tapscriptSibling, params,
-		*proofCourierAddr,
+		address.Version(dbAddr.Version), genesis, groupKey,
+		groupSig, *scriptKey, *internalKey, uint64(dbAddr.Amount),
+		tapscriptSibling, params, *proofCourierAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
 	}
-	tapAddr.AssetVersion = asset.Version(dbAddr.Version)
+	tapAddr.AssetVersion = asset.Version(dbAddr.AssetVersion)
 
 	return &address.AddrWithKeyInfo{
 		Tap: tapAddr,

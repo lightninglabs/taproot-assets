@@ -1,14 +1,15 @@
 -- name: InsertAddr :one
 INSERT INTO addrs (
-    version, genesis_asset_id, group_key, script_key_id, taproot_key_id,
-    tapscript_sibling, taproot_output_key, amount, asset_type, creation_time,
-    proof_courier_addr
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id;
+    version, asset_version, genesis_asset_id, group_key, script_key_id,
+    taproot_key_id, tapscript_sibling, taproot_output_key, amount, asset_type,
+    creation_time, proof_courier_addr
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id;
 
 -- name: FetchAddrs :many
 SELECT 
-    version, genesis_asset_id, group_key, tapscript_sibling, taproot_output_key,
-    amount, asset_type, creation_time, managed_from, proof_courier_addr,
+    version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
+    taproot_output_key, amount, asset_type, creation_time, managed_from,
+    proof_courier_addr,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key AS raw_script_key,
@@ -33,8 +34,9 @@ LIMIT @num_limit OFFSET @num_offset;
 
 -- name: FetchAddrByTaprootOutputKey :one
 SELECT
-    version, genesis_asset_id, group_key, tapscript_sibling, taproot_output_key,
-    amount, asset_type, creation_time, managed_from, proof_courier_addr,
+    version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
+    taproot_output_key, amount, asset_type, creation_time, managed_from,
+    proof_courier_addr,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
     raw_script_keys.raw_key as raw_script_key,

@@ -31,8 +31,8 @@ var (
 	}
 )
 
-func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
-	amt *uint64, assetType asset.Type) (*Tap, error) {
+func randAddress(t *testing.T, net *ChainParams, v Version, groupPubKey,
+	sibling bool, amt *uint64, assetType asset.Type) (*Tap, error) {
 
 	t.Helper()
 
@@ -71,8 +71,8 @@ func randAddress(t *testing.T, net *ChainParams, groupPubKey, sibling bool,
 	proofCourierAddr := RandProofCourierAddr(t)
 
 	return New(
-		genesis, groupKey, groupSig, pubKeyCopy1, pubKeyCopy2, amount,
-		tapscriptSibling, net, proofCourierAddr,
+		v, genesis, groupKey, groupSig, pubKeyCopy1, pubKeyCopy2,
+		amount, tapscriptSibling, net, proofCourierAddr,
 	)
 }
 
@@ -82,7 +82,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
 	t.Helper()
 
 	newAddr, err := randAddress(
-		t, net, groupPubKey, sibling, nil, assetType,
+		t, net, V0, groupPubKey, sibling, nil, assetType,
 	)
 	if err != nil {
 		return nil, "", err
@@ -115,7 +115,7 @@ func TestNewAddress(t *testing.T) {
 			name: "normal address",
 			f: func() (*Tap, error) {
 				return randAddress(
-					t, &TestNet3Tap, false, false, nil,
+					t, &TestNet3Tap, V0, false, false, nil,
 					asset.Normal,
 				)
 			},
@@ -125,7 +125,7 @@ func TestNewAddress(t *testing.T) {
 			name: "collectible address with group key",
 			f: func() (*Tap, error) {
 				return randAddress(
-					t, &MainNetTap, true, false, nil,
+					t, &MainNetTap, V0, true, false, nil,
 					asset.Collectible,
 				)
 			},
@@ -135,7 +135,7 @@ func TestNewAddress(t *testing.T) {
 			name: "collectible address with group key and sibling",
 			f: func() (*Tap, error) {
 				return randAddress(
-					t, &MainNetTap, true, true, nil,
+					t, &MainNetTap, V0, true, true, nil,
 					asset.Collectible,
 				)
 			},
@@ -146,7 +146,7 @@ func TestNewAddress(t *testing.T) {
 			f: func() (*Tap, error) {
 				zeroAmt := uint64(0)
 				return randAddress(
-					t, &TestNet3Tap, false, false,
+					t, &TestNet3Tap, V0, false, false,
 					&zeroAmt, asset.Normal,
 				)
 			},
@@ -157,8 +157,8 @@ func TestNewAddress(t *testing.T) {
 			f: func() (*Tap, error) {
 				badAmt := uint64(2)
 				return randAddress(
-					t, &TestNet3Tap, false, false, &badAmt,
-					asset.Collectible,
+					t, &TestNet3Tap, V0, false, false,
+					&badAmt, asset.Collectible,
 				)
 			},
 			err: ErrInvalidAmountCollectible,
@@ -167,11 +167,21 @@ func TestNewAddress(t *testing.T) {
 			name: "invalid hrp",
 			f: func() (*Tap, error) {
 				return randAddress(
-					t, &invalidNet, false, false, nil,
+					t, &invalidNet, V0, false, false, nil,
 					asset.Normal,
 				)
 			},
 			err: ErrUnsupportedHRP,
+		},
+		{
+			name: "invalid version",
+			f: func() (*Tap, error) {
+				return randAddress(
+					t, &TestNet3Tap, Version(123), false,
+					false, nil, asset.Normal,
+				)
+			},
+			err: ErrUnknownVersion,
 		},
 	}
 
@@ -334,10 +344,21 @@ func TestAddressEncoding(t *testing.T) {
 			err: ErrInvalidBech32m,
 		},
 		{
+			name: "unknown version number in constructor",
+			f: func() (*Tap, string, error) {
+				_, err := randAddress(
+					t, &TestNet3Tap, Version(255), false,
+					true, nil, asset.Collectible,
+				)
+				return nil, "", err
+			},
+			err: ErrUnknownVersion,
+		},
+		{
 			name: "unknown version number",
 			f: func() (*Tap, string, error) {
 				newAddr, err := randAddress(
-					t, &TestNet3Tap, false, true, nil,
+					t, &TestNet3Tap, V0, false, true, nil,
 					asset.Collectible,
 				)
 				require.NoError(t, err)

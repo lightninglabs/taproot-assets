@@ -12,6 +12,7 @@ import (
 type Addr struct {
 	ID               int32
 	Version          int16
+	AssetVersion     int16
 	GenesisAssetID   int32
 	GroupKey         []byte
 	ScriptKeyID      int32

@@ -13,7 +13,7 @@
         "amount": 5577006791947779410,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taprt1qqqsqq3q0gupzcctkv6s83jndsazy0fu4m9e8lj47je589fgahe8kyxn36fsgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78ssz0lf4jcygg8ln74yz32dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsescqgq6tnekq",
+      "expected": "taprt1qqqsqqspqqzzq73cz93shve4q0r9xmp6yg7netktj0l9ta9ngw2j3m0j0vgd8r5nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7nt9sgss0l8a2gxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn5zn5dz",
       "comment": "valid regtest address"
     },
     {
@@ -29,7 +29,7 @@
         "amount": 3510942875414458836,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapsb1qqqsqq3q3t94z4pxzsja6cflmgvaacq22854c6fpm790gzzmc358q6u5dlkqgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78ssz0lxzu4luvrc3cagz32dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsescqgqrmqdpv",
+      "expected": "tapsb1qqqsqqspqqzzpzkt292zv9p9m4snlksemmsq550ft35jrhu27sy9h3rgwp4egmlvqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7v9etlcc83r36sxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnrzxc4w",
       "comment": "valid simnet address"
     },
     {
@@ -45,7 +45,7 @@
         "amount": 2740103009342231109,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taptb1qqqsqq3qvpzeew6dfe483wx9s4zl9lszdtfp00c04lhdtl678vehn3jcmhesgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78ssz0lycrv626h62fy2z32dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsescqgqe3e6yp",
+      "expected": "taptb1qqqsqqspqqzzqcz9nja56nn20zuvtp297tlqy6kjz7lsltlw6hl4uwen08r93h0nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7fsxe544055jg5xz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpny8e5zg",
       "comment": "valid testnet address"
     },
     {
@@ -61,7 +61,7 @@
         "amount": 545291762129038907,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapbc1qqqsqq3q7trsuynpkaslpxzfnyv2eakv7xxhm88he447pj2qvv8svsatsvkqgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78ssz0lq7g58al55hhrkz32dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsescqgqkmlk2r",
+      "expected": "tapbc1qqqsqqspqqzzpuk8pcfxrdmp7zvynxgc4nmveuvd0kw00nttury5qcc0qep6hqevqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7pu3g0mlff0w8vxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnlhg0u8",
       "comment": "valid mainnet address"
     },
     {
@@ -77,7 +77,7 @@
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taptb1qqqsqq3q0uaffvcy3m9uunetz6rw9hufhhjj6h4drtksz8m4lfjh3h9tpqusxggr7vkj8xgy6xka4eeg6xgh499ur5sy2kcjkfg6jg3dqd09q99f7avsgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78ssqgppg4xsctndpkkz6tv8ghj7unpdejzu6rpwd5x6ctfdsh8qun0danzucm0w4exjetj8g6rgvcvqyqq7z78w5",
+      "expected": "taptb1qqqsqqspqqzzqle6jjesfrktee8jk95xut0cn00994026xhdqy0ht7n90rw2kzpeq5ss8uedywvsf5ddmtnj35v3022tc8fqg4d39vj34y3z6q672q22na6eqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xseskkqklz",
       "comment": "signet group collectible"
     },
     {
@@ -93,7 +93,7 @@
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapsb1qqqsqq3q0ksqh36tl6terqrl5gxmampzvdyfqnntl2xpp26rfy3rd8jdgarsgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78ssqgppg4xsctndpkkz6tv8ghj7unpdejzu6rpwd5x6ctfdsh8qun0danzucm0w4exjetj8g6rgvcvqyqqt6swda",
+      "expected": "tapsb1qqqsqqspqqzzqldqp0r5hl5hjxq8lgsdhmkzyc6gjp8xh75vzz45xjfzx60y6368qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses3sew7m",
       "comment": "simnet collectible"
     },
     {
@@ -109,7 +109,7 @@
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapsb1qqqsqq3qkcpam2h6cwmz200z8tspjd03pzlwjcmrah0hw3tvpcjw66n8v58sgggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78svggz5zh7k9jlpmpk3q9k3c9640v6m8rzl5dxn25e30psax35vgpwq78sw9gqcqfxumm5ypsjqanpd35kggrnvdexjur5pqqszz32dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsescqgqsc83mh",
+      "expected": "tapsb1qqqsqqspqqzzpdsrmk404saky577ywhqry6lzz97a93k8mwlwazkcr3ya44xweg0qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpng4k730",
       "comment": "simnet collectible with sibling"
     }
   ],

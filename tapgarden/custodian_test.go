@@ -319,7 +319,7 @@ func mustMakeAddr(t *testing.T,
 	var p btcec.PublicKey
 	proofCourierAddr := address.RandProofCourierAddr(t)
 	addr, err := address.New(
-		gen, groupKey, groupSig, scriptKey,
+		address.V0, gen, groupKey, groupSig, scriptKey,
 		p, 1, nil, &address.TestNet3Tap, proofCourierAddr,
 	)
 	require.NoError(t, err)

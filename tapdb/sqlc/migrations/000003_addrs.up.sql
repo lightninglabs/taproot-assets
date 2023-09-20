@@ -4,8 +4,11 @@
 CREATE TABLE IF NOT EXISTS addrs (
     id INTEGER PRIMARY KEY,
 
-    -- version is the Taproot Asset script version this address support.
+    -- version is the version of the Taproot Asset address format.
     version SMALLINT NOT NULL,
+
+    -- asset_version is the asset version this address supports.
+    asset_version SMALLINT NOT NULL,
 
     -- genesis_asset_id points to the asset genesis of the asset we want to
     -- send/recv.

@@ -67,7 +67,7 @@ func RandAddr(t testing.TB, params *ChainParams,
 	})
 
 	tapAddr, err := New(
-		genesis, groupPubKey, groupSig, *scriptKey.PubKey,
+		V0, genesis, groupPubKey, groupSig, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
 		proofCourierAddr,
 	)
