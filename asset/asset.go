@@ -100,7 +100,7 @@ type Genesis struct {
 
 	// Tag is a human-readable identifier for the asset. This does not need
 	// to be unique, but asset issuers should attempt for it to be unique if
-	// possible.
+	// possible. Users usually recognise this field as the asset's name.
 	//
 	// NOTE: This is immutable for the lifetime of the asset.
 	Tag string
@@ -1044,4 +1044,12 @@ func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
 		return nil, err
 	}
 	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
+}
+
+// ValidateAssetName validates an asset name (the asset's genesis tag).
+func ValidateAssetName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("asset name cannot be empty")
+	}
+	return nil
 }

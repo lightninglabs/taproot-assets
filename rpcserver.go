@@ -302,9 +302,9 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, fmt.Errorf("asset cannot be nil")
 	}
 
-	// An asset name is mandatory, and cannot be the empty string.
-	if len(req.Asset.Name) == 0 {
-		return nil, fmt.Errorf("asset name cannot be empty")
+	err := asset.ValidateAssetName(req.Asset.Name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid asset name: %w", err)
 	}
 
 	specificGroupKey := len(req.Asset.GroupKey) != 0
