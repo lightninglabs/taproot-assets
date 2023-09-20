@@ -14,7 +14,6 @@ func FuzzFile(f *testing.F) {
 		f := &File{}
 
 		_ = f.Decode(bytes.NewReader(fileData))
-
 	})
 }
 
