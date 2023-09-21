@@ -14,10 +14,6 @@ var (
 	// TODO(roasbeef): make proper error type struct?
 	ErrInvalidAssetType = fmt.Errorf("invalid asset type")
 
-	// ErrNoAssetName is returned if an asset request doesn't have a valid
-	// name.
-	ErrNoAssetName = fmt.Errorf("asset name cannot be blank")
-
 	// ErrInvalidAssetAmt is returned in an asset request has an invalid
 	// amount.
 	ErrInvalidAssetAmt = fmt.Errorf("asset amt cannot be zero")
