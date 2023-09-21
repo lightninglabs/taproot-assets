@@ -101,7 +101,8 @@ type Seedling struct {
 // validateFields attempts to validate the set of input fields for the passed
 // seedling, an error is returned if any of the fields are out of spec.
 //
-// TODO(roasbeef): have this series of check be a DB level constraint?
+// NOTE: This function does not check the group key. That check is performed in
+// the validateGroupKey method.
 func (c Seedling) validateFields() error {
 	switch {
 	// Only normal and collectible asset types are supported.
