@@ -4,6 +4,7 @@
 # /make/builder.Dockerfile
 # /taprpc/Dockerfile
 # /tools/Dockerfile
+# /itest/loadtest/Dockerfile
 FROM golang:1.21.0-alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS

@@ -111,3 +111,6 @@ endif
 
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration itest $(backend)
+
+# Construct the load test command with the added build flags.
+LOADTEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) loadtest 
