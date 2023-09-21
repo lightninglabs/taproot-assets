@@ -191,10 +191,7 @@ func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
 
 	anchorGen := parseGenInfo(t, anchor.AssetGenesis)
 	anchorGen.Type = asset.Type(anchor.AssetType)
-	AssertGroupAnchor(
-		t, anchorGen, anchor.AssetGroup.RawGroupKey,
-		anchor.AssetGroup.TweakedGroupKey,
-	)
+	AssertGroupAnchor(t, anchorGen, anchor.AssetGroup)
 
 	return anchor
 }

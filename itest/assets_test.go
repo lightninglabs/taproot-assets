@@ -408,9 +408,8 @@ func assertAssetBalances(t *harnessTest,
 				require.Equal(
 					t.t, balance.Balance, rpcAsset.Amount,
 				)
-				require.Equal(
-					t.t,
-					balance.AssetGenesis,
+				AssertAssetGenesis(
+					t.t, balance.AssetGenesis,
 					rpcAsset.AssetGenesis,
 				)
 			}
