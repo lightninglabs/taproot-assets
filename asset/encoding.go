@@ -390,16 +390,42 @@ func TxWitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "*wire.TxWitness")
 }
 
-func WitnessEncoder(w io.Writer, val any, buf *[8]byte) error {
+// WitnessEncoderWithType is a wrapper around WitnessEncoder that allows the
+// caller to specify th witness type. It's a higher order function that returns
+// an encoder function.
+func WitnessEncoderWithType(encodeType EncodeType) tlv.Encoder {
+	return func(w io.Writer, val any, buf *[8]byte) error {
+		return witnessEncoder(w, val, buf, encodeType)
+	}
+}
+
+func witnessEncoder(w io.Writer, val any, buf *[8]byte,
+	encodeType EncodeType) error {
+
 	if t, ok := val.(*[]Witness); ok {
 		if err := tlv.WriteVarInt(w, uint64(len(*t)), buf); err != nil {
 			return err
 		}
 		for _, assetWitness := range *t {
 			var streamBuf bytes.Buffer
-			if err := assetWitness.Encode(&streamBuf); err != nil {
-				return err
+			switch encodeType {
+			case EncodeSegwit:
+				err := assetWitness.EncodeNoWitness(&streamBuf)
+				if err != nil {
+					return err
+				}
+
+			case EncodeNormal:
+				err := assetWitness.Encode(&streamBuf)
+				if err != nil {
+					return err
+				}
+
+			default:
+				return fmt.Errorf("unknown encode type: %v",
+					encodeType)
 			}
+
 			streamBytes := streamBuf.Bytes()
 			err := VarBytesEncoder(w, &streamBytes, buf)
 			if err != nil {
@@ -409,6 +435,10 @@ func WitnessEncoder(w io.Writer, val any, buf *[8]byte) error {
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "[]Witness")
+}
+
+func WitnessEncoder(w io.Writer, val any, buf *[8]byte) error {
+	return witnessEncoder(w, val, buf, EncodeNormal)
 }
 
 func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
