@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -98,12 +97,6 @@ type Tap struct {
 	// asset to be made possible.
 	GroupKey *btcec.PublicKey
 
-	// groupWitness is a stack of witness elements that authorizes the
-	// membership of an asset in a partiular asset group. The witness can
-	// be a single signature or a script from the tapscript tree committed
-	// to with the TapscriptRoot, and follows the witness rules in BIP-341.
-	groupWitness wire.TxWitness
-
 	// ScriptKey represents a tweaked Taproot output key encumbering the
 	// different ways an asset can be spent.
 	ScriptKey btcec.PublicKey
@@ -184,7 +177,6 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 		AssetVersion:     asset.V0,
 		AssetID:          genesis.ID(),
 		GroupKey:         groupKey,
-		groupWitness:     groupWitness,
 		ScriptKey:        scriptKey,
 		InternalKey:      internalKey,
 		TapscriptSibling: tapscriptSibling,
@@ -202,9 +194,6 @@ func (a *Tap) Copy() *Tap {
 	if a.GroupKey != nil {
 		groupPubKey := *a.GroupKey
 		addressCopy.GroupKey = &groupPubKey
-	}
-	if len(a.groupWitness) != 0 {
-		addressCopy.groupWitness = fn.CopySlice(a.groupWitness)
 	}
 
 	return &addressCopy
@@ -224,11 +213,6 @@ func (a *Tap) AssetType() asset.Type {
 // AttachGenesis attaches the asset's genesis metadata to the address.
 func (a *Tap) AttachGenesis(gen asset.Genesis) {
 	a.assetGen = gen
-}
-
-// AttachGroupWitness attaches the asset's group witness to the address.
-func (a *Tap) AttachGroupWitness(wit wire.TxWitness) {
-	a.groupWitness = wit
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset
@@ -259,13 +243,8 @@ func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 	// it in the TLV leaf.
 	var groupKey *asset.GroupKey
 	if a.GroupKey != nil {
-		if len(a.groupWitness) == 0 {
-			return nil, fmt.Errorf("missing group signature")
-		}
-
 		groupKey = &asset.GroupKey{
 			GroupPubKey: *a.GroupKey,
-			Witness:     a.groupWitness,
 		}
 	}
 	newAsset, err := asset.New(

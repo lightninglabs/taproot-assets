@@ -1189,8 +1189,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
-		rpcGenesis     = decodedProof.GenesisReveal
-		rpcGroupKey    = decodedProof.GroupKeyReveal
+		rpcGenesis     = p.GenesisReveal
+		rpcGroupKey    = p.GroupKeyReveal
 		anchorOutpoint = wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
@@ -1289,16 +1289,19 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	decodedAssetID := decodedProof.Asset.ID()
-	genesisReveal := &taprpc.GenesisReveal{
-		GenesisBaseReveal: &taprpc.GenesisInfo{
-			GenesisPoint: rpcGenesis.FirstPrevOut.String(),
-			Name:         rpcGenesis.Tag,
-			MetaHash:     rpcGenesis.MetaHash[:],
-			AssetId:      decodedAssetID[:],
-			OutputIndex:  rpcGenesis.OutputIndex,
-		},
-		AssetType: taprpc.AssetType(decodedProof.Asset.Type),
+	decodedAssetID := p.Asset.ID()
+	var genesisReveal *taprpc.GenesisReveal
+	if rpcGenesis != nil {
+		genesisReveal = &taprpc.GenesisReveal{
+			GenesisBaseReveal: &taprpc.GenesisInfo{
+				GenesisPoint: rpcGenesis.FirstPrevOut.String(),
+				Name:         rpcGenesis.Tag,
+				MetaHash:     rpcGenesis.MetaHash[:],
+				AssetId:      decodedAssetID[:],
+				OutputIndex:  rpcGenesis.OutputIndex,
+			},
+			AssetType: taprpc.AssetType(p.Asset.Type),
+		}
 	}
 
 	var GroupKeyReveal taprpc.GroupKeyReveal
@@ -1419,10 +1422,6 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 			spew.Sdump(assetGroup))
 
 		addr.AttachGenesis(*assetGroup.Genesis)
-
-		if assetGroup.GroupKey != nil {
-			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
-		}
 
 		taprootOutputKey, err := addr.TaprootOutputKey()
 		if err != nil {
@@ -1724,10 +1723,6 @@ func marshalAddr(addr *address.Tap,
 	)
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
-
-		if assetGroup.GroupKey != nil {
-			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
-		}
 
 		outputKey, err := addr.TaprootOutputKey()
 		if err != nil {
