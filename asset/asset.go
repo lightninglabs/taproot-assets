@@ -74,6 +74,28 @@ func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
 // asset.
 type Version uint8
 
+const (
+	// V0 is the initial Taproot Asset protocol version.
+	V0 Version = 0
+
+	// V1 is the version of asset serialization that doesn't include the
+	// witness field when creating a TAP commitment. This is similar to
+	// segwit as found in Bitcoin land.
+	V1 Version = 1
+)
+
+// EncodeType is used to denote the type of encoding used for an asset.
+type EncodeType uint8
+
+const (
+	// Encode normal is the normal encoding type for an asset.
+	EncodeNormal EncodeType = iota
+
+	// EncodeSegwit denotes that the witness vector field is not be be
+	// encoded.
+	EncodeSegwit
+)
+
 var (
 	// ZeroPrevID is the blank prev ID used for genesis assets and also
 	// asset split leaves.
@@ -109,9 +131,6 @@ const (
 	// divide that by 2, to allow us to fit this into just a 2-byte integer
 	// and to ensure compatibility with the remote signer.
 	TaprootAssetsKeyFamily = 212
-
-	// V0 is the initial Taproot Asset protocol version.
-	V0 Version = 0
 )
 
 const (
@@ -340,14 +359,15 @@ type Witness struct {
 	SplitCommitment *SplitCommitment
 }
 
-// EncodeRecords determines the non-nil records to include when encoding an
-// asset witness at runtime.
-func (w *Witness) EncodeRecords() []tlv.Record {
+// encodeRecords determines the non-nil records to include when encoding an
+// asset witness at runtime. This version takes an extra param to determine if
+// the witness should be encoded or not.
+func (w *Witness) encodeRecords(encodeType EncodeType) []tlv.Record {
 	var records []tlv.Record
 	if w.PrevID != nil {
 		records = append(records, NewWitnessPrevIDRecord(&w.PrevID))
 	}
-	if len(w.TxWitness) > 0 {
+	if len(w.TxWitness) > 0 && encodeType == EncodeNormal {
 		records = append(records, NewWitnessTxWitnessRecord(
 			&w.TxWitness,
 		))
@@ -358,6 +378,12 @@ func (w *Witness) EncodeRecords() []tlv.Record {
 		))
 	}
 	return records
+}
+
+// EncodeRecords determines the non-nil records to include when encoding an
+// asset witness at runtime.
+func (w *Witness) EncodeRecords() []tlv.Record {
+	return w.encodeRecords(EncodeNormal)
 }
 
 // DecodeRecords provides all records known for an asset witness for proper
@@ -373,6 +399,17 @@ func (w *Witness) DecodeRecords() []tlv.Record {
 // Encode encodes an asset witness into a TLV stream.
 func (w *Witness) Encode(writer io.Writer) error {
 	stream, err := tlv.NewStream(w.EncodeRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(writer)
+}
+
+// EncodeNoWitness encodes an asset witness into a TLV stream, but does not
+// include the raw witness field. The prevID and the split commitment are still
+// included.
+func (w *Witness) EncodeNoWitness(writer io.Writer) error {
+	stream, err := tlv.NewStream(w.encodeRecords(EncodeSegwit)...)
 	if err != nil {
 		return err
 	}
@@ -1190,9 +1227,9 @@ func (a *Asset) DeepEqual(o *Asset) bool {
 	return true
 }
 
-// EncodeRecords determines the non-nil records to include when encoding an
+// encodeRecords determines the non-nil records to include when encoding an
 // asset at runtime.
-func (a *Asset) EncodeRecords() []tlv.Record {
+func (a *Asset) encodeRecords(encodeType EncodeType) []tlv.Record {
 	records := make([]tlv.Record, 0, 11)
 	records = append(records, NewLeafVersionRecord(&a.Version))
 	records = append(records, NewLeafGenesisRecord(&a.Genesis))
@@ -1208,7 +1245,7 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 	}
 	if len(a.PrevWitnesses) > 0 {
 		records = append(records, NewLeafPrevWitnessRecord(
-			&a.PrevWitnesses,
+			&a.PrevWitnesses, encodeType,
 		))
 	}
 	if a.SplitCommitmentRoot != nil {
@@ -1224,6 +1261,12 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 	return records
 }
 
+// EncodeRecords determines the non-nil records to include when encoding an
+// asset at runtime.
+func (a *Asset) EncodeRecords() []tlv.Record {
+	return a.encodeRecords(EncodeNormal)
+}
+
 // DecodeRecords provides all records known for an asset witness for proper
 // decoding.
 func (a *Asset) DecodeRecords() []tlv.Record {
@@ -1234,7 +1277,9 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 		NewLeafAmountRecord(&a.Amount),
 		NewLeafLockTimeRecord(&a.LockTime),
 		NewLeafRelativeLockTimeRecord(&a.RelativeLockTime),
-		NewLeafPrevWitnessRecord(&a.PrevWitnesses),
+		// We don't need to worry aobut encoding the witness or not
+		// when we decode, so we just use EncodeNormal here.
+		NewLeafPrevWitnessRecord(&a.PrevWitnesses, EncodeNormal),
 		NewLeafSplitCommitmentRootRecord(&a.SplitCommitmentRoot),
 		NewLeafScriptVersionRecord(&a.ScriptVersion),
 		NewLeafScriptKeyRecord(&a.ScriptKey.PubKey),
@@ -1242,9 +1287,21 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 	}
 }
 
-// Encode encodes an asset into a TLV stream.
+// Encode encodes an asset into a TLV stream. This is used for encoding proof
+// files and state transitions.
 func (a *Asset) Encode(w io.Writer) error {
 	stream, err := tlv.NewStream(a.EncodeRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(w)
+}
+
+// EncodeNoWitness encodes the asset without the witness into a TLV stream.
+// This is used for serializing on an asset as a leaf within a TAP MS-SMT tree.
+// This only applies when the asset version is v1.
+func (a *Asset) EncodeNoWitness(w io.Writer) error {
+	stream, err := tlv.NewStream(a.encodeRecords(EncodeSegwit)...)
 	if err != nil {
 		return err
 	}
@@ -1266,9 +1323,20 @@ func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
 		return nil, ErrUnknownVersion
 	}
 	var buf bytes.Buffer
-	if err := a.Encode(&buf); err != nil {
-		return nil, err
+
+	switch a.Version {
+	case V0:
+		if err := a.Encode(&buf); err != nil {
+			return nil, err
+		}
+	case V1:
+		if err := a.EncodeNoWitness(&buf); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unknown asset version: %v", a.Version)
 	}
+
 	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
 }
 
