@@ -232,6 +232,86 @@ func TestGroupKeyIsEqual(t *testing.T) {
 	}
 }
 
+// TestValidateAssetName tests that asset names are validated correctly.
+func TestValidateAssetName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		valid bool
+	}{
+		{
+			// A name with spaces is valid.
+			name:  "a name with spaces",
+			valid: true,
+		},
+		{
+			// Capital letters are valid.
+			name:  "ABC",
+			valid: true,
+		},
+		{
+			// Numbers are valid.
+			name:  "1234",
+			valid: true,
+		},
+		{
+			// A mix of lower/upper, spaces, and numbers is valid.
+			name:  "Name 1234",
+			valid: true,
+		},
+		{
+			// Japanese characters are valid.
+			name:  "日本語",
+			valid: true,
+		},
+		{
+			// The "place of interest" character takes up multiple
+			// bytes and is valid.
+			name:  "⌘",
+			valid: true,
+		},
+		{
+			// Exclusively whitespace is an invalid name.
+			name:  "   ",
+			valid: false,
+		},
+		{
+			// An empty name string is invalid.
+			name:  "",
+			valid: false,
+		},
+		{
+			// A 65 character name is too long and therefore
+			// invalid.
+			name: "asdasdasdasdasdasdasdasdasdasdasdasdasdasdas" +
+				"dasdasdasdadasdasdada",
+			valid: false,
+		},
+		{
+			// Invalid if tab in name.
+			name:  "tab	tab",
+			valid: false,
+		},
+		{
+			// Invalid if newline in name.
+			name:  "newline\nnewline",
+			valid: false,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+
+		err := ValidateAssetName(testCase.name)
+		if testCase.valid {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
+	}
+}
+
 // TestAssetEncoding asserts that we can properly encode and decode assets
 // through their TLV serialization.
 func TestAssetEncoding(t *testing.T) {
