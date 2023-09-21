@@ -104,6 +104,12 @@ type Seedling struct {
 // NOTE: This function does not check the group key. That check is performed in
 // the validateGroupKey method.
 func (c Seedling) validateFields() error {
+	// Validate the asset name.
+	err := asset.ValidateAssetName(c.AssetName)
+	if err != nil {
+		return err
+	}
+
 	switch {
 	// Only normal and collectible asset types are supported.
 	//
@@ -111,13 +117,6 @@ func (c Seedling) validateFields() error {
 	case c.AssetType != asset.Normal && c.AssetType != asset.Collectible:
 		return fmt.Errorf("%v: %v", int(c.AssetType),
 			ErrInvalidAssetType)
-
-	// The asset name can't be blank as that's needed to generate the asset
-	// ID.
-	//
-	// TODO(roasbeef): also bubble up to the spec?
-	case c.AssetName == "":
-		return ErrNoAssetName
 
 	// Creating an asset with zero available supply is not allowed.
 	case c.Amount == 0:
