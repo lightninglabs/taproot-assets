@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -16,6 +19,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+const (
+	// MaxAssetNameLength is the maximum byte length of an asset's name.
+	// This byte length is equivalent to character count for single-byte
+	// UTF-8 characters.
+	MaxAssetNameLength = 64
 )
 
 // SerializedKey is a type for representing a public key, serialized in the
@@ -100,7 +110,7 @@ type Genesis struct {
 
 	// Tag is a human-readable identifier for the asset. This does not need
 	// to be unique, but asset issuers should attempt for it to be unique if
-	// possible.
+	// possible. Users usually recognise this field as the asset's name.
 	//
 	// NOTE: This is immutable for the lifetime of the asset.
 	Tag string
@@ -1044,4 +1054,44 @@ func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
 		return nil, err
 	}
 	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
+}
+
+// Validate ensures that an asset is valid.
+func (a *Asset) Validate() error {
+	// TODO(ffranr): Add validation check for remaining fields.
+	return ValidateAssetName(a.Genesis.Tag)
+}
+
+// ValidateAssetName validates an asset name (the asset's genesis tag).
+func ValidateAssetName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("asset name cannot be empty")
+	}
+
+	// Ensure the asset name is not too long.
+	if len(name) > MaxAssetNameLength {
+		return fmt.Errorf("asset name cannot exceed %d bytes",
+			MaxAssetNameLength)
+	}
+
+	// Ensure the asset name is a valid UTF-8 string.
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("asset name is not a valid UTF-8 string")
+	}
+
+	// Ensure each character is printable.
+	for _, char := range name {
+		if !unicode.IsPrint(char) {
+			hexValue := fmt.Sprintf("\\x%X", char)
+			return fmt.Errorf("asset name cannot contain "+
+				"unprintable character: %s", hexValue)
+		}
+	}
+
+	// Ensure the asset name does not contain only spaces.
+	if len(strings.TrimSpace(name)) == 0 {
+		return fmt.Errorf("asset name cannot contain only spaces")
+	}
+
+	return nil
 }

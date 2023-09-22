@@ -303,6 +303,12 @@ type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
 
+	// Ensure proof asset is valid.
+	if err := p.Asset.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate proof asset: "+
+			"%w", err)
+	}
+
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
