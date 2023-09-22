@@ -30,7 +30,7 @@ type MintingArchiveConfig struct {
 
 	// Multiverse is used to interact with the set of known base
 	// universe trees, and also obtain associated metadata and statistics.
-	Multiverse BaseMultiverse
+	Multiverse MultiverseArchive
 
 	// UniverseStats is used to export statistics related to the set of
 	// external/internal queries to the base universe instance.
@@ -145,7 +145,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
-	issuanceProofs, err := a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
+	issuanceProofs, err := a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 	switch {
 	case err == nil && len(issuanceProofs) > 0:
 		issuanceProof := issuanceProofs[0]
@@ -193,7 +193,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.Multiverse.RegisterIssuance(
+	issuanceProof, err := a.cfg.Multiverse.UpsertProofLeaf(
 		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil {
@@ -347,7 +347,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 		ScriptKey:       &prevScriptKey,
 	}
 
-	prevProofs, err := a.cfg.Multiverse.FetchIssuanceProof(
+	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
 		ctx, uniID, prevBaseKey,
 	)
 	if err != nil {
@@ -390,7 +390,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 		}()
 	}()
 
-	return a.cfg.Multiverse.FetchIssuanceProof(ctx, id, key)
+	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
 
 // MintingKeys returns the set of minting keys known for the specified base

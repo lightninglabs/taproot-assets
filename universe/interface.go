@@ -234,18 +234,18 @@ type BaseRoot struct {
 	GroupedAssets map[asset.ID]uint64
 }
 
-// BaseMultiverse is an interface used to keep track of the set of base universe
+// MultiverseArchive is an interface used to keep track of the set of universe
 // roots that we know of. The BaseBackend interface is used to interact with a
 // particular base universe, while this is used to obtain aggregate information
 // about the universes.
-type BaseMultiverse interface {
+type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
-	// RegisterIssuance inserts a new minting (issuance) leaf within the
-	// multiverse tree, stored at the given base key.
-	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
+	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
+	// the universe tree that corresponds to the given key.
+	UpsertProofLeaf(ctx context.Context, id Identifier, key BaseKey,
 		leaf *MintingLeaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
@@ -254,11 +254,11 @@ type BaseMultiverse interface {
 	// base key(s).
 	RegisterBatchIssuance(ctx context.Context, items []*IssuanceItem) error
 
-	// FetchIssuanceProof returns an issuance proof for the target key. If
-	// the key doesn't have a script key specified, then all the proofs for
-	// the minting outpoint will be returned. If neither are specified, then
-	// proofs for all the inserted leaves will be returned.
-	FetchIssuanceProof(ctx context.Context, id Identifier,
+	// FetchProofLeaf returns a proof leaf for the target key. If the key
+	// doesn't have a script key specified, then all the proof leafs for the
+	// minting outpoint will be returned. If neither are specified, then all
+	// inserted proof leafs will be returned.
+	FetchProofLeaf(ctx context.Context, id Identifier,
 		key BaseKey) ([]*IssuanceProof, error)
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
