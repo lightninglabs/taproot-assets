@@ -451,6 +451,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		outputProofLocator := proof.Locator{
 			AssetID:   &firstInput.ID,
 			ScriptKey: *out.ScriptKey.PubKey,
+			OutPoint:  &firstInput.OutPoint,
 		}
 		outputProof := &proof.AnnotatedProof{
 			Locator: outputProofLocator,
