@@ -1056,6 +1056,12 @@ func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
 	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
 }
 
+// Validate ensures that an asset is valid.
+func (a *Asset) Validate() error {
+	// TODO(ffranr): Add validation check for remaining fields.
+	return ValidateAssetName(a.Genesis.Tag)
+}
+
 // ValidateAssetName validates an asset name (the asset's genesis tag).
 func ValidateAssetName(name string) error {
 	if len(name) == 0 {
