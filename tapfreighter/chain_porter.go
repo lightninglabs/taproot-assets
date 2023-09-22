@@ -695,7 +695,15 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return fmt.Errorf("error fetching passive asset "+
 				"proof file: %w", err)
 		}
-		passiveAssetProofFiles[proofLocator.Hash()] = proofFileBlob
+
+		// Hash proof locator.
+		hash, err := proofLocator.Hash()
+		if err != nil {
+			return fmt.Errorf("error hashing proof locator: %w",
+				err)
+		}
+
+		passiveAssetProofFiles[hash] = proofFileBlob
 	}
 
 	// At this point we have the confirmation signal, so we can mark the
