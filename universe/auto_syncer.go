@@ -257,14 +257,20 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier, key BaseKey,
 	pushNewProof := func(ctx context.Context, addr ServerAddr) error {
 		remoteUniverseServer, err := f.cfg.NewRemoteRegistrar(addr)
 		if err != nil {
-			return fmt.Errorf("unable to connect to remote "+
-				"server(%v): %v", addr.HostStr(), err)
+			log.Warnf("cannot push proof unable to connect "+
+				"to remote server(%v): %v", addr.HostStr(),
+				err)
+			return nil
 		}
 
 		_, err = remoteUniverseServer.RegisterIssuance(
 			ctx, uniID, key, leaf,
 		)
-		return err
+		if err != nil {
+			log.Warnf("cannot push proof to remote "+
+				"server(%v): %v", addr.HostStr(), err)
+		}
+		return nil
 	}
 
 	// To conclude, we'll attempt to push the new proof to all the universe
