@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -40,8 +41,14 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 		amount = 1
 	}
 
+	var assetVersion asset.Version
+	if rand.Int()%2 == 0 {
+		assetVersion = asset.V1
+	}
+
 	return &AssetDetails{
-		Type: assetType,
+		Version: assetVersion,
+		Type:    assetType,
 		ScriptKey: keychain.KeyDescriptor{
 			PubKey: test.RandPrivKey(t).PubKey(),
 		},
@@ -1240,4 +1247,63 @@ func TestIsTaprootAssetCommitmentScript(t *testing.T) {
 
 	require.True(t, IsTaprootAssetCommitmentScript(testTapCommitmentScript))
 	require.False(t, IsTaprootAssetCommitmentScript(TaprootAssetsMarker[:]))
+}
+
+// TestAssetCommitmentNoWitness tests that an asset commitment of a v1 asset is
+// the same with and without the witness field of the asset set.
+func TestAssetCommitmentNoWitness(t *testing.T) {
+	t.Parallel()
+
+	// We'll start by generating a random asset.
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis1, nil)
+
+	// We'll modify the asset version so it uses the segwit encoding for
+	// the leaf commitment.
+	asset1.Version = asset.V1
+
+	// We'll modify the asset witness to obtain a valid prev ID, along with
+	// some random data.
+	var randTxid chainhash.Hash
+	_, err := rand.Read(randTxid[:])
+	require.NoError(t, err)
+
+	asset1.PrevWitnesses[0].PrevID.OutPoint = wire.OutPoint{
+		Index: uint32(rand.Int()),
+		Hash:  randTxid,
+	}
+	asset1.PrevWitnesses[0].PrevID.ID = asset.ID(randTxid)
+	copy(asset1.PrevWitnesses[0].PrevID.ScriptKey[:], randTxid[:])
+
+	// Now that we have all our initial information set, we'll make a copy
+	// of the above asset. One of them will have a witness vector field,
+	// the other won't.
+	assetNoWitness := asset1.Copy()
+
+	asset1.PrevWitnesses[0].TxWitness = [][]byte{randTxid[:]}
+
+	// Next, we'll use the assets to create two root tap commitments.
+	commitmentWitness, err := FromAssets(asset1)
+	require.NoError(t, err)
+
+	commitmentNoWitness, err := FromAssets(assetNoWitness)
+	require.NoError(t, err)
+
+	// The two commitment should be identical as this asset version leaves
+	// out the tx witness field in the leaf encoding.
+	require.Equal(
+		t, commitmentWitness.TapscriptRoot(nil),
+		commitmentNoWitness.TapscriptRoot(nil),
+	)
+
+	// If we make the asset into a V0 asset, then recompute the commitment,
+	// we should get a distinct root.
+	asset1.Version = asset.V0
+	commitmentV0, err := FromAssets(asset1)
+	require.NoError(t, err)
+
+	require.NotEqual(
+		t, commitmentWitness.TapscriptRoot(nil),
+		commitmentV0.TapscriptRoot(nil),
+	)
 }
