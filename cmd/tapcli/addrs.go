@@ -29,6 +29,8 @@ const (
 	groupKeyName = "group_key"
 
 	amtName = "amt"
+
+	assetVersionName = "asset_version"
 )
 
 var newAddrCommand = cli.Command{
@@ -45,6 +47,10 @@ var newAddrCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  amtName,
 			Usage: "the amt of the asset to receive",
+		},
+		cli.Uint64Flag{
+			Name:  assetVersionName,
+			Usage: "the asset version of the asset to receive",
 		},
 	},
 	Action: newAddr,
@@ -65,9 +71,22 @@ func newAddr(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	var assetVersion taprpc.AssetVersion
+	switch ctx.Uint64(assetVersionName) {
+	case 0:
+		assetVersion = taprpc.AssetVersion_ASSET_VERSION_V0
+	case 1:
+		assetVersion = taprpc.AssetVersion_ASSET_VERSION_V1
+
+	default:
+		return fmt.Errorf("invalid asset version: %v",
+			ctx.Uint64(assetVersionName))
+	}
+
 	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
-		AssetId: assetID,
-		Amt:     ctx.Uint64(amtName),
+		AssetId:      assetID,
+		Amt:          ctx.Uint64(amtName),
+		AssetVersion: assetVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)
