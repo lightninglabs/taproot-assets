@@ -129,42 +129,61 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		sigHashType = uint64(i.Anchor.SigHashType)
 	)
 
-	mapping := []encoderMapping{{
-		key:     PsbtKeyTypeInputTapPrevID,
-		encoder: tlvEncoder(&prevID, asset.PrevIDEncoder),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorValue,
-		encoder: tlvEncoder(&anchorValue, tlv.EUint64),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorPkScript,
-		encoder: tlvEncoder(&i.Anchor.PkScript, tlv.EVarBytes),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorSigHashType,
-		encoder: tlvEncoder(&sigHashType, tlv.EUint64),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorInternalKey,
-		encoder: pubKeyEncoder(i.Anchor.InternalKey),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorMerkleRoot,
-		encoder: tlvEncoder(&i.Anchor.MerkleRoot, tlv.EVarBytes),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorOutputBip32Derivation,
-		encoder: bip32DerivationEncoder(i.Anchor.Bip32Derivation),
-	}, {
-		key: PsbtKeyTypeInputTapAnchorOutputTaprootBip32Derivation,
-		encoder: taprootBip32DerivationEncoder(
-			i.Anchor.TrBip32Derivation,
-		),
-	}, {
-		key:     PsbtKeyTypeInputTapAnchorTapscriptSibling,
-		encoder: tlvEncoder(&i.Anchor.TapscriptSibling, tlv.EVarBytes),
-	}, {
-		key:     PsbtKeyTypeInputTapAsset,
-		encoder: assetEncoder(i.asset),
-	}, {
-		key:     PsbtKeyTypeInputTapAssetProof,
-		encoder: tlvEncoder(&i.proof, tlv.EVarBytes),
-	}}
+	mapping := []encoderMapping{
+		{
+			key:     PsbtKeyTypeInputTapPrevID,
+			encoder: tlvEncoder(&prevID, asset.PrevIDEncoder),
+		},
+		{
+			key:     PsbtKeyTypeInputTapAnchorValue,
+			encoder: tlvEncoder(&anchorValue, tlv.EUint64),
+		},
+		{
+			key:     PsbtKeyTypeInputTapAnchorPkScript,
+			encoder: tlvEncoder(&i.Anchor.PkScript, tlv.EVarBytes),
+		},
+		{
+			key:     PsbtKeyTypeInputTapAnchorSigHashType,
+			encoder: tlvEncoder(&sigHashType, tlv.EUint64),
+		},
+		{
+			key:     PsbtKeyTypeInputTapAnchorInternalKey,
+			encoder: pubKeyEncoder(i.Anchor.InternalKey),
+		},
+		{
+			key: PsbtKeyTypeInputTapAnchorMerkleRoot,
+			encoder: tlvEncoder(
+				&i.Anchor.MerkleRoot, tlv.EVarBytes,
+			),
+		},
+		{
+			key: PsbtKeyTypeInputTapAnchorOutputBip32Derivation,
+			encoder: bip32DerivationEncoder(
+				i.Anchor.Bip32Derivation,
+			),
+		},
+		{
+			//nolint:lll
+			key: PsbtKeyTypeInputTapAnchorOutputTaprootBip32Derivation,
+			encoder: taprootBip32DerivationEncoder(
+				i.Anchor.TrBip32Derivation,
+			),
+		},
+		{
+			key: PsbtKeyTypeInputTapAnchorTapscriptSibling,
+			encoder: tlvEncoder(
+				&i.Anchor.TapscriptSibling, tlv.EVarBytes,
+			),
+		},
+		{
+			key:     PsbtKeyTypeInputTapAsset,
+			encoder: assetEncoder(i.asset),
+		},
+		{
+			key:     PsbtKeyTypeInputTapAssetProof,
+			encoder: tlvEncoder(&i.proof, tlv.EVarBytes),
+		},
+	}
 
 	for idx := range mapping {
 		customFields, err := mapping[idx].encoder(mapping[idx].key)
@@ -213,38 +232,57 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	}
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
-	mapping := []encoderMapping{{
-		key:     PsbtKeyTypeOutputTapType,
-		encoder: tlvEncoder(&o.Type, vOutputTypeEncoder),
-	}, {
-		key:     PsbtKeyTypeOutputTapIsInteractive,
-		encoder: booleanEncoder(o.Interactive),
-	}, {
-		key:     PsbtKeyTypeOutputTapAnchorOutputIndex,
-		encoder: tlvEncoder(&anchorOutputIndex, tlv.EUint64),
-	}, {
-		key:     PsbtKeyTypeOutputTapAnchorOutputInternalKey,
-		encoder: pubKeyEncoder(o.AnchorOutputInternalKey),
-	}, {
-		key:     PsbtKeyTypeOutputTapAnchorOutputBip32Derivation,
-		encoder: bip32DerivationEncoder(o.AnchorOutputBip32Derivation),
-	}, {
-		key: PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation,
-		encoder: taprootBip32DerivationEncoder(
-			o.AnchorOutputTaprootBip32Derivation,
-		),
-	}, {
-		key:     PsbtKeyTypeOutputTapAsset,
-		encoder: assetEncoder(o.Asset),
-	}, {
-		key:     PsbtKeyTypeOutputTapSplitAsset,
-		encoder: assetEncoder(o.SplitAsset),
-	}, {
-		key: PsbtKeyTypeOutputTapAnchorTapscriptSibling,
-		encoder: tapscriptPreimageEncoder(
-			o.AnchorOutputTapscriptSibling,
-		),
-	}}
+	mapping := []encoderMapping{
+		{
+			key:     PsbtKeyTypeOutputTapType,
+			encoder: tlvEncoder(&o.Type, vOutputTypeEncoder),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapIsInteractive,
+			encoder: booleanEncoder(o.Interactive),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAnchorOutputIndex,
+			encoder: tlvEncoder(&anchorOutputIndex, tlv.EUint64),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAnchorOutputInternalKey,
+			encoder: pubKeyEncoder(o.AnchorOutputInternalKey),
+		},
+		{
+			key: PsbtKeyTypeOutputTapAnchorOutputBip32Derivation,
+			encoder: bip32DerivationEncoder(
+				o.AnchorOutputBip32Derivation,
+			),
+		},
+		{
+			//nolint:lll
+			key: PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation,
+			encoder: taprootBip32DerivationEncoder(
+				o.AnchorOutputTaprootBip32Derivation,
+			),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAsset,
+			encoder: assetEncoder(o.Asset),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapSplitAsset,
+			encoder: assetEncoder(o.SplitAsset),
+		},
+		{
+			key: PsbtKeyTypeOutputTapAnchorTapscriptSibling,
+			encoder: tapscriptPreimageEncoder(
+				o.AnchorOutputTapscriptSibling,
+			),
+		},
+		{
+			key: PsbtKeyTypeOutputAssetVersion,
+			encoder: tlvEncoder(
+				&o.AssetVersion, vOutputAssetVersionEncoder,
+			),
+		},
+	}
 
 	for idx := range mapping {
 		customFields, err := mapping[idx].encoder(mapping[idx].key)
@@ -409,4 +447,14 @@ func vOutputTypeEncoder(w io.Writer, val any, buf *[8]byte) error {
 		return tlv.EUint8T(w, num, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "VOutputType")
+}
+
+// vOutputAssetVersionEncoder is a TLV encoder that encodes the given asset
+// version to the given writer.
+func vOutputAssetVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*asset.Version); ok {
+		num := uint8(*t)
+		return tlv.EUint8T(w, num, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "VOutputAssetVersion")
 }

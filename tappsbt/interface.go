@@ -50,6 +50,7 @@ var (
 	PsbtKeyTypeOutputTapAsset                              = []byte{0x76}
 	PsbtKeyTypeOutputTapSplitAsset                         = []byte{0x77}
 	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
+	PsbtKeyTypeOutputAssetVersion                          = []byte{0x79}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -472,6 +473,10 @@ type VOutput struct {
 	// non-interactive full value send scenario. When serialized, this will
 	// be stored as the value of the wire.TxOut of the PSBT's unsigned TX.
 	Amount uint64
+
+	// AssetVersion is the version of the asset that this output should
+	// create.
+	AssetVersion asset.Version
 
 	// Type indicates what type of output this is, which has an influence on
 	// whether the asset is set or what witness type is expected to be

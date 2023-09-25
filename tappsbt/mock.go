@@ -2,6 +2,7 @@ package tappsbt
 
 import (
 	"encoding/hex"
+	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -90,6 +91,7 @@ func RandPacket(t testing.TB) *VPacket {
 		}},
 		Outputs: []*VOutput{{
 			Amount:                             123,
+			AssetVersion:                       asset.Version(test.RandIntn(2)),
 			Type:                               TypeSplitRoot,
 			Interactive:                        true,
 			AnchorOutputIndex:                  0,
@@ -101,9 +103,9 @@ func RandPacket(t testing.TB) *VPacket {
 			SplitAsset:                         testOutputAsset,
 			AnchorOutputTapscriptSibling:       testPreimage1,
 		}, {
-			Amount: 345,
-			Type:   TypeSplitRoot,
-
+			Amount:                             345,
+			AssetVersion:                       asset.Version(rand.Intn(2)),
+			Type:                               TypeSplitRoot,
 			Interactive:                        false,
 			AnchorOutputIndex:                  1,
 			AnchorOutputInternalKey:            testPubKey,
