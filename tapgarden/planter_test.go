@@ -150,8 +150,9 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tapgarden.See
 
 		assetName := hex.EncodeToString(n[:])
 		seedlings[i] = &tapgarden.Seedling{
-			AssetType: asset.Type(rand.Int31n(2)),
-			AssetName: assetName,
+			AssetVersion: asset.Version(rand.Int31n(2)),
+			AssetType:    asset.Type(rand.Int31n(2)),
+			AssetName:    assetName,
 			Meta: &proof.MetaReveal{
 				Data: n[:],
 			},
@@ -424,6 +425,7 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 			t.Fatalf("seedling %v not found", seedling.AssetName)
 		}
 
+		require.Equal(t, seedling.AssetVersion, batchSeedling.AssetVersion)
 		require.Equal(t, seedling.AssetType, batchSeedling.AssetType)
 		require.Equal(t, seedling.AssetName, batchSeedling.AssetName)
 		require.Equal(t, seedling.Meta, batchSeedling.Meta)
@@ -504,6 +506,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 
 		// We expect the seedling to have been properly mapped onto an
 		// asset.
+		require.Equal(t, seedling.AssetVersion, assetSprout.Version)
 		require.Equal(t, seedling.AssetType, assetSprout.Type)
 		require.Equal(t, seedling.AssetName, assetSprout.Genesis.Tag)
 		require.Equal(
