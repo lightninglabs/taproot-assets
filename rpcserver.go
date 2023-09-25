@@ -927,6 +927,23 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	}, nil
 }
 
+// parseAssetVersion parses an asset version from the RPC variant.
+func parseAssetVersion(version taprpc.AssetVersion) (asset.Version, error) {
+	// For now we'll only support two asset versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case taprpc.AssetVersion_ASSET_VERSION_V0:
+		return asset.V0, nil
+
+	case taprpc.AssetVersion_ASSET_VERSION_V1:
+		return asset.V1, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset version: %v", version)
+	}
+}
+
 // NewAddr makes a new address from the set of request params.
 func (r *rpcServer) NewAddr(ctx context.Context,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
@@ -983,6 +1000,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("invalid tapscript sibling: %w", err)
 	}
 
+	assetVersion, err := parseAssetVersion(req.AssetVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -992,6 +1014,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		addr, err = r.cfg.AddrBook.NewAddress(
 			ctx, assetID, req.Amt, tapscriptSibling,
 			proofCourierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1032,6 +1055,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
 			ctx, assetID, req.Amt, *scriptKey, internalKey,
 			tapscriptSibling, proofCourierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1757,6 +1781,7 @@ func marshalAddr(addr *address.Tap,
 
 	id := addr.AssetID
 	rpcAddr := &taprpc.Addr{
+		AssetVersion:     taprpc.AssetVersion(addr.AssetVersion),
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		Amount:           addr.Amount,
