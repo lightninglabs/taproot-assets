@@ -666,6 +666,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
 			scriptKey, groupKey,
+			asset.WithAssetVersion(asset.Version(sprout.Version)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
@@ -2525,6 +2526,9 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				return fmt.Errorf("unable to apply pending "+
 					"output: %w", err)
 			}
+
+			// TODO(roasbeef): asset version needed above?
+			// * passive send from v0 -> v1
 
 			// With the old witnesses removed, we'll insert the new
 			// set on disk.
