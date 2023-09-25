@@ -403,7 +403,8 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 		vPkt := tappsbt.ForInteractiveSend(
 			id, fullAmt, receiverScriptKey, 0,
-			receiverAnchorIntKeyDesc, chainParams,
+			receiverAnchorIntKeyDesc, asset.V0,
+			chainParams,
 		)
 
 		// Next, we'll attempt to complete a transfer with PSBTs from
@@ -626,7 +627,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 
 		vPkt := tappsbt.ForInteractiveSend(
 			id, sendAmt, receiverScriptKey, 0,
-			receiverAnchorIntKeyDesc, chainParams,
+			receiverAnchorIntKeyDesc, asset.V0, chainParams,
 		)
 
 		// Next, we'll attempt to complete a transfer with PSBTs from
@@ -745,7 +746,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 	vPkt := tappsbt.ForInteractiveSend(
 		id, sendAmt, receiverScriptKey, 0, receiverAnchorIntKeyDesc,
-		chainParams,
+		asset.V0, chainParams,
 	)
 
 	// We now create a Tapscript sibling with a simple hash lock script.
@@ -878,7 +879,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	outputAmounts := []uint64{1200, 1300, 1400, 800, 300}
 	vPkt := tappsbt.ForInteractiveSend(
 		id, outputAmounts[0], receiverScriptKey1, 0,
-		receiverAnchorIntKeyDesc1, chainParams,
+		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
 	)
 
 	// And now we'll create an output at anchor index 1 for the second
@@ -887,15 +888,15 @@ func testPsbtMultiSend(t *harnessTest) {
 	// index 3.
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[1], receiverScriptKey2, 1,
-		receiverAnchorIntKeyDesc2,
+		receiverAnchorIntKeyDesc2, asset.V0,
 	)
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[2], senderScriptKey1, 2,
-		senderAnchorIntKeyDesc1,
+		senderAnchorIntKeyDesc1, asset.V0,
 	)
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[3], senderScriptKey2, 2,
-		senderAnchorIntKeyDesc1,
+		senderAnchorIntKeyDesc1, asset.V0,
 	)
 
 	// Next, we'll attempt to complete a transfer with PSBTs from
