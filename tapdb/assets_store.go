@@ -2347,8 +2347,13 @@ func (a *AssetStore) StoreProofDeliveryAttempt(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		// Log proof delivery attempt and timestamp using the current
 		// time.
-		proofLocatorHash := locator.Hash()
-		err := q.InsertReceiverProofTransferAttempt(
+		proofLocatorHash, err := locator.Hash()
+		if err != nil {
+			return fmt.Errorf("unable to hash proof locator: %w",
+				err)
+		}
+
+		err = q.InsertReceiverProofTransferAttempt(
 			ctx, InsertRecvProofTxAttemptParams{
 				ProofLocatorHash: proofLocatorHash[:],
 				TimeUnix:         a.clock.Now().UTC(),
@@ -2375,7 +2380,12 @@ func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
 	readOpts := NewAssetStoreReadTx()
 
 	err = a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		proofLocatorHash := locator.Hash()
+		proofLocatorHash, err := locator.Hash()
+		if err != nil {
+			return fmt.Errorf("unable to hash proof locator: %w",
+				err)
+		}
+
 		timestamps, err = q.QueryReceiverProofTransferAttempt(
 			ctx, proofLocatorHash[:],
 		)
@@ -2624,7 +2634,12 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 			AssetID:   &assetID,
 			ScriptKey: *scriptKey,
 		}
-		proofFile := proofFiles[locator.Hash()]
+		locatorHash, err := locator.Hash()
+		if err != nil {
+			return fmt.Errorf("failed to hash locator: %w", err)
+		}
+
+		proofFile := proofFiles[locatorHash]
 		if proofFile == nil {
 			return fmt.Errorf("failed to find proof file for " +
 				"passive asset")

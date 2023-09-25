@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -64,7 +65,7 @@ type Locator struct {
 }
 
 // Hash returns a SHA256 hash of the bytes serialized locator.
-func (l *Locator) Hash() [32]byte {
+func (l *Locator) Hash() ([32]byte, error) {
 	var buf bytes.Buffer
 	if l.AssetID != nil {
 		buf.Write(l.AssetID[:])
@@ -74,8 +75,16 @@ func (l *Locator) Hash() [32]byte {
 	}
 	buf.Write(l.ScriptKey.SerializeCompressed())
 
+	if l.OutPoint != nil {
+		err := lnwire.WriteOutPoint(&buf, *l.OutPoint)
+		if err != nil {
+			return [32]byte{}, fmt.Errorf("unable to write "+
+				"outpoint: %w", err)
+		}
+	}
+
 	// Hash the buffer.
-	return sha256.Sum256(buf.Bytes())
+	return sha256.Sum256(buf.Bytes()), nil
 }
 
 // AnnotatedProof an annotated proof contains the raw proof blob along with a
