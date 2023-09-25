@@ -438,11 +438,13 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				groupKey, groupWitness,
 				*scriptKey, *internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params, *proofCourierAddr,
+				address.WithAssetVersion(
+					asset.Version(addr.AssetVersion),
+				),
 			)
 			if err != nil {
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
-			tapAddr.AssetVersion = asset.Version(addr.AssetVersion)
 
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Tap: tapAddr,
@@ -586,11 +588,11 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		address.Version(dbAddr.Version), genesis, groupKey,
 		groupWitness, *scriptKey, *internalKey, uint64(dbAddr.Amount),
 		tapscriptSibling, params, *proofCourierAddr,
+		address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make addr: %w", err)
 	}
-	tapAddr.AssetVersion = asset.Version(dbAddr.AssetVersion)
 
 	return &address.AddrWithKeyInfo{
 		Tap: tapAddr,
