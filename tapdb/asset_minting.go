@@ -316,6 +316,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 			dbSeedling := AssetSeedlingShell{
 				BatchID:         batchID,
+				AssetVersion:    int16(seedling.AssetVersion),
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
@@ -389,6 +390,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 
 			dbSeedling := AssetSeedlingItem{
 				RawKey:          rawBatchKey,
+				AssetVersion:    int16(seedling.AssetVersion),
 				AssetName:       seedling.AssetName,
 				AssetType:       int16(seedling.AssetType),
 				AssetSupply:     int64(seedling.Amount),
@@ -466,6 +468,7 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 	seedlings := make(map[string]*tapgarden.Seedling)
 	for _, dbSeedling := range dbSeedlings {
 		seedling := &tapgarden.Seedling{
+			AssetVersion: asset.Version(dbSeedling.AssetVersion),
 			AssetType: asset.Type(
 				dbSeedling.AssetType,
 			),
@@ -636,6 +639,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
 			asset.NewScriptKeyBip86(scriptKey), groupKey,
+			asset.WithAssetVersion(asset.Version(sprout.Version)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
