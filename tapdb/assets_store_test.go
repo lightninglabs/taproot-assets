@@ -27,6 +27,8 @@ import (
 )
 
 type assetGenOptions struct {
+	version asset.Version
+
 	assetGen asset.Genesis
 
 	customGroup bool
@@ -48,6 +50,7 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 	gen := asset.RandGenesis(t, asset.Normal)
 
 	return &assetGenOptions{
+		version:      asset.Version(rand.Int31n(2)),
 		assetGen:     gen,
 		groupKeyPriv: test.RandPrivKey(t),
 		amt:          uint64(test.RandInt[uint32]()),
@@ -149,6 +152,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	require.NoError(t, err)
 
 	newAsset := &asset.Asset{
+		Version:          opts.version,
 		Genesis:          genesis,
 		Amount:           opts.amt,
 		LockTime:         lockTime,
@@ -1057,7 +1061,7 @@ func TestSelectCommitment(t *testing.T) {
 			selectedAssets, err := assetsStore.ListEligibleCoins(
 				ctx, tc.constraints,
 			)
-			require.ErrorIs(t, tc.err, err)
+			require.ErrorIs(t, err, tc.err)
 
 			// The number of selected assets should match up
 			// properly.
