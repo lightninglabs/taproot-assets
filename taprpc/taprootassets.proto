@@ -266,6 +266,16 @@ message GenesisReveal {
     AssetType asset_type = 2;
 }
 
+enum AssetVersion {
+    // ASSET_VERSION_V0 is the default asset version. This version will include
+    // the witness vector in the leaf for a tap commitment.
+    ASSET_VERSION_V0 = 0;
+
+    // ASSET_VERSION_V1 is the asset version that leaves out the witness vector
+    // from the MS-SMT leaf encoding.
+    ASSET_VERSION_V1 = 1;
+}
+
 message Asset {
     // The version of the Taproot Asset.
     int32 version = 1;
@@ -614,6 +624,9 @@ message Addr {
 
     // The address of the proof courier service used in proof transfer.
     string proof_courier_addr = 10;
+
+    // The asset version of the address.
+    AssetVersion asset_version = 11;
 }
 
 message QueryAddrRequest {
@@ -678,6 +691,11 @@ message NewAddrRequest {
     the daemon configured default address will be used.
      */
     string proof_courier_addr = 6;
+
+    /*
+    The asset version to use when sending/receiving to/from this address.
+    */
+    AssetVersion asset_version = 7;
 }
 
 message ScriptKey {
