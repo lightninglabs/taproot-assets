@@ -71,6 +71,10 @@ var mintAssetCommand = cli.Command{
 			Name:  assetSupplyName,
 			Usage: "the target supply of the minted asset",
 		},
+		cli.Uint64Flag{
+			Name:  assetVersionName,
+			Usage: "the version of the asset to mint",
+		},
 		cli.StringFlag{
 			Name:  assetMetaBytesName,
 			Usage: "the raw metadata associated with the asset",
@@ -186,6 +190,9 @@ func mintAsset(ctx *cli.Context) error {
 			Amount:      ctx.Uint64(assetSupplyName),
 			GroupKey:    groupKey,
 			GroupAnchor: ctx.String(assetGroupAnchorName),
+			AssetVersion: taprpc.AssetVersion(
+				ctx.Uint64(assetVersionName),
+			),
 		},
 		EnableEmission: ctx.Bool(assetEmissionName),
 		ShortResponse:  ctx.Bool(shortResponseName),
