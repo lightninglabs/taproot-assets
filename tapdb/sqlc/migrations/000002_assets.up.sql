@@ -287,6 +287,8 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
     -- move into asset details table?
     asset_name TEXT NOT NULL,
 
+    asset_version SMALLINT NOT NULL,
+
     asset_type SMALLINT NOT NULL,
 
     asset_supply BIGINT NOT NULL,
