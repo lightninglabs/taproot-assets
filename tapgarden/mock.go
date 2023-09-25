@@ -34,8 +34,10 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 		metaBlob := test.RandBytes(32)
 		assetName := hex.EncodeToString(test.RandBytes(32))
 		seedlings[assetName] = &Seedling{
-			AssetType: asset.Type(rand.Int31n(2)),
-			AssetName: assetName,
+			// For now, we only test the v0 and v1 versions.
+			AssetVersion: asset.Version(rand.Int31n(2)),
+			AssetType:    asset.Type(rand.Int31n(2)),
+			AssetName:    assetName,
 			Meta: &proof.MetaReveal{
 				Data: metaBlob,
 			},
