@@ -318,7 +318,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
+	assetVersion, err := parseAssetVersion(req.Asset.AssetVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	seedling := &tapgarden.Seedling{
+		AssetVersion:   assetVersion,
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
 		Amount:         req.Asset.Amount,
@@ -2266,11 +2272,12 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		}
 
 		rpcBatch.Assets = append(rpcBatch.Assets, &mintrpc.MintAsset{
-			AssetType: taprpc.AssetType(seedling.AssetType),
-			Name:      seedling.AssetName,
-			AssetMeta: seedlingMeta,
-			Amount:    seedling.Amount,
-			GroupKey:  groupKeyBytes,
+			AssetType:    taprpc.AssetType(seedling.AssetType),
+			AssetVersion: taprpc.AssetVersion(seedling.AssetVersion),
+			Name:         seedling.AssetName,
+			AssetMeta:    seedlingMeta,
+			Amount:       seedling.Amount,
+			GroupKey:     groupKeyBytes,
 		})
 	}
 
