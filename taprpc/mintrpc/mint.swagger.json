@@ -242,6 +242,10 @@
         "group_anchor": {
           "type": "string",
           "description": "The name of the asset in the batch that will anchor a new asset group.\nThis asset will be minted with the same group key as the anchor asset."
+        },
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The version of asset to mint."
         }
       }
     },
@@ -357,6 +361,15 @@
       ],
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
+    "taprpcAssetVersion": {
+      "type": "string",
+      "enum": [
+        "ASSET_VERSION_V0",
+        "ASSET_VERSION_V1"
+      ],
+      "default": "ASSET_VERSION_V0",
+      "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
     }
   }
 }
