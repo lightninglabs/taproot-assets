@@ -11,6 +11,9 @@ import (
 // AssetDetails contains all of the configurable parameters of an Asset to
 // specify upon mint.
 type AssetDetails struct {
+	// Version is the type of the asset to mint.
+	Version asset.Version
+
 	// Type is the type of asset to mint.
 	Type asset.Type
 
@@ -37,6 +40,8 @@ func mintAssets(genesis asset.Genesis, groupKey *asset.GroupKey,
 
 	assets := make([]*asset.Asset, 0, len(mintDetails))
 	for _, mint := range mintDetails {
+		mint := mint
+
 		if mint.Type != genesis.Type {
 			return nil, fmt.Errorf("mint asset type mismatch, "+
 				"got %v while genesis committed to %v",
@@ -68,6 +73,7 @@ func mintAssets(genesis asset.Genesis, groupKey *asset.GroupKey,
 		a, err := asset.New(
 			genesis, amount, mint.LockTime, mint.RelativeLockTime,
 			asset.NewScriptKeyBip86(mint.ScriptKey), groupKey,
+			asset.WithAssetVersion(mint.Version),
 		)
 		if err != nil {
 			return nil, err
