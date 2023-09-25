@@ -345,6 +345,7 @@ func RandAsset(t testing.TB, assetType Type) *Asset {
 	return NewAssetNoErr(
 		t, genesis, protoAsset.Amount, protoAsset.LockTime,
 		protoAsset.RelativeLockTime, scriptKey, familyKey,
+		WithAssetVersion(protoAsset.Version),
 	)
 }
 
@@ -367,7 +368,15 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 		t.Fatal("unhandled asset type", genesis.Type)
 	}
 
-	a, err := New(genesis, units, 0, 0, scriptKey, groupKey)
+	var assetVersion Version
+	if test.RandInt[uint8]()%2 == 0 {
+		assetVersion = V1
+	}
+
+	a, err := New(
+		genesis, units, 0, 0, scriptKey, groupKey,
+		WithAssetVersion(assetVersion),
+	)
 	require.NoError(t, err)
 
 	return a
