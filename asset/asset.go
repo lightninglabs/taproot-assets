@@ -903,16 +903,45 @@ type Asset struct {
 // recognized by this implementation of tap.
 func (a *Asset) IsUnknownVersion() bool {
 	switch a.Version {
-	case V0:
+	case V0, V1:
 		return false
 	default:
 		return true
 	}
 }
 
+// newAssetOptions is a struct that is used to customize how a new asset is to
+// be created.
+type newAssetOptions struct {
+	assetVersion Version
+}
+
+// defaultNewAssetOptions returns the default set of asset versions.
+func defaultNewAssetOptions() *newAssetOptions {
+	return &newAssetOptions{
+		assetVersion: V0,
+	}
+}
+
+// NewAssetOpt is used to modify how a new asset is to be created.
+type NewAssetOpt func(*newAssetOptions)
+
+// WithAssetVersion can be used to create an asset with a custom version.
+func WithAssetVersion(v Version) NewAssetOpt {
+	return func(o *newAssetOptions) {
+		o.assetVersion = v
+	}
+}
+
 // New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
-	scriptKey ScriptKey, groupKey *GroupKey) (*Asset, error) {
+	scriptKey ScriptKey, groupKey *GroupKey,
+	opts ...NewAssetOpt) (*Asset, error) {
+
+	options := defaultNewAssetOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	// Collectible assets can only ever be issued once.
 	if genesis.Type != Normal && amount != 1 {
@@ -936,7 +965,7 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	}
 
 	return &Asset{
-		Version:             V0,
+		Version:             options.assetVersion,
 		Genesis:             genesis,
 		Amount:              amount,
 		LockTime:            locktime,

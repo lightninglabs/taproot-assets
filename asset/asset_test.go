@@ -788,3 +788,23 @@ func TestAssetEncodingNoWitness(t *testing.T) {
 
 	require.Equal(t, root1Leaf.NodeHash(), root2Leaf.NodeHash())
 }
+
+// TestNewAssetWithCustomVersion tests that a custom version can be set for
+// newly created assets.
+func TestNewAssetWithCustomVersion(t *testing.T) {
+	t.Parallel()
+
+	// We'll use the root asset as a template, to re-use some of its static
+	// data.
+	rootAsset := testRootAsset.Copy()
+
+	const newVersion = 10
+
+	assetCustomVersion, err := New(
+		rootAsset.Genesis, rootAsset.Amount, 0, 0, rootAsset.ScriptKey, nil,
+		WithAssetVersion(newVersion),
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, int(assetCustomVersion.Version), newVersion)
+}
