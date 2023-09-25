@@ -16,7 +16,7 @@ docker run \
   -e UID=$UID \
   -v "$DIR/../:/build" \
   -w /build \
-  kjconroy/sqlc:1.16.0 generate
+  sqlc/sqlc:1.21.0 generate
 
 # Until https://github.com/kyleconroy/sqlc/issues/1334 is fixed, we need to
 # manually modify some types so LEFT JOIN queries compile properly.
