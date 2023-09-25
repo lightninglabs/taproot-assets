@@ -33,7 +33,8 @@ var (
 )
 
 func randAddress(t *testing.T, net *ChainParams, v Version, groupPubKey,
-	sibling bool, amt *uint64, assetType asset.Type) (*Tap, error) {
+	sibling bool, amt *uint64, assetType asset.Type,
+	addrOpts ...NewAddrOpt) (*Tap, error) {
 
 	t.Helper()
 
@@ -78,16 +79,19 @@ func randAddress(t *testing.T, net *ChainParams, v Version, groupPubKey,
 	return New(
 		v, genesis, groupKey, groupWitness, scriptKey, internalKey,
 		amount, tapscriptSibling, net, proofCourierAddr,
+		addrOpts...,
 	)
 }
 
 func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
-	sibling bool, assetType asset.Type) (*Tap, string, error) {
+	sibling bool, assetType asset.Type,
+	addrOpts ...NewAddrOpt) (*Tap, string, error) {
 
 	t.Helper()
 
 	newAddr, err := randAddress(
 		t, net, V0, groupPubKey, sibling, nil, assetType,
+		addrOpts...,
 	)
 	if err != nil {
 		return nil, "", err
@@ -122,6 +126,28 @@ func TestNewAddress(t *testing.T) {
 				return randAddress(
 					t, &TestNet3Tap, V0, false, false, nil,
 					asset.Normal,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "normal address, v1 asset version",
+			f: func() (*Tap, error) {
+				return randAddress(
+					t, &TestNet3Tap, V0, false, false, nil,
+					asset.Normal, WithAssetVersion(asset.V1),
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "collectible address with group key, v1 asset " +
+				"version",
+			f: func() (*Tap, error) {
+				return randAddress(
+					t, &MainNetTap, V0, true, false, nil,
+					asset.Collectible,
+					WithAssetVersion(asset.V1),
 				)
 			},
 			err: nil,
@@ -275,6 +301,17 @@ func TestAddressEncoding(t *testing.T) {
 				return randEncodedAddress(
 					t, &MainNetTap, false, false,
 					asset.Normal,
+				)
+			},
+			err: nil,
+		},
+		{
+			name: "valid addr, v1 asset version",
+			f: func() (*Tap, string, error) {
+				return randEncodedAddress(
+					t, &MainNetTap, false, false,
+					asset.Normal,
+					WithAssetVersion(asset.V1),
 				)
 			},
 			err: nil,
