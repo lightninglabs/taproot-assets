@@ -1408,7 +1408,7 @@ func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScrip
 }
 
 const fetchSeedlingByID = `-- name: FetchSeedlingByID :one
-SELECT seedling_id, asset_name, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id
+SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id
 FROM asset_seedlings
 WHERE seedling_id = $1
 `
@@ -1419,6 +1419,7 @@ func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (Asse
 	err := row.Scan(
 		&i.SeedlingID,
 		&i.AssetName,
+		&i.AssetVersion,
 		&i.AssetType,
 		&i.AssetSupply,
 		&i.AssetMetaID,
@@ -1468,7 +1469,7 @@ WITH target_batch(batch_id) AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_supply, 
+SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id
@@ -1482,6 +1483,7 @@ type FetchSeedlingsForBatchRow struct {
 	SeedlingID      int64
 	AssetName       string
 	AssetType       int16
+	AssetVersion    int16
 	AssetSupply     int64
 	MetaDataHash    []byte
 	MetaDataType    sql.NullInt16
@@ -1505,6 +1507,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.SeedlingID,
 			&i.AssetName,
 			&i.AssetType,
+			&i.AssetVersion,
 			&i.AssetSupply,
 			&i.MetaDataHash,
 			&i.MetaDataType,
@@ -1593,17 +1596,18 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
-    asset_name, asset_type, asset_supply, asset_meta_id,
+    asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6,
-   $7, $8
+   $1, $2, $3, $4, $5, $6, $7,
+   $8, $9
 )
 `
 
 type InsertAssetSeedlingParams struct {
 	AssetName       string
 	AssetType       int16
+	AssetVersion    int16
 	AssetSupply     int64
 	AssetMetaID     int64
 	EmissionEnabled bool
@@ -1616,6 +1620,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 	_, err := q.db.ExecContext(ctx, insertAssetSeedling,
 		arg.AssetName,
 		arg.AssetType,
+		arg.AssetVersion,
 		arg.AssetSupply,
 		arg.AssetMetaID,
 		arg.EmissionEnabled,
@@ -1638,12 +1643,12 @@ WITH target_key_id AS (
     WHERE keys.raw_key = $1
 )
 INSERT INTO asset_seedlings(
-    asset_name, asset_type, asset_supply, asset_meta_id,
+    asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-    $2, $3, $4, $5, $6,
+    $2, $3, $4, $5, $6, $7,
     (SELECT key_id FROM target_key_id),
-    $7, $8
+    $8, $9
 )
 `
 
@@ -1651,6 +1656,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	RawKey          []byte
 	AssetName       string
 	AssetType       int16
+	AssetVersion    int16
 	AssetSupply     int64
 	AssetMetaID     int64
 	EmissionEnabled bool
@@ -1663,6 +1669,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.RawKey,
 		arg.AssetName,
 		arg.AssetType,
+		arg.AssetVersion,
 		arg.AssetSupply,
 		arg.AssetMetaID,
 		arg.EmissionEnabled,
