@@ -56,10 +56,10 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
-    asset_name, asset_type, asset_supply, asset_meta_id,
+    asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-   $1, $2, $3, $4, $5, $6,
+   $1, $2, $3, $4, $5, $6, $7,
    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
 );
 
@@ -107,10 +107,10 @@ WITH target_key_id AS (
     WHERE keys.raw_key = $1
 )
 INSERT INTO asset_seedlings(
-    asset_name, asset_type, asset_supply, asset_meta_id,
+    asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id
 ) VALUES (
-    $2, $3, $4, $5, $6,
+    $2, $3, $4, $5, $6, $7,
     (SELECT key_id FROM target_key_id),
     sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
 );
@@ -123,7 +123,7 @@ WITH target_batch(batch_id) AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_supply, 
+SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id
