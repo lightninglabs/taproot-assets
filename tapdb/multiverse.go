@@ -232,7 +232,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 			universeRoot mssmt.Node
 			err          error
 		)
-		issuanceProof, universeRoot, err = universeRegisterIssuance(
+		issuanceProof, universeRoot, err = universeUpsertProofLeaf(
 			ctx, dbTx, id, key, leaf, metaReveal,
 		)
 		if err != nil {
@@ -305,7 +305,7 @@ func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 
 		// Register issuance in the asset (group) specific universe
 		// tree.
-		_, universeRoot, err := universeRegisterIssuance(
+		_, universeRoot, err := universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
 			item.MetaReveal,
 		)

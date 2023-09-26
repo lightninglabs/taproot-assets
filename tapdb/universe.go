@@ -289,7 +289,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		issuanceProof *universe.IssuanceProof
 	)
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
-		issuanceProof, _, err = universeRegisterIssuance(
+		issuanceProof, _, err = universeUpsertProofLeaf(
 			ctx, dbTx, b.id, key, leaf, metaReveal,
 		)
 		return err
@@ -301,15 +301,15 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	return issuanceProof, nil
 }
 
-// universeRegisterIssuance upserts a minting leaf within the universe tree,
-// stored at the base key.
+// universeUpsertProofLeaf upserts a proof leaf within the universe tree (stored
+// at the proof leaf key).
 //
-// This function returns the newly registered issuance proof and the new
-// universe root.
+// This function returns the inserted/updated proof leaf and the new universe
+// root.
 //
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
-func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
+func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, key universe.LeafKey,
 	leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, mssmt.Node,
