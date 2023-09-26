@@ -141,7 +141,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
 
-	newProof := leaf.GenesisProof
+	newProof := leaf.Proof
 
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
@@ -154,7 +154,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		// TX was re-organized out of the chain. If the block hash is
 		// still the same, we don't see this as an update and just
 		// return the existing proof.
-		existingProof := issuanceProof.Leaf.GenesisProof
+		existingProof := issuanceProof.Leaf.Proof
 		if existingProof.BlockHeader.BlockHash() ==
 			newProof.BlockHeader.BlockHash() {
 
@@ -222,7 +222,7 @@ func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	key LeafKey, leaf *Leaf,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
-	assetSnapshot, err := leaf.GenesisProof.Verify(
+	assetSnapshot, err := leaf.Proof.Verify(
 		ctx, prevAssetSnapshot, a.cfg.HeaderVerifier,
 	)
 	if err != nil {
@@ -355,7 +355,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 			"proof: %v", err)
 	}
 
-	prevProof := prevProofs[0].Leaf.GenesisProof
+	prevProof := prevProofs[0].Leaf.Proof
 
 	// Construct minimal asset snapshot for previous asset.
 	// This is a minimal the proof verification result for the

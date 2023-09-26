@@ -113,8 +113,8 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
-		GenesisProof: randProof(t),
-		Amt:          uint64(rand.Int31()),
+		Proof: randProof(t),
+		Amt:   uint64(rand.Int31()),
 	}
 	if groupKey != nil {
 		leaf.GroupKey = &asset.GroupKey{
@@ -255,7 +255,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	// leaves we just inserted.
 	for idx := range testLeaves {
 		testLeaf := &testLeaves[idx]
-		testLeaf.Leaf.GenesisProof = randProof(t)
+		testLeaf.Leaf.Proof = randProof(t)
 
 		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.RegisterIssuance(

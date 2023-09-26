@@ -2679,12 +2679,12 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	// In order to display the full asset, we'll also encode the genesis
 	// proof.
 	var buf bytes.Buffer
-	if err := assetLeaf.GenesisProof.Encode(&buf); err != nil {
+	if err := assetLeaf.Proof.Encode(&buf); err != nil {
 		return nil, err
 	}
 
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, &assetLeaf.GenesisProof.Asset, false, true, keys,
+		ctx, &assetLeaf.Proof.Asset, false, true, keys,
 	)
 	if err != nil {
 		return nil, err
@@ -2953,8 +2953,8 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
 		},
-		GenesisProof: &assetProof,
-		Amt:          assetProof.Asset.Amount,
+		Proof: &assetProof,
+		Amt:   assetProof.Asset.Amount,
 	}, nil
 }
 

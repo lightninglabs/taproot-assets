@@ -380,7 +380,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	}
 
 	assetGenID, err := upsertAssetGen(
-		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leaf.GenesisProof,
+		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leaf.Proof,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -554,8 +554,8 @@ func universeFetchProofLeaf(ctx context.Context,
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				GenesisProof: &genProof,
-				Amt:          uint64(leaf.SumAmt),
+				Proof: &genProof,
+				Amt:   uint64(leaf.SumAmt),
 			},
 		}
 		if id.GroupKey != nil {
@@ -675,8 +675,8 @@ func (b *BaseUniverseTree) MintingLeaves(
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				GenesisProof: &genProof,
-				Amt:          uint64(dbLeaf.SumAmt),
+				Proof: &genProof,
+				Amt:   uint64(dbLeaf.SumAmt),
 			}
 			if b.id.GroupKey != nil {
 				leaf.GroupKey = &asset.GroupKey{

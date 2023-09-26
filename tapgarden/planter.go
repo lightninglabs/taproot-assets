@@ -898,7 +898,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		}
 		mintingLeaf := &universe.Leaf{
 			GenesisWithGroup: uniGen,
-			GenesisProof:     p,
+			Proof:            p,
 			Amt:              p.Asset.Amount,
 		}
 		_, err = c.cfg.Universe.RegisterIssuance(

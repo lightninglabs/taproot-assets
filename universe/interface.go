@@ -88,8 +88,9 @@ type GenesisWithGroup struct {
 type Leaf struct {
 	GenesisWithGroup
 
-	// GenesisProof is the proof of the newly created asset.
-	GenesisProof *proof.Proof
+	// Proof is either an issuance proof or a transfer proof associated with
+	// the issuance or spend event which this leaf represents.
+	Proof *proof.Proof
 
 	// Amt is the amount of units created.
 	Amt uint64
@@ -98,7 +99,7 @@ type Leaf struct {
 // SmtLeafNode returns the SMT leaf node for the given minting leaf.
 func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 	var buf bytes.Buffer
-	if err := m.GenesisProof.Encode(&buf); err != nil {
+	if err := m.Proof.Encode(&buf); err != nil {
 		return nil, err
 	}
 

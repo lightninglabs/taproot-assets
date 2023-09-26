@@ -1068,8 +1068,8 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		// The universe tree store only the asset state transition and
 		// not also the proof file checksum (as the root is effectively
 		// a checksum), so we'll use just the state transition.
-		GenesisProof: mintingProof,
-		Amt:          a.Amount,
+		Proof: mintingProof,
+		Amt:   a.Amount,
 	}
 
 	return blob, &universe.IssuanceItem{
