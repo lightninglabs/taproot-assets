@@ -1046,7 +1046,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	// The base key is the set of bytes that keys into the universe, this'll
 	// be the outpoint where it was created at and the script key for that
 	// asset.
-	baseKey := universe.LeafKey{
+	leafKey := universe.LeafKey{
 		OutPoint: wire.OutPoint{
 			Hash:  mintTxHash,
 			Index: b.anchorOutputIndex,
@@ -1074,7 +1074,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 
 	return blob, &universe.IssuanceItem{
 		ID:   uniID,
-		Key:  baseKey,
+		Key:  leafKey,
 		Leaf: mintingLeaf,
 	}, nil
 }

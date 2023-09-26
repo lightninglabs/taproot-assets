@@ -118,12 +118,12 @@ func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
 
 	keys := make([]universe.LeafKey, len(assetKeys.AssetKeys))
 	for i, key := range assetKeys.AssetKeys {
-		baseKey, err := unmarshalLeafKey(key)
+		leafKey, err := unmarshalLeafKey(key)
 		if err != nil {
 			return nil, err
 		}
 
-		keys[i] = baseKey
+		keys[i] = leafKey
 	}
 
 	return keys, nil

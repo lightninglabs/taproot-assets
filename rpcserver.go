@@ -2764,10 +2764,10 @@ func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
 	}, nil
 }
 
-// unmarshalLeafKey unmarshals a leaf key from the RPC form.
+// unmarshalLeafKey un-marshals a leaf key from the RPC form.
 func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	var (
-		baseKey universe.LeafKey
+		leafKey universe.LeafKey
 		err     error
 	)
 
@@ -2775,31 +2775,31 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	case key.GetScriptKeyBytes() != nil:
 		pubKey, err := parseUserKey(key.GetScriptKeyBytes())
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.ScriptKey = &asset.ScriptKey{
+		leafKey.ScriptKey = &asset.ScriptKey{
 			PubKey: pubKey,
 		}
 
 	case key.GetScriptKeyStr() != "":
 		scriptKeyBytes, sErr := hex.DecodeString(key.GetScriptKeyStr())
 		if sErr != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
 		pubKey, err := parseUserKey(scriptKeyBytes)
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.ScriptKey = &asset.ScriptKey{
+		leafKey.ScriptKey = &asset.ScriptKey{
 			PubKey: pubKey,
 		}
 	default:
 		// TODO(roasbeef): can actually allow not to be, then would
 		// fetch all for the given outpoint
-		return baseKey, fmt.Errorf("script key must be set")
+		return leafKey, fmt.Errorf("script key must be set")
 	}
 
 	switch {
@@ -2809,29 +2809,29 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 		outpointStr := key.GetOpStr()
 		outpoint, err := UnmarshalOutpoint(outpointStr)
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.OutPoint = *outpoint
+		leafKey.OutPoint = *outpoint
 
 	case key.GetOutpoint() != nil:
 		op := key.GetOp()
 
 		hash, err := chainhash.NewHashFromStr(op.HashStr)
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.OutPoint = wire.OutPoint{
+		leafKey.OutPoint = wire.OutPoint{
 			Hash:  *hash,
 			Index: uint32(op.Index),
 		}
 
 	default:
-		return baseKey, fmt.Errorf("outpoint not set: %v", err)
+		return leafKey, fmt.Errorf("outpoint not set: %v", err)
 	}
 
-	return baseKey, nil
+	return leafKey, nil
 }
 
 // marshalMssmtProof marshals a MS-SMT proof into the RPC form.

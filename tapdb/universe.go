@@ -587,7 +587,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 ) ([]universe.LeafKey, error) {
 
-	var baseKeys []universe.LeafKey
+	var leafKeys []universe.LeafKey
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
@@ -614,7 +614,7 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 				return err
 			}
 
-			baseKeys = append(baseKeys, universe.LeafKey{
+			leafKeys = append(leafKeys, universe.LeafKey{
 				OutPoint:  genPoint,
 				ScriptKey: &scriptKey,
 			})
@@ -626,7 +626,7 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 		return nil, dbErr
 	}
 
-	return baseKeys, nil
+	return leafKeys, nil
 }
 
 // MintingLeaves returns all the minting leaves inserted into the universe.

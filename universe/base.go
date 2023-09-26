@@ -342,13 +342,13 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 	}
 	prevScriptKey := asset.NewScriptKey(prevScriptKeyPubKey)
 
-	prevBaseKey := LeafKey{
+	prevLeafKey := LeafKey{
 		OutPoint:  prevID.OutPoint,
 		ScriptKey: &prevScriptKey,
 	}
 
 	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
-		ctx, uniID, prevBaseKey,
+		ctx, uniID, prevLeafKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous "+

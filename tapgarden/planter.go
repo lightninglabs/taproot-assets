@@ -880,7 +880,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		// The base key is the set of bytes that keys into the universe,
 		// this'll be the outpoint where it was created at and the
 		// script key for that asset.
-		baseKey := universe.LeafKey{
+		leafKey := universe.LeafKey{
 			OutPoint: wire.OutPoint{
 				Hash:  p.AnchorTx.TxHash(),
 				Index: p.InclusionProof.OutputIndex,
@@ -902,7 +902,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 			Amt:              p.Asset.Amount,
 		}
 		_, err = c.cfg.Universe.RegisterIssuance(
-			ctx, uniID, baseKey, mintingLeaf,
+			ctx, uniID, leafKey, mintingLeaf,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to update issuance: %v", err)

@@ -42,7 +42,7 @@ func NewRpcUniverseRegistrar(
 func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
 	proofResp *unirpc.AssetProofResponse) (*universe.IssuanceProof, error) {
 
-	baseKey, err := unmarshalLeafKey(uniKey.LeafKey)
+	leafKey, err := unmarshalLeafKey(uniKey.LeafKey)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
 	}
 
 	return &universe.IssuanceProof{
-		MintingKey: baseKey,
+		MintingKey: leafKey,
 		UniverseRoot: mssmt.NewComputedBranch(
 			fn.ToArray[mssmt.NodeHash](
 				proofResp.UniverseRoot.MssmtRoot.RootHash,
