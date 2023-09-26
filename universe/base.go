@@ -136,7 +136,7 @@ func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
 // error if the passed minting proof is invalid. If the leaf is already known,
 // then no action is taken and the existing issuance commitment proof returned.
 func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
-	key LeafKey, leaf *Leaf) (*IssuanceProof, error) {
+	key LeafKey, leaf *Leaf) (*Proof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
@@ -370,7 +370,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 // FetchIssuanceProof attempts to fetch an issuance proof for the target base
 // leaf based on the universe identifier (assetID/groupKey).
 func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
-	key LeafKey) ([]*IssuanceProof, error) {
+	key LeafKey) ([]*Proof, error) {
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))

@@ -136,11 +136,16 @@ func (b LeafKey) UniverseKey() [32]byte {
 	return k
 }
 
-// IssuanceProof is a complete issuance proof for a given asset specified by
-// the minting key. This proof can be used to verify that a valid asset exists
+// Proof associates a universe leaf (and key) with its corresponding multiverse
+// and universe inclusion proofs.
+//
+// These inclusion proofs can be used to verify that a valid asset exists
 // (based on the proof in the leaf), and that the asset is committed to within
-// the universe root.
-type IssuanceProof struct {
+// the universe root and multiverse root.
+type Proof struct {
+	// Leaf is the leaf node for the asset within the universe tree.
+	Leaf *Leaf
+
 	// LeafKey is the universe leaf key for the asset issuance or spend.
 	LeafKey LeafKey
 
@@ -151,9 +156,6 @@ type IssuanceProof struct {
 	// InclusionProof is the inclusion proof for the asset within the
 	// universe tree.
 	InclusionProof *mssmt.Proof
-
-	// Leaf is the leaf node for the asset within the universe tree.
-	Leaf *Leaf
 
 	// MultiverseRoot is the root of the multiverse tree that the asset is
 	// located within.
@@ -167,7 +169,7 @@ type IssuanceProof struct {
 // VerifyRoot verifies that the inclusion proof for the root node matches the
 // specified root. This is useful for sanity checking an issuance proof against
 // the purported root, and the included leaf.
-func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
+func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
 	leafNode, err := i.Leaf.SmtLeafNode()
 	if err != nil {
 		return false, err
@@ -195,7 +197,7 @@ type BaseBackend interface {
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
 	RegisterIssuance(ctx context.Context, key LeafKey, leaf *Leaf,
-		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// FetchIssuanceProof returns an issuance proof for the target key. If
 	// the key doesn't have a script key specified, then all the proofs for
@@ -204,7 +206,7 @@ type BaseBackend interface {
 	//
 	// TODO(roasbeef): can eventually do multi-proofs for the SMT
 	FetchIssuanceProof(ctx context.Context,
-		key LeafKey) ([]*IssuanceProof, error)
+		key LeafKey) ([]*Proof, error)
 
 	// MintingKeys returns all the keys inserted in the universe.
 	MintingKeys(ctx context.Context) ([]LeafKey, error)
@@ -248,7 +250,7 @@ type MultiverseArchive interface {
 	// the universe tree that corresponds to the given key.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf,
-		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// RegisterBatchIssuance inserts a new minting leaf batch within the
 	// multiverse tree and the universe tree that corresponds to the given
@@ -260,7 +262,7 @@ type MultiverseArchive interface {
 	// minting outpoint will be returned. If neither are specified, then all
 	// inserted proof leafs will be returned.
 	FetchProofLeaf(ctx context.Context, id Identifier,
-		key LeafKey) ([]*IssuanceProof, error)
+		key LeafKey) ([]*Proof, error)
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
@@ -272,7 +274,7 @@ type Registrar interface {
 	// RegisterIssuance inserts a new minting leaf within the target
 	// universe tree (based on the ID), stored at the base key.
 	RegisterIssuance(ctx context.Context, id Identifier, key LeafKey,
-		leaf *Leaf) (*IssuanceProof, error)
+		leaf *Leaf) (*Proof, error)
 }
 
 // IssuanceItem is an item that can be used to register a new issuance within a
@@ -474,7 +476,7 @@ type DiffEngine interface {
 	// asymmetric, as just need this to complete final portion
 	// of diff
 	FetchIssuanceProof(ctx context.Context, id Identifier,
-		key LeafKey) ([]*IssuanceProof, error)
+		key LeafKey) ([]*Proof, error)
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle
@@ -504,7 +506,7 @@ type CommittedIssuanceProof struct {
 	ChainProof *Commitment
 
 	// TaprootAssetProof is a proof of new asset issuance.
-	TaprootAssetProof *IssuanceProof
+	TaprootAssetProof *Proof
 }
 
 // ChainCommitter is used to commit a Universe backend in the chain.

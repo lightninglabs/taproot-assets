@@ -69,7 +69,7 @@ type FederationPushReq struct {
 	// Leaf is the new leaf to add.
 	Leaf *Leaf
 
-	resp chan *IssuanceProof
+	resp chan *Proof
 	err  chan error
 }
 
@@ -419,13 +419,13 @@ func (f *FederationEnvoy) syncer() {
 //
 // NOTE: This is part of the universe.Registrar interface.
 func (f *FederationEnvoy) RegisterIssuance(_ context.Context, id Identifier,
-	key LeafKey, leaf *Leaf) (*IssuanceProof, error) {
+	key LeafKey, leaf *Leaf) (*Proof, error) {
 
 	pushReq := &FederationPushReq{
 		ID:   id,
 		Key:  key,
 		Leaf: leaf,
-		resp: make(chan *IssuanceProof, 1),
+		resp: make(chan *Proof, 1),
 		err:  make(chan error, 1),
 	}
 

@@ -280,13 +280,13 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // at the base key.
 func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
+	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
 		writeTx BaseUniverseStoreOptions
 
 		err           error
-		issuanceProof *universe.IssuanceProof
+		issuanceProof *universe.Proof
 	)
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		issuanceProof, _, err = universeUpsertProofLeaf(
@@ -312,7 +312,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, key universe.LeafKey,
 	leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, mssmt.Node,
+	metaReveal *proof.MetaReveal) (*universe.Proof, mssmt.Node,
 	error) {
 
 	namespace := id.String()
@@ -413,7 +413,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, nil, err
 	}
 
-	return &universe.IssuanceProof{
+	return &universe.Proof{
 		LeafKey:        key,
 		UniverseRoot:   universeRoot,
 		InclusionProof: leafInclusionProof,
@@ -426,11 +426,11 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 // outpoint will be returned. If neither are specified, then proofs for all the
 // inserted leaves will be returned.
 func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
-	universeKey universe.LeafKey) ([]*universe.IssuanceProof, error) {
+	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	var (
 		readTx = NewBaseUniverseReadTx()
-		proofs []*universe.IssuanceProof
+		proofs []*universe.Proof
 	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseStore) error {
@@ -456,7 +456,7 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 // broader DB updates.
 func universeFetchProofLeaf(ctx context.Context,
 	id universe.Identifier, universeKey universe.LeafKey,
-	dbTx BaseUniverseStore) ([]*universe.IssuanceProof, error) {
+	dbTx BaseUniverseStore) ([]*universe.Proof, error) {
 
 	namespace := id.String()
 
@@ -474,7 +474,7 @@ func universeFetchProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	var proofs []*universe.IssuanceProof
+	var proofs []*universe.Proof
 
 	// First, we'll make a new instance of the universe tree, as we'll query
 	// it directly to obtain the set of leaves we care about.
@@ -546,7 +546,7 @@ func universeFetchProofLeaf(ctx context.Context,
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
 
-		issuanceProof := &universe.IssuanceProof{
+		issuanceProof := &universe.Proof{
 			LeafKey:        universeKey,
 			UniverseRoot:   rootNode,
 			InclusionProof: leafProof,

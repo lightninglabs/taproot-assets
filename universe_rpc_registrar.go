@@ -40,7 +40,7 @@ func NewRpcUniverseRegistrar(
 // unmarshalIssuanceProof un-marshals an issuance proof response into a struct
 // usable by the universe package.
 func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
-	proofResp *unirpc.AssetProofResponse) (*universe.IssuanceProof, error) {
+	proofResp *unirpc.AssetProofResponse) (*universe.Proof, error) {
 
 	leafKey, err := unmarshalLeafKey(uniKey.LeafKey)
 	if err != nil {
@@ -65,7 +65,7 @@ func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 		return nil, err
 	}
 
-	return &universe.IssuanceProof{
+	return &universe.Proof{
 		LeafKey: leafKey,
 		UniverseRoot: mssmt.NewComputedBranch(
 			fn.ToArray[mssmt.NodeHash](
@@ -82,7 +82,7 @@ func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 // that uses a remote Universe server as the Registry instance.
 func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.Leaf) (*universe.IssuanceProof, error) {
+	leaf *universe.Leaf) (*universe.Proof, error) {
 
 	// First, we'll parse the proofs and key into their RPC counterparts.
 	uniKey := &unirpc.UniverseKey{
@@ -105,7 +105,7 @@ func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 		return nil, err
 	}
 
-	// Finally, we'll map the response back into the IssuanceProof we expect
+	// Finally, we'll map the response back into the Proof we expect
 	// as a response.
 	return unmarshalIssuanceProof(uniKey, proofResp)
 }

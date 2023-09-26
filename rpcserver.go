@@ -2849,7 +2849,7 @@ func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 // marshalIssuanceProof marshals an issuance proof into the RPC form.
 func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
-	proof *universe.IssuanceProof) (*unirpc.AssetProofResponse, error) {
+	proof *universe.Proof) (*unirpc.AssetProofResponse, error) {
 
 	uniProof, err := marshalMssmtProof(proof.InclusionProof)
 	if err != nil {

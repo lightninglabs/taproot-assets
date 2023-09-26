@@ -158,11 +158,11 @@ func (b *MultiverseStore) RootNodes(
 // leafs will be returned.
 func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
-	universeKey universe.LeafKey) ([]*universe.IssuanceProof, error) {
+	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	var (
 		readTx = NewBaseUniverseReadTx()
-		proofs []*universe.IssuanceProof
+		proofs []*universe.Proof
 	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
@@ -218,11 +218,11 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey,
 	leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
+	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
 		writeTx       BaseMultiverseOptions
-		issuanceProof *universe.IssuanceProof
+		issuanceProof *universe.Proof
 	)
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {

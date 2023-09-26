@@ -341,7 +341,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 }
 
 func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
-	assetGen *asset.Genesis) (*universe.IssuanceProof, error) {
+	assetGen *asset.Genesis) (*universe.Proof, error) {
 
 	var targetGen asset.Genesis
 	if assetGen != nil {

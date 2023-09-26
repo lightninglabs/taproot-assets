@@ -138,7 +138,7 @@ func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
 // of diff
 func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
-	key universe.LeafKey) ([]*universe.IssuanceProof, error) {
+	key universe.LeafKey) ([]*universe.Proof, error) {
 
 	uProofs, err := r.conn.QueryProof(ctx, &universerpc.UniverseKey{
 		Id:      marshalUniID(id),
@@ -171,14 +171,14 @@ func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 		return nil, err
 	}
 
-	uniProof := &universe.IssuanceProof{
+	uniProof := &universe.Proof{
 		LeafKey:        key,
 		UniverseRoot:   uniRoot,
 		InclusionProof: inclusionProof,
 		Leaf:           assetLeaf,
 	}
 
-	return []*universe.IssuanceProof{uniProof}, nil
+	return []*universe.Proof{uniProof}, nil
 }
 
 // A compile time interface to ensure that RpcUniverseDiff implements the
