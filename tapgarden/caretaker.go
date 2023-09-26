@@ -2,11 +2,13 @@ package tapgarden
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -34,6 +36,15 @@ var (
 		PkScript: GenesisDummyScript[:],
 		Value:    int64(GenesisAmtSats),
 	}
+
+	// ErrGroupKeyUnknown is an error returned if an asset has a group key
+	// attached that has not been previously verified.
+	ErrGroupKeyUnknown = errors.New("group key not known")
+
+	// ErrGenesisNotGroupAnchor is an error returned if an asset has a group
+	// key attached, and the asset is not the anchor asset for the group.
+	// This is true for any asset created via reissuance.
+	ErrGenesisNotGroupAnchor = errors.New("genesis not group anchor")
 )
 
 const (
@@ -480,7 +491,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				assetGen, amount, 0, 0, tweakedScriptKey, nil,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to create"+
+				return nil, fmt.Errorf("unable to create "+
 					"asset for group key signing: %w", err)
 			}
 		}
@@ -492,8 +503,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				*groupInfo.Genesis, protoAsset,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to"+
-					"tweak group key: %w", err)
+				return nil, fmt.Errorf("unable to tweak group "+
+					"key: %w", err)
 			}
 		}
 
@@ -506,8 +517,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				ctx, asset.TaprootAssetsKeyFamily,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to"+
-					"derive group key: %w", err)
+				return nil, fmt.Errorf("unable to derive "+
+					"group key: %w", err)
 			}
 
 			sproutGroupKey, err = asset.DeriveGroupKey(
@@ -515,8 +526,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				rawGroupKey, assetGen, protoAsset,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to"+
-					"tweak group key: %w", err)
+				return nil, fmt.Errorf("unable to tweak group "+
+					"key: %w", err)
 			}
 
 			newGroups[seedlingName] = &asset.AssetGroup{
@@ -1186,5 +1197,136 @@ func GenHeaderVerifier(ctx context.Context,
 	return func(header wire.BlockHeader, height uint32) error {
 		err := chainBridge.VerifyBlock(ctx, header, height)
 		return err
+	}
+}
+
+// GenGroupVeifier generates a group key verification callback function given
+// a DB handle.
+func GenGroupVerifier(ctx context.Context,
+	mintingStore MintingStore) func(*btcec.PublicKey) error {
+
+	// Cache known group keys that were previously fetched.
+	assetGroups := fn.NewSet[asset.SerializedKey]()
+
+	// verifierLock is a mutex that must be held when using the group
+	// anchor verifier.
+	var verifierLock sync.Mutex
+
+	return func(groupKey *btcec.PublicKey) error {
+		if groupKey == nil {
+			return fmt.Errorf("cannot verify empty group key")
+		}
+
+		verifierLock.Lock()
+		defer verifierLock.Unlock()
+
+		assetGroupKey := asset.ToSerialized(groupKey)
+		ok := assetGroups.Contains(assetGroupKey)
+		if ok {
+			return nil
+		}
+
+		// This query will err if no stored group has a matching
+		// tweaked group key.
+		_, err := mintingStore.FetchGroupByGroupKey(
+			ctx, groupKey,
+		)
+		if err != nil {
+			return fmt.Errorf("%x: %w", assetGroupKey,
+				ErrGroupKeyUnknown)
+		}
+
+		assetGroups.Add(assetGroupKey)
+
+		return nil
+	}
+}
+
+// GenGroupAnchorVerifier generates a caching group anchor verification callback
+// function given a DB handle.
+func GenGroupAnchorVerifier(ctx context.Context,
+	mintingStore MintingStore) func(*asset.Genesis,
+	*asset.GroupKey) error {
+
+	// Cache anchors for groups that were previously fetched.
+	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
+
+	// verifierLock is a mutex that must be held when using the group
+	// anchor verifier.
+	var verifierLock sync.Mutex
+
+	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
+		verifierLock.Lock()
+		defer verifierLock.Unlock()
+
+		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
+		groupAnchor, ok := groupAnchors[assetGroupKey]
+
+		if !ok {
+			storedGroup, err := mintingStore.FetchGroupByGroupKey(
+				ctx, &groupKey.GroupPubKey,
+			)
+			if err != nil {
+				return ErrGroupKeyUnknown
+			}
+
+			groupAnchors[assetGroupKey] = storedGroup.Genesis
+			groupAnchor = storedGroup.Genesis
+		}
+
+		if gen.ID() != groupAnchor.ID() {
+			return ErrGenesisNotGroupAnchor
+		}
+
+		return nil
+	}
+}
+
+// GenRawGroupAnchorVerifier generates a group anchor verification callback
+// function. This anchor verifier recomputes the tweaked group key with the
+// passed genesis and compares that key to the given group key. This verifier
+// is only used in the caretaker, before any asset groups are stored in the DB.
+func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
+	*asset.GroupKey) error {
+
+	// Cache group anchors we already verified.
+	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
+
+	// verifierLock is a mutex that must be held when using the group
+	// anchor verifier.
+	var verifierLock sync.Mutex
+
+	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
+		verifierLock.Lock()
+		defer verifierLock.Unlock()
+
+		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
+		groupAnchor, ok := groupAnchors[assetGroupKey]
+
+		if !ok {
+			// TODO(jhb): add tapscript root support
+			singleTweak := gen.ID()
+			tweakedGroupKey, err := asset.GroupPubKey(
+				groupKey.RawKey.PubKey, singleTweak[:], nil,
+			)
+			if err != nil {
+				return err
+			}
+
+			computedGroupKey := asset.ToSerialized(tweakedGroupKey)
+			if computedGroupKey != assetGroupKey {
+				return ErrGenesisNotGroupAnchor
+			}
+
+			groupAnchors[assetGroupKey] = gen
+
+			return nil
+		}
+
+		if gen.ID() != groupAnchor.ID() {
+			return ErrGenesisNotGroupAnchor
+		}
+
+		return nil
 	}
 }

@@ -356,6 +356,17 @@ func (p *Proof) verifyGroupKeyReveal() error {
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 
+// GroupVerifier is a callback function which returns an error if the given
+// group key has not been imported by the tapd daemon. This can occur if the
+// issuance proof for the group anchor has not been imported or synced.
+type GroupVerifier func(groupKey *btcec.PublicKey) error
+
+// GroupAnchorVerifier is a callback function which returns an error if the
+// given genesis is not the asset genesis of the group anchor. This callback
+// should return an error for any reissuance into an existing group.
+type GroupAnchorVerifier func(gen *asset.Genesis,
+	groupKey *asset.GroupKey) error
+
 // Verify verifies the proof by ensuring that:
 //
 //  0. A proof has a valid version.
