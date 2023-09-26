@@ -460,7 +460,8 @@ func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
 	}}
 
 	vOutput := tappsbt.VOutput{
-		Amount: outputAsset.Amount,
+		Amount:       outputAsset.Amount,
+		AssetVersion: outputAsset.Version,
 
 		// In this case, the receiver of the output is also the sender.
 		// We therefore set interactive to true to indicate that the
@@ -783,6 +784,8 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 				// generic manner, so we'll do that just below.
 				ScriptKey: asset.NUMSScriptKey,
 			}
+
+			// TODO(roasbeef): inherit version from which input?
 
 			vPkt.Outputs = append(vPkt.Outputs, changeOut)
 		}
@@ -1256,6 +1259,7 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 					VPacket:         passivePkt,
 					GenesisID:       passiveAsset.ID(),
 					PrevAnchorPoint: anchorPoint,
+					AssetVersion:    passiveAsset.Version,
 					ScriptKey:       passiveAsset.ScriptKey,
 				}
 				passiveAssets = append(passiveAssets, reAnchor)
