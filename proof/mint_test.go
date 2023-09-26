@@ -113,6 +113,8 @@ func TestNewMintingBlobs(t *testing.T) {
 			}},
 		},
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
-	}, MockHeaderVerifier, WithAssetMetaReveals(metaReveals))
+	}, MockHeaderVerifier, MockGroupVerifier, MockGroupAnchorVerifier,
+		WithAssetMetaReveals(metaReveals),
+	)
 	require.NoError(t, err)
 }
