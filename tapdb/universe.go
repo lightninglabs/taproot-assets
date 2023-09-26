@@ -435,7 +435,7 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseUniverseStore) error {
 		var err error
-		proofs, err = universeFetchIssuanceProof(
+		proofs, err = universeFetchProofLeaf(
 			ctx, b.id, universeKey, dbTx,
 		)
 		return err
@@ -447,14 +447,14 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 	return proofs, nil
 }
 
-// universeFetchIssuanceProof returns issuance proofs for the target universe.
+// universeFetchProofLeaf returns proof leaves for the target universe.
 //
-// If the given universe key doesn't have a script key specified, then a proof
-// will be returned for each minting outpoint.
+// If the given universe leaf key doesn't have a script key specified, then a
+// proof will be returned for each minting outpoint.
 //
 // NOTE: This function accepts a database transaction and is called when making
 // broader DB updates.
-func universeFetchIssuanceProof(ctx context.Context,
+func universeFetchProofLeaf(ctx context.Context,
 	id universe.Identifier, universeKey universe.LeafKey,
 	dbTx BaseUniverseStore) ([]*universe.IssuanceProof, error) {
 

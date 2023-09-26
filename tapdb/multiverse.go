@@ -167,7 +167,7 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
 		var err error
-		proofs, err = universeFetchIssuanceProof(
+		proofs, err = universeFetchProofLeaf(
 			ctx, id, universeKey, dbTx,
 		)
 		if err != nil {
