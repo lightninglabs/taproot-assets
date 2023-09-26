@@ -80,7 +80,7 @@ func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
 func (u *uniStatsHarness) logProofEventByIndex(i int) {
 	ctx := context.Background()
 	err := u.db.LogNewProofEvent(
-		ctx, u.assetUniverses[i].id, u.universeLeaves[i].MintingKey,
+		ctx, u.assetUniverses[i].id, u.universeLeaves[i].LeafKey,
 	)
 	require.NoError(u.t, err)
 }
@@ -88,7 +88,7 @@ func (u *uniStatsHarness) logProofEventByIndex(i int) {
 func (u *uniStatsHarness) logSyncEventByIndex(i int) {
 	ctx := context.Background()
 	err := u.db.LogSyncEvent(
-		ctx, u.assetUniverses[i].id, u.universeLeaves[i].MintingKey,
+		ctx, u.assetUniverses[i].id, u.universeLeaves[i].LeafKey,
 	)
 	require.NoError(u.t, err)
 }
@@ -175,9 +175,7 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 		require.Equal(t, assetStat.TotalSupply, leaf.Leaf.Amt)
 
-		if sh.universeLeaves[assetToSync].MintingKey ==
-			leaf.MintingKey {
-
+		if sh.universeLeaves[assetToSync].LeafKey == leaf.LeafKey {
 			require.Equal(t, int(assetStat.TotalSyncs), 1)
 		}
 

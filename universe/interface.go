@@ -141,8 +141,8 @@ func (b LeafKey) UniverseKey() [32]byte {
 // (based on the proof in the leaf), and that the asset is committed to within
 // the universe root.
 type IssuanceProof struct {
-	// MintingKey is the minting key for the asset.
-	MintingKey LeafKey
+	// LeafKey is the universe leaf key for the asset issuance or spend.
+	LeafKey LeafKey
 
 	// UniverseRoot is the root of the universe that the asset is located
 	// within.
@@ -174,7 +174,7 @@ func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
 	}
 
 	reconstructedRoot := i.InclusionProof.Root(
-		i.MintingKey.UniverseKey(), leafNode,
+		i.LeafKey.UniverseKey(), leafNode,
 	)
 
 	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&

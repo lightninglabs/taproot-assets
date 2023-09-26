@@ -66,7 +66,7 @@ func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 	}
 
 	return &universe.IssuanceProof{
-		MintingKey: leafKey,
+		LeafKey: leafKey,
 		UniverseRoot: mssmt.NewComputedBranch(
 			fn.ToArray[mssmt.NodeHash](
 				proofResp.UniverseRoot.MssmtRoot.RootHash,

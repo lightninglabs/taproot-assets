@@ -204,7 +204,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		uniProof := dbProof[0]
 
 		// The proof should have the proper values populated.
-		require.Equal(t, targetKey, uniProof.MintingKey)
+		require.Equal(t, targetKey, uniProof.LeafKey)
 		require.True(
 			t, mssmt.IsEqualNode(rootNode, uniProof.UniverseRoot),
 		)
@@ -214,7 +214,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		node, err = uniProof.Leaf.SmtLeafNode()
 		require.NoError(t, err)
 		dbProofRoot := uniProof.InclusionProof.Root(
-			uniProof.MintingKey.UniverseKey(), node,
+			uniProof.LeafKey.UniverseKey(), node,
 		)
 		require.True(
 			t, mssmt.IsEqualNode(uniProof.UniverseRoot, dbProofRoot),

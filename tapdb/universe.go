@@ -414,7 +414,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	}
 
 	return &universe.IssuanceProof{
-		MintingKey:     key,
+		LeafKey:        key,
 		UniverseRoot:   universeRoot,
 		InclusionProof: leafInclusionProof,
 		Leaf:           leaf,
@@ -547,7 +547,7 @@ func universeFetchProofLeaf(ctx context.Context,
 		}
 
 		issuanceProof := &universe.IssuanceProof{
-			MintingKey:     universeKey,
+			LeafKey:        universeKey,
 			UniverseRoot:   rootNode,
 			InclusionProof: leafProof,
 			Leaf: &universe.Leaf{

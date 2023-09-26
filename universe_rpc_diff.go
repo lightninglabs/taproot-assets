@@ -172,7 +172,7 @@ func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 	}
 
 	uniProof := &universe.IssuanceProof{
-		MintingKey:     key,
+		LeafKey:        key,
 		UniverseRoot:   uniRoot,
 		InclusionProof: inclusionProof,
 		Leaf:           assetLeaf,
