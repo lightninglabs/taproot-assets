@@ -214,8 +214,8 @@ func coreProof(params *BaseProofParams) (*Proof, error) {
 // committedProofs creates a map of proofs, keyed by the script key of each of
 // the assets committed to in the Taproot Asset root of the given params.
 func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
-	anchorVerifier GroupAnchorVerifier, opts *mintingBlobOpts) (AssetProofs,
-	error) {
+	groupAnchorVerifier GroupAnchorVerifier,
+	opts *mintingBlobOpts) (AssetProofs, error) {
 
 	// For each asset we'll construct the asset specific proof information,
 	// then encode that as a proof file blob in the blobs map.
@@ -268,7 +268,7 @@ func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
 		if newAsset.GroupKey != nil {
 			groupKey := newAsset.GroupKey
 
-			err := anchorVerifier(&newAsset.Genesis, groupKey)
+			err := groupAnchorVerifier(&newAsset.Genesis, groupKey)
 			if err == nil {
 				groupReveal := &asset.GroupKeyReveal{
 					RawKey: asset.ToSerialized(

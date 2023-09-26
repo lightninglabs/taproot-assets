@@ -1750,21 +1750,29 @@ func TestProofVerify(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
-	_, err = senderFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = senderFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
 	require.NoError(t, err)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
-	_, err = receiverFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = receiverFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 }
 
@@ -1815,21 +1823,29 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
 	require.NoError(t, err)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
-	_, err = senderFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = senderFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
-	_, err = receiverFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = receiverFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 }
 
