@@ -811,7 +811,7 @@ func TestUTXOLeases(t *testing.T) {
 	// Now we lease the first asset for 1 hour. This will cause the second
 	// one also to be leased, since it's on the same anchor transaction.
 	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
-	leaseExpiry := time.Now().Add(time.Hour).UTC()
+	leaseExpiry := time.Now().Add(time.Hour)
 	err = assetsStore.LeaseCoins(
 		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
 	)
@@ -825,7 +825,7 @@ func TestUTXOLeases(t *testing.T) {
 	require.Len(t, selectedAssets, 1)
 
 	// Let's now update the lease.
-	leaseExpiry = time.Now().Add(2 * time.Hour).UTC()
+	leaseExpiry = time.Now().Add(2 * time.Hour)
 	err = assetsStore.LeaseCoins(
 		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
 	)
@@ -853,7 +853,7 @@ func TestUTXOLeases(t *testing.T) {
 
 	// Update the lease again, but into the past, so that it should be
 	// removed upon cleanup.
-	leaseExpiry = time.Now().Add(-time.Hour).UTC()
+	leaseExpiry = time.Now().Add(-time.Hour)
 	err = assetsStore.LeaseCoins(
 		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
 	)

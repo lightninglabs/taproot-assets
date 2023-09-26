@@ -1682,7 +1682,7 @@ func (a *AssetStore) LeaseCoins(ctx context.Context, leaseOwner [32]byte,
 			err = q.UpdateUTXOLease(ctx, UpdateUTXOLease{
 				LeaseOwner: leaseOwner[:],
 				LeaseExpiry: sql.NullTime{
-					Time:  expiry,
+					Time:  expiry.UTC(),
 					Valid: true,
 				},
 				Outpoint: outpoint,
@@ -1991,7 +1991,7 @@ func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
 	return q.UpdateUTXOLease(ctx, UpdateUTXOLease{
 		LeaseOwner: finalLeaseOwner[:],
 		LeaseExpiry: sql.NullTime{
-			Time:  finalLeaseExpiry,
+			Time:  finalLeaseExpiry.UTC(),
 			Valid: true,
 		},
 		Outpoint: anchorPointBytes,
