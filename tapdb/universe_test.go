@@ -77,7 +77,7 @@ func TestUniverseEmptyTree(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
-func randBaseKey(t *testing.T) universe.LeafKey {
+func randLeafKey(t *testing.T) universe.LeafKey {
 	return universe.LeafKey{
 		OutPoint: test.RandOp(t),
 		ScriptKey: fn.Ptr(
@@ -153,7 +153,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	// scriptKey) leaf pairs.
 	testLeaves := make([]leafWithKey, numLeaves)
 	for i := 0; i < numLeaves; i++ {
-		targetKey := randBaseKey(t)
+		targetKey := randLeafKey(t)
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
 		testLeaves[i] = leafWithKey{targetKey, leaf}
@@ -323,7 +323,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 
 	// With the meta constructed, we can insert a test leaf into the DB
 	// now.
-	targetKey := randBaseKey(t)
+	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
 	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, meta)
@@ -350,7 +350,7 @@ func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
 		targetGen = asset.RandGenesis(t, asset.Normal)
 	}
 
-	targetKey := randBaseKey(t)
+	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, targetGen, tree.id.GroupKey)
 
 	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
@@ -451,11 +451,11 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// We'll create three new leaves, all of them will share the exact same
 	// minting outpoint, but will have distinct script keys.
-	rootMintingPoint := randBaseKey(t).OutPoint
+	rootMintingPoint := randLeafKey(t).OutPoint
 
 	leafToScriptKey := make(map[asset.SerializedKey]universe.MintingLeaf)
 	for i := 0; i < numLeafs; i++ {
-		targetKey := randBaseKey(t)
+		targetKey := randLeafKey(t)
 		targetKey.OutPoint = rootMintingPoint
 
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
