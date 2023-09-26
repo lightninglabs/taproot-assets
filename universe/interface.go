@@ -92,11 +92,11 @@ type Leaf struct {
 	// the issuance or spend event which this leaf represents.
 	Proof *proof.Proof
 
-	// Amt is the amount of units created.
+	// Amt is the amount of units associated with the coin.
 	Amt uint64
 }
 
-// SmtLeafNode returns the SMT leaf node for the given minting leaf.
+// SmtLeafNode returns the SMT leaf node for the given leaf.
 func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 	var buf bytes.Buffer
 	if err := m.Proof.Encode(&buf); err != nil {
