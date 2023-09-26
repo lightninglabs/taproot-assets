@@ -2138,6 +2138,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		ScriptKey:           scriptKeyID,
 		ScriptKeyLocal:      output.ScriptKeyLocal,
 		Amount:              int64(output.Amount),
+		AssetVersion:        int32(output.AssetVersion),
 		SerializedWitnesses: witnessBuf.Bytes(),
 		ProofSuffix:         output.ProofSuffix,
 		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
@@ -2247,7 +2248,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 					dbOut.NumPassiveAssets,
 				),
 			},
-			Amount: uint64(dbOut.Amount),
+			Amount:       uint64(dbOut.Amount),
+			AssetVersion: asset.Version(dbOut.AssetVersion),
 			ScriptKey: asset.ScriptKey{
 				PubKey: scriptKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
@@ -2332,6 +2334,7 @@ func logPendingPassiveAssets(ctx context.Context,
 				PrevOutpoint:    prevOutpointBytes,
 				ScriptKey:       scriptKeyBytes,
 				AssetGenesisID:  passiveAsset.GenesisID[:],
+				AssetVersion:    int32(passiveAsset.AssetVersion),
 			},
 		)
 		if err != nil {
@@ -2520,6 +2523,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
 				SpentAssetID:             templateID,
 				Spent:                    isTombstone || isBurn,
+				AssetVersion:             out.AssetVersion,
 			}
 			newAssetID, err := q.ApplyPendingOutput(ctx, params)
 			if err != nil {
