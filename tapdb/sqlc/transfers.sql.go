@@ -13,10 +13,10 @@ import (
 
 const applyPendingOutput = `-- name: ApplyPendingOutput :one
 WITH spent_asset AS (
-    SELECT genesis_id, version, asset_group_witness_id, script_version, lock_time,
+    SELECT genesis_id, asset_group_witness_id, script_version, lock_time,
            relative_lock_time
     FROM assets
-    WHERE assets.asset_id = $7
+    WHERE assets.asset_id = $8
 )
 INSERT INTO assets (
     genesis_id, version, asset_group_witness_id, script_version, lock_time,
@@ -24,18 +24,19 @@ INSERT INTO assets (
     split_commitment_root_hash, split_commitment_root_value, spent
 ) VALUES (
     (SELECT genesis_id FROM spent_asset),
-    (SELECT version FROM spent_asset),
+    $1,
     (SELECT asset_group_witness_id FROM spent_asset),
     (SELECT script_version FROM spent_asset),
     (SELECT lock_time FROM spent_asset),
     (SELECT relative_lock_time FROM spent_asset),
-    $1, $2, $3, $4,
-    $5, $6
+    $2, $3, $4, $5,
+    $6, $7
 )
 RETURNING asset_id
 `
 
 type ApplyPendingOutputParams struct {
+	AssetVersion             int32
 	ScriptKeyID              int64
 	AnchorUtxoID             sql.NullInt64
 	Amount                   int64
@@ -47,6 +48,7 @@ type ApplyPendingOutputParams struct {
 
 func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, applyPendingOutput,
+		arg.AssetVersion,
 		arg.ScriptKeyID,
 		arg.AnchorUtxoID,
 		arg.Amount,
@@ -118,7 +120,7 @@ const fetchTransferOutputs = `-- name: FetchTransferOutputs :many
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    output_type, proof_courier_addr,
+    output_type, proof_courier_addr, asset_version,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
@@ -158,6 +160,7 @@ type FetchTransferOutputsRow struct {
 	NumPassiveAssets         int32
 	OutputType               int16
 	ProofCourierAddr         []byte
+	AssetVersion             int32
 	AnchorUtxoID             int64
 	AnchorOutpoint           []byte
 	AnchorValue              int64
@@ -195,6 +198,7 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 			&i.NumPassiveAssets,
 			&i.OutputType,
 			&i.ProofCourierAddr,
+			&i.AssetVersion,
 			&i.AnchorUtxoID,
 			&i.AnchorOutpoint,
 			&i.AnchorValue,
@@ -282,9 +286,9 @@ INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
-    output_type, proof_courier_addr
+    output_type, proof_courier_addr, asset_version
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 )
 `
 
@@ -301,6 +305,7 @@ type InsertAssetTransferOutputParams struct {
 	NumPassiveAssets         int32
 	OutputType               int16
 	ProofCourierAddr         []byte
+	AssetVersion             int32
 }
 
 func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error {
@@ -317,6 +322,7 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 		arg.NumPassiveAssets,
 		arg.OutputType,
 		arg.ProofCourierAddr,
+		arg.AssetVersion,
 	)
 	return err
 }
@@ -331,16 +337,16 @@ WITH target_asset(asset_id) AS (
             ON assets.anchor_utxo_id = utxos.utxo_id
         JOIN script_keys
             ON assets.script_key_id = script_keys.script_key_id
-    WHERE genesis_assets.asset_id = $6
-        AND utxos.outpoint = $7
+    WHERE genesis_assets.asset_id = $7
+        AND utxos.outpoint = $8
         AND script_keys.tweaked_script_key = $3
 )
 INSERT INTO passive_assets (
     asset_id, transfer_id, new_anchor_utxo, script_key, new_witness_stack,
-    new_proof
+    new_proof, asset_version
 ) VALUES (
     (SELECT asset_id FROM target_asset), $1, $2,
-    $3, $4, $5
+    $3, $4, $5, $6
 )
 `
 
@@ -350,6 +356,7 @@ type InsertPassiveAssetParams struct {
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
+	AssetVersion    int32
 	AssetGenesisID  []byte
 	PrevOutpoint    []byte
 }
@@ -361,6 +368,7 @@ func (q *Queries) InsertPassiveAsset(ctx context.Context, arg InsertPassiveAsset
 		arg.ScriptKey,
 		arg.NewWitnessStack,
 		arg.NewProof,
+		arg.AssetVersion,
 		arg.AssetGenesisID,
 		arg.PrevOutpoint,
 	)
@@ -446,7 +454,7 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 const queryPassiveAssets = `-- name: QueryPassiveAssets :many
 SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
        passive.new_witness_stack, passive.new_proof,
-       genesis_assets.asset_id AS genesis_id
+       genesis_assets.asset_id AS genesis_id, passive.asset_version
 FROM passive_assets as passive
     JOIN assets
         ON passive.asset_id = assets.asset_id
@@ -462,6 +470,7 @@ type QueryPassiveAssetsRow struct {
 	NewWitnessStack []byte
 	NewProof        []byte
 	GenesisID       []byte
+	AssetVersion    int32
 }
 
 func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error) {
@@ -480,6 +489,7 @@ func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]Q
 			&i.NewWitnessStack,
 			&i.NewProof,
 			&i.GenesisID,
+			&i.AssetVersion,
 		); err != nil {
 			return nil, err
 		}
