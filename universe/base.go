@@ -26,6 +26,10 @@ type MintingArchiveConfig struct {
 	// genesis proof.
 	HeaderVerifier proof.HeaderVerifier
 
+	// GroupVerifier is used to verify the validity of the group key for a
+	// genesis proof.
+	GroupVerifier proof.GroupVerifier
+
 	// Multiverse is used to interact with the set of known base
 	// universe trees, and also obtain associated metadata and statistics.
 	Multiverse BaseMultiverse
@@ -210,7 +214,7 @@ func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	key BaseKey, leaf *MintingLeaf) (*proof.AssetSnapshot, error) {
 
 	assetSnapshot, err := leaf.GenesisProof.Verify(
-		ctx, nil, a.cfg.HeaderVerifier,
+		ctx, nil, a.cfg.HeaderVerifier, a.cfg.GroupVerifier,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %v", err)
@@ -264,26 +268,69 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 	log.Infof("Verifying %d new proofs for insertion into Universe",
 		len(items))
 
-	err := fn.ParSlice(
-		ctx, items, func(ctx context.Context, i *IssuanceItem) error {
-			assetSnapshot, err := a.verifyIssuanceProof(
-				ctx, i.ID, i.Key, i.Leaf,
-			)
-			if err != nil {
-				return err
-			}
-
-			i.MetaReveal = assetSnapshot.MetaReveal
-
-			return nil
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("unable to verify issuance proofs: %w", err)
+	// Issuances that also create an asset group, group anchors, must be
+	// verified and stored before any issuances that may be reissuances into
+	// the same asset group. This is required for proper verification of
+	// reissuances, which may be in this batch.
+	var anchorItems, nonAnchorItems []*IssuanceItem
+	for ind := range items {
+		item := items[ind]
+		// Any group anchor issuance proof must have a group key reveal
+		// attached, so tht can be used to partition anchor assets and
+		// non-anchor assets.
+		switch {
+		case item.Leaf.GenesisProof.GroupKeyReveal != nil:
+			anchorItems = append(anchorItems, item)
+		default:
+			nonAnchorItems = append(nonAnchorItems, item)
+		}
 	}
 
-	log.Infof("Inserting %d verified proofs into Universe", len(items))
-	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, items)
+	verifyBatch := func(batchItems []*IssuanceItem) error {
+		err := fn.ParSlice(
+			ctx, batchItems, func(ctx context.Context,
+				i *IssuanceItem) error {
+				assetSnapshot, err := a.verifyIssuanceProof(
+					ctx, i.ID, i.Key, i.Leaf,
+				)
+				if err != nil {
+					return err
+				}
+
+				i.MetaReveal = assetSnapshot.MetaReveal
+
+				return nil
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to verify issuance proofs: "+
+				"%w", err)
+		}
+
+		return nil
+	}
+
+	err := verifyBatch(anchorItems)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Inserting %d verified group anchor proofs into Universe",
+		len(anchorItems))
+	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, anchorItems)
+	if err != nil {
+		return fmt.Errorf("unable to register new group anchor "+
+			"issuance proofs: %w", err)
+	}
+
+	err = verifyBatch(nonAnchorItems)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Inserting %d verified proofs into Universe",
+		len(nonAnchorItems))
+	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, nonAnchorItems)
 	if err != nil {
 		return fmt.Errorf("unable to register new issuance proofs: %w",
 			err)
