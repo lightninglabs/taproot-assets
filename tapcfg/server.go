@@ -127,6 +127,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
+	groupVerifier := tapgarden.GenGroupVerifier(
+		context.Background(), assetMintingStore,
+	)
 	uniCfg := universe.MintingArchiveConfig{
 		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
 			return tapdb.NewBaseUniverseTree(
@@ -134,6 +137,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			)
 		},
 		HeaderVerifier: headerVerifier,
+		GroupVerifier:  groupVerifier,
 		Multiverse:     multiverse,
 		UniverseStats:  universeStats,
 	}
@@ -193,7 +197,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
-		ChainBridge:  chainBridge,
+		ChainBridge: chainBridge,
+		GroupVerifier: tapgarden.GenGroupVerifier(
+			context.Background(), assetMintingStore,
+		),
 		ProofArchive: proofArchive,
 		NonBuriedAssetFetcher: func(ctx context.Context,
 			minHeight int32) ([]*asset.Asset, error) {
@@ -296,9 +303,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}),
 		AssetCustodian: tapgarden.NewCustodian(
 			&tapgarden.CustodianConfig{
-				ChainParams:     &tapChainParams,
-				WalletAnchor:    walletAnchor,
-				ChainBridge:     chainBridge,
+				ChainParams:  &tapChainParams,
+				WalletAnchor: walletAnchor,
+				ChainBridge:  chainBridge,
+				GroupVerifier: tapgarden.GenGroupVerifier(
+					context.Background(), assetMintingStore,
+				),
 				AddrBook:        addrBook,
 				ProofArchive:    proofArchive,
 				ProofNotifier:   assetStore,
@@ -315,10 +325,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		CoinSelect:              coinSelect,
 		ChainPorter: tapfreighter.NewChainPorter(
 			&tapfreighter.ChainPorterConfig{
-				Signer:          virtualTxSigner,
-				TxValidator:     &tap.ValidatorV0{},
-				ExportLog:       assetStore,
-				ChainBridge:     chainBridge,
+				Signer:      virtualTxSigner,
+				TxValidator: &tap.ValidatorV0{},
+				ExportLog:   assetStore,
+				ChainBridge: chainBridge,
+				GroupVerifier: tapgarden.GenGroupVerifier(
+					context.Background(), assetMintingStore,
+				),
 				Wallet:          walletAnchor,
 				KeyRing:         keyRing,
 				AssetWallet:     assetWallet,
