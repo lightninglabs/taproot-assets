@@ -2736,7 +2736,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	return resp, nil
 }
 
-// unmarshalOutpoint unmarshals an outpoint from a string received via RPC.
+// UnmarshalOutpoint un-marshals an outpoint from a string received via RPC.
 func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
 	parts := strings.Split(outpoint, ":")
 	if len(parts) != 2 {
