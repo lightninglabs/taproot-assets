@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -95,6 +96,12 @@ func withAssetGenPoint(op wire.OutPoint) assetGenOpt {
 func withAssetGen(g asset.Genesis) assetGenOpt {
 	return func(opt *assetGenOptions) {
 		opt.assetGen = g
+	}
+}
+
+func withAssetVersionGen(v *asset.Version) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.version = *v
 	}
 }
 
@@ -467,6 +474,8 @@ type assetDesc struct {
 	spent bool
 
 	leasedUntil time.Time
+
+	assetVersion *asset.Version
 }
 
 type assetGenerator struct {
@@ -565,6 +574,11 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		if desc.groupAnchorGen != nil {
 			opts = append(opts, withGroupAnchorGen(
 				desc.groupAnchorGen,
+			))
+		}
+		if desc.assetVersion != nil {
+			opts = append(opts, withAssetVersionGen(
+				desc.assetVersion,
 			))
 		}
 		newAsset := randAsset(t, opts...)
@@ -1118,8 +1132,12 @@ func TestAssetExportLog(t *testing.T) {
 		},
 	})
 
+	assetVersionV0 := asset.V0
+	assetVersionV1 := asset.V1
+
 	// First, we'll generate 3 assets, each all sharing the same anchor
-	// transaction, but having distinct asset IDs.
+	// transaction, but having distinct asset IDs. Two of them will have a
+	// V1 asset version.
 	const numAssets = 3
 	assetGen := newAssetGenerator(t, numAssets, 3)
 	assetGen.genAssets(t, assetsStore, []assetDesc{
@@ -1131,19 +1149,22 @@ func TestAssetExportLog(t *testing.T) {
 			// modifying.
 			scriptKey: &targetScriptKey,
 
-			amt: 16,
+			amt:          16,
+			assetVersion: &assetVersionV1,
 		},
 		{
 			assetGen:    assetGen.assetGens[1],
 			anchorPoint: assetGen.anchorPoints[0],
 
-			amt: 10,
+			amt:          10,
+			assetVersion: &assetVersionV1,
 		},
 		{
 			assetGen:    assetGen.assetGens[2],
 			anchorPoint: assetGen.anchorPoints[0],
 
-			amt: 6,
+			amt:          6,
+			assetVersion: &assetVersionV0,
 		},
 	})
 
@@ -1253,7 +1274,9 @@ func TestAssetExportLog(t *testing.T) {
 			SplitCommitmentRoot: mssmt.NewComputedNode(
 				newRootHash, newRootValue,
 			),
-			ProofSuffix: receiverBlob,
+			// The receiver wants a V0 asset version.
+			AssetVersion: asset.V0,
+			ProofSuffix:  receiverBlob,
 		}, {
 			Anchor: tapfreighter.Anchor{
 				Value: 1000,
@@ -1284,7 +1307,10 @@ func TestAssetExportLog(t *testing.T) {
 			SplitCommitmentRoot: mssmt.NewComputedNode(
 				newRootHash, newRootValue,
 			),
-			ProofSuffix: senderBlob,
+			// As the sender, we'll send our change back to a V1
+			// asset version.
+			AssetVersion: asset.V1,
+			ProofSuffix:  senderBlob,
 		}},
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(
@@ -1393,9 +1419,10 @@ func TestAssetExportLog(t *testing.T) {
 		inputLeased   bool
 	)
 	for _, chainAsset := range chainAssets {
+		switch {
 		// We should find the mutated asset with its _new_ script key
 		// and amount.
-		if chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey) {
+		case chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey.PubKey):
 			require.Equal(
 				t, firstOutputAnchor.OutPoint,
 				chainAsset.AnchorOutpoint,
@@ -1407,7 +1434,27 @@ func TestAssetExportLog(t *testing.T) {
 					firstOutput.SplitCommitmentRoot,
 				), "split roots don't match",
 			)
+
+			// The version of the new asset should be V0, even
+			// though it was initially a V1 asset.
+			require.Equal(t, asset.V0, chainAsset.Version)
+
 			mutationFound = true
+
+		// Our two other assets should have their asset version
+		// unchanged. These were passive assets in the transfer.
+		case chainAsset.Genesis.Tag == assetGen.assetGens[1].Tag:
+			require.Equal(t, asset.V1, chainAsset.Version)
+		case chainAsset.Genesis.Tag == assetGen.assetGens[2].Tag:
+			require.Equal(t, asset.V0, chainAsset.Version)
+
+		// The newly created asset should have an asset version of V1.
+		case chainAsset.ScriptKey.PubKey.IsEqual(newScriptKey2.PubKey):
+			require.Equal(t, asset.V1, chainAsset.Version)
+
+		default:
+			t.Fatalf("unknown asset version not asserted: %v",
+				spew.Sdump(chainAsset.Genesis))
 		}
 
 		// The single UTXO we had at the beginning should now be leased
