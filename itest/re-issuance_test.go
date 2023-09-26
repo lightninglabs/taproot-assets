@@ -14,13 +14,17 @@ import (
 // testReIssuance tests that we can properly reissue an asset into group, and
 // that the daemon handles a group with multiple assets correctly.
 func testReIssuance(t *harnessTest) {
+	miner := t.lndHarness.Miner.Client
+
 	// First, we'll mint a collectible and a normal asset, both with
 	// emission enabled.
-	normalGroupGen := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{issuableAssets[0]},
+	normalGroupGen := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
-	collectGroupGen := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{issuableAssets[1]},
+	collectGroupGen := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[1]},
 	)
 	require.Equal(t.t, 1, len(normalGroupGen))
 	require.Equal(t.t, 1, len(collectGroupGen))
@@ -70,9 +74,9 @@ func testReIssuance(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	firstCollectSend := sendAssetsToAddr(t, t.tapd, collectGroupAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, firstCollectSend, collectGenInfo.AssetId,
-		[]uint64{0, 1}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, firstCollectSend,
+		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
 	sendProof(
 		t, t.tapd, secondTapd, collectGroupAddr.ScriptKey,
@@ -98,8 +102,9 @@ func testReIssuance(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	firstNormalSend := sendAssetsToAddr(t, t.tapd, normalGroupAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, firstNormalSend, normalGenInfo.AssetId,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, firstNormalSend,
+		normalGenInfo.AssetId,
 		[]uint64{normalGroupMintHalf, normalGroupMintHalf}, 1, 2,
 	)
 	sendProof(
@@ -115,11 +120,13 @@ func testReIssuance(t *harnessTest) {
 	reissuedAssets[0].Asset.GroupKey = normalGroupKey
 	reissuedAssets[1].Asset.GroupKey = collectGroupKey
 
-	normalReissueGen := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{reissuedAssets[0]},
+	normalReissueGen := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{reissuedAssets[0]},
 	)
-	collectReissueGen := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{reissuedAssets[1]},
+	collectReissueGen := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{reissuedAssets[1]},
 	)
 	require.Equal(t.t, 1, len(normalReissueGen))
 	require.Equal(t.t, 1, len(collectReissueGen))
@@ -173,8 +180,8 @@ func testReIssuance(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	secondCollectSend := sendAssetsToAddr(t, t.tapd, collectReissueAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, secondCollectSend,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, secondCollectSend,
 		collectReissueInfo.AssetId, []uint64{0, 1}, 2, 3,
 	)
 	sendProof(
@@ -207,9 +214,9 @@ func testReIssuance(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	thirdCollectSend := sendAssetsToAddr(t, secondTapd, collectGenAddr)
-	confirmAndAssertOutboundTransfer(
-		t, secondTapd, thirdCollectSend,
-		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, secondTapd.ht.lndHarness.Miner.Client, secondTapd,
+		thirdCollectSend, collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
 	sendProof(
 		t, secondTapd, t.tapd, collectReissueAddr.ScriptKey,
@@ -237,8 +244,9 @@ func testReIssuanceAmountOverflow(t *harnessTest) {
 	assetIssueReq.EnableEmission = true
 	assetIssueReq.Asset.Amount = math.MaxUint64
 
-	assets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{assetIssueReq},
+	assets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{assetIssueReq},
 	)
 	require.Equal(t.t, 1, len(assets))
 
@@ -268,8 +276,9 @@ func testReIssuanceAmountOverflow(t *harnessTest) {
 // that incorrectly try to specify a group for reissuance.
 func testMintWithGroupKeyErrors(t *harnessTest) {
 	// First, mint a collectible with emission enabled to create one group.
-	collectGroupGen := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{issuableAssets[1]},
+	collectGroupGen := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[1]},
 	)
 	require.Equal(t.t, 1, len(collectGroupGen))
 
@@ -338,9 +347,9 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	collectSend := sendAssetsToAddr(t, t.tapd, collectGroupAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, collectSend, collectGenInfo.AssetId,
-		[]uint64{0, 1}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, collectSend,
+		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
 	sendProof(
 		t, t.tapd, secondTapd, collectGroupAddr.ScriptKey,

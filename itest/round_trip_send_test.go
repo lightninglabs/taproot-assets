@@ -4,14 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -33,8 +29,9 @@ import (
 func testRoundTripSend(t *harnessTest) {
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -74,15 +71,15 @@ func testRoundTripSend(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
+	AssertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
 	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
 	sendRespJSON, err := formatProtoJSON(sendResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, genInfo.AssetId,
-		[]uint64{bobAmt, bobAmt}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId, []uint64{bobAmt, bobAmt}, 0, 1,
 	)
 	_ = sendProof(t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo)
 
@@ -94,15 +91,15 @@ func testRoundTripSend(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, t.tapd, rpcAssets[0], aliceAddr)
+	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], aliceAddr)
 	sendResp = sendAssetsToAddr(t, secondTapd, aliceAddr)
 	sendRespJSON, err = formatProtoJSON(sendResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
 
-	confirmAndAssertOutboundTransfer(
-		t, secondTapd, sendResp, genInfo.AssetId,
-		[]uint64{aliceAmt, aliceAmt}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, secondTapd,
+		sendResp, genInfo.AssetId, []uint64{aliceAmt, aliceAmt}, 0, 1,
 	)
 	_ = sendProof(t, secondTapd, t.tapd, aliceAddr.ScriptKey, genInfo)
 
@@ -138,7 +135,7 @@ func testRoundTripSend(t *harnessTest) {
 	// recipient's output is the second one.
 	bobToAliceOutput := transferResp.Transfers[0].Outputs[1]
 	bobToAliceAnchor := bobToAliceOutput.Anchor
-	outpoint, err := parseOutPoint(bobToAliceAnchor.Outpoint)
+	outpoint, err := ParseOutPoint(bobToAliceAnchor.Outpoint)
 	require.NoError(t.t, err)
 
 	internalKey, err := btcec.ParsePubKey(bobToAliceAnchor.InternalKey)
@@ -236,27 +233,4 @@ func newAddrWithScript(ht *lntest.HarnessTest, node *node.HarnessNode,
 	require.NoError(ht, err)
 
 	return p2wkhAddr, p2wkhPkScript
-}
-
-func parseOutPoint(s string) (*wire.OutPoint, error) {
-	split := strings.Split(s, ":")
-	if len(split) != 2 {
-		return nil, fmt.Errorf("expecting outpoint to be in format of: " +
-			"txid:index")
-	}
-
-	index, err := strconv.ParseInt(split[1], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode output index: %v", err)
-	}
-
-	txid, err := chainhash.NewHashFromStr(split[0])
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse hex string: %v", err)
-	}
-
-	return &wire.OutPoint{
-		Hash:  *txid,
-		Index: uint32(index),
-	}, nil
 }

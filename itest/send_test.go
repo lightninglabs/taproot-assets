@@ -75,8 +75,9 @@ func testBasicSendUnidirectional(t *harnessTest) {
 
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -111,12 +112,13 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		// units.
 		currentUnits -= numUnits
 
-		assertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
+		AssertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
 
 		sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
 
-		confirmAndAssertOutboundTransfer(
-			t, t.tapd, sendResp, genInfo.AssetId,
+		ConfirmAndAssertOutboundTransfer(
+			t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+			genInfo.AssetId,
 			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
@@ -151,8 +153,9 @@ func testResumePendingPackageSend(t *harnessTest) {
 	)
 
 	// Mint (and mine) an asset for sending.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -167,7 +170,7 @@ func testResumePendingPackageSend(t *harnessTest) {
 		Amt:     10,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
 	// We will now start two asset send events in sequence. We will stop and
 	// restart the sending node during each send. During one sending event
@@ -243,7 +246,9 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 			},
 		},
 	}
-	rpcAssets := mintAssetsConfirmBatch(t, t.tapd, assets)
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, assets,
+	)
 	firstAsset := rpcAssets[0]
 	genInfo := firstAsset.AssetGenesis
 	secondAsset := rpcAssets[1]
@@ -279,7 +284,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		Amt:     numUnitsSend,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTapd, firstAsset, recvAddr)
+	AssertAddrCreated(t.t, recvTapd, firstAsset, recvAddr)
 
 	// Send the assets to the receiving node.
 	sendResp := sendAssetsToAddr(t, t.tapd, recvAddr)
@@ -296,23 +301,25 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := assets[0].Asset.Amount - numUnitsSend
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, genInfo.AssetId,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
 
 	// Assert that the sending node returns the correct asset list via RPC.
-	assertListAssets(t.t, ctxb, t.tapd, []MatchRpcAsset{
-		func(asset *taprpc.Asset) bool {
-			return asset.Amount == 300 &&
-				asset.AssetGenesis.Name == "first-itestbuxx"
-		},
-		func(asset *taprpc.Asset) bool {
-			return asset.Amount == 2000 &&
-				asset.AssetGenesis.Name == "second-itestbuxx"
-		},
-	})
+	AssertListAssets(
+		t.t, ctxb, t.tapd, []MatchRpcAsset{
+			func(asset *taprpc.Asset) bool {
+				return asset.Amount == 300 &&
+					asset.AssetGenesis.Name == "first-itestbuxx"
+			},
+			func(asset *taprpc.Asset) bool {
+				return asset.Amount == 2000 &&
+					asset.AssetGenesis.Name == "second-itestbuxx"
+			},
+		})
 
 	t.Logf("First send complete, now attempting to send passive asset")
 
@@ -322,15 +329,17 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		Amt:     numUnitsSend,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTapd, secondAsset, recvAddr)
+	AssertAddrCreated(t.t, recvTapd, secondAsset, recvAddr)
 
 	// Send the assets to the receiving node.
 	sendResp = sendAssetsToAddr(t, t.tapd, recvAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, genInfo2.AssetId,
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo2.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 2)
@@ -342,15 +351,16 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		Amt:     numUnitsSend / 2,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, t.tapd, firstAsset, newAddr)
+	AssertAddrCreated(t.t, t.tapd, firstAsset, newAddr)
 
 	// Send the assets back to the first node.
 	sendResp = sendAssetsToAddr(t, recvTapd, newAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = numUnitsSend - numUnitsSend/2
-	confirmAndAssertOutboundTransfer(
-		t, recvTapd, sendResp, genInfo.AssetId,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, recvTapd, sendResp,
+		genInfo.AssetId,
 		[]uint64{expectedAmtAfterSend, numUnitsSend / 2}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
@@ -451,8 +461,9 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 	}()
 
 	// Mint an asset for sending.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -467,7 +478,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 		Amt:     10,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, t.tapd, rpcAssets[0], recvAddr)
+	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], recvAddr)
 
 	// Simulate a failed attempt at sending the asset proof by stopping
 	// the receiver node.
@@ -475,7 +486,7 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 	// Send asset and then mine to confirm the associated on-chain tx.
 	sendAssetsToAddr(t, sendTapd, recvAddr)
-	_ = mineBlocks(t, t.lndHarness, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
 
 	wg.Wait()
 }
@@ -552,8 +563,9 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	}()
 
 	// Mint an asset for sending.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, sendTapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -568,7 +580,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		Amt:     10,
 	})
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
 	// Stop receiving tapd node to simulate offline receiver.
 	t.Logf("Stopping receiving taproot assets node")
@@ -576,7 +588,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Send asset and then mine to confirm the associated on-chain tx.
 	sendAssetsToAddr(t, sendTapd, recvAddr)
-	_ = mineBlocks(t, t.lndHarness, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
 
 	// Pause before restarting receiving tapd node so that sender node has
 	// an opportunity to attempt to send the proof multiple times.
@@ -651,8 +663,9 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	ctxb := context.Background()
 
 	// Mint a single asset.
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	rpcAsset := rpcAssets[0]
 
@@ -678,14 +691,14 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bobTapd, rpcAsset, addr)
+	AssertAddrCreated(t.t, bobTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
 	sendResp := sendAssetsToAddr(t, t.tapd, addr)
 
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, genInfo.AssetId, []uint64{4000, 1000},
-		0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId, []uint64{4000, 1000}, 0, 1,
 	)
 
 	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
@@ -699,13 +712,14 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, bobTapd, rpcAsset, addr)
+	AssertAddrCreated(t.t, bobTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
 	sendResp = sendAssetsToAddr(t, t.tapd, addr)
 
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, genInfo.AssetId, []uint64{0, 4000}, 1, 2,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId, []uint64{0, 4000}, 1, 2,
 	)
 
 	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
@@ -722,13 +736,14 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	assertAddrCreated(t.t, t.tapd, rpcAsset, addr)
+	AssertAddrCreated(t.t, t.tapd, rpcAsset, addr)
 
 	// Send the assets to the minting node.
 	sendResp = sendAssetsToAddr(t, bobTapd, addr)
 
-	confirmAndAssertOutboundTransfer(
-		t, bobTapd, sendResp, genInfo.AssetId, []uint64{0, 5000}, 0, 1,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, bobTapd, sendResp,
+		genInfo.AssetId, []uint64{0, 5000}, 0, 1,
 	)
 
 	_ = sendProof(t, bobTapd, t.tapd, addr.ScriptKey, genInfo)
@@ -742,8 +757,9 @@ func testSendMultipleCoins(t *harnessTest) {
 
 	// First, we'll make a normal assets with enough units to allow us to
 	// send it to different UTXOs
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{simpleAssets[0]},
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -775,15 +791,16 @@ func testSendMultipleCoins(t *harnessTest) {
 		})
 		require.NoError(t.t, err)
 
-		assertAddrCreated(t.t, t.tapd, rpcAssets[0], newAddr)
+		AssertAddrCreated(t.t, t.tapd, rpcAssets[0], newAddr)
 		addrs[i] = newAddr
 	}
 
 	// We created 5 addresses in our first node now, so we can initiate the
 	// transfer to send the coins back to our wallet in 5 pieces now.
 	sendResp := sendAssetsToAddr(t, t.tapd, addrs...)
-	confirmAndAssetOutboundTransferWithOutputs(
-		t, t.tapd, sendResp, genInfo.AssetId, []uint64{
+	ConfirmAndAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId, []uint64{
 			0, unitsPerPart, unitsPerPart, unitsPerPart,
 			unitsPerPart, unitsPerPart,
 		}, 0, 1, numParts+1,
@@ -804,9 +821,11 @@ func testSendMultipleCoins(t *harnessTest) {
 		require.NoError(t.t, err)
 
 		sendResp := sendAssetsToAddr(t, t.tapd, bobAddrs[i])
-		assertAssetOutboundTransferWithOutputs(
-			t, t.tapd, sendResp.Transfer, genInfo.AssetId,
-			[]uint64{0, unitsPerPart}, i+1, i+2, 2, false,
+		AssertAssetOutboundTransferWithOutputs(
+			t.t, t.lndHarness.Miner.Client, t.tapd,
+			sendResp.Transfer, genInfo.AssetId,
+			[]uint64{0, unitsPerPart}, i+1, i+2,
+			2, false,
 		)
 	}
 
@@ -829,7 +848,7 @@ func testSendMultipleCoins(t *harnessTest) {
 
 	// Now we confirm the 5 transfers and make sure they complete as
 	// expected.
-	_ = mineBlocks(t, t.lndHarness, 1, 5)
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 5)
 	for _, addr := range bobAddrs {
 		_ = sendProof(t, t.tapd, secondTapd, addr.ScriptKey, genInfo)
 	}

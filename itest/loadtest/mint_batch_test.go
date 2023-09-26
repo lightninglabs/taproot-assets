@@ -1,101 +1,68 @@
-package itest
+package loadtest
 
 import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"os"
-	"path/filepath"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	_ "embed"
+
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	// testDataFileName is the name of the directory with the test data.
-	testDataFileName = "testdata"
-)
+//go:embed testdata/8k-metadata.hex
+var imageMetadataHex []byte
 
-var (
-	// Raw data of Cryptopunk 0 saved as a PNG.
-	ImageMetadataFileName = filepath.Join(
-		testDataFileName, "8k-metadata.hex",
-	)
-)
+// execMintBatchStressTest checks that we are able to mint a batch of assets
+// and that other memebers in the federation see the universe updated
+// accordingly.
+func execMintBatchStressTest(t *testing.T, ctx context.Context, cfg *Config) {
+	// Create tapd clients.
+	alice, aliceCleanUp := getTapClient(t, ctx, cfg.Alice.Tapd)
+	defer aliceCleanUp()
 
-func testMintBatch100StressTest(t *harnessTest) {
-	batchSize := 100
-	timeout := defaultWaitTimeout
-
-	testMintBatchNStressTest(t, batchSize, timeout)
-}
-
-func testMintBatch1kStressTest(t *harnessTest) {
-	batchSize := 1_000
-	timeout := defaultWaitTimeout * 20
-
-	testMintBatchNStressTest(t, batchSize, timeout)
-}
-
-func testMintBatch10kStressTest(t *harnessTest) {
-	batchSize := 10_000
-	timeout := defaultWaitTimeout * 200
-
-	testMintBatchNStressTest(t, batchSize, timeout)
-}
-
-func testMintBatchNStressTest(t *harnessTest, batchSize int,
-	timeout time.Duration) {
-
-	// If we create a second tapd instance and sync the universe state,
-	// the synced tree should match the source tree.
-	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, nil,
-	)
-	defer func() {
-		require.NoError(t.t, bob.stop(!*noDelete))
-	}()
-
-	mintBatches := func(reqs []*mintrpc.MintAssetRequest) []*taprpc.Asset {
-		return MintAssetsConfirmBatch(
-			t.t, t.lndHarness.Miner.Client, t.tapd, reqs,
-			WithMintingTimeout(timeout),
-		)
-	}
-
-	imageMetadataBytes := GetImageMetadataBytes(t.t, ImageMetadataFileName)
-
-	mintBatchStressTest(
-		t.t, t.tapd, bob, t.tapd.rpcHost(), batchSize, mintBatches,
-		imageMetadataBytes, timeout,
-	)
-}
-
-// GetImageMetadataBytes returns the image metadata bytes from the given file.
-func GetImageMetadataBytes(t *testing.T, fileName string) []byte {
-	// Read base metadata.
-	imageMetadataHex, err := os.ReadFile(fileName)
+	_, err := alice.GetInfo(ctx, &taprpc.GetInfoRequest{})
 	require.NoError(t, err)
+
+	bob, bobCleanUp := getTapClient(t, ctx, cfg.Bob.Tapd)
+	defer bobCleanUp()
+
+	_, err = bob.GetInfo(ctx, &taprpc.GetInfoRequest{})
+	require.NoError(t, err)
+
+	// Create bitcoin client.
+	bitcoinClient := getBitcoinConn(t, cfg.Bitcoin)
 
 	imageMetadataBytes, err := hex.DecodeString(
 		strings.Trim(string(imageMetadataHex), "\n"),
 	)
 	require.NoError(t, err)
 
-	return imageMetadataBytes
+	aliceHost := fmt.Sprintf("%s:%d", cfg.Alice.Tapd.Host,
+		cfg.Alice.Tapd.Port)
+
+	minterTimeout := 10 * time.Minute
+	mintBatchStressTest(
+		t, ctx, bitcoinClient, alice, bob, aliceHost, cfg.BatchSize,
+		imageMetadataBytes, minterTimeout,
+	)
 }
 
-func mintBatchStressTest(
-	t *testing.T, alice, bob TapdClient, aliceHost string, batchSize int,
-	mintAssets func([]*mintrpc.MintAssetRequest) []*taprpc.Asset,
-	imageMetadataBytes []byte, minterTimeout time.Duration) {
+func mintBatchStressTest(t *testing.T, ctx context.Context,
+	bitcoinClient *rpcclient.Client, alice, bob itest.TapdClient,
+	aliceHost string, batchSize int, imageMetadataBytes []byte,
+	minterTimeout time.Duration) {
 
 	var (
 		batchReqs      = make([]*mintrpc.MintAssetRequest, batchSize)
@@ -127,7 +94,7 @@ func mintBatchStressTest(
 	}
 
 	// Use the first asset of the batch as the asset group anchor.
-	collectibleAnchorReq := CopyRequest(&collectibleRequestTemplate)
+	collectibleAnchorReq := itest.CopyRequest(&collectibleRequestTemplate)
 	incrementMintAsset(collectibleAnchorReq.Asset, 0)
 	collectibleAnchorReq.EnableEmission = true
 	batchReqs[0] = collectibleAnchorReq
@@ -135,7 +102,7 @@ func mintBatchStressTest(
 	// Generate the rest of the batch, with each asset referencing the group
 	// anchor we created above.
 	for i := 1; i < batchSize; i++ {
-		groupedAsset := CopyRequest(&collectibleRequestTemplate)
+		groupedAsset := itest.CopyRequest(&collectibleRequestTemplate)
 		incrementMintAsset(groupedAsset.Asset, i)
 		groupedAsset.Asset.GroupAnchor = collectibleAnchorReq.Asset.Name
 		batchReqs[i] = groupedAsset
@@ -144,16 +111,19 @@ func mintBatchStressTest(
 	// Submit the batch for minting. Use an extended timeout for the TX
 	// appearing in the mempool, so we can observe the minter hitting its
 	// own shorter default timeout.
-	LogfTimestamped(t, "beginning minting of batch of %d assets",
+	itest.LogfTimestamped(t, "beginning minting of batch of %d assets",
 		batchSize)
 
-	mintBatch := mintAssets(batchReqs)
+	mintBatch := itest.MintAssetsConfirmBatch(
+		t, bitcoinClient, alice, batchReqs,
+		itest.WithMintingTimeout(minterTimeout),
+	)
 
-	LogfTimestamped(t, "finished batch mint of %d assets", batchSize)
+	itest.LogfTimestamped(t, "finished batch mint of %d assets", batchSize)
 
 	// We can re-derive the group key to verify that the correct asset was
 	// used as the group anchor.
-	collectibleAnchor := VerifyGroupAnchor(
+	collectibleAnchor := itest.VerifyGroupAnchor(
 		t, mintBatch, collectibleAnchorReq.Asset.Name,
 	)
 	collectGroupKey := collectibleAnchor.AssetGroup.TweakedGroupKey
@@ -164,26 +134,25 @@ func mintBatchStressTest(
 	groupCount := 1
 	groupBalance := batchSize
 
-	AssertNumGroups(t, alice, groupCount)
-	AssertGroupSizes(
+	itest.AssertNumGroups(t, alice, groupCount)
+	itest.AssertGroupSizes(
 		t, alice, []string{collectGroupKeyStr},
 		[]int{batchSize},
 	)
-	AssertBalanceByGroup(
+	itest.AssertBalanceByGroup(
 		t, alice, collectGroupKeyStr, uint64(groupBalance),
 	)
 
 	// The universe tree should reflect the same properties about the batch;
 	// there should be one root with a group key and balance matching what
 	// we asserted previously.
-	ctx := context.Background()
 	uniRoots, err := alice.AssetRoots(
 		ctx, &unirpc.AssetRootRequest{},
 	)
 	require.NoError(t, err)
 	require.Len(t, uniRoots.UniverseRoots, groupCount)
 
-	err = AssertUniverseRoot(
+	err = itest.AssertUniverseRoot(
 		t, alice, groupBalance, nil, collectGroupKey,
 	)
 	require.NoError(t, err)
@@ -223,7 +192,7 @@ func mintBatchStressTest(
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return AssertUniverseStateEqual(
+		return itest.AssertUniverseStateEqual(
 			t, alice, bob,
 		)
 	}, minterTimeout, time.Second)

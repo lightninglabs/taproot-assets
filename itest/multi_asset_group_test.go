@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"strconv"
-	"testing"
 
-	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -39,7 +37,9 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// The minted batch should contain 7 assets total, and the daemon should
 	// now be aware of 3 asset groups. Each group should have a different
 	// number of assets, and a different total balance.
-	mintedBatch := mintAssetsConfirmBatch(t, t.tapd, complexBatch)
+	mintedBatch := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, complexBatch,
+	)
 
 	// Once the batch is minted, we can verify that all asset groups were
 	// created correctly. We begin by verifying the number of asset groups.
@@ -122,8 +122,9 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	normalGroupSend := sendAssetsToAddr(t, t.tapd, bobNormalAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, normalGroupSend, normalMember.AssetGenesis.AssetId,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, normalGroupSend,
+		normalMember.AssetGenesis.AssetId,
 		[]uint64{0, normalMember.Amount}, 0, 1,
 	)
 	_ = sendProof(
@@ -162,8 +163,9 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	collectGroupSend := sendAssetsToAddr(t, t.tapd, bobCollectAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, collectGroupSend, collectMember.AssetGenesis.AssetId,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, collectGroupSend,
+		collectMember.AssetGenesis.AssetId,
 		[]uint64{0, collectMember.Amount}, 1, 2,
 	)
 	sendProof(
@@ -175,28 +177,6 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	AssertBalanceByGroup(
 		t.t, secondTapd, collectGroupKey, collectMember.Amount,
 	)
-}
-
-// VerifyGroupAnchor verifies that the correct asset was used as the group
-// anchor by re-deriving the group key.
-func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
-	anchorName string) *taprpc.Asset {
-
-	anchor, err := fn.First(
-		assets, func(asset *taprpc.Asset) bool {
-			return asset.AssetGenesis.Name == anchorName
-		},
-	)
-	require.NoError(t, err)
-
-	anchorGen := parseGenInfo(t, anchor.AssetGenesis)
-	anchorGen.Type = asset.Type(anchor.AssetType)
-	AssertGroupAnchor(
-		t, anchorGen, anchor.AssetGroup.RawGroupKey,
-		anchor.AssetGroup.TweakedGroupKey,
-	)
-
-	return anchor
 }
 
 // createMultiAssetGroup creates a list of minting requests that represent a
@@ -280,25 +260,13 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	multiAssetGroup := []*mintrpc.MintAssetRequest{validAnchor, groupedAsset}
 
 	// The assets should be minted into the same group.
-	rpcGroupedAssets := mintAssetsConfirmBatch(t, t.tapd, multiAssetGroup)
+	rpcGroupedAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, multiAssetGroup,
+	)
 	AssertNumGroups(t.t, t.tapd, 1)
 	groupKey := rpcGroupedAssets[0].AssetGroup.TweakedGroupKey
 	groupKeyHex := hex.EncodeToString(groupKey)
 	expectedGroupBalance := groupedAsset.Asset.Amount +
 		validAnchor.Asset.Amount
 	AssertBalanceByGroup(t.t, t.tapd, groupKeyHex, expectedGroupBalance)
-}
-
-func parseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
-	genPoint, err := parseOutPoint(genInfo.GenesisPoint)
-	require.NoError(t, err)
-
-	parsedGenesis := asset.Genesis{
-		FirstPrevOut: *genPoint,
-		Tag:          genInfo.Name,
-		OutputIndex:  genInfo.OutputIndex,
-	}
-	copy(parsedGenesis.MetaHash[:], genInfo.MetaHash)
-
-	return &parsedGenesis
 }

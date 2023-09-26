@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
@@ -446,66 +444,6 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 			}
 		}
 	}
-}
-
-// assertTxInBlock checks that a given transaction can be found in the block's
-// transaction list.
-func assertTxInBlock(t *harnessTest, block *wire.MsgBlock,
-	txid *chainhash.Hash) *wire.MsgTx {
-
-	for _, tx := range block.Transactions {
-		sha := tx.TxHash()
-		if bytes.Equal(txid[:], sha[:]) {
-			return tx
-		}
-	}
-
-	t.Fatalf("tx was not included in block")
-	return nil
-}
-
-// mineBlocks mine 'num' of blocks and check that blocks are present in
-// node blockchain. numTxs should be set to the number of transactions
-// (excluding the coinbase) we expect to be included in the first mined block.
-func mineBlocks(t *harnessTest, net *lntest.HarnessTest,
-	num uint32, numTxs int) []*wire.MsgBlock {
-
-	// If we expect transactions to be included in the blocks we'll mine,
-	// we wait here until they are seen in the miner's mempool.
-	var txids []*chainhash.Hash
-	var err error
-	if numTxs > 0 {
-		txids, err = waitForNTxsInMempool(
-			net.Miner.Client, numTxs, minerMempoolTimeout,
-		)
-		if err != nil {
-			t.Fatalf("unable to find txns in mempool: %v", err)
-		}
-	}
-
-	blocks := make([]*wire.MsgBlock, num)
-
-	blockHashes, err := net.Miner.Client.Generate(num)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
-
-	for i, blockHash := range blockHashes {
-		block, err := net.Miner.Client.GetBlock(blockHash)
-		if err != nil {
-			t.Fatalf("unable to get block: %v", err)
-		}
-
-		blocks[i] = block
-	}
-
-	// Finally, assert that all the transactions were included in the first
-	// block.
-	for _, txid := range txids {
-		assertTxInBlock(t, blocks[0], txid)
-	}
-
-	return blocks
 }
 
 // shutdownAndAssert shuts down the given node and asserts that no errors

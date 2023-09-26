@@ -16,8 +16,9 @@ import (
 // testBurnAssets tests that we're able to mint assets and then burn assets
 // again.
 func testBurnAssets(t *harnessTest) {
-	rpcAssets := mintAssetsConfirmBatch(
-		t, t.tapd, []*mintrpc.MintAssetRequest{
+	minerClient := t.lndHarness.Miner.Client
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], simpleAssets[1], issuableAssets[1],
 		},
 	)
@@ -88,14 +89,16 @@ func testBurnAssets(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	confirmAndAssetOutboundTransferWithOutputs(
-		t, t.tapd, sendResp, simpleAssetGen.AssetId, outputAmounts, 0, 1,
-		numOutputs,
+	ConfirmAndAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, sendResp, simpleAssetGen.AssetId,
+		outputAmounts, 0, 1, numOutputs,
 	)
 
 	// Let's make sure that we still have the original number of assets as
 	// seen by our wallet balance.
-	AssertBalanceByID(t.t, t.tapd, simpleAssetGen.AssetId, simpleAsset.Amount)
+	AssertBalanceByID(
+		t.t, t.tapd, simpleAssetGen.AssetId, simpleAsset.Amount,
+	)
 
 	// Test case 1: We'll now try to the exact amount of the largest output,
 	// which should still select exactly that one largest output, which is
@@ -130,8 +133,9 @@ func testBurnAssets(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Got response from burning %d units: %v", burnAmt, burnRespJSON)
 
-	assertAssetOutboundTransferWithOutputs(
-		t, t.tapd, burnResp.BurnTransfer, simpleAssetGen.AssetId,
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		simpleAssetGen.AssetId,
 		[]uint64{outputAmounts[2] - burnAmt, burnAmt}, 1, 2, 2, true,
 	)
 
@@ -143,10 +147,10 @@ func testBurnAssets(t *harnessTest) {
 	require.NoError(t.t, err)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
-		assetAmountCheck(burnedAsset.Amount),
-		assetTypeCheck(burnedAsset.AssetType),
-		assetScriptKeyIsLocalCheck(false),
-		assetScriptKeyIsBurnCheck(true),
+		AssetAmountCheck(burnedAsset.Amount),
+		AssetTypeCheck(burnedAsset.AssetType),
+		AssetScriptKeyIsLocalCheck(false),
+		AssetScriptKeyIsBurnCheck(true),
 	)
 
 	// And now our asset balance should have been decreased by the burned
@@ -165,10 +169,10 @@ func testBurnAssets(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	assertAddrCreated(t.t, t.tapd, simpleAsset, fullSendAddr)
+	AssertAddrCreated(t.t, t.tapd, simpleAsset, fullSendAddr)
 	sendResp = sendAssetsToAddr(t, t.tapd, fullSendAddr)
-	confirmAndAssertOutboundTransfer(
-		t, t.tapd, sendResp, simpleAssetGen.AssetId,
+	ConfirmAndAssertOutboundTransfer(
+		t.t, minerClient, t.tapd, sendResp, simpleAssetGen.AssetId,
 		[]uint64{0, secondSendAmt}, 2, 3,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
@@ -189,9 +193,9 @@ func testBurnAssets(t *harnessTest) {
 	require.NoError(t.t, err)
 	t.Logf("Got response from burning all units: %v", burnRespJSON)
 
-	assertAssetOutboundTransferWithOutputs(
-		t, t.tapd, burnResp.BurnTransfer, simpleCollectibleGen.AssetId,
-		[]uint64{1}, 3, 4, 1, true,
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		simpleCollectibleGen.AssetId, []uint64{1}, 3, 4, 1, true,
 	)
 
 	// Test case 4: Burn assets from multiple inputs. This will select the
@@ -213,8 +217,9 @@ func testBurnAssets(t *harnessTest) {
 	t.Logf("Got response from burning units from multiple inputs: %v",
 		burnRespJSON)
 
-	assertAssetOutboundTransferWithOutputs(
-		t, t.tapd, burnResp.BurnTransfer, simpleAssetGen.AssetId,
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		simpleAssetGen.AssetId,
 		[]uint64{changeAmt, multiBurnAmt}, 4, 5, 2, true,
 	)
 
