@@ -121,6 +121,7 @@ type AssetTransferOutput struct {
 	ScriptKey                int64
 	ScriptKeyLocal           bool
 	Amount                   int64
+	AssetVersion             int32
 	SerializedWitnesses      []byte
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
@@ -241,6 +242,7 @@ type PassiveAsset struct {
 	AssetID         int64
 	NewAnchorUtxo   int64
 	ScriptKey       []byte
+	AssetVersion    int32
 	NewWitnessStack []byte
 	NewProof        []byte
 }
