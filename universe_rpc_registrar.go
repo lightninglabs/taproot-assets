@@ -37,9 +37,9 @@ func NewRpcUniverseRegistrar(
 	}, nil
 }
 
-// unmarshalIssuanceProof unmarshals an issuance proof response into a struct
+// unmarshalIssuanceProof un-marshals an issuance proof response into a struct
 // usable by the universe package.
-func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
+func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 	proofResp *unirpc.AssetProofResponse) (*universe.IssuanceProof, error) {
 
 	leafKey, err := unmarshalLeafKey(uniKey.LeafKey)
@@ -105,9 +105,9 @@ func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 		return nil, err
 	}
 
-	// Finally, we'll map the response back into the IssuanceProof we
-	// expect as a response.
-	return unmarshalIssuanceProof(ctx, uniKey, proofResp)
+	// Finally, we'll map the response back into the IssuanceProof we expect
+	// as a response.
+	return unmarshalIssuanceProof(uniKey, proofResp)
 }
 
 // A compile time interface to ensure that RpcUniverseRegistrar implements the
