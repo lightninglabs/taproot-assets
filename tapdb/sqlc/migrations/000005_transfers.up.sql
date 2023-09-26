@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
     script_key_local BOOL NOT NULL,
     
     amount BIGINT NOT NULL,
+
+    asset_version INTEGER NOT NULL,
     
     serialized_witnesses BLOB,
     
@@ -81,6 +83,8 @@ CREATE TABLE IF NOT EXISTS passive_assets (
     new_anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos(utxo_id),
 
     script_key BLOB NOT NULL,
+
+    asset_version INTEGER NOT NULL,
 
     new_witness_stack BLOB,
 
