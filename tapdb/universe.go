@@ -279,7 +279,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // RegisterIssuance inserts a new minting leaf within the universe tree, stored
 // at the base key.
 func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
-	key universe.BaseKey, leaf *universe.MintingLeaf,
+	key universe.LeafKey, leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
 	var (
@@ -310,7 +310,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
 func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
-	id universe.Identifier, key universe.BaseKey,
+	id universe.Identifier, key universe.LeafKey,
 	leaf *universe.MintingLeaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, mssmt.Node,
 	error) {
@@ -426,7 +426,7 @@ func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
 // outpoint will be returned. If neither are specified, then proofs for all the
 // inserted leaves will be returned.
 func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
-	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
+	universeKey universe.LeafKey) ([]*universe.IssuanceProof, error) {
 
 	var (
 		readTx = NewBaseUniverseReadTx()
@@ -455,7 +455,7 @@ func (b *BaseUniverseTree) FetchIssuanceProof(ctx context.Context,
 // NOTE: This function accepts a database transaction and is called when making
 // broader DB updates.
 func universeFetchIssuanceProof(ctx context.Context,
-	id universe.Identifier, universeKey universe.BaseKey,
+	id universe.Identifier, universeKey universe.LeafKey,
 	dbTx BaseUniverseStore) ([]*universe.IssuanceProof, error) {
 
 	namespace := id.String()
@@ -521,7 +521,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 
 		// Next, we'll fetch the leaf node from the tree and also obtain
 		// a merkle proof for the leaf alongside it.
-		universeKey := universe.BaseKey{
+		universeKey := universe.LeafKey{
 			MintingOutpoint: universeKey.MintingOutpoint,
 			ScriptKey:       &scriptKey,
 		}
@@ -585,9 +585,9 @@ func universeFetchIssuanceProof(ctx context.Context,
 
 // MintingKeys returns all the keys inserted in the universe.
 func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
-) ([]universe.BaseKey, error) {
+) ([]universe.LeafKey, error) {
 
-	var baseKeys []universe.BaseKey
+	var baseKeys []universe.LeafKey
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
@@ -614,7 +614,7 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 				return err
 			}
 
-			baseKeys = append(baseKeys, universe.BaseKey{
+			baseKeys = append(baseKeys, universe.LeafKey{
 				MintingOutpoint: genPoint,
 				ScriptKey:       &scriptKey,
 			})

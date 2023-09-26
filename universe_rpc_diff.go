@@ -109,14 +109,14 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 
 // MintingKeys returns all the keys inserted in the universe.
 func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
-	id universe.Identifier) ([]universe.BaseKey, error) {
+	id universe.Identifier) ([]universe.LeafKey, error) {
 
 	assetKeys, err := r.conn.AssetLeafKeys(ctx, marshalUniID(id))
 	if err != nil {
 		return nil, err
 	}
 
-	keys := make([]universe.BaseKey, len(assetKeys.AssetKeys))
+	keys := make([]universe.LeafKey, len(assetKeys.AssetKeys))
 	for i, key := range assetKeys.AssetKeys {
 		baseKey, err := unmarshalLeafKey(key)
 		if err != nil {
@@ -138,7 +138,7 @@ func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
 // of diff
 func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
-	key universe.BaseKey) ([]*universe.IssuanceProof, error) {
+	key universe.LeafKey) ([]*universe.IssuanceProof, error) {
 
 	uProofs, err := r.conn.QueryProof(ctx, &universerpc.UniverseKey{
 		Id:      marshalUniID(id),

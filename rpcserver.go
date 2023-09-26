@@ -2628,7 +2628,7 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	return &unirpc.DeleteRootResponse{}, nil
 }
 
-func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
+func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 	return &unirpc.AssetKey{
 		Outpoint: &unirpc.AssetKey_OpStr{
 			OpStr: leafKey.MintingOutpoint.String(),
@@ -2765,9 +2765,9 @@ func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
 }
 
 // unmarshalLeafKey unmarshals a leaf key from the RPC form.
-func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
+func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	var (
-		baseKey universe.BaseKey
+		baseKey universe.LeafKey
 		err     error
 	)
 

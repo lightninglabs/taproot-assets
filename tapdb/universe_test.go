@@ -77,8 +77,8 @@ func TestUniverseEmptyTree(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
-func randBaseKey(t *testing.T) universe.BaseKey {
-	return universe.BaseKey{
+func randBaseKey(t *testing.T) universe.LeafKey {
+	return universe.LeafKey{
 		MintingOutpoint: test.RandOp(t),
 		ScriptKey: fn.Ptr(
 			asset.NewScriptKey(test.RandPubKey(t)),
@@ -127,7 +127,7 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 
 // leaWithKey is a two tuple that associates new minting leaf with a key.
 type leafWithKey struct {
-	universe.BaseKey
+	universe.LeafKey
 
 	universe.MintingLeaf
 }
@@ -166,7 +166,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		// Each new leaf should add to the accumulated sum.
 		leafSum += testLeaf.Amt
 
-		targetKey := testLeaf.BaseKey
+		targetKey := testLeaf.LeafKey
 		leaf := testLeaf.MintingLeaf
 
 		issuanceProof, err := baseUniverse.RegisterIssuance(
@@ -228,9 +228,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.Equal(t, numLeaves, len(mintingKeys))
 
 	// The set of leaves we created above should match what was returned.
-	require.True(t, fn.All(mintingKeys, func(key universe.BaseKey) bool {
+	require.True(t, fn.All(mintingKeys, func(key universe.LeafKey) bool {
 		return fn.Any(testLeaves, func(testLeaf leafWithKey) bool {
-			return reflect.DeepEqual(key, testLeaf.BaseKey)
+			return reflect.DeepEqual(key, testLeaf.LeafKey)
 		})
 	}))
 
@@ -257,7 +257,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		testLeaf := &testLeaves[idx]
 		testLeaf.MintingLeaf.GenesisProof = randProof(t)
 
-		targetKey := testLeaf.BaseKey
+		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.RegisterIssuance(
 			ctx, targetKey, &testLeaf.MintingLeaf, nil,
 		)
@@ -472,7 +472,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// If we query for only the minting point, then all three leaves should
 	// be returned.
-	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseKey{
+	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
 		MintingOutpoint: rootMintingPoint,
 	})
 	require.NoError(t, err)
@@ -484,7 +484,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 
-		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseKey{
+		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
 			MintingOutpoint: rootMintingPoint,
 			ScriptKey: &asset.ScriptKey{
 				PubKey: scriptKey,

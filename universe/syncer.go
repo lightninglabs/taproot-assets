@@ -205,7 +205,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
 	err = fn.ParSlice(
-		ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
+		ctx, keysToFetch, func(ctx context.Context, key LeafKey) error {
 			newProof, err := diffEngine.FetchIssuanceProof(
 				ctx, uniID, key,
 			)

@@ -81,7 +81,7 @@ func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
 // RegisterIssuance is an implementation of the universe.Registrar interface
 // that uses a remote Universe server as the Registry instance.
 func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
-	id universe.Identifier, key universe.BaseKey,
+	id universe.Identifier, key universe.LeafKey,
 	leaf *universe.MintingLeaf) (*universe.IssuanceProof, error) {
 
 	// First, we'll parse the proofs and key into their RPC counterparts.

@@ -136,7 +136,7 @@ func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
 // error if the passed minting proof is invalid. If the leaf is already known,
 // then no action is taken and the existing issuance commitment proof returned.
 func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
-	key BaseKey, leaf *MintingLeaf) (*IssuanceProof, error) {
+	key LeafKey, leaf *MintingLeaf) (*IssuanceProof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
@@ -219,7 +219,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 // verifyIssuanceProof verifies the passed minting leaf is a valid issuance
 // proof, returning the asset snapshot if so.
 func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
-	key BaseKey, leaf *MintingLeaf,
+	key LeafKey, leaf *MintingLeaf,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
 	assetSnapshot, err := leaf.GenesisProof.Verify(
@@ -342,7 +342,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 	}
 	prevScriptKey := asset.NewScriptKey(prevScriptKeyPubKey)
 
-	prevBaseKey := BaseKey{
+	prevBaseKey := LeafKey{
 		MintingOutpoint: prevID.OutPoint,
 		ScriptKey:       &prevScriptKey,
 	}
@@ -370,7 +370,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 // FetchIssuanceProof attempts to fetch an issuance proof for the target base
 // leaf based on the universe identifier (assetID/groupKey).
 func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
-	key BaseKey) ([]*IssuanceProof, error) {
+	key LeafKey) ([]*IssuanceProof, error) {
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
@@ -396,11 +396,11 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 // MintingKeys returns the set of minting keys known for the specified base
 // universe identifier.
 func (a *MintingArchive) MintingKeys(ctx context.Context,
-	id Identifier) ([]BaseKey, error) {
+	id Identifier) ([]LeafKey, error) {
 
 	log.Debugf("Retrieving all keys for Universe: id=%v", id.StringForLog())
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) ([]BaseKey, error) {
+	return withBaseUni(a, id, func(baseUni BaseBackend) ([]LeafKey, error) {
 		return baseUni.MintingKeys(ctx)
 	})
 }
