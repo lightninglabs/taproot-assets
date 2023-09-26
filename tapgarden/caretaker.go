@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1186,5 +1187,106 @@ func GenHeaderVerifier(ctx context.Context,
 	return func(header wire.BlockHeader, height uint32) error {
 		err := chainBridge.VerifyBlock(ctx, header, height)
 		return err
+	}
+}
+
+// GenGroupVeifier generates a group key verification callback function given
+// a DB handle.
+func GenGroupVerifier(ctx context.Context,
+	mintingStore MintingStore) func(*btcec.PublicKey) error {
+
+	return func(groupKey *btcec.PublicKey) error {
+		if groupKey == nil {
+			return fmt.Errorf("cannot verify empty group key")
+		}
+
+		// This query will err if no stored group has a matching
+		// tweaked group key.
+		_, err := mintingStore.FetchGroupByGroupKey(
+			ctx, groupKey,
+		)
+		if err != nil {
+			assetGroupKey := groupKey.SerializeCompressed()
+			return fmt.Errorf("group %x not imported: %w",
+				assetGroupKey, err)
+		}
+
+		return nil
+	}
+}
+
+// GenGroupAnchorVerifier generates a caching group anchor verification callback
+// function given a DB handle.
+func GenGroupAnchorVerifier(ctx context.Context,
+	mintingStore MintingStore) func(*asset.Genesis,
+	*asset.GroupKey) error {
+
+	// Cache anchors for groups that were previously fetched.
+	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
+
+	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
+		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
+		groupAnchor, ok := groupAnchors[assetGroupKey]
+
+		if !ok {
+			storedGroup, err := mintingStore.FetchGroupByGroupKey(
+				ctx, &groupKey.GroupPubKey,
+			)
+			if err != nil {
+				return err
+			}
+
+			groupAnchors[assetGroupKey] = storedGroup.Genesis
+			groupAnchor = storedGroup.Genesis
+		}
+
+		if gen.ID() != groupAnchor.ID() {
+			return fmt.Errorf("asset not group anchor")
+		}
+
+		return nil
+	}
+
+}
+
+// GenRawGroupAnchorVerifier generates a group anchor verification callback
+// function. This anchor verifier recomputes the tweaked group key with the
+// passed genesis and compares that key to the given group key. This verifier
+// is only used in the caretaker, before any asset groups are stored in the DB.
+func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
+	*asset.GroupKey) error {
+
+	// Cache group anchors we already verified.
+	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
+
+	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
+		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
+		groupAnchor, ok := groupAnchors[assetGroupKey]
+
+		if !ok {
+			// TODO(jhb): add tapscript root support
+			singleTweak := gen.ID()
+			tweakedGroupKey, err := asset.GroupPubKey(
+				groupKey.RawKey.PubKey, singleTweak[:], nil,
+			)
+			if err != nil {
+				return err
+			}
+
+			computedGroupKey := asset.ToSerialized(tweakedGroupKey)
+			if computedGroupKey != assetGroupKey {
+				return fmt.Errorf("asset not group anchor")
+			}
+
+			groupAnchors[assetGroupKey] = gen
+
+			return nil
+		}
+
+		if gen.ID() != groupAnchor.ID() {
+			return fmt.Errorf("asset not group anchor")
+		}
+
+		return nil
 	}
 }

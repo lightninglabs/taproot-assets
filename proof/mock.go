@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -46,6 +47,29 @@ func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
 // Chain data is not available in unit tests. This function is useful for unit
 // tests which are not primarily concerned with block header verification.
 func MockHeaderVerifier(header wire.BlockHeader, height uint32) error {
+	return nil
+}
+
+// MockGroupVerifier is a mock verifier which approves of all group keys.
+//
+// Group key verification usually involves having imported the group anchor
+// before verification, and many unit tests are not focused on group key
+// functionality but still use functions that require a group verifier.
+// This function is used in those cases.
+func MockGroupVerifier(groupKey *btcec.PublicKey) error {
+	return nil
+}
+
+// MockGroupAnchorVerifier is a mock verifier which approves of all group anchor
+// geneses.
+//
+// Group anchor verification usually involves accurately computing a group key,
+// and many unit tests are not focused on group key functionality but still use
+// functions that require a group anchor verifier. This function is used in
+// those cases.
+func MockGroupAnchorVerifier(gen *asset.Genesis,
+	groupKey *asset.GroupKey) error {
+
 	return nil
 }
 

@@ -362,6 +362,12 @@ func (m *MockChainBridge) EstimateFee(ctx context.Context,
 	return 253, nil
 }
 
+func GenMockGroupVerifier() func(*btcec.PublicKey) error {
+	return func(groupKey *btcec.PublicKey) error {
+		return nil
+	}
+}
+
 type MockKeyRing struct {
 	FamIndex keychain.KeyFamily
 	KeyIndex uint32
