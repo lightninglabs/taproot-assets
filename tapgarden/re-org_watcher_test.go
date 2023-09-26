@@ -50,7 +50,8 @@ func (h *reOrgWatcherHarness) eventually(fn func() bool) {
 func newReOrgWatcherHarness(t *testing.T) *reOrgWatcherHarness {
 	chainBridge := NewMockChainBridge()
 	cfg := &ReOrgWatcherConfig{
-		ChainBridge: chainBridge,
+		ChainBridge:   chainBridge,
+		GroupVerifier: GenMockGroupVerifier(),
 		NonBuriedAssetFetcher: func(ctx context.Context,
 			minHeight int32) ([]*asset.Asset, error) {
 

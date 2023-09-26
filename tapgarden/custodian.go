@@ -36,6 +36,10 @@ type CustodianConfig struct {
 	// backend.
 	ChainBridge ChainBridge
 
+	// GroupVerifier is used to verify the validity of the group key for an
+	// asset.
+	GroupVerifier proof.GroupVerifier
+
 	// AddrBook is the storage backend for addresses.
 	AddrBook *address.Book
 
@@ -421,7 +425,8 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				ctx, c.cfg.ChainBridge,
 			)
 			err = c.cfg.ProofArchive.ImportProofs(
-				ctx, headerVerifier, false, addrProof,
+				ctx, headerVerifier, c.cfg.GroupVerifier, false,
+				addrProof,
 			)
 			if err != nil {
 				log.Errorf("unable to import proofs: %v", err)

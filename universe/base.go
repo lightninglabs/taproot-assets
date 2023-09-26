@@ -318,7 +318,9 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
-	if newProof.Asset.HasGenesisWitness() {
+	if newProof.Asset.HasGenesisWitness() ||
+		newProof.Asset.HasGenesisWitnessForGroup() {
+
 		return nil, nil
 	}
 
