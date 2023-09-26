@@ -487,8 +487,8 @@ func (m *MockProofArchive) FetchProofs(ctx context.Context,
 }
 
 func (m *MockProofArchive) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, replace bool,
-	proofs ...*proof.AnnotatedProof) error {
+	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
+	replace bool, proofs ...*proof.AnnotatedProof) error {
 
 	return nil
 }

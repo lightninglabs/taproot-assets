@@ -541,7 +541,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		if sproutGroupKey != nil {
 			err := b.cfg.TxValidator.Execute(newAsset, nil, nil)
 			if err != nil {
-				return nil, fmt.Errorf("unable to verify"+
+				return nil, fmt.Errorf("unable to verify "+
 					"asset group witness: %w", err)
 			}
 		}
@@ -861,6 +861,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		defer cancel()
 
 		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+		groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
+		groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
 
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
@@ -894,7 +896,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		mintingProofs, err := proof.NewMintingBlobs(
-			baseProof, headerVerifier,
+			baseProof, headerVerifier, groupVerifier,
+			groupAnchorVerifier,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 		)
 		if err != nil {
@@ -930,38 +933,53 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			})
 		}
 
+		// Before we write any assets from the batch, we need to sort
+		// the assets so that we insert group anchors before
+		// reissunces. This is required for any possible reissuances
+		// to be verified correctly when updating our local Universe.
+		anchorAssets, nonAnchorAssets := SortAssets(
+			committedAssets, groupAnchorVerifier,
+		)
+
 		// Before we confirm the batch, we'll also update the on disk
 		// file system as well.
 		//
 		// TODO(roasbeef): rely on the upsert here instead
-		err = fn.ParSlice(
-			ctx, committedAssets,
-			func(ctx context.Context, newAsset *asset.Asset) error {
-				scriptPubKey := newAsset.ScriptKey.PubKey
-				scriptKey := asset.ToSerialized(scriptPubKey)
+		updateAssetProofs := func(ctx context.Context,
+			newAsset *asset.Asset) error {
 
-				mintingProof := mintingProofs[scriptKey]
+			scriptPubKey := newAsset.ScriptKey.PubKey
+			scriptKey := asset.ToSerialized(scriptPubKey)
 
-				proofBlob, uniProof, err := b.storeMintingProof(
-					ctx, newAsset, mintingProof, mintTxHash,
-					headerVerifier,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to store "+
-						"proof: %w", err)
-				}
+			mintingProof := mintingProofs[scriptKey]
 
-				proofMutex.Lock()
-				mintingProofBlobs[scriptKey] = proofBlob
-				proofMutex.Unlock()
+			proofBlob, uniProof, err := b.storeMintingProof(
+				ctx, newAsset, mintingProof, mintTxHash,
+				headerVerifier, groupVerifier,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to store "+
+					"proof: %w", err)
+			}
 
-				if uniProof != nil {
-					universeItems <- uniProof
-				}
+			proofMutex.Lock()
+			mintingProofBlobs[scriptKey] = proofBlob
+			proofMutex.Unlock()
 
-				return nil
-			},
-		)
+			if uniProof != nil {
+				universeItems <- uniProof
+			}
+
+			return nil
+		}
+
+		err = fn.ParSlice(ctx, anchorAssets, updateAssetProofs)
+		if err != nil {
+			return 0, fmt.Errorf("unable to update asset proofs: "+
+				"%w", err)
+		}
+
+		err = fn.ParSlice(ctx, nonAnchorAssets, updateAssetProofs)
 		if err != nil {
 			return 0, fmt.Errorf("unable to update asset proofs: "+
 				"%w", err)
@@ -1026,8 +1044,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 // can be used to register the asset with the universe.
 func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
-	headerVerifier proof.HeaderVerifier) (proof.Blob,
-	*universe.IssuanceItem, error) {
+	headerVerifier proof.HeaderVerifier,
+	groupVerifier proof.GroupVerifier) (proof.Blob, *universe.IssuanceItem,
+	error) {
 
 	assetID := a.ID()
 	blob, err := proof.EncodeAsProofFile(mintingProof)
@@ -1036,14 +1055,16 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 			err)
 	}
 
-	err = b.cfg.ProofFiles.ImportProofs(
-		ctx, headerVerifier, false, &proof.AnnotatedProof{
-			Locator: proof.Locator{
-				AssetID:   &assetID,
-				ScriptKey: *a.ScriptKey.PubKey,
-			},
-			Blob: blob,
+	fullProof := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *a.ScriptKey.PubKey,
 		},
+		Blob: blob,
+	}
+
+	err = b.cfg.ProofFiles.ImportProofs(
+		ctx, headerVerifier, groupVerifier, false, fullProof,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)
@@ -1162,6 +1183,39 @@ func SortSeedlings(seedlings []*Seedling) []string {
 
 	allSeedlings = append(allSeedlings, normalSeedlings...)
 	return allSeedlings
+}
+
+// SortAssets sorts the batch assets such that assets that are group anchors are
+// partitioned from all other assets.
+func SortAssets(fullAssets []*asset.Asset,
+	anchorVerifier proof.GroupAnchorVerifier) ([]*asset.Asset,
+	[]*asset.Asset) {
+
+	var anchorAssets, nonAnchorAssets []*asset.Asset
+	for ind := range fullAssets {
+		fullAsset := fullAssets[ind]
+
+		switch {
+		case fullAsset.GroupKey != nil:
+			err := anchorVerifier(
+				&fullAsset.Genesis,
+				fullAsset.GroupKey,
+			)
+
+			switch {
+			case err == nil:
+				anchorAssets = append(anchorAssets, fullAsset)
+			default:
+				nonAnchorAssets = append(
+					nonAnchorAssets, fullAsset,
+				)
+			}
+		default:
+			nonAnchorAssets = append(nonAnchorAssets, fullAsset)
+		}
+	}
+
+	return anchorAssets, nonAnchorAssets
 }
 
 // GetTxFee returns the value of the on-chain fees paid by a finalized PSBT.

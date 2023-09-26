@@ -62,6 +62,10 @@ type ReOrgWatcherConfig struct {
 	// backend.
 	ChainBridge ChainBridge
 
+	// GroupVerifier is used to verify the validity of the group key for an
+	// asset.
+	GroupVerifier proof.GroupVerifier
+
 	// ProofArchive is the storage backend for proofs to which we store
 	// updated proofs.
 	ProofArchive proof.NotifyArchiver
@@ -566,7 +570,7 @@ func (w *ReOrgWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 		for idx := range proofs {
 			err := proof.ReplaceProofInBlob(
 				ctxt, proofs[idx], w.cfg.ProofArchive,
-				headerVerifier,
+				headerVerifier, w.cfg.GroupVerifier,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to update proofs: %w",
