@@ -343,8 +343,8 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 	prevScriptKey := asset.NewScriptKey(prevScriptKeyPubKey)
 
 	prevBaseKey := LeafKey{
-		MintingOutpoint: prevID.OutPoint,
-		ScriptKey:       &prevScriptKey,
+		OutPoint:  prevID.OutPoint,
+		ScriptKey: &prevScriptKey,
 	}
 
 	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(

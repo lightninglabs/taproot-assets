@@ -1047,7 +1047,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	// be the outpoint where it was created at and the script key for that
 	// asset.
 	baseKey := universe.LeafKey{
-		MintingOutpoint: wire.OutPoint{
+		OutPoint: wire.OutPoint{
 			Hash:  mintTxHash,
 			Index: b.anchorOutputIndex,
 		},

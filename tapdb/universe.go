@@ -333,7 +333,7 @@ func universeRegisterIssuance(ctx context.Context, dbTx BaseUniverseStore,
 		groupKeyBytes = schnorr.SerializePubKey(id.GroupKey)
 	}
 
-	mintingPointBytes, err := encodeOutpoint(key.MintingOutpoint)
+	mintingPointBytes, err := encodeOutpoint(key.OutPoint)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -469,7 +469,7 @@ func universeFetchIssuanceProof(ctx context.Context,
 		)
 	}
 
-	mintingPointBytes, err := encodeOutpoint(universeKey.MintingOutpoint)
+	mintingPointBytes, err := encodeOutpoint(universeKey.OutPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -522,8 +522,8 @@ func universeFetchIssuanceProof(ctx context.Context,
 		// Next, we'll fetch the leaf node from the tree and also obtain
 		// a merkle proof for the leaf alongside it.
 		universeKey := universe.LeafKey{
-			MintingOutpoint: universeKey.MintingOutpoint,
-			ScriptKey:       &scriptKey,
+			OutPoint:  universeKey.OutPoint,
+			ScriptKey: &scriptKey,
 		}
 		smtKey := universeKey.UniverseKey()
 		leafProof, err := universeTree.MerkleProof(
@@ -615,8 +615,8 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 			}
 
 			baseKeys = append(baseKeys, universe.LeafKey{
-				MintingOutpoint: genPoint,
-				ScriptKey:       &scriptKey,
+				OutPoint:  genPoint,
+				ScriptKey: &scriptKey,
 			})
 
 			return nil

@@ -79,7 +79,7 @@ func TestUniverseEmptyTree(t *testing.T) {
 
 func randBaseKey(t *testing.T) universe.LeafKey {
 	return universe.LeafKey{
-		MintingOutpoint: test.RandOp(t),
+		OutPoint: test.RandOp(t),
 		ScriptKey: fn.Ptr(
 			asset.NewScriptKey(test.RandPubKey(t)),
 		),
@@ -451,12 +451,12 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// We'll create three new leaves, all of them will share the exact same
 	// minting outpoint, but will have distinct script keys.
-	rootMintingPoint := randBaseKey(t).MintingOutpoint
+	rootMintingPoint := randBaseKey(t).OutPoint
 
 	leafToScriptKey := make(map[asset.SerializedKey]universe.MintingLeaf)
 	for i := 0; i < numLeafs; i++ {
 		targetKey := randBaseKey(t)
-		targetKey.MintingOutpoint = rootMintingPoint
+		targetKey.OutPoint = rootMintingPoint
 
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
@@ -473,7 +473,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 	// If we query for only the minting point, then all three leaves should
 	// be returned.
 	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
-		MintingOutpoint: rootMintingPoint,
+		OutPoint: rootMintingPoint,
 	})
 	require.NoError(t, err)
 	require.Len(t, proofs, numLeafs)
@@ -485,7 +485,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 		require.NoError(t, err)
 
 		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
-			MintingOutpoint: rootMintingPoint,
+			OutPoint: rootMintingPoint,
 			ScriptKey: &asset.ScriptKey{
 				PubKey: scriptKey,
 			},

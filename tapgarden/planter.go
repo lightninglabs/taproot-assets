@@ -881,7 +881,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		// this'll be the outpoint where it was created at and the
 		// script key for that asset.
 		baseKey := universe.LeafKey{
-			MintingOutpoint: wire.OutPoint{
+			OutPoint: wire.OutPoint{
 				Hash:  p.AnchorTx.TxHash(),
 				Index: p.InclusionProof.OutputIndex,
 			},

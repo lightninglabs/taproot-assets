@@ -2631,7 +2631,7 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 	return &unirpc.AssetKey{
 		Outpoint: &unirpc.AssetKey_OpStr{
-			OpStr: leafKey.MintingOutpoint.String(),
+			OpStr: leafKey.OutPoint.String(),
 		},
 		ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
 			ScriptKeyBytes: schnorr.SerializePubKey(
@@ -2812,7 +2812,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 			return baseKey, err
 		}
 
-		baseKey.MintingOutpoint = *outpoint
+		baseKey.OutPoint = *outpoint
 
 	case key.GetOutpoint() != nil:
 		op := key.GetOp()
@@ -2822,7 +2822,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 			return baseKey, err
 		}
 
-		baseKey.MintingOutpoint = wire.OutPoint{
+		baseKey.OutPoint = wire.OutPoint{
 			Hash:  *hash,
 			Index: uint32(op.Index),
 		}

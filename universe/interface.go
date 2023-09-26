@@ -110,9 +110,9 @@ func (m *MintingLeaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 // sha256(mintingOutpoint || scriptKey). This ensures that all
 // leaves for a given asset will be uniquely keyed in the universe tree.
 type LeafKey struct {
-	// MintingOutpoint is the minting outpoint, or the outpoint where the
-	// newly created assets reside within.
-	MintingOutpoint wire.OutPoint
+	// OutPoint is the outpoint at which the asset referenced by this key
+	// resides.
+	OutPoint wire.OutPoint
 
 	// ScriptKey is the script key of the base asset. If this isn't
 	// specified, then the caller is attempting to query for all the script
@@ -126,7 +126,7 @@ type LeafKey struct {
 func (b LeafKey) UniverseKey() [32]byte {
 	// key = sha256(mintingOutpoint || scriptKey)
 	h := sha256.New()
-	_ = wire.WriteOutPoint(h, 0, 0, &b.MintingOutpoint)
+	_ = wire.WriteOutPoint(h, 0, 0, &b.OutPoint)
 	h.Write(schnorr.SerializePubKey(b.ScriptKey.PubKey))
 
 	var k [32]byte
