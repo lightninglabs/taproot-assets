@@ -125,7 +125,7 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	return leaf
 }
 
-// leaWithKey is a two tuple that associates new minting leaf with a key.
+// leaWithKey is a two tuple that associates universe leaf key with a leaf.
 type leafWithKey struct {
 	universe.LeafKey
 
