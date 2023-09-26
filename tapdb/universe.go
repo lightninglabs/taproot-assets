@@ -279,7 +279,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 // RegisterIssuance inserts a new minting leaf within the universe tree, stored
 // at the base key.
 func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
-	key universe.LeafKey, leaf *universe.MintingLeaf,
+	key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
 	var (
@@ -311,7 +311,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.MintingLeaf,
+	leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, mssmt.Node,
 	error) {
 
@@ -321,7 +321,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// the minting key, as that'll be the key in the SMT itself.
 	smtKey := key.UniverseKey()
 
-	// The value stored in the MS-SMT will be the serialized MintingLeaf,
+	// The value stored in the MS-SMT will be the serialized Leaf,
 	// so we'll convert that into raw bytes now.
 	leafNode, err := leaf.SmtLeafNode()
 	if err != nil {
@@ -550,7 +550,7 @@ func universeFetchProofLeaf(ctx context.Context,
 			MintingKey:     universeKey,
 			UniverseRoot:   rootNode,
 			InclusionProof: leafProof,
-			Leaf: &universe.MintingLeaf{
+			Leaf: &universe.Leaf{
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
@@ -631,9 +631,9 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 
 // MintingLeaves returns all the minting leaves inserted into the universe.
 func (b *BaseUniverseTree) MintingLeaves(
-	ctx context.Context) ([]universe.MintingLeaf, error) {
+	ctx context.Context) ([]universe.Leaf, error) {
 
-	var leaves []universe.MintingLeaf
+	var leaves []universe.Leaf
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
@@ -671,7 +671,7 @@ func (b *BaseUniverseTree) MintingLeaves(
 
 			// Now that we have the leaves, we'll encode them all
 			// into the set of minting leaves.
-			leaf := universe.MintingLeaf{
+			leaf := universe.Leaf{
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},

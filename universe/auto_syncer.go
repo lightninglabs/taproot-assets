@@ -67,7 +67,7 @@ type FederationPushReq struct {
 	Key LeafKey
 
 	// Leaf is the new leaf to add.
-	Leaf *MintingLeaf
+	Leaf *Leaf
 
 	resp chan *IssuanceProof
 	err  chan error
@@ -226,7 +226,7 @@ func (f *FederationEnvoy) syncUniverseState(ctx context.Context,
 // pushProofToFederation attempts to push out a new proof to the current
 // federation in parallel.
 func (f *FederationEnvoy) pushProofToFederation(uniID Identifier, key LeafKey,
-	leaf *MintingLeaf) {
+	leaf *Leaf) {
 
 	ctx, cancel := f.WithCtxQuit()
 	defer cancel()
@@ -419,7 +419,7 @@ func (f *FederationEnvoy) syncer() {
 //
 // NOTE: This is part of the universe.Registrar interface.
 func (f *FederationEnvoy) RegisterIssuance(_ context.Context, id Identifier,
-	key LeafKey, leaf *MintingLeaf) (*IssuanceProof, error) {
+	key LeafKey, leaf *Leaf) (*IssuanceProof, error) {
 
 	pushReq := &FederationPushReq{
 		ID:   id,

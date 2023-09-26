@@ -136,7 +136,7 @@ func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
 // error if the passed minting proof is invalid. If the leaf is already known,
 // then no action is taken and the existing issuance commitment proof returned.
 func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
-	key LeafKey, leaf *MintingLeaf) (*IssuanceProof, error) {
+	key LeafKey, leaf *Leaf) (*IssuanceProof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
@@ -219,7 +219,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 // verifyIssuanceProof verifies the passed minting leaf is a valid issuance
 // proof, returning the asset snapshot if so.
 func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
-	key LeafKey, leaf *MintingLeaf,
+	key LeafKey, leaf *Leaf,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
 	assetSnapshot, err := leaf.GenesisProof.Verify(
@@ -408,13 +408,13 @@ func (a *MintingArchive) MintingKeys(ctx context.Context,
 // MintingLeaves returns the set of minting leaves known for the specified base
 // universe.
 func (a *MintingArchive) MintingLeaves(ctx context.Context,
-	id Identifier) ([]MintingLeaf, error) {
+	id Identifier) ([]Leaf, error) {
 
 	log.Debugf("Retrieving all leaves for Universe: id=%v",
 		id.StringForLog())
 
 	return withBaseUni(
-		a, id, func(baseUni BaseBackend) ([]MintingLeaf, error) {
+		a, id, func(baseUni BaseBackend) ([]Leaf, error) {
 			return baseUni.MintingLeaves(ctx)
 		},
 	)

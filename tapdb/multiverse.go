@@ -217,7 +217,7 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 // universe tree that corresponds to the given key.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.MintingLeaf,
+	leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
 
 	var (

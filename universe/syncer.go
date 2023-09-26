@@ -190,7 +190,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// local registrar as they're fetched.
 	var (
 		fetchedLeaves = make(chan *IssuanceItem, len(keysToFetch))
-		newLeafProofs []*MintingLeaf
+		newLeafProofs []*Leaf
 		batchSyncEG   errgroup.Group
 	)
 
@@ -275,11 +275,11 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 // batches and returns the new leaf proofs.
 func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 	uniID Identifier, fetchedLeaves chan *IssuanceItem,
-	numTotal int) ([]*MintingLeaf, error) {
+	numTotal int) ([]*Leaf, error) {
 
 	var (
 		numItems      int
-		newLeafProofs []*MintingLeaf
+		newLeafProofs []*Leaf
 	)
 	err := fn.CollectBatch(
 		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
@@ -302,7 +302,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 				numItems, numTotal)
 
 			newLeaves := fn.Map(
-				batch, func(i *IssuanceItem) *MintingLeaf {
+				batch, func(i *IssuanceItem) *Leaf {
 					return i.Leaf
 				},
 			)

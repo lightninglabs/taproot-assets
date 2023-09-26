@@ -1062,7 +1062,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	if groupKey != nil {
 		uniGen.GroupKey = groupKey
 	}
-	mintingLeaf := &universe.MintingLeaf{
+	mintingLeaf := &universe.Leaf{
 		GenesisWithGroup: uniGen,
 
 		// The universe tree store only the asset state transition and

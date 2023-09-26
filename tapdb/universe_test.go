@@ -107,9 +107,9 @@ func randProof(t *testing.T) *proof.Proof {
 }
 
 func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
-	groupKey *btcec.PublicKey) universe.MintingLeaf {
+	groupKey *btcec.PublicKey) universe.Leaf {
 
-	leaf := universe.MintingLeaf{
+	leaf := universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
@@ -129,7 +129,7 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 type leafWithKey struct {
 	universe.LeafKey
 
-	universe.MintingLeaf
+	universe.Leaf
 }
 
 // TestUniverseIssuanceProofs tests that we're able to insert issuance proofs
@@ -167,7 +167,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		leafSum += testLeaf.Amt
 
 		targetKey := testLeaf.LeafKey
-		leaf := testLeaf.MintingLeaf
+		leaf := testLeaf.Leaf
 
 		issuanceProof, err := baseUniverse.RegisterIssuance(
 			ctx, targetKey, &leaf, nil,
@@ -239,10 +239,10 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	dbLeaves, err := baseUniverse.MintingLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
-	require.True(t, fn.All(dbLeaves, func(leaf universe.MintingLeaf) bool {
+	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
 		return fn.All(testLeaves, func(testLeaf leafWithKey) bool {
 			return leaf.Genesis.ID() ==
-				testLeaf.MintingLeaf.Genesis.ID()
+				testLeaf.Leaf.Genesis.ID()
 		})
 	}))
 
@@ -255,11 +255,11 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	// leaves we just inserted.
 	for idx := range testLeaves {
 		testLeaf := &testLeaves[idx]
-		testLeaf.MintingLeaf.GenesisProof = randProof(t)
+		testLeaf.Leaf.GenesisProof = randProof(t)
 
 		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.RegisterIssuance(
-			ctx, targetKey, &testLeaf.MintingLeaf, nil,
+			ctx, targetKey, &testLeaf.Leaf, nil,
 		)
 		require.NoError(t, err)
 
@@ -453,7 +453,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 	// minting outpoint, but will have distinct script keys.
 	rootMintingPoint := randLeafKey(t).OutPoint
 
-	leafToScriptKey := make(map[asset.SerializedKey]universe.MintingLeaf)
+	leafToScriptKey := make(map[asset.SerializedKey]universe.Leaf)
 	for i := 0; i < numLeafs; i++ {
 		targetKey := randLeafKey(t)
 		targetKey.OutPoint = rootMintingPoint

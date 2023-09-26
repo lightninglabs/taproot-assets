@@ -82,10 +82,10 @@ type GenesisWithGroup struct {
 	*asset.GroupKey
 }
 
-// MintingLeaf is a leaf node in the SMT that represents a minting output. For
-// each new asset created for a given asset/universe, a new minting leaf is
+// Leaf is a leaf node in the SMT that represents an asset issuance or transfer.
+// For each asset issued or transferred for a given universe, a new leaf is
 // created.
-type MintingLeaf struct {
+type Leaf struct {
 	GenesisWithGroup
 
 	// GenesisProof is the proof of the newly created asset.
@@ -96,7 +96,7 @@ type MintingLeaf struct {
 }
 
 // SmtLeafNode returns the SMT leaf node for the given minting leaf.
-func (m *MintingLeaf) SmtLeafNode() (*mssmt.LeafNode, error) {
+func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 	var buf bytes.Buffer
 	if err := m.GenesisProof.Encode(&buf); err != nil {
 		return nil, err
@@ -152,7 +152,7 @@ type IssuanceProof struct {
 	InclusionProof *mssmt.Proof
 
 	// Leaf is the leaf node for the asset within the universe tree.
-	Leaf *MintingLeaf
+	Leaf *Leaf
 
 	// MultiverseRoot is the root of the multiverse tree that the asset is
 	// located within.
@@ -193,7 +193,7 @@ type BaseBackend interface {
 	// tree, stored at the base key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	RegisterIssuance(ctx context.Context, key LeafKey, leaf *MintingLeaf,
+	RegisterIssuance(ctx context.Context, key LeafKey, leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
 	// FetchIssuanceProof returns an issuance proof for the target key. If
@@ -210,7 +210,7 @@ type BaseBackend interface {
 
 	// MintingLeaves returns all the minting leaves inserted into the
 	// universe.
-	MintingLeaves(ctx context.Context) ([]MintingLeaf, error)
+	MintingLeaves(ctx context.Context) ([]Leaf, error)
 
 	// DeleteUniverse deletes all leaves, and the root, for a given base
 	// universe.
@@ -246,7 +246,7 @@ type MultiverseArchive interface {
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
-		leaf *MintingLeaf,
+		leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
 
 	// RegisterBatchIssuance inserts a new minting leaf batch within the
@@ -271,7 +271,7 @@ type Registrar interface {
 	// RegisterIssuance inserts a new minting leaf within the target
 	// universe tree (based on the ID), stored at the base key.
 	RegisterIssuance(ctx context.Context, id Identifier, key LeafKey,
-		leaf *MintingLeaf) (*IssuanceProof, error)
+		leaf *Leaf) (*IssuanceProof, error)
 }
 
 // IssuanceItem is an item that can be used to register a new issuance within a
@@ -285,7 +285,7 @@ type IssuanceItem struct {
 	Key LeafKey
 
 	// Leaf is the minting leaf that was created.
-	Leaf *MintingLeaf
+	Leaf *Leaf
 
 	// MetaReveal is the meta reveal that was created.
 	MetaReveal *proof.MetaReveal
@@ -435,7 +435,7 @@ type AssetSyncDiff struct {
 
 	// NewAssetLeaves is the set of new leaf proofs that were added to the
 	// Universe.
-	NewLeafProofs []*MintingLeaf
+	NewLeafProofs []*Leaf
 
 	// TODO(roasbeef): ability to return if things failed?
 	//  * can used a sealed interface to return the error

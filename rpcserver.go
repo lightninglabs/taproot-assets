@@ -2674,7 +2674,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 }
 
 func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
-	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
 
 	// In order to display the full asset, we'll also encode the genesis
 	// proof.
@@ -2698,7 +2698,7 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 
 // marshalAssetLeaf marshals an asset leaf into the RPC form.
 func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
-	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
 
 	return marshalAssetLeaf(ctx, r.cfg.AddrBook, assetLeaf)
 }
@@ -2935,7 +2935,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
-func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
+func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
 	var assetProof proof.Proof
@@ -2948,7 +2948,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 	// TODO(roasbeef): double check posted file format everywhere
 	//  * raw proof, or within file?
 
-	return &universe.MintingLeaf{
+	return &universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
