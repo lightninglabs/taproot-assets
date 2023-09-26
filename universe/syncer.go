@@ -167,11 +167,11 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 
 	// Otherwise, we'll need to perform a diff operation to find the set of
 	// keys we need to fetch.
-	remoteUniKeys, err := diffEngine.MintingKeys(ctx, uniID)
+	remoteUniKeys, err := diffEngine.UniverseLeafKeys(ctx, uniID)
 	if err != nil {
 		return err
 	}
-	localUniKeys, err := s.cfg.LocalDiffEngine.MintingKeys(ctx, uniID)
+	localUniKeys, err := s.cfg.LocalDiffEngine.UniverseLeafKeys(ctx, uniID)
 	if err != nil {
 		return err
 	}

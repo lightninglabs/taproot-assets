@@ -393,9 +393,9 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
 
-// MintingKeys returns the set of minting keys known for the specified base
+// UniverseLeafKeys returns the set of leaf keys known for the specified
 // universe identifier.
-func (a *MintingArchive) MintingKeys(ctx context.Context,
+func (a *MintingArchive) UniverseLeafKeys(ctx context.Context,
 	id Identifier) ([]LeafKey, error) {
 
 	log.Debugf("Retrieving all keys for Universe: id=%v", id.StringForLog())

@@ -2657,7 +2657,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	// TODO(roasbeef): tell above if was tring or not, then would set
 	// below diff
 
-	leafKeys, err := r.cfg.BaseUniverse.MintingKeys(ctx, universeID)
+	leafKeys, err := r.cfg.BaseUniverse.UniverseLeafKeys(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}

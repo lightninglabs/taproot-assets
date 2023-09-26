@@ -466,8 +466,8 @@ type DiffEngine interface {
 	// RootNodes returns the set of root nodes for all known universes.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
-	// MintingKeys returns all the keys inserted in the universe.
-	MintingKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
+	// UniverseLeafKeys returns all the keys inserted in the universe.
+	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
 
 	// FetchIssuanceProof attempts to fetch an issuance proof for the
 	// target base leaf based on the universe identifier (assetID/groupKey).

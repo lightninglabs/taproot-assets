@@ -107,8 +107,8 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	return unmarshalUniverseRoot(universeRoot.AssetRoot)
 }
 
-// MintingKeys returns all the keys inserted in the universe.
-func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
+// UniverseLeafKeys returns all the keys inserted in the universe.
+func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	id universe.Identifier) ([]universe.LeafKey, error) {
 
 	assetKeys, err := r.conn.AssetLeafKeys(ctx, marshalUniID(id))
