@@ -165,6 +165,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 		}},
 		Outputs: []*VOutput{{
 			Asset:             outputAsset,
+			AssetVersion:      outputAsset.Version,
 			Amount:            outputAsset.Amount,
 			Interactive:       true,
 			AnchorOutputIndex: 0,
