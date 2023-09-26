@@ -2851,7 +2851,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.Proof) (*unirpc.AssetProofResponse, error) {
 
-	uniProof, err := marshalMssmtProof(proof.InclusionProof)
+	uniProof, err := marshalMssmtProof(proof.UniverseInclusionProof)
 	if err != nil {
 		return nil, err
 	}

@@ -153,9 +153,9 @@ type Proof struct {
 	// within.
 	UniverseRoot mssmt.Node
 
-	// InclusionProof is the inclusion proof for the asset within the
-	// universe tree.
-	InclusionProof *mssmt.Proof
+	// UniverseInclusionProof is the universe inclusion proof for the asset
+	// within the universe tree.
+	UniverseInclusionProof *mssmt.Proof
 
 	// MultiverseRoot is the root of the multiverse tree that the asset is
 	// located within.
@@ -175,7 +175,7 @@ func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
 		return false, err
 	}
 
-	reconstructedRoot := i.InclusionProof.Root(
+	reconstructedRoot := i.UniverseInclusionProof.Root(
 		i.LeafKey.UniverseKey(), leafNode,
 	)
 

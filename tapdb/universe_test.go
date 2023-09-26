@@ -191,7 +191,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		// root of the SMT.
 		node, err := leaf.SmtLeafNode()
 		require.NoError(t, err)
-		proofRoot := issuanceProof.InclusionProof.Root(
+		proofRoot := issuanceProof.UniverseInclusionProof.Root(
 			targetKey.UniverseKey(), node,
 		)
 		require.True(t, mssmt.IsEqualNode(rootNode, proofRoot))
@@ -213,7 +213,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		// proof.
 		node, err = uniProof.Leaf.SmtLeafNode()
 		require.NoError(t, err)
-		dbProofRoot := uniProof.InclusionProof.Root(
+		dbProofRoot := uniProof.UniverseInclusionProof.Root(
 			uniProof.LeafKey.UniverseKey(), node,
 		)
 		require.True(

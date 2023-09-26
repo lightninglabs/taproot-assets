@@ -73,8 +73,8 @@ func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 			),
 			uint64(proofResp.UniverseRoot.MssmtRoot.RootSum),
 		),
-		InclusionProof: inclusionProof,
-		Leaf:           assetLeaf,
+		UniverseInclusionProof: inclusionProof,
+		Leaf:                   assetLeaf,
 	}, nil
 }
 
