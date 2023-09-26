@@ -1504,8 +1504,8 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, replace bool,
-	proofs ...*proof.AnnotatedProof) error {
+	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
+	replace bool, proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {

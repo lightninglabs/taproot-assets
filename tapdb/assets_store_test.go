@@ -331,7 +331,8 @@ func TestImportAssetProof(t *testing.T) {
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, false, testProof,
+		ctxb, proof.MockHeaderVerifier, proof.MockGroupVerifier, false,
+		testProof,
 	))
 
 	// We should now be able to retrieve the set of all assets inserted on
@@ -382,7 +383,8 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.AnchorTxIndex = 5678
 	testProof.Blob = updatedBlob
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, true, testProof,
+		ctxb, proof.MockHeaderVerifier, proof.MockGroupVerifier, true,
+		testProof,
 	))
 
 	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{

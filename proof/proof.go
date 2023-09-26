@@ -93,6 +93,12 @@ var (
 	// genesis asset is missing a group key when it should have one.
 	ErrGroupKeyRequired = errors.New("group key required")
 
+	// ErrGroupKeyUnknown is an error returned if an asset proof for a
+	// group asset references an asset group that has not been previously
+	// verified. This can apply to genesis proofs for reissaunces into a
+	// group, and any further transfer of a grouped asset.
+	ErrGroupKeyUnknown = errors.New("group key not known")
+
 	// RegtestTestVectorName is the name of the test vector file that is
 	// generated/updated by an actual integration test run on regtest. It is
 	// exported here, so we can use it in the integration tests.
