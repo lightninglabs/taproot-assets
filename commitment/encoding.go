@@ -25,6 +25,12 @@ func AssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	// We currently only use this with tlv.DecodeP2P, but in case we ever
+	// don't, we still want to enforce a limit.
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(**AssetProof); ok {
 		var streamBytes []byte
 		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
@@ -67,6 +73,12 @@ func TaprootAssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 func TaprootAssetProofDecoder(r io.Reader, val any, buf *[8]byte,
 	l uint64) error {
 
+	// We currently only use this with tlv.DecodeP2P, but in case we ever
+	// don't, we still want to enforce a limit.
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*TaprootAssetProof); ok {
 		var streamBytes []byte
 		if err := tlv.DVarBytes(r, &streamBytes, buf, l); err != nil {
@@ -98,6 +110,12 @@ func TreeProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TreeProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	// We currently only use this with tlv.DecodeP2P, but in case we ever
+	// don't, we still want to enforce a limit.
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*mssmt.Proof); ok {
 		var proofBytes []byte
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
@@ -136,6 +154,16 @@ func TapscriptPreimageEncoder(w io.Writer, val any, buf *[8]byte) error {
 
 func TapscriptPreimageDecoder(r io.Reader, val any, buf *[8]byte,
 	l uint64) error {
+
+	// We currently only use this with tlv.DecodeP2P, but in case we ever
+	// don't, we still want to enforce a limit.
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if l == 0 {
+		return ErrInvalidTapscriptPreimageLen
+	}
 
 	if typ, ok := val.(**TapscriptPreimage); ok {
 		var preimage TapscriptPreimage
