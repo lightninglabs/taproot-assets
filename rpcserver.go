@@ -369,6 +369,12 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			Type: metaType,
 			Data: req.Asset.AssetMeta.Data,
 		}
+
+		// If the asset meta field was specified, then the data inside
+		// must be valid. Let's check that now.
+		if err := seedling.Meta.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	updates, err := r.cfg.AssetMinter.QueueNewSeedling(seedling)
