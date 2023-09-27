@@ -91,7 +91,7 @@ func (p *Proof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+	return stream.DecodeP2P(r)
 }
 
 // DeriveByAssetInclusion derives the Taproot Asset commitment containing the
