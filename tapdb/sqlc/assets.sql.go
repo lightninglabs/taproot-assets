@@ -1085,7 +1085,8 @@ SELECT
     genesis_info_view.asset_tag,
     genesis_info_view.meta_Hash, 
     genesis_info_view.asset_type,
-    key_group_info_view.tweaked_group_key
+    key_group_info_view.tweaked_group_key,
+    version AS asset_version
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
@@ -1105,6 +1106,7 @@ type FetchGroupedAssetsRow struct {
 	MetaHash         []byte
 	AssetType        int16
 	TweakedGroupKey  []byte
+	AssetVersion     int32
 }
 
 func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error) {
@@ -1127,6 +1129,7 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 			&i.MetaHash,
 			&i.AssetType,
 			&i.TweakedGroupKey,
+			&i.AssetVersion,
 		); err != nil {
 			return nil, err
 		}
