@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
@@ -30,6 +31,12 @@ const (
 	// This byte length is equivalent to character count for single-byte
 	// UTF-8 characters.
 	MaxAssetNameLength = 64
+
+	// MaxAssetEncodeSizeBytes is the size we expect an asset to not exceed
+	// in its encoded form. This is used to prevent OOMs when decoding
+	// assets. The main contributing factor to this size are the previous
+	// witnesses which we currently allow to number up to 65k witnesses.
+	MaxAssetEncodeSizeBytes = blockchain.MaxBlockWeight
 )
 
 // SerializedKey is a type for representing a public key, serialized in the
