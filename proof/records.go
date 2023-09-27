@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -293,7 +294,31 @@ func MetaRevealTypeRecord(metaType *MetaType) tlv.Record {
 }
 
 func MetaRevealDataRecord(data *[]byte) tlv.Record {
-	return tlv.MakePrimitiveRecord(MetaRevealDataType, data)
+	sizeFunc := func() uint64 {
+		if data == nil {
+			return 0
+		}
+		return uint64(len(*data))
+	}
+	return tlv.MakeDynamicRecord(
+		MetaRevealDataType, data, sizeFunc, tlv.EVarBytes,
+		DVarBytesWithLimit(MetaDataMaxSizeBytes),
+	)
+}
+
+func DVarBytesWithLimit(limit uint64) tlv.Decoder {
+	return func(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+		if l > limit {
+			return tlv.ErrRecordTooLarge
+		}
+
+		if b, ok := val.(*[]byte); ok {
+			*b = make([]byte, l)
+			_, err := io.ReadFull(r, *b)
+			return err
+		}
+		return tlv.NewTypeForDecodingErr(val, "[]byte", l, l)
+	}
 }
 
 func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {

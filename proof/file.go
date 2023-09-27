@@ -28,6 +28,10 @@ var (
 	// ErrUnknownVersion is returned when a proof with an unknown proof
 	// version is being used.
 	ErrUnknownVersion = errors.New("proof: unknown proof version")
+
+	// ErrProofFileInvalid is the error that's returned when a proof file is
+	// invalid.
+	ErrProofFileInvalid = errors.New("proof file is invalid")
 )
 
 // Version denotes the versioning scheme for proof files.
@@ -36,6 +40,27 @@ type Version uint32
 const (
 	// V0 is the first version of the proof file.
 	V0 Version = 0
+
+	// FileMaxNumProofs is the maximum number of proofs we expect/allow to
+	// be encoded within a single proof file. Given that there can only be
+	// one transfer per block, this value would be enough to transfer an
+	// asset every 10 minutes for 8 years straight. This limitation might be
+	// lifted at some point when proofs can be compressed into a single
+	// zero-knowledge proof.
+	FileMaxNumProofs = 420000
+
+	// FileMaxProofSizeBytes is the maximum size of a single proof in a
+	// proof file. The maximum size of a meta reveal is 1 MiB, so this value
+	// would cap the number of additional inputs within a proof to roughly
+	// 128 of assets with such large meta data.
+	FileMaxProofSizeBytes = 128 * MetaDataMaxSizeBytes
+
+	// FileMaxSizeBytes is the maximum size of a single proof file. This is
+	// not just FileMaxNumProofs * FileMaxProofSizeBytes as only the minting
+	// proof can commit to a large chunk of meta data. The other proofs are
+	// much smaller, assuming they don't all have additional inputs. But we
+	// must cap this value somewhere to avoid OOM attacks.
+	FileMaxSizeBytes = 500 * 1024 * 1024
 )
 
 // hashedProof is a struct that contains an encoded proof and its chained
@@ -176,6 +201,14 @@ func (f *File) Decode(r io.Reader) error {
 		return err
 	}
 
+	// Cap the number of proofs there can be within a single file to avoid
+	// OOM attacks. See the comment for FileMaxNumProofs for the reasoning
+	// behind the value chosen.
+	if numProofs > FileMaxNumProofs {
+		return fmt.Errorf("%w: too many proofs in file",
+			ErrProofFileInvalid)
+	}
+
 	var prevHash, currentHash, proofHash [sha256.Size]byte
 	f.proofs = make([]*hashedProof, numProofs)
 	for i := uint64(0); i < numProofs; i++ {
@@ -184,6 +217,14 @@ func (f *File) Decode(r io.Reader) error {
 		numProofBytes, err := tlv.ReadVarInt(r, &tlvBuf)
 		if err != nil {
 			return err
+		}
+
+		// We also need to cap the size of an individual proof. See the
+		// comment for FileMaxProofSizeBytes for the reasoning behind the
+		// value chosen.
+		if numProofBytes > FileMaxProofSizeBytes {
+			return fmt.Errorf("%w: proof in file too large",
+				ErrProofFileInvalid)
 		}
 
 		// Read all bytes that belong to the proof. We don't decode the
