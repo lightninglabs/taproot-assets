@@ -2,8 +2,11 @@ package proof
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"math"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -37,6 +40,10 @@ func BlockHeaderEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func BlockHeaderDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > BlockHeaderSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*wire.BlockHeader); ok {
 		var headerBytes []byte
 		if err := tlv.DVarBytes(r, &headerBytes, buf, l); err != nil {
@@ -61,6 +68,10 @@ func TxEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TxDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > blockchain.MaxBlockWeight {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*wire.MsgTx); ok {
 		var txBytes []byte
 		if err := tlv.DVarBytes(r, &txBytes, buf, l); err != nil {
@@ -84,6 +95,10 @@ func TxMerkleProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TxMerkleProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*TxMerkleProof); ok {
 		var proofBytes []byte
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
@@ -107,6 +122,10 @@ func TaprootProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TaprootProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > MaxTaprootProofSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*TaprootProof); ok {
 		var proofBytes []byte
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
@@ -130,6 +149,10 @@ func SplitRootProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func SplitRootProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > MaxTaprootProofSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(**TaprootProof); ok {
 		var proofBytes []byte
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
@@ -174,10 +197,19 @@ func TaprootProofsDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// Avoid OOM by limiting the number of taproot proofs we accept.
+		if numProofs > MaxNumTaprootProofs {
+			return fmt.Errorf("%w: too many taproot proofs",
+				ErrProofInvalid)
+		}
+
 		proofs := make([]TaprootProof, 0, numProofs)
 		for i := uint64(0); i < numProofs; i++ {
 			var proofBytes []byte
-			err := asset.VarBytesDecoder(r, &proofBytes, buf, 0)
+			err := asset.VarBytesDecoder(
+				r, &proofBytes, buf, MaxTaprootProofSizeBytes,
+			)
 			if err != nil {
 				return err
 			}
@@ -218,15 +250,28 @@ func AdditionalInputsEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func AdditionalInputsDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > FileMaxSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*[]File); ok {
 		numInputs, err := tlv.ReadVarInt(r, buf)
 		if err != nil {
 			return err
 		}
+
+		// We only allow this many previous witnesses, so there can't
+		// be more additional inputs as witnesses.
+		if numInputs > math.MaxUint16 {
+			return tlv.ErrRecordTooLarge
+		}
+
 		inputFiles := make([]File, 0, numInputs)
 		for i := uint64(0); i < numInputs; i++ {
 			var inputFileBytes []byte
-			err := asset.VarBytesDecoder(r, &inputFileBytes, buf, 0)
+			err := asset.VarBytesDecoder(
+				r, &inputFileBytes, buf, FileMaxSizeBytes,
+			)
 			if err != nil {
 				return err
 			}
@@ -251,6 +296,10 @@ func CommitmentProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func CommitmentProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(**CommitmentProof); ok {
 		var proofBytes []byte
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
@@ -274,6 +323,10 @@ func TapscriptProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func TapscriptProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > tlv.MaxRecordSize*2 {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(**TapscriptProof); ok {
 		var proofBytes []byte
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
@@ -322,6 +375,10 @@ func MetaRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func MetaRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > MetaDataMaxSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(**MetaReveal); ok {
 		var revealBytes []byte
 		if err := tlv.DVarBytes(r, &revealBytes, buf, l); err != nil {
