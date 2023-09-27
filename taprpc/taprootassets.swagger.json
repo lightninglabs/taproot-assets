@@ -1140,7 +1140,7 @@
         "data": {
           "type": "string",
           "format": "byte",
-          "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF."
+          "description": "The raw data of the asset meta data. Based on the type below, this may be\nstructured data such as a text file or PDF. The size of the data is limited\nto 1MiB."
         },
         "type": {
           "$ref": "#/definitions/taprpcAssetMetaType",
