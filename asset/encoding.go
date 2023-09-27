@@ -55,7 +55,7 @@ func VarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "[]byte")
 }
 
-func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
+func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, maxLen uint64) error {
 	if typ, ok := val.(*[]byte); ok {
 		bytesLen, err := tlv.ReadVarInt(r, buf)
 		if err != nil {
@@ -64,16 +64,16 @@ func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 
 		// We'll limit all decoded byte slices to prevent memory blow
 		// ups or panics.
-		if bytesLen > (2<<24)-1 {
+		if bytesLen > maxLen {
 			return fmt.Errorf("%w: %v", ErrByteSliceTooLarge,
 				bytesLen)
 		}
 
-		var bytes []byte
-		if err := tlv.DVarBytes(r, &bytes, buf, bytesLen); err != nil {
+		var decoded []byte
+		if err := tlv.DVarBytes(r, &decoded, buf, bytesLen); err != nil {
 			return err
 		}
-		*typ = bytes
+		*typ = decoded
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "[]byte")
@@ -290,7 +290,8 @@ func GenesisDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 			return err
 		}
 		var tag []byte
-		if err = VarBytesDecoder(r, &tag, buf, 0); err != nil {
+		err = VarBytesDecoder(r, &tag, buf, MaxAssetNameLength)
+		if err != nil {
 			return err
 		}
 		genesis.Tag = string(tag)
@@ -379,7 +380,8 @@ func TxWitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		witness := make(wire.TxWitness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var item []byte
-			if err := VarBytesDecoder(r, &item, buf, 0); err != nil {
+			err = VarBytesDecoder(r, &item, buf, math.MaxUint16)
+			if err != nil {
 				return err
 			}
 			witness = append(witness, item)
@@ -429,7 +431,9 @@ func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		*typ = make([]Witness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
-			err := VarBytesDecoder(r, &streamBytes, buf, 0)
+			err = VarBytesDecoder(
+				r, &streamBytes, buf, math.MaxUint16,
+			)
 			if err != nil {
 				return err
 			}
@@ -467,6 +471,10 @@ func SplitCommitmentEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(**SplitCommitment); ok {
 		var proofBytes []byte
 		if err := VarBytesDecoder(r, &proofBytes, buf, l); err != nil {
@@ -559,7 +567,7 @@ func GroupKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "*GroupKey")
 }
 
-func GroupKeyDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
+func GroupKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	if typ, ok := val.(**GroupKey); ok {
 		var (
 			groupKey    GroupKey
@@ -586,6 +594,10 @@ func LeafEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func LeafDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > MaxAssetEncodeSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*Asset); ok {
 		var assetBytes []byte
 		if err := tlv.DVarBytes(r, &assetBytes, buf, l); err != nil {
