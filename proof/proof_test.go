@@ -338,7 +338,8 @@ func TestProofEncoding(t *testing.T) {
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	amt *uint64, tapscriptPreimage *commitment.TapscriptPreimage,
 	noMetaHash bool, metaReveal *MetaReveal,
-	genesisMutator genMutator) (Proof, *btcec.PrivateKey) {
+	genesisMutator genMutator,
+	assetVersion asset.Version) (Proof, *btcec.PrivateKey) {
 
 	t.Helper()
 
@@ -367,6 +368,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	protoAsset := asset.NewAssetNoErr(
 		t, assetGenesis, groupAmt, 0, 0,
 		asset.NewScriptKeyBip86(genesisPubKey), nil,
+		asset.WithAssetVersion(assetVersion),
 	)
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
 	groupKeyReveal := asset.GroupKeyReveal{
@@ -381,6 +383,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 			Type:             assetType,
 			ScriptKey:        genesisPubKey,
 			Amount:           amt,
+			Version:          assetVersion,
 			LockTime:         0,
 			RelativeLockTime: 0,
 		},
@@ -475,6 +478,7 @@ func TestGenesisProofVerification(t *testing.T) {
 		name              string
 		assetType         asset.Type
 		amount            *uint64
+		assetVersion      asset.Version
 		tapscriptPreimage *commitment.TapscriptPreimage
 		metaReveal        *MetaReveal
 		noMetaHash        bool
@@ -485,6 +489,12 @@ func TestGenesisProofVerification(t *testing.T) {
 			name:       "collectible genesis",
 			assetType:  asset.Collectible,
 			noMetaHash: true,
+		},
+		{
+			name:         "collectible genesis v1 asset version",
+			assetType:    asset.Collectible,
+			noMetaHash:   true,
+			assetVersion: asset.V1,
 		},
 		{
 			name:      "collectible with leaf preimage",
@@ -507,6 +517,13 @@ func TestGenesisProofVerification(t *testing.T) {
 			assetType:  asset.Normal,
 			amount:     &amount,
 			noMetaHash: true,
+		},
+		{
+			name:         "normal genesis v1 asset version",
+			assetType:    asset.Normal,
+			amount:       &amount,
+			noMetaHash:   true,
+			assetVersion: asset.V1,
 		},
 		{
 			name:      "normal with leaf preimage",
@@ -577,6 +594,7 @@ func TestGenesisProofVerification(t *testing.T) {
 				tt, tc.assetType, tc.amount,
 				tc.tapscriptPreimage, tc.noMetaHash,
 				tc.metaReveal, tc.genesisMutator,
+				tc.assetVersion,
 			)
 			_, err := genesisProof.Verify(
 				context.Background(), nil, MockHeaderVerifier,
@@ -616,7 +634,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	t.Parallel()
 
 	proof, _ := genRandomGenesisWithProof(
-		t, asset.Collectible, nil, nil, true, nil, nil,
+		t, asset.Collectible, nil, nil, true, nil, nil, 0,
 	)
 
 	// Create a base reference for the block header and block height. We
@@ -770,8 +788,10 @@ func TestProofReplacement(t *testing.T) {
 	lotsOfProofs := make([]Proof, numProofs)
 	for i := 0; i < numProofs; i++ {
 		amt := uint64(i + 1)
+		assetVersion := asset.Version(i % 2)
 		lotsOfProofs[i], _ = genRandomGenesisWithProof(
 			t, asset.Normal, &amt, nil, false, nil, nil,
+			assetVersion,
 		)
 	}
 
@@ -794,11 +814,13 @@ func TestProofReplacement(t *testing.T) {
 	const numReplacements = 100
 	for i := 0; i < numReplacements; i++ {
 		amt := uint64(1000*numReplacements - i)
+		assetVersion := asset.Version(i % 2)
 
 		// We'll generate a random proof, and then replace a random
 		// proof in the file with it.
 		proof, _ := genRandomGenesisWithProof(
 			t, asset.Normal, &amt, nil, false, nil, nil,
+			assetVersion,
 		)
 		idx := test.RandIntn(numProofs)
 		err := f.ReplaceProofAt(uint32(idx), proof)
@@ -811,7 +833,7 @@ func TestProofReplacement(t *testing.T) {
 	// boundary conditions).
 	amt := uint64(1337)
 	firstProof, _ := genRandomGenesisWithProof(
-		t, asset.Normal, &amt, nil, false, nil, nil,
+		t, asset.Normal, &amt, nil, false, nil, nil, asset.V1,
 	)
 	err = f.ReplaceProofAt(0, firstProof)
 	require.NoError(t, err)
@@ -819,7 +841,7 @@ func TestProofReplacement(t *testing.T) {
 
 	amt = uint64(2016)
 	lastProof, _ := genRandomGenesisWithProof(
-		t, asset.Normal, &amt, nil, false, nil, nil,
+		t, asset.Normal, &amt, nil, false, nil, nil, asset.V0,
 	)
 	err = f.ReplaceProofAt(uint32(f.NumProofs()-1), lastProof)
 	require.NoError(t, err)
@@ -845,7 +867,7 @@ func BenchmarkProofEncoding(b *testing.B) {
 
 	// Start with a minted genesis asset.
 	genesisProof, _ := genRandomGenesisWithProof(
-		b, asset.Normal, &amt, nil, false, nil, nil,
+		b, asset.Normal, &amt, nil, false, nil, nil, asset.V0,
 	)
 
 	// We create a file with 10k proofs (the same one) and test encoding/
