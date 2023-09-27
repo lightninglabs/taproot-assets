@@ -48,8 +48,9 @@ func testAddresses(t *harnessTest) {
 		// In order to force a split, we don't try to send the full
 		// asset.
 		addr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
-			AssetId: a.AssetGenesis.AssetId,
-			Amt:     a.Amount - 1,
+			AssetId:      a.AssetGenesis.AssetId,
+			Amt:          a.Amount - 1,
+			AssetVersion: a.Version,
 		})
 		require.NoError(t.t, err)
 		addresses = append(addresses, addr)
@@ -99,10 +100,16 @@ func testAddresses(t *harnessTest) {
 			ctxt, &taprpc.ListTransfersRequest{},
 		)
 		require.NoError(t.t, err)
+
 		require.Len(t.t, resp.Transfers, len(rpcAssets))
 		require.Len(t.t, resp.Transfers[0].Outputs, 2)
+
 		firstOut := resp.Transfers[0].Outputs[0]
 		require.EqualValues(t.t, 1, firstOut.Amount)
+		require.Equal(
+			t.t, addresses[0].AssetVersion, firstOut.AssetVersion,
+		)
+
 		firstIn := resp.Transfers[0].Inputs[0]
 		require.Equal(
 			t.t, rpcAssets[0].AssetGenesis.AssetId, firstIn.AssetId,
@@ -268,8 +275,10 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 
 		transfer := resp.Transfers[runIdx]
 		require.Len(t.t, transfer.Outputs, numOutputs)
+
 		firstOut := transfer.Outputs[0]
 		require.EqualValues(t.t, changeAmt, firstOut.Amount)
+
 		firstIn := transfer.Inputs[0]
 		require.Equal(t.t, genInfo.AssetId, firstIn.AssetId)
 

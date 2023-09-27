@@ -24,7 +24,8 @@ var (
 				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
-				Amount: 5000,
+				Amount:       5000,
+				AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V0,
 			},
 		},
 		{
@@ -34,7 +35,8 @@ var (
 				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
-				Amount: 1,
+				Amount:       1,
+				AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V1,
 			},
 		},
 	}
@@ -46,7 +48,8 @@ var (
 				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
-				Amount: 5000,
+				Amount:       5000,
+				AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V1,
 			},
 			EnableEmission: true,
 		},
@@ -57,7 +60,8 @@ var (
 				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
-				Amount: 1,
+				Amount:       1,
+				AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V0,
 			},
 			EnableEmission: true,
 		},
