@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/urfave/cli"
 )
@@ -71,16 +72,11 @@ func newAddr(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	var assetVersion taprpc.AssetVersion
-	switch ctx.Uint64(assetVersionName) {
-	case 0:
-		assetVersion = taprpc.AssetVersion_ASSET_VERSION_V0
-	case 1:
-		assetVersion = taprpc.AssetVersion_ASSET_VERSION_V1
-
-	default:
-		return fmt.Errorf("invalid asset version: %v",
-			ctx.Uint64(assetVersionName))
+	assetVersion, err := taprpc.MarshalAssetVersion(
+		asset.Version(ctx.Uint64(assetVersionName)),
+	)
+	if err != nil {
+		return err
 	}
 
 	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
