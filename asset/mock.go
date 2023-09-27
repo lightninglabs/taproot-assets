@@ -325,9 +325,11 @@ func RandID(t testing.TB) ID {
 
 // NewAssetNoErr creates an asset and fails the test if asset creation fails.
 func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
-	scriptKey ScriptKey, groupKey *GroupKey) *Asset {
+	scriptKey ScriptKey, groupKey *GroupKey, opts ...NewAssetOpt) *Asset {
 
-	a, err := New(gen, amt, locktime, relocktime, scriptKey, groupKey)
+	a, err := New(
+		gen, amt, locktime, relocktime, scriptKey, groupKey, opts...,
+	)
 	require.NoError(t, err)
 
 	return a

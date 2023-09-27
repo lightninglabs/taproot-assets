@@ -49,36 +49,55 @@ func TestAppendTransition(t *testing.T) {
 		amt             uint64
 		withBip86Change bool
 		withSplit       bool
-	}{{
-		name:      "normal",
-		assetType: asset.Normal,
-		amt:       100,
-	}, {
-		name:            "normal with change",
-		assetType:       asset.Normal,
-		amt:             100,
-		withBip86Change: true,
-	}, {
-		name:      "normal with change",
-		assetType: asset.Normal,
-		amt:       100,
-		withSplit: true,
-	}, {
-		name:      "collectible",
-		assetType: asset.Collectible,
-		amt:       1,
-	}, {
-		name:            "collectible with change",
-		assetType:       asset.Collectible,
-		amt:             1,
-		withBip86Change: true,
-	}}
+		assetVersion    asset.Version
+	}{
+		{
+			name:      "normal",
+			assetType: asset.Normal,
+			amt:       100,
+		},
+		{
+			name:         "normal v1 asset version",
+			assetType:    asset.Normal,
+			amt:          100,
+			assetVersion: asset.V1,
+		},
+		{
+			name:            "normal with change",
+			assetType:       asset.Normal,
+			amt:             100,
+			withBip86Change: true,
+		},
+		{
+			name:      "normal with change",
+			assetType: asset.Normal,
+			amt:       100,
+			withSplit: true,
+		},
+		{
+			name:      "collectible",
+			assetType: asset.Collectible,
+			amt:       1,
+		},
+		{
+			name:         "collectible v1 asset version",
+			assetType:    asset.Collectible,
+			amt:          1,
+			assetVersion: asset.V1,
+		},
+		{
+			name:            "collectible with change",
+			assetType:       asset.Collectible,
+			amt:             1,
+			withBip86Change: true,
+		},
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(tt *testing.T) {
 			runAppendTransitionTest(
 				tt, tc.assetType, tc.amt, tc.withBip86Change,
-				tc.withSplit,
+				tc.withSplit, tc.assetVersion,
 			)
 		})
 	}
@@ -87,11 +106,11 @@ func TestAppendTransition(t *testing.T) {
 // runAppendTransitionTest runs the test that makes sure a proof can be appended
 // to an existing proof for an asset transition of the given type and amount.
 func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
-	withBip86Change, withSplit bool) {
+	withBip86Change, withSplit bool, assetVersion asset.Version) {
 
 	// Start with a minted genesis asset.
 	genesisProof, senderPrivKey := genRandomGenesisWithProof(
-		t, assetType, &amt, nil, true, nil, nil,
+		t, assetType, &amt, nil, true, nil, nil, assetVersion,
 	)
 	genesisBlob, err := EncodeAsProofFile(&genesisProof)
 	require.NoError(t, err)

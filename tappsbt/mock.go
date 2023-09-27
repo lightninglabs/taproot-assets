@@ -433,6 +433,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 	vo := &TestVOutput{
 		Amount:            v.Amount,
 		Type:              uint8(v.Type),
+		AssetVersion:      uint32(v.AssetVersion),
 		Interactive:       v.Interactive,
 		AnchorOutputIndex: v.AnchorOutputIndex,
 		AnchorOutputInternalKey: test.HexPubKey(
@@ -515,6 +516,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 type TestVOutput struct {
 	Amount                        uint64                   `json:"amount"`
 	Type                          uint8                    `json:"type"`
+	AssetVersion                  uint32                   `json:"asset_version"`
 	Interactive                   bool                     `json:"interactive"`
 	AnchorOutputIndex             uint32                   `json:"anchor_output_index"`
 	AnchorOutputInternalKey       string                   `json:"anchor_output_internal_key"`
@@ -544,6 +546,7 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 		Amount:            to.Amount,
 		Type:              VOutputType(to.Type),
 		Interactive:       to.Interactive,
+		AssetVersion:      asset.Version(to.AssetVersion),
 		AnchorOutputIndex: to.AnchorOutputIndex,
 		AnchorOutputInternalKey: test.ParsePubKey(
 			t, to.AnchorOutputInternalKey,

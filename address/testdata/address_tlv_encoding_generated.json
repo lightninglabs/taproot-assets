@@ -67,17 +67,33 @@
     {
       "address": {
         "version": 0,
+        "chain_params_hrp": "tapbc",
+        "asset_version": 1,
+        "asset_id": "6cc0ce0688a60e2872f5db536fa1ef3a784a2e4f1e06f223c23cbbd9dbdb6e38",
+        "group_key": "",
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "tapscript_sibling": "",
+        "amount": 3337066551442961397,
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+      },
+      "expected": "tapbc1qqqsqqspqyzzqmxqecrg3fsw9pe0tk6nd7s77wncfghy78sx7g3uy09mm8dakm3cqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7tj053v3dxrn75xz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn0mcj0c",
+      "comment": "valid addr, v1 asset version"
+    },
+    {
+      "address": {
+        "version": 0,
         "chain_params_hrp": "taptb",
         "asset_version": 0,
-        "asset_id": "7f3a94b3048ecbce4f2b1686e2df89bde52d5ead1aed011f75fa6578dcab0839",
-        "group_key": "02cd028e8899c3324c75a41f6f34b0038fa640b96b93e421c9860c52a7efa9d395",
+        "asset_id": "e2a4eef388dbb22a8e5af46451ef3e719de83cc25f8a66220e2fc1ed8851e6a8",
+        "group_key": "028c7d6b5a5b992e2a4bc0dca03095dafa69ad197914acb8feea0bc39e4aedd980",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taptb1qqqsqqspqqzzqle6jjesfrktee8jk95xut0cn00994026xhdqy0ht7n90rw2kzpeq5ss9ngz36yfnsejf366g8m0xjcq8raxgzukhylyy8ycvrzj5lh6n5u4qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses833965",
+      "expected": "taptb1qqqsqqspqqzzpc4yamec3kaj92894ary28hnuuvaaq7vyhu2vc3qut7paky9re4gq5ss9rraddd9hxfw9f9uph9qxz2a47nf45vhj99vhrlw5z7rne9wmkvqqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesxfm2ej",
       "comment": "signet group collectible"
     },
     {
@@ -85,7 +101,7 @@
         "version": 0,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "7da00bc74bfe9791807fa20dbeec226348904e6bfa8c10ab434922369e4d4747",
+        "asset_id": "9386c85c765757c7727d6f0a3a6e2266017465f175ed9820006e11837b1acbd6",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
@@ -93,7 +109,7 @@
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapsb1qqqsqqspqqzzqldqp0r5hl5hjxq8lgsdhmkzyc6gjp8xh75vzz45xjfzx60y6368qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses3sew7m",
+      "expected": "tapsb1qqqsqqspqqzzpyuxepw8v46hcae86mc28fhzyespw3jlza0dnqsqqms3sda34j7kqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses4nwf8t",
       "comment": "simnet collectible"
     },
     {
@@ -101,7 +117,7 @@
         "version": 0,
         "chain_params_hrp": "tapsb",
         "asset_version": 0,
-        "asset_id": "b603ddaafac3b6253de23ae01935f108bee96363eddf77456c0e24ed6a67650f",
+        "asset_id": "71238f81a7a515a52976c7ec1911a1ccc9eaabfb6349591ca6f1b9c64256d27d",
         "group_key": "",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
@@ -109,7 +125,7 @@
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapsb1qqqsqqspqqzzpdsrmk404saky577ywhqry6lzz97a93k8mwlwazkcr3ya44xweg0qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpng4k730",
+      "expected": "tapsb1qqqsqqspqqzzqufr37q60fg4555hd3lvryg6rnxfa24lkc6ftyw2dudecep9d5naqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn4cr6tj",
       "comment": "simnet collectible with sibling"
     }
   ],
