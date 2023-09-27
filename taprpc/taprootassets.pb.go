@@ -252,7 +252,8 @@ type AssetMeta struct {
 	unknownFields protoimpl.UnknownFields
 
 	// The raw data of the asset meta data. Based on the type below, this may be
-	// structured data such as a text file or PDF.
+	// structured data such as a text file or PDF. The size of the data is limited
+	// to 1MiB.
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	// The type of the asset meta data.
 	Type AssetMetaType `protobuf:"varint,2,opt,name=type,proto3,enum=taprpc.AssetMetaType" json:"type,omitempty"`

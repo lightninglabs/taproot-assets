@@ -150,7 +150,8 @@ enum AssetMetaType {
 message AssetMeta {
     /*
     The raw data of the asset meta data. Based on the type below, this may be
-    structured data such as a text file or PDF.
+    structured data such as a text file or PDF. The size of the data is limited
+    to 1MiB.
     */
     bytes data = 1;
 
