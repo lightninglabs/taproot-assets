@@ -206,6 +206,14 @@ flake-unit-race:
 	@$(call print, "Flake hunting races in unit tests.")
 	while [ $$? -eq 0 ]; do env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOLIST) | $(XARGS) env $(GOTEST) -race -test.timeout=20m -count=1; done
 
+# =============
+# FUZZING
+# =============
+
+fuzz:
+	@$(call print, "Fuzzing packages '$(FUZZPKG)'.")
+	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)" "$(FUZZ_TEST_TIMEOUT)"
+
 # =========
 # UTILITIES
 # =========
