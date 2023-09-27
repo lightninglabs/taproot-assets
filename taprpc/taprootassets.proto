@@ -277,7 +277,7 @@ enum AssetVersion {
 
 message Asset {
     // The version of the Taproot Asset.
-    int32 version = 1;
+    AssetVersion version = 1;
 
     // The base genesis information of an asset. This information never changes.
     GenesisInfo asset_genesis = 2;
@@ -401,6 +401,9 @@ message AssetHumanReadable {
 
     // The type of the asset.
     AssetType type = 7;
+
+    // The version of the asset.
+    AssetVersion version = 8;
 }
 
 message GroupedAssets {
@@ -563,6 +566,8 @@ message TransferOutput {
     bytes split_commit_root_hash = 6;
 
     OutputType output_type = 7;
+
+    AssetVersion asset_version = 8;
 }
 
 message StopRequest {

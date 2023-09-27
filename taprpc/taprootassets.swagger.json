@@ -972,8 +972,7 @@
       "type": "object",
       "properties": {
         "version": {
-          "type": "integer",
-          "format": "int32",
+          "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The version of the Taproot Asset."
         },
         "asset_genesis": {
@@ -1135,6 +1134,10 @@
         "type": {
           "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
+        },
+        "version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The version of the asset."
         }
       }
     },
@@ -1878,6 +1881,9 @@
         },
         "output_type": {
           "$ref": "#/definitions/taprpcOutputType"
+        },
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion"
         }
       }
     },

@@ -318,7 +318,9 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	assetVersion, err := parseAssetVersion(req.Asset.AssetVersion)
+	assetVersion, err := taprpc.UnmarshalAssetVersion(
+		req.Asset.AssetVersion,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -785,8 +787,17 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 	// Populate the map of group keys to assets in that group.
 	for _, a := range readableAssets {
 		groupKey := hex.EncodeToString(a.GroupKey.SerializeCompressed())
+
+		assetVersion, err := taprpc.MarshalAssetVersion(
+			a.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		asset := &taprpc.AssetHumanReadable{
 			Id:               a.ID[:],
+			Version:          assetVersion,
 			Amount:           a.Amount,
 			LockTime:         int32(a.LockTime),
 			RelativeLockTime: int32(a.RelativeLockTime),
@@ -927,23 +938,6 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 	}, nil
 }
 
-// parseAssetVersion parses an asset version from the RPC variant.
-func parseAssetVersion(version taprpc.AssetVersion) (asset.Version, error) {
-	// For now we'll only support two asset versions. The ones in the
-	// future should be reserved for future use, so we disallow unknown
-	// versions.
-	switch version {
-	case taprpc.AssetVersion_ASSET_VERSION_V0:
-		return asset.V0, nil
-
-	case taprpc.AssetVersion_ASSET_VERSION_V1:
-		return asset.V1, nil
-
-	default:
-		return 0, fmt.Errorf("unknown asset version: %v", version)
-	}
-}
-
 // NewAddr makes a new address from the set of request params.
 func (r *rpcServer) NewAddr(ctx context.Context,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
@@ -1000,7 +994,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("invalid tapscript sibling: %w", err)
 	}
 
-	assetVersion, err := parseAssetVersion(req.AssetVersion)
+	assetVersion, err := taprpc.UnmarshalAssetVersion(req.AssetVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1771,9 +1765,14 @@ func marshalAddr(addr *address.Tap,
 			err)
 	}
 
+	assetVersion, err := taprpc.MarshalAssetVersion(addr.AssetVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	id := addr.AssetID
 	rpcAddr := &taprpc.Addr{
-		AssetVersion:     taprpc.AssetVersion(addr.AssetVersion),
+		AssetVersion:     assetVersion,
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		Amount:           addr.Amount,
@@ -2078,6 +2077,13 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
+		assetVersion, err := taprpc.MarshalAssetVersion(
+			out.AssetVersion,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		rpcOutputs[idx] = &taprpc.TransferOutput{
 			Anchor:              rpcAnchor,
 			ScriptKey:           scriptPubKey.SerializeCompressed(),
@@ -2086,6 +2092,7 @@ func marshalOutboundParcel(
 			NewProofBlob:        out.ProofSuffix,
 			SplitCommitRootHash: splitCommitRoot,
 			OutputType:          rpcOutType,
+			AssetVersion:        assetVersion,
 		}
 	}
 
@@ -2259,9 +2266,16 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			}
 		}
 
+		assetVersion, err := taprpc.MarshalAssetVersion(
+			seedling.AssetVersion,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		rpcBatch.Assets = append(rpcBatch.Assets, &mintrpc.MintAsset{
 			AssetType:    taprpc.AssetType(seedling.AssetType),
-			AssetVersion: taprpc.AssetVersion(seedling.AssetVersion),
+			AssetVersion: assetVersion,
 			Name:         seedling.AssetName,
 			AssetMeta:    seedlingMeta,
 			Amount:       seedling.Amount,
