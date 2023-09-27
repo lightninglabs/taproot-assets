@@ -431,6 +431,9 @@ type AssetHumanReadable struct {
 	// ID is the unique identifier for the asset.
 	ID asset.ID
 
+	// Version is the version of the asset.
+	Version asset.Version
+
 	// Amount is the number of units represented by the asset.
 	Amount uint64
 
@@ -1024,6 +1027,7 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 
 		groupedAssets[i] = &AssetHumanReadable{
 			ID:               assetID,
+			Version:          asset.Version(a.AssetVersion),
 			Amount:           amount,
 			LockTime:         lockTime,
 			RelativeLockTime: relativeLockTime,
