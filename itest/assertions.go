@@ -111,6 +111,18 @@ func AssetScriptKeyIsBurnCheck(isBurn bool) AssetCheck {
 	}
 }
 
+// AssetVersionCheck returns a check function that tests an asset's version.
+func AssetVersionCheck(version taprpc.AssetVersion) AssetCheck {
+	return func(a *taprpc.Asset) error {
+		if a.Version != version {
+			return fmt.Errorf("unexpected asset version, got %v "+
+				"wanted %v", a.Version, version)
+		}
+
+		return nil
+	}
+}
+
 // GroupAssetsByName converts an unordered list of assets to a map of lists of
 // assets, where all assets in a list have the same name.
 func GroupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
@@ -753,6 +765,7 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
 	require.Equal(t, expected.AssetType, actual.AssetType)
+	require.Equal(t, expected.Version, actual.AssetVersion)
 
 	if expected.AssetGroup == nil {
 		require.Nil(t, actual.GroupKey)
@@ -1319,10 +1332,13 @@ func AssertAssetsMinted(t *testing.T,
 			Type: proof.MetaOpaque,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
+
 		mintedAsset := AssertAssetState(
 			t, confirmedAssets, assetRequest.Asset.Name,
-			metaHash[:], AssetAnchorCheck(mintTXID, blockHash),
+			metaHash[:],
+			AssetAnchorCheck(mintTXID, blockHash),
 			AssetScriptKeyIsLocalCheck(true),
+			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 			func(a *taprpc.Asset) error {
 				anchor := a.ChainAnchor
 
