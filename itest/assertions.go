@@ -322,6 +322,55 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	return exportResp.RawProofFile
 }
 
+// AssertMintingProofs make sure the asset minting proofs contain all the
+// correct reveal information.
+func AssertMintingProofs(t *testing.T, tapd *tapdHarness,
+	requests []*mintrpc.MintAssetRequest, assets []*taprpc.Asset) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	for idx, a := range assets {
+		exportResp, err := tapd.ExportProof(
+			ctxt, &taprpc.ExportProofRequest{
+				AssetId:   a.AssetGenesis.AssetId,
+				ScriptKey: a.ScriptKey,
+			},
+		)
+		require.NoError(t, err)
+
+		// Also make sure that the RPC can verify the proof as well.
+		verifyResp, err := tapd.VerifyProof(ctxt, &taprpc.ProofFile{
+			RawProofFile: exportResp.RawProofFile,
+		})
+		require.NoError(t, err)
+		require.True(t, verifyResp.Valid)
+
+		// Also make sure that the RPC can decode the proof as well.
+		decodeResp, err := tapd.DecodeProof(
+			ctxt, &taprpc.DecodeProofRequest{
+				RawProof:       exportResp.RawProofFile,
+				WithMetaReveal: true,
+			},
+		)
+		require.NoError(t, err)
+
+		expected := requests[idx].Asset
+		actual := decodeResp.DecodedProof
+
+		require.NotNil(t, actual.MetaReveal)
+		require.Equal(
+			t, expected.AssetMeta.Data, actual.MetaReveal.Data,
+		)
+		require.Equal(
+			t, expected.AssetMeta.Type, actual.MetaReveal.Type,
+		)
+	}
+}
+
 // AssertAssetProofsInvalid makes sure the proofs for the given asset can be
 // retrieved from the given daemon but fail to validate.
 func AssertAssetProofsInvalid(t *testing.T, tapd *tapdHarness,

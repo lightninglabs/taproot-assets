@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"io"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -16,6 +17,24 @@ const (
 	// MetaOpaque signals that the meta data is simply a set of opaque
 	// bytes without any specific interpretation.
 	MetaOpaque MetaType = 0
+
+	// MetaDataMaxSizeBytes is the maximum length of the meta data. We limit
+	// this to 1MiB for now. This should be of sufficient size to commit to
+	// any JSON data or even medium resolution images. If there is need to
+	// commit to even more data, it would make sense to instead commit to an
+	// annotated hash of the data instead. The reason for the limit is that
+	// the meta data will be part of the genesis proof, which is stored in
+	// the universe and needs to be validated by all senders and receivers
+	// of the asset.
+	MetaDataMaxSizeBytes = 1024 * 1024
+)
+
+var (
+	// ErrMetaDataMissing signals that the meta data is missing.
+	ErrMetaDataMissing = errors.New("meta data missing")
+
+	// ErrMetaDataTooLarge signals that the meta data is too large.
+	ErrMetaDataTooLarge = errors.New("meta data too large")
 )
 
 // MetaReveal is an optional TLV type that can be added to the proof of a
@@ -29,6 +48,25 @@ type MetaReveal struct {
 
 	// Data is the committed data being revealed.
 	Data []byte
+}
+
+// Validate validates the meta reveal.
+func (m *MetaReveal) Validate() error {
+	// A meta reveal is allowed to be nil.
+	if m == nil {
+		return nil
+	}
+
+	// If a meta reveal is present, then the data must be non-empty.
+	if len(m.Data) == 0 {
+		return ErrMetaDataMissing
+	}
+
+	if len(m.Data) > MetaDataMaxSizeBytes {
+		return ErrMetaDataTooLarge
+	}
+
+	return nil
 }
 
 // MetaHash returns the computed meta hash based on the TLV serialization of
