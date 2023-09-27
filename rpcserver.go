@@ -2222,9 +2222,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 					seedling.Meta.MetaHash(),
 				),
 				Data: seedling.Meta.Data,
-				Type: taprpc.AssetMetaType(
-					seedling.Meta.Type,
-				),
+				Type: taprpc.AssetMetaType(seedling.Meta.Type),
 			}
 		}
 

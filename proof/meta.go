@@ -15,7 +15,7 @@ type MetaType uint8
 const (
 	// MetaOpaque signals that the meta data is simply a set of opaque
 	// bytes without any specific interpretation.
-	MetaOpaque MetaType = 1
+	MetaOpaque MetaType = 0
 )
 
 // MetaReveal is an optional TLV type that can be added to the proof of a
