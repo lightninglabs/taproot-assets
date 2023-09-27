@@ -111,7 +111,7 @@ func (p TxMerkleProof) Verify(tx *wire.MsgTx, merkleRoot chainhash.Hash) bool {
 		} else {
 			right, left = &current, &p.Nodes[i]
 		}
-		current = *blockchain.HashMerkleBranches(left, right)
+		current = blockchain.HashMerkleBranches(left, right)
 	}
 	return current == merkleRoot
 }

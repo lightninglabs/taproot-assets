@@ -3,9 +3,9 @@ module github.com/lightninglabs/taproot-assets
 go 1.19
 
 require (
-	github.com/btcsuite/btcd v0.23.5-0.20230711222809-7faa9b266231
+	github.com/btcsuite/btcd v0.23.5-0.20230905170901-80f5a0ffdf36
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
-	github.com/btcsuite/btcd/btcutil v1.1.3
+	github.com/btcsuite/btcd/btcutil v1.1.4-0.20230904040416-d4f519f5dc05
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
@@ -20,17 +20,17 @@ require (
 	github.com/jackc/pgconn v1.14.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jessevdk/go-flags v1.4.0
-	github.com/lib/pq v1.10.3
-	github.com/lightninglabs/aperture v0.1.20-beta
+	github.com/lib/pq v1.10.7
+	github.com/lightninglabs/aperture v0.1.21-beta.0.20230705004936-87bb996a4030
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v0.16.0-15
+	github.com/lightninglabs/lndclient v0.17.0-1
 	github.com/lightninglabs/neutrino/cache v1.1.1
-	github.com/lightningnetwork/lnd v0.17.0-beta.rc2
-	github.com/lightningnetwork/lnd/cert v1.2.1
-	github.com/lightningnetwork/lnd/clock v1.1.0
-	github.com/lightningnetwork/lnd/ticker v1.1.0
-	github.com/lightningnetwork/lnd/tlv v1.1.0
-	github.com/lightningnetwork/lnd/tor v1.1.1
+	github.com/lightningnetwork/lnd v0.17.0-beta
+	github.com/lightningnetwork/lnd/cert v1.2.2
+	github.com/lightningnetwork/lnd/clock v1.1.1
+	github.com/lightningnetwork/lnd/ticker v1.1.1
+	github.com/lightningnetwork/lnd/tlv v1.1.1
+	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/prometheus/client_golang v1.14.0
 	github.com/stretchr/testify v1.8.2
@@ -41,7 +41,7 @@ require (
 	golang.org/x/term v0.8.0
 	google.golang.org/grpc v1.53.0
 	google.golang.org/protobuf v1.30.0
-	gopkg.in/macaroon-bakery.v2 v2.0.1
+	gopkg.in/macaroon-bakery.v2 v2.1.0
 	gopkg.in/macaroon.v2 v2.1.0
 	modernc.org/sqlite v1.25.0
 )
@@ -97,7 +97,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/imdario/mergo v0.3.12 // indirect
+	github.com/imdario/mergo v0.3.13 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -117,16 +117,16 @@ require (
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
 	github.com/libdns/libdns v0.2.1 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
+	github.com/lightninglabs/lightning-node-connect v0.2.5-alpha // indirect
 	github.com/lightninglabs/neutrino v0.16.0 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f // indirect
-	github.com/lightningnetwork/lnd/healthcheck v1.2.2 // indirect
-	github.com/lightningnetwork/lnd/kvdb v1.4.2 // indirect
-	github.com/lightningnetwork/lnd/queue v1.1.0 // indirect
+	github.com/lightningnetwork/lnd/healthcheck v1.2.3 // indirect
+	github.com/lightningnetwork/lnd/kvdb v1.4.4 // indirect
+	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
-	github.com/mattn/go-isatty v0.0.16 // indirect
+	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/mholt/acmez v1.0.4 // indirect
 	github.com/mholt/archiver/v3 v3.5.0 // indirect
@@ -135,6 +135,7 @@ require (
 	github.com/moby/term v0.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/mwitkow/grpc-proxy v0.0.0-20230212185441-f345521cb9c9 // indirect
 	github.com/nwaples/rardecode v1.1.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.2 // indirect
@@ -202,6 +203,7 @@ require (
 	modernc.org/opt v0.1.3 // indirect
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.1 // indirect
+	nhooyr.io/websocket v1.8.7 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
