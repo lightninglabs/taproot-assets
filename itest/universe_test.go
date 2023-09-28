@@ -7,15 +7,20 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
+
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -505,4 +510,92 @@ func testUniverseFederation(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 0, len(fedNodes.Servers))
+}
+
+// testFederationSyncConfig tests that we can properly set and query the
+// federation sync config.
+func testFederationSyncConfig(t *harnessTest) {
+	var (
+		ctx = context.Background()
+
+		excludeAllProofs = universe.ProofTypeNone
+		issuanceOnly     = universe.ProofTypeIssuance
+		transferOnly     = universe.ProofTypeTransfer
+	)
+
+	// Generate a random asset ID in order to generate a universe ID.
+	rand := prand.New(prand.NewSource(1))
+
+	// Generate universe ID #1.
+	assetIDBytes1 := make([]byte, 32)
+	_, _ = rand.Read(assetIDBytes1)
+	var assetID1 asset.ID
+	copy(assetID1[:], assetIDBytes1)
+	uniID1 := universe.Identifier{
+		AssetID: assetID1,
+	}
+	uniIdRpc1 := unirpc.MarshalUniverseID(assetIDBytes1, nil)
+
+	// Generate universe ID #2.
+	assetIDBytes2 := make([]byte, 32)
+	_, _ = rand.Read(assetIDBytes2)
+	var assetID2 asset.ID
+	copy(assetID2[:], assetIDBytes2)
+	uniID2 := universe.Identifier{
+		AssetID: assetID2,
+	}
+	uniIdRpc2 := unirpc.MarshalUniverseID(assetIDBytes2, nil)
+
+	// Set both the general and a universe specific federation sync configs.
+	_, err := t.tapd.UniverseClient.SetFederationSyncConfig(
+		ctx, &unirpc.SetFederationSyncConfigRequest{
+			GeneralSyncConfig: &unirpc.GeneralFederationSyncConfig{
+				ProofTypes: issuanceOnly.String(),
+			},
+			AssetSyncConfig: []*unirpc.AssetFederationSyncConfig{
+				{
+					Id:         uniIdRpc1,
+					ProofTypes: excludeAllProofs.String(),
+				},
+				{
+					Id:         uniIdRpc2,
+					ProofTypes: transferOnly.String(),
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	resp, err := t.tapd.UniverseClient.QueryFederationSyncConfig(
+		ctx, &unirpc.QueryFederationSyncConfigRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// In general, we expect to only sync issuance proofs.
+	require.Equal(
+		t.t, resp.GeneralSyncConfig.ProofTypes, issuanceOnly.String(),
+	)
+
+	// Ensure that the universe specific config is set as expected.
+	require.Equal(t.t, len(resp.AssetSyncConfigs), 2)
+
+	for i := range resp.AssetSyncConfigs {
+		config := resp.AssetSyncConfigs[i]
+
+		// Unmarshal the universe ID.
+		uniID, err := tap.UnmarshalUniID(config.Id)
+		require.NoError(t.t, err)
+
+		// Match universe ID and assert proof type.
+		switch uniID {
+		case uniID1:
+			proofType := excludeAllProofs.String()
+			require.Equal(t.t, config.ProofTypes, proofType)
+		case uniID2:
+			proofType := transferOnly.String()
+			require.Equal(t.t, config.ProofTypes, proofType)
+		default:
+			t.Fatalf("unexpected universe ID: %v", config.Id)
+		}
+	}
 }
