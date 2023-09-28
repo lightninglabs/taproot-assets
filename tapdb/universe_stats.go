@@ -127,7 +127,7 @@ func NewUniverseStats(db BatchedUniverseStats,
 
 // LogSyncEvent logs a sync event for the target universe.
 func (u *UniverseStats) LogSyncEvent(ctx context.Context,
-	uniID universe.Identifier, key universe.BaseKey) error {
+	uniID universe.Identifier, key universe.LeafKey) error {
 
 	var writeTxOpts UniverseStatsOptions
 	return u.db.ExecTx(ctx, &writeTxOpts, func(db UniverseStatsStore) error {
@@ -178,7 +178,7 @@ func (u *UniverseStats) LogSyncEvents(ctx context.Context,
 
 // LogNewProofEvent logs a new proof insertion event for the target universe.
 func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
-	uniID universe.Identifier, key universe.BaseKey) error {
+	uniID universe.Identifier, key universe.LeafKey) error {
 
 	var writeTxOpts UniverseStatsOptions
 	return u.db.ExecTx(ctx, &writeTxOpts, func(db UniverseStatsStore) error {

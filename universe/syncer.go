@@ -167,11 +167,11 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 
 	// Otherwise, we'll need to perform a diff operation to find the set of
 	// keys we need to fetch.
-	remoteUniKeys, err := diffEngine.MintingKeys(ctx, uniID)
+	remoteUniKeys, err := diffEngine.UniverseLeafKeys(ctx, uniID)
 	if err != nil {
 		return err
 	}
-	localUniKeys, err := s.cfg.LocalDiffEngine.MintingKeys(ctx, uniID)
+	localUniKeys, err := s.cfg.LocalDiffEngine.UniverseLeafKeys(ctx, uniID)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// local registrar as they're fetched.
 	var (
 		fetchedLeaves = make(chan *IssuanceItem, len(keysToFetch))
-		newLeafProofs []*MintingLeaf
+		newLeafProofs []*Leaf
 		batchSyncEG   errgroup.Group
 	)
 
@@ -205,7 +205,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
 	err = fn.ParSlice(
-		ctx, keysToFetch, func(ctx context.Context, key BaseKey) error {
+		ctx, keysToFetch, func(ctx context.Context, key LeafKey) error {
 			newProof, err := diffEngine.FetchIssuanceProof(
 				ctx, uniID, key,
 			)
@@ -275,11 +275,11 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 // batches and returns the new leaf proofs.
 func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 	uniID Identifier, fetchedLeaves chan *IssuanceItem,
-	numTotal int) ([]*MintingLeaf, error) {
+	numTotal int) ([]*Leaf, error) {
 
 	var (
 		numItems      int
-		newLeafProofs []*MintingLeaf
+		newLeafProofs []*Leaf
 	)
 	err := fn.CollectBatch(
 		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
@@ -302,7 +302,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 				numItems, numTotal)
 
 			newLeaves := fn.Map(
-				batch, func(i *IssuanceItem) *MintingLeaf {
+				batch, func(i *IssuanceItem) *Leaf {
 					return i.Leaf
 				},
 			)

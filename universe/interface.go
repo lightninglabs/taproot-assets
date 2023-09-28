@@ -82,37 +82,38 @@ type GenesisWithGroup struct {
 	*asset.GroupKey
 }
 
-// MintingLeaf is a leaf node in the SMT that represents a minting output. For
-// each new asset created for a given asset/universe, a new minting leaf is
+// Leaf is a leaf node in the SMT that represents an asset issuance or transfer.
+// For each asset issued or transferred for a given universe, a new leaf is
 // created.
-type MintingLeaf struct {
+type Leaf struct {
 	GenesisWithGroup
 
-	// GenesisProof is the proof of the newly created asset.
-	GenesisProof *proof.Proof
+	// Proof is either an issuance proof or a transfer proof associated with
+	// the issuance or spend event which this leaf represents.
+	Proof *proof.Proof
 
-	// Amt is the amount of units created.
+	// Amt is the amount of units associated with the coin.
 	Amt uint64
 }
 
-// SmtLeafNode returns the SMT leaf node for the given minting leaf.
-func (m *MintingLeaf) SmtLeafNode() (*mssmt.LeafNode, error) {
+// SmtLeafNode returns the SMT leaf node for the given leaf.
+func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 	var buf bytes.Buffer
-	if err := m.GenesisProof.Encode(&buf); err != nil {
+	if err := m.Proof.Encode(&buf); err != nil {
 		return nil, err
 	}
 
 	return mssmt.NewLeafNode(buf.Bytes(), m.Amt), nil
 }
 
-// BaseKey is the top level key for a Base/Root universe. This will be used to
-// key into the MS-SMT. The final key is: sha256(mintingOutpoint || scriptKey).
-// This ensures that all leaves for a given asset will be uniquely keyed in the
-// universe tree.
-type BaseKey struct {
-	// MintingOutpoint is the minting outpoint, or the outpoint where the
-	// newly created assets reside within.
-	MintingOutpoint wire.OutPoint
+// LeafKey is the top level leaf key for a universe. This will be used to key
+// into a universe's MS-SMT data structure. The final serialized key is:
+// sha256(mintingOutpoint || scriptKey). This ensures that all
+// leaves for a given asset will be uniquely keyed in the universe tree.
+type LeafKey struct {
+	// OutPoint is the outpoint at which the asset referenced by this key
+	// resides.
+	OutPoint wire.OutPoint
 
 	// ScriptKey is the script key of the base asset. If this isn't
 	// specified, then the caller is attempting to query for all the script
@@ -123,10 +124,10 @@ type BaseKey struct {
 }
 
 // UniverseKey is the key for a universe.
-func (b BaseKey) UniverseKey() [32]byte {
+func (b LeafKey) UniverseKey() [32]byte {
 	// key = sha256(mintingOutpoint || scriptKey)
 	h := sha256.New()
-	_ = wire.WriteOutPoint(h, 0, 0, &b.MintingOutpoint)
+	_ = wire.WriteOutPoint(h, 0, 0, &b.OutPoint)
 	h.Write(schnorr.SerializePubKey(b.ScriptKey.PubKey))
 
 	var k [32]byte
@@ -135,24 +136,26 @@ func (b BaseKey) UniverseKey() [32]byte {
 	return k
 }
 
-// IssuanceProof is a complete issuance proof for a given asset specified by
-// the minting key. This proof can be used to verify that a valid asset exists
+// Proof associates a universe leaf (and key) with its corresponding multiverse
+// and universe inclusion proofs.
+//
+// These inclusion proofs can be used to verify that a valid asset exists
 // (based on the proof in the leaf), and that the asset is committed to within
-// the universe root.
-type IssuanceProof struct {
-	// MintingKey is the minting key for the asset.
-	MintingKey BaseKey
+// the universe root and multiverse root.
+type Proof struct {
+	// Leaf is the leaf node for the asset within the universe tree.
+	Leaf *Leaf
+
+	// LeafKey is the universe leaf key for the asset issuance or spend.
+	LeafKey LeafKey
 
 	// UniverseRoot is the root of the universe that the asset is located
 	// within.
 	UniverseRoot mssmt.Node
 
-	// InclusionProof is the inclusion proof for the asset within the
-	// universe tree.
-	InclusionProof *mssmt.Proof
-
-	// Leaf is the leaf node for the asset within the universe tree.
-	Leaf *MintingLeaf
+	// UniverseInclusionProof is the universe inclusion proof for the asset
+	// within the universe tree.
+	UniverseInclusionProof *mssmt.Proof
 
 	// MultiverseRoot is the root of the multiverse tree that the asset is
 	// located within.
@@ -166,14 +169,14 @@ type IssuanceProof struct {
 // VerifyRoot verifies that the inclusion proof for the root node matches the
 // specified root. This is useful for sanity checking an issuance proof against
 // the purported root, and the included leaf.
-func (i *IssuanceProof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
+func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
 	leafNode, err := i.Leaf.SmtLeafNode()
 	if err != nil {
 		return false, err
 	}
 
-	reconstructedRoot := i.InclusionProof.Root(
-		i.MintingKey.UniverseKey(), leafNode,
+	reconstructedRoot := i.UniverseInclusionProof.Root(
+		i.LeafKey.UniverseKey(), leafNode,
 	)
 
 	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
@@ -193,8 +196,8 @@ type BaseBackend interface {
 	// tree, stored at the base key. The metaReveal type is purely
 	// optional, and should be specified if the genesis proof committed to
 	// a non-zero meta hash.
-	RegisterIssuance(ctx context.Context, key BaseKey, leaf *MintingLeaf,
-		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+	RegisterIssuance(ctx context.Context, key LeafKey, leaf *Leaf,
+		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// FetchIssuanceProof returns an issuance proof for the target key. If
 	// the key doesn't have a script key specified, then all the proofs for
@@ -203,14 +206,14 @@ type BaseBackend interface {
 	//
 	// TODO(roasbeef): can eventually do multi-proofs for the SMT
 	FetchIssuanceProof(ctx context.Context,
-		key BaseKey) ([]*IssuanceProof, error)
+		key LeafKey) ([]*Proof, error)
 
 	// MintingKeys returns all the keys inserted in the universe.
-	MintingKeys(ctx context.Context) ([]BaseKey, error)
+	MintingKeys(ctx context.Context) ([]LeafKey, error)
 
 	// MintingLeaves returns all the minting leaves inserted into the
 	// universe.
-	MintingLeaves(ctx context.Context) ([]MintingLeaf, error)
+	MintingLeaves(ctx context.Context) ([]Leaf, error)
 
 	// DeleteUniverse deletes all leaves, and the root, for a given base
 	// universe.
@@ -245,9 +248,9 @@ type MultiverseArchive interface {
 
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
-	UpsertProofLeaf(ctx context.Context, id Identifier, key BaseKey,
-		leaf *MintingLeaf,
-		metaReveal *proof.MetaReveal) (*IssuanceProof, error)
+	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
+		leaf *Leaf,
+		metaReveal *proof.MetaReveal) (*Proof, error)
 
 	// RegisterBatchIssuance inserts a new minting leaf batch within the
 	// multiverse tree and the universe tree that corresponds to the given
@@ -259,7 +262,7 @@ type MultiverseArchive interface {
 	// minting outpoint will be returned. If neither are specified, then all
 	// inserted proof leafs will be returned.
 	FetchProofLeaf(ctx context.Context, id Identifier,
-		key BaseKey) ([]*IssuanceProof, error)
+		key LeafKey) ([]*Proof, error)
 
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
@@ -270,8 +273,8 @@ type MultiverseArchive interface {
 type Registrar interface {
 	// RegisterIssuance inserts a new minting leaf within the target
 	// universe tree (based on the ID), stored at the base key.
-	RegisterIssuance(ctx context.Context, id Identifier, key BaseKey,
-		leaf *MintingLeaf) (*IssuanceProof, error)
+	RegisterIssuance(ctx context.Context, id Identifier, key LeafKey,
+		leaf *Leaf) (*Proof, error)
 }
 
 // IssuanceItem is an item that can be used to register a new issuance within a
@@ -282,10 +285,10 @@ type IssuanceItem struct {
 	ID Identifier
 
 	// Key is the base key that the leaf is or will be stored at.
-	Key BaseKey
+	Key LeafKey
 
 	// Leaf is the minting leaf that was created.
-	Leaf *MintingLeaf
+	Leaf *Leaf
 
 	// MetaReveal is the meta reveal that was created.
 	MetaReveal *proof.MetaReveal
@@ -435,7 +438,7 @@ type AssetSyncDiff struct {
 
 	// NewAssetLeaves is the set of new leaf proofs that were added to the
 	// Universe.
-	NewLeafProofs []*MintingLeaf
+	NewLeafProofs []*Leaf
 
 	// TODO(roasbeef): ability to return if things failed?
 	//  * can used a sealed interface to return the error
@@ -463,8 +466,8 @@ type DiffEngine interface {
 	// RootNodes returns the set of root nodes for all known universes.
 	RootNodes(ctx context.Context) ([]BaseRoot, error)
 
-	// MintingKeys returns all the keys inserted in the universe.
-	MintingKeys(ctx context.Context, id Identifier) ([]BaseKey, error)
+	// UniverseLeafKeys returns all the keys inserted in the universe.
+	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
 
 	// FetchIssuanceProof attempts to fetch an issuance proof for the
 	// target base leaf based on the universe identifier (assetID/groupKey).
@@ -473,7 +476,7 @@ type DiffEngine interface {
 	// asymmetric, as just need this to complete final portion
 	// of diff
 	FetchIssuanceProof(ctx context.Context, id Identifier,
-		key BaseKey) ([]*IssuanceProof, error)
+		key LeafKey) ([]*Proof, error)
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle
@@ -503,7 +506,7 @@ type CommittedIssuanceProof struct {
 	ChainProof *Commitment
 
 	// TaprootAssetProof is a proof of new asset issuance.
-	TaprootAssetProof *IssuanceProof
+	TaprootAssetProof *Proof
 }
 
 // ChainCommitter is used to commit a Universe backend in the chain.
@@ -521,7 +524,7 @@ type Canonical interface {
 	BaseBackend
 
 	// Query returns a fully proved response for the target base key.
-	Query(context.Context, BaseKey) (*CommittedIssuanceProof, error)
+	Query(context.Context, LeafKey) (*CommittedIssuanceProof, error)
 
 	// LatestCommitment returns the latest chain commitment.
 	LatestCommitment() (*Commitment, error)
@@ -721,7 +724,7 @@ type Telemetry interface {
 	//  * alternatively, can log when a set of leaves are queried, as
 	//    that's still a sync event, but can be a noop
 	LogSyncEvent(ctx context.Context, uniID Identifier,
-		key BaseKey) error
+		key LeafKey) error
 
 	// LogSyncEvents logs sync events for the target universe.
 	LogSyncEvents(ctx context.Context, uniIDs ...Identifier) error
@@ -729,7 +732,7 @@ type Telemetry interface {
 	// LogNewProofEvent logs a new proof insertion event for the target
 	// universe.
 	LogNewProofEvent(ctx context.Context, uniID Identifier,
-		key BaseKey) error
+		key LeafKey) error
 
 	// LogNewProofEvents logs new proof insertion events for the target
 	// universe.

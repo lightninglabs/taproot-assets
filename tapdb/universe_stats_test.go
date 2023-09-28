@@ -31,8 +31,8 @@ func newUniverseStatsWithDB(db *BaseDB, clock clock.Clock) (*UniverseStats,
 
 type uniStatsHarness struct {
 	assetUniverses []*BaseUniverseTree
-	universeLeaves []*universe.IssuanceProof
-	leafIndex      map[asset.ID]*universe.IssuanceProof
+	universeLeaves []*universe.Proof
+	leafIndex      map[asset.ID]*universe.Proof
 
 	db *UniverseStats
 
@@ -44,8 +44,8 @@ func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
 
 	stats := &uniStatsHarness{
 		assetUniverses: make([]*BaseUniverseTree, numAssets),
-		universeLeaves: make([]*universe.IssuanceProof, numAssets),
-		leafIndex:      make(map[asset.ID]*universe.IssuanceProof),
+		universeLeaves: make([]*universe.Proof, numAssets),
+		leafIndex:      make(map[asset.ID]*universe.Proof),
 		db:             statsDB,
 		t:              t,
 	}
@@ -80,7 +80,7 @@ func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
 func (u *uniStatsHarness) logProofEventByIndex(i int) {
 	ctx := context.Background()
 	err := u.db.LogNewProofEvent(
-		ctx, u.assetUniverses[i].id, u.universeLeaves[i].MintingKey,
+		ctx, u.assetUniverses[i].id, u.universeLeaves[i].LeafKey,
 	)
 	require.NoError(u.t, err)
 }
@@ -88,7 +88,7 @@ func (u *uniStatsHarness) logProofEventByIndex(i int) {
 func (u *uniStatsHarness) logSyncEventByIndex(i int) {
 	ctx := context.Background()
 	err := u.db.LogSyncEvent(
-		ctx, u.assetUniverses[i].id, u.universeLeaves[i].MintingKey,
+		ctx, u.assetUniverses[i].id, u.universeLeaves[i].LeafKey,
 	)
 	require.NoError(u.t, err)
 }
@@ -175,9 +175,7 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 		require.Equal(t, assetStat.TotalSupply, leaf.Leaf.Amt)
 
-		if sh.universeLeaves[assetToSync].MintingKey ==
-			leaf.MintingKey {
-
+		if sh.universeLeaves[assetToSync].LeafKey == leaf.LeafKey {
 			require.Equal(t, int(assetStat.TotalSyncs), 1)
 		}
 
@@ -541,7 +539,7 @@ func TestUniverseQuerySyncFilters(t *testing.T) {
 			typeFilter: fn.Ptr(asset.Type(rand.Int() % 2)),
 			queryCheck: func(s *universe.AssetSyncStats) bool {
 				typeCount := fn.Reduce(sh.universeLeaves,
-					func(acc int, p *universe.IssuanceProof) int {
+					func(acc int, p *universe.Proof) int {
 						if p.Leaf.Type == *s.Query.AssetTypeFilter {
 							return acc + 1
 						}

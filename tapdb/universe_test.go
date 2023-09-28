@@ -77,9 +77,9 @@ func TestUniverseEmptyTree(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
-func randBaseKey(t *testing.T) universe.BaseKey {
-	return universe.BaseKey{
-		MintingOutpoint: test.RandOp(t),
+func randLeafKey(t *testing.T) universe.LeafKey {
+	return universe.LeafKey{
+		OutPoint: test.RandOp(t),
 		ScriptKey: fn.Ptr(
 			asset.NewScriptKey(test.RandPubKey(t)),
 		),
@@ -107,14 +107,14 @@ func randProof(t *testing.T) *proof.Proof {
 }
 
 func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
-	groupKey *btcec.PublicKey) universe.MintingLeaf {
+	groupKey *btcec.PublicKey) universe.Leaf {
 
-	leaf := universe.MintingLeaf{
+	leaf := universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
-		GenesisProof: randProof(t),
-		Amt:          uint64(rand.Int31()),
+		Proof: randProof(t),
+		Amt:   uint64(rand.Int31()),
 	}
 	if groupKey != nil {
 		leaf.GroupKey = &asset.GroupKey{
@@ -125,11 +125,11 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	return leaf
 }
 
-// leaWithKey is a two tuple that associates new minting leaf with a key.
+// leaWithKey is a two tuple that associates universe leaf key with a leaf.
 type leafWithKey struct {
-	universe.BaseKey
+	universe.LeafKey
 
-	universe.MintingLeaf
+	universe.Leaf
 }
 
 // TestUniverseIssuanceProofs tests that we're able to insert issuance proofs
@@ -153,7 +153,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	// scriptKey) leaf pairs.
 	testLeaves := make([]leafWithKey, numLeaves)
 	for i := 0; i < numLeaves; i++ {
-		targetKey := randBaseKey(t)
+		targetKey := randLeafKey(t)
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
 		testLeaves[i] = leafWithKey{targetKey, leaf}
@@ -166,8 +166,8 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		// Each new leaf should add to the accumulated sum.
 		leafSum += testLeaf.Amt
 
-		targetKey := testLeaf.BaseKey
-		leaf := testLeaf.MintingLeaf
+		targetKey := testLeaf.LeafKey
+		leaf := testLeaf.Leaf
 
 		issuanceProof, err := baseUniverse.RegisterIssuance(
 			ctx, targetKey, &leaf, nil,
@@ -191,7 +191,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		// root of the SMT.
 		node, err := leaf.SmtLeafNode()
 		require.NoError(t, err)
-		proofRoot := issuanceProof.InclusionProof.Root(
+		proofRoot := issuanceProof.UniverseInclusionProof.Root(
 			targetKey.UniverseKey(), node,
 		)
 		require.True(t, mssmt.IsEqualNode(rootNode, proofRoot))
@@ -204,7 +204,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		uniProof := dbProof[0]
 
 		// The proof should have the proper values populated.
-		require.Equal(t, targetKey, uniProof.MintingKey)
+		require.Equal(t, targetKey, uniProof.LeafKey)
 		require.True(
 			t, mssmt.IsEqualNode(rootNode, uniProof.UniverseRoot),
 		)
@@ -213,8 +213,8 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		// proof.
 		node, err = uniProof.Leaf.SmtLeafNode()
 		require.NoError(t, err)
-		dbProofRoot := uniProof.InclusionProof.Root(
-			uniProof.MintingKey.UniverseKey(), node,
+		dbProofRoot := uniProof.UniverseInclusionProof.Root(
+			uniProof.LeafKey.UniverseKey(), node,
 		)
 		require.True(
 			t, mssmt.IsEqualNode(uniProof.UniverseRoot, dbProofRoot),
@@ -228,9 +228,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	require.Equal(t, numLeaves, len(mintingKeys))
 
 	// The set of leaves we created above should match what was returned.
-	require.True(t, fn.All(mintingKeys, func(key universe.BaseKey) bool {
+	require.True(t, fn.All(mintingKeys, func(key universe.LeafKey) bool {
 		return fn.Any(testLeaves, func(testLeaf leafWithKey) bool {
-			return reflect.DeepEqual(key, testLeaf.BaseKey)
+			return reflect.DeepEqual(key, testLeaf.LeafKey)
 		})
 	}))
 
@@ -239,10 +239,10 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	dbLeaves, err := baseUniverse.MintingLeaves(ctx)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(dbLeaves))
-	require.True(t, fn.All(dbLeaves, func(leaf universe.MintingLeaf) bool {
+	require.True(t, fn.All(dbLeaves, func(leaf universe.Leaf) bool {
 		return fn.All(testLeaves, func(testLeaf leafWithKey) bool {
 			return leaf.Genesis.ID() ==
-				testLeaf.MintingLeaf.Genesis.ID()
+				testLeaf.Leaf.Genesis.ID()
 		})
 	}))
 
@@ -255,11 +255,11 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	// leaves we just inserted.
 	for idx := range testLeaves {
 		testLeaf := &testLeaves[idx]
-		testLeaf.MintingLeaf.GenesisProof = randProof(t)
+		testLeaf.Leaf.Proof = randProof(t)
 
-		targetKey := testLeaf.BaseKey
+		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.RegisterIssuance(
-			ctx, targetKey, &testLeaf.MintingLeaf, nil,
+			ctx, targetKey, &testLeaf.Leaf, nil,
 		)
 		require.NoError(t, err)
 
@@ -323,7 +323,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 
 	// With the meta constructed, we can insert a test leaf into the DB
 	// now.
-	targetKey := randBaseKey(t)
+	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
 	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, meta)
@@ -341,7 +341,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 }
 
 func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
-	assetGen *asset.Genesis) (*universe.IssuanceProof, error) {
+	assetGen *asset.Genesis) (*universe.Proof, error) {
 
 	var targetGen asset.Genesis
 	if assetGen != nil {
@@ -350,7 +350,7 @@ func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
 		targetGen = asset.RandGenesis(t, asset.Normal)
 	}
 
-	targetKey := randBaseKey(t)
+	targetKey := randLeafKey(t)
 	leaf := randMintingLeaf(t, targetGen, tree.id.GroupKey)
 
 	return tree.RegisterIssuance(ctx, targetKey, &leaf, nil)
@@ -451,12 +451,12 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// We'll create three new leaves, all of them will share the exact same
 	// minting outpoint, but will have distinct script keys.
-	rootMintingPoint := randBaseKey(t).MintingOutpoint
+	rootMintingPoint := randLeafKey(t).OutPoint
 
-	leafToScriptKey := make(map[asset.SerializedKey]universe.MintingLeaf)
+	leafToScriptKey := make(map[asset.SerializedKey]universe.Leaf)
 	for i := 0; i < numLeafs; i++ {
-		targetKey := randBaseKey(t)
-		targetKey.MintingOutpoint = rootMintingPoint
+		targetKey := randLeafKey(t)
+		targetKey.OutPoint = rootMintingPoint
 
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 
@@ -472,8 +472,8 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// If we query for only the minting point, then all three leaves should
 	// be returned.
-	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseKey{
-		MintingOutpoint: rootMintingPoint,
+	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
+		OutPoint: rootMintingPoint,
 	})
 	require.NoError(t, err)
 	require.Len(t, proofs, numLeafs)
@@ -484,8 +484,8 @@ func TestUniverseLeafQuery(t *testing.T) {
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 
-		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseKey{
-			MintingOutpoint: rootMintingPoint,
+		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
+			OutPoint: rootMintingPoint,
 			ScriptKey: &asset.ScriptKey{
 				PubKey: scriptKey,
 			},

@@ -158,16 +158,16 @@ func (b *MultiverseStore) RootNodes(
 // leafs will be returned.
 func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
-	universeKey universe.BaseKey) ([]*universe.IssuanceProof, error) {
+	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	var (
 		readTx = NewBaseUniverseReadTx()
-		proofs []*universe.IssuanceProof
+		proofs []*universe.Proof
 	)
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
 		var err error
-		proofs, err = universeFetchIssuanceProof(
+		proofs, err = universeFetchProofLeaf(
 			ctx, id, universeKey, dbTx,
 		)
 		if err != nil {
@@ -216,13 +216,13 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
-	id universe.Identifier, key universe.BaseKey,
-	leaf *universe.MintingLeaf,
-	metaReveal *proof.MetaReveal) (*universe.IssuanceProof, error) {
+	id universe.Identifier, key universe.LeafKey,
+	leaf *universe.Leaf,
+	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
 		writeTx       BaseMultiverseOptions
-		issuanceProof *universe.IssuanceProof
+		issuanceProof *universe.Proof
 	)
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
@@ -232,7 +232,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 			universeRoot mssmt.Node
 			err          error
 		)
-		issuanceProof, universeRoot, err = universeRegisterIssuance(
+		issuanceProof, universeRoot, err = universeUpsertProofLeaf(
 			ctx, dbTx, id, key, leaf, metaReveal,
 		)
 		if err != nil {
@@ -305,7 +305,7 @@ func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 
 		// Register issuance in the asset (group) specific universe
 		// tree.
-		_, universeRoot, err := universeRegisterIssuance(
+		_, universeRoot, err := universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
 			item.MetaReveal,
 		)

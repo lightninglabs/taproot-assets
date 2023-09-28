@@ -2628,10 +2628,10 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	return &unirpc.DeleteRootResponse{}, nil
 }
 
-func marshalLeafKey(leafKey universe.BaseKey) *unirpc.AssetKey {
+func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 	return &unirpc.AssetKey{
 		Outpoint: &unirpc.AssetKey_OpStr{
-			OpStr: leafKey.MintingOutpoint.String(),
+			OpStr: leafKey.OutPoint.String(),
 		},
 		ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
 			ScriptKeyBytes: schnorr.SerializePubKey(
@@ -2657,7 +2657,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	// TODO(roasbeef): tell above if was tring or not, then would set
 	// below diff
 
-	leafKeys, err := r.cfg.BaseUniverse.MintingKeys(ctx, universeID)
+	leafKeys, err := r.cfg.BaseUniverse.UniverseLeafKeys(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -2674,17 +2674,17 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 }
 
 func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
-	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
 
 	// In order to display the full asset, we'll also encode the genesis
 	// proof.
 	var buf bytes.Buffer
-	if err := assetLeaf.GenesisProof.Encode(&buf); err != nil {
+	if err := assetLeaf.Proof.Encode(&buf); err != nil {
 		return nil, err
 	}
 
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, &assetLeaf.GenesisProof.Asset, false, true, keys,
+		ctx, &assetLeaf.Proof.Asset, false, true, keys,
 	)
 	if err != nil {
 		return nil, err
@@ -2698,7 +2698,7 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 
 // marshalAssetLeaf marshals an asset leaf into the RPC form.
 func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
-	assetLeaf *universe.MintingLeaf) (*unirpc.AssetLeaf, error) {
+	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
 
 	return marshalAssetLeaf(ctx, r.cfg.AddrBook, assetLeaf)
 }
@@ -2736,7 +2736,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	return resp, nil
 }
 
-// unmarshalOutpoint unmarshals an outpoint from a string received via RPC.
+// UnmarshalOutpoint un-marshals an outpoint from a string received via RPC.
 func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
 	parts := strings.Split(outpoint, ":")
 	if len(parts) != 2 {
@@ -2764,10 +2764,10 @@ func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
 	}, nil
 }
 
-// unmarshalLeafKey unmarshals a leaf key from the RPC form.
-func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
+// unmarshalLeafKey un-marshals a leaf key from the RPC form.
+func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	var (
-		baseKey universe.BaseKey
+		leafKey universe.LeafKey
 		err     error
 	)
 
@@ -2775,31 +2775,31 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 	case key.GetScriptKeyBytes() != nil:
 		pubKey, err := parseUserKey(key.GetScriptKeyBytes())
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.ScriptKey = &asset.ScriptKey{
+		leafKey.ScriptKey = &asset.ScriptKey{
 			PubKey: pubKey,
 		}
 
 	case key.GetScriptKeyStr() != "":
 		scriptKeyBytes, sErr := hex.DecodeString(key.GetScriptKeyStr())
 		if sErr != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
 		pubKey, err := parseUserKey(scriptKeyBytes)
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.ScriptKey = &asset.ScriptKey{
+		leafKey.ScriptKey = &asset.ScriptKey{
 			PubKey: pubKey,
 		}
 	default:
 		// TODO(roasbeef): can actually allow not to be, then would
 		// fetch all for the given outpoint
-		return baseKey, fmt.Errorf("script key must be set")
+		return leafKey, fmt.Errorf("script key must be set")
 	}
 
 	switch {
@@ -2809,29 +2809,29 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.BaseKey, error) {
 		outpointStr := key.GetOpStr()
 		outpoint, err := UnmarshalOutpoint(outpointStr)
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.MintingOutpoint = *outpoint
+		leafKey.OutPoint = *outpoint
 
 	case key.GetOutpoint() != nil:
 		op := key.GetOp()
 
 		hash, err := chainhash.NewHashFromStr(op.HashStr)
 		if err != nil {
-			return baseKey, err
+			return leafKey, err
 		}
 
-		baseKey.MintingOutpoint = wire.OutPoint{
+		leafKey.OutPoint = wire.OutPoint{
 			Hash:  *hash,
 			Index: uint32(op.Index),
 		}
 
 	default:
-		return baseKey, fmt.Errorf("outpoint not set: %v", err)
+		return leafKey, fmt.Errorf("outpoint not set: %v", err)
 	}
 
-	return baseKey, nil
+	return leafKey, nil
 }
 
 // marshalMssmtProof marshals a MS-SMT proof into the RPC form.
@@ -2849,9 +2849,9 @@ func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 // marshalIssuanceProof marshals an issuance proof into the RPC form.
 func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	req *unirpc.UniverseKey,
-	proof *universe.IssuanceProof) (*unirpc.AssetProofResponse, error) {
+	proof *universe.Proof) (*unirpc.AssetProofResponse, error) {
 
-	uniProof, err := marshalMssmtProof(proof.InclusionProof)
+	uniProof, err := marshalMssmtProof(proof.UniverseInclusionProof)
 	if err != nil {
 		return nil, err
 	}
@@ -2935,7 +2935,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
-func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
+func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
 	var assetProof proof.Proof
@@ -2948,13 +2948,13 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.MintingLeaf, error) {
 	// TODO(roasbeef): double check posted file format everywhere
 	//  * raw proof, or within file?
 
-	return &universe.MintingLeaf{
+	return &universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
 		},
-		GenesisProof: &assetProof,
-		Amt:          assetProof.Asset.Amount,
+		Proof: &assetProof,
+		Amt:   assetProof.Asset.Amount,
 	}, nil
 }
 

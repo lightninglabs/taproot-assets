@@ -37,12 +37,12 @@ func NewRpcUniverseRegistrar(
 	}, nil
 }
 
-// unmarshalIssuanceProof unmarshals an issuance proof response into a struct
+// unmarshalIssuanceProof un-marshals an issuance proof response into a struct
 // usable by the universe package.
-func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
-	proofResp *unirpc.AssetProofResponse) (*universe.IssuanceProof, error) {
+func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
+	proofResp *unirpc.AssetProofResponse) (*universe.Proof, error) {
 
-	baseKey, err := unmarshalLeafKey(uniKey.LeafKey)
+	leafKey, err := unmarshalLeafKey(uniKey.LeafKey)
 	if err != nil {
 		return nil, err
 	}
@@ -65,24 +65,24 @@ func unmarshalIssuanceProof(ctx context.Context, uniKey *unirpc.UniverseKey,
 		return nil, err
 	}
 
-	return &universe.IssuanceProof{
-		MintingKey: baseKey,
+	return &universe.Proof{
+		LeafKey: leafKey,
 		UniverseRoot: mssmt.NewComputedBranch(
 			fn.ToArray[mssmt.NodeHash](
 				proofResp.UniverseRoot.MssmtRoot.RootHash,
 			),
 			uint64(proofResp.UniverseRoot.MssmtRoot.RootSum),
 		),
-		InclusionProof: inclusionProof,
-		Leaf:           assetLeaf,
+		UniverseInclusionProof: inclusionProof,
+		Leaf:                   assetLeaf,
 	}, nil
 }
 
 // RegisterIssuance is an implementation of the universe.Registrar interface
 // that uses a remote Universe server as the Registry instance.
 func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
-	id universe.Identifier, key universe.BaseKey,
-	leaf *universe.MintingLeaf) (*universe.IssuanceProof, error) {
+	id universe.Identifier, key universe.LeafKey,
+	leaf *universe.Leaf) (*universe.Proof, error) {
 
 	// First, we'll parse the proofs and key into their RPC counterparts.
 	uniKey := &unirpc.UniverseKey{
@@ -105,9 +105,9 @@ func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
 		return nil, err
 	}
 
-	// Finally, we'll map the response back into the IssuanceProof we
-	// expect as a response.
-	return unmarshalIssuanceProof(ctx, uniKey, proofResp)
+	// Finally, we'll map the response back into the Proof we expect
+	// as a response.
+	return unmarshalIssuanceProof(uniKey, proofResp)
 }
 
 // A compile time interface to ensure that RpcUniverseRegistrar implements the

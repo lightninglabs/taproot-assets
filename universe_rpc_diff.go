@@ -107,23 +107,23 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	return unmarshalUniverseRoot(universeRoot.AssetRoot)
 }
 
-// MintingKeys returns all the keys inserted in the universe.
-func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
-	id universe.Identifier) ([]universe.BaseKey, error) {
+// UniverseLeafKeys returns all the keys inserted in the universe.
+func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
+	id universe.Identifier) ([]universe.LeafKey, error) {
 
 	assetKeys, err := r.conn.AssetLeafKeys(ctx, marshalUniID(id))
 	if err != nil {
 		return nil, err
 	}
 
-	keys := make([]universe.BaseKey, len(assetKeys.AssetKeys))
+	keys := make([]universe.LeafKey, len(assetKeys.AssetKeys))
 	for i, key := range assetKeys.AssetKeys {
-		baseKey, err := unmarshalLeafKey(key)
+		leafKey, err := unmarshalLeafKey(key)
 		if err != nil {
 			return nil, err
 		}
 
-		keys[i] = baseKey
+		keys[i] = leafKey
 	}
 
 	return keys, nil
@@ -138,7 +138,7 @@ func (r *RpcUniverseDiff) MintingKeys(ctx context.Context,
 // of diff
 func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
-	key universe.BaseKey) ([]*universe.IssuanceProof, error) {
+	key universe.LeafKey) ([]*universe.Proof, error) {
 
 	uProofs, err := r.conn.QueryProof(ctx, &universerpc.UniverseKey{
 		Id:      marshalUniID(id),
@@ -171,14 +171,14 @@ func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 		return nil, err
 	}
 
-	uniProof := &universe.IssuanceProof{
-		MintingKey:     key,
-		UniverseRoot:   uniRoot,
-		InclusionProof: inclusionProof,
-		Leaf:           assetLeaf,
+	uniProof := &universe.Proof{
+		LeafKey:                key,
+		UniverseRoot:           uniRoot,
+		UniverseInclusionProof: inclusionProof,
+		Leaf:                   assetLeaf,
 	}
 
-	return []*universe.IssuanceProof{uniProof}, nil
+	return []*universe.Proof{uniProof}, nil
 }
 
 // A compile time interface to ensure that RpcUniverseDiff implements the

@@ -1046,8 +1046,8 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	// The base key is the set of bytes that keys into the universe, this'll
 	// be the outpoint where it was created at and the script key for that
 	// asset.
-	baseKey := universe.BaseKey{
-		MintingOutpoint: wire.OutPoint{
+	leafKey := universe.LeafKey{
+		OutPoint: wire.OutPoint{
 			Hash:  mintTxHash,
 			Index: b.anchorOutputIndex,
 		},
@@ -1062,19 +1062,19 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	if groupKey != nil {
 		uniGen.GroupKey = groupKey
 	}
-	mintingLeaf := &universe.MintingLeaf{
+	mintingLeaf := &universe.Leaf{
 		GenesisWithGroup: uniGen,
 
 		// The universe tree store only the asset state transition and
 		// not also the proof file checksum (as the root is effectively
 		// a checksum), so we'll use just the state transition.
-		GenesisProof: mintingProof,
-		Amt:          a.Amount,
+		Proof: mintingProof,
+		Amt:   a.Amount,
 	}
 
 	return blob, &universe.IssuanceItem{
 		ID:   uniID,
-		Key:  baseKey,
+		Key:  leafKey,
 		Leaf: mintingLeaf,
 	}, nil
 }
