@@ -98,6 +98,12 @@ type UniverseClient interface {
 	// QueryEvents returns the number of sync and proof events for a given time
 	// period, grouped by day.
 	QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error)
+	// SetFederationSyncConfig sets the configuration of the universe federation
+	// sync.
+	SetFederationSyncConfig(ctx context.Context, in *SetFederationSyncConfigRequest, opts ...grpc.CallOption) (*SetFederationSyncConfigResponse, error)
+	// QueryFederationSyncConfig queries the universe federation sync configuration
+	// settings.
+	QueryFederationSyncConfig(ctx context.Context, in *QueryFederationSyncConfigRequest, opts ...grpc.CallOption) (*QueryFederationSyncConfigResponse, error)
 }
 
 type universeClient struct {
@@ -243,6 +249,24 @@ func (c *universeClient) QueryEvents(ctx context.Context, in *QueryEventsRequest
 	return out, nil
 }
 
+func (c *universeClient) SetFederationSyncConfig(ctx context.Context, in *SetFederationSyncConfigRequest, opts ...grpc.CallOption) (*SetFederationSyncConfigResponse, error) {
+	out := new(SetFederationSyncConfigResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/SetFederationSyncConfig", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) QueryFederationSyncConfig(ctx context.Context, in *QueryFederationSyncConfigRequest, opts ...grpc.CallOption) (*QueryFederationSyncConfigResponse, error) {
+	out := new(QueryFederationSyncConfigResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/QueryFederationSyncConfig", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UniverseServer is the server API for Universe service.
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
@@ -327,6 +351,12 @@ type UniverseServer interface {
 	// QueryEvents returns the number of sync and proof events for a given time
 	// period, grouped by day.
 	QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error)
+	// SetFederationSyncConfig sets the configuration of the universe federation
+	// sync.
+	SetFederationSyncConfig(context.Context, *SetFederationSyncConfigRequest) (*SetFederationSyncConfigResponse, error)
+	// QueryFederationSyncConfig queries the universe federation sync configuration
+	// settings.
+	QueryFederationSyncConfig(context.Context, *QueryFederationSyncConfigRequest) (*QueryFederationSyncConfigResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }
 
@@ -378,6 +408,12 @@ func (UnimplementedUniverseServer) QueryAssetStats(context.Context, *AssetStatsQ
 }
 func (UnimplementedUniverseServer) QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryEvents not implemented")
+}
+func (UnimplementedUniverseServer) SetFederationSyncConfig(context.Context, *SetFederationSyncConfigRequest) (*SetFederationSyncConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetFederationSyncConfig not implemented")
+}
+func (UnimplementedUniverseServer) QueryFederationSyncConfig(context.Context, *QueryFederationSyncConfigRequest) (*QueryFederationSyncConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryFederationSyncConfig not implemented")
 }
 func (UnimplementedUniverseServer) mustEmbedUnimplementedUniverseServer() {}
 
@@ -662,6 +698,42 @@ func _Universe_QueryEvents_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Universe_SetFederationSyncConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetFederationSyncConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).SetFederationSyncConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/SetFederationSyncConfig",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).SetFederationSyncConfig(ctx, req.(*SetFederationSyncConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_QueryFederationSyncConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryFederationSyncConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).QueryFederationSyncConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/QueryFederationSyncConfig",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).QueryFederationSyncConfig(ctx, req.(*QueryFederationSyncConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Universe_ServiceDesc is the grpc.ServiceDesc for Universe service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -728,6 +800,14 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryEvents",
 			Handler:    _Universe_QueryEvents_Handler,
+		},
+		{
+			MethodName: "SetFederationSyncConfig",
+			Handler:    _Universe_SetFederationSyncConfig_Handler,
+		},
+		{
+			MethodName: "QueryFederationSyncConfig",
+			Handler:    _Universe_QueryFederationSyncConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
