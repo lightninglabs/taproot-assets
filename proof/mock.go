@@ -136,22 +136,36 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 		)
 	}
 
+	if p.GenesisReveal != nil {
+		tp.GenesisReveal = asset.NewTestFromGenesisReveal(
+			t, p.GenesisReveal,
+		)
+	}
+
+	if p.GroupKeyReveal != nil {
+		tp.GroupKeyReveal = asset.NewTestFromGroupKeyReveal(
+			t, p.GroupKeyReveal,
+		)
+	}
+
 	return tp
 }
 
 type TestProof struct {
-	PrevOut          string              `json:"prev_out"`
-	BlockHeader      *TestBlockHeader    `json:"block_header"`
-	BlockHeight      uint32              `json:"block_height"`
-	AnchorTx         string              `json:"anchor_tx"`
-	TxMerkleProof    *TestTxMerkleProof  `json:"tx_merkle_proof"`
-	Asset            *asset.TestAsset    `json:"asset"`
-	InclusionProof   *TestTaprootProof   `json:"inclusion_proof"`
-	ExclusionProofs  []*TestTaprootProof `json:"exclusion_proofs"`
-	SplitRootProof   *TestTaprootProof   `json:"split_root_proof"`
-	MetaReveal       *TestMetaReveal     `json:"meta_reveal"`
-	AdditionalInputs []string            `json:"additional_inputs"`
-	ChallengeWitness []string            `json:"challenge_witness"`
+	PrevOut          string                    `json:"prev_out"`
+	BlockHeader      *TestBlockHeader          `json:"block_header"`
+	BlockHeight      uint32                    `json:"block_height"`
+	AnchorTx         string                    `json:"anchor_tx"`
+	TxMerkleProof    *TestTxMerkleProof        `json:"tx_merkle_proof"`
+	Asset            *asset.TestAsset          `json:"asset"`
+	InclusionProof   *TestTaprootProof         `json:"inclusion_proof"`
+	ExclusionProofs  []*TestTaprootProof       `json:"exclusion_proofs"`
+	SplitRootProof   *TestTaprootProof         `json:"split_root_proof"`
+	MetaReveal       *TestMetaReveal           `json:"meta_reveal"`
+	AdditionalInputs []string                  `json:"additional_inputs"`
+	ChallengeWitness []string                  `json:"challenge_witness"`
+	GenesisReveal    *asset.TestGenesisReveal  `json:"genesis_reveal"`
+	GroupKeyReveal   *asset.TestGroupKeyReveal `json:"group_key_reveal"`
 }
 
 func (tp *TestProof) ToProof(t testing.TB) *Proof {
@@ -198,6 +212,14 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 		require.NoError(t, err)
 
 		p.ChallengeWitness = append(p.ChallengeWitness, b)
+	}
+
+	if tp.GenesisReveal != nil {
+		p.GenesisReveal = tp.GenesisReveal.ToGenesisReveal(t)
+	}
+
+	if tp.GroupKeyReveal != nil {
+		p.GroupKeyReveal = tp.GroupKeyReveal.ToGroupKeyReveal(t)
 	}
 
 	return p

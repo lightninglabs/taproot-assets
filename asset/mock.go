@@ -645,3 +645,66 @@ type ValidBurnTestCase struct {
 type BurnTestVectors struct {
 	ValidTestCases []*ValidBurnTestCase `json:"valid_test_cases"`
 }
+
+func NewTestFromGenesisReveal(t testing.TB, g *Genesis) *TestGenesisReveal {
+	t.Helper()
+
+	return &TestGenesisReveal{
+		FirstPrevOut: g.FirstPrevOut.String(),
+		Tag:          g.Tag,
+		MetaHash:     hex.EncodeToString(g.MetaHash[:]),
+		OutputIndex:  g.OutputIndex,
+		Type:         uint8(g.Type),
+	}
+}
+
+type TestGenesisReveal struct {
+	FirstPrevOut string `json:"first_prev_out"`
+	Tag          string `json:"tag"`
+	MetaHash     string `json:"meta_hash"`
+	OutputIndex  uint32 `json:"output_index"`
+	Type         uint8  `json:"type"`
+}
+
+func (tgr *TestGenesisReveal) ToGenesisReveal(t testing.TB) *Genesis {
+	t.Helper()
+
+	return &Genesis{
+		FirstPrevOut: test.ParseOutPoint(
+			t, tgr.FirstPrevOut,
+		),
+		Tag:         tgr.Tag,
+		MetaHash:    test.Parse32Byte(t, tgr.MetaHash),
+		OutputIndex: tgr.OutputIndex,
+		Type:        Type(tgr.Type),
+	}
+}
+
+func NewTestFromGroupKeyReveal(t testing.TB,
+	gkr *GroupKeyReveal) *TestGroupKeyReveal {
+
+	t.Helper()
+
+	return &TestGroupKeyReveal{
+		RawKey:        hex.EncodeToString(gkr.RawKey[:]),
+		TapscriptRoot: hex.EncodeToString(gkr.TapscriptRoot),
+	}
+}
+
+type TestGroupKeyReveal struct {
+	RawKey        string `json:"raw_key"`
+	TapscriptRoot string `json:"tapscript_root"`
+}
+
+func (tgkr *TestGroupKeyReveal) ToGroupKeyReveal(t testing.TB) *GroupKeyReveal {
+	t.Helper()
+
+	rawKey := test.ParsePubKey(t, tgkr.RawKey)
+	tapscriptRoot, err := hex.DecodeString(tgkr.TapscriptRoot)
+	require.NoError(t, err)
+
+	return &GroupKeyReveal{
+		RawKey:        ToSerialized(rawKey),
+		TapscriptRoot: tapscriptRoot,
+	}
+}
