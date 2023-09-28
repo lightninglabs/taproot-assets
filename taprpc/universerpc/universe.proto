@@ -126,6 +126,20 @@ service Universe {
     period, grouped by day.
     */
     rpc QueryEvents (QueryEventsRequest) returns (QueryEventsResponse);
+
+    /* tapcli `universe sync config`
+    SetFederationSyncConfig sets the configuration of the universe federation
+    sync.
+    */
+    rpc SetFederationSyncConfig (SetFederationSyncConfigRequest)
+        returns (SetFederationSyncConfigResponse);
+
+    /* tapcli `universe sync config`
+    QueryFederationSyncConfig queries the universe federation sync configuration
+    settings.
+    */
+    rpc QueryFederationSyncConfig (QueryFederationSyncConfigRequest)
+        returns (QueryFederationSyncConfigResponse);
 }
 
 message AssetRootRequest {
@@ -474,4 +488,54 @@ message GroupedUniverseEvents {
     string date = 1;
     uint64 sync_events = 2;
     uint64 new_proof_events = 3;
+}
+
+message SetFederationSyncConfigRequest {
+    GeneralFederationSyncConfig general_sync_config = 1;
+
+    repeated AssetFederationSyncConfig asset_sync_config = 2;
+}
+
+message SetFederationSyncConfigResponse {
+}
+
+// GeneralFederationSyncConfig is a general configuration for universe
+// federation syncing.
+message GeneralFederationSyncConfig {
+    string proof_types = 1;
+
+    //    // This flag indicates that, in general, only issuance proofs should
+    //    be
+    //    // synced.
+    //    bool only_sync_issuance_proofs = 1;
+}
+
+// AssetFederationSyncConfig is an asset universe specific configuration for
+// federation syncing.
+message AssetFederationSyncConfig {
+    // The ID of the universe to configure.
+    ID id = 1;
+
+    string proof_types = 2;
+
+    //    // This flag indicates that the given universe should be excluded from
+    //    the
+    //    // federation sync process.
+    //    bool exclude = 2;
+    //
+    //    // This flag indicates that only issuance proofs should be synced for
+    //    the
+    //    // given universe.
+    //    bool only_sync_issuance_proofs = 3;
+}
+
+message QueryFederationSyncConfigRequest {
+    // Target universe ID(s).
+    repeated ID id = 1;
+}
+
+message QueryFederationSyncConfigResponse {
+    GeneralFederationSyncConfig general_sync_config = 1;
+
+    repeated AssetFederationSyncConfig asset_sync_configs = 2;
 }
