@@ -739,7 +739,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 			// it in the database.
 			continue
 
-		case err != nil:
+		default:
 			return nil, fmt.Errorf("cannot fetch script key: %w",
 				err)
 		}
@@ -867,7 +867,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 	vPkt.Inputs = make([]*tappsbt.VInput, len(eligibleCommitments))
 	inputCommitments := make(tappsbt.InputCommitments)
 
-	for idx, assetInput := range eligibleCommitments {
+	for idx := range eligibleCommitments {
 		// If the key found for the input UTXO cannot be identified as
 		// belonging to the lnd wallet, we won't be able to sign for it.
 		// This would happen if a user manually imported an asset that
@@ -875,6 +875,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// not create asset entries for such imported assets in the
 		// first place, as we won't be able to spend it anyway. But for
 		// now we just put this check in place.
+		assetInput := eligibleCommitments[idx]
 		internalKey := assetInput.InternalKey
 		if !f.cfg.KeyRing.IsLocalKey(ctx, internalKey) {
 			return nil, fmt.Errorf("invalid internal key family "+

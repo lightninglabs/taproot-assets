@@ -690,7 +690,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// Load passive asset proof files from archive.
 	passiveAssetProofFiles := map[[32]byte]proof.Blob{}
-	for _, passiveAsset := range pkg.OutboundPkg.PassiveAssets {
+	for idx := range pkg.OutboundPkg.PassiveAssets {
+		passiveAsset := pkg.OutboundPkg.PassiveAssets[idx]
 		proofLocator := proof.Locator{
 			AssetID:   &passiveAsset.GenesisID,
 			ScriptKey: *passiveAsset.ScriptKey.PubKey,
@@ -776,7 +777,7 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 		case strings.Contains(err.Error(), "already exists"):
 			break
 
-		case err != nil:
+		default:
 			return err
 		}
 	}

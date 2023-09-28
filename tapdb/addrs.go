@@ -211,10 +211,11 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 		// For each of the addresses listed, we'll insert the two new
 		// internal keys, then use those returned primary key IDs to
 		// returned to insert the address itself.
-		for _, addr := range addrs {
+		for idx := range addrs {
 			// The asset genesis should already be known at this
 			// point, so we'll just fetch it so we can obtain the
 			// genAssetID.
+			addr := addrs[idx]
 			assetGen, err := db.FetchGenesisByAssetID(
 				ctx, addr.AssetID[:],
 			)
