@@ -126,6 +126,20 @@ service Universe {
     period, grouped by day.
     */
     rpc QueryEvents (QueryEventsRequest) returns (QueryEventsResponse);
+
+    /*
+    SetFederationSyncConfig sets the configuration of the universe federation
+    sync.
+    */
+    rpc SetFederationSyncConfig (SetFederationSyncConfigRequest)
+        returns (SetFederationSyncConfigResponse);
+
+    /*
+    QueryFederationSyncConfig queries the universe federation sync configuration
+    settings.
+    */
+    rpc QueryFederationSyncConfig (QueryFederationSyncConfigRequest)
+        returns (QueryFederationSyncConfigResponse);
 }
 
 message AssetRootRequest {
@@ -485,4 +499,58 @@ message GroupedUniverseEvents {
     string date = 1;
     uint64 sync_events = 2;
     uint64 new_proof_events = 3;
+}
+
+message SetFederationSyncConfigRequest {
+    repeated GlobalFederationSyncConfig global_sync_configs = 1;
+
+    repeated AssetFederationSyncConfig asset_sync_configs = 2;
+}
+
+message SetFederationSyncConfigResponse {
+}
+
+// GlobalFederationSyncConfig is a global proof type specific configuration
+// for universe federation syncing.
+message GlobalFederationSyncConfig {
+    // proof_type is the universe proof type which this config applies to.
+    ProofType proof_type = 1;
+
+    // allow_sync_insert is a boolean that indicates whether leaves from
+    // universes of the given proof type have may be inserted via federation
+    // sync.
+    bool allow_sync_insert = 2;
+
+    // allow_sync_export is a boolean that indicates whether leaves from
+    // universes of the given proof type have may be exported via federation
+    // sync.
+    bool allow_sync_export = 3;
+}
+
+// AssetFederationSyncConfig is an asset universe specific configuration for
+// federation syncing.
+message AssetFederationSyncConfig {
+    // id is the ID of the universe to configure.
+    ID id = 1;
+
+    // allow_sync_insert is a boolean that indicates whether leaves from
+    // universes of the given proof type have may be inserted via federation
+    // sync.
+    bool allow_sync_insert = 2;
+
+    // allow_sync_export is a boolean that indicates whether leaves from
+    // universes of the given proof type have may be exported via federation
+    // sync.
+    bool allow_sync_export = 3;
+}
+
+message QueryFederationSyncConfigRequest {
+    // Target universe ID(s).
+    repeated ID id = 1;
+}
+
+message QueryFederationSyncConfigResponse {
+    repeated GlobalFederationSyncConfig global_sync_configs = 1;
+
+    repeated AssetFederationSyncConfig asset_sync_configs = 2;
 }
