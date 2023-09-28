@@ -160,6 +160,10 @@ var testCases = []*testCase{
 		name: "burn test",
 		test: testBurnAssets,
 	},
+	{
+		name: "federation sync config",
+		test: testFederationSyncConfig,
+	},
 }
 
 var optionalTestCases = []*testCase{

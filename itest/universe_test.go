@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -18,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
+
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -526,4 +530,132 @@ func testUniverseFederation(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 0, len(fedNodes.Servers))
+}
+
+// testFederationSyncConfig tests that we can properly set and query the
+// federation sync config.
+func testFederationSyncConfig(t *harnessTest) {
+	ctx := context.Background()
+
+	// Generate a random asset ID in order to generate a universe ID.
+	rand := prand.New(prand.NewSource(1))
+
+	// Generate universe ID #1.
+	assetIDBytes1 := make([]byte, 32)
+	_, _ = rand.Read(assetIDBytes1)
+
+	var assetID1 asset.ID
+	copy(assetID1[:], assetIDBytes1)
+
+	uniID1 := universe.Identifier{
+		AssetID:   assetID1,
+		ProofType: universe.ProofTypeIssuance,
+	}
+	uniIdRpc1 := unirpc.MarshalUniverseID(assetIDBytes1, nil)
+	uniIdRpc1.ProofType = unirpc.ProofType_PROOF_TYPE_ISSUANCE
+
+	// Generate universe ID #2.
+	groupKey2 := test.RandPubKey(t.t)
+	groupKeyBytes2 := groupKey2.SerializeCompressed()
+
+	uniID2 := universe.Identifier{
+		GroupKey:  groupKey2,
+		ProofType: universe.ProofTypeTransfer,
+	}
+	uniIdRpc2 := unirpc.MarshalUniverseID(nil, groupKeyBytes2)
+	uniIdRpc2.ProofType = unirpc.ProofType_PROOF_TYPE_TRANSFER
+
+	// Set both the global and a universe specific federation sync configs.
+	globalConfigs := []*unirpc.GlobalFederationSyncConfig{
+		{
+			ProofType:       unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+			AllowSyncInsert: true,
+			AllowSyncExport: false,
+		},
+		{
+			ProofType:       unirpc.ProofType_PROOF_TYPE_TRANSFER,
+			AllowSyncInsert: false,
+			AllowSyncExport: true,
+		},
+	}
+
+	assetSyncConfigs := []*unirpc.AssetFederationSyncConfig{
+		{
+			Id:              uniIdRpc1,
+			AllowSyncInsert: false,
+			AllowSyncExport: true,
+		},
+		{
+			Id:              uniIdRpc2,
+			AllowSyncInsert: true,
+			AllowSyncExport: false,
+		},
+	}
+
+	_, err := t.tapd.UniverseClient.SetFederationSyncConfig(
+		ctx, &unirpc.SetFederationSyncConfigRequest{
+			GlobalSyncConfigs: globalConfigs,
+			AssetSyncConfigs:  assetSyncConfigs,
+		},
+	)
+	require.NoError(t.t, err)
+
+	resp, err := t.tapd.UniverseClient.QueryFederationSyncConfig(
+		ctx, &unirpc.QueryFederationSyncConfigRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Ensure that the global configs are set as expected.
+	require.Equal(t.t, len(resp.GlobalSyncConfigs), 2)
+
+	for i := range resp.GlobalSyncConfigs {
+		config := resp.GlobalSyncConfigs[i]
+
+		// Match proof type.
+		switch config.ProofType {
+		case unirpc.ProofType_PROOF_TYPE_ISSUANCE:
+			require.True(t.t, config.AllowSyncInsert)
+			require.False(t.t, config.AllowSyncExport)
+
+		case unirpc.ProofType_PROOF_TYPE_TRANSFER:
+			require.False(t.t, config.AllowSyncInsert)
+			require.True(t.t, config.AllowSyncExport)
+
+		default:
+			t.Fatalf("unexpected global proof type: %s",
+				config.ProofType)
+		}
+	}
+
+	// Ensure that the universe specific config is set as expected.
+	require.Equal(t.t, len(resp.AssetSyncConfigs), 2)
+
+	for i := range resp.AssetSyncConfigs {
+		config := resp.AssetSyncConfigs[i]
+
+		// Unmarshal the universe ID.
+		uniID, err := tap.UnmarshalUniID(config.Id)
+		require.NoError(t.t, err)
+
+		switch uniID.String() {
+		case uniID1.String():
+			require.Equal(
+				t.t, uniID.ProofType,
+				universe.ProofTypeIssuance,
+			)
+			require.False(t.t, config.AllowSyncInsert)
+			require.True(t.t, config.AllowSyncExport)
+
+		case uniID2.String():
+			require.Equal(
+				t.t, uniID.ProofType,
+				universe.ProofTypeTransfer,
+			)
+			require.True(t.t, config.AllowSyncInsert)
+			require.False(t.t, config.AllowSyncExport)
+
+		default:
+			t.Fatalf("unexpected universe ID: %v", config.Id)
+		}
+	}
 }
