@@ -2574,6 +2574,31 @@ func UnmarshalUniProofType(rpcType unirpc.ProofType) (universe.ProofType,
 	}
 }
 
+// unmarshalAssetSyncConfig parses the RPC asset sync config into the native
+// counterpart.
+func unmarshalAssetSyncConfig(
+	config *unirpc.AssetFederationSyncConfig) (*universe.FedUniSyncConfig,
+	error) {
+
+	// Parse the universe ID from the RPC form.
+	uniID, err := unmarshalUniID(config.Id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse universe id: %w",
+			err)
+	}
+
+	// Parse proof types from the RPC form.
+	proofTypes, err := universe.ParseProofType(config.ProofTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &universe.FedUniSyncConfig{
+		UniverseID: uniID,
+		ProofTypes: proofTypes,
+	}, nil
+}
+
 // unmarshalUniID parses the RPC universe ID into the native counterpart.
 func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	// Unmarshal the proof type.
@@ -3045,24 +3070,6 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, err
 	}
 
-	// If universe proof type unspecified, set based on the provided asset
-	// proof.
-	if universeID.ProofType == universe.ProofTypeUnspecified {
-		universeID.ProofType, err = universe.NewProofTypeFromAssetProof(
-			assetLeaf.Proof,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Ensure that the new proof is of the correct type for the target
-	// universe.
-	err = universe.ValidateProofUniverseType(assetLeaf.Proof, universeID)
-	if err != nil {
-		return nil, err
-	}
-
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
 		"(universeID=%x, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
@@ -3282,6 +3289,93 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 	}
 
 	return &unirpc.DeleteFederationServerResponse{}, nil
+}
+
+// SetFederationSyncConfig sets the configuration of the universe federation
+// sync.
+func (r *rpcServer) SetFederationSyncConfig(ctx context.Context,
+	req *unirpc.SetFederationSyncConfigRequest) (
+	*unirpc.SetFederationSyncConfigResponse, error) {
+
+	// Unmarshal general sync config.
+	var syncGeneralConfig *universe.FedGlobalSyncConfig
+	if req.GeneralSyncConfig != nil {
+		proofTypes, err := universe.ParseProofType(
+			req.GeneralSyncConfig.ProofTypes,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse proof "+
+				"types: %w", err)
+		}
+		syncGeneralConfig = &universe.FedGlobalSyncConfig{
+			ProofTypes: proofTypes,
+		}
+	}
+
+	// Unmarshal asset (asset/asset group) specific sync configs.
+	assetSyncConfigs := make(
+		[]*universe.FedUniSyncConfig, len(req.AssetSyncConfig),
+	)
+	for i := range req.AssetSyncConfig {
+		assetSyncConfig := req.AssetSyncConfig[i]
+		config, err := unmarshalAssetSyncConfig(assetSyncConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse asset sync "+
+				"config: %w", err)
+		}
+
+		assetSyncConfigs[i] = config
+	}
+
+	// Update asset (asset/asset group) specific sync configs.
+	err := r.cfg.FederationDB.UpsertFederationSyncConfig(
+		ctx, syncGeneralConfig, assetSyncConfigs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to set federation sync "+
+			"config: %w", err)
+	}
+
+	return &unirpc.SetFederationSyncConfigResponse{}, nil
+}
+
+// QueryFederationSyncConfig queries the universe federation sync configuration
+// settings.
+func (r *rpcServer) QueryFederationSyncConfig(ctx context.Context,
+	_ *unirpc.QueryFederationSyncConfigRequest,
+) (*unirpc.QueryFederationSyncConfigResponse, error) {
+
+	// Obtain the general and universe specific federation sync configs.
+	queryFedSyncConfigs := r.cfg.FederationDB.QueryFederationSyncConfigs
+	generalConfig, uniSyncConfigs, err := queryFedSyncConfigs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query federation sync "+
+			"config(s): %w", err)
+	}
+
+	// Marshal the general sync config into the RPC form.
+	generalConfigRPC := unirpc.GeneralFederationSyncConfig{
+		ProofTypes: generalConfig.ProofTypes.String(),
+	}
+
+	// Marshal universe specific sync configs into the RPC form.
+	uniConfigRPCs := make(
+		[]*unirpc.AssetFederationSyncConfig, len(uniSyncConfigs),
+	)
+	for i := range uniSyncConfigs {
+		uniSyncConfig := uniSyncConfigs[i]
+		uniConfigRPC, err := MarshalAssetFedSyncCfg(*uniSyncConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal universe "+
+				"specific federation sync config: %w", err)
+		}
+		uniConfigRPCs[i] = uniConfigRPC
+	}
+
+	return &unirpc.QueryFederationSyncConfigResponse{
+		GeneralSyncConfig: &generalConfigRPC,
+		AssetSyncConfigs:  uniConfigRPCs,
+	}, nil
 }
 
 // ProveAssetOwnership creates an ownership proof embedded in an asset
@@ -3578,4 +3672,26 @@ func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
 	}
 
 	return &wrpc.RemoveUTXOLeaseResponse{}, nil
+}
+
+// MarshalAssetFedSyncCfg returns an RPC ready asset specific federation sync
+// config.
+func MarshalAssetFedSyncCfg(
+	config universe.FedUniSyncConfig) (*unirpc.AssetFederationSyncConfig,
+	error) {
+
+	// Marshal universe ID into the RPC form.
+	uniID := config.UniverseID
+	assetIDBytes := uniID.AssetID[:]
+
+	var groupKeyBytes []byte
+	if uniID.GroupKey != nil {
+		groupKeyBytes = uniID.GroupKey.SerializeCompressed()
+	}
+	uniIdRPC := unirpc.MarshalUniverseID(assetIDBytes, groupKeyBytes)
+
+	return &unirpc.AssetFederationSyncConfig{
+		Id:         uniIdRPC,
+		ProofTypes: config.ProofTypes.String(),
+	}, nil
 }

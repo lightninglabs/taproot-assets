@@ -1116,6 +1116,60 @@
           "Universe"
         ]
       }
+    },
+    "/v1/taproot-assets/universe/sync/config": {
+      "get": {
+        "summary": "QueryFederationSyncConfig queries the universe federation sync configuration\nsettings.",
+        "operationId": "Universe_QueryFederationSyncConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcQueryFederationSyncConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      },
+      "post": {
+        "summary": "SetFederationSyncConfig sets the configuration of the universe federation\nsync.",
+        "operationId": "Universe_SetFederationSyncConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcSetFederationSyncConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcSetFederationSyncConfigRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1392,6 +1446,19 @@
     "universerpcAddFederationServerResponse": {
       "type": "object"
     },
+    "universerpcAssetFederationSyncConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/universerpcID",
+          "description": "The ID of the universe to configure."
+        },
+        "proof_types": {
+          "type": "string"
+        }
+      },
+      "description": "AssetFederationSyncConfig is an asset universe specific configuration for\nfederation syncing."
+    },
     "universerpcAssetKey": {
       "type": "object",
       "properties": {
@@ -1575,6 +1642,15 @@
     "universerpcDeleteRootResponse": {
       "type": "object"
     },
+    "universerpcGeneralFederationSyncConfig": {
+      "type": "object",
+      "properties": {
+        "proof_types": {
+          "type": "string"
+        }
+      },
+      "description": "GeneralFederationSyncConfig is a general configuration for universe\nfederation syncing."
+    },
     "universerpcGroupedUniverseEvents": {
       "type": "object",
       "properties": {
@@ -1693,6 +1769,20 @@
         }
       }
     },
+    "universerpcQueryFederationSyncConfigResponse": {
+      "type": "object",
+      "properties": {
+        "general_sync_config": {
+          "$ref": "#/definitions/universerpcGeneralFederationSyncConfig"
+        },
+        "asset_sync_configs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
+          }
+        }
+      }
+    },
     "universerpcQueryRootResponse": {
       "type": "object",
       "properties": {
@@ -1701,6 +1791,23 @@
           "description": "The asset root for the given asset ID or group key."
         }
       }
+    },
+    "universerpcSetFederationSyncConfigRequest": {
+      "type": "object",
+      "properties": {
+        "general_sync_config": {
+          "$ref": "#/definitions/universerpcGeneralFederationSyncConfig"
+        },
+        "asset_sync_config": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
+          }
+        }
+      }
+    },
+    "universerpcSetFederationSyncConfigResponse": {
+      "type": "object"
     },
     "universerpcSortDirection": {
       "type": "string",
