@@ -3,6 +3,7 @@ package tapdb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -260,9 +261,16 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 			err)
 	}
 
+	// The only valid size for a non-empty Tapscript root is 32 bytes.
+	if len(groupKey.TapscriptRoot) != 0 &&
+		len(groupKey.TapscriptRoot) != sha256.Size {
+
+		return nullID, fmt.Errorf("tapscript root invalid: wrong size")
+	}
+
 	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
 		TweakedGroupKey: tweakedKeyBytes,
-		TapscriptRoot:   groupKey.TapscriptRoot[:],
+		TapscriptRoot:   groupKey.TapscriptRoot,
 		InternalKeyID:   keyID,
 		GenesisPointID:  genesisPointID,
 	})
@@ -436,7 +444,8 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 
 	groupKey, err := parseGroupKeyInfo(
 		groupInfo.TweakedGroupKey, groupInfo.RawKey,
-		groupInfo.WitnessStack, groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.WitnessStack, groupInfo.TapscriptRoot,
+		groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -470,7 +479,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 
 	groupKey, err := parseGroupKeyInfo(
 		groupKeyQuery, groupInfo.RawKey, groupInfo.WitnessStack,
-		groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.TapscriptRoot, groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -483,7 +492,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 }
 
 // parseGroupKeyInfo maps information on a group key into a GroupKey.
-func parseGroupKeyInfo(tweakedKey, rawKey, witness []byte,
+func parseGroupKeyInfo(tweakedKey, rawKey, witness, tapscriptRoot []byte,
 	keyFamily, keyIndex int32) (*asset.GroupKey, error) {
 
 	tweakedGroupKey, err := btcec.ParsePubKey(tweakedKey)
@@ -513,9 +522,10 @@ func parseGroupKeyInfo(tweakedKey, rawKey, witness []byte,
 	}
 
 	return &asset.GroupKey{
-		RawKey:      groupRawKey,
-		GroupPubKey: *tweakedGroupKey,
-		Witness:     groupWitness,
+		RawKey:        groupRawKey,
+		GroupPubKey:   *tweakedGroupKey,
+		TapscriptRoot: tapscriptRoot,
+		Witness:       groupWitness,
 	}, nil
 }
 

@@ -953,8 +953,8 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 
 		assetGroup.GroupKey, err = parseGroupKeyInfo(
 			groupInfo.TweakedGroupKey, groupInfo.RawKey,
-			groupInfo.WitnessStack, groupInfo.KeyFamily,
-			groupInfo.KeyIndex,
+			groupInfo.WitnessStack, groupInfo.TapscriptRoot,
+			groupInfo.KeyFamily, groupInfo.KeyIndex,
 		)
 
 		return err

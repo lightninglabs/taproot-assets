@@ -443,8 +443,9 @@ type GroupKey struct {
 	// TapscriptRoot is the root of the Tapscript tree that commits to all
 	// script spend conditions for the group key. Instead of spending an
 	// asset, these scripts are used to define witnesses more complex than
-	// a Schnorr signature for reissuing assets.
-	TapscriptRoot [sha256.Size]byte
+	// a Schnorr signature for reissuing assets. A group key with an empty
+	// Tapscript root can only authorize reissuance with a signature.
+	TapscriptRoot []byte
 
 	// Witness is a stack of witness elements that authorizes the membership
 	// of an asset in a particular asset group. The witness can be a single
@@ -501,7 +502,7 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
-	if g.TapscriptRoot != otherGroupKey.TapscriptRoot {
+	if !bytes.Equal(g.TapscriptRoot, otherGroupKey.TapscriptRoot) {
 		return false
 	}
 
