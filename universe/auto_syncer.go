@@ -315,28 +315,16 @@ func (f *FederationEnvoy) syncer() {
 				f.reportErr(err)
 				return
 			}
-
 			cancel()
 
 			log.Infof("Synchronizing with %v federation members",
 				len(fedServers))
-
-			ctx, cancel = f.WithCtxQuitNoTimeout()
-
-			// Sync the set of servers in parallel, waiting until
-			// the syncs are finished to proceed.
-			err = fn.ParSlice(
-				ctx, fedServers, f.syncUniverseState,
-			)
+			err = f.SyncServers(fedServers)
 			if err != nil {
-				cancel()
-
-				log.Warnf("unable to sync with universe "+
+				log.Warnf("unable to sync with federation "+
 					"server: %v", err)
 				continue
 			}
-
-			cancel()
 
 		// A new push request has just arrived. We'll perform a
 		// asynchronous registration with the local Universe registrar,
@@ -472,18 +460,18 @@ func (f *FederationEnvoy) AddServer(addrs ...ServerAddr) error {
 		return err
 	}
 
-	f.Wg.Add(1)
-	go func() {
-		defer f.Wg.Done()
+	return f.SyncServers(addrs)
+}
 
-		ctx, cancel = f.WithCtxQuitNoTimeout()
-		defer cancel()
+func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
+	// Sync servers in parallel without context timeout.
+	ctx, cancel := f.WithCtxQuitNoTimeout()
+	defer cancel()
 
-		err := fn.ParSlice(ctx, addrs, f.syncUniverseState)
-		if err != nil {
-			log.Warnf("unable to sync universe state: %v", err)
-		}
-	}()
+	err := fn.ParSlice(ctx, serverAddrs, f.syncUniverseState)
+	if err != nil {
+		log.Warnf("unable to sync with server: %w", err)
+	}
 
 	return nil
 }
