@@ -675,6 +675,13 @@ type FederationSyncConfigDB interface {
 		uniSyncConfigs []*FedUniSyncConfig) error
 }
 
+// FederationDB is used for CRUD operations related to federation sync config
+// and tracked servers.
+type FederationDB interface {
+	FederationLog
+	FederationSyncConfigDB
+}
+
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
 // stats.
 type SyncStatsSort uint8
