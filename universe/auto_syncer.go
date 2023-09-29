@@ -180,10 +180,10 @@ func (f *FederationEnvoy) reportErr(err error) {
 	}
 }
 
-// syncUniverseState attempts to sync Universe state with the target server.
+// syncServerState attempts to sync Universe state with the target server.
 // If the sync is successful (even if no diff is generated), then a new sync
 // event will be logged.
-func (f *FederationEnvoy) syncUniverseState(ctx context.Context,
+func (f *FederationEnvoy) syncServerState(ctx context.Context,
 	addr ServerAddr) error {
 
 	log.Infof("Syncing Universe state with server=%v", spew.Sdump(addr))
@@ -468,7 +468,7 @@ func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
 	ctx, cancel := f.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	err := fn.ParSlice(ctx, serverAddrs, f.syncUniverseState)
+	err := fn.ParSlice(ctx, serverAddrs, f.syncServerState)
 	if err != nil {
 		log.Warnf("unable to sync with server: %w", err)
 	}
