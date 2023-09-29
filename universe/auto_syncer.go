@@ -17,12 +17,12 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
-// FederationConfig is a config that the FederationEnvoy will used to
+// FederationConfig is a config that the FederationEnvoy will use to
 // synchronize new updates between the current set of federated Universe nodes.
 type FederationConfig struct {
-	// FederationDB is used for CRUD operations related to the current set
-	// of servers in the federation.
-	FederationDB FederationLog
+	// FederationDB is used for CRUD operations related to federation sync
+	// config and tracked servers.
+	FederationDB FederationDB
 
 	// UniverseSyncer is used to synchronize with the federation
 	// periodically.
