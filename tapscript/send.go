@@ -627,7 +627,7 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 		// Update the input of the virtual TX, generate a witness, and
 		// attach it to the copy of the new Asset.
 		virtualTxCopy := virtualTx.Copy()
-		inputSpecificVirtualTx := VirtualTxWithInput(
+		inputSpecificVirtualTx := asset.VirtualTxWithInput(
 			virtualTxCopy, input.Asset(), uint32(idx), nil,
 		)
 

@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -425,7 +424,27 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		return err
 	}
 
-	snapshot, err := f.Verify(ctxt, headerVerifier)
+	groupVerifier := func(groupKey *btcec.PublicKey) error {
+		assetGroupKey := hex.EncodeToString(
+			groupKey.SerializeCompressed(),
+		)
+
+		// The given group key should be listed as a known group.
+		assetGroups, err := tapClient.ListGroups(
+			ctxt, &taprpc.ListGroupsRequest{},
+		)
+		require.NoError(t, err)
+
+		_, ok := assetGroups.Groups[assetGroupKey]
+		if !ok {
+			return fmt.Errorf("group key %s not known",
+				assetGroupKey)
+		}
+
+		return nil
+	}
+
+	snapshot, err := f.Verify(ctxt, headerVerifier, groupVerifier)
 	require.NoError(t, err)
 
 	return f, snapshot
@@ -908,15 +927,20 @@ func AssertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
 // AssertGroupAnchor asserts that a specific asset genesis was used to create
 // a tweaked group key.
 func AssertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
-	internalKey, tweakedKey []byte) {
+	anchorGroup *taprpc.AssetGroup) {
 
-	internalPubKey, err := btcec.ParsePubKey(internalKey)
+	internalPubKey, err := btcec.ParsePubKey(anchorGroup.RawGroupKey)
 	require.NoError(t, err)
-	computedGroupPubKey := txscript.ComputeTaprootOutputKey(
-		internalPubKey, anchorGen.GroupKeyTweak(),
+
+	// TODO(jhb): add tapscript root support
+	anchorTweak := anchorGen.ID()
+	computedGroupPubKey, err := asset.GroupPubKey(
+		internalPubKey, anchorTweak[:], nil,
 	)
+	require.NoError(t, err)
+
 	computedGroupKey := computedGroupPubKey.SerializeCompressed()
-	require.Equal(t, tweakedKey, computedGroupKey)
+	require.Equal(t, anchorGroup.TweakedGroupKey, computedGroupKey)
 }
 
 // MatchRpcAsset is a function that returns true if the given RPC asset is a
@@ -1210,10 +1234,7 @@ func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
 
 	anchorGen := ParseGenInfo(t, anchor.AssetGenesis)
 	anchorGen.Type = asset.Type(anchor.AssetType)
-	AssertGroupAnchor(
-		t, anchorGen, anchor.AssetGroup.RawGroupKey,
-		anchor.AssetGroup.TweakedGroupKey,
-	)
+	AssertGroupAnchor(t, anchorGen, anchor.AssetGroup)
 
 	return anchor
 }

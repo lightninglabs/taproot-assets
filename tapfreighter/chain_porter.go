@@ -38,6 +38,10 @@ type ChainPorterConfig struct {
 	// ChainBridge is our bridge to the chain we operate on.
 	ChainBridge ChainBridge
 
+	// GroupVerifier is used to verify the validity of the group key for a
+	// genesis proof.
+	GroupVerifier proof.GroupVerifier
+
 	// Wallet is used to fund+sign PSBTs for the transfer transaction.
 	Wallet WalletAnchor
 
@@ -345,7 +349,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	log.Infof("Importing %d passive asset proofs into local Proof "+
 		"Archive", len(passiveAssetProofFiles))
 	err := p.cfg.AssetProofs.ImportProofs(
-		ctx, headerVerifier, false, passiveAssetProofFiles...,
+		ctx, headerVerifier, p.cfg.GroupVerifier, false,
+		passiveAssetProofFiles...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
@@ -464,7 +469,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)
 		err = p.cfg.AssetProofs.ImportProofs(
-			ctx, headerVerifier, false, outputProof,
+			ctx, headerVerifier, p.cfg.GroupVerifier, false,
+			outputProof,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof: %w", err)
@@ -684,7 +690,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// Load passive asset proof files from archive.
 	passiveAssetProofFiles := map[[32]byte]proof.Blob{}
-	for _, passiveAsset := range pkg.OutboundPkg.PassiveAssets {
+	for idx := range pkg.OutboundPkg.PassiveAssets {
+		passiveAsset := pkg.OutboundPkg.PassiveAssets[idx]
 		proofLocator := proof.Locator{
 			AssetID:   &passiveAsset.GenesisID,
 			ScriptKey: *passiveAsset.ScriptKey.PubKey,
@@ -770,7 +777,7 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 		case strings.Contains(err.Error(), "already exists"):
 			break
 
-		case err != nil:
+		default:
 			return err
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
@@ -46,6 +47,8 @@ func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor
 	return virtualTxSig, nil
 }
 
-// A compile time assertion to ensure LndRpcVirtualTxSigner meets the
-// tapscript.Signer interface.
+// Compile time assertions to ensure LndRpcVirtualTxSigner meets the
+// tapscript.Signer and asset.GenesisSigner interfaces.
 var _ tapscript.Signer = (*LndRpcVirtualTxSigner)(nil)
+
+var _ asset.GenesisSigner = (*LndRpcVirtualTxSigner)(nil)

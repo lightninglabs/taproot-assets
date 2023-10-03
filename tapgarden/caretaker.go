@@ -2,11 +2,13 @@ package tapgarden
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -34,6 +36,15 @@ var (
 		PkScript: GenesisDummyScript[:],
 		Value:    int64(GenesisAmtSats),
 	}
+
+	// ErrGroupKeyUnknown is an error returned if an asset has a group key
+	// attached that has not been previously verified.
+	ErrGroupKeyUnknown = errors.New("group key not known")
+
+	// ErrGenesisNotGroupAnchor is an error returned if an asset has a group
+	// key attached, and the asset is not the anchor asset for the group.
+	// This is true for any asset created via reissuance.
+	ErrGenesisNotGroupAnchor = errors.New("genesis not group anchor")
 )
 
 const (
@@ -441,11 +452,22 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			return nil, fmt.Errorf("unable to obtain script "+
 				"key: %w", err)
 		}
+		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
+			amount         uint64
 			groupInfo      *asset.AssetGroup
+			protoAsset     *asset.Asset
 			sproutGroupKey *asset.GroupKey
 		)
+
+		// Determine the amount for the actual asset.
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
 
 		// If the seedling has a group key specified,
 		// that group key was validated earlier. We need to
@@ -462,14 +484,27 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			groupInfo = newGroups[*seedling.GroupAnchor]
 		}
 
-		if groupInfo != nil {
-			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, groupInfo.GroupKey.RawKey,
-				*groupInfo.Genesis, &assetGen,
+		// If a group witness needs to be produced, then we will need a
+		// partially filled asset as part of the signing process.
+		if groupInfo != nil || seedling.EnableEmission {
+			protoAsset, err = asset.New(
+				assetGen, amount, 0, 0, tweakedScriptKey, nil,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to"+
-					"tweak group key: %w", err)
+				return nil, fmt.Errorf("unable to create "+
+					"asset for group key signing: %w", err)
+			}
+		}
+
+		if groupInfo != nil {
+			sproutGroupKey, err = asset.DeriveGroupKey(
+				b.cfg.GenSigner, b.cfg.GenTxBuilder,
+				groupInfo.GroupKey.RawKey,
+				*groupInfo.Genesis, protoAsset,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to tweak group "+
+					"key: %w", err)
 			}
 		}
 
@@ -482,16 +517,17 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 				ctx, asset.TaprootAssetsKeyFamily,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to"+
-					"derive group key: %w", err)
+				return nil, fmt.Errorf("unable to derive "+
+					"group key: %w", err)
 			}
+
 			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, rawGroupKey,
-				assetGen, nil,
+				b.cfg.GenSigner, b.cfg.GenTxBuilder,
+				rawGroupKey, assetGen, protoAsset,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("unable to"+
-					"tweak group key: %w", err)
+				return nil, fmt.Errorf("unable to tweak group "+
+					"key: %w", err)
 			}
 
 			newGroups[seedlingName] = &asset.AssetGroup{
@@ -502,21 +538,22 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 		// With the necessary keys components assembled, we'll create
 		// the actual asset now.
-		var amount uint64
-		switch seedling.AssetType {
-		case asset.Normal:
-			amount = seedling.Amount
-		case asset.Collectible:
-			amount = 1
-		}
-
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBip86(scriptKey), sproutGroupKey,
+			assetGen, amount, 0, 0, tweakedScriptKey,
+			sproutGroupKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %w",
 				err)
+		}
+
+		// Verify the group witness if present.
+		if sproutGroupKey != nil {
+			err := b.cfg.TxValidator.Execute(newAsset, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("unable to verify "+
+					"asset group witness: %w", err)
+			}
 		}
 
 		newAssets = append(newAssets, newAsset)
@@ -834,6 +871,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		defer cancel()
 
 		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+		groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
+		groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
 
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
@@ -867,7 +906,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		mintingProofs, err := proof.NewMintingBlobs(
-			baseProof, headerVerifier,
+			baseProof, headerVerifier, groupVerifier,
+			groupAnchorVerifier,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 		)
 		if err != nil {
@@ -903,38 +943,56 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			})
 		}
 
+		// Before we write any assets from the batch, we need to sort
+		// the assets so that we insert group anchors before
+		// reissunces. This is required for any possible reissuances
+		// to be verified correctly when updating our local Universe.
+		anchorAssets, nonAnchorAssets, err := SortAssets(
+			committedAssets, groupAnchorVerifier,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("could not sort assets: %w", err)
+		}
+
 		// Before we confirm the batch, we'll also update the on disk
 		// file system as well.
 		//
 		// TODO(roasbeef): rely on the upsert here instead
-		err = fn.ParSlice(
-			ctx, committedAssets,
-			func(ctx context.Context, newAsset *asset.Asset) error {
-				scriptPubKey := newAsset.ScriptKey.PubKey
-				scriptKey := asset.ToSerialized(scriptPubKey)
+		updateAssetProofs := func(ctx context.Context,
+			newAsset *asset.Asset) error {
 
-				mintingProof := mintingProofs[scriptKey]
+			scriptPubKey := newAsset.ScriptKey.PubKey
+			scriptKey := asset.ToSerialized(scriptPubKey)
 
-				proofBlob, uniProof, err := b.storeMintingProof(
-					ctx, newAsset, mintingProof, mintTxHash,
-					headerVerifier,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to store "+
-						"proof: %w", err)
-				}
+			mintingProof := mintingProofs[scriptKey]
 
-				proofMutex.Lock()
-				mintingProofBlobs[scriptKey] = proofBlob
-				proofMutex.Unlock()
+			proofBlob, uniProof, err := b.storeMintingProof(
+				ctx, newAsset, mintingProof, mintTxHash,
+				headerVerifier, groupVerifier,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to store "+
+					"proof: %w", err)
+			}
 
-				if uniProof != nil {
-					universeItems <- uniProof
-				}
+			proofMutex.Lock()
+			mintingProofBlobs[scriptKey] = proofBlob
+			proofMutex.Unlock()
 
-				return nil
-			},
-		)
+			if uniProof != nil {
+				universeItems <- uniProof
+			}
+
+			return nil
+		}
+
+		err = fn.ParSlice(ctx, anchorAssets, updateAssetProofs)
+		if err != nil {
+			return 0, fmt.Errorf("unable to update asset proofs: "+
+				"%w", err)
+		}
+
+		err = fn.ParSlice(ctx, nonAnchorAssets, updateAssetProofs)
 		if err != nil {
 			return 0, fmt.Errorf("unable to update asset proofs: "+
 				"%w", err)
@@ -999,8 +1057,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 // can be used to register the asset with the universe.
 func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
-	headerVerifier proof.HeaderVerifier) (proof.Blob,
-	*universe.IssuanceItem, error) {
+	headerVerifier proof.HeaderVerifier,
+	groupVerifier proof.GroupVerifier) (proof.Blob, *universe.IssuanceItem,
+	error) {
 
 	assetID := a.ID()
 	blob, err := proof.EncodeAsProofFile(mintingProof)
@@ -1009,14 +1068,16 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 			err)
 	}
 
-	err = b.cfg.ProofFiles.ImportProofs(
-		ctx, headerVerifier, false, &proof.AnnotatedProof{
-			Locator: proof.Locator{
-				AssetID:   &assetID,
-				ScriptKey: *a.ScriptKey.PubKey,
-			},
-			Blob: blob,
+	fullProof := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *a.ScriptKey.PubKey,
 		},
+		Blob: blob,
+	}
+
+	err = b.cfg.ProofFiles.ImportProofs(
+		ctx, headerVerifier, groupVerifier, false, fullProof,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)
@@ -1137,6 +1198,45 @@ func SortSeedlings(seedlings []*Seedling) []string {
 	return allSeedlings
 }
 
+// SortAssets sorts the batch assets such that assets that are group anchors are
+// partitioned from all other assets.
+func SortAssets(fullAssets []*asset.Asset,
+	anchorVerifier proof.GroupAnchorVerifier) ([]*asset.Asset,
+	[]*asset.Asset, error) {
+
+	var anchorAssets, nonAnchorAssets []*asset.Asset
+	for ind := range fullAssets {
+		fullAsset := fullAssets[ind]
+
+		switch {
+		case fullAsset.GroupKey != nil:
+			err := anchorVerifier(
+				&fullAsset.Genesis,
+				fullAsset.GroupKey,
+			)
+
+			switch {
+			case err == nil:
+				anchorAssets = append(anchorAssets, fullAsset)
+
+			case errors.Is(err, ErrGenesisNotGroupAnchor) ||
+				errors.Is(err, ErrGroupKeyUnknown):
+
+				nonAnchorAssets = append(
+					nonAnchorAssets, fullAsset,
+				)
+
+			default:
+				return nil, nil, err
+			}
+		default:
+			nonAnchorAssets = append(nonAnchorAssets, fullAsset)
+		}
+	}
+
+	return anchorAssets, nonAnchorAssets, nil
+}
+
 // GetTxFee returns the value of the on-chain fees paid by a finalized PSBT.
 func GetTxFee(pkt *psbt.Packet) (int64, error) {
 	inputValue, err := psbt.SumUtxoInputValues(pkt)
@@ -1160,5 +1260,136 @@ func GenHeaderVerifier(ctx context.Context,
 	return func(header wire.BlockHeader, height uint32) error {
 		err := chainBridge.VerifyBlock(ctx, header, height)
 		return err
+	}
+}
+
+// GenGroupVeifier generates a group key verification callback function given
+// a DB handle.
+func GenGroupVerifier(ctx context.Context,
+	mintingStore MintingStore) func(*btcec.PublicKey) error {
+
+	// Cache known group keys that were previously fetched.
+	assetGroups := fn.NewSet[asset.SerializedKey]()
+
+	// verifierLock is a mutex that must be held when using the group
+	// anchor verifier.
+	var verifierLock sync.Mutex
+
+	return func(groupKey *btcec.PublicKey) error {
+		if groupKey == nil {
+			return fmt.Errorf("cannot verify empty group key")
+		}
+
+		verifierLock.Lock()
+		defer verifierLock.Unlock()
+
+		assetGroupKey := asset.ToSerialized(groupKey)
+		ok := assetGroups.Contains(assetGroupKey)
+		if ok {
+			return nil
+		}
+
+		// This query will err if no stored group has a matching
+		// tweaked group key.
+		_, err := mintingStore.FetchGroupByGroupKey(
+			ctx, groupKey,
+		)
+		if err != nil {
+			return fmt.Errorf("%x: %w", assetGroupKey,
+				ErrGroupKeyUnknown)
+		}
+
+		assetGroups.Add(assetGroupKey)
+
+		return nil
+	}
+}
+
+// GenGroupAnchorVerifier generates a caching group anchor verification callback
+// function given a DB handle.
+func GenGroupAnchorVerifier(ctx context.Context,
+	mintingStore MintingStore) func(*asset.Genesis,
+	*asset.GroupKey) error {
+
+	// Cache anchors for groups that were previously fetched.
+	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
+
+	// verifierLock is a mutex that must be held when using the group
+	// anchor verifier.
+	var verifierLock sync.Mutex
+
+	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
+		verifierLock.Lock()
+		defer verifierLock.Unlock()
+
+		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
+		groupAnchor, ok := groupAnchors[assetGroupKey]
+
+		if !ok {
+			storedGroup, err := mintingStore.FetchGroupByGroupKey(
+				ctx, &groupKey.GroupPubKey,
+			)
+			if err != nil {
+				return ErrGroupKeyUnknown
+			}
+
+			groupAnchors[assetGroupKey] = storedGroup.Genesis
+			groupAnchor = storedGroup.Genesis
+		}
+
+		if gen.ID() != groupAnchor.ID() {
+			return ErrGenesisNotGroupAnchor
+		}
+
+		return nil
+	}
+}
+
+// GenRawGroupAnchorVerifier generates a group anchor verification callback
+// function. This anchor verifier recomputes the tweaked group key with the
+// passed genesis and compares that key to the given group key. This verifier
+// is only used in the caretaker, before any asset groups are stored in the DB.
+func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
+	*asset.GroupKey) error {
+
+	// Cache group anchors we already verified.
+	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
+
+	// verifierLock is a mutex that must be held when using the group
+	// anchor verifier.
+	var verifierLock sync.Mutex
+
+	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
+		verifierLock.Lock()
+		defer verifierLock.Unlock()
+
+		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
+		groupAnchor, ok := groupAnchors[assetGroupKey]
+
+		if !ok {
+			// TODO(jhb): add tapscript root support
+			singleTweak := gen.ID()
+			tweakedGroupKey, err := asset.GroupPubKey(
+				groupKey.RawKey.PubKey, singleTweak[:], nil,
+			)
+			if err != nil {
+				return err
+			}
+
+			computedGroupKey := asset.ToSerialized(tweakedGroupKey)
+			if computedGroupKey != assetGroupKey {
+				return ErrGenesisNotGroupAnchor
+			}
+
+			groupAnchors[assetGroupKey] = gen
+
+			return nil
+		}
+
+		if gen.ID() != groupAnchor.ID() {
+			return ErrGenesisNotGroupAnchor
+		}
+
+		return nil
 	}
 }

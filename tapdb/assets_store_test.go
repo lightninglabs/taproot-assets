@@ -20,6 +20,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -116,25 +118,32 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 
 	groupPriv := *opts.groupKeyPriv
 
-	genSigner := asset.NewRawKeyGenesisSigner(&groupPriv)
+	genSigner := asset.NewMockGenesisSigner(&groupPriv)
+	genTxBuilder := tapscript.GroupTxBuilder{}
 
 	var (
 		groupKeyDesc = keychain.KeyDescriptor{
 			PubKey: groupPriv.PubKey(),
 		}
-		assetGroupKey *asset.GroupKey
-		err           error
-		initialGen    = genesis
-		currentGen    *asset.Genesis
+		assetGroupKey    *asset.GroupKey
+		err              error
+		initialGen       = genesis
+		protoAsset       *asset.Asset
+		lockTime         = uint64(test.RandInt[int32]())
+		relativeLockTime = uint64(test.RandInt[int32]())
+	)
+
+	protoAsset = asset.NewAssetNoErr(
+		t, genesis, opts.amt, lockTime, relativeLockTime,
+		opts.scriptKey, nil,
 	)
 
 	if opts.groupAnchorGen != nil {
 		initialGen = *opts.groupAnchorGen
-		currentGen = &genesis
 	}
 
 	assetGroupKey, err = asset.DeriveGroupKey(
-		genSigner, groupKeyDesc, initialGen, currentGen,
+		genSigner, &genTxBuilder, groupKeyDesc, initialGen, protoAsset,
 	)
 
 	require.NoError(t, err)
@@ -142,8 +151,8 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	newAsset := &asset.Asset{
 		Genesis:          genesis,
 		Amount:           opts.amt,
-		LockTime:         uint64(test.RandInt[int32]()),
-		RelativeLockTime: uint64(test.RandInt[int32]()),
+		LockTime:         lockTime,
+		RelativeLockTime: relativeLockTime,
 		ScriptKey:        opts.scriptKey,
 	}
 
@@ -322,7 +331,8 @@ func TestImportAssetProof(t *testing.T) {
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, false, testProof,
+		ctxb, proof.MockHeaderVerifier, proof.MockGroupVerifier, false,
+		testProof,
 	))
 
 	// We should now be able to retrieve the set of all assets inserted on
@@ -375,7 +385,8 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.AnchorTxIndex = 5678
 	testProof.Blob = updatedBlob
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, true, testProof,
+		ctxb, proof.MockHeaderVerifier, proof.MockGroupVerifier, true,
+		testProof,
 	))
 
 	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
@@ -614,12 +625,12 @@ func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
 func (a *assetGenerator) bindKeyGroup(i int, op wire.OutPoint) *btcec.PublicKey {
 	gen := a.assetGens[i]
 	gen.FirstPrevOut = op
+	genTweak := gen.ID()
 
 	groupPriv := *a.groupKeys[i]
 
-	tweakedPriv := txscript.TweakTaprootPrivKey(
-		groupPriv, gen.GroupKeyTweak(),
-	)
+	internalPriv := input.TweakPrivKey(&groupPriv, genTweak[:])
+	tweakedPriv := txscript.TweakTaprootPrivKey(*internalPriv, nil)
 
 	return tweakedPriv.PubKey()
 }

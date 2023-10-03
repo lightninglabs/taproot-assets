@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/ticker"
 	"golang.org/x/exp/maps"
@@ -40,6 +41,14 @@ type GardenKit struct {
 	// by the genesis point when creating assets that permit on going
 	// emission.
 	GenSigner asset.GenesisSigner
+
+	// GenTxBuilder is used to create virtual transactions for the group
+	// witness generation process.
+	GenTxBuilder asset.GenesisTxBuilder
+
+	// TxValidator is used to validate group witnesses when creating assets
+	// that support reissuance.
+	TxValidator tapscript.TxValidator
 
 	// ProofFiles stores the set of flat proof files.
 	ProofFiles proof.Archiver
@@ -853,11 +862,13 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 	defer cancel()
 
 	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
 	for idx := range proofs {
 		p := proofs[idx]
 
 		err := proof.ReplaceProofInBlob(
 			ctx, p, c.cfg.ProofUpdates, headerVerifier,
+			groupVerifier,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to update minted proofs: %w",

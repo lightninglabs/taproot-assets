@@ -70,14 +70,14 @@
         "chain_params_hrp": "taptb",
         "asset_version": 0,
         "asset_id": "7f3a94b3048ecbce4f2b1686e2df89bde52d5ead1aed011f75fa6578dcab0839",
-        "group_key": "03f32d239904d1addae728d1917a94bc1d20455b12b251a9222d035e5014a9f759",
+        "group_key": "02cd028e8899c3324c75a41f6f34b0038fa640b96b93e421c9860c52a7efa9d395",
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taptb1qqqsqqspqqzzqle6jjesfrktee8jk95xut0cn00994026xhdqy0ht7n90rw2kzpeq5ss8uedywvsf5ddmtnj35v3022tc8fqg4d39vj34y3z6q672q22na6eqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xseskkqklz",
+      "expected": "taptb1qqqsqqspqqzzqle6jjesfrktee8jk95xut0cn00994026xhdqy0ht7n90rw2kzpeq5ss9ngz36yfnsejf366g8m0xjcq8raxgzukhylyy8ycvrzj5lh6n5u4qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses833965",
       "comment": "signet group collectible"
     },
     {

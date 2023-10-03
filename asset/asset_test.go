@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -290,7 +291,7 @@ func TestValidateAssetName(t *testing.T) {
 		},
 		{
 			// Invalid if tab in name.
-			name: "tab	tab",
+			name:  "tab	tab",
 			valid: false,
 		},
 		{
@@ -513,10 +514,10 @@ func TestAssetGroupKey(t *testing.T) {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
-	genSigner := NewRawKeyGenesisSigner(privKeyCopy)
-	fakeKeyDesc := keychain.KeyDescriptor{
-		PubKey: privKeyCopy.PubKey(),
-	}
+	genSigner := NewMockGenesisSigner(privKeyCopy)
+	genBuilder := MockGroupTxBuilder{}
+	fakeKeyDesc := test.PubToKeyDesc(privKeyCopy.PubKey())
+	fakeScriptKey := NewScriptKeyBip86(fakeKeyDesc)
 
 	g := Genesis{
 		FirstPrevOut: wire.OutPoint{
@@ -528,16 +529,17 @@ func TestAssetGroupKey(t *testing.T) {
 		OutputIndex: 21,
 		Type:        Collectible,
 	}
+	groupTweak := g.ID()
 
-	var groupBytes bytes.Buffer
-	_ = wire.WriteOutPoint(&groupBytes, 0, 0, &g.FirstPrevOut)
-	_, _ = groupBytes.Write([]byte{0, 0, 0, 21, 1})
-
-	tweakedKey := txscript.TweakTaprootPrivKey(*privKey, groupBytes.Bytes())
+	internalKey := input.TweakPrivKey(privKeyCopy, groupTweak[:])
+	tweakedKey := txscript.TweakTaprootPrivKey(*internalKey, nil)
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	keyGroup, err := DeriveGroupKey(genSigner, fakeKeyDesc, g, nil)
+	protoAsset := NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
+	keyGroup, err := DeriveGroupKey(
+		genSigner, &genBuilder, fakeKeyDesc, g, protoAsset,
+	)
 	require.NoError(t, err)
 
 	require.Equal(

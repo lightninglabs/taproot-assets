@@ -145,7 +145,12 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
-	groupKey := asset.RandGroupKey(t, genesis)
+	scriptKey := test.RandPubKey(t)
+	tweakedScriptKey := asset.NewScriptKey(scriptKey)
+	protoAsset := asset.NewAssetNoErr(
+		t, genesis, 1, 0, 0, tweakedScriptKey, nil,
+	)
+	groupKey := asset.RandGroupKey(t, genesis, protoAsset)
 	groupReveal := asset.GroupKeyReveal{
 		RawKey:        asset.ToSerialized(&groupKey.GroupPubKey),
 		TapscriptRoot: test.RandBytes(32),
@@ -154,7 +159,7 @@ func TestProofEncoding(t *testing.T) {
 	mintCommitment, assets, err := commitment.Mint(
 		genesis, groupKey, &commitment.AssetDetails{
 			Type:             asset.Collectible,
-			ScriptKey:        test.PubToKeyDesc(test.RandPubKey(t)),
+			ScriptKey:        test.PubToKeyDesc(scriptKey),
 			Amount:           nil,
 			LockTime:         1337,
 			RelativeLockTime: 6,
@@ -338,6 +343,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	t.Helper()
 
 	genesisPrivKey := test.RandPrivKey(t)
+	genesisPubKey := test.PubToKeyDesc(genesisPrivKey.PubKey())
 
 	// If we have a specified meta reveal, then we'll replace the meta hash
 	// with the hash of the reveal instead.
@@ -353,22 +359,27 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		genesisMutator(&assetGenesis)
 	}
 
-	assetGroupKey := asset.RandGroupKey(t, assetGenesis)
+	groupAmt := uint64(1)
+	if amt != nil {
+		groupAmt = *amt
+	}
+
+	protoAsset := asset.NewAssetNoErr(
+		t, assetGenesis, groupAmt, 0, 0,
+		asset.NewScriptKeyBip86(genesisPubKey), nil,
+	)
+	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
 	groupKeyReveal := asset.GroupKeyReveal{
 		RawKey: asset.ToSerialized(
 			assetGroupKey.RawKey.PubKey,
 		),
-	}
-	if assetGroupKey.TapscriptRoot != [32]byte{} {
-		groupKeyReveal.TapscriptRoot = assetGroupKey.TapscriptRoot[:]
+		TapscriptRoot: assetGroupKey.TapscriptRoot,
 	}
 
 	tapCommitment, assets, err := commitment.Mint(
 		assetGenesis, assetGroupKey, &commitment.AssetDetails{
-			Type: assetType,
-			ScriptKey: test.PubToKeyDesc(
-				genesisPrivKey.PubKey(),
-			),
+			Type:             assetType,
+			ScriptKey:        genesisPubKey,
 			Amount:           amt,
 			LockTime:         0,
 			RelativeLockTime: 0,
@@ -569,6 +580,7 @@ func TestGenesisProofVerification(t *testing.T) {
 			)
 			_, err := genesisProof.Verify(
 				context.Background(), nil, MockHeaderVerifier,
+				MockGroupVerifier,
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
 
@@ -629,7 +641,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// Verify that the original proof block header is as expected and
 	// therefore an error is not returned.
 	_, err := proof.Verify(
-		context.Background(), nil, headerVerifier,
+		context.Background(), nil, headerVerifier, MockGroupVerifier,
 	)
 	require.NoError(t, err)
 
@@ -637,7 +649,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// propagates the correct error.
 	proof.BlockHeader.Nonce += 1
 	_, actualErr := proof.Verify(
-		context.Background(), nil, headerVerifier,
+		context.Background(), nil, headerVerifier, MockGroupVerifier,
 	)
 	require.ErrorIs(t, actualErr, errHeaderVerifier)
 
@@ -648,7 +660,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// propagates the correct error.
 	proof.BlockHeight += 1
 	_, actualErr = proof.Verify(
-		context.Background(), nil, headerVerifier,
+		context.Background(), nil, headerVerifier, MockGroupVerifier,
 	)
 	require.ErrorIs(t, actualErr, errHeaderVerifier)
 }
@@ -668,13 +680,17 @@ func TestProofFileVerification(t *testing.T) {
 	err = f.Decode(bytes.NewReader(proofBytes))
 	require.NoError(t, err)
 
-	_, err = f.Verify(context.Background(), MockHeaderVerifier)
+	_, err = f.Verify(
+		context.Background(), MockHeaderVerifier, MockGroupVerifier,
+	)
 	require.NoError(t, err)
 
 	// Ensure that verification of a proof of unknown version fails.
 	f.Version = Version(212)
 
-	lastAsset, err := f.Verify(context.Background(), MockHeaderVerifier)
+	lastAsset, err := f.Verify(
+		context.Background(), MockHeaderVerifier, MockGroupVerifier,
+	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
@@ -718,6 +734,7 @@ func TestProofVerification(t *testing.T) {
 
 	lastAsset, err := p.Verify(
 		context.Background(), nil, MockHeaderVerifier,
+		MockGroupVerifier,
 	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
@@ -738,7 +755,10 @@ func TestOwnershipProofVerification(t *testing.T) {
 	err = p.Decode(bytes.NewReader(proofBytes))
 	require.NoError(t, err)
 
-	snapshot, err := p.Verify(context.Background(), nil, MockHeaderVerifier)
+	snapshot, err := p.Verify(
+		context.Background(), nil, MockHeaderVerifier,
+		MockGroupVerifier,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, snapshot)
 }

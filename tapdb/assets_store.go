@@ -1295,7 +1295,8 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 	db ActiveAssetsStore, assetID int32, inputs []asset.Witness) error {
 
 	var buf [8]byte
-	for _, input := range inputs {
+	for idx := range inputs {
+		input := inputs[idx]
 		prevID := input.PrevID
 
 		prevOutpoint, err := encodeOutpoint(prevID.OutPoint)
@@ -1504,8 +1505,8 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, replace bool,
-	proofs ...*proof.AnnotatedProof) error {
+	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
+	replace bool, proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
@@ -2285,9 +2286,10 @@ func logPendingPassiveAssets(ctx context.Context,
 	q ActiveAssetsStore, transferID, newUtxoID int32,
 	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
 
-	for _, passiveAsset := range passiveAssets {
+	for idx := range passiveAssets {
 		// Encode new witness data.
 		var (
+			passiveAsset  = passiveAssets[idx]
 			newWitnessBuf bytes.Buffer
 			buf           [8]byte
 		)

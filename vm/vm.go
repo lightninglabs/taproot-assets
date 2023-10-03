@@ -191,24 +191,37 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 		return ErrInvalidScriptVersion
 	}
 
-	// An input MUST have a prev out and also a valid witness.
-	if witness.PrevID == nil || len(witness.TxWitness) == 0 {
+	// An input must have a valid witness.
+	if len(witness.TxWitness) == 0 {
 		return newErrKind(ErrInvalidTransferWitness)
 	}
 
-	// The parameters of the new and old asset much match exactly.
-	err := matchesAssetParams(vm.newAsset, prevAsset, witness)
-	if err != nil {
-		return err
-	}
-
-	// Update the virtual transaction input with details for the specific
-	// Taproot Asset input and proceed to validate its witness.
-	virtualTxCopy := tapscript.VirtualTxWithInput(
-		virtualTx, prevAsset, inputIdx, witness.TxWitness,
+	var (
+		prevOutFetcher *txscript.CannedPrevOutputFetcher
+		err            error
 	)
 
-	prevOutFetcher, err := tapscript.InputPrevOutFetcher(*prevAsset)
+	// Genesis grouped assets will have a nil PrevID and match the prevAsset
+	// since it is a copy of the original asset. The prevOut used will need
+	// to built from the group key and not the script key.
+	switch {
+	case vm.newAsset.HasGenesisWitnessForGroup():
+		prevOutFetcher, err = asset.GenesisPrevOutFetcher(*prevAsset)
+
+	default:
+		// An input MUST have a prev out and also a valid witness.
+		if witness.PrevID == nil {
+			return newErrKind(ErrInvalidTransferWitness)
+		}
+
+		// The parameters of the new and old asset much match exactly.
+		err = matchesAssetParams(vm.newAsset, prevAsset, witness)
+		if err != nil {
+			return err
+		}
+
+		prevOutFetcher, err = tapscript.InputPrevOutFetcher(*prevAsset)
+	}
 	if err != nil {
 		if errors.Is(err, tapscript.ErrInvalidScriptVersion) {
 			return ErrInvalidScriptVersion
@@ -220,6 +233,12 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	// here as it's a canned fetcher, so it'll return the same prev out
 	// every time.
 	prevOut := prevOutFetcher.FetchPrevOutput(wire.OutPoint{})
+
+	// Update the virtual transaction input with details for the specific
+	// Taproot Asset input and proceed to validate its witness.
+	virtualTxCopy := asset.VirtualTxWithInput(
+		virtualTx, prevAsset, inputIdx, witness.TxWitness,
+	)
 
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)
 
@@ -288,6 +307,20 @@ func (vm *Engine) Execute() error {
 			return newErrKind(ErrInvalidGenesisStateTransition)
 		}
 		return nil
+	}
+
+	// Genesis assets in an asset group have a witness that must be
+	// verified to prove group membership.
+	if vm.newAsset.HasGenesisWitnessForGroup() {
+		if len(vm.splitAssets) > 0 || len(vm.prevAssets) > 0 {
+			return newErrKind(ErrInvalidGenesisStateTransition)
+		}
+
+		// For genesis assets in an asset group, set the previous asset
+		// as the genesis asset.
+		vm.prevAssets = commitment.InputSet{
+			asset.ZeroPrevID: vm.newAsset,
+		}
 	}
 
 	// If we have an asset split, then we need to validate the state

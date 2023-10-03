@@ -1084,7 +1084,8 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = proofFile.Verify(ctx, headerVerifier)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	_, err = proofFile.Verify(ctx, headerVerifier, groupVerifier)
 	if err != nil {
 		// We don't want to fail the RPC request because of a proof
 		// verification error, but we do want to log it for easier
@@ -1188,8 +1189,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
-		rpcGenesis     = decodedProof.GenesisReveal
-		rpcGroupKey    = decodedProof.GroupKeyReveal
+		rpcGenesis     = p.GenesisReveal
+		rpcGroupKey    = p.GroupKeyReveal
 		anchorOutpoint = wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
@@ -1288,24 +1289,26 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	decodedAssetID := decodedProof.Asset.ID()
-	genesisReveal := &taprpc.GenesisReveal{
-		GenesisBaseReveal: &taprpc.GenesisInfo{
-			GenesisPoint: rpcGenesis.FirstPrevOut.String(),
-			Name:         rpcGenesis.Tag,
-			MetaHash:     rpcGenesis.MetaHash[:],
-			AssetId:      decodedAssetID[:],
-			OutputIndex:  rpcGenesis.OutputIndex,
-		},
-		AssetType: taprpc.AssetType(decodedProof.Asset.Type),
+	decodedAssetID := p.Asset.ID()
+	var genesisReveal *taprpc.GenesisReveal
+	if rpcGenesis != nil {
+		genesisReveal = &taprpc.GenesisReveal{
+			GenesisBaseReveal: &taprpc.GenesisInfo{
+				GenesisPoint: rpcGenesis.FirstPrevOut.String(),
+				Name:         rpcGenesis.Tag,
+				MetaHash:     rpcGenesis.MetaHash[:],
+				AssetId:      decodedAssetID[:],
+				OutputIndex:  rpcGenesis.OutputIndex,
+			},
+			AssetType: taprpc.AssetType(p.Asset.Type),
+		}
 	}
 
 	var GroupKeyReveal taprpc.GroupKeyReveal
 	if rpcGroupKey != nil {
-		GroupKeyReveal.RawGroupKey = rpcGroupKey.RawKey[:]
-		if rpcGroupKey.TapscriptRoot != nil {
-			tapscriptRoot := rpcGroupKey.TapscriptRoot[:]
-			GroupKeyReveal.TapscriptRoot = tapscriptRoot
+		GroupKeyReveal = taprpc.GroupKeyReveal{
+			RawGroupKey:   rpcGroupKey.RawKey[:],
+			TapscriptRoot: rpcGroupKey.TapscriptRoot,
 		}
 	}
 
@@ -1371,11 +1374,12 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
 	err := r.cfg.ProofArchive.ImportProofs(
-		ctx, headerVerifier, false,
+		ctx, headerVerifier, groupVerifier, false,
 		&proof.AnnotatedProof{Blob: req.ProofFile},
 	)
 	if err != nil {
@@ -1418,10 +1422,6 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 			spew.Sdump(assetGroup))
 
 		addr.AttachGenesis(*assetGroup.Genesis)
-
-		if assetGroup.GroupKey != nil {
-			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
-		}
 
 		taprootOutputKey, err := addr.TaprootOutputKey()
 		if err != nil {
@@ -1723,10 +1723,6 @@ func marshalAddr(addr *address.Tap,
 	)
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
-
-		if assetGroup.GroupKey != nil {
-			addr.AttachGroupWitness(assetGroup.GroupKey.Witness)
-		}
 
 		outputKey, err := addr.TaprootOutputKey()
 		if err != nil {
@@ -3271,7 +3267,10 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	lastSnapshot, err := proofFile.Verify(ctx, headerVerifier)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	lastSnapshot, err := proofFile.Verify(
+		ctx, headerVerifier, groupVerifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
 	}
@@ -3326,7 +3325,8 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = p.Verify(ctx, nil, headerVerifier)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	_, err = p.Verify(ctx, nil, headerVerifier, groupVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
 	}
