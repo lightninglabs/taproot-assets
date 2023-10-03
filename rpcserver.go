@@ -2535,7 +2535,27 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 	}, nil
 }
 
-func marshalUniID(id universe.Identifier) *unirpc.ID {
+// MarshalUniProofType marshals the universe proof type into the RPC
+// counterpart.
+func MarshalUniProofType(
+	proofType universe.ProofType) (unirpc.ProofType, error) {
+
+	switch proofType {
+	case universe.ProofTypeUnspecified:
+		return unirpc.ProofType_PROOF_TYPE_UNSPECIFIED, nil
+	case universe.ProofTypeIssuance:
+		return unirpc.ProofType_PROOF_TYPE_ISSUANCE, nil
+	case universe.ProofTypeTransfer:
+		return unirpc.ProofType_PROOF_TYPE_TRANSFER, nil
+
+	default:
+		return unirpc.ProofType_PROOF_TYPE_UNSPECIFIED,
+			fmt.Errorf("unknown universe proof type: %v", proofType)
+	}
+}
+
+// MarshalUniID marshals the universe ID into the RPC counterpart.
+func MarshalUniID(id universe.Identifier) (*unirpc.ID, error) {
 	var uniID unirpc.ID
 
 	if id.GroupKey != nil {
@@ -2548,7 +2568,13 @@ func marshalUniID(id universe.Identifier) *unirpc.ID {
 		}
 	}
 
-	return &uniID
+	proofTypeRpc, err := MarshalUniProofType(id.ProofType)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal proof type: %w", err)
+	}
+	uniID.ProofType = proofTypeRpc
+
+	return &uniID, nil
 }
 
 // marshalMssmtNode marshals a MS-SMT node into the RPC counterpart.
@@ -2574,8 +2600,13 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 		rpcGroupedAssets[assetID.String()] = amount
 	}
 
+	uniID, err := MarshalUniID(node.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &unirpc.UniverseRoot{
-		Id:               marshalUniID(node.ID),
+		Id:               uniID,
 		MssmtRoot:        mssmtRoot,
 		AssetName:        node.AssetName,
 		AmountsByAssetId: rpcGroupedAssets,
@@ -2611,15 +2642,43 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	return resp, nil
 }
 
+// UnmarshalUniProofType parses the RPC universe proof type into the native
+// counterpart.
+func UnmarshalUniProofType(rpcType unirpc.ProofType) (universe.ProofType,
+	error) {
+
+	switch rpcType {
+	case unirpc.ProofType_PROOF_TYPE_UNSPECIFIED:
+		return universe.ProofTypeUnspecified, nil
+
+	case unirpc.ProofType_PROOF_TYPE_ISSUANCE:
+		return universe.ProofTypeIssuance, nil
+
+	case unirpc.ProofType_PROOF_TYPE_TRANSFER:
+		return universe.ProofTypeTransfer, nil
+
+	default:
+		return 0, fmt.Errorf("unknown universe proof type: %v", rpcType)
+	}
+}
+
 // unmarshalUniID parses the RPC universe ID into the native counterpart.
 func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+	// Unmarshal the proof type.
+	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
+	if err != nil {
+		return universe.Identifier{}, fmt.Errorf("unable to unmarshal "+
+			"proof type: %w", err)
+	}
+
 	switch {
 	case rpcID.GetAssetId() != nil:
 		var assetID asset.ID
 		copy(assetID[:], rpcID.GetAssetId())
 
 		return universe.Identifier{
-			AssetID: assetID,
+			AssetID:   assetID,
+			ProofType: proofType,
 		}, nil
 
 	case rpcID.GetAssetIdStr() != "":
@@ -2634,7 +2693,8 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		copy(assetID[:], assetIDBytes)
 
 		return universe.Identifier{
-			AssetID: assetID,
+			AssetID:   assetID,
+			ProofType: proofType,
 		}, nil
 
 	case rpcID.GetGroupKey() != nil:
@@ -2644,7 +2704,8 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}
 
 		return universe.Identifier{
-			GroupKey: groupKey,
+			GroupKey:  groupKey,
+			ProofType: proofType,
 		}, nil
 
 	case rpcID.GetGroupKeyStr() != "":
@@ -2661,7 +2722,8 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}
 
 		return universe.Identifier{
-			GroupKey: groupKey,
+			GroupKey:  groupKey,
+			ProofType: proofType,
 		}, nil
 
 	default:
