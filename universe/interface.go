@@ -629,6 +629,53 @@ func ParseStrProofType(typeStr string) (ProofType, error) {
 	}
 }
 
+// FedGlobalSyncConfig is a config that can be used to specify the global
+// (default) federation sync behavior.
+type FedGlobalSyncConfig struct {
+	// ProofTypes represents the configuration target universe proof type.
+	ProofType ProofType
+
+	// AllowSyncExport is a boolean that indicates whether leaves from
+	// universes of the given proof type have may be inserted via federation
+	// sync.
+	AllowSyncInsert bool
+
+	// AllowSyncExport is a boolean that indicates whether leaves from
+	// universes of the given proof type have may be exported via federation
+	// sync.
+	AllowSyncExport bool
+}
+
+// FedUniSyncConfig is a config that can be used to specify the federation sync
+// behavior for a given Universe.
+type FedUniSyncConfig struct {
+	// UniverseID is the ID of the Universe that the config applies to.
+	UniverseID Identifier
+
+	// AllowSyncInsert is a boolean that indicates whether leaves from the
+	// target universe may be inserted via federation sync.
+	AllowSyncInsert bool
+
+	// AllowSyncExport is a boolean that indicates whether leaves from the
+	// target universe may be exported via federation sync.
+	AllowSyncExport bool
+}
+
+// FederationSyncConfigDB is used to manage the set of Universe servers as part
+// of a federation.
+type FederationSyncConfigDB interface {
+	// QueryFederationSyncConfigs returns the global and universe specific
+	// federation sync configs.
+	QueryFederationSyncConfigs(ctx context.Context) ([]*FedGlobalSyncConfig,
+		[]*FedUniSyncConfig, error)
+
+	// UpsertFederationSyncConfig upserts both global and universe specific
+	// federation sync configs.
+	UpsertFederationSyncConfig(
+		ctx context.Context, globalSyncConfigs []*FedGlobalSyncConfig,
+		uniSyncConfigs []*FedUniSyncConfig) error
+}
+
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
 // stats.
 type SyncStatsSort uint8

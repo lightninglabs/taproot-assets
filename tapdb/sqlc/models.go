@@ -158,6 +158,20 @@ type ChainTxn struct {
 	TxIndex     sql.NullInt32
 }
 
+type FederationGlobalSyncConfig struct {
+	ProofType       string
+	AllowSyncInsert bool
+	AllowSyncExport bool
+}
+
+type FederationUniSyncConfig struct {
+	AssetID         []byte
+	GroupKey        []byte
+	ProofType       string
+	AllowSyncInsert bool
+	AllowSyncExport bool
+}
+
 type GenesisAsset struct {
 	GenAssetID     int64
 	AssetID        []byte
