@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
@@ -37,7 +36,7 @@ var (
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
-// Identifier is the identifier for a root/base universe.
+// Identifier is the identifier for a universe.
 type Identifier struct {
 	// AssetID is the asset ID for the universe.
 	//
@@ -46,6 +45,9 @@ type Identifier struct {
 
 	// GroupKey is the group key for the universe.
 	GroupKey *btcec.PublicKey
+
+	// ProofType is the type of proof that should be stored in the universe.
+	ProofType ProofType
 }
 
 // Bytes returns a bytes representation of the ID.
@@ -59,7 +61,10 @@ func (i *Identifier) Bytes() [32]byte {
 
 // String returns a string representation of the ID.
 func (i *Identifier) String() string {
-	return hex.EncodeToString(fn.ByteSlice(i.Bytes()))
+	// The namespace is prefixed by the proof type. This is done to make it
+	// easier to identify the proof type when looking at a list of
+	// namespaces (say, in a DB explorer).
+	return fmt.Sprintf("%s-%x", i.ProofType, i.Bytes())
 }
 
 // StringForLog returns a string representation of the ID for logging.
@@ -71,8 +76,8 @@ func (i *Identifier) StringForLog() string {
 		)
 	}
 
-	return fmt.Sprintf("%v (asset_id=%x, group_key=%v)",
-		i.String(), i.AssetID[:], groupKey)
+	return fmt.Sprintf("%v (asset_id=%x, group_key=%v, proof_type=%v)",
+		i.String(), i.AssetID[:], groupKey, i.ProofType)
 }
 
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
