@@ -81,3 +81,49 @@ CREATE VIEW universe_stats AS
     FROM universe_events u
     JOIN universe_roots roots ON u.universe_root_id = roots.id
     GROUP BY roots.asset_id, roots.group_key, roots.namespace_root;
+
+-- This table contains global configuration for universe federation syncing.
+CREATE TABLE IF NOT EXISTS federation_global_sync_config (
+    -- This field is an enum representing the proof type stored in the given
+    -- universe.
+    proof_type TEXT NOT NULL PRIMARY KEY CHECK(proof_type IN ('issuance', 'transfer')),
+
+    -- This field is a boolean that indicates whether or not a universe of the
+    -- given proof type should accept remote proof insertion via federation
+    -- sync.
+    allow_sync_insert BOOLEAN NOT NULL,
+
+    -- This field is a boolean that indicates whether or not a universe of the
+    -- given proof type should accept remote proof export via federation sync.
+    allow_sync_export BOOLEAN NOT NULL
+);
+
+-- This table contains universe (asset/asset group) specific federation sync
+-- configuration.
+CREATE TABLE IF NOT EXISTS federation_uni_sync_config (
+    -- This field contains the byte serialized ID of the asset that this
+    -- configuration applies to.
+    asset_id  BLOB CHECK(length(asset_id) = 32),
+
+    -- This field contains the byte serialized group key public key of the asset
+    -- group that this configuration applies to.
+    group_key BLOB CHECK(LENGTH(group_key) = 32),
+
+    -- This field is an enum representing the proof type stored in the given
+    -- universe.
+    proof_type TEXT NOT NULL CHECK(proof_type IN ('issuance', 'transfer')),
+
+    -- This field is a boolean that indicates whether or not the given universe
+    -- should accept remote proof insertion via federation sync.
+    allow_sync_insert BOOLEAN NOT NULL,
+
+    -- This field is a boolean that indicates whether or not the given universe
+    -- should accept remote proof export via federation sync.
+    allow_sync_export BOOLEAN NOT NULL,
+
+    -- Both the asset ID and group key cannot be null at the same time.
+    CHECK (asset_id IS NOT NULL OR group_key IS NOT NULL),
+
+    -- The primary key is the universe identifier: the asset ID and group key.
+    PRIMARY KEY (asset_id, group_key, proof_type)
+);

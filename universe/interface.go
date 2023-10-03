@@ -616,6 +616,64 @@ func (t ProofType) String() string {
 	return fmt.Sprintf("unknown(%v)", int(t))
 }
 
+// ParseProofType parses a proof type from a string.
+func ParseProofType(proofTypesStr string) (ProofType, error) {
+	switch proofTypesStr {
+	case "unspecified":
+		return ProofTypeUnspecified, nil
+	case "issuance":
+		return ProofTypeIssuance, nil
+	case "transfer":
+		return ProofTypeTransfer, nil
+	}
+
+	return ProofTypeUnspecified, fmt.Errorf("unknown proof type: %s",
+		proofTypesStr)
+}
+
+// FedGlobalSyncConfig is a config that can be used to specify the global
+// (default) federation sync behavior.
+type FedGlobalSyncConfig struct {
+	// ProofTypes represents the configuration target universe proof type.
+	ProofType ProofType
+
+	// AllowSyncExport is a boolean that indicates whether leaves from
+	// universes of the given proof type have may be inserted via federation
+	// sync.
+	AllowSyncInsert bool
+
+	// AllowSyncExport is a boolean that indicates whether leaves from
+	// universes of the given proof type have may be exported via federation
+	// sync.
+	AllowSyncExport bool
+}
+
+// FedUniSyncConfig is a config that can be used to specify the federation sync
+// behavior for a given Universe.
+type FedUniSyncConfig struct {
+	// UniverseID is the ID of the Universe that the config is for.
+	UniverseID Identifier
+
+	// ProofTypes represents the proof types that should be synced for the
+	// target Universe.
+	ProofTypes ProofType
+}
+
+// FederationSyncConfigDB is used to manage the set of Universe servers as part
+// of a federation.
+type FederationSyncConfigDB interface {
+	// QueryFederationSyncConfigs returns the general and universe specific
+	// federation sync configs.
+	QueryFederationSyncConfigs(ctx context.Context) (*FedGlobalSyncConfig,
+		[]*FedUniSyncConfig, error)
+
+	// UpsertFederationSyncConfig upserts both the general and universe
+	// specific federation sync configs.
+	UpsertFederationSyncConfig(
+		ctx context.Context, generalSyncConfig *FedGlobalSyncConfig,
+		uniSyncConfigs []*FedUniSyncConfig) error
+}
+
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
 // stats.
 type SyncStatsSort uint8
