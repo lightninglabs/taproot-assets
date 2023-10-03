@@ -44,7 +44,7 @@ func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 func unmarshalUniverseRoot(
 	root *unirpc.UniverseRoot) (universe.BaseRoot, error) {
 
-	id, err := unmarshalUniID(root.Id)
+	id, err := UnmarshalUniID(root.Id)
 	if err != nil {
 		return universe.BaseRoot{}, err
 	}
@@ -60,7 +60,7 @@ func unmarshalUniverseRoots(
 
 	baseRoots := make([]universe.BaseRoot, 0, len(roots))
 	for _, root := range roots {
-		id, err := unmarshalUniID(root.Id)
+		id, err := UnmarshalUniID(root.Id)
 		if err != nil {
 			return nil, err
 		}
