@@ -552,6 +552,44 @@ type FederationLog interface {
 	LogNewSyncs(ctx context.Context, addrs ...ServerAddr) error
 }
 
+// ProofType is an enum that describes the type of proof which can be stored in
+// a given universe.
+type ProofType int
+
+const (
+	// ProofTypeNone indicates that all proofs should be excluded from the
+	// universe.
+	ProofTypeNone ProofType = iota
+
+	// ProofTypeIssuance indicates that issuance proofs should be included
+	// in the universe.
+	ProofTypeIssuance
+
+	// ProofTypeTransfer indicates that transfer proofs should be included
+	// in the universe.
+	ProofTypeTransfer
+)
+
+// String returns a human-readable string representation of the sync proof types
+// enum.
+func (t ProofType) String() string {
+	return []string{"none", "issuance", "transfer"}[t]
+}
+
+// NewSyncProofTypesFromString returns a new proof type given a string.
+func NewSyncProofTypesFromString(s string) (ProofType, error) {
+	switch s {
+	case "none":
+		return ProofTypeNone, nil
+	case "issuance":
+		return ProofTypeIssuance, nil
+	case "transfer":
+		return ProofTypeTransfer, nil
+	default:
+		return ProofTypeNone, fmt.Errorf("unknown proof type: %v", s)
+	}
+}
+
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
 // stats.
 type SyncStatsSort uint8
