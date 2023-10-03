@@ -369,6 +369,47 @@ func (q *Queries) QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAsse
 	return items, nil
 }
 
+const queryFederationGeneralSyncConfig = `-- name: QueryFederationGeneralSyncConfig :one
+SELECT maximum_proof_type
+FROM federation_general_sync_config
+LIMIT 1
+`
+
+func (q *Queries) QueryFederationGeneralSyncConfig(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, queryFederationGeneralSyncConfig)
+	var maximum_proof_type string
+	err := row.Scan(&maximum_proof_type)
+	return maximum_proof_type, err
+}
+
+const queryFederationUniSyncConfigs = `-- name: QueryFederationUniSyncConfigs :many
+SELECT asset_id, group_key, proof_type
+FROM federation_uni_sync_config
+`
+
+func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]FederationUniSyncConfig, error) {
+	rows, err := q.db.QueryContext(ctx, queryFederationUniSyncConfigs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FederationUniSyncConfig
+	for rows.Next() {
+		var i FederationUniSyncConfig
+		if err := rows.Scan(&i.AssetID, &i.GroupKey, &i.ProofType); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const queryUniverseAssetStats = `-- name: QueryUniverseAssetStats :many
 
 WITH asset_supply AS (
@@ -589,6 +630,19 @@ func (q *Queries) QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow
 	return i, err
 }
 
+const setFederationGeneralSyncConfig = `-- name: SetFederationGeneralSyncConfig :exec
+INSERT INTO federation_general_sync_config (maximum_proof_type)
+VALUES ($1)
+ON CONFLICT(id)
+    DO UPDATE SET
+    maximum_proof_type = $1
+`
+
+func (q *Queries) SetFederationGeneralSyncConfig(ctx context.Context, maximumProofType string) error {
+	_, err := q.db.ExecContext(ctx, setFederationGeneralSyncConfig, maximumProofType)
+	return err
+}
+
 const universeLeaves = `-- name: UniverseLeaves :many
 SELECT id, asset_genesis_id, minting_point, script_key_bytes, universe_root_id, leaf_node_key, leaf_node_namespace FROM universe_leaves
 `
@@ -672,6 +726,29 @@ func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertFederationUniSyncConfig = `-- name: UpsertFederationUniSyncConfig :exec
+INSERT INTO federation_uni_sync_config  (
+    asset_id, group_key, proof_type
+)
+VALUES(
+       $1, $2, $3
+)
+ON CONFLICT(asset_id, group_key)
+    DO UPDATE SET
+        proof_type = $3
+`
+
+type UpsertFederationUniSyncConfigParams struct {
+	AssetID   []byte
+	GroupKey  []byte
+	ProofType string
+}
+
+func (q *Queries) UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error {
+	_, err := q.db.ExecContext(ctx, upsertFederationUniSyncConfig, arg.AssetID, arg.GroupKey, arg.ProofType)
+	return err
 }
 
 const upsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec

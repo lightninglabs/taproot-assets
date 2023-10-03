@@ -260,3 +260,31 @@ WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
       event_timestamp >= @start_time AND event_timestamp <= @end_time
 GROUP BY day
 ORDER BY day;
+
+-- name: SetFederationGeneralSyncConfig :exec
+INSERT INTO federation_general_sync_config (maximum_proof_type)
+VALUES (@maximum_proof_type)
+ON CONFLICT(id)
+    DO UPDATE SET
+    maximum_proof_type = @maximum_proof_type;
+
+-- name: QueryFederationGeneralSyncConfig :one
+SELECT maximum_proof_type
+FROM federation_general_sync_config
+LIMIT 1;
+
+-- name: UpsertFederationUniSyncConfig :exec
+INSERT INTO federation_uni_sync_config  (
+    asset_id, group_key, proof_type
+)
+VALUES(
+       @asset_id, @group_key, @proof_type
+)
+ON CONFLICT(asset_id, group_key)
+    DO UPDATE SET
+        proof_type = @proof_type
+;
+
+-- name: QueryFederationUniSyncConfigs :many
+SELECT asset_id, group_key, proof_type
+FROM federation_uni_sync_config;

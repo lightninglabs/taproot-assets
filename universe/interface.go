@@ -590,6 +590,40 @@ func ParseProofType(s string) (ProofType, error) {
 	}
 }
 
+// FedGeneralSyncConfig is a config that can be used to specify the general
+// federation sync behavior.
+type FedGeneralSyncConfig struct {
+	// ProofTypes represents the proof types that should be synced for
+	// universes which do not have a specific config.
+	ProofTypes ProofType
+}
+
+// FedUniSyncConfig is a config that can be used to specify the federation sync
+// behavior for a given Universe.
+type FedUniSyncConfig struct {
+	// UniverseID is the ID of the Universe that the config is for.
+	UniverseID Identifier
+
+	// ProofTypes represents the proof types that should be synced for the
+	// target Universe.
+	ProofTypes ProofType
+}
+
+// FederationSyncConfigDB is used to manage the set of Universe servers as part
+// of a federation.
+type FederationSyncConfigDB interface {
+	// QueryFederationSyncConfigs returns the general and universe specific
+	// federation sync configs.
+	QueryFederationSyncConfigs(ctx context.Context) (*FedGeneralSyncConfig,
+		[]*FedUniSyncConfig, error)
+
+	// UpsertFederationSyncConfig upserts both the general and universe
+	// specific federation sync configs.
+	UpsertFederationSyncConfig(
+		ctx context.Context, generalSyncConfig *FedGeneralSyncConfig,
+		uniSyncConfigs []*FedUniSyncConfig) error
+}
+
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
 // stats.
 type SyncStatsSort uint8
