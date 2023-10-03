@@ -95,8 +95,12 @@ func (r *RpcUniverseDiff) RootNodes(
 func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	id universe.Identifier) (universe.BaseRoot, error) {
 
+	uniID, err := MarshalUniID(id)
+	if err != nil {
+		return universe.BaseRoot{}, err
+	}
 	rootReq := &universerpc.AssetRootQuery{
-		Id: marshalUniID(id),
+		Id: uniID,
 	}
 
 	universeRoot, err := r.conn.QueryAssetRoots(ctx, rootReq)
@@ -111,7 +115,11 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	id universe.Identifier) ([]universe.LeafKey, error) {
 
-	assetKeys, err := r.conn.AssetLeafKeys(ctx, marshalUniID(id))
+	uniID, err := MarshalUniID(id)
+	if err != nil {
+		return nil, err
+	}
+	assetKeys, err := r.conn.AssetLeafKeys(ctx, uniID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,8 +148,13 @@ func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
 	id universe.Identifier,
 	key universe.LeafKey) ([]*universe.Proof, error) {
 
+	uniID, err := MarshalUniID(id)
+	if err != nil {
+		return nil, err
+	}
+
 	uProofs, err := r.conn.QueryProof(ctx, &universerpc.UniverseKey{
-		Id:      marshalUniID(id),
+		Id:      uniID,
 		LeafKey: marshalLeafKey(key),
 	})
 	if err != nil {
