@@ -157,6 +157,12 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 		}
 	}
 
+	// Ensure the proof is of the correct type for the target universe.
+	err := ValidateProofUniverseType(newProof, id)
+	if err != nil {
+		return nil, err
+	}
+
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
 	issuanceProofs, err := a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
