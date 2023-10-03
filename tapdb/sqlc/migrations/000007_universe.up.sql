@@ -81,3 +81,33 @@ CREATE VIEW universe_stats AS
     FROM universe_events u
     JOIN universe_roots roots ON u.universe_root_id = roots.id
     GROUP BY roots.asset_id, roots.group_key, roots.namespace_root;
+
+-- This table contains general configuration for universe federation syncing.
+CREATE TABLE IF NOT EXISTS federation_general_sync_config (
+    -- This ID column is used to ensure that only one row exists in this table.
+    id INTEGER PRIMARY KEY,
+
+    -- This field is an enum representing the "maximum" proof type that should
+    -- be synced by default for all universes. Maximum here follows the
+    -- following ordering from min to max: none < issuance < transfer.
+    maximum_proof_type TEXT CHECK(maximum_proof_type IN ('none', 'issuance', 'transfer')) NOT NULL DEFAULT 'issuance'
+);
+
+-- This table contains universe (asset/asset group) specific federation sync
+-- configuration.
+CREATE TABLE IF NOT EXISTS federation_uni_sync_config (
+    -- This field contains the byte serialized ID of the asset that this
+    -- configuration applies to.
+    asset_id  BLOB NOT NULL UNIQUE CHECK(length(asset_id) = 32),
+
+    -- This field contains the byte serialized group key public key of the asset
+    -- group that this configuration applies to.
+    group_key BLOB,
+
+    -- This field is an enum representing the proof type that should be synced
+    -- for the given universe.
+    proof_type TEXT CHECK(proof_type IN ('none', 'issuance', 'transfer')) NOT NULL DEFAULT 'issuance',
+
+    -- The primary key is the universe identifier: the asset ID and group key.
+    PRIMARY KEY (asset_id, group_key)
+);

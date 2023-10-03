@@ -188,6 +188,14 @@ var (
 			Entity: "universe",
 			Action: "read",
 		}},
+		"/universerpc.Universe/SetFederationSyncConfig": {{
+			Entity: "universe",
+			Action: "write",
+		}},
+		"/universerpc.Universe/QueryFederationSyncConfig": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/tapdevrpc.TapDev/ImportProof": {{
 			Entity: "proofs",
 			Action: "write",

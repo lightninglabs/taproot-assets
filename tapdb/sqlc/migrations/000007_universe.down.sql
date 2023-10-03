@@ -9,3 +9,5 @@ DROP INDEX IF EXISTS universe_roots_asset_id_idx;
 DROP INDEX IF EXISTS universe_roots_group_key_idx;
 DROP INDEX IF EXISTS universe_leaves_key_idx;
 DROP INDEX IF EXISTS universe_leaves_namespace;
+DROP INDEX IF EXISTS federation_general_sync_config;
+DROP INDEX IF EXISTS federation_uni_sync_config;
