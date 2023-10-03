@@ -14,6 +14,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/neutrino/cache/lru"
+
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -1263,35 +1265,61 @@ func GenHeaderVerifier(ctx context.Context,
 	}
 }
 
-// GenGroupVeifier generates a group key verification callback function given
-// a DB handle.
+// assetGroupCacheSize is the size of the cache for group keys.
+const assetGroupCacheSize = 10000
+
+// emptyVal is a simple type def around struct{} to use as a dummy value in in
+// the cache.
+type emptyVal struct{}
+
+// singleCacheValue is a dummy value that can be used to add an element to the
+// cache. This should be used when the cache just needs to worry aobut the
+// total number of elements, and not also the size (in bytes) of the elements.
+type singleCacheValue[T any] struct {
+	val T
+}
+
+// Size determines how big this entry would be in the cache.
+func (s singleCacheValue[T]) Size() (uint64, error) {
+	return 1, nil
+}
+
+// newSingleValue creates a new single cache value.
+func newSingleValue[T any](v T) singleCacheValue[T] {
+	return singleCacheValue[T]{
+		val: v,
+	}
+}
+
+// emptyCacheVal is a type def for an empty cache value. In this case the cache
+// is used more as a set.
+type emptyCacheVal = singleCacheValue[emptyVal]
+
+// GenGroupVeifier generates a group key verification callback function given a
+// DB handle.
 func GenGroupVerifier(ctx context.Context,
 	mintingStore MintingStore) func(*btcec.PublicKey) error {
 
 	// Cache known group keys that were previously fetched.
-	assetGroups := fn.NewSet[asset.SerializedKey]()
-
-	// verifierLock is a mutex that must be held when using the group
-	// anchor verifier.
-	var verifierLock sync.Mutex
+	assetGroups := lru.NewCache[
+		asset.SerializedKey, emptyCacheVal](
+		assetGroupCacheSize,
+	)
 
 	return func(groupKey *btcec.PublicKey) error {
 		if groupKey == nil {
 			return fmt.Errorf("cannot verify empty group key")
 		}
 
-		verifierLock.Lock()
-		defer verifierLock.Unlock()
-
 		assetGroupKey := asset.ToSerialized(groupKey)
-		ok := assetGroups.Contains(assetGroupKey)
-		if ok {
+		_, err := assetGroups.Get(assetGroupKey)
+		if err == nil {
 			return nil
 		}
 
 		// This query will err if no stored group has a matching
 		// tweaked group key.
-		_, err := mintingStore.FetchGroupByGroupKey(
+		_, err = mintingStore.FetchGroupByGroupKey(
 			ctx, groupKey,
 		)
 		if err != nil {
@@ -1299,33 +1327,28 @@ func GenGroupVerifier(ctx context.Context,
 				ErrGroupKeyUnknown)
 		}
 
-		assetGroups.Add(assetGroupKey)
+		_, _ = assetGroups.Put(assetGroupKey, emptyCacheVal{})
 
 		return nil
 	}
 }
 
-// GenGroupAnchorVerifier generates a caching group anchor verification callback
-// function given a DB handle.
+// GenGroupAnchorVerifier generates a caching group anchor verification
+// callback function given a DB handle.
 func GenGroupAnchorVerifier(ctx context.Context,
 	mintingStore MintingStore) func(*asset.Genesis,
 	*asset.GroupKey) error {
 
 	// Cache anchors for groups that were previously fetched.
-	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
-
-	// verifierLock is a mutex that must be held when using the group
-	// anchor verifier.
-	var verifierLock sync.Mutex
+	groupAnchors := lru.NewCache[
+		asset.SerializedKey, singleCacheValue[*asset.Genesis]](
+		assetGroupCacheSize,
+	)
 
 	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
-		verifierLock.Lock()
-		defer verifierLock.Unlock()
-
 		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
-		groupAnchor, ok := groupAnchors[assetGroupKey]
-
-		if !ok {
+		groupAnchor, err := groupAnchors.Get(assetGroupKey)
+		if err != nil {
 			storedGroup, err := mintingStore.FetchGroupByGroupKey(
 				ctx, &groupKey.GroupPubKey,
 			)
@@ -1333,11 +1356,12 @@ func GenGroupAnchorVerifier(ctx context.Context,
 				return ErrGroupKeyUnknown
 			}
 
-			groupAnchors[assetGroupKey] = storedGroup.Genesis
-			groupAnchor = storedGroup.Genesis
+			groupAnchor = newSingleValue(storedGroup.Genesis)
+
+			_, _ = groupAnchors.Put(assetGroupKey, groupAnchor)
 		}
 
-		if gen.ID() != groupAnchor.ID() {
+		if gen.ID() != groupAnchor.val.ID() {
 			return ErrGenesisNotGroupAnchor
 		}
 
@@ -1353,20 +1377,15 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 	*asset.GroupKey) error {
 
 	// Cache group anchors we already verified.
-	groupAnchors := make(map[asset.SerializedKey]*asset.Genesis)
-
-	// verifierLock is a mutex that must be held when using the group
-	// anchor verifier.
-	var verifierLock sync.Mutex
+	groupAnchors := lru.NewCache[
+		asset.SerializedKey, singleCacheValue[*asset.Genesis]](
+		assetGroupCacheSize,
+	)
 
 	return func(gen *asset.Genesis, groupKey *asset.GroupKey) error {
-		verifierLock.Lock()
-		defer verifierLock.Unlock()
-
 		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
-		groupAnchor, ok := groupAnchors[assetGroupKey]
-
-		if !ok {
+		groupAnchor, err := groupAnchors.Get(assetGroupKey)
+		if err != nil {
 			// TODO(jhb): add tapscript root support
 			singleTweak := gen.ID()
 			tweakedGroupKey, err := asset.GroupPubKey(
@@ -1381,12 +1400,14 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 				return ErrGenesisNotGroupAnchor
 			}
 
-			groupAnchors[assetGroupKey] = gen
+			groupAnchor = newSingleValue(gen)
+
+			_, _ = groupAnchors.Put(assetGroupKey, groupAnchor)
 
 			return nil
 		}
 
-		if gen.ID() != groupAnchor.ID() {
+		if gen.ID() != groupAnchor.val.ID() {
 			return ErrGenesisNotGroupAnchor
 		}
 
