@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -550,6 +551,35 @@ type FederationLog interface {
 	// LogNewSyncs logs a new sync event for each server. This can be used
 	// to keep track of the last time we synced with a remote server.
 	LogNewSyncs(ctx context.Context, addrs ...ServerAddr) error
+}
+
+// ProofType is an enum that describes the type of proof which can be stored in
+// a given universe.
+type ProofType uint8
+
+const (
+	// ProofTypeUnspecified signifies an unspecified proof type.
+	ProofTypeUnspecified ProofType = iota
+
+	// ProofTypeIssuance corresponds to the issuance proof type.
+	ProofTypeIssuance
+
+	// ProofTypeTransfer corresponds to the transfer proof type.
+	ProofTypeTransfer
+)
+
+// String returns a human-readable string representation of the proof type.
+func (t ProofType) String() string {
+	switch t {
+	case ProofTypeUnspecified:
+		return "unspecified"
+	case ProofTypeIssuance:
+		return "issuance"
+	case ProofTypeTransfer:
+		return "transfer"
+	}
+
+	return fmt.Sprintf("unknown(%v)", int(t))
 }
 
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
