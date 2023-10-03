@@ -10,10 +10,10 @@
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 5577006791947779410,
+        "amount": 134020434,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taprt1qqqsqqspqqzzq73cz93shve4q0r9xmp6yg7netktj0l9ta9ngw2j3m0j0vgd8r5nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7nt9sgss0l8a2gxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn5zn5dz",
+      "expected": "taprt1qqqsqqspqqzzq73cz93shve4q0r9xmp6yg7netktj0l9ta9ngw2j3m0j0vgd8r5nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgzluplul4fqc2ngv9eksmtpd9kr5te0wfskuepwdpshx6rdv95kctnswfhk7e3wvdhh2unfv4er5dp5xvsnxtg0",
       "comment": "valid regtest address"
     },
     {
@@ -26,10 +26,10 @@
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 3510942875414458836,
+        "amount": 2210689492,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapsb1qqqsqqspqqzzpzkt292zv9p9m4snlksemmsq550ft35jrhu27sy9h3rgwp4egmlvqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7v9etlcc83r36sxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnrzxc4w",
+      "expected": "tapsb1qqqsqqspqqzzpzkt292zv9p9m4snlksemmsq550ft35jrhu27sy9h3rgwp4egmlvqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgzlaq7yw82qc2ngv9eksmtpd9kr5te0wfskuepwdpshx6rdv95kctnswfhk7e3wvdhh2unfv4er5dp5xv6f3kgz",
       "comment": "valid simnet address"
     },
     {
@@ -42,10 +42,10 @@
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 2740103009342231109,
+        "amount": 1473417797,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "taptb1qqqsqqspqqzzqcz9nja56nn20zuvtp297tlqy6kjz7lsltlw6hl4uwen08r93h0nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7fsxe544055jg5xz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpny8e5zg",
+      "expected": "taptb1qqqsqqspqqzzqcz9nja56nn20zuvtp297tlqy6kjz7lsltlw6hl4uwen08r93h0nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgzlu47jjfzsc2ngv9eksmtpd9kr5te0wfskuepwdpshx6rdv95kctnswfhk7e3wvdhh2unfv4er5dp5xvxehu4k",
       "comment": "valid testnet address"
     },
     {
@@ -58,10 +58,10 @@
         "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
-        "amount": 545291762129038907,
+        "amount": 4104515131,
         "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
       },
-      "expected": "tapbc1qqqsqqspqqzzpuk8pcfxrdmp7zvynxgc4nmveuvd0kw00nttury5qcc0qep6hqevqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7pu3g0mlff0w8vxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnlhg0u8",
+      "expected": "tapbc1qqqsqqspqqzzpuk8pcfxrdmp7zvynxgc4nmveuvd0kw00nttury5qcc0qep6hqevqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgzlaa99acasc2ngv9eksmtpd9kr5te0wfskuepwdpshx6rdv95kctnswfhk7e3wvdhh2unfv4er5dp5xv0h7upk",
       "comment": "valid mainnet address"
     },
     {

@@ -43,7 +43,7 @@
         "genesis_meta_hash": "d3d8df93fab7e125ddebafe65a31bd5d41e2d2ce9c2b17892f0fea1931a29022",
         "genesis_output_index": 25252826,
         "genesis_type": 0,
-        "amount": 9018276315719068316,
+        "amount": 1019275931,
         "lock_time": 0,
         "relative_lock_time": 0,
         "prev_witnesses": [
@@ -54,7 +54,7 @@
               "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
             },
             "tx_witness": [
-              "7dc3f7063deb5f85e62ff3635bd8e2cdbcb4e23b493074809c4ea2a88c4894f1bb4bba18ab51bdf4905c4047ba2fa972190355d210ce94693c84e106db7d0c87"
+              "8d48851acdf9ff78840ac6522c9c15122cab96b951d64da9035dbe5ee7ae81c65a5798bbe86fc56646edbee4dedee8e658b1b88da9ae53cd52fb27e08098b866"
             ],
             "split_commitment": null
           }
@@ -149,7 +149,7 @@
         "genesis_meta_hash": "e4613bb365b2ebb44f0ffb6907136385cdc838f0bdd4c812f042577410aca008",
         "genesis_output_index": 2531337014,
         "genesis_type": 0,
-        "amount": 8716283094932373785,
+        "amount": 5422170391,
         "lock_time": 0,
         "relative_lock_time": 0,
         "prev_witnesses": [
@@ -160,7 +160,7 @@
               "script_key": "022622cb5de340e3b724a50e46aa24eea9dd1041527f130a6a24006707e5e26f15"
             },
             "tx_witness": [
-              "e44eb8c4a6fc1c74ea5cb24a666f06f8b5ff95b9af237410fe7df765fd5c52f2a9de4705c67062dcde16a278d2b22356688c4e2ff62aa24d66ae02f60a843cb9"
+              "6194ff54d7d7068a6fc939bba852b5203b8508ec635c04c2d2f16f367c23a048a1e69d8e5b871a37346202cfef4f6a65b475503b419fa311d21bf7fb30ce85f8"
             ],
             "split_commitment": null
           },
@@ -171,7 +171,7 @@
               "script_key": "020b538161670c27c1aec60995f6b207ffb8fa1cda1f5306783dd0c501ed39622a"
             },
             "tx_witness": [
-              "907cd455532536fc8eac51e906f7a55131f674d8582fb1adf4afd2a506ade63abc34a6b75bf92bc6f873494a048f72a62115609ed76c8cf414b50a6048c3d036",
+              "a7401f25dd2a5e3648f0f83e3f6646d1eccf1a97573ec6d5079acec20ae839d71e3d49c5b8b685c90e6c6f1be21a5fe39c6403a4eac5b1d815d575c273eb5d0e",
               "200716050e6976c3f5f8463da04004e0030827d8c77dd82e188c72c83eb47fb200ad56b2",
               "c00716050e6976c3f5f8463da04004e0030827d8c77dd82e188c72c83eb47fb200"
             ],
@@ -200,7 +200,7 @@
             "genesis_meta_hash": "6ab00e40f67aab29332de1448b35507c7c8a09c4db07105dc31003620405da3b",
             "genesis_output_index": 2349636590,
             "genesis_type": 0,
-            "amount": 2522543887406335641,
+            "amount": 4080010904,
             "lock_time": 0,
             "relative_lock_time": 6,
             "prev_witnesses": [
@@ -235,7 +235,7 @@
             "genesis_meta_hash": "e4613bb365b2ebb44f0ffb6907136385cdc838f0bdd4c812f042577410aca008",
             "genesis_output_index": 2531337014,
             "genesis_type": 0,
-            "amount": 6193739207526038144,
+            "amount": 1342159487,
             "lock_time": 0,
             "relative_lock_time": 0,
             "prev_witnesses": [

@@ -307,7 +307,7 @@
         "genesis_meta_hash": "ea3d1676c1bdd19ab8e2925c6daee4de5ef9f9dcf08dfcbd02b8080939858592",
         "genesis_output_index": 498759598,
         "genesis_type": 0,
-        "amount": 2863951798888068529,
+        "amount": 3130029488,
         "lock_time": 0,
         "relative_lock_time": 0,
         "prev_witnesses": [
@@ -318,7 +318,7 @@
               "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
             },
             "tx_witness": [
-              "065c44e9f8a2b84055ce761dddb668d0e34f8fdfac61cf0b2ea1be1fb9b77ca674a9ef01c8d20950173fbb0196ce019c8fccbc21a6a2d7b8ee755f5041ebe6ff"
+              "cd072d06fea6a259498c3df649486574e6e4ed5e2d738d1390c95e27d1d08a815bfb51d64f5d948ec1f921ac63c66039a5d5219d1b9979f81909a05c0f00a743"
             ],
             "split_commitment": null
           }

@@ -1,0 +1,66 @@
+{
+  "valid_test_cases": [
+    {
+      "asset": {
+        "version": 0,
+        "genesis_first_prev_out": "0101010101010101010101010101010101010101010101010101010101010101:1",
+        "genesis_tag": "asset",
+        "genesis_meta_hash": "0102030000000000000000000000000000000000000000000000000000000000",
+        "genesis_output_index": 1,
+        "genesis_type": 0,
+        "amount": 4294967295,
+        "lock_time": 0,
+        "relative_lock_time": 0,
+        "prev_witnesses": [
+          {
+            "prev_id": {
+              "out_point": "0000000000000000000000000000000000000000000000000000000000000000:0",
+              "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
+              "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "tx_witness": null,
+            "split_commitment": null
+          }
+        ],
+        "split_commitment_root": null,
+        "script_version": 0,
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "group_key": null
+      },
+      "expected": "000100014f010101010101010101010101010101010101010101010101010101010101010100000001056173736574010203000000000000000000000000000000000000000000000000000000000000000001000201000305feffffffff066901670065000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008020000092102a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+      "comment": "max uint32 valid asset value"
+    }
+  ],
+  "error_test_cases": [
+    {
+      "asset": {
+        "version": 0,
+        "genesis_first_prev_out": "0101010101010101010101010101010101010101010101010101010101010101:1",
+        "genesis_tag": "asset",
+        "genesis_meta_hash": "0102030000000000000000000000000000000000000000000000000000000000",
+        "genesis_output_index": 1,
+        "genesis_type": 0,
+        "amount": 4294967296,
+        "lock_time": 0,
+        "relative_lock_time": 0,
+        "prev_witnesses": [
+          {
+            "prev_id": {
+              "out_point": "0000000000000000000000000000000000000000000000000000000000000000:0",
+              "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
+              "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "tx_witness": null,
+            "split_commitment": null
+          }
+        ],
+        "split_commitment_root": null,
+        "script_version": 0,
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "group_key": null
+      },
+      "error": "asset: max issuance units exceeded",
+      "comment": "invalid asset value \u003e max uint32"
+    }
+  ]
+}
