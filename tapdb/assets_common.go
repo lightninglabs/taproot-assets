@@ -3,12 +3,12 @@ package tapdb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -57,8 +57,9 @@ type UpsertAssetStore interface {
 	// UpsertScriptKey inserts a new script key on disk into the DB.
 	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
 
-	// UpsertAssetGroupSig inserts a new asset group sig into the DB.
-	UpsertAssetGroupSig(ctx context.Context, arg AssetGroupSig) (int32, error)
+	// UpsertAssetGroupWitness inserts a new asset group witness into the DB.
+	UpsertAssetGroupWitness(ctx context.Context,
+		arg AssetGroupWitness) (int32, error)
 
 	// UpsertAssetGroupKey inserts a new or updates an existing group key
 	// on disk, and returns the primary key.
@@ -179,7 +180,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// This asset has as key group, so we'll insert it into the
 		// database. If it doesn't exist, the UPSERT query will still
 		// return the group_id we'll need.
-		groupSigID, err := upsertGroupKey(
+		groupWitnessID, err := upsertGroupKey(
 			ctx, a.GroupKey, q, genesisPointID, genAssetID,
 		)
 		if err != nil {
@@ -203,15 +204,15 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		// base asset information itself.
 		assetIDs[idx], err = q.InsertNewAsset(
 			ctx, sqlc.InsertNewAssetParams{
-				GenesisID:        genAssetID,
-				Version:          int32(a.Version),
-				ScriptKeyID:      scriptKeyID,
-				AssetGroupSigID:  groupSigID,
-				ScriptVersion:    int32(a.ScriptVersion),
-				Amount:           int64(a.Amount),
-				LockTime:         sqlInt32(a.LockTime),
-				RelativeLockTime: sqlInt32(a.RelativeLockTime),
-				AnchorUtxoID:     anchorUtxoID,
+				GenesisID:           genAssetID,
+				Version:             int32(a.Version),
+				ScriptKeyID:         scriptKeyID,
+				AssetGroupWitnessID: groupWitnessID,
+				ScriptVersion:       int32(a.ScriptVersion),
+				Amount:              int64(a.Amount),
+				LockTime:            sqlInt32(a.LockTime),
+				RelativeLockTime:    sqlInt32(a.RelativeLockTime),
+				AnchorUtxoID:        anchorUtxoID,
 			},
 		)
 		if err != nil {
@@ -259,8 +260,17 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		return nullID, fmt.Errorf("unable to insert internal key: %w",
 			err)
 	}
+
+	// The only valid size for a non-empty Tapscript root is 32 bytes.
+	if len(groupKey.TapscriptRoot) != 0 &&
+		len(groupKey.TapscriptRoot) != sha256.Size {
+
+		return nullID, fmt.Errorf("tapscript root invalid: wrong size")
+	}
+
 	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
 		TweakedGroupKey: tweakedKeyBytes,
+		TapscriptRoot:   groupKey.TapscriptRoot,
 		InternalKeyID:   keyID,
 		GenesisPointID:  genesisPointID,
 	})
@@ -272,19 +282,27 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 	// With the statement above complete, we'll now insert the
 	// asset_group_sig entry for this, which has a one-to-many relationship
 	// with group keys (there can be many sigs for a group key which link
-	// together otherwise disparate asset IDs).
-	//
-	// TODO(roasbeef): sig here doesn't actually matter?
-	groupSigID, err := q.UpsertAssetGroupSig(ctx, AssetGroupSig{
-		GenesisSig: groupKey.Sig.Serialize(),
-		GenAssetID: genAssetID,
-		GroupKeyID: groupID,
+	// together otherwise disparate asset IDs). But the witness is optional,
+	// so in case we don't have one, we can just return a nil ID.
+	if len(groupKey.Witness) == 0 {
+		return nullID, nil
+	}
+
+	witnessBytes, err := asset.SerializeGroupWitness(groupKey.Witness)
+	if err != nil {
+		return nullID, err
+	}
+
+	groupWitnessID, err := q.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
+		WitnessStack: witnessBytes,
+		GenAssetID:   genAssetID,
+		GroupKeyID:   groupID,
 	})
 	if err != nil {
 		return nullID, fmt.Errorf("unable to insert group sig: %w", err)
 	}
 
-	return sqlInt32(groupSigID), nil
+	return sqlInt32(groupWitnessID), nil
 }
 
 // upsertScriptKey inserts or updates a script key and its associated internal
@@ -426,7 +444,8 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 
 	groupKey, err := parseGroupKeyInfo(
 		groupInfo.TweakedGroupKey, groupInfo.RawKey,
-		groupInfo.GenesisSig, groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.WitnessStack, groupInfo.TapscriptRoot,
+		groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -459,8 +478,8 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	}
 
 	groupKey, err := parseGroupKeyInfo(
-		groupKeyQuery, groupInfo.RawKey, groupInfo.GenesisSig,
-		groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupKeyQuery, groupInfo.RawKey, groupInfo.WitnessStack,
+		groupInfo.TapscriptRoot, groupInfo.KeyFamily, groupInfo.KeyIndex,
 	)
 	if err != nil {
 		return nil, err
@@ -473,7 +492,7 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 }
 
 // parseGroupKeyInfo maps information on a group key into a GroupKey.
-func parseGroupKeyInfo(tweakedKey, rawKey, genesisSig []byte,
+func parseGroupKeyInfo(tweakedKey, rawKey, witness, tapscriptRoot []byte,
 	keyFamily, keyIndex int32) (*asset.GroupKey, error) {
 
 	tweakedGroupKey, err := btcec.ParsePubKey(tweakedKey)
@@ -494,15 +513,19 @@ func parseGroupKeyInfo(tweakedKey, rawKey, genesisSig []byte,
 		PubKey: untweakedKey,
 	}
 
-	groupSig, err := schnorr.ParseSignature(genesisSig)
-	if err != nil {
-		return nil, err
+	var groupWitness wire.TxWitness
+	if len(witness) != 0 {
+		groupWitness, err = asset.ParseGroupWitness(witness)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &asset.GroupKey{
-		RawKey:      groupRawKey,
-		GroupPubKey: *tweakedGroupKey,
-		Sig:         *groupSig,
+		RawKey:        groupRawKey,
+		GroupPubKey:   *tweakedGroupKey,
+		TapscriptRoot: tapscriptRoot,
+		Witness:       groupWitness,
 	}, nil
 }
 

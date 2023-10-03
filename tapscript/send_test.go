@@ -103,6 +103,9 @@ func initSpendScenario(t *testing.T) spendData {
 	state.genesis1.MetaHash = [32]byte{}
 	state.genesis1collect.MetaHash = [32]byte{}
 
+	// Our mock genesis TXs always use an output index of 0.
+	state.genesis1.OutputIndex = 0
+
 	// Keys for sender, receiver, and group. Default to keypath spend
 	// for the spender ScriptKey.
 	spenderPrivKey, spenderPubKey := btcec.PrivKeyFromBytes(key1Bytes)
@@ -119,7 +122,12 @@ func initSpendScenario(t *testing.T) spendData {
 	state.receiverPrivKey = *receiverPrivKey
 	state.receiverPubKey = *receiverPubKey
 
-	groupKey := asset.RandGroupKey(t, state.genesis1collect)
+	genesis1collectProtoAsset := asset.NewAssetNoErr(
+		t, state.genesis1collect, 1, 0, 0, spenderScriptKey, nil,
+	)
+	groupKey := asset.RandGroupKey(
+		t, state.genesis1collect, genesis1collectProtoAsset,
+	)
 	state.groupKey = *groupKey
 
 	// Addresses to cover both asset types and all three asset values.
@@ -137,7 +145,7 @@ func initSpendScenario(t *testing.T) spendData {
 
 	address1CollectGroup, err := address.New(
 		address.V0, state.genesis1collect, &state.groupKey.GroupPubKey,
-		&state.groupKey.Sig, state.receiverPubKey,
+		state.groupKey.Witness, state.receiverPubKey,
 		state.receiverPubKey, state.collectAmt, nil,
 		&address.TestNet3Tap, proofCourierAddr,
 	)
@@ -271,7 +279,9 @@ func createGenesisProof(t *testing.T, state *spendData) {
 	require.NoError(t, err)
 	asset2GenesisTx := &wire.MsgTx{
 		Version: 2,
-		TxIn:    []*wire.TxIn{{}},
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: state.genesis1.FirstPrevOut,
+		}},
 		TxOut: []*wire.TxOut{{
 			PkScript: senderScript,
 			Value:    330,
@@ -311,6 +321,7 @@ func createGenesisProof(t *testing.T, state *spendData) {
 				Proof: *asset2CommitmentProof,
 			},
 		},
+		GenesisReveal: &state.asset2.Genesis,
 	}
 
 	state.asset2GenesisProof = asset2GenesisProof
@@ -1725,7 +1736,7 @@ func TestProofVerify(t *testing.T) {
 	// Add a PrevID to represent our fake genesis TX.
 	genesisOutPoint := &wire.OutPoint{
 		Hash:  state.asset2GenesisProof.AnchorTx.TxHash(),
-		Index: state.asset2GenesisProof.PrevOut.Index,
+		Index: state.asset2GenesisProof.InclusionProof.OutputIndex,
 	}
 	state.asset2PrevID = asset.PrevID{
 		OutPoint:  *genesisOutPoint,
@@ -1750,21 +1761,29 @@ func TestProofVerify(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
-	_, err = senderFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = senderFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
 	require.NoError(t, err)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
-	_, err = receiverFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = receiverFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 }
 
@@ -1788,7 +1807,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	// Add a PrevID to represent our fake genesis TX.
 	genesisOutPoint := &wire.OutPoint{
 		Hash:  state.asset2GenesisProof.AnchorTx.TxHash(),
-		Index: state.asset2GenesisProof.PrevOut.Index,
+		Index: state.asset2GenesisProof.InclusionProof.OutputIndex,
 	}
 	state.asset2PrevID = asset.PrevID{
 		OutPoint:  *genesisOutPoint,
@@ -1815,21 +1834,29 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
 	require.NoError(t, err)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
-	_, err = senderFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = senderFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
-	_, err = receiverFile.Verify(context.TODO(), proof.MockHeaderVerifier)
+	_, err = receiverFile.Verify(
+		context.TODO(), proof.MockHeaderVerifier,
+		proof.MockGroupVerifier,
+	)
 	require.NoError(t, err)
 }
 

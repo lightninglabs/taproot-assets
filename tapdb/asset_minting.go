@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -97,9 +96,9 @@ type (
 	// the DB.
 	GenesisAsset = sqlc.UpsertGenesisAssetParams
 
-	// AssetGroupSig is used to insert the group key signature for a given
+	// AssetGroupWitness is used to insert the group key witness for a given
 	// asset on disk.
-	AssetGroupSig = sqlc.UpsertAssetGroupSigParams
+	AssetGroupWitness = sqlc.UpsertAssetGroupWitnessParams
 
 	// AssetSprout is used to fetch the set of assets from disk.
 	AssetSprout = sqlc.FetchAssetsForBatchRow
@@ -488,9 +487,9 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				return nil, err
 			}
 
-			// Clear the group signature, which is for the group
+			// Clear the group witness, which is for the group
 			// anchor and not this seedling.
-			seedlingGroup.Sig = schnorr.Signature{}
+			seedlingGroup.Witness = nil
 
 			seedling.GroupInfo = seedlingGroup
 		}
@@ -572,7 +571,9 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 			if err != nil {
 				return nil, err
 			}
-			groupSig, err := schnorr.ParseSignature(sprout.GenesisSig)
+			groupWitness, err := asset.ParseGroupWitness(
+				sprout.WitnessStack,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -592,7 +593,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 					},
 				},
 				GroupPubKey: *tweakedGroupKey,
-				Sig:         *groupSig,
+				Witness:     groupWitness,
 			}
 		}
 
@@ -938,6 +939,22 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	// assets committed to within the root commitment specified.
 	assets := assetRoot.CommittedAssets()
 
+	// Before we store any assets from the batch, we need to sort the assets
+	// so that we insert group anchors before reissunces. This is required
+	// to store the asset genesis as the group anchor. All future group
+	// anchor verification depends on inserting group anchors before
+	// reissuances here. We use the raw group anchor verifier since there
+	// is not yet any stored asset group to reference in the verifier.
+	anchorVerifier := tapgarden.GenRawGroupAnchorVerifier(ctx)
+	anchorAssets, nonAnchorAssets, err := tapgarden.SortAssets(
+		assets, anchorVerifier,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to sort assets: %w", err)
+	}
+
+	sortedAssets := append(anchorAssets, nonAnchorAssets...)
+
 	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
 
 	rawBatchKey := batchKey.SerializeCompressed()
@@ -945,7 +962,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		genesisPointID, _, err := upsertAssetsWithGenesis(
-			ctx, q, genesisOutpoint, assets, nil,
+			ctx, q, genesisOutpoint, sortedAssets, nil,
 		)
 		if err != nil {
 			return fmt.Errorf("error inserting assets with "+

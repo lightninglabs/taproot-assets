@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -383,6 +382,10 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	AssertAsset(t, a, decodeResp.DecodedProof.Asset)
 	proofAsset := decodeResp.DecodedProof.Asset
 
+	// The decoded asset will not include the genesis or group key reveal,
+	// so check those separately.
+	assertProofReveals(t, proofAsset, decodeResp.DecodedProof)
+
 	// Ensure anchor block height is set.
 	anchorTxBlockHeight := proofAsset.ChainAnchor.BlockHeight
 	require.Greater(t, anchorTxBlockHeight, uint32(0))
@@ -421,7 +424,27 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		return err
 	}
 
-	snapshot, err := f.Verify(ctxt, headerVerifier)
+	groupVerifier := func(groupKey *btcec.PublicKey) error {
+		assetGroupKey := hex.EncodeToString(
+			groupKey.SerializeCompressed(),
+		)
+
+		// The given group key should be listed as a known group.
+		assetGroups, err := tapClient.ListGroups(
+			ctxt, &taprpc.ListGroupsRequest{},
+		)
+		require.NoError(t, err)
+
+		_, ok := assetGroups.Groups[assetGroupKey]
+		if !ok {
+			return fmt.Errorf("group key %s not known",
+				assetGroupKey)
+		}
+
+		return nil
+	}
+
+	snapshot, err := f.Verify(ctxt, headerVerifier, groupVerifier)
 	require.NoError(t, err)
 
 	return f, snapshot
@@ -716,11 +739,27 @@ func AssertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 	// The raw key isn't always set as that's not contained in proofs for
 	// example.
 	if expected.AssetGroup != nil {
-		eg := expected.AssetGroup
-		ag := actual.AssetGroup
+		require.Equal(
+			t, expected.AssetGroup.TweakedGroupKey,
+			actual.AssetGroup.TweakedGroupKey,
+		)
+	}
+}
 
-		require.Equal(t, eg.AssetIdSig, ag.AssetIdSig)
-		require.Equal(t, eg.TweakedGroupKey, ag.TweakedGroupKey)
+func assertProofReveals(t *testing.T, expected *taprpc.Asset,
+	actual *taprpc.DecodedProof) {
+
+	if actual.GenesisReveal != nil {
+		actual.GenesisReveal.GenesisBaseReveal.Version =
+			expected.AssetGenesis.Version
+
+		require.Equal(
+			t, expected.AssetGenesis,
+			actual.GenesisReveal.GenesisBaseReveal,
+		)
+		require.Equal(
+			t, expected.AssetType, actual.GenesisReveal.AssetType,
+		)
 	}
 }
 
@@ -888,15 +927,20 @@ func AssertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
 // AssertGroupAnchor asserts that a specific asset genesis was used to create
 // a tweaked group key.
 func AssertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
-	internalKey, tweakedKey []byte) {
+	anchorGroup *taprpc.AssetGroup) {
 
-	internalPubKey, err := btcec.ParsePubKey(internalKey)
+	internalPubKey, err := btcec.ParsePubKey(anchorGroup.RawGroupKey)
 	require.NoError(t, err)
-	computedGroupPubKey := txscript.ComputeTaprootOutputKey(
-		internalPubKey, anchorGen.GroupKeyTweak(),
+
+	// TODO(jhb): add tapscript root support
+	anchorTweak := anchorGen.ID()
+	computedGroupPubKey, err := asset.GroupPubKey(
+		internalPubKey, anchorTweak[:], nil,
 	)
+	require.NoError(t, err)
+
 	computedGroupKey := computedGroupPubKey.SerializeCompressed()
-	require.Equal(t, tweakedKey, computedGroupKey)
+	require.Equal(t, anchorGroup.TweakedGroupKey, computedGroupKey)
 }
 
 // MatchRpcAsset is a function that returns true if the given RPC asset is a
@@ -1190,10 +1234,7 @@ func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
 
 	anchorGen := ParseGenInfo(t, anchor.AssetGenesis)
 	anchorGen.Type = asset.Type(anchor.AssetType)
-	AssertGroupAnchor(
-		t, anchorGen, anchor.AssetGroup.RawGroupKey,
-		anchor.AssetGroup.TweakedGroupKey,
-	)
+	AssertGroupAnchor(t, anchorGen, anchor.AssetGroup)
 
 	return anchor
 }
@@ -1226,6 +1267,7 @@ func AssertAssetsMinted(t *testing.T,
 
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: assetRequest.Asset.AssetMeta.Data,
 		}).MetaHash()
 		mintedAsset := AssertAssetState(
@@ -1372,6 +1414,7 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 		b *taprpc.AssetHumanReadable) {
 
 		metaHash := (&proof.MetaReveal{
+			Type: proof.MetaOpaque,
 			Data: a.AssetMeta.Data,
 		}).MetaHash()
 

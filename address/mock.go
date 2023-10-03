@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -33,6 +33,13 @@ func RandAddr(t testing.TB, params *ChainParams,
 	*asset.Genesis, *asset.GroupKey) {
 
 	scriptKeyPriv := test.RandPrivKey(t)
+	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: scriptKeyPriv.PubKey(),
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(test.RandIntn(255) + 1),
+			Index:  uint32(test.RandIntn(255)),
+		},
+	})
 
 	internalKey := test.RandPrivKey(t)
 
@@ -45,29 +52,24 @@ func RandAddr(t testing.TB, params *ChainParams,
 	var (
 		groupInfo        *asset.GroupKey
 		groupPubKey      *btcec.PublicKey
-		groupSig         *schnorr.Signature
+		groupWitness     wire.TxWitness
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
 	if test.RandInt[uint32]()%2 == 0 {
-		groupInfo = asset.RandGroupKey(t, genesis)
+		protoAsset := asset.NewAssetNoErr(
+			t, genesis, amount, 0, 0, scriptKey, nil,
+		)
+		groupInfo = asset.RandGroupKey(t, genesis, protoAsset)
 		groupPubKey = &groupInfo.GroupPubKey
-		groupSig = &groupInfo.Sig
+		groupWitness = groupInfo.Witness
 
 		tapscriptSibling = commitment.NewPreimageFromLeaf(
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
 		)
 	}
 
-	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
-		PubKey: scriptKeyPriv.PubKey(),
-		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(test.RandIntn(255) + 1),
-			Index:  uint32(test.RandIntn(255)),
-		},
-	})
-
 	tapAddr, err := New(
-		V0, genesis, groupPubKey, groupSig, *scriptKey.PubKey,
+		V0, genesis, groupPubKey, groupWitness, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
 		proofCourierAddr,
 	)

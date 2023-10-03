@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -27,7 +28,8 @@ func NewMockVerifier(t *testing.T) *MockVerifier {
 }
 
 func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
-	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
+	headerVerifier HeaderVerifier,
+	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
@@ -46,6 +48,29 @@ func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
 // Chain data is not available in unit tests. This function is useful for unit
 // tests which are not primarily concerned with block header verification.
 func MockHeaderVerifier(header wire.BlockHeader, height uint32) error {
+	return nil
+}
+
+// MockGroupVerifier is a mock verifier which approves of all group keys.
+//
+// Group key verification usually involves having imported the group anchor
+// before verification, and many unit tests are not focused on group key
+// functionality but still use functions that require a group verifier.
+// This function is used in those cases.
+func MockGroupVerifier(groupKey *btcec.PublicKey) error {
+	return nil
+}
+
+// MockGroupAnchorVerifier is a mock verifier which approves of all group anchor
+// geneses.
+//
+// Group anchor verification usually involves accurately computing a group key,
+// and many unit tests are not focused on group key functionality but still use
+// functions that require a group anchor verifier. This function is used in
+// those cases.
+func MockGroupAnchorVerifier(gen *asset.Genesis,
+	groupKey *asset.GroupKey) error {
+
 	return nil
 }
 
@@ -111,22 +136,36 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 		)
 	}
 
+	if p.GenesisReveal != nil {
+		tp.GenesisReveal = asset.NewTestFromGenesisReveal(
+			t, p.GenesisReveal,
+		)
+	}
+
+	if p.GroupKeyReveal != nil {
+		tp.GroupKeyReveal = asset.NewTestFromGroupKeyReveal(
+			t, p.GroupKeyReveal,
+		)
+	}
+
 	return tp
 }
 
 type TestProof struct {
-	PrevOut          string              `json:"prev_out"`
-	BlockHeader      *TestBlockHeader    `json:"block_header"`
-	BlockHeight      uint32              `json:"block_height"`
-	AnchorTx         string              `json:"anchor_tx"`
-	TxMerkleProof    *TestTxMerkleProof  `json:"tx_merkle_proof"`
-	Asset            *asset.TestAsset    `json:"asset"`
-	InclusionProof   *TestTaprootProof   `json:"inclusion_proof"`
-	ExclusionProofs  []*TestTaprootProof `json:"exclusion_proofs"`
-	SplitRootProof   *TestTaprootProof   `json:"split_root_proof"`
-	MetaReveal       *TestMetaReveal     `json:"meta_reveal"`
-	AdditionalInputs []string            `json:"additional_inputs"`
-	ChallengeWitness []string            `json:"challenge_witness"`
+	PrevOut          string                    `json:"prev_out"`
+	BlockHeader      *TestBlockHeader          `json:"block_header"`
+	BlockHeight      uint32                    `json:"block_height"`
+	AnchorTx         string                    `json:"anchor_tx"`
+	TxMerkleProof    *TestTxMerkleProof        `json:"tx_merkle_proof"`
+	Asset            *asset.TestAsset          `json:"asset"`
+	InclusionProof   *TestTaprootProof         `json:"inclusion_proof"`
+	ExclusionProofs  []*TestTaprootProof       `json:"exclusion_proofs"`
+	SplitRootProof   *TestTaprootProof         `json:"split_root_proof"`
+	MetaReveal       *TestMetaReveal           `json:"meta_reveal"`
+	AdditionalInputs []string                  `json:"additional_inputs"`
+	ChallengeWitness []string                  `json:"challenge_witness"`
+	GenesisReveal    *asset.TestGenesisReveal  `json:"genesis_reveal"`
+	GroupKeyReveal   *asset.TestGroupKeyReveal `json:"group_key_reveal"`
 }
 
 func (tp *TestProof) ToProof(t testing.TB) *Proof {
@@ -173,6 +212,14 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 		require.NoError(t, err)
 
 		p.ChallengeWitness = append(p.ChallengeWitness, b)
+	}
+
+	if tp.GenesisReveal != nil {
+		p.GenesisReveal = tp.GenesisReveal.ToGenesisReveal(t)
+	}
+
+	if tp.GroupKeyReveal != nil {
+		p.GroupKeyReveal = tp.GroupKeyReveal.ToGroupKeyReveal(t)
 	}
 
 	return p

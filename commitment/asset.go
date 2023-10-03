@@ -47,13 +47,6 @@ var (
 	ErrAssetDuplicateScriptKey = errors.New(
 		"asset commitment: duplicate script key",
 	)
-
-	// ErrAssetGenesisInvalidSig is an error returned when we attempt to
-	// create a new asset commitment from a genesis with an invalid
-	// signature with their group key.
-	ErrAssetGenesisInvalidSig = errors.New(
-		"asset commitment: invalid genesis signature",
-	)
 )
 
 // CommittedAssets is the set of Assets backing an AssetCommitment.
@@ -109,41 +102,31 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		assetGroupKey    = assets[0].GroupKey
 		assetsMap        = make(CommittedAssets, len(assets))
 	)
-	for idx, asset := range assets {
+	for idx, newAsset := range assets {
 		// Inspect the first asset to note properties which should be
 		// consistent across all assets.
 		if idx == 0 {
 			// Set the asset type from the first asset.
-			assetType = asset.Type
+			assetType = newAsset.Type
 
 			// Set the expected tapCommitmentKey from the first
 			// asset.
-			tapCommitmentKey = asset.TapCommitmentKey()
+			tapCommitmentKey = newAsset.TapCommitmentKey()
 		}
 
 		// Return error if the asset type doesn't match the previously
 		// encountered asset types.
-		if assetType != asset.Type {
+		if assetType != newAsset.Type {
 			return nil, ErrAssetTypeMismatch
 		}
 
 		switch {
-		case !assetGroupKey.IsEqualGroup(asset.GroupKey):
+		case !assetGroupKey.IsEqualGroup(newAsset.GroupKey):
 			return nil, ErrAssetGroupKeyMismatch
 
 		case assetGroupKey == nil:
-			if assetGenesis != asset.Genesis.ID() {
+			if assetGenesis != newAsset.Genesis.ID() {
 				return nil, ErrAssetGenesisMismatch
-			}
-
-		case assetGroupKey != nil:
-			// There should be a valid Schnorr sig over the asset ID
-			// in the group key struct.
-			validSig := asset.Genesis.VerifySignature(
-				&asset.GroupKey.Sig, &assetGroupKey.GroupPubKey,
-			)
-			if !validSig {
-				return nil, ErrAssetGenesisInvalidSig
 			}
 		}
 
@@ -152,20 +135,20 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		//
 		// NOTE: This sanity check executes after the group key check
 		// because it is a less specific check.
-		if tapCommitmentKey != asset.TapCommitmentKey() {
+		if tapCommitmentKey != newAsset.TapCommitmentKey() {
 			return nil, fmt.Errorf("inconsistent asset " +
 				"TapCommitmentKey")
 		}
 
-		key := asset.AssetCommitmentKey()
+		key := newAsset.AssetCommitmentKey()
 		if _, ok := assetsMap[key]; ok {
 			return nil, fmt.Errorf("%w: %x",
 				ErrAssetDuplicateScriptKey, key[:])
 		}
-		if asset.Version > maxVersion {
-			maxVersion = asset.Version
+		if newAsset.Version > maxVersion {
+			maxVersion = newAsset.Version
 		}
-		assetsMap[key] = asset
+		assetsMap[key] = newAsset
 	}
 
 	// The assetID here is what will be used to place this asset commitment
@@ -199,9 +182,9 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 	}
 
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-	for _, asset := range assets {
-		key := asset.AssetCommitmentKey()
-		leaf, err := asset.Leaf()
+	for _, newAsset := range assets {
+		key := newAsset.AssetCommitmentKey()
+		leaf, err := newAsset.Leaf()
 		if err != nil {
 			return nil, err
 		}
@@ -224,44 +207,33 @@ func NewAssetCommitment(assets ...*asset.Asset) (*AssetCommitment, error) {
 
 // Upsert modifies one entry in the AssetCommitment by inserting (or updating)
 // it in the inner MS-SMT and adding (or updating) it in the internal asset map.
-func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
-	if asset == nil {
+func (c *AssetCommitment) Upsert(newAsset *asset.Asset) error {
+	if newAsset == nil {
 		return ErrNoAssets
 	}
 
 	// Sanity check the asset type of the given asset. This check ensures
 	// that all assets committed to within the tree are of the same type.
-	if c.AssetType != asset.Type {
+	if c.AssetType != newAsset.Type {
 		return ErrAssetTypeMismatch
 	}
 
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
-	if asset.TapCommitmentKey() != c.AssetID {
-		if asset.GroupKey != nil {
+	if newAsset.TapCommitmentKey() != c.AssetID {
+		if newAsset.GroupKey != nil {
 			return ErrAssetGroupKeyMismatch
 		}
 		return ErrAssetGenesisMismatch
 	}
 
-	// There should be a valid Schnorr sig over the asset ID
-	// in the group key struct.
-	if asset.GroupKey != nil {
-		validSig := asset.Genesis.VerifySignature(
-			&asset.GroupKey.Sig, &asset.GroupKey.GroupPubKey,
-		)
-		if !validSig {
-			return ErrAssetGenesisInvalidSig
-		}
-	}
-
-	key := asset.AssetCommitmentKey()
+	key := newAsset.AssetCommitmentKey()
 
 	// TODO(bhandras): thread the context through.
 	ctx := context.TODO()
 
-	leaf, err := asset.Leaf()
+	leaf, err := newAsset.Leaf()
 	if err != nil {
 		return err
 	}
@@ -276,7 +248,7 @@ func (c *AssetCommitment) Upsert(asset *asset.Asset) error {
 		return err
 	}
 
-	c.assets[key] = asset
+	c.assets[key] = newAsset
 	return nil
 }
 

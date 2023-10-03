@@ -24,7 +24,8 @@ type Verifier interface {
 	// error if the proof file is valid. A valid file should return an
 	// AssetSnapshot of the final state transition of the file.
 	Verify(c context.Context, blobReader io.Reader,
-		headerVerifier HeaderVerifier) (*AssetSnapshot, error)
+		headerVerifier HeaderVerifier,
+		groupVerifier GroupVerifier) (*AssetSnapshot, error)
 }
 
 // BaseVerifier implements a simple verifier that loads the entire proof file
@@ -36,7 +37,8 @@ type BaseVerifier struct {
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
 func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
-	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
+	headerVerifier HeaderVerifier,
+	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
 
 	var proofFile File
 	err := proofFile.Decode(blobReader)
@@ -44,7 +46,7 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 		return nil, fmt.Errorf("unable to parse proof: %w", err)
 	}
 
-	return proofFile.Verify(ctx, headerVerifier)
+	return proofFile.Verify(ctx, headerVerifier, groupVerifier)
 }
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
@@ -163,7 +165,8 @@ func (p *Proof) verifyExclusionProofs() error {
 // state transition. This method returns the split asset information if this
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
-	prev *AssetSnapshot, headerVerifier HeaderVerifier) (bool, error) {
+	prev *AssetSnapshot, headerVerifier HeaderVerifier,
+	groupVerifier GroupVerifier) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -207,7 +210,9 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		inputProof := inputProof
 
 		errGroup.Go(func() error {
-			result, err := inputProof.Verify(ctx, headerVerifier)
+			result, err := inputProof.Verify(
+				ctx, headerVerifier, groupVerifier,
+			)
 			if err != nil {
 				return err
 			}
@@ -272,15 +277,87 @@ func (p *Proof) verifyChallengeWitness() (bool, error) {
 	return p.Asset.HasSplitCommitmentWitness(), engine.Execute()
 }
 
-// verifyMetaReveal verifies that the "meta hash" of the contained meta reveal
-// matches that of the genesis asset included in this proof.
-func (p *Proof) verifyMetaReveal() error {
-	// TODO(roasbeef): enforce practical limit on size of meta reveal
+// verifyGenesisReveal checks that the genesis reveal present in the proof at
+// minting validates against the asset ID and proof details.
+func (p *Proof) verifyGenesisReveal() error {
+	reveal := p.GenesisReveal
+	if reveal == nil {
+		return ErrGenesisRevealRequired
+	}
 
-	metaRevealHash := p.MetaReveal.MetaHash()
-	if metaRevealHash != p.Asset.Genesis.MetaHash {
-		return fmt.Errorf("%w: %x vs %x", ErrMetaRevealMismatch,
-			metaRevealHash[:], p.Asset.Genesis.MetaHash[:])
+	// The genesis reveal determines the ID of an asset, so make sure it is
+	// consistent.
+	assetID := p.Asset.ID()
+	if reveal.ID() != assetID {
+		return ErrGenesisRevealAssetIDMismatch
+	}
+
+	// We also make sure the genesis reveal is consistent with the TLV
+	// fields in the state transition proof.
+	if reveal.FirstPrevOut != p.PrevOut {
+		return ErrGenesisRevealPrevOutMismatch
+	}
+
+	// TODO(roasbeef): enforce practical limit on size of meta reveal
+	// If this asset has an empty meta reveal, then the meta hash must be
+	// empty. Otherwise, the meta hash must match the meta reveal.
+	var proofMeta [asset.MetaHashLen]byte
+	if p.MetaReveal == nil && reveal.MetaHash != proofMeta {
+		return ErrGenesisRevealMetaRevealRequired
+	}
+
+	if p.MetaReveal != nil {
+		proofMeta = p.MetaReveal.MetaHash()
+	}
+
+	if reveal.MetaHash != proofMeta {
+		return ErrGenesisRevealMetaHashMismatch
+	}
+
+	if reveal.OutputIndex != p.InclusionProof.OutputIndex {
+		return ErrGenesisRevealOutputIndexMismatch
+	}
+
+	if reveal.Type != p.Asset.Type {
+		return ErrGenesisRevealTypeMismatch
+	}
+
+	return nil
+}
+
+// verifyGenesisGroupKey verifies that the group key attached to the asset in
+// this proof has already been verified.
+func (p *Proof) verfyGenesisGroupKey(groupVerifier GroupVerifier) error {
+	groupKey := p.Asset.GroupKey.GroupPubKey
+	err := groupVerifier(&groupKey)
+	if err != nil {
+		return ErrGroupKeyUnknown
+	}
+
+	return nil
+}
+
+// verifyGroupKeyReveal verifies that the group key reveal can be used to derive
+// the same key as the group key specified for the asset.
+func (p *Proof) verifyGroupKeyReveal() error {
+	groupKey := p.Asset.GroupKey
+	if groupKey == nil {
+		return ErrGroupKeyRequired
+	}
+
+	reveal := p.GroupKeyReveal
+	if reveal == nil {
+		return ErrGroupKeyRevealRequired
+	}
+
+	revealedKey, err := reveal.GroupPubKey(p.Asset.ID())
+	if err != nil {
+		return err
+	}
+
+	// Make sure the derived key matches what we expect.
+	if !groupKey.GroupPubKey.IsEqual(revealedKey) {
+		return ErrGroupKeyRevealMismatch
 	}
 
 	return nil
@@ -290,8 +367,20 @@ func (p *Proof) verifyMetaReveal() error {
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 
+// GroupVerifier is a callback function which returns an error if the given
+// group key has not been imported by the tapd daemon. This can occur if the
+// issuance proof for the group anchor has not been imported or synced.
+type GroupVerifier func(groupKey *btcec.PublicKey) error
+
+// GroupAnchorVerifier is a callback function which returns an error if the
+// given genesis is not the asset genesis of the group anchor. This callback
+// should return an error for any reissuance into an existing group.
+type GroupAnchorVerifier func(gen *asset.Genesis,
+	groupKey *asset.GroupKey) error
+
 // Verify verifies the proof by ensuring that:
 //
+//  0. A proof has a valid version.
 //  1. A transaction that spends the previous asset output has a valid merkle
 //     proof within a block in the chain.
 //  2. A valid inclusion proof for the resulting asset is included.
@@ -301,7 +390,13 @@ type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 //  5. A set of asset inputs with valid witnesses are included that satisfy the
 //     resulting state transition.
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
-	headerVerifier HeaderVerifier) (*AssetSnapshot, error) {
+	headerVerifier HeaderVerifier,
+	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
+
+	// 0. Check only for the proof version.
+	if p.IsUnknownVersion() {
+		return nil, ErrUnknownVersion
+	}
 
 	// Ensure proof asset is valid.
 	if err := p.Asset.Validate(); err != nil {
@@ -329,6 +424,9 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, ErrInvalidTxMerkleProof
 	}
 
+	// TODO(jhb): check for genesis asset and populate asset fields before
+	// further verification
+
 	// 2. A valid inclusion proof for the resulting asset is included.
 	tapCommitment, err := p.verifyInclusionProof()
 	if err != nil {
@@ -353,31 +451,62 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		return nil, err
 	}
 
-	// 5. If this is a genesis asset, and it also has a meta reveal, then
-	// we'll validate that now.
+	// 5. If this is a genesis asset, start by verifying the
+	// genesis reveal, which should be present for genesis assets.
+	// Non-genesis assets must not have a genesis or meta reveal.
+	isGenesisAsset := p.Asset.HasGenesisWitness() ||
+		p.Asset.HasGenesisWitnessForGroup()
+	hasGenesisReveal := p.GenesisReveal != nil
 	hasMetaReveal := p.MetaReveal != nil
-	hasMetaHash := p.Asset.MetaHash != [asset.MetaHashLen]byte{}
-	isGenesisAsset := p.Asset.HasGenesisWitness()
+
 	switch {
-	// If this asset doesn't have a genesis witness, and it includes a
-	// meta reveal, then we deem this to be invalid.
+	case !isGenesisAsset && hasGenesisReveal:
+		return nil, ErrNonGenesisAssetWithGenesisReveal
 	case !isGenesisAsset && hasMetaReveal:
 		return nil, ErrNonGenesisAssetWithMetaReveal
-
-	// If this a genesis asset, and it doesn't have a meta reveal (but it
-	// has a non-zero meta hash), then this is invalid.
-	case isGenesisAsset && hasMetaHash && !hasMetaReveal:
-		return nil, ErrMetaRevealRequired
-
-	// Otherwise, if it has a genesis witness, along with a meta reveal,
-	// then we'll validate that now.
-	case isGenesisAsset && hasMetaHash && hasMetaReveal:
-		if err := p.verifyMetaReveal(); err != nil {
+	case isGenesisAsset && !hasGenesisReveal:
+		return nil, ErrGenesisRevealRequired
+	case isGenesisAsset && hasGenesisReveal:
+		if err := p.verifyGenesisReveal(); err != nil {
 			return nil, err
 		}
 	}
 
-	// 5. Either a set of asset inputs with valid witnesses is included that
+	// 6. Verify group key and group key reveal for genesis assets. Not all
+	// assets have a group key, and should therefore not have a group key
+	// reveal. The group key reveal must be present for group anchors, and
+	// the group key must be present for any reissuance into an asset group.
+	hasGroupKeyReveal := p.GroupKeyReveal != nil
+	hasGroupKey := p.Asset.GroupKey != nil
+	switch {
+	case !isGenesisAsset && hasGroupKeyReveal:
+		return nil, ErrNonGenesisAssetWithGroupKeyReveal
+
+	case isGenesisAsset && !hasGroupKey && hasGroupKeyReveal:
+		return nil, ErrGroupKeyRequired
+
+	case isGenesisAsset && hasGroupKey && !hasGroupKeyReveal:
+		// A reissuance must be for an asset group that has already
+		// been imported and verified.
+		if err := p.verfyGenesisGroupKey(groupVerifier); err != nil {
+			return nil, err
+		}
+
+	case isGenesisAsset && hasGroupKey && hasGroupKeyReveal:
+		if err := p.verifyGroupKeyReveal(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 7. Verify group key for asset transfers. Any asset with a group key
+	// must carry a group key that has already been imported and verified.
+	if !isGenesisAsset && hasGroupKey {
+		if err := p.verfyGenesisGroupKey(groupVerifier); err != nil {
+			return nil, err
+		}
+	}
+
+	// 8. Either a set of asset inputs with valid witnesses is included that
 	// satisfy the resulting state transition or a challenge witness is
 	// provided as part of an ownership proof.
 	var splitAsset bool
@@ -387,14 +516,14 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 
 	default:
 		splitAsset, err = p.verifyAssetStateTransition(
-			ctx, prev, headerVerifier,
+			ctx, prev, headerVerifier, groupVerifier,
 		)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// 6. At this point we know there is an inclusion proof, which must be
+	// 8. At this point we know there is an inclusion proof, which must be
 	// a commitment proof. So we can extract the tapscript preimage directly
 	// from there.
 	tapscriptPreimage := p.InclusionProof.CommitmentProof.TapSiblingPreimage
@@ -426,13 +555,21 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 // verification loop.
 //
 // TODO(roasbeef): pass in the expected genesis point here?
-func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier) (
+func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
+	groupVerifier GroupVerifier) (
+
 	*AssetSnapshot, error) {
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+	}
+
+	// Check only for the proof file version and not file emptiness,
+	// since an empty proof file should return a nil error.
+	if f.IsUnknownVersion() {
+		return nil, ErrUnknownVersion
 	}
 
 	var prev *AssetSnapshot
@@ -448,7 +585,9 @@ func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier) (
 			return nil, err
 		}
 
-		result, err := decodedProof.Verify(ctx, prev, headerVerifier)
+		result, err := decodedProof.Verify(
+			ctx, prev, headerVerifier, groupVerifier,
+		)
 		if err != nil {
 			return nil, err
 		}

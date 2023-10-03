@@ -362,6 +362,12 @@ func (m *MockChainBridge) EstimateFee(ctx context.Context,
 	return 253, nil
 }
 
+func GenMockGroupVerifier() func(*btcec.PublicKey) error {
+	return func(groupKey *btcec.PublicKey) error {
+		return nil
+	}
+}
+
 type MockKeyRing struct {
 	FamIndex keychain.KeyFamily
 	KeyIndex uint32
@@ -452,14 +458,18 @@ func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
 	}
 }
 
-func (m *MockGenSigner) SignGenesis(desc keychain.KeyDescriptor,
-	initialGen asset.Genesis, currentGen *asset.Genesis) (*btcec.PublicKey,
-	*schnorr.Signature, error) {
+func (m *MockGenSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
+	error) {
 
-	priv := m.KeyRing.Keys[desc.KeyLocator]
-	signer := asset.NewRawKeyGenesisSigner(priv)
-	return signer.SignGenesis(desc, initialGen, currentGen)
+	priv := m.KeyRing.Keys[signDesc.KeyDesc.KeyLocator]
+	signer := asset.NewMockGenesisSigner(priv)
+	return signer.SignVirtualTx(signDesc, virtualTx, prevOut)
 }
+
+// A compile-time assertion to ensure MockGenSigner meets the GenesisSigner
+// interface.
+var _ asset.GenesisSigner = (*MockGenSigner)(nil)
 
 type MockProofArchive struct {
 }
@@ -477,8 +487,8 @@ func (m *MockProofArchive) FetchProofs(ctx context.Context,
 }
 
 func (m *MockProofArchive) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, replace bool,
-	proofs ...*proof.AnnotatedProof) error {
+	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
+	replace bool, proofs ...*proof.AnnotatedProof) error {
 
 	return nil
 }

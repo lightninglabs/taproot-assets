@@ -360,8 +360,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	if req.Asset.AssetMeta != nil {
+		metaType, err := unmarshalMetaType(req.Asset.AssetMeta.Type)
+		if err != nil {
+			return nil, err
+		}
+
 		seedling.Meta = &proof.MetaReveal{
-			Type: proof.MetaType(req.Asset.AssetMeta.Type),
+			Type: metaType,
 			Data: req.Asset.AssetMeta.Data,
 		}
 	}
@@ -1079,7 +1084,8 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = proofFile.Verify(ctx, headerVerifier)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	_, err = proofFile.Verify(ctx, headerVerifier, groupVerifier)
 	if err != nil {
 		// We don't want to fail the RPC request because of a proof
 		// verification error, but we do want to log it for easier
@@ -1183,6 +1189,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var (
 		rpcMeta        *taprpc.AssetMeta
+		rpcGenesis     = p.GenesisReveal
+		rpcGroupKey    = p.GroupKeyReveal
 		anchorOutpoint = wire.OutPoint{
 			Hash:  p.AnchorTx.TxHash(),
 			Index: p.InclusionProof.OutputIndex,
@@ -1281,6 +1289,29 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
+	decodedAssetID := p.Asset.ID()
+	var genesisReveal *taprpc.GenesisReveal
+	if rpcGenesis != nil {
+		genesisReveal = &taprpc.GenesisReveal{
+			GenesisBaseReveal: &taprpc.GenesisInfo{
+				GenesisPoint: rpcGenesis.FirstPrevOut.String(),
+				Name:         rpcGenesis.Tag,
+				MetaHash:     rpcGenesis.MetaHash[:],
+				AssetId:      decodedAssetID[:],
+				OutputIndex:  rpcGenesis.OutputIndex,
+			},
+			AssetType: taprpc.AssetType(p.Asset.Type),
+		}
+	}
+
+	var GroupKeyReveal taprpc.GroupKeyReveal
+	if rpcGroupKey != nil {
+		GroupKeyReveal = taprpc.GroupKeyReveal{
+			RawGroupKey:   rpcGroupKey.RawKey[:],
+			TapscriptRoot: rpcGroupKey.TapscriptRoot,
+		}
+	}
+
 	return &taprpc.DecodedProof{
 		Asset:               rpcAsset,
 		MetaReveal:          rpcMeta,
@@ -1291,6 +1322,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		NumAdditionalInputs: uint32(len(p.AdditionalInputs)),
 		ChallengeWitness:    p.ChallengeWitness,
 		IsBurn:              p.Asset.IsBurn(),
+		GenesisReveal:       genesisReveal,
+		GroupKeyReveal:      &GroupKeyReveal,
 	}, nil
 }
 
@@ -1341,11 +1374,12 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
 	err := r.cfg.ProofArchive.ImportProofs(
-		ctx, headerVerifier, false,
+		ctx, headerVerifier, groupVerifier, false,
 		&proof.AnnotatedProof{Blob: req.ProofFile},
 	)
 	if err != nil {
@@ -1388,10 +1422,6 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 			spew.Sdump(assetGroup))
 
 		addr.AttachGenesis(*assetGroup.Genesis)
-
-		if assetGroup.GroupKey != nil {
-			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
-		}
 
 		taprootOutputKey, err := addr.TaprootOutputKey()
 		if err != nil {
@@ -1693,10 +1723,6 @@ func marshalAddr(addr *address.Tap,
 	)
 	if err == nil {
 		addr.AttachGenesis(*assetGroup.Genesis)
-
-		if assetGroup.GroupKey != nil {
-			addr.AttachGroupSig(assetGroup.GroupKey.Sig)
-		}
 
 		outputKey, err := addr.TaprootOutputKey()
 		if err != nil {
@@ -3241,7 +3267,10 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	lastSnapshot, err := proofFile.Verify(ctx, headerVerifier)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	lastSnapshot, err := proofFile.Verify(
+		ctx, headerVerifier, groupVerifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
 	}
@@ -3296,7 +3325,8 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 	}
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	_, err = p.Verify(ctx, nil, headerVerifier)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	_, err = p.Verify(ctx, nil, headerVerifier, groupVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
 	}
@@ -3498,4 +3528,15 @@ func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
 	}
 
 	return &wrpc.RemoveUTXOLeaseResponse{}, nil
+}
+
+// unmarshalMetaType maps an RPC meta type into a concrete type.
+func unmarshalMetaType(rpcMeta taprpc.AssetMetaType) (proof.MetaType, error) {
+	switch rpcMeta {
+	case taprpc.AssetMetaType_META_TYPE_OPAQUE:
+		return proof.MetaOpaque, nil
+
+	default:
+		return 0, fmt.Errorf("unknown meta type: %v", rpcMeta)
+	}
 }

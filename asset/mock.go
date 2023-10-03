@@ -2,11 +2,20 @@ package asset
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,32 +36,273 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 }
 
 // RandGroupKey creates a random group key for testing.
-func RandGroupKey(t testing.TB, genesis Genesis) *GroupKey {
-	privateKey := test.RandPrivKey(t)
-
-	genSigner := NewRawKeyGenesisSigner(privateKey)
-
-	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
-		genesis, nil,
-	)
-	require.NoError(t, err)
+func RandGroupKey(t testing.TB, genesis Genesis, newAsset *Asset) *GroupKey {
+	groupKey, _ := RandGroupKeyWithSigner(t, genesis, newAsset)
 	return groupKey
 }
 
 // RandGroupKeyWithSigner creates a random group key for testing, and provides
 // the signer for reissuing assets into the same group.
-func RandGroupKeyWithSigner(t testing.TB, genesis Genesis) (*GroupKey, []byte) {
+func RandGroupKeyWithSigner(t testing.TB, genesis Genesis,
+	newAsset *Asset) (*GroupKey, []byte) {
+
 	privateKey := test.RandPrivKey(t)
 
-	genSigner := NewRawKeyGenesisSigner(privateKey)
+	genSigner := NewMockGenesisSigner(privateKey)
+	genBuilder := MockGroupTxBuilder{}
 	groupKey, err := DeriveGroupKey(
-		genSigner, test.PubToKeyDesc(privateKey.PubKey()),
-		genesis, nil,
+		genSigner, &genBuilder, test.PubToKeyDesc(privateKey.PubKey()),
+		genesis, newAsset,
 	)
 	require.NoError(t, err)
 
 	return groupKey, privateKey.Serialize()
+}
+
+// MockGenesisSigner implements the GenesisSigner interface using a raw
+// private key.
+type MockGenesisSigner struct {
+	privKey *btcec.PrivateKey
+}
+
+// NewMockGenesisSigner creates a new MockGenesisSigner instance given the
+// passed public key.
+func NewMockGenesisSigner(priv *btcec.PrivateKey) *MockGenesisSigner {
+	return &MockGenesisSigner{
+		privKey: priv,
+	}
+}
+
+// SignVirtualTx generates a signature according to the passed signing
+// descriptor and virtual TX.
+func (r *MockGenesisSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
+	error) {
+
+	signerPubKey := r.privKey.PubKey()
+
+	if !signDesc.KeyDesc.PubKey.IsEqual(signerPubKey) {
+		return nil, fmt.Errorf("cannot sign with key")
+	}
+
+	sig, err := SignVirtualTx(r.privKey, signDesc, virtualTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
+
+// A compile-time assertion to ensure MockGenesisSigner meets the
+// GenesisSigner interface.
+var _ GenesisSigner = (*MockGenesisSigner)(nil)
+
+// Forked from tapscript/tx/virtualTxOut to remove checks for split commitments
+// and witness stripping.
+func virtualGenesisTxOut(newAsset *Asset) (*wire.TxOut, error) {
+	// Commit to the new asset directly. In this case, the output script is
+	// derived from the root of a MS-SMT containing the new asset.
+	groupKey := schnorr.SerializePubKey(&newAsset.GroupKey.GroupPubKey)
+	assetID := newAsset.Genesis.ID()
+
+	h := sha256.New()
+	_, _ = h.Write(groupKey)
+	_, _ = h.Write(assetID[:])
+	_, _ = h.Write(schnorr.SerializePubKey(newAsset.ScriptKey.PubKey))
+
+	key := *(*[32]byte)(h.Sum(nil))
+	leaf, err := newAsset.Leaf()
+	if err != nil {
+		return nil, err
+	}
+	outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// TODO(bhandras): thread the context through.
+	tree, err := outputTree.Insert(context.TODO(), key, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	treeRoot, err := tree.Root(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	rootKey := treeRoot.NodeHash()
+	pkScript, err := test.ComputeTaprootScriptErr(rootKey[:])
+	if err != nil {
+		return nil, err
+	}
+	return wire.NewTxOut(int64(newAsset.Amount), pkScript), nil
+}
+
+// Forked from tapscript/tx/virtualTx to be used only with the
+// MockGroupTxBuilder.
+func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
+	var (
+		txIn *wire.TxIn
+		err  error
+	)
+
+	// We'll start by mapping all inputs into a MS-SMT.
+	txIn, _, err = VirtualGenesisTxIn(newAsset)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then we'll map all asset outputs into a single UTXO.
+	txOut, err := virtualGenesisTxOut(newAsset)
+	if err != nil {
+		return nil, err
+	}
+
+	// With our single input and output mapped, we're ready to construct our
+	// virtual transaction.
+	virtualTx := wire.NewMsgTx(2)
+	virtualTx.AddTxIn(txIn)
+	virtualTx.AddTxOut(txOut)
+	return virtualTx, nil
+}
+
+type MockGroupTxBuilder struct{}
+
+// BuildGenesisTx constructs a virtual transaction and prevOut that represent
+// the genesis state transition for a grouped asset. This ouput is used to
+// create a group witness for the grouped asset.
+func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
+	*wire.TxOut, error) {
+
+	// First, we check that the passed asset is a genesis grouped asset
+	// that has no group witness.
+	if !newAsset.NeedsGenesisWitnessForGroup() {
+		return nil, nil, fmt.Errorf("asset is not a genesis grouped" +
+			"asset")
+	}
+
+	prevOut, err := InputGenesisAssetPrevOut(*newAsset)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Now, create the virtual transaction that represents this asset
+	// minting.
+	virtualTx, err := virtualGenesisTx(newAsset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+	populatedVirtualTx := VirtualTxWithInput(
+		virtualTx, newAsset, 0, nil,
+	)
+
+	return populatedVirtualTx, prevOut, nil
+}
+
+// A compile time assertion to ensure that MockGroupTxBuilder meets the
+// GenesisTxBuilder interface.
+var _ GenesisTxBuilder = (*MockGroupTxBuilder)(nil)
+
+// SignOutputRaw creates a signature for a single input.
+// Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw
+func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (*schnorr.Signature, error) {
+
+	witnessScript := signDesc.WitnessScript
+
+	privKey := priv
+	var maybeTweakPrivKey *btcec.PrivateKey
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		maybeTweakPrivKey = input.TweakPrivKey(
+			privKey, signDesc.SingleTweak,
+		)
+
+	case signDesc.DoubleTweak != nil:
+		maybeTweakPrivKey = input.DeriveRevocationPrivKey(
+			privKey, signDesc.DoubleTweak,
+		)
+
+	default:
+		maybeTweakPrivKey = privKey
+	}
+
+	privKey = maybeTweakPrivKey
+
+	// In case of a taproot output any signature is always a Schnorr
+	// signature, based on the new tapscript sighash algorithm.
+	if !txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		return nil, fmt.Errorf("mock signer: output script not taproot")
+	}
+
+	sigHashes := txscript.NewTxSigHashes(
+		tx, signDesc.PrevOutputFetcher,
+	)
+
+	// Are we spending a script path or the key path? The API is slightly
+	// different, so we need to account for that to get the raw signature.
+	var (
+		rawSig []byte
+		err    error
+	)
+	switch signDesc.SignMethod {
+	case input.TaprootKeySpendBIP0086SignMethod,
+		input.TaprootKeySpendSignMethod:
+
+		// This function tweaks the private key using the tap root key
+		// supplied as the tweak.
+		rawSig, err = txscript.RawTxInTaprootSignature(
+			tx, sigHashes, signDesc.InputIndex,
+			signDesc.Output.Value, signDesc.Output.PkScript,
+			signDesc.TapTweak, signDesc.HashType, privKey,
+		)
+
+	case input.TaprootScriptSpendSignMethod:
+		leaf := txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      witnessScript,
+		}
+		rawSig, err = txscript.RawTxInTapscriptSignature(
+			tx, sigHashes, signDesc.InputIndex,
+			signDesc.Output.Value, signDesc.Output.PkScript,
+			leaf, signDesc.HashType, privKey,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return schnorr.ParseSignature(rawSig)
+}
+
+func SignVirtualTx(priv *btcec.PrivateKey, signDesc *lndclient.SignDescriptor,
+	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
+
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		prevOut.PkScript, prevOut.Value,
+	)
+
+	sigHashes := txscript.NewTxSigHashes(tx, prevOutFetcher)
+
+	fullSignDesc := input.SignDescriptor{
+		KeyDesc:           signDesc.KeyDesc,
+		SingleTweak:       signDesc.SingleTweak,
+		DoubleTweak:       signDesc.DoubleTweak,
+		TapTweak:          signDesc.TapTweak,
+		WitnessScript:     signDesc.WitnessScript,
+		SignMethod:        signDesc.SignMethod,
+		Output:            signDesc.Output,
+		HashType:          signDesc.HashType,
+		SigHashes:         sigHashes,
+		PrevOutputFetcher: prevOutFetcher,
+		InputIndex:        signDesc.InputIndex,
+	}
+
+	sig, err := SignOutputRaw(priv, tx, &fullSignDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
 }
 
 // RandScriptKey creates a random script key for testing.
@@ -73,15 +323,29 @@ func RandID(t testing.TB) ID {
 	return a
 }
 
+// NewAssetNoErr creates an asset and fails the test if asset creation fails.
+func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
+	scriptKey ScriptKey, groupKey *GroupKey) *Asset {
+
+	a, err := New(gen, amt, locktime, relocktime, scriptKey, groupKey)
+	require.NoError(t, err)
+
+	return a
+}
+
 // RandAsset creates a random asset of the given type for testing.
 func RandAsset(t testing.TB, assetType Type) *Asset {
 	t.Helper()
 
 	genesis := RandGenesis(t, assetType)
-	familyKey := RandGroupKey(t, genesis)
 	scriptKey := RandScriptKey(t)
+	protoAsset := RandAssetWithValues(t, genesis, nil, scriptKey)
+	familyKey := RandGroupKey(t, genesis, protoAsset)
 
-	return RandAssetWithValues(t, genesis, familyKey, scriptKey)
+	return NewAssetNoErr(
+		t, genesis, protoAsset.Amount, protoAsset.LockTime,
+		protoAsset.RelativeLockTime, scriptKey, familyKey,
+	)
 }
 
 // RandAssetWithValues creates a random asset with the given genesis and keys
@@ -353,14 +617,12 @@ func NewTestFromGroupKey(t testing.TB, gk *GroupKey) *TestGroupKey {
 	t.Helper()
 
 	return &TestGroupKey{
-		GroupKey:    test.HexPubKey(&gk.GroupPubKey),
-		GroupKeySig: test.HexSignature(&gk.Sig),
+		GroupKey: test.HexPubKey(&gk.GroupPubKey),
 	}
 }
 
 type TestGroupKey struct {
-	GroupKey    string `json:"group_key"`
-	GroupKeySig string `json:"group_key_sig"`
+	GroupKey string `json:"group_key"`
 }
 
 func (tgk *TestGroupKey) ToGroupKey(t testing.TB) *GroupKey {
@@ -368,7 +630,6 @@ func (tgk *TestGroupKey) ToGroupKey(t testing.TB) *GroupKey {
 
 	return &GroupKey{
 		GroupPubKey: *test.ParsePubKey(t, tgk.GroupKey),
-		Sig:         *test.ParseSchnorrSig(t, tgk.GroupKeySig),
 	}
 }
 
@@ -383,4 +644,67 @@ type ValidBurnTestCase struct {
 
 type BurnTestVectors struct {
 	ValidTestCases []*ValidBurnTestCase `json:"valid_test_cases"`
+}
+
+func NewTestFromGenesisReveal(t testing.TB, g *Genesis) *TestGenesisReveal {
+	t.Helper()
+
+	return &TestGenesisReveal{
+		FirstPrevOut: g.FirstPrevOut.String(),
+		Tag:          g.Tag,
+		MetaHash:     hex.EncodeToString(g.MetaHash[:]),
+		OutputIndex:  g.OutputIndex,
+		Type:         uint8(g.Type),
+	}
+}
+
+type TestGenesisReveal struct {
+	FirstPrevOut string `json:"first_prev_out"`
+	Tag          string `json:"tag"`
+	MetaHash     string `json:"meta_hash"`
+	OutputIndex  uint32 `json:"output_index"`
+	Type         uint8  `json:"type"`
+}
+
+func (tgr *TestGenesisReveal) ToGenesisReveal(t testing.TB) *Genesis {
+	t.Helper()
+
+	return &Genesis{
+		FirstPrevOut: test.ParseOutPoint(
+			t, tgr.FirstPrevOut,
+		),
+		Tag:         tgr.Tag,
+		MetaHash:    test.Parse32Byte(t, tgr.MetaHash),
+		OutputIndex: tgr.OutputIndex,
+		Type:        Type(tgr.Type),
+	}
+}
+
+func NewTestFromGroupKeyReveal(t testing.TB,
+	gkr *GroupKeyReveal) *TestGroupKeyReveal {
+
+	t.Helper()
+
+	return &TestGroupKeyReveal{
+		RawKey:        hex.EncodeToString(gkr.RawKey[:]),
+		TapscriptRoot: hex.EncodeToString(gkr.TapscriptRoot),
+	}
+}
+
+type TestGroupKeyReveal struct {
+	RawKey        string `json:"raw_key"`
+	TapscriptRoot string `json:"tapscript_root"`
+}
+
+func (tgkr *TestGroupKeyReveal) ToGroupKeyReveal(t testing.TB) *GroupKeyReveal {
+	t.Helper()
+
+	rawKey := test.ParsePubKey(t, tgkr.RawKey)
+	tapscriptRoot, err := hex.DecodeString(tgkr.TapscriptRoot)
+	require.NoError(t, err)
+
+	return &GroupKeyReveal{
+		RawKey:        ToSerialized(rawKey),
+		TapscriptRoot: tapscriptRoot,
+	}
 }

@@ -211,10 +211,11 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 		// For each of the addresses listed, we'll insert the two new
 		// internal keys, then use those returned primary key IDs to
 		// returned to insert the address itself.
-		for _, addr := range addrs {
+		for idx := range addrs {
 			// The asset genesis should already be known at this
 			// point, so we'll just fetch it so we can obtain the
 			// genAssetID.
+			addr := addrs[idx]
 			assetGen, err := db.FetchGenesisByAssetID(
 				ctx, addr.AssetID[:],
 			)
@@ -343,8 +344,8 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 			}
 
 			var (
-				groupKey *btcec.PublicKey
-				groupSig *schnorr.Signature
+				groupKey     *btcec.PublicKey
+				groupWitness wire.TxWitness
 			)
 
 			if addr.GroupKey != nil {
@@ -362,8 +363,8 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 						"group sig: %w", err)
 				}
 
-				groupSig, err = schnorr.ParseSignature(
-					group.GenesisSig,
+				groupWitness, err = asset.ParseGroupWitness(
+					group.WitnessStack,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to decode"+
@@ -434,8 +435,8 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 
 			tapAddr, err := address.New(
 				address.Version(addr.Version), assetGenesis,
-				groupKey, groupSig, *scriptKey,
-				*internalKey, uint64(addr.Amount),
+				groupKey, groupWitness,
+				*scriptKey, *internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params, *proofCourierAddr,
 			)
 			if err != nil {
@@ -507,8 +508,11 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		return nil, fmt.Errorf("error fetching genesis: %w", err)
 	}
 
-	var groupKey *btcec.PublicKey
-	var groupSig *schnorr.Signature
+	var (
+		groupKey     *btcec.PublicKey
+		groupWitness wire.TxWitness
+	)
+
 	if dbAddr.GroupKey != nil {
 		groupKey, err = btcec.ParsePubKey(dbAddr.GroupKey)
 		if err != nil {
@@ -522,7 +526,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 				err)
 		}
 
-		groupSig, err = schnorr.ParseSignature(group.GenesisSig)
+		groupWitness, err = asset.ParseGroupWitness(group.WitnessStack)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode group sig: %w",
 				err)
@@ -580,7 +584,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 
 	tapAddr, err := address.New(
 		address.Version(dbAddr.Version), genesis, groupKey,
-		groupSig, *scriptKey, *internalKey, uint64(dbAddr.Amount),
+		groupWitness, *scriptKey, *internalKey, uint64(dbAddr.Amount),
 		tapscriptSibling, params, *proofCourierAddr,
 	)
 	if err != nil {
@@ -950,8 +954,8 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 
 		assetGroup.GroupKey, err = parseGroupKeyInfo(
 			groupInfo.TweakedGroupKey, groupInfo.RawKey,
-			groupInfo.GenesisSig, groupInfo.KeyFamily,
-			groupInfo.KeyIndex,
+			groupInfo.WitnessStack, groupInfo.TapscriptRoot,
+			groupInfo.KeyFamily, groupInfo.KeyIndex,
 		)
 
 		return err

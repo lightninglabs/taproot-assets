@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS genesis_assets;
 DROP INDEX IF EXISTS asset_ids;
 DROP TABLE IF EXISTS internal_keys;
 DROP TABLE IF EXISTS asset_groups;
-DROP TABLE IF EXISTS asset_group_sigs;
+DROP TABLE IF EXISTS asset_group_witnesses;
 DROP TABLE IF EXISTS managed_utxos;
 DROP TABLE IF EXISTS script_keys;
 DROP TABLE IF EXISTS asset_witnesses;

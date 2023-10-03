@@ -36,10 +36,13 @@ func randAsset(t *testing.T, assetType asset.Type,
 	t.Helper()
 
 	genesis := asset.RandGenesis(t, assetType)
-	groupKey := asset.RandGroupKey(t, genesis)
 	scriptKey := asset.NewScriptKey(scriptKeyPub)
+	protoAsset := asset.RandAssetWithValues(t, genesis, nil, scriptKey)
+	groupKey := asset.RandGroupKey(t, genesis, protoAsset)
 
-	return asset.RandAssetWithValues(t, genesis, groupKey, scriptKey)
+	fullAsset := protoAsset.Copy()
+	fullAsset.GroupKey = groupKey
+	return fullAsset
 }
 
 func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
@@ -47,7 +50,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 
 	t.Helper()
 
-	virtualTxCopy := tapscript.VirtualTxWithInput(
+	virtualTxCopy := asset.VirtualTxWithInput(
 		virtualTx, input, idx, nil,
 	)
 	sigHash, err := tapscript.InputKeySpendSigHash(
@@ -73,7 +76,7 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 	require.NoError(t, err)
 
 	if scriptWitness == nil {
-		virtualTxCopy := tapscript.VirtualTxWithInput(
+		virtualTxCopy := asset.VirtualTxWithInput(
 			virtualTx, input, idx, nil,
 		)
 		sigHash, err := tapscript.InputScriptSpendSigHash(

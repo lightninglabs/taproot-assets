@@ -116,9 +116,22 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 		Proof: randProof(t),
 		Amt:   uint64(rand.Int31()),
 	}
+
+	// The asset within the genesis proof is random; reset the asset genesis
+	// and group key to match the universe minting leaf.
+	leaf.Proof.Asset.Genesis = assetGen
+	leaf.Proof.GenesisReveal = &assetGen
+
 	if groupKey != nil {
-		leaf.GroupKey = &asset.GroupKey{
+		assetGroupKey := &asset.GroupKey{
 			GroupPubKey: *groupKey,
+			Witness:     leaf.Proof.Asset.GroupKey.Witness,
+		}
+
+		leaf.GroupKey = assetGroupKey
+		leaf.Proof.Asset.GroupKey = assetGroupKey
+		leaf.Proof.GroupKeyReveal = &asset.GroupKeyReveal{
+			RawKey: asset.ToSerialized(groupKey),
 		}
 	}
 
@@ -448,6 +461,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	const numLeafs = 3
+	var sharedWitness wire.TxWitness
 
 	// We'll create three new leaves, all of them will share the exact same
 	// minting outpoint, but will have distinct script keys.
@@ -459,6 +473,20 @@ func TestUniverseLeafQuery(t *testing.T) {
 		targetKey.OutPoint = rootMintingPoint
 
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+		if id.GroupKey != nil {
+			// All assets are sharing the same genesis and group
+			// key, so they must also share the same group witness.
+			switch {
+			case sharedWitness == nil:
+				sharedWitness =
+					leaf.GroupKey.Witness
+			default:
+				leaf.GroupKey.Witness =
+					sharedWitness
+				leaf.Proof.Asset.GroupKey.Witness =
+					sharedWitness
+			}
+		}
 
 		scriptKey := asset.ToSerialized(targetKey.ScriptKey.PubKey)
 
@@ -478,9 +506,10 @@ func TestUniverseLeafQuery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, proofs, numLeafs)
 
-	// We should be able to retreive all the leafs based on their script
+	// We should be able to retrieve all the leafs based on their script
 	// keys.
-	for scriptKeyBytes, leaf := range leafToScriptKey {
+	for scriptKeyBytes := range leafToScriptKey {
+		leaf := leafToScriptKey[scriptKeyBytes]
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 

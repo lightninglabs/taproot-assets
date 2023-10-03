@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -25,6 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	_ "github.com/lightninglabs/taproot-assets/tapdb" // Register relevant drivers.
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -66,6 +68,10 @@ type mintingTestHarness struct {
 
 	genSigner *tapgarden.MockGenSigner
 
+	genTxBuilder asset.GenesisTxBuilder
+
+	txValidator tapscript.TxValidator
+
 	ticker *ticker.Force
 
 	planter *tapgarden.ChainPlanter
@@ -99,6 +105,8 @@ func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 		proofWatcher: &tapgarden.MockProofWatcher{},
 		keyRing:      keyRing,
 		genSigner:    genSigner,
+		genTxBuilder: &tapscript.GroupTxBuilder{},
+		txValidator:  &tap.ValidatorV0{},
 		errChan:      make(chan error, 10),
 	}
 }
@@ -118,6 +126,8 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			Log:          t.store,
 			KeyRing:      t.keyRing,
 			GenSigner:    t.genSigner,
+			GenTxBuilder: t.genTxBuilder,
+			TxValidator:  t.txValidator,
 			ProofFiles:   t.proofFiles,
 			ProofWatcher: t.proofWatcher,
 		},

@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,8 @@ var (
 			"821525f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f47" +
 			"7df4900d310536c0",
 	)
-	sig, _ = schnorr.ParseSignature(sigBytes)
+	sig, _     = schnorr.ParseSignature(sigBytes)
+	sigWitness = wire.TxWitness{sig.Serialize()}
 
 	generatedTestVectorName = "asset_tlv_encoding_generated.json"
 
@@ -41,18 +43,19 @@ var (
 		"asset_tlv_encoding_error_cases.json",
 	}
 
-	testSplitAsset = &Asset{
-		Version: 1,
-		Genesis: Genesis{
-			FirstPrevOut: wire.OutPoint{
-				Hash:  hashBytes1,
-				Index: 1,
-			},
-			Tag:         "asset",
-			MetaHash:    [MetaHashLen]byte{1, 2, 3},
-			OutputIndex: 1,
-			Type:        1,
+	splitGen = Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 1,
 		},
+		Tag:         "asset",
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		OutputIndex: 1,
+		Type:        1,
+	}
+	testSplitAsset = &Asset{
+		Version:          1,
+		Genesis:          splitGen,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -73,7 +76,6 @@ var (
 		ScriptKey:           NewScriptKey(pubKey),
 		GroupKey: &GroupKey{
 			GroupPubKey: *pubKey,
-			Sig:         *sig,
 		},
 	}
 	testRootAsset = &Asset{
@@ -99,7 +101,6 @@ var (
 		ScriptKey:           NewScriptKey(pubKey),
 		GroupKey: &GroupKey{
 			GroupPubKey: *pubKey,
-			Sig:         *sig,
 		},
 	}
 )
@@ -118,7 +119,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 			PubKey: pubKey,
 		},
 		GroupPubKey: *pubKey,
-		Sig:         *sig,
+		Witness:     sigWitness,
 	}
 
 	pubKeyCopy := *pubKey
@@ -153,7 +154,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 			a: testKey,
 			b: &GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: false,
 		},
@@ -166,7 +167,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 				},
 
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: false,
 		},
@@ -178,7 +179,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 				},
 
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: false,
 		},
@@ -191,18 +192,18 @@ func TestGroupKeyIsEqual(t *testing.T) {
 				},
 
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
 		{
 			a: &GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			b: &GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
@@ -212,14 +213,14 @@ func TestGroupKeyIsEqual(t *testing.T) {
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			b: &GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
 				GroupPubKey: testKey.GroupPubKey,
-				Sig:         testKey.Sig,
+				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
@@ -347,19 +348,21 @@ func TestAssetEncoding(t *testing.T) {
 	}
 	assertAssetEncoding("random split asset with root asset", split)
 
+	newGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes2,
+			Index: 2,
+		},
+		Tag:         "asset",
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		OutputIndex: 2,
+		Type:        2,
+	}
+
 	comment := "random asset with multiple previous witnesses"
 	assertAssetEncoding(comment, &Asset{
-		Version: 2,
-		Genesis: Genesis{
-			FirstPrevOut: wire.OutPoint{
-				Hash:  hashBytes2,
-				Index: 2,
-			},
-			Tag:         "asset",
-			MetaHash:    [MetaHashLen]byte{1, 2, 3},
-			OutputIndex: 2,
-			Type:        2,
-		},
+		Version:          2,
+		Genesis:          newGen,
 		Amount:           2,
 		LockTime:         1337,
 		RelativeLockTime: 6,
@@ -511,10 +514,10 @@ func TestAssetGroupKey(t *testing.T) {
 	privKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
-	genSigner := NewRawKeyGenesisSigner(privKeyCopy)
-	fakeKeyDesc := keychain.KeyDescriptor{
-		PubKey: privKeyCopy.PubKey(),
-	}
+	genSigner := NewMockGenesisSigner(privKeyCopy)
+	genBuilder := MockGroupTxBuilder{}
+	fakeKeyDesc := test.PubToKeyDesc(privKeyCopy.PubKey())
+	fakeScriptKey := NewScriptKeyBip86(fakeKeyDesc)
 
 	g := Genesis{
 		FirstPrevOut: wire.OutPoint{
@@ -526,22 +529,126 @@ func TestAssetGroupKey(t *testing.T) {
 		OutputIndex: 21,
 		Type:        Collectible,
 	}
+	groupTweak := g.ID()
 
-	var groupBytes bytes.Buffer
-	_ = wire.WriteOutPoint(&groupBytes, 0, 0, &g.FirstPrevOut)
-	_, _ = groupBytes.Write([]byte{0, 0, 0, 21, 1})
-
-	tweakedKey := txscript.TweakTaprootPrivKey(*privKey, groupBytes.Bytes())
+	internalKey := input.TweakPrivKey(privKeyCopy, groupTweak[:])
+	tweakedKey := txscript.TweakTaprootPrivKey(*internalKey, nil)
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	keyGroup, err := DeriveGroupKey(genSigner, fakeKeyDesc, g, nil)
+	protoAsset := NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
+	keyGroup, err := DeriveGroupKey(
+		genSigner, &genBuilder, fakeKeyDesc, g, protoAsset,
+	)
 	require.NoError(t, err)
 
 	require.Equal(
 		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
 		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
 	)
+}
+
+// TestAssetWitness tests that the asset group witness can be serialized and
+// parsed correctly, and that signature detection works correctly.
+func TestAssetWitnesses(t *testing.T) {
+	t.Parallel()
+
+	nonSigWitness := test.RandTxWitnesses(t)
+	for len(nonSigWitness) == 0 {
+		nonSigWitness = test.RandTxWitnesses(t)
+	}
+
+	// A witness must be unmodified after serialization and parsing.
+	nonSigWitnessBytes, err := SerializeGroupWitness(nonSigWitness)
+	require.NoError(t, err)
+
+	nonSigWitnessParsed, err := ParseGroupWitness(nonSigWitnessBytes)
+	require.NoError(t, err)
+	require.Equal(t, nonSigWitness, nonSigWitnessParsed)
+
+	// A witness that is a single Schnorr signature must be detected
+	// correctly both before and after serialization.
+	sigWitnessParsed, isSig := IsGroupSig(sigWitness)
+	require.True(t, isSig)
+	require.NotNil(t, sigWitnessParsed)
+
+	sigWitnessBytes, err := SerializeGroupWitness(sigWitness)
+	require.NoError(t, err)
+
+	sigWitnessParsed, err = ParseGroupSig(sigWitnessBytes)
+	require.NoError(t, err)
+	require.Equal(t, sig.Serialize(), sigWitnessParsed.Serialize())
+
+	// Adding an annex to the witness stack should not affect signature
+	// parsing.
+	dummyAnnex := []byte{0x50, 0xde, 0xad, 0xbe, 0xef}
+	sigWithAnnex := wire.TxWitness{sigWitness[0], dummyAnnex}
+	sigWitnessParsed, isSig = IsGroupSig(sigWithAnnex)
+	require.True(t, isSig)
+	require.NotNil(t, sigWitnessParsed)
+
+	// Witness that are not a single Schnorr signature must also be
+	// detected correctly.
+	possibleSig, isSig := IsGroupSig(nonSigWitness)
+	require.False(t, isSig)
+	require.Nil(t, possibleSig)
+
+	possibleSig, err = ParseGroupSig(nonSigWitnessBytes)
+	require.Error(t, err)
+	require.Nil(t, possibleSig)
+}
+
+// TestUnknownVersion tests that an asset of an unknown version is rejected
+// before being inserted into an MS-SMT.
+func TestUnknownVersion(t *testing.T) {
+	t.Parallel()
+
+	rootGen := Genesis{
+		FirstPrevOut: wire.OutPoint{
+			Hash:  hashBytes1,
+			Index: 1,
+		},
+		Tag:         "asset",
+		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		OutputIndex: 1,
+		Type:        1,
+	}
+
+	root := &Asset{
+		Version:          212,
+		Genesis:          rootGen,
+		Amount:           1,
+		LockTime:         1337,
+		RelativeLockTime: 6,
+		PrevWitnesses: []Witness{{
+			PrevID: &PrevID{
+				OutPoint: wire.OutPoint{
+					Hash:  hashBytes2,
+					Index: 2,
+				},
+				ID:        hashBytes2,
+				ScriptKey: ToSerialized(pubKey),
+			},
+			TxWitness:       wire.TxWitness{{2}, {2}},
+			SplitCommitment: nil,
+		}},
+		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
+		ScriptVersion:       1,
+		ScriptKey:           NewScriptKey(pubKey),
+		GroupKey: &GroupKey{
+			GroupPubKey: *pubKey,
+			Witness:     sigWitness,
+		},
+	}
+
+	rootLeaf, err := root.Leaf()
+	require.Nil(t, rootLeaf)
+	require.ErrorIs(t, err, ErrUnknownVersion)
+
+	root.Version = V0
+	rootLeaf, err = root.Leaf()
+	require.NotNil(t, rootLeaf)
+	require.Nil(t, err)
 }
 
 func FuzzAssetDecode(f *testing.F) {

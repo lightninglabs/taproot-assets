@@ -29,15 +29,75 @@ var (
 	ErrNonGenesisAssetWithMetaReveal = errors.New("non genesis asset has " +
 		"meta reveal")
 
-	// ErrMetaRevealMismatch is an error returned if the hash of the meta
-	// reveal doesn't match the actual asset meta hash.
-	ErrMetaRevealMismatch = errors.New("meta reveal doesn't match meta " +
-		"hash")
+	// ErrNonGenesisAssetWithGenesisReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a genesis reveal.
+	ErrNonGenesisAssetWithGenesisReveal = errors.New("non genesis asset " +
+		"has genesis reveal")
 
-	// ErrMetaRevealRequired is an error returned if an asset proof for a
-	// genesis asset has a non-zero metahash, but doesn't have a meta
-	// reveal.
-	ErrMetaRevealRequired = errors.New("meta reveal required")
+	// ErrGenesisRevealRequired is an error returned if an asset proof for a
+	// genesis asset is missing a genesis reveal.
+	ErrGenesisRevealRequired = errors.New("genesis reveal required")
+
+	// ErrGenesisRevealAssetIDMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal that is inconsistent
+	// with the asset ID.
+	ErrGenesisRevealAssetIDMismatch = errors.New("genesis reveal asset " +
+		"ID mismatch")
+
+	// ErrGenesisRevealPrevOutMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the prev out
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealPrevOutMismatch = errors.New("genesis reveal prev " +
+		"out mismatch")
+
+	// ErrGenesisRevealMetaRevealRequired is an error returned if an asset
+	// proof for a genesis asset has a non-zero meta hash, but doesn't have
+	// a meta reveal.
+	ErrGenesisRevealMetaRevealRequired = errors.New("genesis meta reveal " +
+		"reveal required")
+
+	// ErrGenesisRevealMetaHashMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the meta hash
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealMetaHashMismatch = errors.New("genesis reveal meta " +
+		"hash mismatch")
+
+	// ErrGenesisRevealOutputIndexMismatch is an error returned if an asset
+	// proof for a genesis asset has a genesis reveal where the output index
+	// doesn't match the proof TLV field.
+	ErrGenesisRevealOutputIndexMismatch = errors.New("genesis reveal " +
+		"output index mismatch")
+
+	// ErrGenesisRevealTypeMismatch is an error returned if an asset proof
+	// for a genesis asset has a genesis reveal where the asset type doesn't
+	// match the proof TLV field.
+	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type " +
+		"mismatch")
+
+	// ErrNonGenesisAssetWithGroupKeyReveal is an error returned if an asset
+	// proof for a non-genesis asset contains a group key reveal.
+	ErrNonGenesisAssetWithGroupKeyReveal = errors.New("non genesis asset " +
+		"has group key reveal")
+
+	// ErrGroupKeyRevealMismatch is an error returned if an asset proof for
+	// a genesis asset has a group key reveal that doesn't match the group
+	// key.
+	ErrGroupKeyRevealMismatch = errors.New("group key reveal doesn't " +
+		"match group key")
+
+	// ErrGroupKeyRevealRequired is an error returned if an asset proof for
+	// a genesis asset with a group key is missing a group key reveal.
+	ErrGroupKeyRevealRequired = errors.New("group key reveal required")
+
+	// ErrGroupKeyRequired is an error returned if an asset proof for a
+	// genesis asset is missing a group key when it should have one.
+	ErrGroupKeyRequired = errors.New("group key required")
+
+	// ErrGroupKeyUnknown is an error returned if an asset proof for a
+	// group asset references an asset group that has not been previously
+	// verified. This can apply to genesis proofs for reissaunces into a
+	// group, and any further transfer of a grouped asset.
+	ErrGroupKeyUnknown = errors.New("group key not known")
 
 	// RegtestTestVectorName is the name of the test vector file that is
 	// generated/updated by an actual integration test run on regtest. It is
@@ -128,9 +188,21 @@ type Watcher interface {
 	DefaultUpdateCallback() UpdateCallback
 }
 
+// TransitionVersion denotes the versioning scheme for an individual state
+// transition proof.
+type TransitionVersion uint32
+
+const (
+	// TransitionV0 is the first version of the state transition proof.
+	TransitionV0 TransitionVersion = 0
+)
+
 // Proof encodes all of the data necessary to prove a valid state transition for
 // an asset has occurred within an on-chain transaction.
 type Proof struct {
+	// Version is the version of the state transition proof.
+	Version TransitionVersion
+
 	// PrevOut is the previous on-chain outpoint of the asset. This outpoint
 	// is that of the first on-chain input. Outpoints which correspond to
 	// the other inputs can be found in AdditionalInputs.
@@ -191,6 +263,19 @@ type Proof struct {
 	// NUMS key, to prove that the creator of the proof is able to produce
 	// a valid signature to spend the asset.
 	ChallengeWitness wire.TxWitness
+
+	// GenesisReveal is the Genesis information for an asset, that must be
+	// provided for minting proofs, and must be empty for non-minting
+	// proofs. This allows for derivation of the asset ID. If the asset is
+	// part of an asset group, the Genesis information is also used for
+	// rederivation of the asset group key.
+	GenesisReveal *asset.Genesis
+
+	// GroupKeyReveal is an optional set of bytes that represent the public
+	// key and Tapscript root used to derive the final tweaked group key for
+	// the asset group. This field must be provided for issuance proofs of
+	// grouped assets.
+	GroupKeyReveal *asset.GroupKeyReveal
 }
 
 // OutPoint returns the outpoint that commits to the asset associated with this
@@ -204,7 +289,8 @@ func (p *Proof) OutPoint() wire.OutPoint {
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
 func (p *Proof) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 9)
+	records := make([]tlv.Record, 0, 15)
+	records = append(records, VersionRecord(&p.Version))
 	records = append(records, PrevOutRecord(&p.PrevOut))
 	records = append(records, BlockHeaderRecord(&p.BlockHeader))
 	records = append(records, AnchorTxRecord(&p.AnchorTx))
@@ -235,12 +321,21 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 		))
 	}
 	records = append(records, BlockHeightRecord(&p.BlockHeight))
+	if p.GenesisReveal != nil {
+		records = append(records, GenesisRevealRecord(&p.GenesisReveal))
+	}
+	if p.GroupKeyReveal != nil {
+		records = append(records, GroupKeyRevealRecord(
+			&p.GroupKeyReveal,
+		))
+	}
 	return records
 }
 
 // DecodeRecords returns the set of known TLV records to decode a Proof.
 func (p *Proof) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
+		VersionRecord(&p.Version),
 		PrevOutRecord(&p.PrevOut),
 		BlockHeaderRecord(&p.BlockHeader),
 		AnchorTxRecord(&p.AnchorTx),
@@ -253,6 +348,8 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		AdditionalInputsRecord(&p.AdditionalInputs),
 		ChallengeWitnessRecord(&p.ChallengeWitness),
 		BlockHeightRecord(&p.BlockHeight),
+		GenesisRevealRecord(&p.GenesisReveal),
+		GroupKeyRevealRecord(&p.GroupKeyReveal),
 	}
 }
 
@@ -295,4 +392,15 @@ func (p *Proof) Decode(r io.Reader) error {
 		return err
 	}
 	return stream.Decode(r)
+}
+
+// IsUnknownVersion returns true if a proof has a version that is not recognized
+// by this implementation of tap.
+func (p *Proof) IsUnknownVersion() bool {
+	switch p.Version {
+	case TransitionV0:
+		return false
+	default:
+		return true
+	}
 }

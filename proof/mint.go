@@ -135,6 +135,7 @@ func WithAssetMetaReveals(
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
 func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
+	groupVerifier GroupVerifier, anchorVerifier GroupAnchorVerifier,
 	blobOpts ...MintingBlobOption) (AssetProofs, error) {
 
 	opts := defaultMintingBlobOpts()
@@ -147,7 +148,9 @@ func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 		return nil, err
 	}
 
-	proofs, err := committedProofs(base, params.TaprootAssetRoot, opts)
+	proofs, err := committedProofs(
+		base, params.TaprootAssetRoot, anchorVerifier, opts,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +161,7 @@ func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 	for key := range proofs {
 		proof := proofs[key]
 
-		_, err := proof.Verify(ctx, nil, headerVerifier)
+		_, err := proof.Verify(ctx, nil, headerVerifier, groupVerifier)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof file generated: "+
 				"%w", err)
@@ -210,23 +213,25 @@ func coreProof(params *BaseProofParams) (*Proof, error) {
 
 // committedProofs creates a map of proofs, keyed by the script key of each of
 // the assets committed to in the Taproot Asset root of the given params.
-func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitment,
+func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
+	groupAnchorVerifier GroupAnchorVerifier,
 	opts *mintingBlobOpts) (AssetProofs, error) {
 
 	// For each asset we'll construct the asset specific proof information,
 	// then encode that as a proof file blob in the blobs map.
-	assets := taprootAssetRoot.CommittedAssets()
+	assets := tapTreeRoot.CommittedAssets()
 	proofs := make(AssetProofs, len(assets))
-	for _, newAsset := range assets {
+	for idx := range assets {
 		// First, we'll copy over the base proof and also set the asset
 		// within the proof itself.
+		newAsset := assets[idx]
 		assetProof := *baseProof
 		assetProof.Asset = *newAsset.Copy()
 
 		// With the base information contained, we'll now need to
 		// generate our series of MS-SMT inclusion proofs that prove
 		// the existence of the asset.
-		_, assetMerkleProof, err := taprootAssetRoot.Proof(
+		_, assetMerkleProof, err := tapTreeRoot.Proof(
 			newAsset.TapCommitmentKey(),
 			newAsset.AssetCommitmentKey(),
 		)
@@ -251,6 +256,28 @@ func committedProofs(baseProof *Proof, taprootAssetRoot *commitment.TapCommitmen
 		// well.
 		if metaReveal, ok := opts.metaReveals[scriptKey]; ok {
 			assetProof.MetaReveal = metaReveal
+		}
+
+		// Set the genesis reveal info on the minting proof. To save on
+		// some space, the genesis info is no longer included in
+		// transition proofs.
+		assetProof.GenesisReveal = &newAsset.Genesis
+
+		// If the asset has a group key, we only need to populate the
+		// group key reveal if the asset is the group anchor.
+		if newAsset.GroupKey != nil {
+			groupKey := newAsset.GroupKey
+
+			err := groupAnchorVerifier(&newAsset.Genesis, groupKey)
+			if err == nil {
+				groupReveal := &asset.GroupKeyReveal{
+					RawKey: asset.ToSerialized(
+						groupKey.RawKey.PubKey,
+					),
+					TapscriptRoot: groupKey.TapscriptRoot,
+				}
+				assetProof.GroupKeyReveal = groupReveal
+			}
 		}
 
 		// With all the information for this asset populated, we'll

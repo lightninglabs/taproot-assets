@@ -11,18 +11,21 @@ import (
 )
 
 const (
-	PrevOutType          tlv.Type = 0
-	BlockHeaderType      tlv.Type = 1
-	AnchorTxType         tlv.Type = 2
-	TxMerkleProofType    tlv.Type = 3
-	AssetLeafType        tlv.Type = 4
-	InclusionProofType   tlv.Type = 5
-	ExclusionProofsType  tlv.Type = 6
-	SplitRootProofType   tlv.Type = 7
-	MetaRevealType       tlv.Type = 8
-	AdditionalInputsType tlv.Type = 9
-	ChallengeWitnessType tlv.Type = 10
-	BlockHeightType      tlv.Type = 11
+	VersionType          tlv.Type = 0
+	PrevOutType          tlv.Type = 1
+	BlockHeaderType      tlv.Type = 2
+	AnchorTxType         tlv.Type = 3
+	TxMerkleProofType    tlv.Type = 4
+	AssetLeafType        tlv.Type = 5
+	InclusionProofType   tlv.Type = 6
+	ExclusionProofsType  tlv.Type = 7
+	SplitRootProofType   tlv.Type = 8
+	MetaRevealType       tlv.Type = 9
+	AdditionalInputsType tlv.Type = 10
+	ChallengeWitnessType tlv.Type = 11
+	BlockHeightType      tlv.Type = 12
+	GenesisRevealType    tlv.Type = 13
+	GroupKeyRevealType   tlv.Type = 14
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 1
@@ -41,6 +44,12 @@ const (
 	MetaRevealEncodingType tlv.Type = 0
 	MetaRevealDataType     tlv.Type = 1
 )
+
+func VersionRecord(version *TransitionVersion) tlv.Record {
+	return tlv.MakeStaticRecord(
+		VersionType, version, 4, VersionEncoder, VersionDecoder,
+	)
+}
 
 func PrevOutRecord(prevOut *wire.OutPoint) tlv.Record {
 	return tlv.MakeStaticRecord(
@@ -285,4 +294,37 @@ func MetaRevealTypeRecord(metaType *MetaType) tlv.Record {
 
 func MetaRevealDataRecord(data *[]byte) tlv.Record {
 	return tlv.MakePrimitiveRecord(MetaRevealDataType, data)
+}
+
+func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := GenesisRevealEncoder(&b, genesis, &buf); err != nil {
+			panic(err)
+		}
+		return uint64(len(b.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		GenesisRevealType, genesis, recordSize, GenesisRevealEncoder,
+		GenesisRevealDecoder,
+	)
+}
+
+func GroupKeyRevealRecord(reveal **asset.GroupKeyReveal) tlv.Record {
+	recordSize := func() uint64 {
+		if reveal == nil || *reveal == nil {
+			return 0
+		}
+		r := *reveal
+		return uint64(
+			btcec.PubKeyBytesLenCompressed + len(r.TapscriptRoot),
+		)
+	}
+	return tlv.MakeDynamicRecord(
+		GroupKeyRevealType, reveal, recordSize, GroupKeyRevealEncoder,
+		GroupKeyRevealDecoder,
+	)
 }

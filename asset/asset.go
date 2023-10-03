@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -16,9 +17,12 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -31,6 +35,11 @@ const (
 // SerializedKey is a type for representing a public key, serialized in the
 // compressed, 33-byte form.
 type SerializedKey [33]byte
+
+// ToPubKey returns the public key parsed from the serialized key.
+func (s SerializedKey) ToPubKey() (*btcec.PublicKey, error) {
+	return btcec.ParsePubKey(s[:])
+}
 
 // SchnorrSerialized returns the Schnorr serialized, x-only 32-byte
 // representation of the serialized key.
@@ -77,6 +86,10 @@ var (
 	NUMSScriptKey     = ScriptKey{
 		PubKey: NUMSPubKey,
 	}
+
+	// ErrUnknownVersion is returned when an asset with an unknown asset
+	// version is being used.
+	ErrUnknownVersion = errors.New("asset: unknown asset version")
 )
 
 const (
@@ -170,16 +183,6 @@ func (g Genesis) GroupKeyTweak() []byte {
 	_ = binary.Write(&keyGroupBytes, binary.BigEndian, g.OutputIndex)
 	_ = binary.Write(&keyGroupBytes, binary.BigEndian, g.Type)
 	return keyGroupBytes.Bytes()
-}
-
-// VerifySignature verifies the given signature that it is valid over the
-// asset's unique identifier with the given public key.
-func (g Genesis) VerifySignature(sig *schnorr.Signature,
-	pubKey *btcec.PublicKey) bool {
-
-	msg := g.ID()
-	digest := sha256.Sum256(msg[:])
-	return sig.Verify(digest[:], pubKey)
 }
 
 // Encode encodes an asset genesis.
@@ -425,11 +428,82 @@ type GroupKey struct {
 	// GroupPubKey is the tweaked public key that is used to associate assets
 	// together across distinct asset IDs, allowing further issuance of the
 	// asset to be made possible. The tweaked public key is the result of:
-	//   groupInternalKey + sha256(groupInternalKey || genesisOutPoint) * G
+	//
+	// 	internalKey = rawKey + singleTweak * G
+	// 	tweakedGroupKey = TapTweak(internalKey, tapTweak)
 	GroupPubKey btcec.PublicKey
 
-	// Sig is a signature over an asset's ID by `Key`.
-	Sig schnorr.Signature
+	// TapscriptRoot is the root of the Tapscript tree that commits to all
+	// script spend conditions for the group key. Instead of spending an
+	// asset, these scripts are used to define witnesses more complex than
+	// a Schnorr signature for reissuing assets. A group key with an empty
+	// Tapscript root can only authorize reissuance with a signature.
+	TapscriptRoot []byte
+
+	// Witness is a stack of witness elements that authorizes the membership
+	// of an asset in a particular asset group. The witness can be a single
+	// signature or a script from the tapscript tree committed to with the
+	// TapscriptRoot, and follows the witness rules in BIP-341.
+	Witness wire.TxWitness
+}
+
+// GroupKeyReveal is a type for representing the data used to derive the tweaked
+// key used to identify an asset group. The final tweaked key is the result of:
+// TapTweak(groupInternalKey, tapscriptRoot)
+type GroupKeyReveal struct {
+	// RawKey is the public key that is tweaked twice to derive the final
+	// tweaked group key. The final tweaked key is the result of:
+	// internalKey = rawKey + singleTweak * G
+	// tweakedGroupKey = TapTweak(internalKey, tapTweak)
+	RawKey SerializedKey
+
+	// TapscriptRoot is the root of the Tapscript tree that commits to all
+	// script spend conditions for the group key. Instead of spending an
+	// asset, these scripts are used to define witnesses more complex than
+	// a Schnorr signature for reissuing assets. This is either empty/nil or
+	// a 32-byte hash.
+	TapscriptRoot []byte
+}
+
+// GroupPubKey returns the group public key derived from the group key reveal.
+func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
+	rawKey, err := g.RawKey.ToPubKey()
+	if err != nil {
+		return nil, err
+	}
+
+	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot)
+}
+
+// GroupPubKey derives a tweaked group key from a public key and two tweaks;
+// the single tweak is the asset ID of the group anchor asset, and the tapTweak
+// is the root of a tapscript tree that commits to script-based conditions for
+// reissuing assets as part of this asset group. The tweaked key is defined by:
+//
+//	internalKey = rawKey + singleTweak * G
+//	tweakedGroupKey = TapTweak(internalKey, tapTweak)
+func GroupPubKey(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
+	*btcec.PublicKey, error) {
+
+	if len(singleTweak) != sha256.Size {
+		return nil, fmt.Errorf("genesis tweak must be %d bytes",
+			sha256.Size)
+	}
+
+	internalKey := input.TweakPubKeyWithTweak(rawKey, singleTweak)
+
+	switch len(tapTweak) {
+	case 0:
+		return txscript.ComputeTaprootKeyNoScript(internalKey), nil
+
+	case sha256.Size:
+		return txscript.ComputeTaprootOutputKey(internalKey, tapTweak),
+			nil
+
+	default:
+		return nil, fmt.Errorf("tapscript tweaks must be %d bytes",
+			sha256.Size)
+	}
 }
 
 // IsEqual returns true if this group key and signature are exactly equivalent
@@ -448,7 +522,19 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
-	return g.Sig.IsEqual(&otherGroupKey.Sig)
+	if !bytes.Equal(g.TapscriptRoot, otherGroupKey.TapscriptRoot) {
+		return false
+	}
+
+	if len(g.Witness) != len(otherGroupKey.Witness) {
+		return false
+	}
+
+	return slices.EqualFunc(
+		g.Witness, otherGroupKey.Witness, func(a, b []byte) bool {
+			return bytes.Equal(a, b)
+		},
+	)
 }
 
 // IsEqualGroup returns true if this group key describes the same asset group
@@ -470,6 +556,108 @@ func (g *GroupKey) IsEqualGroup(otherGroupKey *GroupKey) bool {
 	}
 
 	return g.GroupPubKey.IsEqual(&otherGroupKey.GroupPubKey)
+}
+
+// hasAnnex returns true if the provided witness includes an annex element,
+// otherwise returns false.
+func hasAnnex(witness wire.TxWitness) bool {
+	// By definition, the annex element can not be the sole element in the
+	// witness stack.
+	if len(witness) < 2 {
+		return false
+	}
+
+	// If an annex element is included in the witness stack, by definition,
+	// it will be the last element and will be prefixed by a Taproot annex
+	// tag.
+	lastElement := witness[len(witness)-1]
+	if len(lastElement) == 0 {
+		return false
+	}
+
+	return lastElement[0] == txscript.TaprootAnnexTag
+}
+
+// IsGroupSig checks if the given witness represents a key path spend of the
+// tweaked group key. Such a witness must include one Schnorr signature, and
+// can include an optional annex (matching the rules specified in BIP-341).
+// If the signature is valid, IsGroupSig returns true and the parsed signature.
+func IsGroupSig(witness wire.TxWitness) (*schnorr.Signature, bool) {
+	if len(witness) == 0 || len(witness) > 2 {
+		return nil, false
+	}
+
+	if len(witness[0]) != schnorr.SignatureSize {
+		return nil, false
+	}
+
+	// If we have two witness elements and the first is a signature, the
+	// second must be a valid annex.
+	if len(witness) == 2 && !hasAnnex(witness) {
+		return nil, false
+	}
+
+	groupSig, err := schnorr.ParseSignature(witness[0])
+	if err != nil {
+		return nil, false
+	}
+
+	return groupSig, true
+}
+
+// ParseGroupWitness parses a group witness that was stored as a TLV stream
+// in the DB.
+func ParseGroupWitness(witness []byte) (wire.TxWitness, error) {
+	var (
+		buf          [8]byte
+		b            = bytes.NewReader(witness)
+		witnessStack wire.TxWitness
+	)
+
+	err := TxWitnessDecoder(b, &witnessStack, &buf, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse group witness: %w", err)
+	}
+
+	return witnessStack, nil
+}
+
+// SerializeGroupWitness serializes a group witness into a TLV stream suitable
+// for storing in the DB.
+func SerializeGroupWitness(witness wire.TxWitness) ([]byte, error) {
+	if len(witness) == 0 {
+		return nil, fmt.Errorf("group witness cannot be empty")
+	}
+
+	var (
+		buf [8]byte
+		b   bytes.Buffer
+	)
+
+	err := TxWitnessEncoder(&b, &witness, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize group witness: %w",
+			err)
+	}
+
+	return b.Bytes(), nil
+}
+
+// ParseGroupSig parses a group signature that was stored as a group witness in
+// the DB. It returns an error if the witness is not a single Schnorr signature.
+func ParseGroupSig(witness []byte) (*schnorr.Signature, error) {
+	groupWitness, err := ParseGroupWitness(witness)
+	if err != nil {
+		return nil, err
+	}
+
+	groupSig, isSig := IsGroupSig(groupWitness)
+	if !isSig {
+		return nil, fmt.Errorf("group witness must be a single " +
+			"Schnorr signature")
+	}
+
+	return groupSig, nil
 }
 
 // IsLocal returns true if the private key that corresponds to this group key
@@ -566,96 +754,66 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 	}
 }
 
-// GenesisSigner is used to sign the assetID using the group key public key
-// for a given asset.
-type GenesisSigner interface {
-	// SignGenesis tweaks the public key identified by the passed key
-	// descriptor with the the first passed Genesis description, and signs
-	// the second passed Genesis description with the tweaked public key.
-	// For minting the first asset in a group, only one Genesis object is
-	// needed, since we tweak with and sign over the same Genesis object.
-	// The final tweaked public key and the signature are returned.
-	SignGenesis(keychain.KeyDescriptor, Genesis,
-		*Genesis) (*btcec.PublicKey, *schnorr.Signature, error)
-}
-
-// RawKeyGenesisSigner implements the GenesisSigner interface using a raw
-// private key.
-type RawKeyGenesisSigner struct {
-	privKey *btcec.PrivateKey
-}
-
-// NewRawKeyGenesisSigner creates a new RawKeyGenesisSigner instance given the
-// passed public key.
-func NewRawKeyGenesisSigner(priv *btcec.PrivateKey) *RawKeyGenesisSigner {
-	return &RawKeyGenesisSigner{
-		privKey: priv,
-	}
-}
-
-// SignGenesis tweaks the public key identified by the passed key
-// descriptor with the the first passed Genesis description, and signs
-// the second passed Genesis description with the tweaked public key.
-// For minting the first asset in a group, only one Genesis object is
-// needed, since we tweak with and sign over the same Genesis object.
-// The final tweaked public key and the signature are returned.
-func (r *RawKeyGenesisSigner) SignGenesis(keyDesc keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*btcec.PublicKey,
-	*schnorr.Signature, error) {
-
-	if !keyDesc.PubKey.IsEqual(r.privKey.PubKey()) {
-		return nil, nil, fmt.Errorf("cannot sign with key")
-	}
-
-	tweakedPrivKey := txscript.TweakTaprootPrivKey(
-		*r.privKey, initialGen.GroupKeyTweak(),
-	)
-
-	// If the current genesis is not set, we are minting the first asset in
-	// the group. This means that we use the same Genesis object for both
-	// the key tweak and to create the asset ID we sign. If the current
-	// genesis is set, the asset type of the new asset must match the type
-	// of the first asset in the group.
-	id := initialGen.ID()
-	if currentGen != nil {
-		if initialGen.Type != currentGen.Type {
-			return nil, nil, fmt.Errorf("asset group type mismatch")
-		}
-
-		id = currentGen.ID()
-	}
-
-	// TODO(roasbeef): this actually needs to sign the digest of the asset
-	// itself
-	idHash := sha256.Sum256(id[:])
-	sig, err := schnorr.Sign(tweakedPrivKey, idHash[:])
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return tweakedPrivKey.PubKey(), sig, nil
-}
-
-// A compile-time assertion to ensure RawKeyGenesisSigner meets the
-// GenesisSigner interface.
-var _ GenesisSigner = (*RawKeyGenesisSigner)(nil)
-
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.
-func DeriveGroupKey(genSigner GenesisSigner, rawKey keychain.KeyDescriptor,
-	initialGen Genesis, currentGen *Genesis) (*GroupKey, error) {
+func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
+	rawKey keychain.KeyDescriptor, initialGen Genesis,
+	newAsset *Asset) (*GroupKey, error) {
 
-	groupPubKey, sig, err := genSigner.SignGenesis(
-		rawKey, initialGen, currentGen,
-	)
+	// First, perform the final checks on the asset being authorized for
+	// group membership.
+	if newAsset == nil {
+		return nil, fmt.Errorf("grouped asset cannot be nil")
+	}
+
+	if !newAsset.HasGenesisWitness() {
+		return nil, fmt.Errorf("asset is not a genesis asset")
+	}
+
+	if initialGen.Type != newAsset.Type {
+		return nil, fmt.Errorf("asset group type mismatch")
+	}
+
+	// Compute the tweaked group key and set it in the asset before
+	// creating the virtual minting transaction.
+	genesisTweak := initialGen.ID()
+	tweakedGroupKey, err := GroupPubKey(rawKey.PubKey, genesisTweak[:], nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+
+	assetWithGroup := newAsset.Copy()
+	assetWithGroup.GroupKey = &GroupKey{
+		GroupPubKey: *tweakedGroupKey,
+	}
+
+	// Build the virtual transaction that represents the minting of the new
+	// asset, which will be signed to generate the group witness.
+	genesisTx, prevOut, err := genBuilder.BuildGenesisTx(assetWithGroup)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build virtual tx: %w", err)
+	}
+
+	// Build the static signing descriptor needed to sign the virtual
+	// minting transaction. This is restricted to group keys with an empty
+	// tapscript root and key path spends.
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:     rawKey,
+		SingleTweak: genesisTweak[:],
+		SignMethod:  input.TaprootKeySpendBIP0086SignMethod,
+		Output:      prevOut,
+		HashType:    txscript.SigHashDefault,
+		InputIndex:  0,
+	}
+	sig, err := genSigner.SignVirtualTx(signDesc, genesisTx, prevOut)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GroupKey{
 		RawKey:      rawKey,
-		GroupPubKey: *groupPubKey,
-		Sig:         *sig,
+		GroupPubKey: *tweakedGroupKey,
+		Witness:     wire.TxWitness{sig.Serialize()},
 	}, nil
 }
 
@@ -704,6 +862,17 @@ type Asset struct {
 	GroupKey *GroupKey
 }
 
+// IsUnknownVersion returns true if an asset has a version that is not
+// recognized by this implementation of tap.
+func (a *Asset) IsUnknownVersion() bool {
+	switch a.Version {
+	case V0:
+		return false
+	default:
+		return true
+	}
+}
+
 // New instantiates a new asset with a genesis asset witness.
 func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	scriptKey ScriptKey, groupKey *GroupKey) (*Asset, error) {
@@ -714,18 +883,28 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 			genesis.Type)
 	}
 
+	// Valid genesis asset witness.
+	genesisWitness := Witness{
+		PrevID:          &PrevID{},
+		TxWitness:       nil,
+		SplitCommitment: nil,
+	}
+
+	// Genesis assets with an asset group must have the group witness stored
+	// in the genesis asset witness, if present.
+	if groupKey != nil && groupKey.Witness != nil &&
+		len(groupKey.Witness) != 0 {
+
+		genesisWitness.TxWitness = groupKey.Witness
+	}
+
 	return &Asset{
-		Version:          V0,
-		Genesis:          genesis,
-		Amount:           amount,
-		LockTime:         locktime,
-		RelativeLockTime: relativeLocktime,
-		PrevWitnesses: []Witness{{
-			// Valid genesis asset witness.
-			PrevID:          &PrevID{},
-			TxWitness:       nil,
-			SplitCommitment: nil,
-		}},
+		Version:             V0,
+		Genesis:             genesis,
+		Amount:              amount,
+		LockTime:            locktime,
+		RelativeLockTime:    relativeLocktime,
+		PrevWitnesses:       []Witness{genesisWitness},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       ScriptV0,
 		ScriptKey:           scriptKey,
@@ -790,6 +969,33 @@ func (a *Asset) HasGenesisWitness() bool {
 
 	witness := a.PrevWitnesses[0]
 	if witness.PrevID == nil || len(witness.TxWitness) > 0 ||
+		witness.SplitCommitment != nil {
+
+		return false
+	}
+
+	return *witness.PrevID == ZeroPrevID
+}
+
+// NeedsGenesisWitnessForGroup determines whether an asset is a genesis grouped
+// asset, which does not yet have a group witness.
+func (a *Asset) NeedsGenesisWitnessForGroup() bool {
+	return a.HasGenesisWitness() && a.GroupKey != nil
+}
+
+// HasGenesisWitnessForGroup determines whether an asset has a witness for a
+// genesis asset in an asset group. This asset must have a non-empty group key
+// and a single prevWitness with a zero PrevID, empty split commitment proof,
+// and non-empty witness.
+func (a *Asset) HasGenesisWitnessForGroup() bool {
+	if a.GroupKey == nil || len(a.PrevWitnesses) != 1 {
+		return false
+	}
+
+	// The single PrevWitness must have a ZeroPrevID, non-empty witness, and
+	// nil split commitment.
+	witness := a.PrevWitnesses[0]
+	if witness.PrevID == nil || len(witness.TxWitness) == 0 ||
 		witness.SplitCommitment != nil {
 
 		return false
@@ -921,7 +1127,7 @@ func (a *Asset) Copy() *Asset {
 		assetCopy.GroupKey = &GroupKey{
 			RawKey:      a.GroupKey.RawKey,
 			GroupPubKey: a.GroupKey.GroupPubKey,
-			Sig:         a.GroupKey.Sig,
+			Witness:     a.GroupKey.Witness,
 		}
 	}
 
@@ -1049,6 +1255,9 @@ func (a *Asset) Decode(r io.Reader) error {
 
 // Leaf returns the asset encoded as a MS-SMT leaf node.
 func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
+	if a.IsUnknownVersion() {
+		return nil, ErrUnknownVersion
+	}
 	var buf bytes.Buffer
 	if err := a.Encode(&buf); err != nil {
 		return nil, err

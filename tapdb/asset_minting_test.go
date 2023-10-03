@@ -10,16 +10,17 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -97,17 +98,21 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 	*asset.AssetGroup) {
 
 	// Generate the signature for our group genesis asset.
-	genSigner := asset.NewRawKeyGenesisSigner(groupPriv)
-	groupKey, err := asset.DeriveGroupKey(
-		genSigner, privDesc, initGen, currentGen,
-	)
-	require.NoError(t, err)
+	genSigner := asset.NewMockGenesisSigner(groupPriv)
+	genTxBuilder := asset.MockGroupTxBuilder{}
 
 	// Select the correct genesis for the new asset.
 	assetGen := initGen
 	if currentGen != nil {
 		assetGen = *currentGen
 	}
+	genProtoAsset := asset.RandAssetWithValues(
+		t, assetGen, nil, asset.RandScriptKey(t),
+	)
+	groupKey, err := asset.DeriveGroupKey(
+		genSigner, &genTxBuilder, privDesc, initGen, genProtoAsset,
+	)
+	require.NoError(t, err)
 
 	initialAsset := asset.RandAssetWithValues(
 		t, assetGen, groupKey, asset.RandScriptKey(t),
@@ -164,7 +169,7 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 	targetSeedling := seedlings[randAssetName]
 	targetSeedling.EnableEmission = false
 	targetSeedling.GroupInfo = group
-	targetSeedling.GroupInfo.GroupKey.Sig = schnorr.Signature{}
+	targetSeedling.GroupInfo.GroupKey.Witness = nil
 
 	// Associate the asset name and group private key so that a new group
 	// signature can be made for the selected seedling.
@@ -346,14 +351,25 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		}
 
 		scriptKey, _ := randKeyDesc(t)
+		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
-			groupPriv *btcec.PrivateKey
-			groupKey  *asset.GroupKey
-			groupInfo *asset.AssetGroup
-			ok        bool
-			err       error
+			genTxBuilder = tapscript.GroupTxBuilder{}
+			groupPriv    *btcec.PrivateKey
+			groupKey     *asset.GroupKey
+			groupInfo    *asset.AssetGroup
+			protoAsset   *asset.Asset
+			amount       uint64
+			ok           bool
+			err          error
 		)
+
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
 
 		if seedling.HasGroupKey() {
 			groupPriv, ok = groupKeys[seedling.AssetName]
@@ -368,19 +384,27 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			require.True(t, ok)
 		}
 
+		if groupInfo != nil || seedling.EnableEmission {
+			protoAsset, err = asset.New(
+				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+			)
+			require.NoError(t, err)
+		}
+
 		if groupInfo != nil {
 			groupKey, err = asset.DeriveGroupKey(
-				asset.NewRawKeyGenesisSigner(groupPriv),
-				groupInfo.GroupKey.RawKey,
-				*groupInfo.Genesis, &assetGen,
+				asset.NewMockGenesisSigner(groupPriv),
+				&genTxBuilder, groupInfo.GroupKey.RawKey,
+				*groupInfo.Genesis, protoAsset,
 			)
 		}
 
 		if seedling.EnableEmission {
 			groupKeyRaw, newGroupPriv := randKeyDesc(t)
+			genSigner := asset.NewMockGenesisSigner(newGroupPriv)
 			groupKey, err = asset.DeriveGroupKey(
-				asset.NewRawKeyGenesisSigner(newGroupPriv),
-				groupKeyRaw, assetGen, nil,
+				genSigner, &genTxBuilder, groupKeyRaw, assetGen,
+				protoAsset,
 			)
 			newGroupPrivs[seedling.AssetName] = newGroupPriv
 			newGroupInfo[seedling.AssetName] = &asset.AssetGroup{
@@ -391,17 +415,8 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		require.NoError(t, err)
 
-		var amount uint64
-		switch seedling.AssetType {
-		case asset.Normal:
-			amount = seedling.Amount
-		case asset.Collectible:
-			amount = 1
-		}
-
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0,
-			asset.NewScriptKeyBip86(scriptKey), groupKey,
+			assetGen, amount, 0, 0, tweakedScriptKey, groupKey,
 		)
 		require.NoError(t, err)
 
@@ -697,10 +712,22 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(assets))
 
+	// Count the number of assets with a group key. Each grouped asset
+	// should have a grouped genesis witness.
+	groupCount := fn.Count(assets, func(a *ChainAsset) bool {
+		return a.GroupKey != nil
+	})
+	groupWitnessCount := fn.Count(assets, func(a *ChainAsset) bool {
+		return a.HasGenesisWitnessForGroup()
+	})
+	require.Equal(t, groupCount, groupWitnessCount)
+
 	// All the assets returned should have the genesis prev ID set up.
-	for _, dbAsset := range assets {
-		require.True(t, dbAsset.HasGenesisWitness())
-	}
+	ungroupedCount := len(assets) - groupCount
+	genesisWitnessCount := fn.Count(assets, func(a *ChainAsset) bool {
+		return a.HasGenesisWitness()
+	})
+	require.Equal(t, ungroupedCount, genesisWitnessCount)
 
 	// Now that the batch has been committed on disk, we should be able to
 	// obtain all the proofs we just committed.
@@ -808,6 +835,7 @@ func TestDuplicateGroupKey(t *testing.T) {
 	// what it is. What matters is that it's unique.
 	assetKey := AssetGroupKey{
 		TweakedGroupKey: rawKey,
+		TapscriptRoot:   test.RandBytes(32),
 		InternalKeyID:   keyID,
 		GenesisPointID:  genesisPointID,
 	}
@@ -910,8 +938,8 @@ func TestGroupStore(t *testing.T) {
 			reissueGroup.GroupKey.GroupPubKey,
 		)
 		require.NotEqual(
-			t, anchorGroup.GroupKey.Sig,
-			reissueGroup.GroupKey.Sig,
+			t, anchorGroup.GroupKey.Witness,
+			reissueGroup.GroupKey.Witness,
 		)
 
 		return nil
