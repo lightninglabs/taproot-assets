@@ -80,6 +80,22 @@ func (i *Identifier) StringForLog() string {
 		i.String(), i.AssetID[:], groupKey, i.ProofType)
 }
 
+// ValidateProofUniverseType validates that the proof type matches the universe
+// identifier proof type.
+func ValidateProofUniverseType(proof *proof.Proof, uniID Identifier) error {
+	expectedProofType, err := NewProofTypeFromAssetProof(proof)
+	if err != nil {
+		return err
+	}
+
+	if expectedProofType != uniID.ProofType {
+		return fmt.Errorf("proof type mismatch: expected %s, got %s",
+			expectedProofType, uniID.ProofType)
+	}
+
+	return nil
+}
+
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
 // group key it's associated with (if that exists).
 type GenesisWithGroup struct {
