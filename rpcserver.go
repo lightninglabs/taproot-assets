@@ -3082,6 +3082,13 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		}
 	}
 
+	// Ensure that the new proof is of the correct type for the target
+	// universe.
+	err = universe.ValidateProofUniverseType(assetLeaf.Proof, universeID)
+	if err != nil {
+		return nil, err
+	}
+
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
 		"(universeID=%x, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
