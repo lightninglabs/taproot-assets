@@ -2740,7 +2740,7 @@ func unmarshalAssetSyncConfig(
 	error) {
 
 	// Parse the universe ID from the RPC form.
-	uniID, err := unmarshalUniID(config.Id)
+	uniID, err := UnmarshalUniID(config.Id)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse universe id: %w",
 			err)
@@ -2753,15 +2753,14 @@ func unmarshalAssetSyncConfig(
 	}, nil
 }
 
-// unmarshalUniID parses the RPC universe ID into the native counterpart.
-func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+// UnmarshalUniID parses the RPC universe ID into the native counterpart.
+func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	// Unmarshal the proof type.
 	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
 	if err != nil {
 		return universe.Identifier{}, fmt.Errorf("unable to unmarshal "+
 			"proof type: %w", err)
 	}
-
 	switch {
 	case rpcID.GetAssetId() != nil:
 		var assetID asset.ID
@@ -2827,7 +2826,7 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 	req *unirpc.AssetRootQuery) (*unirpc.QueryRootResponse, error) {
 
-	universeID, err := unmarshalUniID(req.Id)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -2885,7 +2884,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	req *unirpc.DeleteRootQuery) (*unirpc.DeleteRootResponse, error) {
 
-	universeID, err := unmarshalUniID(req.Id)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -2941,7 +2940,7 @@ func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafKeyResponse, error) {
 
-	universeID, err := unmarshalUniID(req)
+	universeID, err := UnmarshalUniID(req)
 	if err != nil {
 		return nil, err
 	}
@@ -3003,7 +3002,7 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 func (r *rpcServer) AssetLeaves(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
 
-	universeID, err := unmarshalUniID(req)
+	universeID, err := UnmarshalUniID(req)
 	if err != nil {
 		return nil, err
 	}
@@ -3192,7 +3191,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 func (r *rpcServer) QueryProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
-	universeID, err := unmarshalUniID(req.Id)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -3296,7 +3295,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, fmt.Errorf("key cannot be nil")
 	}
 
-	universeID, err := unmarshalUniID(req.Key.Id)
+	universeID, err := UnmarshalUniID(req.Key.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -3382,7 +3381,7 @@ func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
 func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
 	uniIDs := make([]universe.Identifier, 0, len(targets))
 	for _, target := range targets {
-		uniID, err := unmarshalUniID(target.Id)
+		uniID, err := UnmarshalUniID(target.Id)
 		if err != nil {
 			return nil, err
 		}
