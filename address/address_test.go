@@ -43,7 +43,7 @@ func randAddress(t *testing.T, net *ChainParams, v Version, groupPubKey,
 	}
 
 	if amt == nil && assetType == asset.Normal {
-		amount = test.RandInt[uint64]()
+		amount = uint64(test.RandInt[uint32]())
 	}
 
 	var tapscriptSibling *commitment.TapscriptPreimage

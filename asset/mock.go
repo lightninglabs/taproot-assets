@@ -355,7 +355,10 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 
 	t.Helper()
 
-	units := test.RandInt[uint64]() + 1
+	units := uint64(test.RandInt[uint32]())
+	if units == 0 {
+		units = 1
+	}
 
 	switch genesis.Type {
 	case Normal:

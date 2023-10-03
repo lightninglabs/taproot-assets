@@ -44,7 +44,7 @@ func RandAddr(t testing.TB, params *ChainParams,
 	internalKey := test.RandPrivKey(t)
 
 	genesis := asset.RandGenesis(t, asset.Type(test.RandInt31n(2)))
-	amount := test.RandInt[uint64]()
+	amount := uint64(test.RandInt[uint32]())
 	if genesis.Type == asset.Collectible {
 		amount = 1
 	}

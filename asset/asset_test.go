@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,8 +39,11 @@ var (
 
 	generatedTestVectorName = "asset_tlv_encoding_generated.json"
 
+	amtTestVectorName = "asset_tlv_amounts.json"
+
 	allTestVectorFiles = []string{
 		generatedTestVectorName,
+		amtTestVectorName,
 		"asset_tlv_encoding_error_cases.json",
 	}
 
@@ -756,4 +760,62 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			})
 		})
 	}
+}
+
+// TestAssetMaxAmount tests that the maximum amount of an asset is correctly
+// enforced for v0 and v1 assets.
+func TestAssetMaxAmount(t *testing.T) {
+	t.Parallel()
+
+	testVectors := &TestVectors{}
+
+	testGen := splitGen
+	testGen.Type = Normal
+
+	t.Run("max_uint32_plus_1", func(t *testing.T) {
+		_, err := New(
+			testGen, math.MaxUint32+1, 0, 0, NewScriptKey(pubKey),
+			nil,
+		)
+		require.ErrorIs(t, err, ErrMaxIssuanceUnits)
+
+		asset0Error, err := New(
+			testGen, math.MaxUint32, 0, 0, NewScriptKey(pubKey),
+			nil,
+		)
+		require.NoError(t, err)
+
+		asset0Error.Amount = math.MaxUint32 + 1
+
+		testVectors.ErrorTestCases = append(
+			testVectors.ErrorTestCases, &ErrorTestCase{
+				Asset:   NewTestFromAsset(t, asset0Error),
+				Error:   ErrMaxIssuanceUnits.Error(),
+				Comment: "invalid asset value > max uint32",
+			},
+		)
+	})
+
+	t.Run("max_uint32", func(t *testing.T) {
+		asset1, err := New(
+			testGen, math.MaxUint32, 0, 0, NewScriptKey(pubKey),
+			nil,
+		)
+		require.NoError(t, err)
+
+		var buf bytes.Buffer
+		require.NoError(t, asset1.Encode(&buf))
+
+		testVectors.ValidTestCases = append(
+			testVectors.ValidTestCases, &ValidTestCase{
+				Asset:    NewTestFromAsset(t, asset1),
+				Expected: hex.EncodeToString(buf.Bytes()),
+				Comment:  "max uint32 valid asset value",
+			},
+		)
+	})
+
+	// Write test vectors to file. This is a no-op if the
+	// "gen_test_vectors" build tag is not set.
+	test.WriteTestVectors(t, amtTestVectorName, testVectors)
 }

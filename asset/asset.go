@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"strings"
 	"unicode"
@@ -30,6 +31,16 @@ const (
 	// This byte length is equivalent to character count for single-byte
 	// UTF-8 characters.
 	MaxAssetNameLength = 64
+
+	// MaxIssuanceUnits is the maximum number of units that can be issued
+	// in a single asset UTXO for v0 and v1 assets.
+	MaxIssuanceUnits = math.MaxUint32
+)
+
+var (
+	// ErrMaxIssuanceUnits is returned when an asset is being issued with
+	// more units that permitted.
+	ErrMaxIssuanceUnits = errors.New("asset: max issuance units exceeded")
 )
 
 // SerializedKey is a type for representing a public key, serialized in the
@@ -881,6 +892,12 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 	if genesis.Type != Normal && amount != 1 {
 		return nil, fmt.Errorf("amount must be 1 for asset of type %v",
 			genesis.Type)
+	}
+
+	// An asset can't be created that exceeds the max issuance value for
+	// this asset version.
+	if amount > MaxIssuanceUnits {
+		return nil, fmt.Errorf("%w: %d", ErrMaxIssuanceUnits, amount)
 	}
 
 	// Valid genesis asset witness.
