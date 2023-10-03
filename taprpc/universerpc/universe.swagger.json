@@ -64,6 +64,18 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "id.proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -217,6 +229,18 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -272,6 +296,18 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -327,6 +363,18 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -382,6 +430,18 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -458,6 +518,18 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "id.proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           },
           {
             "name": "leaf_key.op_str",
@@ -610,6 +682,18 @@
             "format": "byte"
           },
           {
+            "name": "id.proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
+          },
+          {
             "name": "leaf_key.op_str",
             "in": "query",
             "required": false,
@@ -760,6 +844,18 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "id.proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -815,6 +911,18 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "id.proof_type",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "ISSUANCE",
+              "TRANSFER"
+            ],
+            "default": "UNSPECIFIED"
           }
         ],
         "tags": [
@@ -1504,6 +1612,9 @@
         "group_key_str": {
           "type": "string",
           "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        },
+        "proof_type": {
+          "$ref": "#/definitions/universerpcProofType"
         }
       }
     },
@@ -1561,6 +1672,15 @@
           "description": "The index of the output."
         }
       }
+    },
+    "universerpcProofType": {
+      "type": "string",
+      "enum": [
+        "UNSPECIFIED",
+        "ISSUANCE",
+        "TRANSFER"
+      ],
+      "default": "UNSPECIFIED"
     },
     "universerpcQueryEventsResponse": {
       "type": "object",
