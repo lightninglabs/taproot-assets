@@ -10,14 +10,14 @@ import (
 
 const (
 	AssetProofVersionType tlv.Type = 0
-	AssetProofAssetIDType tlv.Type = 1
-	AssetProofType        tlv.Type = 2
+	AssetProofAssetIDType tlv.Type = 2
+	AssetProofType        tlv.Type = 4
 
 	TaprootAssetProofVersionType tlv.Type = 0
-	TaprootAssetProofType        tlv.Type = 1
+	TaprootAssetProofType        tlv.Type = 2
 
-	ProofAssetProofType        tlv.Type = 0
-	ProofTaprootAssetProofType tlv.Type = 1
+	ProofAssetProofType        tlv.Type = 1
+	ProofTaprootAssetProofType tlv.Type = 2
 )
 
 func ProofAssetProofRecord(proof **AssetProof) tlv.Record {
