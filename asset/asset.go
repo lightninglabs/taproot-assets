@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
@@ -924,6 +925,117 @@ func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
 		RawKey:      req.RawKey,
 		GroupPubKey: *tweakedGroupKey,
 		Witness:     wire.TxWitness{sig.Serialize()},
+	}, nil
+}
+
+// DeriveCustomGroupKey derives an asset's group key based on a signing
+// descriptor, the original group asset genesis, and the asset's genesis.
+func DeriveCustomGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
+	req GroupKeyRequest, tapLeaf *psbt.TaprootTapLeafScript,
+	scriptWitness []byte) (*GroupKey, error) {
+
+	// First, perform the final checks on the asset being authorized for
+	// group membership.
+	err := req.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute the tweaked group key and set it in the asset before
+	// creating the virtual minting transaction.
+	genesisTweak := req.AnchorGen.ID()
+	tweakedGroupKey, err := GroupPubKey(
+		req.RawKey.PubKey, genesisTweak[:], req.TapscriptRoot,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+
+	assetWithGroup := req.NewAsset.Copy()
+	assetWithGroup.GroupKey = &GroupKey{
+		GroupPubKey: *tweakedGroupKey,
+	}
+
+	// Exit early if a group witness is already given, since we don't need
+	// to construct a virtual TX nor produce a signature.
+	if scriptWitness != nil {
+		if tapLeaf == nil {
+			return nil, fmt.Errorf("need tap leaf with group " +
+				"script witness")
+		}
+
+		witness := wire.TxWitness{
+			scriptWitness, tapLeaf.Script, tapLeaf.ControlBlock,
+		}
+
+		return &GroupKey{
+			RawKey:        req.RawKey,
+			GroupPubKey:   *tweakedGroupKey,
+			TapscriptRoot: req.TapscriptRoot,
+			Witness:       witness,
+		}, nil
+	}
+
+	// Build the virtual transaction that represents the minting of the new
+	// asset, which will be signed to generate the group witness.
+	genesisTx, prevOut, err := genBuilder.BuildGenesisTx(assetWithGroup)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build virtual tx: %w", err)
+	}
+
+	// Populate the signing descriptor needed to sign the virtual minting
+	// transaction.
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:     req.RawKey,
+		SingleTweak: genesisTweak[:],
+		TapTweak:    req.TapscriptRoot,
+		Output:      prevOut,
+		HashType:    txscript.SigHashDefault,
+		InputIndex:  0,
+	}
+
+	// There are three possible signing cases: BIP-0086 key spend path, key
+	// spend path with a script root, and script spend path.
+	switch {
+	// If there is no tapscript root, we're doing a BIP-0086 key spend.
+	case len(signDesc.TapTweak) == 0:
+		signDesc.SignMethod = input.TaprootKeySpendBIP0086SignMethod
+
+	// No leaf means we're not signing a specific script, so this is the key
+	// spend path with a tapscript root.
+	case len(signDesc.TapTweak) != 0 && tapLeaf == nil:
+		signDesc.SignMethod = input.TaprootKeySpendSignMethod
+
+	// One leaf hash and a merkle root means we're signing a specific
+	// script.
+	case len(signDesc.TapTweak) != 0 && tapLeaf != nil:
+		signDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		signDesc.WitnessScript = tapLeaf.Script
+
+	default:
+		return nil, fmt.Errorf("bad sign descriptor for group key")
+	}
+
+	sig, err := genSigner.SignVirtualTx(signDesc, genesisTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	witness := wire.TxWitness{sig.Serialize()}
+
+	// If this was a script spend, we also have to add the script itself and
+	// the control block to the witness, otherwise the verifier will reject
+	// the generated witness.
+	if signDesc.SignMethod == input.TaprootScriptSpendSignMethod {
+		witness = append(witness, signDesc.WitnessScript)
+		witness = append(witness, tapLeaf.ControlBlock)
+	}
+
+	return &GroupKey{
+		RawKey:        signDesc.KeyDesc,
+		GroupPubKey:   *tweakedGroupKey,
+		TapscriptRoot: signDesc.TapTweak,
+		Witness:       witness,
 	}, nil
 }
 
