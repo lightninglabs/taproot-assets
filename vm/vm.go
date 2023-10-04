@@ -313,6 +313,12 @@ func (vm *Engine) Execute() error {
 		if len(vm.splitAssets) > 0 || len(vm.prevAssets) > 0 {
 			return newErrKind(ErrInvalidGenesisStateTransition)
 		}
+
+		// A genesis asset with a group key must have a witness before
+		// being validated.
+		if vm.newAsset.GroupKey != nil {
+			return newErrKind(ErrInvalidGenesisStateTransition)
+		}
 		return nil
 	}
 
