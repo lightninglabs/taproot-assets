@@ -145,7 +145,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 
 	protoAsset = asset.NewAssetNoErr(
 		t, genesis, opts.amt, lockTime, relativeLockTime,
-		opts.scriptKey, nil,
+		opts.scriptKey, nil, asset.WithAssetVersion(opts.version),
 	)
 
 	if opts.groupAnchorGen != nil {
@@ -167,6 +167,11 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		ScriptKey:        opts.scriptKey,
 	}
 
+	// Go with an even amount to make the splits always work nicely.
+	if newAsset.Amount%2 != 0 {
+		newAsset.Amount++
+	}
+
 	// 50/50 chance that we'll actually have a group key. Or we'll always
 	// use it if a custom group key was specified.
 	switch {
@@ -174,12 +179,15 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		break
 
 	case opts.customGroup || test.RandInt[int]()%2 == 0:
-		newAsset.GroupKey = assetGroupKey
-	}
+		// If we're using a group key, we want to leave the asset with
+		// the group witness and not a random witness.
+		assetWithGroup := asset.NewAssetNoErr(
+			t, genesis, newAsset.Amount, newAsset.LockTime,
+			newAsset.RelativeLockTime, newAsset.ScriptKey,
+			assetGroupKey, asset.WithAssetVersion(opts.version),
+		)
 
-	// Go with an even amount to make the splits always work nicely.
-	if newAsset.Amount%2 != 0 {
-		newAsset.Amount++
+		return assetWithGroup
 	}
 
 	// For the witnesses, we'll flip a coin: we'll either make a genesis

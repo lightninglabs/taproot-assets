@@ -175,7 +175,7 @@ func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 	// First, we check that the passed asset is a genesis grouped asset
 	// that has no group witness.
 	if !newAsset.NeedsGenesisWitnessForGroup() {
-		return nil, nil, fmt.Errorf("asset is not a genesis grouped" +
+		return nil, nil, fmt.Errorf("asset is not a genesis grouped " +
 			"asset")
 	}
 

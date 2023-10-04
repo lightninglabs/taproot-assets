@@ -12,6 +12,7 @@ require (
 	github.com/btcsuite/btcwallet v0.16.10-0.20231017144732-e3ff37491e9c
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
 	github.com/go-errors/errors v1.0.1
 	github.com/golang-migrate/migrate/v4 v4.16.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
@@ -74,7 +75,6 @@ require (
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/decred/dcrd/lru v1.0.0 // indirect
 	github.com/docker/cli v20.10.17+incompatible // indirect
 	github.com/docker/docker v20.10.24+incompatible // indirect
