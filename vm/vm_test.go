@@ -444,6 +444,19 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 	}
 }
 
+func groupAnchorStateTransition(useHashLock, BIP86, keySpend, valid bool,
+	assetType asset.Type) stateTransitionFunc {
+
+	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet) {
+
+		gen := asset.RandGenesis(t, assetType)
+		return asset.AssetCustomGroupKey(
+			t, useHashLock, BIP86, keySpend, valid, gen,
+		), nil, nil
+	}
+}
+
 func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	valid bool, sigHashType txscript.SigHashType) stateTransitionFunc {
 
@@ -556,6 +569,48 @@ func TestVM(t *testing.T) {
 				asset.Collectible, true,
 			),
 			err: newErrKind(ErrInvalidGenesisStateTransition),
+		},
+		{
+			name: "collectible group anchor BIP86 key",
+			f: groupAnchorStateTransition(
+				true, true, false, false, asset.Collectible,
+			),
+			err: nil,
+		},
+		{
+			name: "normal group anchor key spend",
+			f: groupAnchorStateTransition(
+				true, false, true, true, asset.Normal,
+			),
+			err: nil,
+		},
+		{
+			name: "normal group anchor hash lock witness",
+			f: groupAnchorStateTransition(
+				true, false, false, true, asset.Normal,
+			),
+			err: nil,
+		},
+		{
+			name: "collectible group anchor sig script witness",
+			f: groupAnchorStateTransition(
+				false, false, false, true, asset.Collectible,
+			),
+			err: nil,
+		},
+		{
+			name: "collectible group anchor invalid hash lock",
+			f: groupAnchorStateTransition(
+				true, false, false, false, asset.Collectible,
+			),
+			err: invalidHashLockErr,
+		},
+		{
+			name: "normal group anchor invalid sig",
+			f: groupAnchorStateTransition(
+				false, false, false, false, asset.Normal,
+			),
+			err: invalidSigErr,
 		},
 		{
 			name: "invalid split collectible input",
