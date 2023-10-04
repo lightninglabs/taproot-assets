@@ -42,7 +42,8 @@ func NewApertureHarness(t *testing.T, port int) ApertureHarness {
 		Authenticator: &aperture.AuthConfig{
 			Disable: true,
 		},
-		Etcd: &aperture.EtcdConfig{},
+		DatabaseBackend: "sqlite",
+		Sqlite:          aperture.DefaultSqliteConfig(),
 		HashMail: &aperture.HashMailConfig{
 			Enabled:               true,
 			MessageRate:           time.Millisecond,
