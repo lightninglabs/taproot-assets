@@ -90,14 +90,14 @@ type AddrBook interface {
 		arg []byte) (AddrByTaprootOutput, error)
 
 	// InsertAddr inserts a new address into the database.
-	InsertAddr(ctx context.Context, arg NewAddr) (int32, error)
+	InsertAddr(ctx context.Context, arg NewAddr) (int64, error)
 
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database and returns the primary key.
-	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+	UpsertInternalKey(ctx context.Context, arg InternalKey) (int64, error)
 
 	// UpsertScriptKey inserts a new script key on disk into the DB.
-	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
+	UpsertScriptKey(context.Context, NewScriptKey) (int64, error)
 
 	// SetAddrManaged sets an address as being managed by the internal
 	// wallet.
@@ -105,20 +105,20 @@ type AddrBook interface {
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
-	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32,
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int64,
 		error)
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int64, error)
 
 	// UpsertAddrEvent inserts a new or updates an existing address event
 	// and returns the primary key.
-	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEvent) (int32, error)
+	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEvent) (int64, error)
 
 	// FetchAddrEvent returns a single address event based on its primary
 	// key.
-	FetchAddrEvent(ctx context.Context, id int32) (AddrEvent, error)
+	FetchAddrEvent(ctx context.Context, id int64) (AddrEvent, error)
 
 	// QueryEventIDs returns a list of event IDs and their corresponding
 	// address IDs that match the given query parameters.
@@ -193,7 +193,7 @@ func NewTapAddressBook(db BatchedAddrBook, params *address.ChainParams,
 // insertInternalKey inserts a new internal key into the DB and returns the
 // primary key of the internal key.
 func insertInternalKey(ctx context.Context, a AddrBook,
-	desc keychain.KeyDescriptor) (int32, error) {
+	desc keychain.KeyDescriptor) (int64, error) {
 
 	return a.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    desc.PubKey.SerializeCompressed(),
@@ -844,7 +844,7 @@ func (t *TapAddressBook) QueryAddrEvents(
 
 // fetchEvent fetches a single address event identified by its primary ID and
 // address.
-func fetchEvent(ctx context.Context, db AddrBook, eventID int32,
+func fetchEvent(ctx context.Context, db AddrBook, eventID int64,
 	addr *address.AddrWithKeyInfo) (*address.Event, error) {
 
 	dbEvent, err := db.FetchAddrEvent(ctx, eventID)
@@ -901,8 +901,8 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 			Status:              int16(status),
 			Txid:                anchorPoint.Hash[:],
 			ChainTxnOutputIndex: int32(anchorPoint.Index),
-			AssetProofID:        sqlInt32(proofData.ProofID),
-			AssetID:             sqlInt32(proofData.AssetID),
+			AssetProofID:        sqlInt64(proofData.ProofID),
+			AssetID:             sqlInt64(proofData.AssetID),
 		})
 		return err
 	})

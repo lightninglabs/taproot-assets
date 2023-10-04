@@ -352,9 +352,7 @@ func resolverUniverseAddr(uniAddr string) (net.Addr, error) {
 // server.
 type ServerAddr struct {
 	// ID is the unique identifier of the remote universe.
-	//
-	// TODO(roasbeef): break out into generic ID wrapper struct?
-	ID uint32
+	ID int64
 
 	// addrStr is the pure string version of the address before any name
 	// resolution has taken place.
@@ -376,7 +374,7 @@ func NewServerAddrFromStr(s string) ServerAddr {
 
 // NewServerAddr creates a new server address from both the universe addr ID
 // and the host name string.
-func NewServerAddr(i uint32, s string) ServerAddr {
+func NewServerAddr(i int64, s string) ServerAddr {
 	return ServerAddr{
 		ID:      i,
 		addrStr: s,

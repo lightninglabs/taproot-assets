@@ -95,7 +95,7 @@ func (u *UniverseFederationDB) UniverseServers(
 		uniServers = fn.Map(servers,
 			func(s sqlc.UniverseServer) universe.ServerAddr {
 				return universe.NewServerAddr(
-					uint32(s.ID), s.ServerHost,
+					s.ID, s.ServerHost,
 				)
 			},
 		)
@@ -145,7 +145,7 @@ func (u *UniverseFederationDB) RemoveServers(ctx context.Context,
 			// host string instead. This avoids bugs where a user
 			// doesn't set the ID value, and we try to delete the
 			// very first server.
-			uniID := int32(a.ID)
+			uniID := int64(a.ID)
 			if a.HostStr() != "" {
 				uniID = -1
 			}

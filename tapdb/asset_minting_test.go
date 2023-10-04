@@ -656,7 +656,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// above, we'll use that to confirm that the managed UTXO has been
 	// updated accordingly.
 	managedUTXO, err := db.FetchManagedUTXO(ctx, sqlc.FetchManagedUTXOParams{
-		TxnID: sqlInt32(dbGenTx.TxnID),
+		TxnID: sqlInt64(dbGenTx.TxnID),
 	})
 	require.NoError(t, err)
 	require.Equal(t, scriptRoot, managedUTXO.MerkleRoot)
@@ -664,14 +664,14 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// Next, we'll confirm that all the assets inserted previously now are
 	// able to be queried according to the anchor UTXO primary key.
 	anchoredAssets, err := db.FetchAssetsByAnchorTx(
-		ctx, sqlInt32(managedUTXO.UtxoID),
+		ctx, sqlInt64(managedUTXO.UtxoID),
 	)
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings, len(anchoredAssets))
 
 	// Finally, we'll verify that the genesis point also points to the
 	// inserted chain transaction.
-	_, err = db.FetchGenesisPointByAnchorTx(ctx, sqlInt32(dbGenTx.TxnID))
+	_, err = db.FetchGenesisPointByAnchorTx(ctx, sqlInt64(dbGenTx.TxnID))
 	require.NoError(t, err)
 
 	// For each asset created above, we'll make a fake proof file for it.
@@ -889,7 +889,7 @@ func TestGroupStore(t *testing.T) {
 		for i, groupInfo := range mintGroups {
 			genID, err := fetchGenesisID(ctx, q, *groupInfo.Genesis)
 			require.NoError(t, err)
-			expectedID := int32(i + 1)
+			expectedID := int64(i + 1)
 			require.Equal(t, expectedID, genID)
 		}
 
@@ -914,7 +914,7 @@ func TestGroupStore(t *testing.T) {
 	// We should also be able to look up each asset group with a genesis ID.
 	fetchGroupByGenID := func(q PendingAssetStore) error {
 		for i, groupInfo := range mintGroups {
-			genID := int32(i + 1)
+			genID := int64(i + 1)
 			dbGroup, err := fetchGroupByGenesis(ctx, q, genID)
 			require.NoError(t, err)
 			assertGroupEqual(t, groupInfo, dbGroup)
@@ -922,8 +922,8 @@ func TestGroupStore(t *testing.T) {
 
 		// The returned group for the group anchor asset and reissued
 		// asset should be the same.
-		anchorGenID := int32(1)
-		reissueGenID := int32(3)
+		anchorGenID := int64(1)
+		reissueGenID := int64(3)
 		anchorGroup, err := fetchGroupByGenesis(ctx, q, anchorGenID)
 		require.NoError(t, err)
 		reissueGroup, err := fetchGroupByGenesis(ctx, q, reissueGenID)
@@ -948,7 +948,7 @@ func TestGroupStore(t *testing.T) {
 	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, fetchGroupByGenID)
 
 	// Lookup of an invalid genesis ID should return a wrapped error.
-	invalidGenID := int32(len(mintGroups) + 1)
+	invalidGenID := int64(len(mintGroups) + 1)
 	fetchInvalidGenID := func(q PendingAssetStore) error {
 		dbGroup, err := fetchGroupByGenesis(ctx, q, invalidGenID)
 		require.Nil(t, dbGroup)
