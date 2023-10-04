@@ -3,9 +3,6 @@ package tappsbt
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/hex"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -137,44 +134,6 @@ func TestEncodingDecoding(t *testing.T) {
 	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
 }
 
-// TestDecodeBase64 tests the decoding of a virtual packet from a base64 string.
-func TestDecodeBase64(t *testing.T) {
-	t.Parallel()
-
-	// The test data file just contains a random packet from a previous
-	// integration test run.
-	fileContent, err := os.ReadFile(filepath.Join("testdata", "psbt.b64"))
-	require.NoError(t, err)
-
-	packet, err := NewFromRawBytes(bytes.NewBuffer(fileContent), true)
-	require.NoError(t, err)
-
-	require.Len(t, packet.Outputs, 2)
-
-	// Make sure we re-encode the PSBT to the exact same base64 string.
-	reEncoded, err := packet.B64Encode()
-	require.NoError(t, err)
-
-	require.Equal(t, string(fileContent), reEncoded)
-}
-
-// TestDecodeHex tests the decoding of a virtual packet from a hex string.
-func TestDecodeHex(t *testing.T) {
-	t.Parallel()
-
-	// The test data file just contains a random packet from a previous
-	// integration test run.
-	fileContent, err := os.ReadFile(filepath.Join("testdata", "psbt.hex"))
-	require.NoError(t, err)
-	rawBytes, err := hex.DecodeString(string(fileContent))
-	require.NoError(t, err)
-
-	packet, err := NewFromRawBytes(bytes.NewBuffer(rawBytes), false)
-	require.NoError(t, err)
-
-	require.Len(t, packet.Outputs, 2)
-}
-
 // TestBIPTestVectors tests that the BIP test vectors are passing.
 func TestBIPTestVectors(t *testing.T) {
 	t.Parallel()
@@ -232,6 +191,20 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			require.NoError(tt, err)
 
 			require.Equal(tt, p, decoded)
+
+			// And finally, we want to make sure that if we get a
+			// raw byte blob we can also decode the packet and the
+			// result is the same.
+			rawBytes, err := base64.StdEncoding.DecodeString(
+				validCase.Expected,
+			)
+			require.NoError(tt, err)
+			decodedFromBytes, err := NewFromRawBytes(
+				bytes.NewReader(rawBytes), false,
+			)
+			require.NoError(tt, err)
+
+			require.Equal(tt, p, decodedFromBytes)
 		})
 	}
 
