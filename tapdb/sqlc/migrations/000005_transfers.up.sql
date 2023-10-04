@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS asset_transfers (
-    id INTEGER PRIMARY KEY, 
+    id BIGINT PRIMARY KEY, 
 
     height_hint INTEGER NOT NULL,
     
-    anchor_txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id),
+    anchor_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
 
     transfer_time_unix TIMESTAMP NOT NULL
 );
@@ -13,9 +13,9 @@ CREATE INDEX IF NOT EXISTS transfer_txn_idx
     ON asset_transfers (anchor_txn_id);
 
 CREATE TABLE IF NOT EXISTS asset_transfer_inputs (
-    input_id INTEGER PRIMARY KEY,
+    input_id BIGINT PRIMARY KEY,
     
-    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
     
     anchor_point BLOB NOT NULL,
     
@@ -29,13 +29,13 @@ CREATE INDEX IF NOT EXISTS transfer_inputs_idx
     ON asset_transfer_inputs (transfer_id);
 
 CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
-    output_id INTEGER PRIMARY KEY,
+    output_id BIGINT PRIMARY KEY,
     
-    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
     
-    anchor_utxo INTEGER NOT NULL REFERENCES managed_utxos(utxo_id),
+    anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos(utxo_id),
     
-    script_key INTEGER NOT NULL REFERENCES script_keys(script_key_id),
+    script_key BIGINT NOT NULL REFERENCES script_keys(script_key_id),
     
     script_key_local BOOL NOT NULL,
     
@@ -72,13 +72,13 @@ CREATE INDEX IF NOT EXISTS proof_locator_hash_index
 -- passive_assets is a table that stores the information needed to
 -- re-anchor a passive asset.
 CREATE TABLE IF NOT EXISTS passive_assets (
-    passive_id INTEGER PRIMARY KEY,
+    passive_id BIGINT PRIMARY KEY,
 
-    transfer_id INTEGER NOT NULL REFERENCES asset_transfers(id),
+    transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
 
-    asset_id INTEGER NOT NULL REFERENCES assets(asset_id),
+    asset_id BIGINT NOT NULL REFERENCES assets(asset_id),
     
-    new_anchor_utxo INTEGER NOT NULL REFERENCES managed_utxos(utxo_id),
+    new_anchor_utxo BIGINT NOT NULL REFERENCES managed_utxos(utxo_id),
 
     script_key BLOB NOT NULL,
 

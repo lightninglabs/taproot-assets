@@ -3,7 +3,7 @@
 -- information, along with indexing information is stored.
 -- TODO(roasbeef): also store SPV proof?
 CREATE TABLE IF NOT EXISTS chain_txns (
-    txn_id INTEGER PRIMARY KEY,
+    txn_id BIGINT PRIMARY KEY,
 
     txid BLOB UNIQUE NOT NULL,
 
@@ -23,19 +23,19 @@ CREATE TABLE IF NOT EXISTS chain_txns (
 -- outpoint itself, and also a references to the transaction that _spends_ that
 -- outpoint.
 CREATE TABLE IF NOT EXISTS genesis_points (
-    genesis_id INTEGER PRIMARY KEY,
+    genesis_id BIGINT PRIMARY KEY,
 
     -- TODO(roasbeef): just need the input index here instead?
     prev_out BLOB UNIQUE NOT NULL,
 
-    anchor_tx_id INTEGER REFERENCES chain_txns(txn_id)
+    anchor_tx_id BIGINT REFERENCES chain_txns(txn_id)
 );
 
 -- assets_meta is a table that holds all the metadata information for genesis
 -- assets that we either created, or bootstrapped from the relevant Base
 -- Universe.
 CREATE TABLE IF NOT EXISTS assets_meta (
-    meta_id INTEGER PRIMARY KEY,
+    meta_id BIGINT PRIMARY KEY,
 
     meta_data_hash BLOB UNIQUE CHECK(length(meta_data_hash) = 32),
 
@@ -50,13 +50,13 @@ CREATE TABLE IF NOT EXISTS assets_meta (
 -- reference the genesis point which is also a necessary component for
 -- computing an asset ID.
 CREATE TABLE IF NOT EXISTS genesis_assets (
-    gen_asset_id INTEGER PRIMARY KEY,
+    gen_asset_id BIGINT PRIMARY KEY,
 
     asset_id BLOB UNIQUE,
 
     asset_tag TEXT NOT NULL,
 
-    meta_data_id INTEGER REFERENCES assets_meta(meta_id),
+    meta_data_id BIGINT REFERENCES assets_meta(meta_id),
 
     output_index INTEGER NOT NULL,
 
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS genesis_assets (
     -- BIP PR
     asset_type SMALLINT NOT NULL,
 
-    genesis_point_id INTEGER NOT NULL REFERENCES genesis_points(genesis_id)
+    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points(genesis_id)
 );
 CREATE INDEX IF NOT EXISTS asset_ids on genesis_assets(asset_id);
 
@@ -72,7 +72,7 @@ CREATE INDEX IF NOT EXISTS asset_ids on genesis_assets(asset_id);
 -- full KeyLocator is stored so we can use these keys without actually storing
 -- the private keys on disk.
 CREATE TABLE IF NOT EXISTS internal_keys (
-    key_id INTEGER PRIMARY KEY,
+    key_id BIGINT PRIMARY KEY,
 
     -- We'll always store the full 33-byte key on disk, to make sure we're
     -- retaining full information.
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS internal_keys (
 -- tweaking the base group key by the associated genesis point. This table
 -- references the set of internal keys, and also the genesis_points table.
 CREATE TABLE IF NOT EXISTS asset_groups (
-    group_id INTEGER PRIMARY KEY,
+    group_id BIGINT PRIMARY KEY,
 
     tweaked_group_key BLOB UNIQUE NOT NULL CHECK(length(tweaked_group_key) = 33), 
 
@@ -96,9 +96,9 @@ CREATE TABLE IF NOT EXISTS asset_groups (
 
     -- TODO(roasbeef): also need to mix in output index here? to derive the
     -- genesis key?
-    internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
 
-    genesis_point_id INTEGER NOT NULL REFERENCES genesis_points(genesis_id)
+    genesis_point_id BIGINT NOT NULL REFERENCES genesis_points(genesis_id)
 );
 
 -- asset_group_witnesses stores the set of signatures/witness stacks for an
@@ -107,16 +107,16 @@ CREATE TABLE IF NOT EXISTS asset_groups (
 -- asset ID must also be included. This table reference the asset ID it's used
 -- to create as well as the group key that signed the asset in the first place.
 CREATE TABLE IF NOT EXISTS asset_group_witnesses (
-    witness_id INTEGER PRIMARY KEY,
+    witness_id BIGINT PRIMARY KEY,
 
     -- The witness stack can contain either a single Schnorr signature for key
     -- spends of the tweaked group key, or a more complex script witness.
     witness_stack BLOB NOT NULL,
 
     -- TODO(roasbeef): not needed since already in assets row?
-    gen_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id) UNIQUE,
+    gen_asset_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id) UNIQUE,
 
-    group_key_id INTEGER NOT NULL REFERENCES asset_groups(group_id)
+    group_key_id BIGINT NOT NULL REFERENCES asset_groups(group_id)
 );
 
 -- managed_utxos is the set of UTXOs managed by tapd. These UTXOs may commit
@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS asset_group_witnesses (
 -- wallet, so the wallet is able to keep track of the amount of sats that are
 -- used to anchor Taproot assets.
 CREATE TABLE IF NOT EXISTS managed_utxos (
-    utxo_id INTEGER PRIMARY KEY,
+    utxo_id BIGINT PRIMARY KEY,
 
     outpoint BLOB UNIQUE NOT NULL,
 
@@ -132,7 +132,7 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
     -- 64 bit issues?
     amt_sats BIGINT NOT NULL,
 
-    internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
 
     -- The Taproot Asset root commitment hash.
     taproot_asset_root BLOB NOT NULL CHECK(length(taproot_asset_root) = 32),
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
     -- TODO(roasbeef): can then reconstruct on start up to ensure matches up
     merkle_root BLOB NOT NULL CHECK(length(merkle_root) = 32),
 
-    txn_id INTEGER NOT NULL REFERENCES chain_txns(txn_id),
+    txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
 
     -- The identity of the application that currently has a lease on this UTXO.
     -- If NULL, then the UTXO is not currently leased. A lease means that the
@@ -163,11 +163,11 @@ CREATE TABLE IF NOT EXISTS managed_utxos (
 );
 
 CREATE TABLE IF NOT EXISTS script_keys (
-    script_key_id INTEGER PRIMARY KEY,
+    script_key_id BIGINT PRIMARY KEY,
 
     -- The actual internal key here that we hold the private key for. Applying
     -- the tweak to this gives us the tweaked_script_key.
-    internal_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+    internal_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
 
     -- The script key after applying the tweak. This is what goes directly in
     -- the asset TLV.
@@ -184,16 +184,16 @@ CREATE TABLE IF NOT EXISTS script_keys (
 -- asset, along with the sibling taproot hash needed to properly reveal and
 -- spend the asset.
 CREATE TABLE IF NOT EXISTS assets (
-    asset_id INTEGER PRIMARY KEY,
+    asset_id BIGINT PRIMARY KEY,
     
-    genesis_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
 
     version INTEGER NOT NULL,
 
-    script_key_id INTEGER NOT NULL REFERENCES script_keys(script_key_id),
+    script_key_id BIGINT NOT NULL REFERENCES script_keys(script_key_id),
 
     -- TODO(roasbeef): don't need this after all?
-    asset_group_witness_id INTEGER REFERENCES asset_group_witnesses(witness_id),
+    asset_group_witness_id BIGINT REFERENCES asset_group_witnesses(witness_id),
 
     -- TODO(roasbeef): make into enum?
     script_version INTEGER NOT NULL,
@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS assets (
 
     split_commitment_root_value BIGINT,
 
-    anchor_utxo_id INTEGER REFERENCES managed_utxos(utxo_id),
+    anchor_utxo_id BIGINT REFERENCES managed_utxos(utxo_id),
     
     -- A boolean that indicates that the asset was spent. This is only
     -- set for assets that were transferred in an active manner (as part of an
@@ -225,9 +225,9 @@ CREATE TABLE IF NOT EXISTS assets (
 -- asset. This then references the script key of an asset, creation a one to
 -- many relationship.
 CREATE TABLE IF NOT EXISTS asset_witnesses (
-    witness_id INTEGER PRIMARY KEY,
+    witness_id BIGINT PRIMARY KEY,
 
-    asset_id INTEGER NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
+    asset_id BIGINT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
 
     prev_out_point BLOB NOT NULL,
 
@@ -243,11 +243,11 @@ CREATE TABLE IF NOT EXISTS asset_witnesses (
 );
 
 CREATE TABLE IF NOT EXISTS asset_proofs (
-    proof_id INTEGER PRIMARY KEY,
+    proof_id BIGINT PRIMARY KEY,
 
     -- We enforce that this value is unique so we can use an UPSERT to update a
     -- proof file that already exists.
-    asset_id INTEGER NOT NULL REFERENCES assets(asset_id) UNIQUE,
+    asset_id BIGINT NOT NULL REFERENCES assets(asset_id) UNIQUE,
 
     -- TODO(roasbef): store the merkle root separately? then can refer back to
     -- for all other files
@@ -260,7 +260,7 @@ CREATE TABLE IF NOT EXISTS asset_proofs (
 -- minting transaction which once signed and broadcast will actually create the
 -- assets.
 CREATE TABLE IF NOT EXISTS asset_minting_batches (
-    batch_id INTEGER PRIMARY KEY REFERENCES internal_keys(key_id),
+    batch_id BIGINT PRIMARY KEY REFERENCES internal_keys(key_id),
 
     -- TODO(roasbeef): make into proper enum table or use check to ensure
     -- proper values
@@ -270,7 +270,7 @@ CREATE TABLE IF NOT EXISTS asset_minting_batches (
 
     change_output_index INTEGER,
 
-    genesis_id INTEGER REFERENCES genesis_points(genesis_id),
+    genesis_id BIGINT REFERENCES genesis_points(genesis_id),
 
     height_hint INTEGER NOT NULL,
 
@@ -281,7 +281,7 @@ CREATE INDEX IF NOT EXISTS batch_state_lookup on asset_minting_batches (batch_st
 -- asset_seedlings are budding assets: the contain the base asset information
 -- need to create an asset, but doesn't yet have a genesis point.
 CREATE TABLE IF NOT EXISTS asset_seedlings (
-    seedling_id INTEGER PRIMARY KEY,
+    seedling_id BIGINT PRIMARY KEY,
 
     -- TODO(roasbeef): data redundant w/ genesis_assets?
     -- move into asset details table?
@@ -291,15 +291,15 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 
     asset_supply BIGINT NOT NULL,
 
-    asset_meta_id INTEGER NOT NULL REFERENCES assets_meta(meta_id),
+    asset_meta_id BIGINT NOT NULL REFERENCES assets_meta(meta_id),
 
     emission_enabled BOOLEAN NOT NULL,
 
-    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id),
+    batch_id BIGINT NOT NULL REFERENCES asset_minting_batches(batch_id),
 
-    group_genesis_id INTEGER REFERENCES genesis_assets(gen_asset_id),
+    group_genesis_id BIGINT REFERENCES genesis_assets(gen_asset_id),
 
-    group_anchor_id INTEGER REFERENCES asset_seedlings(seedling_id)
+    group_anchor_id BIGINT REFERENCES asset_seedlings(seedling_id)
 );
 
 -- TODO(roasbeef): need on delete cascade for all these?

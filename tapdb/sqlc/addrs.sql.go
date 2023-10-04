@@ -37,7 +37,7 @@ WHERE taproot_output_key = $1
 type FetchAddrByTaprootOutputKeyRow struct {
 	Version          int16
 	AssetVersion     int16
-	GenesisAssetID   int32
+	GenesisAssetID   int64
 	GroupKey         []byte
 	TapscriptSibling []byte
 	TaprootOutputKey []byte
@@ -105,8 +105,8 @@ WHERE id = $1
 type FetchAddrEventRow struct {
 	CreationTime       time.Time
 	Status             int16
-	AssetProofID       sql.NullInt32
-	AssetID            sql.NullInt32
+	AssetProofID       sql.NullInt64
+	AssetID            sql.NullInt64
 	Txid               []byte
 	ConfirmationHeight sql.NullInt32
 	OutputIndex        int32
@@ -115,7 +115,7 @@ type FetchAddrEventRow struct {
 	InternalKey        []byte
 }
 
-func (q *Queries) FetchAddrEvent(ctx context.Context, id int32) (FetchAddrEventRow, error) {
+func (q *Queries) FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAddrEvent, id)
 	var i FetchAddrEventRow
 	err := row.Scan(
@@ -172,7 +172,7 @@ type FetchAddrsParams struct {
 type FetchAddrsRow struct {
 	Version          int16
 	AssetVersion     int16
-	GenesisAssetID   int32
+	GenesisAssetID   int64
 	GroupKey         []byte
 	TapscriptSibling []byte
 	TaprootOutputKey []byte
@@ -251,10 +251,10 @@ INSERT INTO addrs (
 type InsertAddrParams struct {
 	Version          int16
 	AssetVersion     int16
-	GenesisAssetID   int32
+	GenesisAssetID   int64
 	GroupKey         []byte
-	ScriptKeyID      int32
-	TaprootKeyID     int32
+	ScriptKeyID      int64
+	TaprootKeyID     int64
 	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
@@ -263,7 +263,7 @@ type InsertAddrParams struct {
 	ProofCourierAddr []byte
 }
 
-func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, error) {
+func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertAddr,
 		arg.Version,
 		arg.AssetVersion,
@@ -278,7 +278,7 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int32, 
 		arg.CreationTime,
 		arg.ProofCourierAddr,
 	)
-	var id int32
+	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
@@ -302,7 +302,7 @@ type QueryEventIDsParams struct {
 }
 
 type QueryEventIDsRow struct {
-	EventID          int32
+	EventID          int64
 	TaprootOutputKey []byte
 }
 
@@ -380,12 +380,12 @@ type UpsertAddrEventParams struct {
 	CreationTime        time.Time
 	Status              int16
 	ChainTxnOutputIndex int32
-	ManagedUtxoID       int32
-	AssetProofID        sql.NullInt32
-	AssetID             sql.NullInt32
+	ManagedUtxoID       int64
+	AssetProofID        sql.NullInt64
+	AssetID             sql.NullInt64
 }
 
-func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int32, error) {
+func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertAddrEvent,
 		arg.TaprootOutputKey,
 		arg.Txid,
@@ -396,7 +396,7 @@ func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams
 		arg.AssetProofID,
 		arg.AssetID,
 	)
-	var id int32
+	var id int64
 	err := row.Scan(&id)
 	return id, err
 }

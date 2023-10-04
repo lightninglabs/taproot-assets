@@ -10,13 +10,13 @@ import (
 )
 
 type Addr struct {
-	ID               int32
+	ID               int64
 	Version          int16
 	AssetVersion     int16
-	GenesisAssetID   int32
+	GenesisAssetID   int64
 	GroupKey         []byte
-	ScriptKeyID      int32
-	TaprootKeyID     int32
+	ScriptKeyID      int64
+	TaprootKeyID     int64
 	TapscriptSibling []byte
 	TaprootOutputKey []byte
 	Amount           int64
@@ -27,86 +27,86 @@ type Addr struct {
 }
 
 type AddrEvent struct {
-	ID                  int32
+	ID                  int64
 	CreationTime        time.Time
-	AddrID              int32
+	AddrID              int64
 	Status              int16
-	ChainTxnID          int32
+	ChainTxnID          int64
 	ChainTxnOutputIndex int32
-	ManagedUtxoID       int32
-	AssetProofID        sql.NullInt32
-	AssetID             sql.NullInt32
+	ManagedUtxoID       int64
+	AssetProofID        sql.NullInt64
+	AssetID             sql.NullInt64
 }
 
 type Asset struct {
-	AssetID                  int32
-	GenesisID                int32
+	AssetID                  int64
+	GenesisID                int64
 	Version                  int32
-	ScriptKeyID              int32
-	AssetGroupWitnessID      sql.NullInt32
+	ScriptKeyID              int64
+	AssetGroupWitnessID      sql.NullInt64
 	ScriptVersion            int32
 	Amount                   int64
 	LockTime                 sql.NullInt32
 	RelativeLockTime         sql.NullInt32
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
-	AnchorUtxoID             sql.NullInt32
+	AnchorUtxoID             sql.NullInt64
 	Spent                    bool
 }
 
 type AssetGroup struct {
-	GroupID         int32
+	GroupID         int64
 	TweakedGroupKey []byte
 	TapscriptRoot   []byte
-	InternalKeyID   int32
-	GenesisPointID  int32
+	InternalKeyID   int64
+	GenesisPointID  int64
 }
 
 type AssetGroupWitness struct {
-	WitnessID    int32
+	WitnessID    int64
 	WitnessStack []byte
-	GenAssetID   int32
-	GroupKeyID   int32
+	GenAssetID   int64
+	GroupKeyID   int64
 }
 
 type AssetMintingBatch struct {
-	BatchID           int32
+	BatchID           int64
 	BatchState        int16
 	MintingTxPsbt     []byte
 	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt32
+	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
 }
 
 type AssetProof struct {
-	ProofID   int32
-	AssetID   int32
+	ProofID   int64
+	AssetID   int64
 	ProofFile []byte
 }
 
 type AssetSeedling struct {
-	SeedlingID      int32
+	SeedlingID      int64
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
-	AssetMetaID     int32
+	AssetMetaID     int64
 	EmissionEnabled bool
-	BatchID         int32
-	GroupGenesisID  sql.NullInt32
-	GroupAnchorID   sql.NullInt32
+	BatchID         int64
+	GroupGenesisID  sql.NullInt64
+	GroupAnchorID   sql.NullInt64
 }
 
 type AssetTransfer struct {
-	ID               int32
+	ID               int64
 	HeightHint       int32
-	AnchorTxnID      int32
+	AnchorTxnID      int64
 	TransferTimeUnix time.Time
 }
 
 type AssetTransferInput struct {
-	InputID     int32
-	TransferID  int32
+	InputID     int64
+	TransferID  int64
 	AnchorPoint []byte
 	AssetID     []byte
 	ScriptKey   []byte
@@ -114,10 +114,10 @@ type AssetTransferInput struct {
 }
 
 type AssetTransferOutput struct {
-	OutputID                 int32
-	TransferID               int32
-	AnchorUtxo               int32
-	ScriptKey                int32
+	OutputID                 int64
+	TransferID               int64
+	AnchorUtxo               int64
+	ScriptKey                int64
 	ScriptKeyLocal           bool
 	Amount                   int64
 	SerializedWitnesses      []byte
@@ -130,8 +130,8 @@ type AssetTransferOutput struct {
 }
 
 type AssetWitness struct {
-	WitnessID            int32
-	AssetID              int32
+	WitnessID            int64
+	AssetID              int64
 	PrevOutPoint         []byte
 	PrevAssetID          []byte
 	PrevScriptKey        []byte
@@ -140,14 +140,14 @@ type AssetWitness struct {
 }
 
 type AssetsMetum struct {
-	MetaID       int32
+	MetaID       int64
 	MetaDataHash []byte
 	MetaDataBlob []byte
 	MetaDataType sql.NullInt16
 }
 
 type ChainTxn struct {
-	TxnID       int32
+	TxnID       int64
 	Txid        []byte
 	ChainFees   int64
 	RawTx       []byte
@@ -157,17 +157,17 @@ type ChainTxn struct {
 }
 
 type GenesisAsset struct {
-	GenAssetID     int32
+	GenAssetID     int64
 	AssetID        []byte
 	AssetTag       string
-	MetaDataID     sql.NullInt32
+	MetaDataID     sql.NullInt64
 	OutputIndex    int32
 	AssetType      int16
-	GenesisPointID int32
+	GenesisPointID int64
 }
 
 type GenesisInfoView struct {
-	GenAssetID  int32
+	GenAssetID  int64
 	AssetID     []byte
 	AssetTag    string
 	MetaHash    []byte
@@ -178,21 +178,21 @@ type GenesisInfoView struct {
 }
 
 type GenesisPoint struct {
-	GenesisID  int32
+	GenesisID  int64
 	PrevOut    []byte
-	AnchorTxID sql.NullInt32
+	AnchorTxID sql.NullInt64
 }
 
 type InternalKey struct {
-	KeyID     int32
+	KeyID     int64
 	RawKey    []byte
 	KeyFamily int32
 	KeyIndex  int32
 }
 
 type KeyGroupInfoView struct {
-	WitnessID       int32
-	GenAssetID      int32
+	WitnessID       int64
+	GenAssetID      int64
 	WitnessStack    []byte
 	TapscriptRoot   []byte
 	TweakedGroupKey []byte
@@ -207,14 +207,14 @@ type Macaroon struct {
 }
 
 type ManagedUtxo struct {
-	UtxoID           int32
+	UtxoID           int64
 	Outpoint         []byte
 	AmtSats          int64
-	InternalKeyID    int32
+	InternalKeyID    int64
 	TaprootAssetRoot []byte
 	TapscriptSibling []byte
 	MerkleRoot       []byte
-	TxnID            int32
+	TxnID            int64
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 }
@@ -235,10 +235,10 @@ type MssmtRoot struct {
 }
 
 type PassiveAsset struct {
-	PassiveID       int32
-	TransferID      int32
-	AssetID         int32
-	NewAnchorUtxo   int32
+	PassiveID       int64
+	TransferID      int64
+	AssetID         int64
+	NewAnchorUtxo   int64
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
@@ -250,39 +250,39 @@ type ReceiverProofTransferAttempt struct {
 }
 
 type ScriptKey struct {
-	ScriptKeyID      int32
-	InternalKeyID    int32
+	ScriptKeyID      int64
+	InternalKeyID    int64
 	TweakedScriptKey []byte
 	Tweak            []byte
 }
 
 type UniverseEvent struct {
-	EventID        int32
+	EventID        int64
 	EventType      string
-	UniverseRootID int32
+	UniverseRootID int64
 	EventTime      time.Time
 	EventTimestamp int64
 }
 
 type UniverseLeafe struct {
-	ID                int32
-	AssetGenesisID    int32
+	ID                int64
+	AssetGenesisID    int64
 	MintingPoint      []byte
 	ScriptKeyBytes    []byte
-	UniverseRootID    int32
+	UniverseRootID    int64
 	LeafNodeKey       []byte
 	LeafNodeNamespace string
 }
 
 type UniverseRoot struct {
-	ID            int32
+	ID            int64
 	NamespaceRoot string
 	AssetID       []byte
 	GroupKey      []byte
 }
 
 type UniverseServer struct {
-	ID           int32
+	ID           int64
 	ServerHost   string
 	LastSyncTime time.Time
 }

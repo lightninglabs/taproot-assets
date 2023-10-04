@@ -36,16 +36,16 @@ RETURNING asset_id
 `
 
 type ApplyPendingOutputParams struct {
-	ScriptKeyID              int32
-	AnchorUtxoID             sql.NullInt32
+	ScriptKeyID              int64
+	AnchorUtxoID             sql.NullInt64
 	Amount                   int64
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
 	Spent                    bool
-	SpentAssetID             int32
+	SpentAssetID             int64
 }
 
-func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int32, error) {
+func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, applyPendingOutput,
 		arg.ScriptKeyID,
 		arg.AnchorUtxoID,
@@ -55,7 +55,7 @@ func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput
 		arg.Spent,
 		arg.SpentAssetID,
 	)
-	var asset_id int32
+	var asset_id int64
 	err := row.Scan(&asset_id)
 	return asset_id, err
 }
@@ -65,7 +65,7 @@ DELETE FROM asset_witnesses
 WHERE asset_id = $1
 `
 
-func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int32) error {
+func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteAssetWitnesses, assetID)
 	return err
 }
@@ -78,14 +78,14 @@ ORDER BY input_id
 `
 
 type FetchTransferInputsRow struct {
-	InputID     int32
+	InputID     int64
 	AnchorPoint []byte
 	AssetID     []byte
 	ScriptKey   []byte
 	Amount      int64
 }
 
-func (q *Queries) FetchTransferInputs(ctx context.Context, transferID int32) ([]FetchTransferInputsRow, error) {
+func (q *Queries) FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error) {
 	rows, err := q.db.QueryContext(ctx, fetchTransferInputs, transferID)
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ ORDER BY output_id
 `
 
 type FetchTransferOutputsRow struct {
-	OutputID                 int32
+	OutputID                 int64
 	ProofSuffix              []byte
 	Amount                   int64
 	SerializedWitnesses      []byte
@@ -158,7 +158,7 @@ type FetchTransferOutputsRow struct {
 	NumPassiveAssets         int32
 	OutputType               int16
 	ProofCourierAddr         []byte
-	AnchorUtxoID             int32
+	AnchorUtxoID             int64
 	AnchorOutpoint           []byte
 	AnchorValue              int64
 	AnchorMerkleRoot         []byte
@@ -169,13 +169,13 @@ type FetchTransferOutputsRow struct {
 	InternalKeyIndex         int32
 	ScriptKeyBytes           []byte
 	ScriptKeyTweak           []byte
-	ScriptKeyID              int32
+	ScriptKeyID              int64
 	ScriptKeyRawKeyBytes     []byte
 	ScriptKeyFamily          int32
 	ScriptKeyIndex           int32
 }
 
-func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int32) ([]FetchTransferOutputsRow, error) {
+func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error) {
 	rows, err := q.db.QueryContext(ctx, fetchTransferOutputs, transferID)
 	if err != nil {
 		return nil, err
@@ -243,9 +243,9 @@ type InsertAssetTransferParams struct {
 	AnchorTxid       []byte
 }
 
-func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int32, error) {
+func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertAssetTransfer, arg.HeightHint, arg.TransferTimeUnix, arg.AnchorTxid)
-	var id int32
+	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
@@ -259,7 +259,7 @@ INSERT INTO asset_transfer_inputs (
 `
 
 type InsertAssetTransferInputParams struct {
-	TransferID  int32
+	TransferID  int64
 	AnchorPoint []byte
 	AssetID     []byte
 	ScriptKey   []byte
@@ -289,9 +289,9 @@ INSERT INTO asset_transfer_outputs (
 `
 
 type InsertAssetTransferOutputParams struct {
-	TransferID               int32
-	AnchorUtxo               int32
-	ScriptKey                int32
+	TransferID               int64
+	AnchorUtxo               int64
+	ScriptKey                int64
 	ScriptKeyLocal           bool
 	Amount                   int64
 	SerializedWitnesses      []byte
@@ -345,8 +345,8 @@ INSERT INTO passive_assets (
 `
 
 type InsertPassiveAssetParams struct {
-	TransferID      int32
-	NewAnchorUtxo   int32
+	TransferID      int64
+	NewAnchorUtxo   int64
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
@@ -405,7 +405,7 @@ type QueryAssetTransfersParams struct {
 }
 
 type QueryAssetTransfersRow struct {
-	ID               int32
+	ID               int64
 	HeightHint       int32
 	Txid             []byte
 	TransferTimeUnix time.Time
@@ -456,15 +456,15 @@ WHERE passive.transfer_id = $1
 `
 
 type QueryPassiveAssetsRow struct {
-	AssetID         int32
-	NewAnchorUtxo   int32
+	AssetID         int64
+	NewAnchorUtxo   int64
 	ScriptKey       []byte
 	NewWitnessStack []byte
 	NewProof        []byte
 	GenesisID       []byte
 }
 
-func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int32) ([]QueryPassiveAssetsRow, error) {
+func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryPassiveAssets, transferID)
 	if err != nil {
 		return nil, err
@@ -531,8 +531,8 @@ WHERE asset_id = $2
 `
 
 type ReAnchorPassiveAssetsParams struct {
-	NewAnchorUtxoID sql.NullInt32
-	AssetID         int32
+	NewAnchorUtxoID sql.NullInt64
+	AssetID         int64
 }
 
 func (q *Queries) ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error {
