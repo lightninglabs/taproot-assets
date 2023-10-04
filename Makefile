@@ -13,9 +13,9 @@ MIGRATE_BIN := $(GO_BIN)/migrate
 
 COMMIT := $(shell git describe --tags --dirty)
 
-GOBUILD := GO111MODULE=on go build -v
-GOINSTALL := GO111MODULE=on go install -v
-GOTEST := GO111MODULE=on go test 
+GOBUILD := GOEXPERIMENT=loopvar GO111MODULE=on go build -v
+GOINSTALL := GOEXPERIMENT=loopvar GO111MODULE=on go install -v
+GOTEST := GOEXPERIMENT=loopvar GO111MODULE=on go test 
 GOMOD := GO111MODULE=on go mod
 
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'
