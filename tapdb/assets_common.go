@@ -21,7 +21,7 @@ import (
 type UpsertAssetStore interface {
 	// UpsertGenesisPoint inserts a new or updates an existing genesis point
 	// on disk, and returns the primary key.
-	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error)
+	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 
 	// AnchorGenesisPoint associates a genesis point with the transaction
 	// that mints the associated assets on disk.
@@ -29,7 +29,7 @@ type UpsertAssetStore interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int64, error)
 
 	// UpsertGenesisAsset inserts a new or updates an existing genesis asset
 	// (the base asset info) in the DB, and returns the primary key.
@@ -38,51 +38,51 @@ type UpsertAssetStore interface {
 	// accept two diff storage interfaces?
 	//
 	//  * or use a sort of mix-in type?
-	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int32, error)
+	UpsertGenesisAsset(ctx context.Context, arg GenesisAsset) (int64, error)
 
 	// FetchGenesisID is used to fetch the database ID of asset genesis
 	// information already in the DB.
 	FetchGenesisID(ctx context.Context,
-		arg sqlc.FetchGenesisIDParams) (int32, error)
+		arg sqlc.FetchGenesisIDParams) (int64, error)
 
 	// FetchScriptKeyIDByTweakedKey determines the database ID of a script
 	// key by querying it by the tweaked key.
 	FetchScriptKeyIDByTweakedKey(ctx context.Context,
-		tweakedScriptKey []byte) (int32, error)
+		tweakedScriptKey []byte) (int64, error)
 
 	// UpsertInternalKey inserts a new or updates an existing internal key
 	// into the database.
-	UpsertInternalKey(ctx context.Context, arg InternalKey) (int32, error)
+	UpsertInternalKey(ctx context.Context, arg InternalKey) (int64, error)
 
 	// UpsertScriptKey inserts a new script key on disk into the DB.
-	UpsertScriptKey(context.Context, NewScriptKey) (int32, error)
+	UpsertScriptKey(context.Context, NewScriptKey) (int64, error)
 
 	// UpsertAssetGroupWitness inserts a new asset group witness into the DB.
 	UpsertAssetGroupWitness(ctx context.Context,
-		arg AssetGroupWitness) (int32, error)
+		arg AssetGroupWitness) (int64, error)
 
 	// UpsertAssetGroupKey inserts a new or updates an existing group key
 	// on disk, and returns the primary key.
-	UpsertAssetGroupKey(ctx context.Context, arg AssetGroupKey) (int32,
+	UpsertAssetGroupKey(ctx context.Context, arg AssetGroupKey) (int64,
 		error)
 
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context,
-		arg sqlc.InsertNewAssetParams) (int32, error)
+		arg sqlc.InsertNewAssetParams) (int64, error)
 
 	// UpsertAssetMeta inserts a new asset meta into the DB.
-	UpsertAssetMeta(ctx context.Context, arg NewAssetMeta) (int32, error)
+	UpsertAssetMeta(ctx context.Context, arg NewAssetMeta) (int64, error)
 
 	// SetAssetSpent marks an asset as being spent in the database. The
 	// updated asset's database ID is returned.
-	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int32,
+	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64,
 		error)
 }
 
 // upsertGenesis imports a new genesis point into the database or returns the
 // existing ID if that point already exists.
 func upsertGenesisPoint(ctx context.Context, q UpsertAssetStore,
-	genesisOutpoint wire.OutPoint) (int32, error) {
+	genesisOutpoint wire.OutPoint) (int64, error) {
 
 	genesisPoint, err := encodeOutpoint(genesisOutpoint)
 	if err != nil {
@@ -102,7 +102,7 @@ func upsertGenesisPoint(ctx context.Context, q UpsertAssetStore,
 // upsertGenesis imports a new genesis record into the database or returns the
 // existing ID of the genesis if it already exists.
 func upsertGenesis(ctx context.Context, q UpsertAssetStore,
-	genesisPointID int32, genesis asset.Genesis) (int32, error) {
+	genesisPointID int64, genesis asset.Genesis) (int64, error) {
 
 	// Then we'll insert the genesis_assets row which tracks all the
 	// information that uniquely derives a given asset ID.
@@ -125,7 +125,7 @@ func upsertGenesis(ctx context.Context, q UpsertAssetStore,
 // fetchGenesisID fetches the primary key ID for a genesis record already
 // in the database.
 func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
-	genesis asset.Genesis) (int32, error) {
+	genesis asset.Genesis) (int64, error) {
 
 	genPoint, err := encodeOutpoint(genesis.FirstPrevOut)
 	if err != nil {
@@ -152,7 +152,7 @@ func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
 // the database.
 func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 	genesisOutpoint wire.OutPoint, assets []*asset.Asset,
-	anchorUtxoIDs []sql.NullInt32) (int32, []int32, error) {
+	anchorUtxoIDs []sql.NullInt64) (int64, []int64, error) {
 
 	// First, we'll insert the component that ties together all the assets
 	// in a batch: the genesis point.
@@ -165,7 +165,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 	// We'll now insert each asset into the database. Some assets have a key
 	// group, so we'll need to insert them before we can insert the asset
 	// itself.
-	assetIDs := make([]int32, len(assets))
+	assetIDs := make([]int64, len(assets))
 	for idx, a := range assets {
 		// First, we make sure the genesis asset information exists in
 		// the database.
@@ -195,7 +195,7 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		}
 
 		// Is the asset anchored already?
-		var anchorUtxoID sql.NullInt32
+		var anchorUtxoID sql.NullInt64
 		if len(anchorUtxoIDs) > 0 {
 			anchorUtxoID = anchorUtxoIDs[idx]
 		}
@@ -227,11 +227,11 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 // upsertGroupKey inserts or updates a group key and its associated internal
 // key.
 func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
-	q UpsertAssetStore, genesisPointID, genAssetID int32) (sql.NullInt32,
+	q UpsertAssetStore, genesisPointID, genAssetID int64) (sql.NullInt64,
 	error) {
 
 	// No group key, this asset is not re-issuable.
-	var nullID sql.NullInt32
+	var nullID sql.NullInt64
 	if groupKey == nil {
 		return nullID, nil
 	}
@@ -302,13 +302,13 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		return nullID, fmt.Errorf("unable to insert group sig: %w", err)
 	}
 
-	return sqlInt32(groupWitnessID), nil
+	return sqlInt64(groupWitnessID), nil
 }
 
 // upsertScriptKey inserts or updates a script key and its associated internal
 // key.
 func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
-	q UpsertAssetStore) (int32, error) {
+	q UpsertAssetStore) (int64, error) {
 
 	if scriptKey.TweakedScriptKey != nil {
 		rawScriptKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
@@ -370,13 +370,13 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 type FetchGenesisStore interface {
 	// FetchGenesisByID returns a single genesis asset by its primary key
 	// ID.
-	FetchGenesisByID(ctx context.Context, assetID int32) (Genesis, error)
+	FetchGenesisByID(ctx context.Context, assetID int64) (Genesis, error)
 }
 
 // fetchGenesis returns a fully populated genesis record from the database,
 // identified by its primary key ID.
 func fetchGenesis(ctx context.Context, q FetchGenesisStore,
-	assetID int32) (asset.Genesis, error) {
+	assetID int64) (asset.Genesis, error) {
 
 	// Now we fetch the genesis information that so far we only have the ID
 	// for in the address record.
@@ -415,7 +415,7 @@ type GroupStore interface {
 	// FetchGroupByGenesis fetches information on the asset group created
 	// with the asset genesis referenced by a specific genesis ID.
 	FetchGroupByGenesis(ctx context.Context,
-		genesisID int32) (sqlc.FetchGroupByGenesisRow, error)
+		genesisID int64) (sqlc.FetchGroupByGenesisRow, error)
 
 	// FetchGroupByGroupKey fetches information on the asset group with
 	// a matching group key.
@@ -426,7 +426,7 @@ type GroupStore interface {
 // fetchGroupByGenesis fetches the asset group created by the genesis referenced
 // by the given ID.
 func fetchGroupByGenesis(ctx context.Context, q GroupStore,
-	genID int32) (*asset.AssetGroup, error) {
+	genID int64) (*asset.AssetGroup, error) {
 
 	groupInfo, err := q.FetchGroupByGenesis(ctx, genID)
 	switch {
@@ -532,7 +532,7 @@ func parseGroupKeyInfo(tweakedKey, rawKey, witness, tapscriptRoot []byte,
 // maybeUpsertAssetMeta inserts a meta on disk and returns the primary key of
 // that meta if metaReveal is non nil.
 func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
-	assetGen *asset.Genesis, metaReveal *proof.MetaReveal) (int32, error) {
+	assetGen *asset.Genesis, metaReveal *proof.MetaReveal) (int64, error) {
 
 	var (
 		metaHash [32]byte

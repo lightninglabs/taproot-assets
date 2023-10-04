@@ -78,7 +78,8 @@ type BaseUniverseStore interface {
 
 	// UpsertUniverseRoot attempts to insert a universe root, returning the
 	// existing primary key of the root if already exists.
-	UpsertUniverseRoot(ctx context.Context, arg NewUniverseRoot) (int32, error)
+	UpsertUniverseRoot(ctx context.Context, arg NewUniverseRoot) (int64,
+		error)
 
 	// FetchUniverseKeys fetches the set of keys that are currently stored
 	// for a given namespace.
@@ -215,7 +216,7 @@ func (t *treeStoreWrapperTx) View(ctx context.Context,
 // exist. Otherwise, the primary key of the existing asset ID is returned.
 func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	assetGen asset.Genesis, groupKey *asset.GroupKey,
-	genesisProof *proof.Proof) (int32, error) {
+	genesisProof *proof.Proof) (int64, error) {
 
 	// First, given the genesis point in the passed genesis, we'll insert a
 	// new genesis point in the DB.
@@ -290,7 +291,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 	}
 	if err := db.AnchorGenesisPoint(ctx, GenesisPointAnchor{
 		PrevOut:    genesisPoint,
-		AnchorTxID: sqlInt32(chainTXID),
+		AnchorTxID: sqlInt64(chainTXID),
 	}); err != nil {
 		return 0, fmt.Errorf("unable to anchor genesis tx: %w", err)
 	}

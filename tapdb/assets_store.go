@@ -174,14 +174,14 @@ type ActiveAssetsStore interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int64, error)
 
 	// FetchChainTx fetches a chain tx from the DB.
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTx, error)
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
-	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32,
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int64,
 		error)
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
@@ -195,7 +195,7 @@ type ActiveAssetsStore interface {
 
 	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
 	// on disk (NULL param), or the witness for a given asset ID.
-	FetchAssetWitnesses(context.Context, sql.NullInt32) ([]AssetWitness,
+	FetchAssetWitnesses(context.Context, sql.NullInt64) ([]AssetWitness,
 		error)
 
 	// FetchManagedUTXO fetches a managed UTXO based on either the outpoint
@@ -207,7 +207,7 @@ type ActiveAssetsStore interface {
 
 	// ApplyPendingOutput applies a transfer output (new amount and script
 	// key) based on the existing script key of an asset.
-	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput) (int32,
+	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput) (int64,
 		error)
 
 	// DeleteManagedUTXO deletes the managed utxo identified by the passed
@@ -231,7 +231,7 @@ type ActiveAssetsStore interface {
 
 	// InsertAssetTransfer inserts a new asset transfer into the DB.
 	InsertAssetTransfer(ctx context.Context,
-		arg NewAssetTransfer) (int32, error)
+		arg NewAssetTransfer) (int64, error)
 
 	// InsertAssetTransferInput inserts a new asset transfer input into the
 	// DB.
@@ -245,11 +245,11 @@ type ActiveAssetsStore interface {
 
 	// FetchTransferInputs fetches the inputs to a given asset transfer.
 	FetchTransferInputs(ctx context.Context,
-		transferID int32) ([]TransferInputRow, error)
+		transferID int64) ([]TransferInputRow, error)
 
 	// FetchTransferOutputs fetches the outputs to a given asset transfer.
 	FetchTransferOutputs(ctx context.Context,
-		transferID int32) ([]TransferOutputRow, error)
+		transferID int64) ([]TransferOutputRow, error)
 
 	// QueryAssetTransfers queries for a set of asset transfers in the db.
 	QueryAssetTransfers(ctx context.Context,
@@ -258,7 +258,7 @@ type ActiveAssetsStore interface {
 
 	// DeleteAssetWitnesses deletes the witnesses on disk associated with a
 	// given asset ID.
-	DeleteAssetWitnesses(ctx context.Context, assetID int32) error
+	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 
 	// InsertReceiverProofTransferAttempt inserts a new receiver proof
 	// transfer attempt record.
@@ -277,7 +277,7 @@ type ActiveAssetsStore interface {
 	// QueryPassiveAssets returns the data required to re-anchor
 	// pending passive assets that are anchored at the given outpoint.
 	QueryPassiveAssets(ctx context.Context,
-		transferID int32) ([]PassiveAsset, error)
+		transferID int64) ([]PassiveAsset, error)
 
 	// ReAnchorPassiveAssets re-anchors the passive assets identified by
 	// the passed params.
@@ -459,17 +459,17 @@ type AssetHumanReadable struct {
 
 // assetWitnesses maps the primary key of an asset to a slice of its previous
 // input (witness) information.
-type assetWitnesses map[int32][]AssetWitness
+type assetWitnesses map[int64][]AssetWitness
 
 // fetchAssetWitnesses attempts to fetch all the asset witnesses that belong to
 // the set of passed asset IDs.
 func fetchAssetWitnesses(ctx context.Context, db ActiveAssetsStore,
-	assetIDs []int32) (assetWitnesses, error) {
+	assetIDs []int64) (assetWitnesses, error) {
 
-	assetWitnesses := make(map[int32][]AssetWitness)
+	assetWitnesses := make(map[int64][]AssetWitness)
 	for _, assetID := range assetIDs {
 		witnesses, err := db.FetchAssetWitnesses(
-			ctx, sqlInt32(assetID),
+			ctx, sqlInt64(assetID),
 		)
 		if err != nil {
 			return nil, err
@@ -859,7 +859,7 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 		return nil, nil, fmt.Errorf("unable to read db assets: %v", err)
 	}
 
-	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int32 {
+	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int64 {
 		return a.AssetPrimaryKey
 	})
 
@@ -1042,7 +1042,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 
 	var (
 		dbAssets       []ConfirmedAsset
-		assetWitnesses map[int32][]AssetWitness
+		assetWitnesses map[int64][]AssetWitness
 		err            error
 	)
 
@@ -1292,7 +1292,7 @@ func (a *AssetStore) FetchProofs(ctx context.Context,
 //
 // TODO(ffranr): Change insert function into an upsert.
 func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
-	db ActiveAssetsStore, assetID int32, inputs []asset.Witness) error {
+	db ActiveAssetsStore, assetID int64, inputs []asset.Witness) error {
 
 	var buf [8]byte
 	for idx := range inputs {
@@ -1438,7 +1438,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	// Insert/update the asset information in the database now.
 	_, assetIDs, err := upsertAssetsWithGenesis(
 		ctx, db, newAsset.Genesis.FirstPrevOut,
-		[]*asset.Asset{newAsset}, []sql.NullInt32{sqlInt32(utxoID)},
+		[]*asset.Asset{newAsset}, []sql.NullInt64{sqlInt64(utxoID)},
 	)
 	if err != nil {
 		return fmt.Errorf("error inserting asset with genesis: %w", err)
@@ -1968,7 +1968,7 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 
 // insertAssetTransferInput inserts a new asset transfer input into the DB.
 func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
-	transferID int32, input tapfreighter.TransferInput,
+	transferID int64, input tapfreighter.TransferInput,
 	finalLeaseOwner [32]byte, finalLeaseExpiry time.Time) error {
 
 	anchorPointBytes, err := encodeOutpoint(input.OutPoint)
@@ -2002,7 +2002,7 @@ func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
 
 // fetchAssetTransferInputs fetches all the inputs for a given transfer ID.
 func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
-	transferID int32) ([]tapfreighter.TransferInput, error) {
+	transferID int64) ([]tapfreighter.TransferInput, error) {
 
 	dbInputs, err := q.FetchTransferInputs(ctx, transferID)
 	if err != nil {
@@ -2042,7 +2042,7 @@ func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
 // insertAssetTransferOutput inserts a new asset transfer output into the DB
 // and returns its ID.
 func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
-	transferID, txnID int32, output tapfreighter.TransferOutput,
+	transferID, txnID int64, output tapfreighter.TransferOutput,
 	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
 
 	anchor := output.Anchor
@@ -2165,7 +2165,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 
 // fetchAssetTransferOutputs fetches all the outputs for a given transfer ID.
 func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
-	transferID int32) ([]tapfreighter.TransferOutput, error) {
+	transferID int64) ([]tapfreighter.TransferOutput, error) {
 
 	dbOutputs, err := q.FetchTransferOutputs(ctx, transferID)
 	if err != nil {
@@ -2283,7 +2283,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 
 // logPendingPassiveAssets logs passive assets re-anchoring data to disk.
 func logPendingPassiveAssets(ctx context.Context,
-	q ActiveAssetsStore, transferID, newUtxoID int32,
+	q ActiveAssetsStore, transferID, newUtxoID int64,
 	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
 
 	for idx := range passiveAssets {
@@ -2434,7 +2434,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		// We'll keep around the IDs of the assets that we set to being
 		// spent. We'll need one of them as our template to create the
 		// new assets.
-		spentAssetIDs := make([]int32, len(inputs))
+		spentAssetIDs := make([]int64, len(inputs))
 		for idx := range inputs {
 			spentAssetIDs[idx], err = q.SetAssetSpent(
 				ctx, SetAssetSpentParams{
@@ -2511,7 +2511,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			templateID := spentAssetIDs[0]
 			params := ApplyPendingOutput{
 				ScriptKeyID: out.ScriptKeyID,
-				AnchorUtxoID: sqlInt32(
+				AnchorUtxoID: sqlInt64(
 					out.AnchorUtxoID,
 				),
 				Amount:                   out.Amount,
@@ -2612,7 +2612,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 // reAnchorPassiveAssets re-anchors all passive assets that were anchored by
 // the given transfer output.
 func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
-	q ActiveAssetsStore, transferID int32,
+	q ActiveAssetsStore, transferID int64,
 	proofFiles map[[32]byte]proof.Blob) error {
 
 	passiveAssets, err := q.QueryPassiveAssets(ctx, transferID)
@@ -2675,7 +2675,7 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 
 		// Update the asset proof.
 		err = q.UpsertAssetProof(ctx, ProofUpdate{
-			AssetID:   sqlInt32(passiveAsset.AssetID),
+			AssetID:   sqlInt64(passiveAsset.AssetID),
 			ProofFile: proofFile,
 		})
 		if err != nil {
@@ -2685,7 +2685,7 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 
 		// And finally, update the anchor UTXO of the asset in question.
 		err = q.ReAnchorPassiveAssets(ctx, ReAnchorParams{
-			NewAnchorUtxoID: sqlInt32(passiveAsset.NewAnchorUtxo),
+			NewAnchorUtxoID: sqlInt64(passiveAsset.NewAnchorUtxo),
 			AssetID:         passiveAsset.AssetID,
 		})
 		if err != nil {

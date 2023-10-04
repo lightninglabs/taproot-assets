@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS universe_roots (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- For the namespace root, we set the foreign key constraint evaluation to
     -- be deferred until after the database transaction ends. Otherwise, if the
@@ -19,15 +19,15 @@ CREATE INDEX IF NOT EXISTS universe_roots_asset_id_idx ON universe_roots(asset_i
 CREATE INDEX IF NOT EXISTS universe_roots_group_key_idx ON universe_roots(group_key);
 
 CREATE TABLE IF NOT EXISTS universe_leaves (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
-    asset_genesis_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
 
     minting_point BLOB NOT NULL, 
 
     script_key_bytes BLOB NOT NULL CHECK(LENGTH(script_key_bytes) = 32),
 
-    universe_root_id INTEGER NOT NULL REFERENCES universe_roots(id),
+    universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
 
     leaf_node_key BLOB,
     
@@ -40,7 +40,7 @@ CREATE INDEX IF NOT EXISTS universe_leaves_key_idx ON universe_leaves(leaf_node_
 CREATE INDEX IF NOT EXISTS universe_leaves_namespace ON universe_leaves(leaf_node_namespace);
 
 CREATE TABLE IF NOT EXISTS universe_servers (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     server_host TEXT UNIQUE NOT NULL,
 
@@ -55,11 +55,11 @@ CREATE TABLE IF NOT EXISTS universe_servers (
 CREATE INDEX IF NOT EXISTS universe_servers_host ON universe_servers(server_host);
 
 CREATE TABLE IF NOT EXISTS universe_events (
-    event_id INTEGER PRIMARY KEY,
+    event_id BIGINT PRIMARY KEY,
 
     event_type VARCHAR NOT NULL CHECK (event_type IN ('SYNC', 'NEW_PROOF', 'NEW_ROOT')),
 
-    universe_root_id INTEGER NOT NULL REFERENCES universe_roots(id),
+    universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
 
     -- TODO(roasbeef): also add which leaf was synced?
 

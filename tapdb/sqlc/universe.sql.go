@@ -53,7 +53,7 @@ WHERE server_host = $1 OR id = $2
 
 type DeleteUniverseServerParams struct {
 	TargetServer string
-	TargetID     int32
+	TargetID     int64
 }
 
 func (q *Queries) DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error {
@@ -530,7 +530,7 @@ type QueryUniverseLeavesParams struct {
 
 type QueryUniverseLeavesRow struct {
 	ScriptKeyBytes []byte
-	GenAssetID     int32
+	GenAssetID     int64
 	GenesisProof   []byte
 	SumAmt         int64
 	AssetID        []byte
@@ -689,9 +689,9 @@ INSERT INTO universe_leaves (
 `
 
 type UpsertUniverseLeafParams struct {
-	AssetGenesisID    int32
+	AssetGenesisID    int64
 	ScriptKeyBytes    []byte
-	UniverseRootID    int32
+	UniverseRootID    int64
 	LeafNodeKey       []byte
 	LeafNodeNamespace string
 	MintingPoint      []byte
@@ -727,9 +727,9 @@ type UpsertUniverseRootParams struct {
 	GroupKey      []byte
 }
 
-func (q *Queries) UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int32, error) {
+func (q *Queries) UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertUniverseRoot, arg.NamespaceRoot, arg.AssetID, arg.GroupKey)
-	var id int32
+	var id int64
 	err := row.Scan(&id)
 	return id, err
 }

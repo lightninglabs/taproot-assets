@@ -47,7 +47,7 @@ func TestUniverseFederationCRUD(t *testing.T) {
 	// Next, we'll try to add a new series of servers to the DB.
 	const numServers = 10
 	addrs := make([]universe.ServerAddr, 0, numServers)
-	for i := uint32(0); i < numServers; i++ {
+	for i := int64(0); i < numServers; i++ {
 		portOffset := i + 10_000
 		hostStr := fmt.Sprintf("localhost:%v", portOffset)
 

@@ -94,14 +94,14 @@ ON asset_minting_batches.batch_id = internal_keys.key_id
 `
 
 type AllMintingBatchesRow struct {
-	BatchID           int32
+	BatchID           int64
 	BatchState        int16
 	MintingTxPsbt     []byte
 	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt32
+	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
-	KeyID             int32
+	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
 	KeyIndex          int32
@@ -155,7 +155,7 @@ WHERE genesis_id in (SELECT genesis_id FROM target_point)
 
 type AnchorGenesisPointParams struct {
 	PrevOut    []byte
-	AnchorTxID sql.NullInt32
+	AnchorTxID sql.NullInt64
 }
 
 func (q *Queries) AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error {
@@ -180,7 +180,7 @@ WHERE script_key_id in (SELECT script_key_id FROM assets_to_update)
 
 type AnchorPendingAssetsParams struct {
 	PrevOut      []byte
-	AnchorUtxoID sql.NullInt32
+	AnchorUtxoID sql.NullInt64
 }
 
 func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error {
@@ -199,29 +199,29 @@ WHERE prev_out = $1
 `
 
 type AssetsByGenesisPointRow struct {
-	AssetID                  int32
-	GenesisID                int32
+	AssetID                  int64
+	GenesisID                int64
 	Version                  int32
-	ScriptKeyID              int32
-	AssetGroupWitnessID      sql.NullInt32
+	ScriptKeyID              int64
+	AssetGroupWitnessID      sql.NullInt64
 	ScriptVersion            int32
 	Amount                   int64
 	LockTime                 sql.NullInt32
 	RelativeLockTime         sql.NullInt32
 	SplitCommitmentRootHash  []byte
 	SplitCommitmentRootValue sql.NullInt64
-	AnchorUtxoID             sql.NullInt32
+	AnchorUtxoID             sql.NullInt64
 	Spent                    bool
-	GenAssetID               int32
+	GenAssetID               int64
 	AssetID_2                []byte
 	AssetTag                 string
-	MetaDataID               sql.NullInt32
+	MetaDataID               sql.NullInt64
 	OutputIndex              int32
 	AssetType                int16
-	GenesisPointID           int32
-	GenesisID_2              int32
+	GenesisPointID           int64
+	GenesisID_2              int64
 	PrevOut                  []byte
-	AnchorTxID               sql.NullInt32
+	AnchorTxID               sql.NullInt64
 }
 
 func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error) {
@@ -288,7 +288,7 @@ WHERE keys.raw_key = $1
 `
 
 type AssetsInBatchRow struct {
-	GenAssetID   int32
+	GenAssetID   int64
 	AssetID      []byte
 	AssetTag     string
 	MetaDataHash []byte
@@ -345,7 +345,7 @@ type BindMintingBatchWithTxParams struct {
 	RawKey            []byte
 	MintingTxPsbt     []byte
 	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt32
+	GenesisID         sql.NullInt64
 }
 
 func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error {
@@ -459,7 +459,7 @@ type FetchAssetMetaRow struct {
 	MetaDataType sql.NullInt16
 }
 
-func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int32) (FetchAssetMetaRow, error) {
+func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAssetMeta, metaID)
 	var i FetchAssetMetaRow
 	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
@@ -524,8 +524,8 @@ JOIN asset_info
 type FetchAssetProofRow struct {
 	ScriptKey []byte
 	ProofFile []byte
-	AssetID   int32
-	ProofID   int32
+	AssetID   int64
+	ProofID   int64
 }
 
 func (q *Queries) FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error) {
@@ -638,7 +638,7 @@ WHERE (
 `
 
 type FetchAssetWitnessesRow struct {
-	AssetID              int32
+	AssetID              int64
 	PrevOutPoint         []byte
 	PrevAssetID          []byte
 	PrevScriptKey        []byte
@@ -646,7 +646,7 @@ type FetchAssetWitnessesRow struct {
 	SplitCommitmentProof []byte
 }
 
-func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt32) ([]FetchAssetWitnessesRow, error) {
+func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error) {
 	rows, err := q.db.QueryContext(ctx, fetchAssetWitnesses, assetID)
 	if err != nil {
 		return nil, err
@@ -682,7 +682,7 @@ FROM assets
 WHERE anchor_utxo_id = $1
 `
 
-func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt32) ([]Asset, error) {
+func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt64) ([]Asset, error) {
 	rows, err := q.db.QueryContext(ctx, fetchAssetsByAnchorTx, anchorUtxoID)
 	if err != nil {
 		return nil, err
@@ -930,7 +930,7 @@ type FetchGenesisByIDRow struct {
 	PrevOut      []byte
 }
 
-func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int32) (FetchGenesisByIDRow, error) {
+func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int64) (FetchGenesisByIDRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchGenesisByID, genAssetID)
 	var i FetchGenesisByIDRow
 	err := row.Scan(
@@ -973,7 +973,7 @@ type FetchGenesisIDParams struct {
 	PrevOut     []byte
 }
 
-func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int32, error) {
+func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, fetchGenesisID,
 		arg.AssetID,
 		arg.AssetTag,
@@ -982,7 +982,7 @@ func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) 
 		arg.AssetType,
 		arg.PrevOut,
 	)
-	var gen_asset_id int32
+	var gen_asset_id int64
 	err := row.Scan(&gen_asset_id)
 	return gen_asset_id, err
 }
@@ -993,7 +993,7 @@ FROM genesis_points
 WHERE anchor_tx_id = $1
 `
 
-func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt32) (GenesisPoint, error) {
+func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt64) (GenesisPoint, error) {
 	row := q.db.QueryRowContext(ctx, fetchGenesisPointByAnchorTx, anchorTxID)
 	var i GenesisPoint
 	err := row.Scan(&i.GenesisID, &i.PrevOut, &i.AnchorTxID)
@@ -1023,7 +1023,7 @@ type FetchGroupByGenesisRow struct {
 	WitnessStack    []byte
 }
 
-func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int32) (FetchGroupByGenesisRow, error) {
+func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int64) (FetchGroupByGenesisRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchGroupByGenesis, genesisID)
 	var i FetchGroupByGenesisRow
 	err := row.Scan(
@@ -1054,7 +1054,7 @@ LIMIT 1
 `
 
 type FetchGroupByGroupKeyRow struct {
-	GenAssetID    int32
+	GenAssetID    int64
 	RawKey        []byte
 	KeyIndex      int32
 	KeyFamily     int32
@@ -1095,7 +1095,7 @@ WHERE spent = false
 `
 
 type FetchGroupedAssetsRow struct {
-	AssetPrimaryKey  int32
+	AssetPrimaryKey  int64
 	Amount           int64
 	LockTime         sql.NullInt32
 	RelativeLockTime sql.NullInt32
@@ -1153,22 +1153,22 @@ WHERE (
 `
 
 type FetchManagedUTXOParams struct {
-	TxnID    sql.NullInt32
+	TxnID    sql.NullInt64
 	Outpoint []byte
 }
 
 type FetchManagedUTXORow struct {
-	UtxoID           int32
+	UtxoID           int64
 	Outpoint         []byte
 	AmtSats          int64
-	InternalKeyID    int32
+	InternalKeyID    int64
 	TaprootAssetRoot []byte
 	TapscriptSibling []byte
 	MerkleRoot       []byte
-	TxnID            int32
+	TxnID            int64
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
-	KeyID            int32
+	KeyID            int64
 	RawKey           []byte
 	KeyFamily        int32
 	KeyIndex         int32
@@ -1204,17 +1204,17 @@ JOIN internal_keys keys
 `
 
 type FetchManagedUTXOsRow struct {
-	UtxoID           int32
+	UtxoID           int64
 	Outpoint         []byte
 	AmtSats          int64
-	InternalKeyID    int32
+	InternalKeyID    int64
 	TaprootAssetRoot []byte
 	TapscriptSibling []byte
 	MerkleRoot       []byte
-	TxnID            int32
+	TxnID            int64
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
-	KeyID            int32
+	KeyID            int64
 	RawKey           []byte
 	KeyFamily        int32
 	KeyIndex         int32
@@ -1278,14 +1278,14 @@ WHERE batch_id in (SELECT batch_id FROM target_batch)
 `
 
 type FetchMintingBatchRow struct {
-	BatchID           int32
+	BatchID           int64
 	BatchState        int16
 	MintingTxPsbt     []byte
 	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt32
+	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
-	KeyID             int32
+	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
 	KeyIndex          int32
@@ -1319,14 +1319,14 @@ WHERE batches.batch_state != $1
 `
 
 type FetchMintingBatchesByInverseStateRow struct {
-	BatchID           int32
+	BatchID           int64
 	BatchState        int16
 	MintingTxPsbt     []byte
 	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt32
+	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
-	KeyID             int32
+	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
 	KeyIndex          int32
@@ -1400,9 +1400,9 @@ FROM script_keys
 WHERE tweaked_script_key = $1
 `
 
-func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int32, error) {
+func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, fetchScriptKeyIDByTweakedKey, tweakedScriptKey)
-	var script_key_id int32
+	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
 }
@@ -1413,7 +1413,7 @@ FROM asset_seedlings
 WHERE seedling_id = $1
 `
 
-func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int32) (AssetSeedling, error) {
+func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (AssetSeedling, error) {
 	row := q.db.QueryRowContext(ctx, fetchSeedlingByID, seedlingID)
 	var i AssetSeedling
 	err := row.Scan(
@@ -1453,9 +1453,9 @@ type FetchSeedlingIDParams struct {
 	BatchKey     []byte
 }
 
-func (q *Queries) FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int32, error) {
+func (q *Queries) FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, fetchSeedlingID, arg.SeedlingName, arg.BatchKey)
-	var seedling_id int32
+	var seedling_id int64
 	err := row.Scan(&seedling_id)
 	return seedling_id, err
 }
@@ -1479,7 +1479,7 @@ WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
 `
 
 type FetchSeedlingsForBatchRow struct {
-	SeedlingID      int32
+	SeedlingID      int64
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
@@ -1487,9 +1487,9 @@ type FetchSeedlingsForBatchRow struct {
 	MetaDataType    sql.NullInt16
 	MetaDataBlob    []byte
 	EmissionEnabled bool
-	BatchID         int32
-	GroupGenesisID  sql.NullInt32
-	GroupAnchorID   sql.NullInt32
+	BatchID         int64
+	GroupGenesisID  sql.NullInt64
+	GroupAnchorID   sql.NullInt64
 }
 
 func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
@@ -1605,11 +1605,11 @@ type InsertAssetSeedlingParams struct {
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
-	AssetMetaID     int32
+	AssetMetaID     int64
 	EmissionEnabled bool
-	BatchID         int32
-	GroupGenesisID  sql.NullInt32
-	GroupAnchorID   sql.NullInt32
+	BatchID         int64
+	GroupGenesisID  sql.NullInt64
+	GroupAnchorID   sql.NullInt64
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -1652,10 +1652,10 @@ type InsertAssetSeedlingIntoBatchParams struct {
 	AssetName       string
 	AssetType       int16
 	AssetSupply     int64
-	AssetMetaID     int32
+	AssetMetaID     int64
 	EmissionEnabled bool
-	GroupGenesisID  sql.NullInt32
-	GroupAnchorID   sql.NullInt32
+	GroupGenesisID  sql.NullInt64
+	GroupAnchorID   sql.NullInt64
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -1682,7 +1682,7 @@ INSERT INTO asset_witnesses (
 `
 
 type InsertAssetWitnessParams struct {
-	AssetID              int32
+	AssetID              int64
 	PrevOutPoint         []byte
 	PrevAssetID          []byte
 	PrevScriptKey        []byte
@@ -1712,19 +1712,19 @@ INSERT INTO assets (
 `
 
 type InsertNewAssetParams struct {
-	GenesisID           int32
+	GenesisID           int64
 	Version             int32
-	ScriptKeyID         int32
-	AssetGroupWitnessID sql.NullInt32
+	ScriptKeyID         int64
+	AssetGroupWitnessID sql.NullInt64
 	ScriptVersion       int32
 	Amount              int64
 	LockTime            sql.NullInt32
 	RelativeLockTime    sql.NullInt32
-	AnchorUtxoID        sql.NullInt32
+	AnchorUtxoID        sql.NullInt64
 	Spent               bool
 }
 
-func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int32, error) {
+func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertNewAsset,
 		arg.GenesisID,
 		arg.Version,
@@ -1737,7 +1737,7 @@ func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) 
 		arg.AnchorUtxoID,
 		arg.Spent,
 	)
-	var asset_id int32
+	var asset_id int64
 	err := row.Scan(&asset_id)
 	return asset_id, err
 }
@@ -1749,7 +1749,7 @@ INSERT INTO asset_minting_batches (
 `
 
 type NewMintingBatchParams struct {
-	BatchID          int32
+	BatchID          int64
 	HeightHint       int32
 	CreationTimeUnix time.Time
 }
@@ -1951,8 +1951,8 @@ type QueryAssetsParams struct {
 }
 
 type QueryAssetsRow struct {
-	AssetPrimaryKey          int32
-	GenesisID                int32
+	AssetPrimaryKey          int64
+	GenesisID                int64
 	Version                  int32
 	Spent                    bool
 	ScriptKeyTweak           []byte
@@ -2096,9 +2096,9 @@ type SetAssetSpentParams struct {
 	GenAssetID []byte
 }
 
-func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int32, error) {
+func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, setAssetSpent, arg.ScriptKey, arg.GenAssetID)
-	var asset_id int32
+	var asset_id int64
 	err := row.Scan(&asset_id)
 	return asset_id, err
 }
@@ -2185,18 +2185,18 @@ RETURNING group_id
 type UpsertAssetGroupKeyParams struct {
 	TweakedGroupKey []byte
 	TapscriptRoot   []byte
-	InternalKeyID   int32
-	GenesisPointID  int32
+	InternalKeyID   int64
+	GenesisPointID  int64
 }
 
-func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int32, error) {
+func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertAssetGroupKey,
 		arg.TweakedGroupKey,
 		arg.TapscriptRoot,
 		arg.InternalKeyID,
 		arg.GenesisPointID,
 	)
-	var group_id int32
+	var group_id int64
 	err := row.Scan(&group_id)
 	return group_id, err
 }
@@ -2214,13 +2214,13 @@ RETURNING witness_id
 
 type UpsertAssetGroupWitnessParams struct {
 	WitnessStack []byte
-	GenAssetID   int32
-	GroupKeyID   int32
+	GenAssetID   int64
+	GroupKeyID   int64
 }
 
-func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int32, error) {
+func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertAssetGroupWitness, arg.WitnessStack, arg.GenAssetID, arg.GroupKeyID)
-	var witness_id int32
+	var witness_id int64
 	err := row.Scan(&witness_id)
 	return witness_id, err
 }
@@ -2246,9 +2246,9 @@ type UpsertAssetMetaParams struct {
 	MetaDataType sql.NullInt16
 }
 
-func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int32, error) {
+func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertAssetMeta, arg.MetaDataHash, arg.MetaDataBlob, arg.MetaDataType)
-	var meta_id int32
+	var meta_id int64
 	err := row.Scan(&meta_id)
 	return meta_id, err
 }
@@ -2280,7 +2280,7 @@ INSERT INTO asset_proofs (
 type UpsertAssetProofParams struct {
 	ProofFile        []byte
 	TweakedScriptKey []byte
-	AssetID          sql.NullInt32
+	AssetID          sql.NullInt64
 }
 
 func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
@@ -2312,7 +2312,7 @@ type UpsertChainTxParams struct {
 	TxIndex     sql.NullInt32
 }
 
-func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int32, error) {
+func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertChainTx,
 		arg.Txid,
 		arg.RawTx,
@@ -2321,7 +2321,7 @@ func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (i
 		arg.BlockHash,
 		arg.TxIndex,
 	)
-	var txn_id int32
+	var txn_id int64
 	err := row.Scan(&txn_id)
 	return txn_id, err
 }
@@ -2348,10 +2348,10 @@ type UpsertGenesisAssetParams struct {
 	AssetTag       string
 	OutputIndex    int32
 	AssetType      int16
-	GenesisPointID int32
+	GenesisPointID int64
 }
 
-func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int32, error) {
+func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertGenesisAsset,
 		arg.MetaDataHash,
 		arg.AssetID,
@@ -2360,7 +2360,7 @@ func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAsset
 		arg.AssetType,
 		arg.GenesisPointID,
 	)
-	var gen_asset_id int32
+	var gen_asset_id int64
 	err := row.Scan(&gen_asset_id)
 	return gen_asset_id, err
 }
@@ -2376,9 +2376,9 @@ INSERT INTO genesis_points(
 RETURNING genesis_id
 `
 
-func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int32, error) {
+func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertGenesisPoint, prevOut)
-	var genesis_id int32
+	var genesis_id int64
 	err := row.Scan(&genesis_id)
 	return genesis_id, err
 }
@@ -2400,9 +2400,9 @@ type UpsertInternalKeyParams struct {
 	KeyIndex  int32
 }
 
-func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int32, error) {
+func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
-	var key_id int32
+	var key_id int64
 	err := row.Scan(&key_id)
 	return key_id, err
 }
@@ -2431,11 +2431,11 @@ type UpsertManagedUTXOParams struct {
 	AmtSats          int64
 	TapscriptSibling []byte
 	MerkleRoot       []byte
-	TxnID            int32
+	TxnID            int64
 	TaprootAssetRoot []byte
 }
 
-func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int32, error) {
+func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertManagedUTXO,
 		arg.RawKey,
 		arg.Outpoint,
@@ -2445,7 +2445,7 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 		arg.TxnID,
 		arg.TaprootAssetRoot,
 	)
-	var utxo_id int32
+	var utxo_id int64
 	err := row.Scan(&utxo_id)
 	return utxo_id, err
 }
@@ -2463,14 +2463,14 @@ RETURNING script_key_id
 `
 
 type UpsertScriptKeyParams struct {
-	InternalKeyID    int32
+	InternalKeyID    int64
 	TweakedScriptKey []byte
 	Tweak            []byte
 }
 
-func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int32, error) {
+func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertScriptKey, arg.InternalKeyID, arg.TweakedScriptKey, arg.Tweak)
-	var script_key_id int32
+	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
 }

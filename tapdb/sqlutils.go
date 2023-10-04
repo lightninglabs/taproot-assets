@@ -18,6 +18,18 @@ var (
 	MaxValidSQLTime = time.Date(9999, 12, 31, 23, 59, 59, 999999, time.UTC)
 )
 
+// sqlInt64 turns a numerical integer type into the NullInt64 that sql/sqlc
+// uses when an integer field can be permitted to be NULL.
+//
+// We use the constraints.Integer constraint here which maps to all signed and
+// unsigned integer types.
+func sqlInt64[T constraints.Integer](num T) sql.NullInt64 {
+	return sql.NullInt64{
+		Int64: int64(num),
+		Valid: true,
+	}
+}
+
 // sqlInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
@@ -62,6 +74,13 @@ func sqlStr(s string) sql.NullString {
 		String: s,
 		Valid:  true,
 	}
+}
+
+// extractSqlInt64 turns a NullInt64 into a numerical type. This can be useful
+// when reading directly from the database, as this function handles extracting
+// the inner value from the "option"-like struct.
+func extractSqlInt64[T constraints.Integer](num sql.NullInt64) T {
+	return T(num.Int64)
 }
 
 // extractSqlInt32 turns a NullInt32 into a numerical type. This can be useful

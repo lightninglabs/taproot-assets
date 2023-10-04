@@ -58,7 +58,7 @@ type EventQueryParams struct {
 // multiple events.
 type Event struct {
 	// ID is the database primary key ID of the address event.
-	ID int32
+	ID int64
 
 	// CreationTime is the time the event was first created.
 	CreationTime time.Time

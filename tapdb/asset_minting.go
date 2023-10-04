@@ -166,12 +166,12 @@ type PendingAssetStore interface {
 
 	// FetchSeedlingID is used to look up the ID of a specific seedling
 	// in a batch.
-	FetchSeedlingID(ctx context.Context, arg AssetSeedlingTuple) (int32,
+	FetchSeedlingID(ctx context.Context, arg AssetSeedlingTuple) (int64,
 		error)
 
 	// FetchSeedlingByID is used to look up a specific seedling.
 	FetchSeedlingByID(ctx context.Context,
-		seedlingID int32) (AssetSeedling, error)
+		seedlingID int64) (AssetSeedling, error)
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
@@ -183,7 +183,7 @@ type PendingAssetStore interface {
 
 	// UpsertManagedUTXO inserts a new or updates an existing managed UTXO
 	// to disk and returns the primary key.
-	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int32,
+	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int64,
 		error)
 
 	// AnchorPendingAssets associated an asset on disk with the transaction
@@ -192,7 +192,7 @@ type PendingAssetStore interface {
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
-	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int32, error)
+	UpsertChainTx(ctx context.Context, arg ChainTxParams) (int64, error)
 
 	// ConfirmChainTx confirms an existing chain tx.
 	ConfirmChainTx(ctx context.Context, arg ChainTxConf) error
@@ -334,7 +334,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 					return err
 				}
 
-				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
+				dbSeedling.GroupGenesisID = sqlInt64(genesisID)
 			}
 
 			// If this seedling is being issued to a group being
@@ -349,7 +349,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 					return err
 				}
 
-				dbSeedling.GroupAnchorID = sqlInt32(anchorID)
+				dbSeedling.GroupAnchorID = sqlInt64(anchorID)
 			}
 
 			err = q.InsertAssetSeedling(ctx, dbSeedling)
@@ -407,7 +407,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 					return err
 				}
 
-				dbSeedling.GroupGenesisID = sqlInt32(genesisID)
+				dbSeedling.GroupGenesisID = sqlInt64(genesisID)
 			}
 
 			// If this seedling is being issued to a group being
@@ -422,7 +422,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 					return err
 				}
 
-				dbSeedling.GroupAnchorID = sqlInt32(anchorID)
+				dbSeedling.GroupAnchorID = sqlInt64(anchorID)
 			}
 
 			err = q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
@@ -439,7 +439,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 // fetchSeedlingID attempts to fetch the ID for a seedling from a specific
 // batch. This is performed within the context of a greater DB transaction.
 func fetchSeedlingID(ctx context.Context, q PendingAssetStore,
-	batchKey []byte, seedlingName string) (int32, error) {
+	batchKey []byte, seedlingName string) (int64, error) {
 
 	seedlingParams := AssetSeedlingTuple{
 		SeedlingName: seedlingName,
@@ -479,7 +479,7 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 		// Fetch the group info for seedlings with a specific group.
 		// There can only be one group per genesis.
 		if dbSeedling.GroupGenesisID.Valid {
-			genID := extractSqlInt32[int32](
+			genID := extractSqlInt64[int64](
 				dbSeedling.GroupGenesisID,
 			)
 			seedlingGroup, err := fetchGroupByGenesis(ctx, q, genID)
@@ -496,7 +496,7 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 
 		// Fetch the group anchor for seedlings with a group anchor set.
 		if dbSeedling.GroupAnchorID.Valid {
-			anchorID := extractSqlInt32[int32](
+			anchorID := extractSqlInt64[int64](
 				dbSeedling.GroupAnchorID,
 			)
 			seedlingAnchor, err := q.FetchSeedlingByID(ctx, anchorID)
@@ -982,7 +982,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			ChangeOutputIndex: sqlInt32(
 				genesisPacket.ChangeOutputIndex,
 			),
-			GenesisID: sqlInt32(genesisPointID),
+			GenesisID: sqlInt64(genesisPointID),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to add batch tx: %w", err)
@@ -1093,7 +1093,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// managed UTXO.
 		err = q.AnchorPendingAssets(ctx, AssetAnchor{
 			PrevOut:      genesisOutpoint,
-			AnchorUtxoID: sqlInt32(utxoID),
+			AnchorUtxoID: sqlInt64(utxoID),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to anchor pending assets: %v", err)
@@ -1103,7 +1103,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// transaction we inserted above.
 		if err := q.AnchorGenesisPoint(ctx, GenesisPointAnchor{
 			PrevOut:    genesisOutpoint,
-			AnchorTxID: sqlInt32(chainTXID),
+			AnchorTxID: sqlInt64(chainTXID),
 		}); err != nil {
 			return fmt.Errorf("unable to anchor genesis tx: %w", err)
 		}
@@ -1167,7 +1167,7 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 // FetchGroupByGenesis fetches the asset group created by the genesis referenced
 // by the given ID.
 func (a *AssetMintingStore) FetchGroupByGenesis(ctx context.Context,
-	genesisID int32) (*asset.AssetGroup, error) {
+	genesisID int64) (*asset.AssetGroup, error) {
 
 	var (
 		dbGroup *asset.AssetGroup

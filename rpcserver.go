@@ -3177,10 +3177,10 @@ func (r *rpcServer) ListFederationServers(ctx context.Context,
 	}, nil
 }
 
-func unmarshalUniverseServer(server *unirpc.UniverseFederationServer,
-) universe.ServerAddr {
+func unmarshalUniverseServer(
+	server *unirpc.UniverseFederationServer) universe.ServerAddr {
 
-	return universe.NewServerAddr(uint32(server.Id), server.Host)
+	return universe.NewServerAddr(int64(server.Id), server.Host)
 }
 
 // AddFederationServer adds a new server to the federation of the local

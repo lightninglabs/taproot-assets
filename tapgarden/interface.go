@@ -230,7 +230,7 @@ type MintingStore interface {
 	// FetchGroupByGenesis fetches the asset group created by the genesis
 	// referenced by the given ID.
 	FetchGroupByGenesis(ctx context.Context,
-		genesisID int32) (*asset.AssetGroup, error)
+		genesisID int64) (*asset.AssetGroup, error)
 
 	// FetchGroupByGroupKey fetches the asset group with a matching tweaked
 	// key, including the genesis information used to create the group.

@@ -2,7 +2,7 @@
 -- a creation time and all the information needed to reconstruct the taproot
 -- output on chain we'll use to send/recv to/from this address.
 CREATE TABLE IF NOT EXISTS addrs (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- version is the version of the Taproot Asset address format.
     version SMALLINT NOT NULL,
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS addrs (
 
     -- genesis_asset_id points to the asset genesis of the asset we want to
     -- send/recv.
-    genesis_asset_id INTEGER NOT NULL REFERENCES genesis_assets(gen_asset_id),
+    genesis_asset_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
 
     -- group_key is the raw blob of the group key. For assets w/o a group key,
     -- this field will be NULL.
@@ -20,11 +20,11 @@ CREATE TABLE IF NOT EXISTS addrs (
 
     -- script_key_id points to the internal key that we created to serve as the
     -- script key to be able to receive this asset.
-    script_key_id INTEGER NOT NULL REFERENCES script_keys(script_key_id),
+    script_key_id BIGINT NOT NULL REFERENCES script_keys(script_key_id),
 
     -- taproot_key_id points to the internal key that we'll use to serve as the
     -- taproot internal key to receive this asset.
-    taproot_key_id INTEGER NOT NULL REFERENCES internal_keys(key_id),
+    taproot_key_id BIGINT NOT NULL REFERENCES internal_keys(key_id),
 
     -- tapscript_sibling is the serialized tapscript sibling preimage that
     -- should be committed to in the taproot output alongside the Taproot Asset
