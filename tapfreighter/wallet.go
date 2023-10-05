@@ -785,8 +785,6 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 				ScriptKey: asset.NUMSScriptKey,
 			}
 
-			// TODO(roasbeef): inherit version from which input?
-
 			vPkt.Outputs = append(vPkt.Outputs, changeOut)
 		}
 
@@ -828,6 +826,25 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		// since we might not have known what coin would've been
 		// selected and how large the change would turn out to be.
 		changeOut.Amount = totalInputAmt - fundDesc.Amount
+
+		// The asset version of the output should be the max of the set
+		// of input versions. We need to set this now as in
+		// PrepareOutputAssets locators are created which includes the
+		// version from the vOut. If we don't set it here, a v1 asset
+		// spent that beocmes change will be a v0 if combined with such
+		// inputs.
+		//
+		// TODO(roasbeef): remove as not needed?
+		maxVersion := func(maxVersion asset.Version,
+			vInput *tappsbt.VInput) asset.Version {
+
+			if vInput.Asset().Version > maxVersion {
+				return vInput.Asset().Version
+			}
+
+			return maxVersion
+		}
+		changeOut.AssetVersion = fn.Reduce(vPkt.Inputs, maxVersion)
 	}
 
 	// Before we can prepare output assets for our send, we need to generate
@@ -948,8 +965,6 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// At this point, we have a valid "coin" to spend in the
 		// commitment, so we'll add the relevant information to the
 		// virtual TX's input.
-		//
-		// TODO(roasbeef): still need to add family key to PrevID.
 		vPkt.Inputs[idx] = &tappsbt.VInput{
 			PrevID: asset.PrevID{
 				OutPoint: assetInput.AnchorPoint,

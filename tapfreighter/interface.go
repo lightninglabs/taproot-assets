@@ -294,7 +294,7 @@ type PassiveAssetReAnchor struct {
 	// update.
 	ScriptKey asset.ScriptKey
 
-	// AsserVersion is the version of this passive asset. We make this
+	// AssetVersion is the version of this passive asset. We make this
 	// explicit as the asset may have been upgraded during the re-anchor.
 	AssetVersion asset.Version
 

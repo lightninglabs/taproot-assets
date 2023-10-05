@@ -565,7 +565,6 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 			vOut.Asset = splitCommitment.RootAsset.Copy()
 			vOut.SplitAsset = &splitAsset.Asset
 			vOut.SplitAsset.ScriptKey = vOut.ScriptKey
-
 			continue
 		}
 
@@ -979,6 +978,8 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
 	}
 
+	// With the dummy packet created, we'll walk through of vOutputs to set
+	// the taproot internal key for each of the outputs.
 	for i := range outputs {
 		vOut := outputs[i]
 
