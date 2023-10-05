@@ -2,6 +2,7 @@ package loadtest
 
 import (
 	"context"
+	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -9,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	_ "embed"
 
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -161,10 +160,7 @@ func mintBatchStressTest(t *testing.T, ctx context.Context,
 	require.NoError(t, err)
 	require.Len(t, uniRoots.UniverseRoots, groupCount)
 
-	err = itest.AssertUniverseRoot(
-		t, alice, groupBalance, nil, collectGroupKey,
-	)
-	require.NoError(t, err)
+	itest.AssertUniverseRoot(t, alice, groupBalance, nil, collectGroupKey)
 
 	// The universe tree should also have a leaf for each asset minted.
 	// TODO(jhb): Resolve issue of 33-byte group key handling.

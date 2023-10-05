@@ -1039,14 +1039,16 @@ func AssertUniverseRootEquality(t *testing.T,
 	))
 }
 
+// AssertUniverseRoot makes sure the given universe root exists with the given
+// sum, either identified by the asset ID or group key.
 func AssertUniverseRoot(t *testing.T, client unirpc.UniverseClient,
-	sum int, assetID []byte, groupKey []byte) error {
+	sum int, assetID []byte, groupKey []byte) {
 
 	bothSet := assetID != nil && groupKey != nil
 	neitherSet := assetID == nil && groupKey == nil
-	if bothSet || neitherSet {
-		return fmt.Errorf("only set one of assetID or groupKey")
-	}
+	require.False(
+		t, bothSet || neitherSet, "only set one of assetID or groupKey",
+	)
 
 	// Re-parse and serialize the keys to account for the different
 	// formats returned in RPC responses.
@@ -1082,8 +1084,6 @@ func AssertUniverseRoot(t *testing.T, client unirpc.UniverseClient,
 
 	correctRoot := fn.Any(maps.Values(uniRoots.UniverseRoots), matchingRoot)
 	require.True(t, correctRoot)
-
-	return nil
 }
 
 func AssertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
