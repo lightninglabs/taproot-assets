@@ -203,8 +203,9 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// Now try to send back those assets using the PSBT flow.
 	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits / 2,
+		AssetId:      genInfo.AssetId,
+		Amt:          numUnits / 2,
+		AssetVersion: mintedAsset.Version,
 	})
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
@@ -1010,8 +1011,9 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 	// Next, we'll attempt to complete a transfer with PSBTs from our main
 	// node to Bob.
 	bobAddr, err := bob.NewAddr(ctx, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits,
+		AssetId:      genInfo.AssetId,
+		Amt:          numUnits,
+		AssetVersion: mintedAsset.Version,
 		ScriptKey: &taprpc.ScriptKey{
 			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
 			KeyDesc:  lndKeyDescToTap(bobScriptKey.RawKey),
@@ -1019,6 +1021,7 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		},
 		InternalKey: lndKeyDescToTap(bobInternalKey),
 	})
+
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr)
 
