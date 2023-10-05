@@ -155,12 +155,12 @@ func FromAssets(assets ...*asset.Asset) (*TapCommitment, error) {
 
 // Delete modifies one entry in the TapCommitment by deleting it in the inner
 // MS-SMT and in the internal AssetCommitment map.
-func (c *TapCommitment) Delete(asset *AssetCommitment) error {
-	if asset == nil {
+func (c *TapCommitment) Delete(assetCommitment *AssetCommitment) error {
+	if assetCommitment == nil {
 		return ErrMissingAssetCommitment
 	}
 
-	key := asset.TapCommitmentKey()
+	key := assetCommitment.TapCommitmentKey()
 
 	// TODO(bhandras): thread the context through.
 	_, err := c.tree.Delete(context.TODO(), key)
@@ -175,6 +175,20 @@ func (c *TapCommitment) Delete(asset *AssetCommitment) error {
 
 	delete(c.assetCommitments, key)
 
+	// With the commitment above deleted, we'll need to update the max
+	// version amongst the remaining commitments.
+	commits := maps.Values(c.assetCommitments)
+	versions := fn.Map(commits, func(a *AssetCommitment) asset.Version {
+		return a.Version
+	})
+	c.Version = fn.Reduce(versions, func(a, b asset.Version) asset.Version {
+		if a > b {
+			return a
+		}
+
+		return b
+	})
+
 	return nil
 }
 
@@ -182,18 +196,18 @@ func (c *TapCommitment) Delete(asset *AssetCommitment) error {
 // it in the inner MS-SMT and in the internal AssetCommitment map. If the asset
 // commitment passed in is empty, it is instead pruned from the Taproot Asset
 // tree.
-func (c *TapCommitment) Upsert(asset *AssetCommitment) error {
-	if asset == nil {
+func (c *TapCommitment) Upsert(assetCommitment *AssetCommitment) error {
+	if assetCommitment == nil {
 		return ErrMissingAssetCommitment
 	}
 
-	key := asset.TapCommitmentKey()
-	leaf := asset.TapCommitmentLeaf()
+	key := assetCommitment.TapCommitmentKey()
+	leaf := assetCommitment.TapCommitmentLeaf()
 
-	// Because the Taproot Asset tree has a different root whether we insert
-	// an empty asset tree vs. there being an empty leaf, we need to remove
-	// the whole asset tree if the given asset commitment is empty.
-	if asset.TreeRoot.NodeHash() == mssmt.EmptyTreeRootHash {
+	// Because the Taproot Asset tree has a different root whether we
+	// insert an empty asset tree vs. there being an empty leaf, we need to
+	// remove the whole asset tree if the given asset commitment is empty.
+	if assetCommitment.TreeRoot.NodeHash() == mssmt.EmptyTreeRootHash {
 		_, err := c.tree.Delete(context.TODO(), key)
 		if err != nil {
 			return err
@@ -207,7 +221,7 @@ func (c *TapCommitment) Upsert(asset *AssetCommitment) error {
 			return err
 		}
 
-		c.assetCommitments[key] = asset
+		c.assetCommitments[key] = assetCommitment
 	}
 
 	var err error
@@ -215,6 +229,21 @@ func (c *TapCommitment) Upsert(asset *AssetCommitment) error {
 	if err != nil {
 		return err
 	}
+
+	// To conclude, we need to also update the max version of the tap
+	// commitment, based on the new versions in the inserted asset
+	// commitment.
+	commits := maps.Values(c.assetCommitments)
+	versions := fn.Map(commits, func(a *AssetCommitment) asset.Version {
+		return a.Version
+	})
+	c.Version = fn.Reduce(versions, func(a, b asset.Version) asset.Version {
+		if a > b {
+			return a
+		}
+
+		return b
+	})
 
 	return nil
 }

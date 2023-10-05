@@ -249,32 +249,39 @@ func (c *AssetCommitment) Upsert(newAsset *asset.Asset) error {
 	}
 
 	c.assets[key] = newAsset
+
+	// As a final step, we'll update the version of this commitment based
+	// on the new asset.
+	if newAsset.Version > c.Version {
+		c.Version = newAsset.Version
+	}
+
 	return nil
 }
 
 // Delete modifies one entry in the AssetCommitment by deleting it in the inner
 // MS-SMT and deleting it in the internal asset map.
-func (c *AssetCommitment) Delete(asset *asset.Asset) error {
-	if asset == nil {
+func (c *AssetCommitment) Delete(oldAsset *asset.Asset) error {
+	if oldAsset == nil {
 		return ErrNoAssets
 	}
 
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
-	if asset.TapCommitmentKey() != c.AssetID {
-		if asset.GroupKey != nil {
+	if oldAsset.TapCommitmentKey() != c.AssetID {
+		if oldAsset.GroupKey != nil {
 			return ErrAssetGroupKeyMismatch
 		}
 		return ErrAssetGenesisMismatch
 	}
 
 	// Ensure the given asset is of the expected type.
-	if c.AssetType != asset.Type {
+	if c.AssetType != oldAsset.Type {
 		return ErrAssetTypeMismatch
 	}
 
-	key := asset.AssetCommitmentKey()
+	key := oldAsset.AssetCommitmentKey()
 
 	// TODO(bhandras): thread the context through.
 	ctx := context.TODO()
@@ -290,6 +297,20 @@ func (c *AssetCommitment) Delete(asset *asset.Asset) error {
 	}
 
 	delete(c.assets, key)
+
+	// Now that we've deleted the asset, we need to update the version of
+	// this commitment.
+	assets := maps.Values(c.assets)
+	versions := fn.Map(assets, func(a *asset.Asset) asset.Version {
+		return a.Version
+	})
+	c.Version = fn.Reduce(versions, func(a, b asset.Version) asset.Version {
+		if a > b {
+			return a
+		}
+		return b
+	})
+
 	return nil
 }
 
