@@ -45,7 +45,22 @@ func VarIntDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "uint64", 8, l)
 }
 
-func VarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {
+func DVarBytesWithLimit(limit uint64) tlv.Decoder {
+	return func(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+		if l > limit {
+			return tlv.ErrRecordTooLarge
+		}
+
+		if b, ok := val.(*[]byte); ok {
+			*b = make([]byte, l)
+			_, err := io.ReadFull(r, *b)
+			return err
+		}
+		return tlv.NewTypeForDecodingErr(val, "[]byte", l, l)
+	}
+}
+
+func InlineVarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]byte); ok {
 		if err := tlv.WriteVarInt(w, uint64(len(*t)), buf); err != nil {
 			return err
@@ -55,7 +70,9 @@ func VarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "[]byte")
 }
 
-func VarBytesDecoder(r io.Reader, val any, buf *[8]byte, maxLen uint64) error {
+func InlineVarBytesDecoder(r io.Reader, val any, buf *[8]byte,
+	maxLen uint64) error {
+
 	if typ, ok := val.(*[]byte); ok {
 		bytesLen, err := tlv.ReadVarInt(r, buf)
 		if err != nil {
@@ -268,7 +285,7 @@ func GenesisEncoder(w io.Writer, val any, buf *[8]byte) error {
 			return err
 		}
 		tagBytes := []byte(t.Tag)
-		if err := VarBytesEncoder(w, &tagBytes, buf); err != nil {
+		if err := InlineVarBytesEncoder(w, &tagBytes, buf); err != nil {
 			return err
 		}
 		if err := tlv.EBytes32(w, &t.MetaHash, buf); err != nil {
@@ -290,7 +307,7 @@ func GenesisDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 			return err
 		}
 		var tag []byte
-		err = VarBytesDecoder(r, &tag, buf, MaxAssetNameLength)
+		err = InlineVarBytesDecoder(r, &tag, buf, MaxAssetNameLength)
 		if err != nil {
 			return err
 		}
@@ -354,7 +371,8 @@ func TxWitnessEncoder(w io.Writer, val any, buf *[8]byte) error {
 		}
 		for _, part := range *t {
 			part := part
-			if err := VarBytesEncoder(w, &part, buf); err != nil {
+			err := InlineVarBytesEncoder(w, &part, buf)
+			if err != nil {
 				return err
 			}
 		}
@@ -380,7 +398,9 @@ func TxWitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		witness := make(wire.TxWitness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var item []byte
-			err = VarBytesDecoder(r, &item, buf, math.MaxUint16)
+			err = InlineVarBytesDecoder(
+				r, &item, buf, math.MaxUint16,
+			)
 			if err != nil {
 				return err
 			}
@@ -403,7 +423,7 @@ func WitnessEncoder(w io.Writer, val any, buf *[8]byte) error {
 				return err
 			}
 			streamBytes := streamBuf.Bytes()
-			err := VarBytesEncoder(w, &streamBytes, buf)
+			err := InlineVarBytesEncoder(w, &streamBytes, buf)
 			if err != nil {
 				return err
 			}
@@ -431,7 +451,7 @@ func WitnessDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		*typ = make([]Witness, 0, numItems)
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
-			err = VarBytesDecoder(
+			err = InlineVarBytesDecoder(
 				r, &streamBytes, buf, math.MaxUint16,
 			)
 			if err != nil {
@@ -457,7 +477,8 @@ func SplitCommitmentEncoder(w io.Writer, val any, buf *[8]byte) error {
 			return err
 		}
 		proofBytes := proof.Bytes()
-		if err := VarBytesEncoder(w, &proofBytes, buf); err != nil {
+		err := InlineVarBytesEncoder(w, &proofBytes, buf)
+		if err != nil {
 			return err
 		}
 		var rootAsset bytes.Buffer
@@ -465,7 +486,7 @@ func SplitCommitmentEncoder(w io.Writer, val any, buf *[8]byte) error {
 			return err
 		}
 		rootAssetBytes := rootAsset.Bytes()
-		return VarBytesEncoder(w, &rootAssetBytes, buf)
+		return InlineVarBytesEncoder(w, &rootAssetBytes, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "*SplitCommitment")
 }
@@ -477,7 +498,8 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 
 	if typ, ok := val.(**SplitCommitment); ok {
 		var proofBytes []byte
-		if err := VarBytesDecoder(r, &proofBytes, buf, l); err != nil {
+		err := InlineVarBytesDecoder(r, &proofBytes, buf, l)
+		if err != nil {
 			return err
 		}
 
@@ -487,7 +509,7 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 		}
 
 		var rootAssetBytes []byte
-		err := VarBytesDecoder(r, &rootAssetBytes, buf, l)
+		err = InlineVarBytesDecoder(r, &rootAssetBytes, buf, l)
 		if err != nil {
 			return err
 		}

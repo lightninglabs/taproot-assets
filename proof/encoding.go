@@ -181,7 +181,7 @@ func TaprootProofsEncoder(w io.Writer, val any, buf *[8]byte) error {
 				return err
 			}
 			proofBytes := proofBuf.Bytes()
-			err := asset.VarBytesEncoder(w, &proofBytes, buf)
+			err := asset.InlineVarBytesEncoder(w, &proofBytes, buf)
 			if err != nil {
 				return err
 			}
@@ -208,7 +208,7 @@ func TaprootProofsDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 		proofs := make([]TaprootProof, 0, numProofs)
 		for i := uint64(0); i < numProofs; i++ {
 			var proofBytes []byte
-			err := asset.VarBytesDecoder(
+			err := asset.InlineVarBytesDecoder(
 				r, &proofBytes, buf, MaxTaprootProofSizeBytes,
 			)
 			if err != nil {
@@ -239,7 +239,7 @@ func AdditionalInputsEncoder(w io.Writer, val any, buf *[8]byte) error {
 				return err
 			}
 			inputFileBytes := inputFileBuf.Bytes()
-			err := asset.VarBytesEncoder(w, &inputFileBytes, buf)
+			err := asset.InlineVarBytesEncoder(w, &inputFileBytes, buf)
 			if err != nil {
 				return err
 			}
@@ -270,7 +270,7 @@ func AdditionalInputsDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error
 		inputFiles := make([]File, 0, numInputs)
 		for i := uint64(0); i < numInputs; i++ {
 			var inputFileBytes []byte
-			err := asset.VarBytesDecoder(
+			err := asset.InlineVarBytesDecoder(
 				r, &inputFileBytes, buf, FileMaxSizeBytes,
 			)
 			if err != nil {
