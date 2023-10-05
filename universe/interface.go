@@ -573,6 +573,19 @@ const (
 	ProofTypeTransfer
 )
 
+// NewProofTypeFromAssetProof returns the proof type for the given asset proof.
+func NewProofTypeFromAssetProof(proof *proof.Proof) (ProofType, error) {
+	if proof == nil {
+		return ProofTypeUnspecified, fmt.Errorf("proof is nil")
+	}
+
+	if proof.Asset.HasGenesisWitness() {
+		return ProofTypeIssuance, nil
+	}
+
+	return ProofTypeTransfer, nil
+}
+
 // String returns a human-readable string representation of the proof type.
 func (t ProofType) String() string {
 	switch t {
