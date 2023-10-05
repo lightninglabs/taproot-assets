@@ -70,6 +70,9 @@ type SplitLocator struct {
 
 	// Amount is the amount of units for the asset split.
 	Amount uint64
+
+	// AssetVersion is the version that the asset split should use.
+	AssetVersion asset.Version
 }
 
 // Hash computes the hash of a SplitLocator, encumbering its `OutputIndex`,
@@ -193,6 +196,7 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 	addAssetSplit := func(locator *SplitLocator) error {
 		assetSplit := inputs[0].Asset.Copy()
 		assetSplit.Amount = locator.Amount
+		assetSplit.Version = locator.AssetVersion
 
 		scriptKey, err := btcec.ParsePubKey(locator.ScriptKey[:])
 		if err != nil {

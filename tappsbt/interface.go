@@ -535,10 +535,11 @@ type VOutput struct {
 // in for cases in which the asset is not yet set on the output.
 func (o *VOutput) SplitLocator(assetID asset.ID) commitment.SplitLocator {
 	return commitment.SplitLocator{
-		OutputIndex: o.AnchorOutputIndex,
-		AssetID:     assetID,
-		ScriptKey:   asset.ToSerialized(o.ScriptKey.PubKey),
-		Amount:      o.Amount,
+		OutputIndex:  o.AnchorOutputIndex,
+		AssetID:      assetID,
+		ScriptKey:    asset.ToSerialized(o.ScriptKey.PubKey),
+		Amount:       o.Amount,
+		AssetVersion: o.AssetVersion,
 	}
 }
 

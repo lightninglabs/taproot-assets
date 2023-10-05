@@ -565,7 +565,6 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 			vOut.Asset = splitCommitment.RootAsset.Copy()
 			vOut.SplitAsset = &splitAsset.Asset
 			vOut.SplitAsset.ScriptKey = vOut.ScriptKey
-
 			continue
 		}
 
