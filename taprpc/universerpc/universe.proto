@@ -499,7 +499,7 @@ message GroupedUniverseEvents {
 }
 
 message SetFederationSyncConfigRequest {
-    GeneralFederationSyncConfig general_sync_config = 1;
+    GlobalFederationSyncConfig global_sync_config = 1;
 
     repeated AssetFederationSyncConfig asset_sync_config = 2;
 }
@@ -507,10 +507,19 @@ message SetFederationSyncConfigRequest {
 message SetFederationSyncConfigResponse {
 }
 
-// GeneralFederationSyncConfig is a general configuration for universe
-// federation syncing.
-message GeneralFederationSyncConfig {
-    string proof_types = 1;
+// GlobalFederationSyncConfig is a global configuration for universe federation
+// syncing.
+message GlobalFederationSyncConfig {
+    // This field is the target universe proof type.
+    ProofType proof_type = 1;
+
+    // This boolean is a flag which indicates whether leaves from the given
+    // universe proof type have may be inserted via federation sync.
+    bool allow_sync_insert = 2;
+
+    // This boolean is a flag which indicates whether leaves from the given
+    // universe proof type have may be exported via federation sync.
+    bool allow_sync_export = 3;
 }
 
 // AssetFederationSyncConfig is an asset universe specific configuration for
@@ -519,7 +528,13 @@ message AssetFederationSyncConfig {
     // The ID of the universe to configure.
     ID id = 1;
 
-    string proof_types = 2;
+    // This boolean is a flag which indicates whether leaves from the given
+    // universe have may be inserted via federation sync.
+    bool allow_sync_insert = 2;
+
+    // This boolean is a flag which indicates whether leaves from the given
+    // universe have may be exported via federation sync.
+    bool allow_sync_export = 3;
 }
 
 message QueryFederationSyncConfigRequest {
@@ -528,7 +543,7 @@ message QueryFederationSyncConfigRequest {
 }
 
 message QueryFederationSyncConfigResponse {
-    GeneralFederationSyncConfig general_sync_config = 1;
+    GlobalFederationSyncConfig global_sync_config = 1;
 
     repeated AssetFederationSyncConfig asset_sync_configs = 2;
 }

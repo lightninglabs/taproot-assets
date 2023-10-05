@@ -223,9 +223,12 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 	var writeTx UniverseFederationOptions
 	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
 		// Upsert general federation sync config.
-		err := db.SetFederationGlobalSyncConfig(
-			ctx, globalSyncConfig.ProofTypes.String(),
-		)
+		params := SetFedGlobalSyncConfigParams{
+			ProofType:       globalSyncConfig.ProofType.String(),
+			AllowSyncInsert: globalSyncConfig.AllowSyncInsert,
+			AllowSyncExport: globalSyncConfig.AllowSyncExport,
+		}
+		err := db.SetFederationGlobalSyncConfig(ctx, params)
 		if err != nil {
 			return err
 		}
@@ -251,14 +254,47 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 				assetIDBytes = uniID.AssetID[:]
 			}
 
-			params := UpsertFedUniSyncConfigParams{
-				AssetID:   assetIDBytes,
-				GroupKey:  groupPubKey,
-				ProofType: config.ProofTypes.String(),
-			}
-			err := db.UpsertFederationUniSyncConfig(ctx, params)
-			if err != nil {
-				return err
+			// If the proof type is unspecified, then we'll set
+			// the config for both issuance and transfer proof
+			// type universes.
+			if config.UniverseID.ProofType == universe.ProofTypeUnspecified {
+				// Set config for issuance proof type universe.
+				proofType := universe.ProofTypeIssuance
+				err := db.UpsertFederationUniSyncConfig(
+					ctx, UpsertFedUniSyncConfigParams{
+						AssetID:   assetIDBytes,
+						GroupKey:  groupPubKey,
+						ProofType: proofType.String(),
+					},
+				)
+				if err != nil {
+					return err
+				}
+
+				// Set config for transfer proof type universe.
+				proofType = universe.ProofTypeTransfer
+				err = db.UpsertFederationUniSyncConfig(
+					ctx, UpsertFedUniSyncConfigParams{
+						AssetID:   assetIDBytes,
+						GroupKey:  groupPubKey,
+						ProofType: proofType.String(),
+					},
+				)
+				if err != nil {
+					return err
+				}
+			} else {
+				proofType := config.UniverseID.ProofType
+				err := db.UpsertFederationUniSyncConfig(
+					ctx, UpsertFedUniSyncConfigParams{
+						AssetID:   assetIDBytes,
+						GroupKey:  groupPubKey,
+						ProofType: proofType.String(),
+					},
+				)
+				if err != nil {
+					return err
+				}
 			}
 		}
 

@@ -3299,15 +3299,15 @@ func (r *rpcServer) SetFederationSyncConfig(ctx context.Context,
 	// Unmarshal general sync config.
 	var syncGeneralConfig *universe.FedGlobalSyncConfig
 	if req.GeneralSyncConfig != nil {
-		proofTypes, err := universe.ParseProofType(
-			req.GeneralSyncConfig.ProofTypes,
+		proofType, err := universe.ParseProofType(
+			req.GlobalSyncConfig.ProofType,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse proof "+
 				"types: %w", err)
 		}
 		syncGeneralConfig = &universe.FedGlobalSyncConfig{
-			ProofTypes: proofTypes,
+			ProofType: proofType,
 		}
 	}
 

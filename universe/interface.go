@@ -654,9 +654,13 @@ type FedUniSyncConfig struct {
 	// UniverseID is the ID of the Universe that the config is for.
 	UniverseID Identifier
 
-	// ProofTypes represents the proof types that should be synced for the
-	// target Universe.
-	ProofTypes ProofType
+	// AllowSyncInsert is a boolean that indicates whether leaves from the
+	// given universe have may be inserted via federation sync.
+	AllowSyncInsert bool
+
+	// AllowSyncExport is a boolean that indicates whether leaves from the
+	// given universe have may be exported via federation sync.
+	AllowSyncExport bool
 }
 
 // FederationSyncConfigDB is used to manage the set of Universe servers as part

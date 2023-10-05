@@ -1453,8 +1453,13 @@
           "$ref": "#/definitions/universerpcID",
           "description": "The ID of the universe to configure."
         },
-        "proof_types": {
-          "type": "string"
+        "allow_sync_insert": {
+          "type": "boolean",
+          "description": "This boolean is a flag which indicates whether leaves from the given\nuniverse have may be inserted via federation sync."
+        },
+        "allow_sync_export": {
+          "type": "boolean",
+          "description": "This boolean is a flag which indicates whether leaves from the given\nuniverse have may be exported via federation sync."
         }
       },
       "description": "AssetFederationSyncConfig is an asset universe specific configuration for\nfederation syncing."
@@ -1642,14 +1647,23 @@
     "universerpcDeleteRootResponse": {
       "type": "object"
     },
-    "universerpcGeneralFederationSyncConfig": {
+    "universerpcGlobalFederationSyncConfig": {
       "type": "object",
       "properties": {
-        "proof_types": {
-          "type": "string"
+        "proof_type": {
+          "$ref": "#/definitions/universerpcProofType",
+          "description": "This field is the target universe proof type."
+        },
+        "allow_sync_insert": {
+          "type": "boolean",
+          "description": "This boolean is a flag which indicates whether leaves from the given\nuniverse proof type have may be inserted via federation sync."
+        },
+        "allow_sync_export": {
+          "type": "boolean",
+          "description": "This boolean is a flag which indicates whether leaves from the given\nuniverse proof type have may be exported via federation sync."
         }
       },
-      "description": "GeneralFederationSyncConfig is a general configuration for universe\nfederation syncing."
+      "description": "GlobalFederationSyncConfig is a global configuration for universe federation\nsyncing."
     },
     "universerpcGroupedUniverseEvents": {
       "type": "object",
@@ -1772,8 +1786,8 @@
     "universerpcQueryFederationSyncConfigResponse": {
       "type": "object",
       "properties": {
-        "general_sync_config": {
-          "$ref": "#/definitions/universerpcGeneralFederationSyncConfig"
+        "global_sync_config": {
+          "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
         },
         "asset_sync_configs": {
           "type": "array",
@@ -1795,8 +1809,8 @@
     "universerpcSetFederationSyncConfigRequest": {
       "type": "object",
       "properties": {
-        "general_sync_config": {
-          "$ref": "#/definitions/universerpcGeneralFederationSyncConfig"
+        "global_sync_config": {
+          "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
         },
         "asset_sync_config": {
           "type": "array",
