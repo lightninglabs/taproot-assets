@@ -3204,6 +3204,17 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, err
 	}
 
+	// If universe proof type unspecified, set based on the provided asset
+	// proof.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		universeID.ProofType, err = universe.NewProofTypeFromAssetProof(
+			assetLeaf.Proof,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
 		"(universeID=%x, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
