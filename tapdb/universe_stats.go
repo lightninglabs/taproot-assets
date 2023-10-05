@@ -137,7 +137,7 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 		}
 
 		return db.InsertNewSyncEvent(ctx, NewSyncEvent{
-			EventTime:      u.clock.Now(),
+			EventTime:      u.clock.Now().UTC(),
 			EventTimestamp: u.clock.Now().UTC().Unix(),
 			AssetID:        uniID.AssetID[:],
 			GroupKeyXOnly:  groupKeyXOnly,
@@ -162,7 +162,7 @@ func (u *UniverseStats) LogSyncEvents(ctx context.Context,
 			}
 
 			err := db.InsertNewSyncEvent(ctx, NewSyncEvent{
-				EventTime:      u.clock.Now(),
+				EventTime:      u.clock.Now().UTC(),
 				EventTimestamp: u.clock.Now().UTC().Unix(),
 				AssetID:        uniID.AssetID[:],
 				GroupKeyXOnly:  groupKeyXOnly,
@@ -188,7 +188,7 @@ func (u *UniverseStats) LogNewProofEvent(ctx context.Context,
 		}
 
 		return db.InsertNewProofEvent(ctx, NewProofEvent{
-			EventTime:      u.clock.Now(),
+			EventTime:      u.clock.Now().UTC(),
 			EventTimestamp: u.clock.Now().UTC().Unix(),
 			AssetID:        uniID.AssetID[:],
 			GroupKeyXOnly:  groupKeyXOnly,
@@ -212,7 +212,7 @@ func (u *UniverseStats) LogNewProofEvents(ctx context.Context,
 			}
 
 			err := db.InsertNewProofEvent(ctx, NewProofEvent{
-				EventTime:      u.clock.Now(),
+				EventTime:      u.clock.Now().UTC(),
 				EventTimestamp: u.clock.Now().UTC().Unix(),
 				AssetID:        uniID.AssetID[:],
 				GroupKeyXOnly:  groupKeyXOnly,
