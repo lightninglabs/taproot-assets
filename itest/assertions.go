@@ -932,12 +932,17 @@ func AssertSplitTombstoneTransfer(t *testing.T,
 func AssertNumGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 	num int) {
 
+	require.Equal(t, num, NumGroups(t, client))
+}
+
+// NumGroups returns the current number of asset groups present.
+func NumGroups(t *testing.T, client taprpc.TaprootAssetsClient) int {
 	ctxb := context.Background()
 	groupResp, err := client.ListGroups(
 		ctxb, &taprpc.ListGroupsRequest{},
 	)
 	require.NoError(t, err)
-	require.Equal(t, num, len(groupResp.Groups))
+	return len(groupResp.Groups)
 }
 
 // AssertGroupSizes asserts that a set of groups the daemon is aware of contain
@@ -1050,31 +1055,26 @@ func AssertUniverseRoot(t *testing.T, client unirpc.UniverseClient,
 		t, bothSet || neitherSet, "only set one of assetID or groupKey",
 	)
 
-	// Re-parse and serialize the keys to account for the different
-	// formats returned in RPC responses.
-	matchingGroupKey := func(root *unirpc.UniverseRoot) bool {
-		rootGroupKeyBytes := root.Id.GetGroupKey()
-		require.NotNil(t, rootGroupKeyBytes)
-
-		expectedGroupKey, err := btcec.ParsePubKey(groupKey)
-		require.NoError(t, err)
-		require.Equal(
-			t, rootGroupKeyBytes,
-			schnorr.SerializePubKey(expectedGroupKey),
-		)
-
-		return true
-	}
-
 	// Comparing the asset ID is always safe, even if nil.
 	matchingRoot := func(root *unirpc.UniverseRoot) bool {
-		require.Equal(t, root.MssmtRoot.RootSum, int64(sum))
-		require.Equal(t, root.Id.GetAssetId(), assetID)
+		sumEqual := root.MssmtRoot.RootSum == int64(sum)
+		idEqual := bytes.Equal(root.Id.GetAssetId(), assetID)
+		groupKeyEqual := true
 		if groupKey != nil {
-			return matchingGroupKey(root)
+			parsedGroupKey, err := btcec.ParsePubKey(groupKey)
+			require.NoError(t, err)
+
+			rootGroupKey := root.Id.GetGroupKey()
+			if rootGroupKey != nil {
+				groupKeyEqual = bytes.Equal(
+					rootGroupKey, schnorr.SerializePubKey(
+						parsedGroupKey,
+					),
+				)
+			}
 		}
 
-		return true
+		return sumEqual && idEqual && groupKeyEqual
 	}
 
 	ctx := context.Background()
