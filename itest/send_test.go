@@ -77,7 +77,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd,
-		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
 	genInfo := rpcAssets[0].AssetGenesis
@@ -98,12 +98,13 @@ func testBasicSendUnidirectional(t *harnessTest) {
 
 	// Next, we'll attempt to complete two transfers with distinct
 	// addresses from our main node to Bob.
-	currentUnits := simpleAssets[0].Asset.Amount
+	currentUnits := issuableAssets[0].Asset.Amount
 
 	// Issue a single address which will be reused for each send.
 	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     numUnits,
+		AssetId:      genInfo.AssetId,
+		Amt:          numUnits,
+		AssetVersion: rpcAssets[0].Version,
 	})
 	require.NoError(t.t, err)
 

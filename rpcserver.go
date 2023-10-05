@@ -673,7 +673,6 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 
 		resp.AssetBalances[assetIDStr] = &taprpc.AssetBalance{
 			AssetGenesis: &taprpc.GenesisInfo{
-				Version:      int32(balance.Version),
 				GenesisPoint: balance.GenesisPoint.String(),
 				Name:         balance.Tag,
 				MetaHash:     balance.MetaHash[:],

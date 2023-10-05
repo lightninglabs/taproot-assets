@@ -716,7 +716,6 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
 	require.Equal(t, expected.AssetType, actual.AssetType)
-	require.Equal(t, expected.Version, actual.AssetVersion)
 
 	if expected.AssetGroup == nil {
 		require.Nil(t, actual.GroupKey)
