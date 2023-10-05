@@ -333,6 +333,10 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		EnableEmission: req.EnableEmission,
 	}
 
+	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
+		"issuance=%v", seedling.AssetVersion, seedling.AssetType,
+		seedling.AssetName, seedling.Amount, seedling.EnableEmission)
+
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
 	if specificGroupKey {
