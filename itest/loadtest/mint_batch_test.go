@@ -44,6 +44,15 @@ func execMintBatchStressTest(t *testing.T, ctx context.Context, cfg *Config) {
 	// Create bitcoin client.
 	bitcoinClient := getBitcoinConn(t, cfg.Bitcoin)
 
+	itest.MineBlocks(t, bitcoinClient, 1, 0)
+
+	// If we fail from this point onward, we might have created a
+	// transaction that isn't mined yet. To make sure we can run the test
+	// again, we'll make sure to clean up the mempool by mining a block.
+	t.Cleanup(func() {
+		itest.MineBlocks(t, bitcoinClient, 1, 0)
+	})
+
 	imageMetadataBytes, err := hex.DecodeString(
 		strings.Trim(string(imageMetadataHex), "\n"),
 	)
