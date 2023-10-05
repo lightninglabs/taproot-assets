@@ -289,7 +289,7 @@ func TestValidateAssetName(t *testing.T) {
 		},
 		{
 			// Invalid if tab in name.
-			name: "tab	tab",
+			name:  "tab\ttab",
 			valid: false,
 		},
 		{
