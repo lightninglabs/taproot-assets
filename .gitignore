@@ -17,6 +17,10 @@ cmd/tapd/tapd
 /itest/.minerlogs/*
 /itest/tapd-itest
 
+# Load test binaries and config
+/loadtest
+/loadtest.conf
+
 # Test binary, built with `go test -c`
 *.test
 
