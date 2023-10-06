@@ -1605,6 +1605,10 @@
           "type": "string",
           "format": "int64"
         },
+        "num_total_groups": {
+          "type": "string",
+          "format": "int64"
+        },
         "num_total_syncs": {
           "type": "string",
           "format": "int64"

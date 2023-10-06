@@ -382,8 +382,9 @@ message DeleteFederationServerResponse {
 
 message StatsResponse {
     int64 num_total_assets = 1;
-    int64 num_total_syncs = 2;
-    int64 num_total_proofs = 3;
+    int64 num_total_groups = 2;
+    int64 num_total_syncs = 3;
+    int64 num_total_proofs = 4;
 }
 
 enum AssetQuerySort {

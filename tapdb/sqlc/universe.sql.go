@@ -566,26 +566,63 @@ func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeav
 }
 
 const queryUniverseStats = `-- name: QueryUniverseStats :one
-WITH num_assets As (
-    SELECT COUNT(*) AS num_assets
+WITH stats AS (
+    SELECT total_asset_syncs, total_asset_proofs
+    FROM universe_stats
+), group_ids AS (
+    SELECT id
     FROM universe_roots
+    WHERE group_key IS NOT NULL
+), asset_keys AS (
+    SELECT hash_key
+    FROM mssmt_nodes nodes
+    JOIN mssmt_roots roots
+      ON nodes.hash_key = roots.root_hash AND
+             nodes.namespace = roots.namespace
+    JOIN universe_roots uroots
+      ON roots.namespace = uroots.namespace_root
+), aggregated AS (
+    SELECT COALESCE(SUM(stats.total_asset_syncs), 0) AS total_syncs,
+           COALESCE(SUM(stats.total_asset_proofs), 0) AS total_proofs,
+           0 AS total_num_groups,
+           0 AS total_num_assets
+    FROM stats
+    UNION ALL
+    SELECT 0 AS total_syncs,
+           0 AS total_proofs,
+           COALESCE(COUNT(group_ids.id), 0) AS total_num_groups,
+           0 AS total_num_assets
+    FROM group_ids
+    UNION ALL
+    SELECT 0 AS total_syncs,
+           0 AS total_proofs,
+           0 AS total_num_groups,
+           COALESCE(COUNT(asset_keys.hash_key), 0) AS total_num_assets
+    FROM asset_keys
 )
-SELECT COALESCE(SUM(universe_stats.total_asset_syncs), 0) AS total_syncs,
-       COALESCE(SUM(universe_stats.total_asset_proofs), 0) AS total_proofs,
-       COUNT(num_assets) AS total_num_assets
-FROM universe_stats, num_assets
+SELECT SUM(total_syncs) AS total_syncs,
+       SUM(total_proofs) AS total_proofs,
+       SUM(total_num_groups) AS total_num_groups,
+       SUM(total_num_assets) AS total_num_assets
+FROM aggregated
 `
 
 type QueryUniverseStatsRow struct {
-	TotalSyncs     interface{}
-	TotalProofs    interface{}
+	TotalSyncs     int64
+	TotalProofs    int64
+	TotalNumGroups int64
 	TotalNumAssets int64
 }
 
 func (q *Queries) QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error) {
 	row := q.db.QueryRowContext(ctx, queryUniverseStats)
 	var i QueryUniverseStatsRow
-	err := row.Scan(&i.TotalSyncs, &i.TotalProofs, &i.TotalNumAssets)
+	err := row.Scan(
+		&i.TotalSyncs,
+		&i.TotalProofs,
+		&i.TotalNumGroups,
+		&i.TotalNumAssets,
+	)
 	return i, err
 }
 

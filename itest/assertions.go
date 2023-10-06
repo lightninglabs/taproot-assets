@@ -1210,7 +1210,7 @@ func AssertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 }
 
 func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
-	numProofs, numSyncs, numAssets int) {
+	numProofs, numSyncs, numAssets, numGroups int) {
 
 	err := wait.NoError(func() error {
 		uniStats, err := client.UniverseStats(
@@ -1231,6 +1231,10 @@ func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
 		if numAssets != int(uniStats.NumTotalAssets) {
 			return fmt.Errorf("expected %v assets, got %v",
 				numAssets, uniStats.NumTotalAssets)
+		}
+		if numGroups != int(uniStats.NumTotalGroups) {
+			return fmt.Errorf("expected %v groups, got %v",
+				numGroups, uniStats.NumTotalGroups)
 		}
 
 		return nil
@@ -1258,16 +1262,16 @@ func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 				}
 
 				return groupKeyEqual && bytes.Equal(
-					assetStat.AssetId,
+					assetStat.Asset.AssetId,
 					a.AssetGenesis.AssetId,
 				)
 			},
 		)
 		require.True(t, found)
 
-		require.NotZero(t, assetStat.GenesisHeight)
-		require.NotZero(t, assetStat.GenesisTimestamp)
-		require.NotEmpty(t, assetStat.GenesisPoint)
+		require.NotZero(t, assetStat.Asset.GenesisHeight)
+		require.NotZero(t, assetStat.Asset.GenesisTimestamp)
+		require.NotEmpty(t, assetStat.Asset.GenesisPoint)
 	}
 
 	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})

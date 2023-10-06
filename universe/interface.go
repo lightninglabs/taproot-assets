@@ -676,6 +676,9 @@ type AggregateStats struct {
 	// NumTotalAssets is the total number of assets in the Universe.
 	NumTotalAssets uint64
 
+	// NumTotalGroups is the total number of groups in the Universe.
+	NumTotalGroups uint64
+
 	// NumTotalSyncs is the total number of syncs that have been performed
 	// in the Universe.
 	NumTotalSyncs uint64

@@ -3481,6 +3481,7 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 	return &unirpc.StatsResponse{
 		NumTotalAssets: int64(universeStats.NumTotalAssets),
+		NumTotalGroups: int64(universeStats.NumTotalGroups),
 		NumTotalSyncs:  int64(universeStats.NumTotalSyncs),
 		NumTotalProofs: int64(universeStats.NumTotalProofs),
 	}, nil

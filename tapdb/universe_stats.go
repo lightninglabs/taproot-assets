@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
-	"strconv"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -240,37 +239,32 @@ func (u *UniverseStats) AggregateSyncStats(
 			return err
 		}
 
-		stats.NumTotalAssets = uint64(uniStats.TotalNumAssets)
-
 		// We'll need to do a type cast here as sqlite will give us a
 		// NULL value as an int, while postgres will give us a "0"
 		// string.
-		switch numSyncs := uniStats.TotalSyncs.(type) {
-		case int64:
-			stats.NumTotalSyncs = uint64(numSyncs)
-
-		case string:
-			numSyncsInt, err := strconv.ParseInt(numSyncs, 10, 64)
-			if err != nil {
-				return fmt.Errorf("unable to parse total "+
-					"syncs: %v", err)
-			}
-
-			stats.NumTotalSyncs = uint64(numSyncsInt)
+		stats.NumTotalSyncs, err = parseCoalesceNumericType[uint64](
+			uniStats.TotalSyncs,
+		)
+		if err != nil {
+			return err
 		}
-
-		switch numProofs := uniStats.TotalProofs.(type) {
-		case int64:
-			stats.NumTotalProofs = uint64(numProofs)
-
-		case string:
-			numProofsInt, err := strconv.ParseInt(numProofs, 10, 64)
-			if err != nil {
-				return fmt.Errorf("unable to parse total "+
-					"proofs: %v", err)
-			}
-
-			stats.NumTotalProofs = uint64(numProofsInt)
+		stats.NumTotalProofs, err = parseCoalesceNumericType[uint64](
+			uniStats.TotalProofs,
+		)
+		if err != nil {
+			return err
+		}
+		stats.NumTotalGroups, err = parseCoalesceNumericType[uint64](
+			uniStats.TotalNumGroups,
+		)
+		if err != nil {
+			return err
+		}
+		stats.NumTotalAssets, err = parseCoalesceNumericType[uint64](
+			uniStats.TotalNumAssets,
+		)
+		if err != nil {
+			return err
 		}
 
 		return nil
