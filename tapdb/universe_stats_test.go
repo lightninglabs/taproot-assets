@@ -109,7 +109,7 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 	db := NewTestDB(t)
 
-	yesterday := time.Now().Add(-24 * time.Hour)
+	yesterday := time.Now().UTC().Add(-24 * time.Hour)
 	testClock := clock.NewTestClock(yesterday)
 	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
