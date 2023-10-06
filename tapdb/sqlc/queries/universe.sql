@@ -1,6 +1,7 @@
 -- name: FetchUniverseRoot :one
-SELECT universe_roots.asset_id, group_key, mssmt_nodes.hash_key root_hash, 
-       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
+SELECT universe_roots.asset_id, group_key, proof_type,
+       mssmt_nodes.hash_key root_hash, mssmt_nodes.sum root_sum,
+       genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots 
     ON universe_roots.namespace_root = mssmt_roots.namespace
@@ -13,9 +14,9 @@ WHERE mssmt_nodes.namespace = @namespace;
 
 -- name: UpsertUniverseRoot :one
 INSERT INTO universe_roots (
-    namespace_root, asset_id, group_key
+    namespace_root, asset_id, group_key, proof_type
 ) VALUES (
-    @namespace_root, @asset_id, @group_key
+    @namespace_root, @asset_id, @group_key, @proof_type
 ) ON CONFLICT (namespace_root)
     -- This is a NOP, namespace_root is the unique field that caused the
     -- conflict.
@@ -78,8 +79,9 @@ WHERE leaves.leaf_node_namespace = @namespace;
 SELECT * FROM universe_leaves;
 
 -- name: UniverseRoots :many
-SELECT universe_roots.asset_id, group_key, mssmt_roots.root_hash root_hash,
-       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
+SELECT universe_roots.asset_id, group_key, proof_type,
+       mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum,
+       genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
