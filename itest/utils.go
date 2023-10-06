@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
@@ -20,7 +22,9 @@ import (
 )
 
 var (
-	zeroHash chainhash.Hash
+	zeroHash          chainhash.Hash
+	regtestMiningAddr = "n1VgRjYDzJT2TV72PnungWgWu18SWorXZS"
+	regtestParams     = &chaincfg.RegressionNetParams
 )
 
 // CopyRequest is a helper function to copy a request so that we can modify it.
@@ -101,9 +105,29 @@ func MineBlocks(t *testing.T, client *rpcclient.Client,
 
 	blocks := make([]*wire.MsgBlock, num)
 
-	blockHashes, err := client.Generate(num)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
+	backend, err := client.BackendVersion()
+	require.NoError(t, err)
+
+	var blockHashes []*chainhash.Hash
+
+	switch backend {
+	case rpcclient.BitcoindPost19:
+		addr, err := btcutil.DecodeAddress(
+			regtestMiningAddr, regtestParams,
+		)
+		require.NoError(t, err)
+
+		blockHashes, err = client.GenerateToAddress(
+			int64(num), addr, nil,
+		)
+		require.NoError(t, err)
+
+	case rpcclient.Btcd:
+		blockHashes, err = client.Generate(num)
+		require.NoError(t, err)
+
+	default:
+		require.Fail(t, "unknown chain backend: %v", backend)
 	}
 
 	for i, blockHash := range blockHashes {

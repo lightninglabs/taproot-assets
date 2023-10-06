@@ -2,15 +2,14 @@ package loadtest
 
 import (
 	"context"
+	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"strconv"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
-
-	_ "embed"
 
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -18,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,6 +44,15 @@ func execMintBatchStressTest(t *testing.T, ctx context.Context, cfg *Config) {
 	// Create bitcoin client.
 	bitcoinClient := getBitcoinConn(t, cfg.Bitcoin)
 
+	itest.MineBlocks(t, bitcoinClient, 1, 0)
+
+	// If we fail from this point onward, we might have created a
+	// transaction that isn't mined yet. To make sure we can run the test
+	// again, we'll make sure to clean up the mempool by mining a block.
+	t.Cleanup(func() {
+		itest.MineBlocks(t, bitcoinClient, 1, 0)
+	})
+
 	imageMetadataBytes, err := hex.DecodeString(
 		strings.Trim(string(imageMetadataHex), "\n"),
 	)
@@ -66,10 +75,14 @@ func mintBatchStressTest(t *testing.T, ctx context.Context,
 
 	var (
 		batchReqs      = make([]*mintrpc.MintAssetRequest, batchSize)
-		baseName       = "jpeg"
+		baseName       = fmt.Sprintf("jpeg-%d", rand.Int31())
 		metaPrefixSize = binary.MaxVarintLen16
 		metadataPrefix = make([]byte, metaPrefixSize)
 	)
+
+	// Before we mint a new group, let's first find out how many there
+	// already are.
+	initialGroups := itest.NumGroups(t, alice)
 
 	// Each asset in the batch will share a name and metdata preimage, that
 	// will be updated based on the asset's index in the batch.
@@ -87,9 +100,9 @@ func mintBatchStressTest(t *testing.T, ctx context.Context,
 	}
 
 	// Update the asset name and metadata to match an index.
-	incrementMintAsset := func(asset *mintrpc.MintAsset, ind int) {
-		asset.Name = asset.Name + strconv.Itoa(ind)
-		binary.PutUvarint(metadataPrefix, uint64(ind))
+	incrementMintAsset := func(asset *mintrpc.MintAsset, idx int) {
+		asset.Name = fmt.Sprintf("%s-%d", asset.Name, idx)
+		binary.PutUvarint(metadataPrefix, uint64(idx))
 		copy(asset.AssetMeta.Data[0:metaPrefixSize], metadataPrefix)
 	}
 
@@ -131,7 +144,7 @@ func mintBatchStressTest(t *testing.T, ctx context.Context,
 
 	// We should have one group, with the specified number of assets and an
 	// equivalent balance, since the group is made of collectibles.
-	groupCount := 1
+	groupCount := initialGroups + 1
 	groupBalance := batchSize
 
 	itest.AssertNumGroups(t, alice, groupCount)
@@ -146,16 +159,11 @@ func mintBatchStressTest(t *testing.T, ctx context.Context,
 	// The universe tree should reflect the same properties about the batch;
 	// there should be one root with a group key and balance matching what
 	// we asserted previously.
-	uniRoots, err := alice.AssetRoots(
-		ctx, &unirpc.AssetRootRequest{},
-	)
+	uniRoots, err := alice.AssetRoots(ctx, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
 	require.Len(t, uniRoots.UniverseRoots, groupCount)
 
-	err = itest.AssertUniverseRoot(
-		t, alice, groupBalance, nil, collectGroupKey,
-	)
-	require.NoError(t, err)
+	itest.AssertUniverseRoot(t, alice, groupBalance, nil, collectGroupKey)
 
 	// The universe tree should also have a leaf for each asset minted.
 	// TODO(jhb): Resolve issue of 33-byte group key handling.
@@ -189,7 +197,23 @@ func mintBatchStressTest(t *testing.T, ctx context.Context,
 			},
 		},
 	)
-	require.NoError(t, err)
+	if err != nil {
+		// Only fail the test for other errors than duplicate universe
+		// errors, as we might have already added the server in a
+		// previous run.
+		require.ErrorContains(
+			t, err, universe.ErrDuplicateUniverse.Error(),
+		)
+
+		// If we've already added the server in a previous run, we'll
+		// just need to kick off a sync (as that would otherwise be done
+		// by adding the server request already).
+		_, err := bob.SyncUniverse(ctx, &unirpc.SyncRequest{
+			UniverseHost: aliceHost,
+			SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+		})
+		require.NoError(t, err)
+	}
 
 	require.Eventually(t, func() bool {
 		return itest.AssertUniverseStateEqual(

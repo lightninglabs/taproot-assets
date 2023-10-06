@@ -183,10 +183,7 @@ func mintBatchStressTest(
 	require.NoError(t, err)
 	require.Len(t, uniRoots.UniverseRoots, groupCount)
 
-	err = AssertUniverseRoot(
-		t, alice, groupBalance, nil, collectGroupKey,
-	)
-	require.NoError(t, err)
+	AssertUniverseRoot(t, alice, groupBalance, nil, collectGroupKey)
 
 	// The universe tree should also have a leaf for each asset minted.
 	// TODO(jhb): Resolve issue of 33-byte group key handling.
