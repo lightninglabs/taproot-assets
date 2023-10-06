@@ -1,6 +1,7 @@
 package address
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 
@@ -484,4 +485,11 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			})
 		})
 	}
+}
+
+func FuzzAddressDecode(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		a := &Tap{}
+		_ = a.Decode(bytes.NewReader(data))
+	})
 }

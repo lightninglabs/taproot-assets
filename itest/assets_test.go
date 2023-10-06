@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
@@ -77,6 +78,10 @@ var (
 // testMintAssets tests that we're able to mint assets, retrieve their proofs
 // and that we're able to import the proofs into a new node.
 func testMintAssets(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
 	)
@@ -91,6 +96,18 @@ func testMintAssets(t *harnessTest) {
 
 	// Check that we can retrieve the group keys for the issuable assets.
 	assertGroups(t.t, t.tapd, issuableAssets)
+
+	// Make sure that the minting proofs reflect the correct state.
+	AssertMintingProofs(t.t, t.tapd, simpleAssets, rpcSimpleAssets)
+	AssertMintingProofs(t.t, t.tapd, issuableAssets, rpcIssuableAssets)
+
+	// Make sure we can't mint assets with too much meta data.
+	invalidRequest := CopyRequest(simpleAssets[0])
+	invalidRequest.Asset.AssetMeta.Data = make(
+		[]byte, proof.MetaDataMaxSizeBytes+1,
+	)
+	_, err := t.tapd.MintAsset(ctxt, invalidRequest)
+	require.ErrorContains(t.t, err, proof.ErrMetaDataTooLarge.Error())
 
 	// Make sure the proof files for the freshly minted assets can be
 	// retrieved and are fully valid.

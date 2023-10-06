@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -99,6 +101,10 @@ var (
 	// group, and any further transfer of a grouped asset.
 	ErrGroupKeyUnknown = errors.New("group key not known")
 
+	// ErrProofInvalid is the error that's returned when a proof file is
+	// invalid.
+	ErrProofInvalid = errors.New("proof is invalid")
+
 	// RegtestTestVectorName is the name of the test vector file that is
 	// generated/updated by an actual integration test run on regtest. It is
 	// exported here, so we can use it in the integration tests.
@@ -124,6 +130,27 @@ const (
 	// PrefixMagicBytesLength is the length of the magic bytes that are
 	// prefixed to individual proofs or proof files.
 	PrefixMagicBytesLength = 4
+
+	// MaxNumTaprootProofs is the maximum number of Taproot proofs there can
+	// be in a proof. This limit represents the maximum block size in vBytes
+	// divided by the size of a single P2TR output and is therefore only a
+	// theoretical limit that can never be reached in practice.
+	MaxNumTaprootProofs uint64 = blockchain.MaxBlockBaseSize /
+		input.P2TRSize
+
+	// MaxTaprootProofSizeBytes is the maximum size of a single Taproot
+	// proof. A Taproot proof can contain a commitment proof which at
+	// maximum can contain two MS-SMT proofs that max out at around 10k
+	// bytes each (in the worst case).
+	MaxTaprootProofSizeBytes = tlv.MaxRecordSize
+
+	// MerkleProofMaxNodes is the maximum number of nodes a merkle proof can
+	// contain. This is log2(max_num_txs_in_block) + 1, where max number of
+	// transactions in a block is limited to be 17k (theoretical smallest
+	// transaction that can be serialized, which is 1 input + 1 output +
+	// transaction overhead = 59 bytes, then 1MB block size divided by that
+	// and rounded up).
+	MerkleProofMaxNodes = 15
 )
 
 var (
@@ -160,6 +187,17 @@ func IsProofFile(blob Blob) bool {
 	return bytes.Equal(
 		blob[:PrefixMagicBytesLength], FilePrefixMagicBytes[:],
 	)
+}
+
+// CheckMaxFileSize checks that the given blob is not larger than the maximum
+// file size.
+func CheckMaxFileSize(blob Blob) error {
+	if len(blob) > FileMaxProofSizeBytes {
+		return fmt.Errorf("file exceeds maximum size of %d bytes",
+			FileMaxProofSizeBytes)
+	}
+
+	return nil
 }
 
 // UpdateCallback is a callback that is called when proofs are updated because
@@ -391,6 +429,10 @@ func (p *Proof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+
+	// Note, we can't use the DecodeP2P method here, because the additional
+	// inputs records might be larger than 64k each. Instead, we add
+	// individual limits to each record.
 	return stream.Decode(r)
 }
 

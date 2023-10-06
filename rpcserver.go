@@ -369,6 +369,12 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			Type: metaType,
 			Data: req.Asset.AssetMeta.Data,
 		}
+
+		// If the asset meta field was specified, then the data inside
+		// must be valid. Let's check that now.
+		if err := seedling.Meta.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	updates, err := r.cfg.AssetMinter.QueueNewSeedling(seedling)
@@ -1073,8 +1079,12 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	req *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
 	if !proof.IsProofFile(req.RawProofFile) {
-		return nil, fmt.Errorf("invalid raw proof, expect single " +
-			"encoded mint or transition proof")
+		return nil, fmt.Errorf("invalid raw proof, expect file, not " +
+			"single encoded mint or transition proof")
+	}
+
+	if err := proof.CheckMaxFileSize(req.RawProofFile); err != nil {
+		return nil, fmt.Errorf("invalid proof file: %w", err)
 	}
 
 	var proofFile proof.File
@@ -1141,6 +1151,10 @@ func (r *rpcServer) DecodeProof(ctx context.Context,
 		rpcProof.NumberOfProofs = 1
 
 	case proof.IsProofFile(req.RawProof):
+		if err := proof.CheckMaxFileSize(req.RawProof); err != nil {
+			return nil, fmt.Errorf("invalid proof file: %w", err)
+		}
+
 		var proofFile proof.File
 		if err := proofFile.Decode(proofReader); err != nil {
 			return nil, fmt.Errorf("unable to decode proof file: "+
@@ -2222,9 +2236,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 					seedling.Meta.MetaHash(),
 				),
 				Data: seedling.Meta.Data,
-				Type: taprpc.AssetMetaType(
-					seedling.Meta.Type,
-				),
+				Type: taprpc.AssetMetaType(seedling.Meta.Type),
 			}
 		}
 

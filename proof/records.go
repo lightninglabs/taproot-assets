@@ -293,7 +293,16 @@ func MetaRevealTypeRecord(metaType *MetaType) tlv.Record {
 }
 
 func MetaRevealDataRecord(data *[]byte) tlv.Record {
-	return tlv.MakePrimitiveRecord(MetaRevealDataType, data)
+	sizeFunc := func() uint64 {
+		if data == nil {
+			return 0
+		}
+		return uint64(len(*data))
+	}
+	return tlv.MakeDynamicRecord(
+		MetaRevealDataType, data, sizeFunc, tlv.EVarBytes,
+		asset.DVarBytesWithLimit(MetaDataMaxSizeBytes),
+	)
 }
 
 func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {

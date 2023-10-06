@@ -1,6 +1,6 @@
-FUZZPKG = brontide lnwire wtwire zpay32
-FUZZ_TEST_RUN_TIME = 30
-FUZZ_TEST_TIMEOUT = 20
+FUZZPKG = asset mssmt proof
+FUZZ_TEST_RUN_TIME = 30s
+FUZZ_TEST_TIMEOUT = 20m
 FUZZ_NUM_PROCESSES = 4
 FUZZ_BASE_WORKDIR = $(shell pwd)/fuzz
 

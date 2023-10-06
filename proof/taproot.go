@@ -202,7 +202,7 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+	return stream.DecodeP2P(r)
 }
 
 // deriveTaprootKey derives the taproot key backing a Taproot Asset commitment.

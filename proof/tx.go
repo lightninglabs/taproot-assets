@@ -141,6 +141,11 @@ func (p *TxMerkleProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+
+	if numNodes > MerkleProofMaxNodes {
+		return tlv.ErrRecordTooLarge
+	}
+
 	p.Nodes = make([]chainhash.Hash, 0, numNodes)
 	for i := uint64(0); i < numNodes; i++ {
 		var hash [chainhash.HashSize]byte
