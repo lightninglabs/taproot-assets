@@ -436,25 +436,45 @@ message AssetStatsQuery {
 }
 
 message AssetStatsSnapshot {
+    // The group key of the asset group. If this is empty, then the asset is
+    // not part of a group.
+    bytes group_key = 1;
+
+    // The total supply of the asset group. If the asset is not part of an asset
+    // group then this is always zero.
+    int64 group_supply = 2;
+
+    // The group anchor that was used to group assets together into an asset
+    // group. This is only set if the asset is part of an asset group.
+    AssetStatsAsset group_anchor = 3;
+
+    // If the asset is not part of an asset group, then this is the asset the
+    // stats below refer to.
+    AssetStatsAsset asset = 4;
+
+    // The total number of syncs either for the asset group or the single asset
+    // if it is not part of a group.
+    int64 total_syncs = 5;
+
+    // The total number of proofs either for the asset group or the single asset
+    // if it is not part of a group.
+    int64 total_proofs = 6;
+}
+
+message AssetStatsAsset {
     bytes asset_id = 1;
 
-    bytes group_key = 2;
+    string genesis_point = 2;
 
-    string genesis_point = 3;
+    int64 total_supply = 3;
 
-    int64 total_supply = 4;
+    string asset_name = 4;
 
-    string asset_name = 5;
+    taprpc.AssetType asset_type = 5;
 
-    taprpc.AssetType asset_type = 6;
+    int32 genesis_height = 6;
 
-    int32 genesis_height = 7;
-
-    int64 genesis_timestamp = 8;
-
-    int64 total_syncs = 9;
-
-    int64 total_proofs = 10;
+    int64 genesis_timestamp = 7;
 }
 
 message UniverseAssetStats {

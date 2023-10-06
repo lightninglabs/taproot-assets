@@ -3489,25 +3489,32 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 // marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
 // counterpart.
-func marshalAssetSyncSnapshot(
+func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 	a universe.AssetSyncSnapshot) *unirpc.AssetStatsSnapshot {
 
-	var groupKey []byte
-	if a.GroupKey != nil {
-		groupKey = a.GroupKey.SerializeCompressed()
+	resp := &unirpc.AssetStatsSnapshot{
+		TotalSyncs:  int64(a.TotalSyncs),
+		TotalProofs: int64(a.TotalProofs),
+		GroupSupply: int64(a.GroupSupply),
+	}
+	rpcAsset := &unirpc.AssetStatsAsset{
+		AssetId:          a.AssetID[:],
+		GenesisPoint:     a.GenesisPoint.String(),
+		AssetName:        a.AssetName,
+		AssetType:        taprpc.AssetType(a.AssetType),
+		TotalSupply:      int64(a.TotalSupply),
+		GenesisHeight:    int32(a.GenesisHeight),
+		GenesisTimestamp: r.getBlockTimestamp(ctx, a.GenesisHeight),
 	}
 
-	return &unirpc.AssetStatsSnapshot{
-		AssetId:       a.AssetID[:],
-		GroupKey:      groupKey,
-		GenesisPoint:  a.GenesisPoint.String(),
-		AssetName:     a.AssetName,
-		AssetType:     taprpc.AssetType(a.AssetType),
-		TotalSupply:   int64(a.TotalSupply),
-		GenesisHeight: int32(a.GenesisHeight),
-		TotalSyncs:    int64(a.TotalSyncs),
-		TotalProofs:   int64(a.TotalProofs),
+	if a.GroupKey != nil {
+		resp.GroupKey = a.GroupKey.SerializeCompressed()
+		resp.GroupAnchor = rpcAsset
+	} else {
+		resp.Asset = rpcAsset
 	}
+
+	return resp
 }
 
 // QueryAssetStats returns a set of statistics for a given set of assets.
@@ -3551,10 +3558,7 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 		),
 	}
 	for idx, snapshot := range assetStats.SyncStats {
-		resp.AssetStats[idx] = marshalAssetSyncSnapshot(snapshot)
-		resp.AssetStats[idx].GenesisTimestamp = r.getBlockTimestamp(
-			ctx, snapshot.GenesisHeight,
-		)
+		resp.AssetStats[idx] = r.marshalAssetSyncSnapshot(ctx, snapshot)
 	}
 
 	return resp, nil

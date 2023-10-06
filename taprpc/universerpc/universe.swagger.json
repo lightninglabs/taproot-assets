@@ -1418,14 +1418,10 @@
         }
       }
     },
-    "universerpcAssetStatsSnapshot": {
+    "universerpcAssetStatsAsset": {
       "type": "object",
       "properties": {
         "asset_id": {
-          "type": "string",
-          "format": "byte"
-        },
-        "group_key": {
           "type": "string",
           "format": "byte"
         },
@@ -1449,14 +1445,39 @@
         "genesis_timestamp": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "universerpcAssetStatsSnapshot": {
+      "type": "object",
+      "properties": {
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key of the asset group. If this is empty, then the asset is\nnot part of a group."
+        },
+        "group_supply": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total supply of the asset group. If the asset is not part of an asset\ngroup then this is always zero."
+        },
+        "group_anchor": {
+          "$ref": "#/definitions/universerpcAssetStatsAsset",
+          "description": "The group anchor that was used to group assets together into an asset\ngroup. This is only set if the asset is part of an asset group."
+        },
+        "asset": {
+          "$ref": "#/definitions/universerpcAssetStatsAsset",
+          "description": "If the asset is not part of an asset group, then this is the asset the\nstats below refer to."
         },
         "total_syncs": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The total number of syncs either for the asset group or the single asset\nif it is not part of a group."
         },
         "total_proofs": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The total number of proofs either for the asset group or the single asset\nif it is not part of a group."
         }
       }
     },

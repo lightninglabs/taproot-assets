@@ -1251,27 +1251,31 @@ func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	require.Len(t, assetStats.AssetStats, len(assets))
 
 	for _, assetStat := range assetStats.AssetStats {
-		found := fn.Any(
-			assets, func(a *taprpc.Asset) bool {
-				groupKeyEqual := true
-				if a.AssetGroup != nil {
-					groupKeyEqual = bytes.Equal(
-						assetStat.GroupKey,
-						a.AssetGroup.TweakedGroupKey,
-					)
-				}
+		var statAsset *unirpc.AssetStatsAsset
+		if assetStat.GroupAnchor != nil {
+			statAsset = assetStat.GroupAnchor
+		} else {
+			statAsset = assetStat.Asset
+		}
 
-				return groupKeyEqual && bytes.Equal(
-					assetStat.Asset.AssetId,
-					a.AssetGenesis.AssetId,
+		found := fn.Any(assets, func(a *taprpc.Asset) bool {
+			groupKeyEqual := true
+			if a.AssetGroup != nil {
+				groupKeyEqual = bytes.Equal(
+					assetStat.GroupKey,
+					a.AssetGroup.TweakedGroupKey,
 				)
-			},
-		)
+			}
+
+			return groupKeyEqual && bytes.Equal(
+				statAsset.AssetId, a.AssetGenesis.AssetId,
+			)
+		})
 		require.True(t, found)
 
-		require.NotZero(t, assetStat.Asset.GenesisHeight)
-		require.NotZero(t, assetStat.Asset.GenesisTimestamp)
-		require.NotEmpty(t, assetStat.Asset.GenesisPoint)
+		require.NotZero(t, statAsset.GenesisHeight)
+		require.NotZero(t, statAsset.GenesisTimestamp)
+		require.NotEmpty(t, statAsset.GenesisPoint)
 	}
 
 	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})
