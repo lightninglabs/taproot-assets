@@ -298,6 +298,26 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 	nonAnchorItems := make([]*IssuanceItem, 0, len(items))
 	for ind := range items {
 		item := items[ind]
+
+		// If unspecified, set universe ID proof type based on leaf
+		// proof type.
+		if item.ID.ProofType == ProofTypeUnspecified {
+			var err error
+			item.ID.ProofType, err = NewProofTypeFromAssetProof(
+				item.Leaf.Proof,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Ensure that the target universe ID proof type corresponds to
+		// the leaf proof type.
+		err := ValidateProofUniverseType(item.Leaf.Proof, item.ID)
+		if err != nil {
+			return err
+		}
+
 		// Any group anchor issuance proof must have a group key reveal
 		// attached, so tht can be used to partition anchor assets and
 		// non-anchor assets.
