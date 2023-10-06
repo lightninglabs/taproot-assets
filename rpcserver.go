@@ -2271,6 +2271,11 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			groupKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
+		var groupAnchor string
+		if seedling.GroupAnchor != nil {
+			groupAnchor = *seedling.GroupAnchor
+		}
+
 		var seedlingMeta *taprpc.AssetMeta
 		if seedling.Meta != nil {
 			seedlingMeta = &taprpc.AssetMeta{
@@ -2296,6 +2301,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			AssetMeta:    seedlingMeta,
 			Amount:       seedling.Amount,
 			GroupKey:     groupKeyBytes,
+			GroupAnchor:  groupAnchor,
 		})
 	}
 
