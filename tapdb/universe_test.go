@@ -20,7 +20,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func randUniverseID(t *testing.T, forceGroup bool) universe.Identifier {
+type universeIdOptions struct {
+	proofType universe.ProofType
+}
+
+func defaultUniverseIdOptions(t *testing.T) *universeIdOptions {
+	return &universeIdOptions{
+		proofType: universe.ProofTypeIssuance,
+	}
+}
+
+type universeIDOptFunc func(*universeIdOptions)
+
+func randUniverseID(t *testing.T, forceGroup bool,
+	optFunctions ...universeIDOptFunc) universe.Identifier {
+
+	opts := defaultUniverseIdOptions(t)
+	for _, optFunc := range optFunctions {
+		optFunc(opts)
+	}
+
 	t.Helper()
 
 	var id universe.Identifier
@@ -33,6 +52,10 @@ func randUniverseID(t *testing.T, forceGroup bool) universe.Identifier {
 
 		id.GroupKey = groupKey.PubKey()
 	}
+
+	// Set universe proof type. This is the leaf proof type that will be
+	// used for all leaves in this universe.
+	id.ProofType = opts.proofType
 
 	return id
 }
