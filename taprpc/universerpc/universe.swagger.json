@@ -1704,9 +1704,13 @@
     "universerpcQueryRootResponse": {
       "type": "object",
       "properties": {
-        "asset_root": {
+        "issuance_root": {
           "$ref": "#/definitions/universerpcUniverseRoot",
-          "description": "The asset root for the given asset ID or group key."
+          "description": "The issuance universe root for the given asset ID or group key."
+        },
+        "transfer_root": {
+          "$ref": "#/definitions/universerpcUniverseRoot",
+          "description": "The transfer universe root for the given asset ID or group key."
         }
       }
     },
