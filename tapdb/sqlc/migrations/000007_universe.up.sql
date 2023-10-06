@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS universe_roots (
 
     -- We use the 32 byte schnorr key here as this is what's used to derive the
     -- top-level Taproot Asset commitment key.
-    group_key BLOB CHECK(LENGTH(group_key) = 32)
+    group_key BLOB CHECK(LENGTH(group_key) = 32),
+
+    -- This field is an enum representing the proof type stored in the given
+    -- universe.
+    proof_type TEXT NOT NULL CHECK(proof_type IN ('issuance', 'transfer'))
 );
 
 CREATE INDEX IF NOT EXISTS universe_roots_asset_id_idx ON universe_roots(asset_id);
