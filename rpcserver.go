@@ -2262,8 +2262,36 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		return rpcBatch, nil
 	}
 
-	rpcBatch.Assets = make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
-	for _, seedling := range batch.Seedlings {
+	// When we have sprouts, then they represent the same assets as the
+	// seedlings but in a more "grown up" state. So in that case we only
+	// marshal the sprouts.
+	switch {
+	// We have sprouts, ignore seedlings.
+	case batch.RootAssetCommitment != nil &&
+		len(batch.RootAssetCommitment.CommittedAssets()) > 0:
+
+		rpcBatch.Assets = marshalSprouts(
+			batch.RootAssetCommitment.CommittedAssets(),
+			batch.AssetMetas,
+		)
+
+	// No sprouts, so we marshal the seedlings.
+	case len(batch.Seedlings) > 0:
+		rpcBatch.Assets, err = marshalSeedlings(batch.Seedlings)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return rpcBatch, nil
+}
+
+// marshalSeedlings marshals the seedlings into the RPC counterpart.
+func marshalSeedlings(
+	seedlings map[string]*tapgarden.Seedling) ([]*mintrpc.MintAsset, error) {
+
+	rpcAssets := make([]*mintrpc.MintAsset, 0, len(seedlings))
+	for _, seedling := range seedlings {
 		var groupKeyBytes []byte
 		if seedling.HasGroupKey() {
 			groupKey := seedling.GroupInfo.GroupKey
@@ -2294,7 +2322,7 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			return nil, err
 		}
 
-		rpcBatch.Assets = append(rpcBatch.Assets, &mintrpc.MintAsset{
+		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType:    taprpc.AssetType(seedling.AssetType),
 			AssetVersion: assetVersion,
 			Name:         seedling.AssetName,
@@ -2305,7 +2333,44 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		})
 	}
 
-	return rpcBatch, nil
+	return rpcAssets, nil
+}
+
+// marshalSprouts marshals the sprouts into the RPC counterpart.
+func marshalSprouts(sprouts []*asset.Asset,
+	metas tapgarden.AssetMetas) []*mintrpc.MintAsset {
+
+	rpcAssets := make([]*mintrpc.MintAsset, 0, len(sprouts))
+	for _, sprout := range sprouts {
+		scriptKey := asset.ToSerialized(sprout.ScriptKey.PubKey)
+
+		var assetMeta *taprpc.AssetMeta
+		if metas != nil {
+			if m, ok := metas[scriptKey]; ok && m != nil {
+				assetMeta = &taprpc.AssetMeta{
+					MetaHash: fn.ByteSlice(m.MetaHash()),
+					Data:     m.Data,
+					Type:     taprpc.AssetMetaType(m.Type),
+				}
+			}
+		}
+
+		var groupKeyBytes []byte
+		if sprout.GroupKey != nil {
+			gpk := sprout.GroupKey.GroupPubKey
+			groupKeyBytes = gpk.SerializeCompressed()
+		}
+
+		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType(sprout.Type),
+			Name:      sprout.Tag,
+			AssetMeta: assetMeta,
+			Amount:    sprout.Amount,
+			GroupKey:  groupKeyBytes,
+		})
+	}
+
+	return rpcAssets
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
