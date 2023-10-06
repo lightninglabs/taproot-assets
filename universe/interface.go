@@ -614,6 +614,22 @@ func (t ProofType) String() string {
 	return fmt.Sprintf("unknown(%v)", int(t))
 }
 
+// NewProofTypeFromString returns the proof type corresponding to the given
+// string.
+func NewProofTypeFromString(typeStr string) (ProofType, error) {
+	switch typeStr {
+	case "unspecified":
+		return ProofTypeUnspecified, nil
+	case "issuance":
+		return ProofTypeIssuance, nil
+	case "transfer":
+		return ProofTypeTransfer, nil
+	default:
+		return ProofTypeUnspecified, fmt.Errorf("unknown proof "+
+			"type: %v", typeStr)
+	}
+}
+
 // SyncStatsSort is an enum used to specify the sort order of the returned sync
 // stats.
 type SyncStatsSort uint8
