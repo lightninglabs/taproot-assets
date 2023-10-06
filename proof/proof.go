@@ -189,6 +189,17 @@ func IsProofFile(blob Blob) bool {
 	)
 }
 
+// CheckMaxFileSize checks that the given blob is not larger than the maximum
+// file size.
+func CheckMaxFileSize(blob Blob) error {
+	if len(blob) > FileMaxProofSizeBytes {
+		return fmt.Errorf("file exceeds maximum size of %d bytes",
+			FileMaxProofSizeBytes)
+	}
+
+	return nil
+}
+
 // UpdateCallback is a callback that is called when proofs are updated because
 // of a re-org.
 type UpdateCallback func([]*Proof) error

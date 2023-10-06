@@ -1079,8 +1079,12 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	req *taprpc.ProofFile) (*taprpc.VerifyProofResponse, error) {
 
 	if !proof.IsProofFile(req.RawProofFile) {
-		return nil, fmt.Errorf("invalid raw proof, expect single " +
-			"encoded mint or transition proof")
+		return nil, fmt.Errorf("invalid raw proof, expect file, not " +
+			"single encoded mint or transition proof")
+	}
+
+	if err := proof.CheckMaxFileSize(req.RawProofFile); err != nil {
+		return nil, fmt.Errorf("invalid proof file: %w", err)
 	}
 
 	var proofFile proof.File
@@ -1147,6 +1151,10 @@ func (r *rpcServer) DecodeProof(ctx context.Context,
 		rpcProof.NumberOfProofs = 1
 
 	case proof.IsProofFile(req.RawProof):
+		if err := proof.CheckMaxFileSize(req.RawProof); err != nil {
+			return nil, fmt.Errorf("invalid proof file: %w", err)
+		}
+
 		var proofFile proof.File
 		if err := proofFile.Decode(proofReader); err != nil {
 			return nil, fmt.Errorf("unable to decode proof file: "+
