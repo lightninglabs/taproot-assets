@@ -380,8 +380,17 @@ WITH asset_supply AS (
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
     GROUP BY gen.asset_id
+), group_supply AS (
+    SELECT sum AS num_assets, uroots.group_key AS group_key
+    FROM mssmt_nodes nodes
+    JOIN mssmt_roots roots
+      ON nodes.hash_key = roots.root_hash AND
+         nodes.namespace = roots.namespace
+    JOIN universe_roots uroots
+      ON roots.namespace = uroots.namespace_root
 ), asset_info AS (
-    SELECT asset_supply.supply, gen.asset_id AS asset_id, 
+    SELECT asset_supply.supply, group_supply.num_assets AS group_supply,
+           gen.asset_id AS asset_id, 
            gen.asset_tag AS asset_name, gen.asset_type AS asset_type,
            gen.block_height AS genesis_height, gen.prev_out AS genesis_prev_out,
            group_info.tweaked_group_key AS group_key
@@ -393,11 +402,15 @@ WITH asset_supply AS (
     -- doesn't have a group key.
     LEFT JOIN key_group_info_view group_info
         ON gen.gen_asset_id = group_info.gen_asset_id
+    LEFT JOIN group_supply
+        ON group_supply.group_key = group_info.x_only_group_key
     WHERE (gen.asset_tag = $5 OR $5 IS NULL) AND
           (gen.asset_type = $6 OR $6 IS NULL) AND
           (gen.asset_id = $7 OR $7 IS NULL)
 )
-SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
+SELECT asset_info.supply AS asset_supply,
+    asset_info.group_supply AS group_supply,
+    asset_info.asset_name AS asset_name,
     asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
     asset_info.genesis_height AS genesis_height,
     asset_info.genesis_prev_out AS genesis_prev_out,
@@ -451,6 +464,7 @@ type QueryUniverseAssetStatsParams struct {
 
 type QueryUniverseAssetStatsRow struct {
 	AssetSupply    int64
+	GroupSupply    sql.NullInt64
 	AssetName      string
 	AssetType      int16
 	AssetID        []byte
@@ -482,6 +496,7 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 		var i QueryUniverseAssetStatsRow
 		if err := rows.Scan(
 			&i.AssetSupply,
+			&i.GroupSupply,
 			&i.AssetName,
 			&i.AssetType,
 			&i.AssetID,
@@ -578,7 +593,7 @@ WITH stats AS (
     FROM mssmt_nodes nodes
     JOIN mssmt_roots roots
       ON nodes.hash_key = roots.root_hash AND
-             nodes.namespace = roots.namespace
+         nodes.namespace = roots.namespace
     JOIN universe_roots uroots
       ON roots.namespace = uroots.namespace_root
 ), aggregated AS (

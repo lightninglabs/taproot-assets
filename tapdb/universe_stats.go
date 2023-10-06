@@ -455,6 +455,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 				),
 				TotalSyncs:  uint64(assetStat.TotalSyncs),
 				TotalProofs: uint64(assetStat.TotalProofs),
+				GroupSupply: uint64(assetStat.GroupSupply.Int64),
 			}
 
 			if len(assetStat.GroupKey) > 0 {
