@@ -2801,6 +2801,26 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 
 	rpcsLog.Debugf("Deleting asset root for %v", spew.Sdump(universeID))
 
+	// If the universe proof type is unspecified, we'll delete both the
+	// issuance and transfer roots.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		universeID.ProofType = universe.ProofTypeIssuance
+		_, err := r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		if err != nil {
+			return nil, err
+		}
+
+		universeID.ProofType = universe.ProofTypeTransfer
+		_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		if err != nil {
+			return nil, err
+		}
+
+		return &unirpc.DeleteRootResponse{}, nil
+	}
+
+	// At this point the universe proof type was specified, so we'll only
+	// delete the root for that proof type.
 	_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
 	if err != nil {
 		return nil, err
