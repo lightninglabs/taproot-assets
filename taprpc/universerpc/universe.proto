@@ -202,8 +202,11 @@ message AssetRootQuery {
 }
 
 message QueryRootResponse {
-    // The asset root for the given asset ID or group key.
-    UniverseRoot asset_root = 1;
+    // The issuance universe root for the given asset ID or group key.
+    UniverseRoot issuance_root = 1;
+
+    // The transfer universe root for the given asset ID or group key.
+    UniverseRoot transfer_root = 2;
 }
 
 message DeleteRootQuery {

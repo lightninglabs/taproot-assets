@@ -2812,20 +2812,51 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Debugf("Querying for asset root for %v", spew.Sdump(universeID))
+	// Attempt to retrieve the issuance universe root.
+	rpcsLog.Debugf("Querying for asset (group) issuance universe root "+
+		"for %v", spew.Sdump(universeID))
 
-	assetRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	universeID.ProofType = universe.ProofTypeIssuance
+
+	issuanceRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	if err != nil {
+		// Do not return at this point if the error only indicates that
+		// the root wasn't found. We'll try to find the transfer root
+		// below.
+		if !errors.Is(err, universe.ErrNoUniverseRoot) {
+			return nil, err
+		}
+	}
+
+	issuanceRootRPC, err := marshalUniverseRoot(issuanceRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	uniRoot, err := marshalUniverseRoot(assetRoot)
+	// Attempt to retrieve the transfer universe root.
+	rpcsLog.Debugf("Querying for asset (group) transfer universe root "+
+		"for %v", spew.Sdump(universeID))
+
+	universeID.ProofType = universe.ProofTypeTransfer
+
+	transferRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	if err != nil {
+		// Do not return at this point if the error only indicates that
+		// the root wasn't found. We may have found the issuance root
+		// above.
+		if !errors.Is(err, universe.ErrNoUniverseRoot) {
+			return nil, err
+		}
+	}
+
+	transferRootRPC, err := marshalUniverseRoot(transferRoot)
 	if err != nil {
 		return nil, err
 	}
 
 	return &unirpc.QueryRootResponse{
-		AssetRoot: uniRoot,
+		IssuanceRoot: issuanceRootRPC,
+		TransferRoot: transferRootRPC,
 	}, nil
 }
 
@@ -3134,9 +3165,44 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		"(universeID=%x, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
+	// Keep a record of whether the proof type was specified by the client.
+	unspecifiedArgProofType :=
+		universeID.ProofType == universe.ProofTypeUnspecified
+	if unspecifiedArgProofType {
+		// The target proof type was unspecified. Assume that the proof
+		// type is a transfer proof (more transfer proofs exist then
+		// issuance proofs).
+		universeID.ProofType = universe.ProofTypeTransfer
+	}
+
+	// Attempt to fetch the proof from the base universe.
 	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
 		ctx, universeID, leafKey,
 	)
+	// If we were unable to find a proof, and the proof type was originally
+	// unspecified, then we'll try again with the other proof type.
+	if unspecifiedArgProofType &&
+		errors.Is(err, universe.ErrNoUniverseProofFound) {
+
+		// The proof type was originally unspecified by the client. We
+		// will therefore try again with the other proof type.
+		switch universeID.ProofType {
+		case universe.ProofTypeTransfer:
+			universeID.ProofType = universe.ProofTypeIssuance
+		case universe.ProofTypeIssuance:
+			universeID.ProofType = universe.ProofTypeTransfer
+		}
+
+		proofs, err = r.cfg.BaseUniverse.FetchIssuanceProof(
+			ctx, universeID, leafKey,
+		)
+		if err != nil {
+			rpcsLog.Debugf("[QueryProof]: error querying for "+
+				"proof at (universeID=%x, leafKey=%x)",
+				universeID, leafKey.UniverseKey())
+			return nil, err
+		}
+	}
 	if err != nil {
 		rpcsLog.Debugf("[QueryProof]: error querying for proof at "+
 			"(universeID=%x, leafKey=%x)", universeID,
