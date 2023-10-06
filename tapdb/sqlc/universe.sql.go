@@ -96,8 +96,9 @@ func (q *Queries) FetchUniverseKeys(ctx context.Context, namespace string) ([]Fe
 }
 
 const fetchUniverseRoot = `-- name: FetchUniverseRoot :one
-SELECT universe_roots.asset_id, group_key, mssmt_nodes.hash_key root_hash, 
-       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
+SELECT universe_roots.asset_id, group_key, proof_type,
+       mssmt_nodes.hash_key root_hash, mssmt_nodes.sum root_sum,
+       genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots 
     ON universe_roots.namespace_root = mssmt_roots.namespace
@@ -112,6 +113,7 @@ WHERE mssmt_nodes.namespace = $1
 type FetchUniverseRootRow struct {
 	AssetID   []byte
 	GroupKey  []byte
+	ProofType string
 	RootHash  []byte
 	RootSum   int64
 	AssetName string
@@ -123,6 +125,7 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 	err := row.Scan(
 		&i.AssetID,
 		&i.GroupKey,
+		&i.ProofType,
 		&i.RootHash,
 		&i.RootSum,
 		&i.AssetName,
@@ -625,8 +628,9 @@ func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
 }
 
 const universeRoots = `-- name: UniverseRoots :many
-SELECT universe_roots.asset_id, group_key, mssmt_roots.root_hash root_hash,
-       mssmt_nodes.sum root_sum, genesis_assets.asset_tag asset_name
+SELECT universe_roots.asset_id, group_key, proof_type,
+       mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum,
+       genesis_assets.asset_tag asset_name
 FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
@@ -640,6 +644,7 @@ JOIN genesis_assets
 type UniverseRootsRow struct {
 	AssetID   []byte
 	GroupKey  []byte
+	ProofType string
 	RootHash  []byte
 	RootSum   int64
 	AssetName string
@@ -657,6 +662,7 @@ func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error)
 		if err := rows.Scan(
 			&i.AssetID,
 			&i.GroupKey,
+			&i.ProofType,
 			&i.RootHash,
 			&i.RootSum,
 			&i.AssetName,
@@ -711,9 +717,9 @@ func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeaf
 
 const upsertUniverseRoot = `-- name: UpsertUniverseRoot :one
 INSERT INTO universe_roots (
-    namespace_root, asset_id, group_key
+    namespace_root, asset_id, group_key, proof_type
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 ) ON CONFLICT (namespace_root)
     -- This is a NOP, namespace_root is the unique field that caused the
     -- conflict.
@@ -725,10 +731,16 @@ type UpsertUniverseRootParams struct {
 	NamespaceRoot string
 	AssetID       []byte
 	GroupKey      []byte
+	ProofType     string
 }
 
 func (q *Queries) UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertUniverseRoot, arg.NamespaceRoot, arg.AssetID, arg.GroupKey)
+	row := q.db.QueryRowContext(ctx, upsertUniverseRoot,
+		arg.NamespaceRoot,
+		arg.AssetID,
+		arg.GroupKey,
+		arg.ProofType,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

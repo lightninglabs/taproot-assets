@@ -279,6 +279,7 @@ type UniverseRoot struct {
 	NamespaceRoot string
 	AssetID       []byte
 	GroupKey      []byte
+	ProofType     string
 }
 
 type UniverseServer struct {
