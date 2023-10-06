@@ -34,6 +34,10 @@ func randUniverseID(t *testing.T, forceGroup bool) universe.Identifier {
 		id.GroupKey = groupKey.PubKey()
 	}
 
+	// Set universe proof type. This is the leaf proof type that will be
+	// used for all leaves in this universe.
+	id.ProofType = universe.ProofTypeIssuance
+
 	return id
 }
 
