@@ -108,7 +108,11 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 		return universe.BaseRoot{}, err
 	}
 
-	return unmarshalUniverseRoot(universeRoot.AssetRoot)
+	if id.ProofType == universe.ProofTypeIssuance {
+		return unmarshalUniverseRoot(universeRoot.IssuanceRoot)
+	}
+
+	return unmarshalUniverseRoot(universeRoot.TransferRoot)
 }
 
 // UniverseLeafKeys returns all the keys inserted in the universe.
