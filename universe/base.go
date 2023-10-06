@@ -416,6 +416,16 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
 		ctx, uniID, prevLeafKey,
 	)
+	// If we've failed in finding the previous proof in the transfer
+	// universe, we will try to find it in the issuance universe.
+	if uniID.ProofType == ProofTypeTransfer &&
+		errors.Is(err, ErrNoUniverseProofFound) {
+
+		uniID.ProofType = ProofTypeIssuance
+		prevProofs, err = a.cfg.Multiverse.FetchProofLeaf(
+			ctx, uniID, prevLeafKey,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous "+
 			"proof: %v", err)
