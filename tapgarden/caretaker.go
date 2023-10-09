@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -697,6 +698,19 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		if err != nil {
 			return 0, fmt.Errorf("unable to sign psbt: %w", err)
 		}
+
+		// Final TX sanity check.
+		signedTx, err := psbt.Extract(signedPkt)
+		if err != nil {
+			return 0, fmt.Errorf("unable to extract psbt: %w", err)
+		}
+
+		err = blockchain.CheckTransactionSanity(btcutil.NewTx(signedTx))
+		if err != nil {
+			return 0, fmt.Errorf("genesis TX failed final checks: "+
+				"%w", err)
+		}
+
 		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
 
 		// Populate how much this tx paid in on-chain fees.
