@@ -1004,6 +1004,11 @@ func (a *Asset) HasGenesisWitnessForGroup() bool {
 	return *witness.PrevID == ZeroPrevID
 }
 
+// IsGenesisAsset returns true if an asset is a genesis asset.
+func (a *Asset) IsGenesisAsset() bool {
+	return a.HasGenesisWitness() || a.HasGenesisWitnessForGroup()
+}
+
 // HasSplitCommitmentWitness returns true if an asset has a split commitment
 // witness.
 func (a *Asset) HasSplitCommitmentWitness() bool {
