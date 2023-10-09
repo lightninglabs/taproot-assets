@@ -12,37 +12,37 @@ import (
 
 const (
 	VersionType          tlv.Type = 0
-	PrevOutType          tlv.Type = 1
-	BlockHeaderType      tlv.Type = 2
-	AnchorTxType         tlv.Type = 3
-	TxMerkleProofType    tlv.Type = 4
-	AssetLeafType        tlv.Type = 5
-	InclusionProofType   tlv.Type = 6
-	ExclusionProofsType  tlv.Type = 7
-	SplitRootProofType   tlv.Type = 8
-	MetaRevealType       tlv.Type = 9
-	AdditionalInputsType tlv.Type = 10
-	ChallengeWitnessType tlv.Type = 11
-	BlockHeightType      tlv.Type = 12
-	GenesisRevealType    tlv.Type = 13
-	GroupKeyRevealType   tlv.Type = 14
+	PrevOutType          tlv.Type = 2
+	BlockHeaderType      tlv.Type = 4
+	AnchorTxType         tlv.Type = 6
+	TxMerkleProofType    tlv.Type = 8
+	AssetLeafType        tlv.Type = 10
+	InclusionProofType   tlv.Type = 12
+	ExclusionProofsType  tlv.Type = 13
+	SplitRootProofType   tlv.Type = 15
+	MetaRevealType       tlv.Type = 17
+	AdditionalInputsType tlv.Type = 19
+	ChallengeWitnessType tlv.Type = 21
+	BlockHeightType      tlv.Type = 22
+	GenesisRevealType    tlv.Type = 23
+	GroupKeyRevealType   tlv.Type = 25
 
 	TaprootProofOutputIndexType     tlv.Type = 0
-	TaprootProofInternalKeyType     tlv.Type = 1
-	TaprootProofCommitmentProofType tlv.Type = 2
-	TaprootProofTapscriptProofType  tlv.Type = 3
+	TaprootProofInternalKeyType     tlv.Type = 2
+	TaprootProofCommitmentProofType tlv.Type = 3
+	TaprootProofTapscriptProofType  tlv.Type = 5
 
 	// CommitmentProofTapSiblingPreimageType is the type of the TLV record
 	// for the CommitmentProof's SiblingPreimage field. It continues the
 	// count from where commitment.ProofTaprootAssetProofType left off.
-	CommitmentProofTapSiblingPreimageType tlv.Type = 2
+	CommitmentProofTapSiblingPreimageType tlv.Type = 5
 
-	TapscriptProofTapPreimage1 tlv.Type = 0
-	TapscriptProofTapPreimage2 tlv.Type = 1
-	TapscriptProofBip86        tlv.Type = 2
+	TapscriptProofTapPreimage1 tlv.Type = 1
+	TapscriptProofTapPreimage2 tlv.Type = 3
+	TapscriptProofBip86        tlv.Type = 4
 
 	MetaRevealEncodingType tlv.Type = 0
-	MetaRevealDataType     tlv.Type = 1
+	MetaRevealDataType     tlv.Type = 2
 )
 
 func VersionRecord(version *TransitionVersion) tlv.Record {

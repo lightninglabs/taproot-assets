@@ -15,16 +15,16 @@ type LeafTlvType = tlv.Type
 
 const (
 	LeafVersion             LeafTlvType = 0
-	LeafGenesis             LeafTlvType = 1
-	LeafType                LeafTlvType = 2
-	LeafAmount              LeafTlvType = 3
-	LeafLockTime            LeafTlvType = 4
-	LeafRelativeLockTime    LeafTlvType = 5
-	LeafPrevWitness         LeafTlvType = 6
-	LeafSplitCommitmentRoot LeafTlvType = 7
-	LeafScriptVersion       LeafTlvType = 8
-	LeafScriptKey           LeafTlvType = 9
-	LeafGroupKey            LeafTlvType = 10
+	LeafGenesis             LeafTlvType = 2
+	LeafType                LeafTlvType = 4
+	LeafAmount              LeafTlvType = 6
+	LeafLockTime            LeafTlvType = 7
+	LeafRelativeLockTime    LeafTlvType = 9
+	LeafPrevWitness         LeafTlvType = 11
+	LeafSplitCommitmentRoot LeafTlvType = 13
+	LeafScriptVersion       LeafTlvType = 14
+	LeafScriptKey           LeafTlvType = 16
+	LeafGroupKey            LeafTlvType = 17
 
 	// Types for future asset format.
 	LeafAssetID LeafTlvType = 11
@@ -35,9 +35,9 @@ const (
 type WitnessTlvType = tlv.Type
 
 const (
-	WitnessPrevID          WitnessTlvType = 0
-	WitnessTxWitness       WitnessTlvType = 1
-	WitnessSplitCommitment WitnessTlvType = 2
+	WitnessPrevID          WitnessTlvType = 1
+	WitnessTxWitness       WitnessTlvType = 3
+	WitnessSplitCommitment WitnessTlvType = 5
 )
 
 func NewLeafVersionRecord(version *Version) tlv.Record {
