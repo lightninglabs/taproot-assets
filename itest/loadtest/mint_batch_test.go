@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -24,60 +23,27 @@ import (
 //go:embed testdata/8k-metadata.hex
 var imageMetadataHex []byte
 
-// execMintBatchStressTest checks that we are able to mint a batch of assets
-// and that other memebers in the federation see the universe updated
-// accordingly.
-func execMintBatchStressTest(t *testing.T, ctx context.Context, cfg *Config) {
-	// Create tapd clients.
-	alice, aliceCleanUp := getTapClient(t, ctx, cfg.Alice.Tapd)
-	defer aliceCleanUp()
-
-	_, err := alice.GetInfo(ctx, &taprpc.GetInfoRequest{})
-	require.NoError(t, err)
-
-	bob, bobCleanUp := getTapClient(t, ctx, cfg.Bob.Tapd)
-	defer bobCleanUp()
-
-	_, err = bob.GetInfo(ctx, &taprpc.GetInfoRequest{})
-	require.NoError(t, err)
-
-	// Create bitcoin client.
-	bitcoinClient := getBitcoinConn(t, cfg.Bitcoin)
-
-	itest.MineBlocks(t, bitcoinClient, 1, 0)
-
-	// If we fail from this point onward, we might have created a
-	// transaction that isn't mined yet. To make sure we can run the test
-	// again, we'll make sure to clean up the mempool by mining a block.
-	t.Cleanup(func() {
-		itest.MineBlocks(t, bitcoinClient, 1, 0)
-	})
+// mintTest checks that we are able to mint a batch of assets and that other
+// members in the federation see the universe updated accordingly.
+func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
+	// Start by initializing all our client connections.
+	alice, bob, bitcoinClient := initClients(t, ctx, cfg)
 
 	imageMetadataBytes, err := hex.DecodeString(
 		strings.Trim(string(imageMetadataHex), "\n"),
 	)
 	require.NoError(t, err)
 
-	aliceHost := fmt.Sprintf("%s:%d", cfg.Alice.Tapd.Host,
-		cfg.Alice.Tapd.Port)
-
-	minterTimeout := 10 * time.Minute
-	mintBatchStressTest(
-		t, ctx, bitcoinClient, alice, bob, aliceHost, cfg.BatchSize,
-		imageMetadataBytes, minterTimeout,
-	)
-}
-
-func mintBatchStressTest(t *testing.T, ctx context.Context,
-	bitcoinClient *rpcclient.Client, alice, bob itest.TapdClient,
-	aliceHost string, batchSize int, imageMetadataBytes []byte,
-	minterTimeout time.Duration) {
-
 	var (
+		minterTimeout  = cfg.TestTimeout
+		batchSize      = cfg.BatchSize
 		batchReqs      = make([]*mintrpc.MintAssetRequest, batchSize)
 		baseName       = fmt.Sprintf("jpeg-%d", rand.Int31())
 		metaPrefixSize = binary.MaxVarintLen16
 		metadataPrefix = make([]byte, metaPrefixSize)
+		aliceHost      = fmt.Sprintf(
+			"%s:%d", alice.cfg.Host, alice.cfg.Port,
+		)
 	)
 
 	// Before we mint a new group, let's first find out how many there

@@ -16,8 +16,8 @@ type testCase struct {
 
 var loadTestCases = []testCase{
 	{
-		name: "mint_batch_stress",
-		fn:   execMintBatchStressTest,
+		name: "mint",
+		fn:   mintTest,
 	},
 }
 

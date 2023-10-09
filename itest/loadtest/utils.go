@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -28,14 +29,45 @@ var (
 )
 
 type rpcClient struct {
+	cfg *TapConfig
 	taprpc.TaprootAssetsClient
 	universerpc.UniverseClient
 	mintrpc.MintClient
 	assetwalletrpc.AssetWalletClient
 }
 
+func initClients(t *testing.T, ctx context.Context,
+	cfg *Config) (*rpcClient, *rpcClient, *rpcclient.Client) {
+
+	// Create tapd clients.
+	alice := getTapClient(t, ctx, cfg.Alice.Tapd)
+
+	_, err := alice.GetInfo(ctx, &taprpc.GetInfoRequest{})
+	require.NoError(t, err)
+
+	bob := getTapClient(t, ctx, cfg.Bob.Tapd)
+
+	_, err = bob.GetInfo(ctx, &taprpc.GetInfoRequest{})
+	require.NoError(t, err)
+
+	// Create bitcoin client.
+	bitcoinClient := getBitcoinConn(t, cfg.Bitcoin)
+
+	// Test bitcoin client connection by mining a block.
+	itest.MineBlocks(t, bitcoinClient, 1, 0)
+
+	// If we fail from this point onward, we might have created a
+	// transaction that isn't mined yet. To make sure we can run the test
+	// again, we'll make sure to clean up the mempool by mining a block.
+	t.Cleanup(func() {
+		itest.MineBlocks(t, bitcoinClient, 1, 0)
+	})
+
+	return alice, bob, bitcoinClient
+}
+
 func getTapClient(t *testing.T, ctx context.Context,
-	cfg *TapConfig) (*rpcClient, func()) {
+	cfg *TapConfig) *rpcClient {
 
 	creds := credentials.NewTLS(&tls.Config{})
 	if cfg.TLSPath != "" {
@@ -72,7 +104,7 @@ func getTapClient(t *testing.T, ctx context.Context,
 	}
 
 	svrAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	conn, err := grpc.Dial(svrAddr, opts...)
+	conn, err := grpc.DialContext(ctx, svrAddr, opts...)
 	require.NoError(t, err)
 
 	assetsClient := taprpc.NewTaprootAssetsClient(conn)
@@ -81,17 +113,19 @@ func getTapClient(t *testing.T, ctx context.Context,
 	assetWalletClient := assetwalletrpc.NewAssetWalletClient(conn)
 
 	client := &rpcClient{
+		cfg:                 cfg,
 		TaprootAssetsClient: assetsClient,
 		UniverseClient:      universeClient,
 		MintClient:          mintMintClient,
 		AssetWalletClient:   assetWalletClient,
 	}
 
-	cleanUp := func() {
-		conn.Close()
-	}
+	t.Cleanup(func() {
+		err := conn.Close()
+		require.NoError(t, err)
+	})
 
-	return client, cleanUp
+	return client
 }
 
 func getBitcoinConn(t *testing.T, cfg *BitcoinConfig) *rpcclient.Client {
