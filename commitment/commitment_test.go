@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -40,8 +41,14 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 		amount = 1
 	}
 
+	var assetVersion asset.Version
+	if rand.Int()%2 == 0 {
+		assetVersion = asset.V1
+	}
+
 	return &AssetDetails{
-		Type: assetType,
+		Version: assetVersion,
+		Type:    assetType,
 		ScriptKey: keychain.KeyDescriptor{
 			PubKey: test.RandPrivKey(t).PubKey(),
 		},
@@ -1077,19 +1084,25 @@ func TestUpdateTapCommitment(t *testing.T) {
 
 	asset1 := protoAsset1.Copy()
 	asset1.GroupKey = groupKey1
+
 	asset2 := protoAsset2.Copy()
 	asset2.GroupKey = groupKey2
+
 	assetCommitment1, err := NewAssetCommitment(asset1)
 	require.NoError(t, err)
+
 	commitmentKey1 := assetCommitment1.TapCommitmentKey()
+
 	assetCommitment2, err := NewAssetCommitment(asset2)
 	require.NoError(t, err)
+
 	commitmentKey2 := assetCommitment2.TapCommitmentKey()
 
 	// Mint a new Taproot Asset commitment with only the first
 	// assetCommitment.
 	commitment, err := NewTapCommitment(assetCommitment1)
 	require.NoError(t, err)
+
 	copyOfCommitment, err := NewTapCommitment(assetCommitment1)
 	require.NoError(t, err)
 
@@ -1101,6 +1114,7 @@ func TestUpdateTapCommitment(t *testing.T) {
 	// Verify commitment deletion with an empty assetCommitment map
 	// and a proof of non inclusion.
 	require.NoError(t, commitment.Delete(assetCommitment1))
+
 	proofAsset1, _, err := commitment.Proof(
 		commitmentKey1, asset1.AssetCommitmentKey(),
 	)
@@ -1127,6 +1141,7 @@ func TestUpdateTapCommitment(t *testing.T) {
 	// and check equality with the version made via upserts.
 	commitmentFromAssets, err := FromAssets(asset1, asset2)
 	require.NoError(t, err)
+
 	require.Equal(
 		t, copyOfCommitment.TapscriptRoot(nil),
 		commitmentFromAssets.TapscriptRoot(nil),
@@ -1140,8 +1155,10 @@ func TestUpdateTapCommitment(t *testing.T) {
 		t, mssmt.EmptyTreeRootHash,
 		assetCommitment2.TreeRoot.NodeHash(),
 	)
+
 	err = copyOfCommitment.Upsert(assetCommitment2)
 	require.NoError(t, err)
+
 	_, ok := copyOfCommitment.Commitment(asset2)
 	require.False(t, ok)
 
@@ -1153,8 +1170,10 @@ func TestUpdateTapCommitment(t *testing.T) {
 		t, mssmt.EmptyTreeRootHash,
 		assetCommitment1.TreeRoot.NodeHash(),
 	)
+
 	err = copyOfCommitment.Upsert(assetCommitment1)
 	require.NoError(t, err)
+
 	_, ok = copyOfCommitment.Commitment(asset1)
 	require.False(t, ok)
 	require.Equal(
@@ -1240,4 +1259,197 @@ func TestIsTaprootAssetCommitmentScript(t *testing.T) {
 
 	require.True(t, IsTaprootAssetCommitmentScript(testTapCommitmentScript))
 	require.False(t, IsTaprootAssetCommitmentScript(TaprootAssetsMarker[:]))
+}
+
+// TestAssetCommitmentNoWitness tests that an asset commitment of a v1 asset is
+// the same with and without the witness field of the asset set.
+func TestAssetCommitmentNoWitness(t *testing.T) {
+	t.Parallel()
+
+	// We'll start by generating a random asset.
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis1, nil)
+
+	// We'll modify the asset version so it uses the segwit encoding for
+	// the leaf commitment.
+	asset1.Version = asset.V1
+
+	// We'll modify the asset witness to obtain a valid prev ID, along with
+	// some random data.
+	var randTxid chainhash.Hash
+	_, err := rand.Read(randTxid[:])
+	require.NoError(t, err)
+
+	asset1.PrevWitnesses[0].PrevID.OutPoint = wire.OutPoint{
+		Index: uint32(rand.Int()),
+		Hash:  randTxid,
+	}
+	asset1.PrevWitnesses[0].PrevID.ID = asset.ID(randTxid)
+	copy(asset1.PrevWitnesses[0].PrevID.ScriptKey[:], randTxid[:])
+
+	// Now that we have all our initial information set, we'll make a copy
+	// of the above asset. One of them will have a witness vector field,
+	// the other won't.
+	assetNoWitness := asset1.Copy()
+
+	asset1.PrevWitnesses[0].TxWitness = [][]byte{randTxid[:]}
+
+	// Next, we'll use the assets to create two root tap commitments.
+	commitmentWitness, err := FromAssets(asset1)
+	require.NoError(t, err)
+
+	commitmentNoWitness, err := FromAssets(assetNoWitness)
+	require.NoError(t, err)
+
+	// The two commitment should be identical as this asset version leaves
+	// out the tx witness field in the leaf encoding.
+	require.Equal(
+		t, commitmentWitness.TapscriptRoot(nil),
+		commitmentNoWitness.TapscriptRoot(nil),
+	)
+
+	// If we make the asset into a V0 asset, then recompute the commitment,
+	// we should get a distinct root.
+	asset1.Version = asset.V0
+	commitmentV0, err := FromAssets(asset1)
+	require.NoError(t, err)
+
+	require.NotEqual(
+		t, commitmentWitness.TapscriptRoot(nil),
+		commitmentV0.TapscriptRoot(nil),
+	)
+}
+
+// TestTapCommitmentUpsertMaxVersion tests that when we upsert with different
+// commitments, that the max version is properly updated.
+func TestTapCommitmentUpsertMaxVersion(t *testing.T) {
+	t.Parallel()
+
+	// We'll start with a random asset. We'll make sure this asset is
+	// version 0.
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis1, nil)
+	asset1.Version = asset.V0
+
+	// Next, we'll make another asset, this time with version 1.
+	genesis2 := asset.RandGenesis(t, asset.Normal)
+	asset2 := randAsset(t, genesis2, nil)
+	asset2.Version = asset.V1
+
+	// Next, we'll create a new commitment with just the first asset.
+	tapCommitment, err := FromAssets(asset1)
+	require.NoError(t, err)
+
+	// The version should be zero, as the asset version is 0.
+	require.Equal(t, asset.V0, tapCommitment.Version)
+
+	// Next, we'll upsert the second asset, which should bump the version
+	// to v1.
+	assetCommitment, err := NewAssetCommitment(asset2)
+	require.NoError(t, err)
+
+	require.NoError(t, tapCommitment.Upsert(assetCommitment))
+
+	require.Equal(t, asset.V1, tapCommitment.Version)
+
+	// Finally, we'll test the delete behavior of Upsert. We'll remove all
+	// the commitments in the assetCommitment above, then Upsert. We should
+	// find that the version is now zero, since Upsert with an empty tree
+	// is actually a delete.
+	require.NoError(t, assetCommitment.Delete(asset2))
+	require.NoError(t, tapCommitment.Upsert(assetCommitment))
+
+	// Only a V0 asset remains now after the upsert, so the version should
+	// have reverted.
+	require.Equal(t, asset.V0, tapCommitment.Version)
+}
+
+// TestTapCommitmentDeleteMaxVersion tests that when we delete commitments, the
+// max version is also udpated.
+func TestTapCommitmentDeleteMaxVersion(t *testing.T) {
+	t.Parallel()
+
+	// We'll start with a random asset. We'll make sure this asset is
+	// version 0.
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis1, nil)
+	asset1.Version = asset.V0
+
+	// Next, we'll make another asset, this time with version 1.
+	genesis2 := asset.RandGenesis(t, asset.Normal)
+	asset2 := randAsset(t, genesis2, nil)
+	asset2.Version = asset.V1
+
+	// Next, we'll create a new commitment with both assets.
+	tapCommitment, err := FromAssets(asset1, asset2)
+	require.NoError(t, err)
+
+	// The version should be 1 as that's the max version of the assets.
+	require.Equal(t, asset.V1, tapCommitment.Version)
+
+	// Now we'll delete the asset with a version of 1. This should caause
+	// the version to go back down to v0.
+	v1Commitment, ok := tapCommitment.Commitment(asset2)
+	require.True(t, ok)
+	require.NoError(t, tapCommitment.Delete(v1Commitment))
+
+	require.Equal(t, asset.V0, tapCommitment.Version)
+}
+
+// TestAssetCommitmentUpsertMaxVersion tests that when we upsert with different
+// commitments, that the max version is properly updated.
+func TestAssetCommitmentUpsertMaxVersion(t *testing.T) {
+	t.Parallel()
+
+	// We'll start with a random asset. We'll make sure this asset is
+	// version 0.
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+	asset1.Version = asset.V0
+
+	// Next, we'll make another asset, this time with version 1.
+	asset2 := randAsset(t, genesis, nil)
+	asset2.Version = asset.V1
+
+	// Next, we'll create a new commitment with just the first asset.
+	assetCommitment, err := NewAssetCommitment(asset1)
+	require.NoError(t, err)
+
+	// The version should be zero, as the asset version is 0.
+	require.Equal(t, asset.V0, assetCommitment.Version)
+
+	// Next, we'll upsert the second asset, which should bump the version
+	// to v1.
+	require.NoError(t, assetCommitment.Upsert(asset2))
+
+	require.Equal(t, asset.V1, assetCommitment.Version)
+}
+
+// TestAssetCommitmentDeleteMaxVersion tests that when we delete commitments,
+// the max version is also udpated.
+func TestAssetCommitmentDeleteMaxVersion(t *testing.T) {
+	t.Parallel()
+
+	// We'll start with a random asset. We'll make sure this asset is
+	// version 0.
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+	asset1.Version = asset.V0
+
+	// Next, we'll make another asset, this time with version 1.
+	asset2 := randAsset(t, genesis, nil)
+	asset2.Version = asset.V1
+
+	// Next, we'll create a new commitment with both assets.
+	assetCommitment, err := NewAssetCommitment(asset1, asset2)
+	require.NoError(t, err)
+
+	// The version should be 1 as that's the max version of the assets.
+	require.Equal(t, asset.V1, assetCommitment.Version)
+
+	// Now we'll delete the asset with a version of 1. This should caause
+	// the version to go back down to v0.
+	require.NoError(t, assetCommitment.Delete(asset2))
+
+	require.Equal(t, asset.V0, assetCommitment.Version)
 }

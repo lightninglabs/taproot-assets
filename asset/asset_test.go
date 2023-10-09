@@ -739,3 +739,54 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 		})
 	}
 }
+
+// TestAssetEncodingNoWitness tests that we can properly encode and decode an
+// asset using the v1 version where the witness is not included.
+func TestAssetEncodingNoWitness(t *testing.T) {
+	t.Parallel()
+
+	// First, start by copying the root asset re-used across tests.
+	root := testRootAsset.Copy()
+
+	// We'll make another copy that we'll use to modify the witness field.
+	root2 := root.Copy()
+
+	// We'll now modify the witness field of the second root.
+	root2.PrevWitnesses[0].TxWitness[0][0] ^= 1
+
+	// If we encode both of these assets then, then final encoding should
+	// be identical as we use the EncodeNoWitness method.
+	var b1, b2 bytes.Buffer
+	require.NoError(t, root.EncodeNoWitness(&b1))
+	require.NoError(t, root2.EncodeNoWitness(&b2))
+
+	require.Equal(t, b1.Bytes(), b2.Bytes())
+
+	// The leaf encoding for these two should also be identical.
+	root1Leaf, err := root.Leaf()
+	require.NoError(t, err)
+	root2Leaf, err := root2.Leaf()
+	require.NoError(t, err)
+
+	require.Equal(t, root1Leaf.NodeHash(), root2Leaf.NodeHash())
+}
+
+// TestNewAssetWithCustomVersion tests that a custom version can be set for
+// newly created assets.
+func TestNewAssetWithCustomVersion(t *testing.T) {
+	t.Parallel()
+
+	// We'll use the root asset as a template, to re-use some of its static
+	// data.
+	rootAsset := testRootAsset.Copy()
+
+	const newVersion = 10
+
+	assetCustomVersion, err := New(
+		rootAsset.Genesis, rootAsset.Amount, 0, 0, rootAsset.ScriptKey, nil,
+		WithAssetVersion(newVersion),
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, int(assetCustomVersion.Version), newVersion)
+}

@@ -5,6 +5,7 @@ import (
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -59,16 +60,19 @@ func testBurnAssets(t *harnessTest) {
 	outputAmounts := []uint64{1100, 1200, 1600, 800, 300}
 	vPkt := tappsbt.ForInteractiveSend(
 		simpleAssetID, outputAmounts[0], scriptKey1, 0, anchorInternalKeyDesc1,
-		chainParams,
+		asset.V0, chainParams,
 	)
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[1], scriptKey2, 0, anchorInternalKeyDesc1,
+		asset.V0,
 	)
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[2], scriptKey3, 1, anchorInternalKeyDesc2,
+		asset.V0,
 	)
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[3], scriptKey4, 2, anchorInternalKeyDesc3,
+		asset.V0,
 	)
 
 	// We end up with a transfer with 5 outputs: 2 grouped into the first

@@ -90,6 +90,7 @@ func RandPacket(t testing.TB) *VPacket {
 		}},
 		Outputs: []*VOutput{{
 			Amount:                             123,
+			AssetVersion:                       asset.Version(test.RandIntn(2)),
 			Type:                               TypeSplitRoot,
 			Interactive:                        true,
 			AnchorOutputIndex:                  0,
@@ -101,9 +102,9 @@ func RandPacket(t testing.TB) *VPacket {
 			SplitAsset:                         testOutputAsset,
 			AnchorOutputTapscriptSibling:       testPreimage1,
 		}, {
-			Amount: 345,
-			Type:   TypeSplitRoot,
-
+			Amount:                             345,
+			AssetVersion:                       asset.Version(test.RandIntn(2)),
+			Type:                               TypeSplitRoot,
 			Interactive:                        false,
 			AnchorOutputIndex:                  1,
 			AnchorOutputInternalKey:            testPubKey,
@@ -431,6 +432,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 	vo := &TestVOutput{
 		Amount:            v.Amount,
 		Type:              uint8(v.Type),
+		AssetVersion:      uint32(v.AssetVersion),
 		Interactive:       v.Interactive,
 		AnchorOutputIndex: v.AnchorOutputIndex,
 		AnchorOutputInternalKey: test.HexPubKey(
@@ -513,6 +515,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 type TestVOutput struct {
 	Amount                        uint64                   `json:"amount"`
 	Type                          uint8                    `json:"type"`
+	AssetVersion                  uint32                   `json:"asset_version"`
 	Interactive                   bool                     `json:"interactive"`
 	AnchorOutputIndex             uint32                   `json:"anchor_output_index"`
 	AnchorOutputInternalKey       string                   `json:"anchor_output_internal_key"`
@@ -542,6 +545,7 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 		Amount:            to.Amount,
 		Type:              VOutputType(to.Type),
 		Interactive:       to.Interactive,
+		AssetVersion:      asset.Version(to.AssetVersion),
 		AnchorOutputIndex: to.AnchorOutputIndex,
 		AnchorOutputInternalKey: test.ParsePubKey(
 			t, to.AnchorOutputInternalKey,

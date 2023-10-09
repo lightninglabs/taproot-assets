@@ -325,9 +325,11 @@ func RandID(t testing.TB) ID {
 
 // NewAssetNoErr creates an asset and fails the test if asset creation fails.
 func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
-	scriptKey ScriptKey, groupKey *GroupKey) *Asset {
+	scriptKey ScriptKey, groupKey *GroupKey, opts ...NewAssetOpt) *Asset {
 
-	a, err := New(gen, amt, locktime, relocktime, scriptKey, groupKey)
+	a, err := New(
+		gen, amt, locktime, relocktime, scriptKey, groupKey, opts...,
+	)
 	require.NoError(t, err)
 
 	return a
@@ -345,6 +347,7 @@ func RandAsset(t testing.TB, assetType Type) *Asset {
 	return NewAssetNoErr(
 		t, genesis, protoAsset.Amount, protoAsset.LockTime,
 		protoAsset.RelativeLockTime, scriptKey, familyKey,
+		WithAssetVersion(protoAsset.Version),
 	)
 }
 
@@ -367,7 +370,15 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 		t.Fatal("unhandled asset type", genesis.Type)
 	}
 
-	a, err := New(genesis, units, 0, 0, scriptKey, groupKey)
+	var assetVersion Version
+	if test.RandInt[uint8]()%2 == 0 {
+		assetVersion = V1
+	}
+
+	a, err := New(
+		genesis, units, 0, 0, scriptKey, groupKey,
+		WithAssetVersion(assetVersion),
+	)
 	require.NoError(t, err)
 
 	return a

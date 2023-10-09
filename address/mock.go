@@ -68,10 +68,15 @@ func RandAddr(t testing.TB, params *ChainParams,
 		)
 	}
 
+	var assetVersion asset.Version
+	if test.RandInt[uint32]()%2 == 0 {
+		assetVersion = asset.V1
+	}
+
 	tapAddr, err := New(
 		V0, genesis, groupPubKey, groupWitness, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
-		proofCourierAddr,
+		proofCourierAddr, WithAssetVersion(assetVersion),
 	)
 	require.NoError(t, err)
 

@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/urfave/cli"
 )
@@ -29,6 +30,8 @@ const (
 	groupKeyName = "group_key"
 
 	amtName = "amt"
+
+	assetVersionName = "asset_version"
 )
 
 var newAddrCommand = cli.Command{
@@ -45,6 +48,10 @@ var newAddrCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  amtName,
 			Usage: "the amt of the asset to receive",
+		},
+		cli.Uint64Flag{
+			Name:  assetVersionName,
+			Usage: "the asset version of the asset to receive",
 		},
 	},
 	Action: newAddr,
@@ -65,9 +72,17 @@ func newAddr(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	assetVersion, err := taprpc.MarshalAssetVersion(
+		asset.Version(ctx.Uint64(assetVersionName)),
+	)
+	if err != nil {
+		return err
+	}
+
 	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
-		AssetId: assetID,
-		Amt:     ctx.Uint64(amtName),
+		AssetId:      assetID,
+		Amt:          ctx.Uint64(amtName),
+		AssetVersion: assetVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)

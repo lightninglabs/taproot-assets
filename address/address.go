@@ -121,6 +121,31 @@ type Tap struct {
 	ProofCourierAddr url.URL
 }
 
+// newAddrOptions are a set of options that can modified how a new address is
+// created.
+type newAddrOptions struct {
+	assetVersion asset.Version
+}
+
+// defaultNewAddrOptions returns a newAddrOptions struct with default values.`
+func defaultNewAddrOptions() *newAddrOptions {
+	return &newAddrOptions{
+		assetVersion: asset.V0,
+	}
+}
+
+// NewAddrOpt is a functional option that allows callers to modify how a new
+// address will be created.
+type NewAddrOpt func(*newAddrOptions)
+
+// WithAssetVersion is a new address option that allows callers to specify the
+// version of the asset version in the address.
+func WithAssetVersion(v asset.Version) NewAddrOpt {
+	return func(o *newAddrOptions) {
+		o.assetVersion = v
+	}
+}
+
 // New creates an address for receiving a Taproot asset.
 //
 // TODO(ffranr): This function takes many arguments. Add a struct to better
@@ -129,7 +154,13 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupWitness wire.TxWitness, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	net *ChainParams, proofCourierAddr url.URL) (*Tap, error) {
+	net *ChainParams, proofCourierAddr url.URL,
+	opts ...NewAddrOpt) (*Tap, error) {
+
+	options := defaultNewAddrOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	// Check for invalid combinations of asset type and amount.
 	// Collectible assets must have an amount of 1, and Normal assets must
@@ -174,7 +205,7 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	payload := Tap{
 		Version:          version,
 		ChainParams:      net,
-		AssetVersion:     asset.V0,
+		AssetVersion:     options.assetVersion,
 		AssetID:          genesis.ID(),
 		GroupKey:         groupKey,
 		ScriptKey:        scriptKey,
@@ -250,6 +281,7 @@ func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 	newAsset, err := asset.New(
 		a.assetGen, a.Amount, 0, 0, asset.NewScriptKey(&a.ScriptKey),
 		groupKey,
+		asset.WithAssetVersion(a.AssetVersion),
 	)
 	if err != nil {
 		return nil, err

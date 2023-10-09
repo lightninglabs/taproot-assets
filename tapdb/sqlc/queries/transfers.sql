@@ -22,9 +22,9 @@ INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
-    output_type, proof_courier_addr
+    output_type, proof_courier_addr, asset_version
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 );
 
 -- name: QueryAssetTransfers :many
@@ -54,7 +54,7 @@ ORDER BY input_id;
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    output_type, proof_courier_addr,
+    output_type, proof_courier_addr, asset_version,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
@@ -84,7 +84,7 @@ ORDER BY output_id;
 
 -- name: ApplyPendingOutput :one
 WITH spent_asset AS (
-    SELECT genesis_id, version, asset_group_witness_id, script_version, lock_time,
+    SELECT genesis_id, asset_group_witness_id, script_version, lock_time,
            relative_lock_time
     FROM assets
     WHERE assets.asset_id = @spent_asset_id
@@ -95,7 +95,7 @@ INSERT INTO assets (
     split_commitment_root_hash, split_commitment_root_value, spent
 ) VALUES (
     (SELECT genesis_id FROM spent_asset),
-    (SELECT version FROM spent_asset),
+    @asset_version,
     (SELECT asset_group_witness_id FROM spent_asset),
     (SELECT script_version FROM spent_asset),
     (SELECT lock_time FROM spent_asset),
@@ -143,16 +143,16 @@ WITH target_asset(asset_id) AS (
 )
 INSERT INTO passive_assets (
     asset_id, transfer_id, new_anchor_utxo, script_key, new_witness_stack,
-    new_proof
+    new_proof, asset_version
 ) VALUES (
     (SELECT asset_id FROM target_asset), @transfer_id, @new_anchor_utxo,
-    @script_key, @new_witness_stack, @new_proof
+    @script_key, @new_witness_stack, @new_proof, @asset_version
 );
 
 -- name: QueryPassiveAssets :many
 SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
        passive.new_witness_stack, passive.new_proof,
-       genesis_assets.asset_id AS genesis_id
+       genesis_assets.asset_id AS genesis_id, passive.asset_version
 FROM passive_assets as passive
     JOIN assets
         ON passive.asset_id = assets.asset_id

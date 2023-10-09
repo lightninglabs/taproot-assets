@@ -65,6 +65,9 @@ type SeedlingUpdates chan SeedlingUpdate
 // Seedling is an adolescent Taproot asset that will one day bloom into a fully
 // grown plant.
 type Seedling struct {
+	// AssetVersion is the version of the asset to be created.
+	AssetVersion asset.Version
+
 	// AssetType is the type of the asset.
 	AssetType asset.Type
 
@@ -147,6 +150,7 @@ func (c Seedling) HasGroupKey() bool {
 
 // String returns a human-readable representation for the AssetSeedling.
 func (c Seedling) String() string {
-	return fmt.Sprintf("AssetSeedling(name=%v, type=%v, amt=%v) received",
-		c.AssetName, c.AssetType, c.Amount)
+	return fmt.Sprintf("AssetSeedling(name=%v, type=%v, amt=%v, "+
+		"version=%v) received",
+		c.AssetName, c.AssetType, c.Amount, c.AssetVersion)
 }

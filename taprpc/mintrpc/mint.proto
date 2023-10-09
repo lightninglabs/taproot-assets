@@ -62,6 +62,11 @@ message MintAsset {
     This asset will be minted with the same group key as the anchor asset.
     */
     string group_anchor = 6;
+
+    /*
+    The version of asset to mint.
+    */
+    taprpc.AssetVersion asset_version = 7;
 }
 
 message MintAssetRequest {

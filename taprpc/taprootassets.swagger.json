@@ -842,6 +842,10 @@
         "proof_courier_addr": {
           "type": "string",
           "description": "The address of the proof courier service used in proof transfer."
+        },
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The asset version of the address."
         }
       }
     },
@@ -968,8 +972,7 @@
       "type": "object",
       "properties": {
         "version": {
-          "type": "integer",
-          "format": "int32",
+          "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The version of the Taproot Asset."
         },
         "asset_genesis": {
@@ -1131,6 +1134,10 @@
         "type": {
           "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset."
+        },
+        "version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The version of the asset."
         }
       }
     },
@@ -1205,6 +1212,15 @@
       ],
       "default": "NORMAL",
       "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
+    "taprpcAssetVersion": {
+      "type": "string",
+      "enum": [
+        "ASSET_VERSION_V0",
+        "ASSET_VERSION_V1"
+      ],
+      "default": "ASSET_VERSION_V0",
+      "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
     },
     "taprpcBurnAssetRequest": {
       "type": "object",
@@ -1644,6 +1660,10 @@
         "proof_courier_addr": {
           "type": "string",
           "description": "An optional proof courier address for use in proof transfer. If unspecified,\nthe daemon configured default address will be used."
+        },
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The asset version to use when sending/receiving to/from this address."
         }
       }
     },
@@ -1861,6 +1881,9 @@
         },
         "output_type": {
           "$ref": "#/definitions/taprpcOutputType"
+        },
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion"
         }
       }
     },

@@ -1071,7 +1071,10 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 
 		// Break if we've reached the genesis point (the asset is the
 		// genesis asset).
-		if transitionProof.Asset.HasGenesisWitness() {
+		asset := transitionProof.Asset
+		if asset.HasGenesisWitness() ||
+			asset.HasGenesisWitnessForGroup() {
+
 			break
 		}
 

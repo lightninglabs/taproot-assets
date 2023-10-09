@@ -491,6 +491,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		if groupInfo != nil || seedling.EnableEmission {
 			protoAsset, err = asset.New(
 				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+				asset.WithAssetVersion(seedling.AssetVersion),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
@@ -543,6 +544,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		newAsset, err := asset.New(
 			assetGen, amount, 0, 0, tweakedScriptKey,
 			sproutGroupKey,
+			asset.WithAssetVersion(seedling.AssetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %w",

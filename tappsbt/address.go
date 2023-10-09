@@ -61,6 +61,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 		addr := receiverAddrs[idx]
 
 		pkt.Outputs = append(pkt.Outputs, &VOutput{
+			AssetVersion:      addr.AssetVersion,
 			Amount:            addr.Amount,
 			Interactive:       false,
 			AnchorOutputIndex: firstOutputIndex + uint32(idx),
@@ -84,6 +85,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 // added by the funding API.
 func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor,
+	assetVersion asset.Version,
 	chainParams *address.ChainParams) *VPacket {
 
 	vPkt := &VPacket{
@@ -94,6 +96,7 @@ func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 		}},
 		Outputs: []*VOutput{{
 			Amount:            amount,
+			AssetVersion:      assetVersion,
 			Interactive:       true,
 			AnchorOutputIndex: outputIndex,
 			ScriptKey:         scriptAddr,
@@ -109,9 +112,11 @@ func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 
 // AddOutput adds an interactive output to the given packet.
 func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
-	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor) {
+	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor,
+	assetVersion asset.Version) {
 
 	vOut := &VOutput{
+		AssetVersion:      assetVersion,
 		Type:              TypeSimple,
 		Amount:            amount,
 		Interactive:       true,
@@ -160,6 +165,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 		}},
 		Outputs: []*VOutput{{
 			Asset:             outputAsset,
+			AssetVersion:      outputAsset.Version,
 			Amount:            outputAsset.Amount,
 			Interactive:       true,
 			AnchorOutputIndex: 0,

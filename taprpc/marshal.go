@@ -2,6 +2,7 @@ package taprpc
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -13,6 +14,40 @@ type KeyLookup interface {
 	// IsLocalKey returns true if the key is under the control of the
 	// wallet and can be derived by it.
 	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
+}
+
+// UnmarshalAssetVersion parses an asset version from the RPC variant.
+func UnmarshalAssetVersion(version AssetVersion) (asset.Version, error) {
+	// For now we'll only support two asset versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case AssetVersion_ASSET_VERSION_V0:
+		return asset.V0, nil
+
+	case AssetVersion_ASSET_VERSION_V1:
+		return asset.V1, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset version: %v", version)
+	}
+}
+
+// MarshalAssetVersion parses an asset version from the RPC variant.
+func MarshalAssetVersion(version asset.Version) (AssetVersion, error) {
+	// For now we'll only support two asset versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case asset.V0:
+		return AssetVersion_ASSET_VERSION_V0, nil
+
+	case asset.V1:
+		return AssetVersion_ASSET_VERSION_V1, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset version: %v", version)
+	}
 }
 
 // MarshalAsset converts an asset to its rpc representation.
@@ -28,14 +63,20 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		)
 	}
 
+	assetVersion, err := MarshalAssetVersion(a.Version)
+	if err != nil {
+		return nil, err
+	}
+
 	rpcAsset := &Asset{
-		Version: int32(a.Version),
+		Version: assetVersion,
 		AssetGenesis: &GenesisInfo{
 			GenesisPoint: a.Genesis.FirstPrevOut.String(),
 			Name:         a.Genesis.Tag,
 			MetaHash:     a.Genesis.MetaHash[:],
 			AssetId:      assetID[:],
 			OutputIndex:  a.Genesis.OutputIndex,
+			Version:      int32(assetVersion),
 		},
 		AssetType:        AssetType(a.Type),
 		Amount:           a.Amount,

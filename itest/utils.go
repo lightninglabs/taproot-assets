@@ -232,6 +232,7 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 			AssetTypeCheck(assetRequest.Asset.AssetType),
 			AssetAnchorCheck(*hashes[0], zeroHash),
 			AssetScriptKeyIsLocalCheck(true),
+			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 		)
 	}
 

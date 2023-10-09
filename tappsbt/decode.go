@@ -230,39 +230,60 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	}
 
 	anchorOutputIndex := uint64(o.AnchorOutputIndex)
-	mapping := []decoderMapping{{
-		key:     PsbtKeyTypeOutputTapType,
-		decoder: tlvDecoder(&o.Type, vOutputTypeDecoder),
-	}, {
-		key:     PsbtKeyTypeOutputTapIsInteractive,
-		decoder: booleanDecoder(&o.Interactive),
-	}, {
-		key:     PsbtKeyTypeOutputTapAnchorOutputIndex,
-		decoder: tlvDecoder(&anchorOutputIndex, tlv.DUint64),
-	}, {
-		key:     PsbtKeyTypeOutputTapAnchorOutputInternalKey,
-		decoder: tlvDecoder(&o.AnchorOutputInternalKey, tlv.DPubKey),
-	}, {
-		key:     PsbtKeyTypeOutputTapAnchorOutputBip32Derivation,
-		decoder: bip32DerivationDecoder(&o.AnchorOutputBip32Derivation),
-	}, {
-		key: PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation,
-		decoder: taprootBip32DerivationDecoder(
-			&o.AnchorOutputTaprootBip32Derivation,
-		),
-	}, {
-		key:     PsbtKeyTypeOutputTapAsset,
-		decoder: assetDecoder(&o.Asset),
-	}, {
-		key:     PsbtKeyTypeOutputTapSplitAsset,
-		decoder: assetDecoder(&o.SplitAsset),
-	}, {
-		key: PsbtKeyTypeOutputTapAnchorTapscriptSibling,
-		decoder: tlvDecoder(
-			&o.AnchorOutputTapscriptSibling,
-			commitment.TapscriptPreimageDecoder,
-		),
-	}}
+	mapping := []decoderMapping{
+		{
+			key:     PsbtKeyTypeOutputTapType,
+			decoder: tlvDecoder(&o.Type, vOutputTypeDecoder),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapIsInteractive,
+			decoder: booleanDecoder(&o.Interactive),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAnchorOutputIndex,
+			decoder: tlvDecoder(&anchorOutputIndex, tlv.DUint64),
+		},
+		{
+			key: PsbtKeyTypeOutputTapAnchorOutputInternalKey,
+			decoder: tlvDecoder(
+				&o.AnchorOutputInternalKey, tlv.DPubKey,
+			),
+		},
+		{
+			key: PsbtKeyTypeOutputTapAnchorOutputBip32Derivation,
+			decoder: bip32DerivationDecoder(
+				&o.AnchorOutputBip32Derivation,
+			),
+		},
+		{
+			//nolint:lll
+			key: PsbtKeyTypeOutputTapAnchorOutputTaprootBip32Derivation,
+			decoder: taprootBip32DerivationDecoder(
+				&o.AnchorOutputTaprootBip32Derivation,
+			),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAsset,
+			decoder: assetDecoder(&o.Asset),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapSplitAsset,
+			decoder: assetDecoder(&o.SplitAsset),
+		},
+		{
+			key: PsbtKeyTypeOutputTapAnchorTapscriptSibling,
+			decoder: tlvDecoder(
+				&o.AnchorOutputTapscriptSibling,
+				commitment.TapscriptPreimageDecoder,
+			),
+		},
+		{
+			key: PsbtKeyTypeOutputAssetVersion,
+			decoder: tlvDecoder(
+				&o.AssetVersion, vOutputAssetVersionDecoder,
+			),
+		},
+	}
 
 	for idx := range mapping {
 		unknown, err := findCustomFieldsByKeyPrefix(
@@ -424,4 +445,21 @@ func vOutputTypeDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "VOutputType", 8, l)
+}
+
+// vOutputAssetVersionDecoder is a TLV decoder function that decodes from the
+// given reader into an asset version.
+func vOutputAssetVersionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*asset.Version); ok {
+		var num uint8
+		err := tlv.DUint8(r, &num, buf, l)
+		if err != nil {
+			return err
+		}
+		*typ = asset.Version(num)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "VOutputAssetVersion", 8, l)
 }

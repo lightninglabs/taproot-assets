@@ -194,6 +194,9 @@ type TransferOutput struct {
 	// Amount is the new amount for the asset.
 	Amount uint64
 
+	// AssetVersion is the new asset version for this output.
+	AssetVersion asset.Version
+
 	// WitnessData is the new witness data for this asset.
 	WitnessData []asset.Witness
 
@@ -290,6 +293,10 @@ type PassiveAssetReAnchor struct {
 	// re-anchoring. This field is used to identify the correct asset to
 	// update.
 	ScriptKey asset.ScriptKey
+
+	// AssetVersion is the version of this passive asset. We make this
+	// explicit as the asset may have been upgraded during the re-anchor.
+	AssetVersion asset.Version
 
 	// NewProof is the proof set of the re-anchored passive asset.
 	NewProof *proof.Proof

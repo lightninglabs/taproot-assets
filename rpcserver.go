@@ -318,12 +318,24 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
+	assetVersion, err := taprpc.UnmarshalAssetVersion(
+		req.Asset.AssetVersion,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	seedling := &tapgarden.Seedling{
+		AssetVersion:   assetVersion,
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
 		Amount:         req.Asset.Amount,
 		EnableEmission: req.EnableEmission,
 	}
+
+	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
+		"issuance=%v", seedling.AssetVersion, seedling.AssetType,
+		seedling.AssetName, seedling.Amount, seedling.EnableEmission)
 
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
@@ -785,8 +797,17 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 	// Populate the map of group keys to assets in that group.
 	for _, a := range readableAssets {
 		groupKey := hex.EncodeToString(a.GroupKey.SerializeCompressed())
+
+		assetVersion, err := taprpc.MarshalAssetVersion(
+			a.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		asset := &taprpc.AssetHumanReadable{
 			Id:               a.ID[:],
+			Version:          assetVersion,
 			Amount:           a.Amount,
 			LockTime:         int32(a.LockTime),
 			RelativeLockTime: int32(a.RelativeLockTime),
@@ -983,6 +1004,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, fmt.Errorf("invalid tapscript sibling: %w", err)
 	}
 
+	assetVersion, err := taprpc.UnmarshalAssetVersion(req.AssetVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -992,6 +1018,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		addr, err = r.cfg.AddrBook.NewAddress(
 			ctx, assetID, req.Amt, tapscriptSibling,
 			proofCourierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1032,6 +1059,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
 			ctx, assetID, req.Amt, *scriptKey, internalKey,
 			tapscriptSibling, proofCourierAddr,
+			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1755,8 +1783,14 @@ func marshalAddr(addr *address.Tap,
 			err)
 	}
 
+	assetVersion, err := taprpc.MarshalAssetVersion(addr.AssetVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	id := addr.AssetID
 	rpcAddr := &taprpc.Addr{
+		AssetVersion:     assetVersion,
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		Amount:           addr.Amount,
@@ -2061,6 +2095,13 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
+		assetVersion, err := taprpc.MarshalAssetVersion(
+			out.AssetVersion,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		rpcOutputs[idx] = &taprpc.TransferOutput{
 			Anchor:              rpcAnchor,
 			ScriptKey:           scriptPubKey.SerializeCompressed(),
@@ -2069,6 +2110,7 @@ func marshalOutboundParcel(
 			NewProofBlob:        out.ProofSuffix,
 			SplitCommitRootHash: splitCommitRoot,
 			OutputType:          rpcOutType,
+			AssetVersion:        assetVersion,
 		}
 	}
 
@@ -2240,12 +2282,20 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			}
 		}
 
+		assetVersion, err := taprpc.MarshalAssetVersion(
+			seedling.AssetVersion,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		rpcBatch.Assets = append(rpcBatch.Assets, &mintrpc.MintAsset{
-			AssetType: taprpc.AssetType(seedling.AssetType),
-			Name:      seedling.AssetName,
-			AssetMeta: seedlingMeta,
-			Amount:    seedling.Amount,
-			GroupKey:  groupKeyBytes,
+			AssetType:    taprpc.AssetType(seedling.AssetType),
+			AssetVersion: assetVersion,
+			Name:         seedling.AssetName,
+			AssetMeta:    seedlingMeta,
+			Amount:       seedling.Amount,
+			GroupKey:     groupKeyBytes,
 		})
 	}
 

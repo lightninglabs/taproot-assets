@@ -417,6 +417,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		newAsset, err := asset.New(
 			assetGen, amount, 0, 0, tweakedScriptKey, groupKey,
+			asset.WithAssetVersion(seedling.AssetVersion),
 		)
 		require.NoError(t, err)
 
@@ -567,12 +568,37 @@ func TestAddSproutsToBatch(t *testing.T) {
 	// We also expect that for each of the assets we created above, we're
 	// able to obtain the asset meta for them all.
 	require.Len(t, mintingBatches[0].AssetMetas, numSeedlings)
+
+	// The number of assets in the batch should match the seedlings we
+	// inserted.
+	allAssets := mintingBatches[0].RootAssetCommitment.CommittedAssets()
+	require.Equal(t, numSeedlings, len(allAssets))
+
+	// For each inserted asset, the asset version should match the
+	// corresponding seedling.
+	require.True(t, fn.All(allAssets, func(a *asset.Asset) bool {
+		seedling, ok := mintingBatch.Seedlings[a.Genesis.Tag]
+		if !ok {
+			// We should find the seedlings.
+			return false
+		}
+
+		return a.Version == seedling.AssetVersion
+	}))
+}
+
+type randAssetCtx struct {
+	batchKey     *btcec.PublicKey
+	groupKey     *btcec.PublicKey
+	groupGenAmt  uint64
+	genesisPkt   *tapgarden.FundedPsbt
+	scriptRoot   []byte
+	assetRoot    *commitment.TapCommitment
+	mintingBatch *tapgarden.MintingBatch
 }
 
 func addRandAssets(t *testing.T, ctx context.Context,
-	assetStore *AssetMintingStore,
-	numAssets int) (*btcec.PublicKey, *btcec.PublicKey, uint64,
-	*tapgarden.FundedPsbt, []byte, *commitment.TapCommitment) {
+	assetStore *AssetMintingStore, numAssets int) randAssetCtx {
 
 	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numAssets)
 	genAmt, seedlingGroups, group := addRandGroupToBatch(
@@ -592,8 +618,16 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	))
 
 	scriptRoot := assetRoot.TapscriptRoot(nil)
-	return batchKey, &group.GroupKey.GroupPubKey, genAmt,
-		genesisPacket, scriptRoot[:], assetRoot
+
+	return randAssetCtx{
+		batchKey:     batchKey,
+		groupKey:     &group.GroupKey.GroupPubKey,
+		groupGenAmt:  genAmt,
+		genesisPkt:   genesisPacket,
+		scriptRoot:   scriptRoot[:],
+		assetRoot:    assetRoot,
+		mintingBatch: mintingBatch,
+	}
 }
 
 // TestCommitBatchChainActions tests that we're able to properly write a signed
@@ -610,21 +644,23 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// First, we'll create a new batch, then add some sample seedlings, and
 	// then those seedlings as assets.
-	batchKey, groupKey, groupGenAmt, genesisPkt, scriptRoot, assetRoot :=
-		addRandAssets(t, ctx, assetStore, numSeedlings)
+	//
+	// nolint:lll
+	randAssetCtx := addRandAssets(t, ctx, assetStore, numSeedlings)
 
 	// The packet needs to be finalized, so we'll insert a fake
 	// FinalScriptSig. The FinalScriptSig doesn't need to be well formed,
 	// so we get by w/ this.
 	//
 	// TODO(roasbeef): move the tx extraction up one layer?
-	genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
+	randAssetCtx.genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
 
 	// With our assets inserted, we'll now commit the signed genesis packet
 	// to disk, along with the Taproot Asset script root that's stored
 	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
-		ctx, batchKey, genesisPkt, 2, scriptRoot,
+		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 2,
+		randAssetCtx.scriptRoot,
 	))
 
 	// The batch updated above should be found, with the batch state
@@ -634,10 +670,12 @@ func TestCommitBatchChainActions(t *testing.T) {
 	assertBatchState(
 		t, mintingBatches[0], tapgarden.BatchStateBroadcast,
 	)
-	assertPsbtEqual(t, genesisPkt, mintingBatches[0].GenesisPacket)
+	assertPsbtEqual(
+		t, randAssetCtx.genesisPkt, mintingBatches[0].GenesisPacket,
+	)
 
 	var rawTxBytes bytes.Buffer
-	rawGenTx, err := psbt.Extract(genesisPkt.Pkt)
+	rawGenTx, err := psbt.Extract(randAssetCtx.genesisPkt.Pkt)
 	require.NoError(t, err)
 	require.NoError(t, rawGenTx.Serialize(&rawTxBytes))
 
@@ -650,7 +688,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, genTXID[:], dbGenTx.Txid[:])
 	require.Equal(t, rawTxBytes.Bytes(), dbGenTx.RawTx)
-	require.Equal(t, genesisPkt.ChainFees, dbGenTx.ChainFees)
+	require.Equal(t, randAssetCtx.genesisPkt.ChainFees, dbGenTx.ChainFees)
 
 	// Now that we have the primary key for the chain transaction inserted
 	// above, we'll use that to confirm that the managed UTXO has been
@@ -659,7 +697,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 		TxnID: sqlInt64(dbGenTx.TxnID),
 	})
 	require.NoError(t, err)
-	require.Equal(t, scriptRoot, managedUTXO.MerkleRoot)
+	require.Equal(t, randAssetCtx.scriptRoot, managedUTXO.MerkleRoot)
 
 	// Next, we'll confirm that all the assets inserted previously now are
 	// able to be queried according to the anchor UTXO primary key.
@@ -676,7 +714,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// For each asset created above, we'll make a fake proof file for it.
 	assetProofs := make(proof.AssetBlobs)
-	for _, a := range assetRoot.CommittedAssets() {
+	for _, a := range randAssetCtx.assetRoot.CommittedAssets() {
 		blob := make([]byte, 100)
 		_, err := rand.Read(blob[:])
 		require.NoError(t, err)
@@ -690,8 +728,8 @@ func TestCommitBatchChainActions(t *testing.T) {
 	blockHeight := uint32(20)
 	txIndex := uint32(5)
 	require.NoError(t, assetStore.MarkBatchConfirmed(
-		ctx, batchKey, &fakeBlockHash, blockHeight, txIndex,
-		assetProofs,
+		ctx, randAssetCtx.batchKey, &fakeBlockHash, blockHeight,
+		txIndex, assetProofs,
 	))
 
 	// We'll now fetch the chain transaction again, to confirm that all the
@@ -729,6 +767,27 @@ func TestCommitBatchChainActions(t *testing.T) {
 	})
 	require.Equal(t, ungroupedCount, genesisWitnessCount)
 
+	// All the assets should also have a matching asset version as the
+	// seedlings we created.
+	mintingBatch := randAssetCtx.mintingBatch
+	require.True(t, fn.All(assets, func(dbAsset *ChainAsset) bool {
+		seedling, ok := mintingBatch.Seedlings[dbAsset.Genesis.Tag]
+		if !ok {
+			t.Logf("seedling for %v not found",
+				dbAsset.Genesis.Tag)
+			return ok
+		}
+
+		if seedling.AssetVersion != dbAsset.Version {
+			t.Logf("asset version mismatch for %v: expected %v, "+
+				"got %v", dbAsset.Genesis.Tag,
+				seedling.AssetVersion, dbAsset.Version)
+			return false
+		}
+
+		return true
+	}))
+
 	// Now that the batch has been committed on disk, we should be able to
 	// obtain all the proofs we just committed.
 	diskProofs, err := confAssets.FetchAssetProofs(ctx)
@@ -749,7 +808,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, assetProofs, diskProofs)
 
-	mintedAssets := assetRoot.CommittedAssets()
+	mintedAssets := randAssetCtx.assetRoot.CommittedAssets()
 
 	// We'll now query for the set of balances to ensure they all line up
 	// with the assets we just created, including the group genesis asset.
@@ -779,7 +838,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, numKeyGroups, len(assetBalancesByGroup))
-	existingGroupKey := asset.ToSerialized(groupKey)
+	existingGroupKey := asset.ToSerialized(randAssetCtx.groupKey)
 
 	for _, newAsset := range mintedAssets {
 		if newAsset.GroupKey == nil {
@@ -794,7 +853,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 		// of the group genesis asset must be deducted from the group
 		// balance before comparing to the minted asset.
 		if bytes.Equal(groupKey[:], existingGroupKey[:]) {
-			assetBalance.Balance -= groupGenAmt
+			assetBalance.Balance -= randAssetCtx.groupGenAmt
 		}
 
 		require.Equal(t, newAsset.Amount, assetBalance.Balance)

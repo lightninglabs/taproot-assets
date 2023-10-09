@@ -431,6 +431,9 @@ type AssetHumanReadable struct {
 	// ID is the unique identifier for the asset.
 	ID asset.ID
 
+	// Version is the version of the asset.
+	Version asset.Version
+
 	// Amount is the number of units represented by the asset.
 	Amount uint64
 
@@ -666,6 +669,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		assetSprout, err := asset.New(
 			assetGenesis, amount, lockTime, relativeLocktime,
 			scriptKey, groupKey,
+			asset.WithAssetVersion(asset.Version(sprout.Version)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
@@ -1023,6 +1027,7 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 
 		groupedAssets[i] = &AssetHumanReadable{
 			ID:               assetID,
+			Version:          asset.Version(a.AssetVersion),
 			Amount:           amount,
 			LockTime:         lockTime,
 			RelativeLockTime: relativeLockTime,
@@ -2137,6 +2142,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		ScriptKey:           scriptKeyID,
 		ScriptKeyLocal:      output.ScriptKeyLocal,
 		Amount:              int64(output.Amount),
+		AssetVersion:        int32(output.AssetVersion),
 		SerializedWitnesses: witnessBuf.Bytes(),
 		ProofSuffix:         output.ProofSuffix,
 		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
@@ -2246,7 +2252,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 					dbOut.NumPassiveAssets,
 				),
 			},
-			Amount: uint64(dbOut.Amount),
+			Amount:       uint64(dbOut.Amount),
+			AssetVersion: asset.Version(dbOut.AssetVersion),
 			ScriptKey: asset.ScriptKey{
 				PubKey: scriptKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
@@ -2331,6 +2338,7 @@ func logPendingPassiveAssets(ctx context.Context,
 				PrevOutpoint:    prevOutpointBytes,
 				ScriptKey:       scriptKeyBytes,
 				AssetGenesisID:  passiveAsset.GenesisID[:],
+				AssetVersion:    int32(passiveAsset.AssetVersion),
 			},
 		)
 		if err != nil {
@@ -2519,12 +2527,16 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
 				SpentAssetID:             templateID,
 				Spent:                    isTombstone || isBurn,
+				AssetVersion:             out.AssetVersion,
 			}
 			newAssetID, err := q.ApplyPendingOutput(ctx, params)
 			if err != nil {
 				return fmt.Errorf("unable to apply pending "+
 					"output: %w", err)
 			}
+
+			// TODO(roasbeef): asset version needed above?
+			// * passive send from v0 -> v1
 
 			// With the old witnesses removed, we'll insert the new
 			// set on disk.
