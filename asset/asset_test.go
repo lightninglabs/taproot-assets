@@ -231,6 +231,102 @@ func TestGroupKeyIsEqual(t *testing.T) {
 	}
 }
 
+// TestGenesisAssetClassification tests that the multiple forms of genesis asset
+// are recognized correctly.
+func TestGenesisAssetClassification(t *testing.T) {
+	t.Parallel()
+
+	baseGen := RandGenesis(t, Normal)
+	baseScriptKey := RandScriptKey(t)
+	baseAsset := RandAssetWithValues(t, baseGen, nil, baseScriptKey)
+	assetValidGroup := RandAsset(t, Collectible)
+	assetNeedsWitness := baseAsset.Copy()
+	assetNeedsWitness.GroupKey = &GroupKey{
+		GroupPubKey: *test.RandPubKey(t),
+	}
+	nonGenAsset := baseAsset.Copy()
+	nonGenAsset.PrevWitnesses = []Witness{{
+		PrevID: &PrevID{
+			OutPoint: wire.OutPoint{
+				Hash:  hashBytes1,
+				Index: 1,
+			},
+			ID:        hashBytes1,
+			ScriptKey: ToSerialized(pubKey),
+		},
+		TxWitness:       sigWitness,
+		SplitCommitment: nil,
+	}}
+	groupMemberNonGen := nonGenAsset.Copy()
+	groupMemberNonGen.GroupKey = &GroupKey{
+		GroupPubKey: *test.RandPubKey(t),
+	}
+	splitAsset := nonGenAsset.Copy()
+	splitAsset.PrevWitnesses[0].TxWitness = nil
+	splitAsset.PrevWitnesses[0].SplitCommitment = &SplitCommitment{}
+
+	tests := []struct {
+		name                                string
+		genAsset                            *Asset
+		isGenesis, needsWitness, hasWitness bool
+	}{
+		{
+			name:         "group anchor with witness",
+			genAsset:     assetValidGroup,
+			isGenesis:    false,
+			needsWitness: false,
+			hasWitness:   true,
+		},
+		{
+			name:         "ungrouped genesis asset",
+			genAsset:     baseAsset,
+			isGenesis:    true,
+			needsWitness: false,
+			hasWitness:   false,
+		},
+		{
+			name:         "group anchor without witness",
+			genAsset:     assetNeedsWitness,
+			isGenesis:    true,
+			needsWitness: true,
+			hasWitness:   false,
+		},
+		{
+			name:         "non-genesis asset",
+			genAsset:     nonGenAsset,
+			isGenesis:    false,
+			needsWitness: false,
+			hasWitness:   false,
+		},
+		{
+			name:         "non-genesis grouped asset",
+			genAsset:     groupMemberNonGen,
+			isGenesis:    false,
+			needsWitness: false,
+			hasWitness:   false,
+		},
+		{
+			name:         "split asset",
+			genAsset:     splitAsset,
+			isGenesis:    false,
+			needsWitness: false,
+			hasWitness:   false,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+		a := testCase.genAsset
+
+		hasGenWitness := a.HasGenesisWitness()
+		require.Equal(t, testCase.isGenesis, hasGenWitness)
+		needsGroupWitness := a.NeedsGenesisWitnessForGroup()
+		require.Equal(t, testCase.needsWitness, needsGroupWitness)
+		hasGroupWitness := a.HasGenesisWitnessForGroup()
+		require.Equal(t, testCase.hasWitness, hasGroupWitness)
+	}
+}
+
 // TestValidateAssetName tests that asset names are validated correctly.
 func TestValidateAssetName(t *testing.T) {
 	t.Parallel()
@@ -510,11 +606,12 @@ func TestAssetGroupKey(t *testing.T) {
 	t.Parallel()
 
 	privKey, err := btcec.NewPrivateKey()
+	groupPub := privKey.PubKey()
 	require.NoError(t, err)
 	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
 	genSigner := NewMockGenesisSigner(privKeyCopy)
 	genBuilder := MockGroupTxBuilder{}
-	fakeKeyDesc := test.PubToKeyDesc(privKeyCopy.PubKey())
+	fakeKeyDesc := test.PubToKeyDesc(groupPub)
 	fakeScriptKey := NewScriptKeyBip86(fakeKeyDesc)
 
 	g := Genesis{
@@ -544,6 +641,79 @@ func TestAssetGroupKey(t *testing.T) {
 		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
 		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
 	)
+
+	// Group key tweaking should fail when given invalid tweaks.
+	badTweak := test.RandBytes(33)
+	_, err = GroupPubKey(groupPub, badTweak, badTweak)
+	require.Error(t, err)
+
+	_, err = GroupPubKey(groupPub, groupTweak[:], badTweak)
+	require.Error(t, err)
+}
+
+// TestDeriveGroupKey tests that group key derivation fails for assets that are
+// not eligible to be group anchors.
+func TestDeriveGroupKey(t *testing.T) {
+	t.Parallel()
+
+	groupPriv := test.RandPrivKey(t)
+	groupPub := groupPriv.PubKey()
+	groupKeyDesc := test.PubToKeyDesc(groupPub)
+	genSigner := NewMockGenesisSigner(groupPriv)
+	genBuilder := MockGroupTxBuilder{}
+
+	baseGen := RandGenesis(t, Normal)
+	collectGen := RandGenesis(t, Collectible)
+	baseScriptKey := RandScriptKey(t)
+	protoAsset := RandAssetWithValues(t, baseGen, nil, baseScriptKey)
+	nonGenProtoAsset := protoAsset.Copy()
+	nonGenProtoAsset.PrevWitnesses = []Witness{{
+		PrevID: &PrevID{
+			OutPoint: wire.OutPoint{
+				Hash:  hashBytes1,
+				Index: 1,
+			},
+			ID:        hashBytes1,
+			ScriptKey: ToSerialized(pubKey),
+		},
+		TxWitness:       sigWitness,
+		SplitCommitment: nil,
+	}}
+	groupedProtoAsset := protoAsset.Copy()
+	groupedProtoAsset.GroupKey = &GroupKey{
+		GroupPubKey: *groupPub,
+	}
+
+	// A prototype asset is required for building the genesis virtual TX.
+	_, err := DeriveGroupKey(
+		genSigner, &genBuilder, groupKeyDesc, baseGen, nil,
+	)
+	require.Error(t, err)
+
+	// The prototype asset must have a genesis witness.
+	_, err = DeriveGroupKey(
+		genSigner, &genBuilder, groupKeyDesc, baseGen, nonGenProtoAsset,
+	)
+	require.Error(t, err)
+
+	// The prototype asset must not have a group key set.
+	_, err = DeriveGroupKey(
+		genSigner, &genBuilder, groupKeyDesc, baseGen, groupedProtoAsset,
+	)
+	require.Error(t, err)
+
+	// The anchor genesis used for signing must have the same asset type
+	// as the prototype asset being signed.
+	_, err = DeriveGroupKey(
+		genSigner, &genBuilder, groupKeyDesc, collectGen, protoAsset,
+	)
+	require.Error(t, err)
+
+	groupKey, err := DeriveGroupKey(
+		genSigner, &genBuilder, groupKeyDesc, baseGen, protoAsset,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, groupKey)
 }
 
 // TestAssetWitness tests that the asset group witness can be serialized and

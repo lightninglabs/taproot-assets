@@ -513,7 +513,7 @@ type GroupKeyReveal struct {
 func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 	rawKey, err := g.RawKey.ToPubKey()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("group reveal raw key invalid: %w", err)
 	}
 
 	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot)
@@ -812,6 +812,10 @@ func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
 
 	if !newAsset.HasGenesisWitness() {
 		return nil, fmt.Errorf("asset is not a genesis asset")
+	}
+
+	if newAsset.GroupKey != nil {
+		return nil, fmt.Errorf("asset already has group key")
 	}
 
 	if initialGen.Type != newAsset.Type {

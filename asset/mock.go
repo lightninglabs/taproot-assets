@@ -323,6 +323,16 @@ func RandID(t testing.TB) ID {
 	return a
 }
 
+// RandAssetType creates a random asset type.
+func RandAssetType(t testing.TB) Type {
+	isCollectible := test.RandBool()
+	if isCollectible {
+		return Collectible
+	}
+
+	return Normal
+}
+
 // NewAssetNoErr creates an asset and fails the test if asset creation fails.
 func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
 	scriptKey ScriptKey, groupKey *GroupKey, opts ...NewAssetOpt) *Asset {
