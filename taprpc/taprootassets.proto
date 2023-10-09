@@ -939,6 +939,11 @@ message GetInfoResponse {
     string version = 1;
     string lnd_version = 2;
     string network = 3;
+    string lnd_identity_pubkey = 4;
+    string node_alias = 5;
+    uint32 block_height = 6;
+    string block_hash = 7;
+    bool sync_to_chain = 8;
 }
 
 message SubscribeSendAssetEventNtfnsRequest {
