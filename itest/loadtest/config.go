@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 )
 
 const (
@@ -58,9 +59,21 @@ type Config struct {
 	// Bitcoin is the configuration for the bitcoin backend.
 	Bitcoin *BitcoinConfig `group:"bitcoin" namespace:"bitcoin" long:"bitcoin" description:"bitcoin client configuration"`
 
-	// BatchSize is the number of assets to mint in a single batch. This is only
-	// relevant for some test cases.
-	BatchSize int `long:"batch-size" description:"the number of assets to mint in a single batch"`
+	// BatchSize is the number of assets to mint in a single batch. This is
+	// only relevant for the mint test.
+	BatchSize int `long:"mint-test-batch-size" description:"the number of assets to mint in a single batch; only relevant for the mint test"`
+
+	// NumSends is the number of asset sends to perform. This is only
+	// relevant for the send test.
+	NumSends int `long:"send-test-num-sends" description:"the number of send operations to perform; only relevant for the send test"`
+
+	// NumAssets is the number of assets to send in each send operation.
+	// This is only relevant for the send test.
+	NumAssets uint64 `long:"send-test-num-assets" description:"the number of assets to send in each send operation; only relevant for the send test"`
+
+	// SendType is the type of asset to attempt to send. This is only
+	// relevant for the send test.
+	SendType taprpc.AssetType `long:"send-test-send-type" description:"the type of asset to attempt to send; only relevant for the send test"`
 
 	// TestSuiteTimeout is the timeout for the entire test suite.
 	TestSuiteTimeout time.Duration `long:"test-suite-timeout" description:"the timeout for the entire test suite"`
@@ -84,6 +97,9 @@ func DefaultConfig() Config {
 			},
 		},
 		BatchSize:        100,
+		NumSends:         50,
+		NumAssets:        1, // We only mint collectibles.
+		SendType:         taprpc.AssetType_COLLECTIBLE,
 		TestSuiteTimeout: defaultSuiteTimeout,
 		TestTimeout:      defaultTestTimeout,
 	}

@@ -19,6 +19,10 @@ var loadTestCases = []testCase{
 		name: "mint",
 		fn:   mintTest,
 	},
+	{
+		name: "send",
+		fn:   sendTest,
+	},
 }
 
 // TestPerformance executes the configured performance tests.
