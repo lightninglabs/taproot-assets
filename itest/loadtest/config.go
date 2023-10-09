@@ -73,7 +73,6 @@ type Config struct {
 // binary.
 func DefaultConfig() Config {
 	return Config{
-		TestCases: []string{"mint_batch_stress"},
 		Alice: &User{
 			Tapd: &TapConfig{
 				Name: "alice",
@@ -95,21 +94,11 @@ func DefaultConfig() Config {
 //
 // The configuration proceeds as follows:
 //  1. Start with a default config with sane settings
-//  2. Pre-parse the command line to check for an alternative config file
-//  3. Load configuration file overwriting defaults with any specified options
-//  4. Parse CLI options and overwrite/add any specified options
+//  2. Load configuration file overwriting defaults with any specified options
 func LoadConfig() (*Config, error) {
-	// Pre-parse the command line options to pick up an alternative config
-	// file.
-	preCfg := DefaultConfig()
-	if _, err := flags.Parse(&preCfg); err != nil {
-		return nil, err
-	}
-
-	// Next, load any additional configuration options from the file.
-	cfg := preCfg
+	// First, load any additional configuration options from the file.
+	cfg := DefaultConfig()
 	fileParser := flags.NewParser(&cfg, flags.Default)
-
 	err := flags.NewIniParser(fileParser).ParseFile(defaultConfigPath)
 	if err != nil {
 		// If it's a parsing related error, then we'll return
@@ -118,13 +107,6 @@ func LoadConfig() (*Config, error) {
 		if _, ok := err.(*flags.IniError); ok { //nolint:gosimple
 			return nil, err
 		}
-	}
-
-	// Finally, parse the remaining command line options again to ensure
-	// they take precedence.
-	flagParser := flags.NewParser(&cfg, flags.Default)
-	if _, err := flagParser.Parse(); err != nil {
-		return nil, err
 	}
 
 	// Make sure everything we just loaded makes sense.
