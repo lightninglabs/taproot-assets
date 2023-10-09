@@ -641,6 +641,24 @@ func TestAssetGroupKey(t *testing.T) {
 		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
 	)
 
+	// We should also be able to reproduce the correct tweak with a non-nil
+	// tapscript root.
+	tapTweak := test.RandBytes(32)
+	tweakedKey = txscript.TweakTaprootPrivKey(*internalKey, tapTweak)
+
+	groupReq = NewGroupKeyRequestNoErr(
+		t, test.PubToKeyDesc(privKey.PubKey()), g, protoAsset, tapTweak,
+	)
+	keyGroup, err = DeriveCustomGroupKey(
+		genSigner, &genBuilder, *groupReq, nil, nil,
+	)
+	require.NoError(t, err)
+
+	require.Equal(
+		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
+		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
+	)
+
 	// Group key tweaking should fail when given invalid tweaks.
 	badTweak := test.RandBytes(33)
 	_, err = GroupPubKey(groupPub, badTweak, badTweak)
