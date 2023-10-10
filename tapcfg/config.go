@@ -455,6 +455,14 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		return nil, nil, err
 	}
 
+	// Parse, validate, and set debug log level(s).
+	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
+	if err != nil {
+		str := "error parsing debug level: %v"
+		cfgLogger.Warnf(str, err)
+		return nil, nil, fmt.Errorf(str, err)
+	}
+
 	// Warn about missing config file only after all other configuration is
 	// done. This prevents the warning on help messages and invalid
 	// options.  Note this should go directly before the return.
@@ -687,13 +695,6 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		os.Exit(0)
 	}
 
-	// Parse, validate, and set debug log level(s).
-	err := build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
-	if err != nil {
-		str := "error parsing debug level: %v"
-		return nil, &usageError{mkErr(str, err)}
-	}
-
 	// At least one RPCListener is required. So listen on localhost per
 	// default.
 	if len(cfg.RpcConf.RawRPCListeners) == 0 {
@@ -713,6 +714,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
+	var err error
 	cfg.rpcListeners, err = lncfg.NormalizeAddresses(
 		cfg.RpcConf.RawRPCListeners, strconv.Itoa(defaultRPCPort),
 		cfg.net.ResolveTCPAddr,
