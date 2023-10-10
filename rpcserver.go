@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -372,13 +373,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	if req.Asset.AssetMeta != nil {
-		metaType, err := unmarshalMetaType(req.Asset.AssetMeta.Type)
-		if err != nil {
-			return nil, err
+		// Ensure that the meta field is within bounds.
+		switch {
+		case req.Asset.AssetMeta.Type < 0:
+			return nil, fmt.Errorf("meta type cannot be negative")
+
+		case req.Asset.AssetMeta.Type > math.MaxUint8:
+			return nil, fmt.Errorf("meta type is too large: %v, "+
+				"max is: %v", req.Asset.AssetMeta.Type,
+				math.MaxUint8)
 		}
 
 		seedling.Meta = &proof.MetaReveal{
-			Type: metaType,
+			Type: proof.MetaType(req.Asset.AssetMeta.Type),
 			Data: req.Asset.AssetMeta.Data,
 		}
 
@@ -3958,17 +3965,6 @@ func (r *rpcServer) RemoveUTXOLease(ctx context.Context,
 	}
 
 	return &wrpc.RemoveUTXOLeaseResponse{}, nil
-}
-
-// unmarshalMetaType maps an RPC meta type into a concrete type.
-func unmarshalMetaType(rpcMeta taprpc.AssetMetaType) (proof.MetaType, error) {
-	switch rpcMeta {
-	case taprpc.AssetMetaType_META_TYPE_OPAQUE:
-		return proof.MetaOpaque, nil
-
-	default:
-		return 0, fmt.Errorf("unknown meta type: %v", rpcMeta)
-	}
 }
 
 // MarshalAssetFedSyncCfg returns an RPC ready asset specific federation sync
