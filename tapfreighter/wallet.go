@@ -766,6 +766,17 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		}
 	}
 
+	// We now also need to remove all tombstone or burns from our active
+	// commitments.
+	for idx := range inputCommitments {
+		inputCommitments[idx], err = pruneTombstonesAndBurns(
+			inputCommitments[idx],
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// We expect some change back, or have passive assets to commit to, so
 	// let's make sure we create a transfer output.
 	var changeOut *tappsbt.VOutput
@@ -1125,6 +1136,20 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 	}
 
 	return nil
+}
+
+// pruneTombstonesAndBurns removes all tombstones and burns from the active
+// input commitment.
+func pruneTombstonesAndBurns(
+	inputCommitment *commitment.TapCommitment) (*commitment.TapCommitment,
+	error) {
+
+	committedAssets := inputCommitment.CommittedAssets()
+	committedAssets = fn.Filter(committedAssets, func(a *asset.Asset) bool {
+		return !a.IsUnSpendable() && !a.IsBurn()
+	})
+
+	return commitment.FromAssets(committedAssets...)
 }
 
 // removeActiveCommitments removes all active commitments from the given input
