@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 )
 
 const (
@@ -58,9 +59,21 @@ type Config struct {
 	// Bitcoin is the configuration for the bitcoin backend.
 	Bitcoin *BitcoinConfig `group:"bitcoin" namespace:"bitcoin" long:"bitcoin" description:"bitcoin client configuration"`
 
-	// BatchSize is the number of assets to mint in a single batch. This is only
-	// relevant for some test cases.
-	BatchSize int `long:"batch-size" description:"the number of assets to mint in a single batch"`
+	// BatchSize is the number of assets to mint in a single batch. This is
+	// only relevant for the mint test.
+	BatchSize int `long:"mint-test-batch-size" description:"the number of assets to mint in a single batch; only relevant for the mint test"`
+
+	// NumSends is the number of asset sends to perform. This is only
+	// relevant for the send test.
+	NumSends int `long:"send-test-num-sends" description:"the number of send operations to perform; only relevant for the send test"`
+
+	// NumAssets is the number of assets to send in each send operation.
+	// This is only relevant for the send test.
+	NumAssets uint64 `long:"send-test-num-assets" description:"the number of assets to send in each send operation; only relevant for the send test"`
+
+	// SendType is the type of asset to attempt to send. This is only
+	// relevant for the send test.
+	SendType taprpc.AssetType `long:"send-test-send-type" description:"the type of asset to attempt to send; only relevant for the send test"`
 
 	// TestSuiteTimeout is the timeout for the entire test suite.
 	TestSuiteTimeout time.Duration `long:"test-suite-timeout" description:"the timeout for the entire test suite"`
@@ -73,7 +86,6 @@ type Config struct {
 // binary.
 func DefaultConfig() Config {
 	return Config{
-		TestCases: []string{"mint_batch_stress"},
 		Alice: &User{
 			Tapd: &TapConfig{
 				Name: "alice",
@@ -85,6 +97,9 @@ func DefaultConfig() Config {
 			},
 		},
 		BatchSize:        100,
+		NumSends:         50,
+		NumAssets:        1, // We only mint collectibles.
+		SendType:         taprpc.AssetType_COLLECTIBLE,
 		TestSuiteTimeout: defaultSuiteTimeout,
 		TestTimeout:      defaultTestTimeout,
 	}
@@ -95,21 +110,11 @@ func DefaultConfig() Config {
 //
 // The configuration proceeds as follows:
 //  1. Start with a default config with sane settings
-//  2. Pre-parse the command line to check for an alternative config file
-//  3. Load configuration file overwriting defaults with any specified options
-//  4. Parse CLI options and overwrite/add any specified options
+//  2. Load configuration file overwriting defaults with any specified options
 func LoadConfig() (*Config, error) {
-	// Pre-parse the command line options to pick up an alternative config
-	// file.
-	preCfg := DefaultConfig()
-	if _, err := flags.Parse(&preCfg); err != nil {
-		return nil, err
-	}
-
-	// Next, load any additional configuration options from the file.
-	cfg := preCfg
+	// First, load any additional configuration options from the file.
+	cfg := DefaultConfig()
 	fileParser := flags.NewParser(&cfg, flags.Default)
-
 	err := flags.NewIniParser(fileParser).ParseFile(defaultConfigPath)
 	if err != nil {
 		// If it's a parsing related error, then we'll return
@@ -118,13 +123,6 @@ func LoadConfig() (*Config, error) {
 		if _, ok := err.(*flags.IniError); ok { //nolint:gosimple
 			return nil, err
 		}
-	}
-
-	// Finally, parse the remaining command line options again to ensure
-	// they take precedence.
-	flagParser := flags.NewParser(&cfg, flags.Default)
-	if _, err := flagParser.Parse(); err != nil {
-		return nil, err
 	}
 
 	// Make sure everything we just loaded makes sense.
