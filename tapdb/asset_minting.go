@@ -541,9 +541,9 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		return nil, fmt.Errorf("unable to fetch batch assets: %w", err)
 	}
 
-	// For each sprout, we'll create a new asset commitment which will be a
-	// leaf at the top-level Taproot Asset commitment.
-	assetCommitments := make([]*commitment.AssetCommitment, len(dbSprout))
+	// We collect all the sprouts into fully grown assets, from which we'll
+	// then create asset and tap level commitments.
+	assetSprouts := make([]*asset.Asset, len(dbSprout))
 	for i, sprout := range dbSprout {
 		// First, we'll decode the script key which very asset must
 		// specify, and populate the key locator information
@@ -649,18 +649,10 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		// TODO(roasbeef): need to update the above to set the
 		// witnesses of a valid asset
 
-		// Finally make a new asset commitment from this sprout and
-		// accumulate it along the rest of the assets.
-		assetCommitment, err := commitment.NewAssetCommitment(
-			assetSprout,
-		)
-		if err != nil {
-			return nil, err
-		}
-		assetCommitments[i] = assetCommitment
+		assetSprouts[i] = assetSprout
 	}
 
-	tapCommitment, err := commitment.NewTapCommitment(assetCommitments...)
+	tapCommitment, err := commitment.FromAssets(assetSprouts...)
 	if err != nil {
 		return nil, err
 	}
