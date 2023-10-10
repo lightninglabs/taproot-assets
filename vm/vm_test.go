@@ -10,12 +10,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -450,47 +448,9 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	valid bool, sigHashType txscript.SigHashType) stateTransitionFunc {
 
 	scriptPrivKey := test.RandPrivKey(t)
-	scriptInternalKey := scriptPrivKey.PubKey()
-
-	// Let's create a taproot asset script now. This is a hash lock with a
-	// simple preimage of "foobar".
-	leaf1 := test.ScriptHashLock(t, []byte("foobar"))
-
-	// Let's add a second script output as well to test the partial reveal.
-	leaf2 := test.ScriptSchnorrSig(t, scriptInternalKey)
-
-	var (
-		usedLeaf      *txscript.TapLeaf
-		testTapScript *waddrmgr.Tapscript
-		scriptWitness []byte
+	usedLeaf, testTapScript, _, _, scriptWitness := test.BuildTapscriptTree(
+		t, useHashLock, valid, scriptPrivKey.PubKey(),
 	)
-	if useHashLock {
-		usedLeaf = &leaf1
-		inclusionProof := leaf2.TapHash()
-		testTapScript = input.TapscriptPartialReveal(
-			scriptInternalKey, leaf1, inclusionProof[:],
-		)
-		scriptWitness = []byte("foobar")
-
-		if !valid {
-			scriptWitness = []byte("not-foobar")
-		}
-	} else {
-		usedLeaf = &leaf2
-		inclusionProof := leaf1.TapHash()
-		testTapScript = input.TapscriptPartialReveal(
-			scriptInternalKey, leaf2, inclusionProof[:],
-		)
-
-		// If we leave the scriptWitness nil, the genTaprootScriptSpend
-		// function will automatically create a signature for us.
-		// We only need to create a witness if we want an invalid
-		// signature.
-		if !valid {
-			scriptWitness = make([]byte, 64)
-		}
-	}
-
 	scriptKey, err := testTapScript.TaprootKey()
 	require.NoError(t, err)
 
