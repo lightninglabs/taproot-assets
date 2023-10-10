@@ -3,6 +3,7 @@ package tapdb
 import (
 	"context"
 	"database/sql"
+	"math"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -537,4 +538,48 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 		require.True(t, mssmt.IsEqualNode(expectedNode, actualNode))
 	}
+}
+
+// TestUniverseLeafOverflow tests that the insertion into the universe will
+// fail if we try to add a leaf that'll cause the root some to overflow.
+func TestUniverseLeafOverflow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	id := randUniverseID(t, false)
+	baseUniverse, _ := newTestUniverse(t, id)
+
+	// We'll start by generating a random asset genesis.
+	assetGen := asset.RandGenesis(t, asset.Normal)
+
+	// With the base gen above, we'll now create a random minting leaf and
+	// key to insert.
+	targetKey := randLeafKey(t)
+	leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+
+	// We'll modify the leaf value to actually be a very large number, 1
+	// value away from overflowing.
+	leaf.Amt = math.MaxUint64 - 1
+
+	// We should be able to insert this np.
+	_, err := baseUniverse.RegisterIssuance(ctx, targetKey, &leaf, nil)
+	require.NoError(t, err)
+
+	// We should be able to fetch the leaf based on the base key we used
+	// above.
+	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	require.NoError(t, err)
+
+	// If we try to insert another, then this should fail, as the tree will
+	// overflow.
+	targetKey2 := randLeafKey(t)
+	leaf2 := randMintingLeaf(t, assetGen, id.GroupKey)
+
+	_, err = baseUniverse.RegisterIssuance(ctx, targetKey2, &leaf2, nil)
+	require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
+
+	// We should still be able to fetch the original issuance proof.
+	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
+	require.NoError(t, err)
 }
