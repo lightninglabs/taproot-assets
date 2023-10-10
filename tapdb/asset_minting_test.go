@@ -1092,11 +1092,9 @@ func TestGroupAnchors(t *testing.T) {
 	orderedSeedlings := tapgarden.SortSeedlings(maps.Values(seedlings))
 	for _, seedlingName := range orderedSeedlings {
 		seedling := seedlings[seedlingName]
-		require.NoError(t,
-			assetStore.AddSeedlingsToBatch(
-				ctx, batchKey, seedling,
-			), "unable to write seedlings: %v", err,
-		)
+		require.NoError(t, assetStore.AddSeedlingsToBatch(
+			ctx, batchKey, seedling,
+		))
 	}
 
 	// If we read the batch from disk again, then we should have 20 total
@@ -1109,10 +1107,9 @@ func TestGroupAnchors(t *testing.T) {
 	badGrouped := seedlings[secondGrouped]
 	badAnchorName := secondAnchor + secondGrouped
 	badGrouped.GroupAnchor = &badAnchorName
-	require.ErrorContains(t,
-		assetStore.AddSeedlingsToBatch(
-			ctx, batchKey, badGrouped,
-		), "no rows in result set",
+	require.ErrorContains(
+		t, assetStore.AddSeedlingsToBatch(ctx, batchKey, badGrouped),
+		"no rows in result set",
 	)
 	seedlings[secondGrouped].GroupAnchor = &secondAnchor
 

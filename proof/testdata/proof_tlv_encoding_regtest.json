@@ -55,7 +55,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0001475985869e2c0a018e7f4997cf646922438dfca3a3e571f72e6371db0f1e150500000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -153,7 +153,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0001b2433a697dcd01e0c5462c85cd53b3ef8662c1484216d4722d0c96851040a3bb00000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -173,7 +173,7 @@
                 "asset_proof": {
                   "proof": "0001db29f471c91019c8acfe37b9486e7ca67b0440a0e427347cf83dfb75c6a52b1500000000000004b0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffef",
                   "version": 0,
-                  "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                  "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
                 },
                 "taproot_asset_proof": {
                   "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -289,7 +289,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -309,7 +309,7 @@
                 "asset_proof": {
                   "proof": "00017367d3004d4eacd4e931e0a9df36a4a4161b94c5d05db5b47a4d014381ccb2e2000000000000012cffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffef",
                   "version": 0,
-                  "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                  "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
                 },
                 "taproot_asset_proof": {
                   "proof": "0001b2433a697dcd01e0c5462c85cd53b3ef8662c1484216d4722d0c96851040a3bb00000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -339,7 +339,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0001b2433a697dcd01e0c5462c85cd53b3ef8662c1484216d4722d0c96851040a3bb00000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -447,7 +447,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -467,7 +467,7 @@
                 "asset_proof": {
                   "proof": "00010a1b05a2e5107e4912babe314f825d0ce1588e0f0733d1d85804483de66fa0690000000000000258ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
                   "version": 0,
-                  "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                  "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
                 },
                 "taproot_asset_proof": {
                   "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -497,7 +497,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -574,7 +574,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0001475985869e2c0a018e7f4997cf646922438dfca3a3e571f72e6371db0f1e150500000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -704,7 +704,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -724,7 +724,7 @@
                 "asset_proof": {
                   "proof": "00017367d3004d4eacd4e931e0a9df36a4a4161b94c5d05db5b47a4d014381ccb2e2000000000000012cffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffef",
                   "version": 0,
-                  "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                  "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
                 },
                 "taproot_asset_proof": {
                   "proof": "0001b2433a697dcd01e0c5462c85cd53b3ef8662c1484216d4722d0c96851040a3bb00000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -754,7 +754,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0001b2433a697dcd01e0c5462c85cd53b3ef8662c1484216d4722d0c96851040a3bb00000000000007d0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7",
@@ -862,7 +862,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -882,7 +882,7 @@
                 "asset_proof": {
                   "proof": "00010a1b05a2e5107e4912babe314f825d0ce1588e0f0733d1d85804483de66fa0690000000000000258ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
                   "version": 0,
-                  "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                  "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
                 },
                 "taproot_asset_proof": {
                   "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -912,7 +912,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
+                "tap_key": "a88ed3e42cfbf677223639c2f0e9339bceb795223cfa476b149c73f73560edad"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",

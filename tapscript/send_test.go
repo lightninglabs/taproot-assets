@@ -2219,7 +2219,7 @@ func sendCommitment(t *testing.T, a *asset.Asset, sendAmt btcutil.Amount,
 
 	return &commitment.AssetCommitment{
 		Version:  a.Version,
-		AssetID:  a.ID(),
+		TapKey:   a.TapCommitmentKey(),
 		TreeRoot: root,
 	}
 }

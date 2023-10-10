@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -730,6 +731,8 @@ func TestProofVerification(t *testing.T) {
 
 	assetID := p.Asset.ID()
 	t.Logf("Proof asset ID: %x", assetID[:])
+
+	t.Logf("Proof anchor TX: %v", spew.Sdump(p.AnchorTx))
 
 	inclusionTxOut := p.AnchorTx.TxOut[p.InclusionProof.OutputIndex]
 	t.Logf("Proof inclusion tx out: %x", inclusionTxOut.PkScript)

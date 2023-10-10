@@ -12,7 +12,7 @@ func AssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**AssetProof); ok {
 		records := []tlv.Record{
 			AssetProofVersionRecord(&(*t).Version),
-			AssetProofAssetIDRecord(&(*t).AssetID),
+			AssetProofAssetIDRecord(&(*t).TapKey),
 			AssetProofRecord(&(*t).Proof),
 		}
 		stream, err := tlv.NewStream(records...)
@@ -39,7 +39,7 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		var proof AssetProof
 		records := []tlv.Record{
 			AssetProofVersionRecord(&proof.Version),
-			AssetProofAssetIDRecord(&proof.AssetID),
+			AssetProofAssetIDRecord(&proof.TapKey),
 			AssetProofRecord(&proof.Proof),
 		}
 		stream, err := tlv.NewStream(records...)

@@ -1082,6 +1082,12 @@ func TestUpdateTapCommitment(t *testing.T) {
 	groupKey1 := asset.RandGroupKey(t, genesis1, protoAsset1)
 	groupKey2 := asset.RandGroupKey(t, genesis2, protoAsset2)
 
+	// We also create a thirds asset which is in the same group as the first
+	// one, to ensure that we can properly create Taproot Asset commitments
+	// from asset commitments of the same group.
+	genesis3 := asset.RandGenesis(t, asset.Normal)
+	asset3 := randAsset(t, genesis3, groupKey1)
+
 	asset1 := protoAsset1.Copy()
 	asset1.GroupKey = groupKey1
 
@@ -1097,10 +1103,45 @@ func TestUpdateTapCommitment(t *testing.T) {
 	require.NoError(t, err)
 
 	commitmentKey2 := assetCommitment2.TapCommitmentKey()
+	assetCommitment3, err := NewAssetCommitment(asset3)
+	require.NoError(t, err)
+	commitmentKey3 := assetCommitment3.TapCommitmentKey()
+
+	// When creating a Taproot Asset commitment from all three assets, we
+	// expect two commitments to be created, one for each group.
+	cp1, err := assetCommitment1.Copy()
+	require.NoError(t, err)
+	cp2, err := assetCommitment2.Copy()
+	require.NoError(t, err)
+	cp3, err := assetCommitment3.Copy()
+	require.NoError(t, err)
+	commitment, err := NewTapCommitment(cp1, cp2, cp3)
+	require.NoError(t, err)
+	require.Len(t, commitment.Commitments(), 2)
+	require.Len(t, commitment.CommittedAssets(), 3)
+
+	require.Equal(t, commitmentKey1, commitmentKey3)
+
+	// Make sure we can still generate proper proofs for all assets.
+	p1, _, err := commitment.Proof(
+		commitmentKey1, asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	require.True(t, p1.DeepEqual(asset1))
+	p2, _, err := commitment.Proof(
+		commitmentKey2, asset2.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	require.True(t, p2.DeepEqual(asset2))
+	p3, _, err := commitment.Proof(
+		commitmentKey3, asset3.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	require.True(t, p3.DeepEqual(asset3))
 
 	// Mint a new Taproot Asset commitment with only the first
 	// assetCommitment.
-	commitment, err := NewTapCommitment(assetCommitment1)
+	commitment, err = NewTapCommitment(assetCommitment1)
 	require.NoError(t, err)
 
 	copyOfCommitment, err := NewTapCommitment(assetCommitment1)
@@ -1201,7 +1242,7 @@ func TestAssetCommitmentDeepCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, assetCommitment.Version, assetCommitmentCopy.Version)
-	require.Equal(t, assetCommitment.AssetID, assetCommitmentCopy.AssetID)
+	require.Equal(t, assetCommitment.TapKey, assetCommitmentCopy.TapKey)
 	require.True(
 		t, mssmt.IsEqualNode(
 			assetCommitment.TreeRoot, assetCommitmentCopy.TreeRoot,

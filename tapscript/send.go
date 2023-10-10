@@ -732,12 +732,12 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	// Merge all input Taproot Asset commitments into a single commitment.
 	//
 	// TODO(ffranr): Use `fn.ForEach` and `inputTapCommitments[1:]`.
-	inputTapCommitment := inputTapCommitments[0]
+	firstCommitment := inputTapCommitments[0]
 	for idx := range inputTapCommitments {
 		if idx == 0 {
 			continue
 		}
-		err := inputTapCommitment.Merge(inputTapCommitments[idx])
+		err := firstCommitment.Merge(inputTapCommitments[idx])
 		if err != nil {
 			return nil, fmt.Errorf("failed to merge input Taproot "+
 				"Asset commitments: %w", err)
@@ -753,13 +753,13 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	// Remove the spent Asset from the AssetCommitment of the sender. Fail
 	// if the input AssetCommitment or Asset were not in the input
 	// TapCommitment.
-	inputTapCommitmentCopy, err := inputTapCommitment.Copy()
+	inputTapCommitment, err := firstCommitment.Copy()
 	if err != nil {
 		return nil, err
 	}
 
-	inputCommitments := inputTapCommitmentCopy.Commitments()
-	inputCommitment, ok := inputCommitments[assetsTapCommitmentKey]
+	assetCommitments := inputTapCommitment.Commitments()
+	assetCommitment, ok := assetCommitments[assetsTapCommitmentKey]
 	if !ok {
 		return nil, ErrMissingAssetCommitment
 	}
@@ -770,13 +770,13 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 
 		// Just a sanity check that the asset we're spending really was
 		// in the list of input assets.
-		_, ok = inputCommitment.Asset(inputAsset.AssetCommitmentKey())
+		_, ok = assetCommitment.Asset(inputAsset.AssetCommitmentKey())
 		if !ok {
 			return nil, ErrMissingInputAsset
 		}
 
 		// Remove all input assets from the asset commitment tree.
-		err := inputCommitment.Delete(inputAsset)
+		err := assetCommitment.Delete(inputAsset)
 		if err != nil {
 			return nil, err
 		}
@@ -798,7 +798,7 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 			// The asset is present, just commit it to the input
 			// asset commitment.
 			case vOut.Asset != nil:
-				err := inputCommitment.Upsert(vOut.Asset)
+				err := assetCommitment.Upsert(vOut.Asset)
 				if err != nil {
 					return nil, err
 				}
@@ -820,22 +820,31 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 			// the new spend details. If there is nothing contained
 			// in the input commitment, it is removed from the
 			// Taproot Asset tree automatically.
-			err = inputTapCommitmentCopy.Upsert(inputCommitment)
+			err = inputTapCommitment.Upsert(assetCommitment)
 			if err != nil {
 				return nil, err
 			}
 
+			log.Tracef("Adding %d passive assets to output with %d "+
+				"current assets", len(passiveAssets),
+				len(inputTapCommitment.CommittedAssets()))
+
 			// Anchor passive assets to this output, since it's the
 			// split root (=change output).
 			err = AnchorPassiveAssets(
-				passiveAssets, inputTapCommitmentCopy,
+				passiveAssets, inputTapCommitment,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to anchor "+
 					"passive assets: %w", err)
 			}
 
-			outputCommitments[idx] = inputTapCommitmentCopy
+			root := inputTapCommitment.TapscriptRoot(nil)
+			log.Tracef("Output %d commitment: root=%x, "+
+				"num_assets=%d", idx, root[:],
+				len(inputTapCommitment.CommittedAssets()))
+
+			outputCommitments[idx] = inputTapCommitment
 
 			continue
 		}
