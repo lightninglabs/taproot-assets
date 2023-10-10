@@ -327,7 +327,7 @@ func testUniverseREST(t *harnessTest) {
 
 		// Construct universe namespace using the group key ID.
 		namespace := fmt.Sprintf(
-			"%s-%s", universe.ProofTypeTransfer, groupKeyID,
+			"%s-%s", universe.ProofTypeIssuance, groupKeyID,
 		)
 		require.Contains(t.t, roots.UniverseRoots, namespace)
 
@@ -344,7 +344,7 @@ func testUniverseREST(t *harnessTest) {
 		uniRoot, foundRoot := roots.UniverseRoots[namespace]
 		require.True(t.t, foundRoot)
 		require.True(t.t, AssertUniverseRootEqual(
-			uniRoot, assetRoot.TransferRoot,
+			uniRoot, assetRoot.IssuanceRoot,
 		))
 	}
 }
