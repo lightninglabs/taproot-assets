@@ -1192,8 +1192,13 @@ func (a *Asset) Copy() *Asset {
 	if a.ScriptKey.TweakedScriptKey != nil {
 		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{}
 		assetCopy.ScriptKey.RawKey = a.ScriptKey.RawKey
-		assetCopy.ScriptKey.Tweak = make([]byte, len(a.ScriptKey.Tweak))
-		copy(assetCopy.ScriptKey.Tweak, a.ScriptKey.Tweak)
+
+		if len(a.ScriptKey.Tweak) > 0 {
+			assetCopy.ScriptKey.Tweak = make(
+				[]byte, len(a.ScriptKey.Tweak),
+			)
+			copy(assetCopy.ScriptKey.Tweak, a.ScriptKey.Tweak)
+		}
 	}
 
 	if a.GroupKey != nil {
