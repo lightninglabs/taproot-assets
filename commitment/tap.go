@@ -380,7 +380,7 @@ func (c *TapCommitment) Proof(tapCommitmentKey,
 	proof.AssetProof = &AssetProof{
 		Proof:   *assetProof,
 		Version: assetCommitment.Version,
-		AssetID: assetCommitment.AssetID,
+		TapKey:  assetCommitment.TapKey,
 	}
 
 	return a, proof, nil

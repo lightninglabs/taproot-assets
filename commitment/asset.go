@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -61,11 +61,11 @@ type AssetCommitment struct {
 	// Version is the max version of the assets committed.
 	Version asset.Version
 
-	// AssetID is the common identifier for all assets found within the
+	// TapKey is the common identifier for all assets found within the
 	// AssetCommitment. This can either be an asset.ID, which every
 	// committed asset must match, or the hash of an asset.GroupKey which
 	// every committed asset must match if their asset.ID differs.
-	AssetID [32]byte
+	TapKey [32]byte
 
 	// AssetType is the type of asset(s) committed to within the tree.
 	AssetType asset.Type
@@ -98,7 +98,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		assetType        asset.Type
 		tapCommitmentKey [32]byte
 		maxVersion       = asset.Version(0)
-		assetGenesis     = assets[0].Genesis.ID()
+		firstAssetID     = assets[0].Genesis.ID()
 		assetGroupKey    = assets[0].GroupKey
 		assetsMap        = make(CommittedAssets, len(assets))
 	)
@@ -125,7 +125,7 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 			return nil, ErrAssetGroupKeyMismatch
 
 		case assetGroupKey == nil:
-			if assetGenesis != newAsset.Genesis.ID() {
+			if firstAssetID != newAsset.Genesis.ID() {
 				return nil, ErrAssetGenesisMismatch
 			}
 		}
@@ -151,22 +151,20 @@ func parseCommon(assets ...*asset.Asset) (*AssetCommitment, error) {
 		assetsMap[key] = newAsset
 	}
 
-	// The assetID here is what will be used to place this asset commitment
+	var groupPubKey *btcec.PublicKey
+	if assetGroupKey != nil {
+		groupPubKey = &assetGroupKey.GroupPubKey
+	}
+
+	// The tapKey here is what will be used to place this asset commitment
 	// into the top-level Taproot Asset commitment. For assets without a
 	// group key, then this will be the normal asset ID. Otherwise, this'll
 	// be the sha256 of the group key.
-	var assetID [32]byte
-	if assetGroupKey == nil {
-		assetID = assetGenesis
-	} else {
-		assetID = sha256.Sum256(
-			schnorr.SerializePubKey(&assetGroupKey.GroupPubKey),
-		)
-	}
+	tapKey := asset.TapCommitmentKey(firstAssetID, groupPubKey)
 
 	return &AssetCommitment{
 		Version:   maxVersion,
-		AssetID:   assetID,
+		TapKey:    tapKey,
 		AssetType: assetType,
 		assets:    assetsMap,
 	}, nil
@@ -221,7 +219,7 @@ func (c *AssetCommitment) Upsert(newAsset *asset.Asset) error {
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
-	if newAsset.TapCommitmentKey() != c.AssetID {
+	if newAsset.TapCommitmentKey() != c.TapKey {
 		if newAsset.GroupKey != nil {
 			return ErrAssetGroupKeyMismatch
 		}
@@ -269,7 +267,7 @@ func (c *AssetCommitment) Delete(oldAsset *asset.Asset) error {
 	// The given Asset must have an ID that matches the AssetCommitment ID.
 	// The AssetCommitment ID is either a hash of the groupKey, or the ID
 	// of all the assets in the AssetCommitment.
-	if oldAsset.TapCommitmentKey() != c.AssetID {
+	if oldAsset.TapCommitmentKey() != c.TapKey {
 		if oldAsset.GroupKey != nil {
 			return ErrAssetGroupKeyMismatch
 		}
@@ -322,7 +320,7 @@ func (c *AssetCommitment) Root() [sha256.Size]byte {
 	right := c.TreeRoot.Right.NodeHash()
 
 	h := sha256.New()
-	_, _ = h.Write(c.AssetID[:])
+	_, _ = h.Write(c.TapKey[:])
 	_, _ = h.Write(left[:])
 	_, _ = h.Write(right[:])
 	_ = binary.Write(h, binary.BigEndian, c.TreeRoot.NodeSum())
@@ -332,7 +330,7 @@ func (c *AssetCommitment) Root() [sha256.Size]byte {
 // TapCommitmentKey computes the insertion key for this specific asset
 // commitment to include in the Taproot Asset commitment MS-SMT.
 func (c *AssetCommitment) TapCommitmentKey() [32]byte {
-	return c.AssetID
+	return c.TapKey
 }
 
 // TapCommitmentLeaf computes the leaf node for this specific asset commitment
@@ -390,7 +388,7 @@ func (c *AssetCommitment) Copy() (*AssetCommitment, error) {
 		treeRoot := c.TreeRoot.Copy().(*mssmt.BranchNode)
 		return &AssetCommitment{
 			Version:  c.Version,
-			AssetID:  c.AssetID,
+			TapKey:   c.TapKey,
 			TreeRoot: treeRoot,
 		}, nil
 	}

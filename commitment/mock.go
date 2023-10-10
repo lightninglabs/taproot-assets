@@ -83,7 +83,7 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 		tp.AssetProof = &TestAssetProof{
 			Proof:   mssmt.HexProof(t, &p.AssetProof.Proof),
 			Version: uint8(p.AssetProof.Version),
-			AssetID: hex.EncodeToString(p.AssetProof.AssetID[:]),
+			TapKey:  hex.EncodeToString(p.AssetProof.TapKey[:]),
 		}
 	}
 
@@ -111,9 +111,9 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 			Proof:   mssmt.ParseProof(t, tp.AssetProof.Proof),
 			Version: asset.Version(tp.AssetProof.Version),
 		}
-		assetID, err := hex.DecodeString(tp.AssetProof.AssetID)
+		assetID, err := hex.DecodeString(tp.AssetProof.TapKey)
 		require.NoError(t, err)
-		copy(p.AssetProof.AssetID[:], assetID)
+		copy(p.AssetProof.TapKey[:], assetID)
 	}
 
 	return p
@@ -122,7 +122,7 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 type TestAssetProof struct {
 	Proof   string `json:"proof"`
 	Version uint8  `json:"version"`
-	AssetID string `json:"asset_id"`
+	TapKey  string `json:"tap_key"`
 }
 
 type TestTaprootAssetProof struct {

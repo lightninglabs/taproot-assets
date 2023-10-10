@@ -24,11 +24,11 @@ type AssetProof struct {
 	// Version is the max version of the assets committed.
 	Version asset.Version
 
-	// AssetID is the common identifier for all assets found within the
+	// TapKey is the common identifier for all assets found within the
 	// AssetCommitment. This can either be an asset.ID, which every
 	// committed asset must match, otherwise an asset.GroupKey which every
 	// committed asset must match.
-	AssetID [32]byte
+	TapKey [32]byte
 }
 
 // TaprootAssetProof is the proof used along with an asset commitment leaf to
@@ -117,7 +117,7 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 	)
 	assetCommitment := &AssetCommitment{
 		Version:  p.AssetProof.Version,
-		AssetID:  p.AssetProof.AssetID,
+		TapKey:   p.AssetProof.TapKey,
 		TreeRoot: assetProofRoot,
 	}
 
@@ -158,7 +158,7 @@ func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
 	)
 	assetCommitment := &AssetCommitment{
 		Version:  p.AssetProof.Version,
-		AssetID:  p.AssetProof.AssetID,
+		TapKey:   p.AssetProof.TapKey,
 		TreeRoot: assetProofRoot,
 	}
 

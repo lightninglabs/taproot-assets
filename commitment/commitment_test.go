@@ -1242,7 +1242,7 @@ func TestAssetCommitmentDeepCopy(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, assetCommitment.Version, assetCommitmentCopy.Version)
-	require.Equal(t, assetCommitment.AssetID, assetCommitmentCopy.AssetID)
+	require.Equal(t, assetCommitment.TapKey, assetCommitmentCopy.TapKey)
 	require.True(
 		t, mssmt.IsEqualNode(
 			assetCommitment.TreeRoot, assetCommitmentCopy.TreeRoot,

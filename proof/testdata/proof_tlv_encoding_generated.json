@@ -55,7 +55,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "1624d9703a0fea948dd97385753c57c8225b9421af0ec87d4c92a4832a01b03c"
+                "tap_key": "1624d9703a0fea948dd97385753c57c8225b9421af0ec87d4c92a4832a01b03c"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -141,7 +141,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 1,
-                "asset_id": "4c3b9aff77396d1ff1d5470229b11164512a56d86db16be09c26b890512e349d"
+                "tap_key": "4c3b9aff77396d1ff1d5470229b11164512a56d86db16be09c26b890512e349d"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -227,7 +227,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "c2b2144031c7f0158c9b080b3d4f28533c8bd79f3371fa2d486305cb32d52919"
+                "tap_key": "c2b2144031c7f0158c9b080b3d4f28533c8bd79f3371fa2d486305cb32d52919"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -313,7 +313,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "ee82654f2c644ea7941327d5d842649c79588e663d67314a0b999d13471aafa0"
+                "tap_key": "ee82654f2c644ea7941327d5d842649c79588e663d67314a0b999d13471aafa0"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -399,7 +399,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "c4fd51257eced9f6bb3f5918545d257fa7a490b129189d0d8096117341b87425"
+                "tap_key": "c4fd51257eced9f6bb3f5918545d257fa7a490b129189d0d8096117341b87425"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -485,7 +485,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 1,
-                "asset_id": "cb74bf55f8cd601b17db37abc586a01b59533caa2e1ecd629f840a9d416423c6"
+                "tap_key": "cb74bf55f8cd601b17db37abc586a01b59533caa2e1ecd629f840a9d416423c6"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -571,7 +571,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "db7a3ba3a675af4724280dc944a6377cc68de6fb2c4c6c51b494e9ca23e22dd0"
+                "tap_key": "db7a3ba3a675af4724280dc944a6377cc68de6fb2c4c6c51b494e9ca23e22dd0"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -657,7 +657,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "f0b65d4efa4a0c2daec2372a807c817a3a4c2eab20fa90c6d36ab78366d98c5c"
+                "tap_key": "f0b65d4efa4a0c2daec2372a807c817a3a4c2eab20fa90c6d36ab78366d98c5c"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -743,7 +743,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "341dcde8656fe3a35d4c69986694f44934a74f7b76aabe111d39e6b1f579dbe3"
+                "tap_key": "341dcde8656fe3a35d4c69986694f44934a74f7b76aabe111d39e6b1f579dbe3"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -832,7 +832,7 @@
               "asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                 "version": 0,
-                "asset_id": "90100b5f5edf4a3e49b48a91703912e695f4796fcd23e38bd362c3ef3775172f"
+                "tap_key": "90100b5f5edf4a3e49b48a91703912e695f4796fcd23e38bd362c3ef3775172f"
               },
               "taproot_asset_proof": {
                 "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
