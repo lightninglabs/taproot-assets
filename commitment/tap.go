@@ -452,18 +452,14 @@ func (c *TapCommitment) Merge(other *TapCommitment) error {
 
 	// Otherwise, we'll need to merge the other asset commitments into
 	// this commitment.
-	for key, otherCommitment := range other.assetCommitments {
-		existingCommitment, ok := c.assetCommitments[key]
+	for key := range other.assetCommitments {
+		otherCommitment := other.assetCommitments[key]
 
 		// If we already have an asset commitment for this key, then we
 		// merge the two asset trees together.
+		existingCommitment, ok := c.assetCommitments[key]
 		if ok {
-			commitmentCopy, err := otherCommitment.Copy()
-			if err != nil {
-				return fmt.Errorf("error copying asset "+
-					"commitment: %w", err)
-			}
-			err = existingCommitment.Merge(commitmentCopy)
+			err := existingCommitment.Merge(otherCommitment)
 			if err != nil {
 				return fmt.Errorf("error merging asset "+
 					"commitment: %w", err)
@@ -474,12 +470,7 @@ func (c *TapCommitment) Merge(other *TapCommitment) error {
 
 		// With either the new or merged asset commitment obtained, we
 		// can now (re-)insert it into the Taproot Asset commitment.
-		existingCommitmentCopy, err := existingCommitment.Copy()
-		if err != nil {
-			return fmt.Errorf("error copying asset commitment: "+
-				"%w", err)
-		}
-		if err := c.Upsert(existingCommitmentCopy); err != nil {
+		if err := c.Upsert(existingCommitment); err != nil {
 			return fmt.Errorf("error upserting other commitment: "+
 				"%w", err)
 		}
