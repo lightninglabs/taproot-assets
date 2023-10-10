@@ -358,7 +358,7 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 
 	t.Helper()
 
-	units := test.RandInt[uint64]() + 1
+	units := test.RandInt[uint32]() + 1
 
 	switch genesis.Type {
 	case Normal:
@@ -376,7 +376,7 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 	}
 
 	a, err := New(
-		genesis, units, 0, 0, scriptKey, groupKey,
+		genesis, uint64(units), 0, 0, scriptKey, groupKey,
 		WithAssetVersion(assetVersion),
 	)
 	require.NoError(t, err)

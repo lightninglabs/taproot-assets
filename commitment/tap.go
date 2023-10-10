@@ -78,18 +78,33 @@ type TapCommitment struct {
 
 // NewTapCommitment creates a new Taproot Asset commitment for the given asset
 // commitments capable of computing merkle proofs.
-func NewTapCommitment(assets ...*AssetCommitment) (*TapCommitment, error) {
+func NewTapCommitment(newCommitments ...*AssetCommitment) (*TapCommitment,
+	error) {
+
 	maxVersion := asset.V0
 	tree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-	assetCommitments := make(AssetCommitments, len(assets))
-	for _, asset := range assets {
-		asset := asset
+	assetCommitments := make(AssetCommitments, len(newCommitments))
+	for idx := range newCommitments {
+		assetCommitment := newCommitments[idx]
 
-		if asset.Version > maxVersion {
-			maxVersion = asset.Version
+		if assetCommitment.Version > maxVersion {
+			maxVersion = assetCommitment.Version
 		}
-		key := asset.TapCommitmentKey()
-		leaf := asset.TapCommitmentLeaf()
+		key := assetCommitment.TapCommitmentKey()
+
+		// Do we already have an asset commitment for this key? If so,
+		// we need to merge them together.
+		existingCommitment, ok := assetCommitments[key]
+		if ok {
+			err := existingCommitment.Merge(assetCommitment)
+			if err != nil {
+				return nil, err
+			}
+
+			assetCommitment = existingCommitment
+		}
+
+		leaf := assetCommitment.TapCommitmentLeaf()
 
 		// TODO(bhandras): thread the context through.
 		_, err := tree.Insert(context.TODO(), key, leaf)
@@ -97,7 +112,7 @@ func NewTapCommitment(assets ...*AssetCommitment) (*TapCommitment, error) {
 			return nil, err
 		}
 
-		assetCommitments[key] = asset
+		assetCommitments[key] = assetCommitment
 	}
 
 	root, err := tree.Root(context.Background())

@@ -43,7 +43,7 @@
         "genesis_meta_hash": "8afa3f85b8a62708caebbac880b5b89b93da53810164402104e648b6226a1b78",
         "genesis_output_index": 327692610,
         "genesis_type": 0,
-        "amount": 6933583034365165053,
+        "amount": 3087187453,
         "lock_time": 0,
         "relative_lock_time": 0,
         "prev_witnesses": [
@@ -54,7 +54,7 @@
               "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
             },
             "tx_witness": [
-              "f628bda4ee5a82c1465810b64fc808cef2e1d191e96172b8b9e6535c9057feebf033bc5b2f503c87086218ff8bbd4f704d340b755f711f6cbd94383814340c54"
+              "be6027ac2d3cef07abb355fee5e8786bb7e0841c1c3461af7deeb82161f93fd8092e12f3c15160267d7445cfb65efb48f1ac74b2895fa2de2e5b4467d3c6963d"
             ],
             "split_commitment": null
           }
@@ -149,7 +149,7 @@
         "genesis_meta_hash": "23e196c9dfff7fbaff4ffe94f4589733e563e19d3045aad3e226488ac02cca42",
         "genesis_output_index": 164677904,
         "genesis_type": 0,
-        "amount": 13637201695855811026,
+        "amount": 2077694418,
         "lock_time": 0,
         "relative_lock_time": 0,
         "prev_witnesses": [
@@ -160,7 +160,7 @@
               "script_key": "0290e890b331192e241b29d9ff916cdb85c53be4b3afee55028fa75307d8c86b41"
             },
             "tx_witness": [
-              "e91d45c0a83f5e57410201c19b3145413097d1764fa21c2d4494affe86b6c592cef0054a5dfdc8e0210c6615ce17525698de65f593c3049bd61859b9f520378e"
+              "68563c1630ff6b93a3749fbdc8bd10eee6778dd466f4c44d8101db824e276b22f1e6958abc790f47f9965356ea744e119225090084bb2faa645e2328e2362414"
             ],
             "split_commitment": null
           },
@@ -171,7 +171,7 @@
               "script_key": "02a382379d9e1635e23369627a19c587e751e447f073dafc92bdcfb89630eccc6a"
             },
             "tx_witness": [
-              "06f89772b022ce52821ec2e204f15cdc6f2ca8e10413d1f6c7d5e73a12af7da6987c72527c6821830f3d83c325e6f1d48427db9972647fd25468cec8228239ed",
+              "edc2c4951995bc82659d090dc4f61f533f27b4e835a16e66cfbb5162c3c709eb331a6bf4ba3ea6c59a5206f8daa05d5b7754702e4e67b73efc6ccfe2467e0b02",
               "20a354a15678381931fb574954a609244fc0b601830cac80bf6774882bfcf2e610ad56b2",
               "c1a354a15678381931fb574954a609244fc0b601830cac80bf6774882bfcf2e610"
             ],
@@ -200,7 +200,7 @@
             "genesis_meta_hash": "23e196c9dfff7fbaff4ffe94f4589733e563e19d3045aad3e226488ac02cca42",
             "genesis_output_index": 164677904,
             "genesis_type": 0,
-            "amount": 8695401978176517618,
+            "amount": 1752217074,
             "lock_time": 0,
             "relative_lock_time": 0,
             "prev_witnesses": [
@@ -235,7 +235,7 @@
             "genesis_meta_hash": "01c0ab7ac65e502d39b216cbc50e73a32eaf936401e2506bd8b82c30d346bc4b",
             "genesis_output_index": 231487098,
             "genesis_type": 0,
-            "amount": 4941799717679293408,
+            "amount": 325477344,
             "lock_time": 0,
             "relative_lock_time": 6,
             "prev_witnesses": [
