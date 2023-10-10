@@ -3,11 +3,15 @@ package asset
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
+	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/exp/maps"
 )
 
 // LeafTlvType represents the different TLV types for Asset Leaf TLV records.
@@ -29,6 +33,87 @@ const (
 	// Types for future asset format.
 	LeafAssetID LeafTlvType = 11
 )
+
+// KnownAssetLeafTypes is a set of all known asset leaf TLV types. This set is
+// asserted to be complete by a check in the BIP test vector unit tests.
+var KnownAssetLeafTypes = fn.NewSet(
+	LeafVersion, LeafGenesis, LeafType, LeafAmount, LeafLockTime,
+	LeafRelativeLockTime, LeafPrevWitness, LeafSplitCommitmentRoot,
+	LeafScriptVersion, LeafScriptKey, LeafGroupKey,
+)
+
+// ErrUnknownType is returned when an unknown type is encountered while
+// decoding a TLV stream.
+type ErrUnknownType struct {
+	// UnknownType is the type that was unknown.
+	UnknownType tlv.Type
+
+	// ValueBytes is the raw bytes of the value that was unknown.
+	ValueBytes []byte
+}
+
+// Error returns the error message for the ErrUnknownType.
+func (e ErrUnknownType) Error() string {
+	return fmt.Sprintf("unknown even TLV type %d encountered, consider "+
+		"upgrading your tapd software version", e.UnknownType)
+}
+
+// AssertNoUnknownEvenTypes asserts that the given parsed types do not contain
+// any unknown types. We only care if there's an even type that we don't know
+// of, adopting the same strategy as the BOLTS do ("it's okay to be odd"),
+// meaning that odd types are optional and therefore can be allowed to be
+// unknown. If we find an unknown even type, then it means we're behind in our
+// software version and an error is returned detailing the type.
+func AssertNoUnknownEvenTypes(parsedTypes tlv.TypeMap,
+	knownTypes fn.Set[tlv.Type]) error {
+
+	// Run through the set of types that we parsed. We want to error out if
+	// we encounter an unknown type that's even.
+	evenTypes := fn.Filter(maps.Keys(parsedTypes), func(t tlv.Type) bool {
+		return t%2 == 0
+	})
+
+	// Now that we have all the even types, we want to make sure that we
+	// know of them all.
+	for _, evenType := range evenTypes {
+		if !knownTypes.Contains(evenType) {
+			return ErrUnknownType{
+				UnknownType: evenType,
+				ValueBytes:  parsedTypes[evenType],
+			}
+		}
+	}
+
+	return nil
+}
+
+// TlvStrictDecode attempts to decode the passed buffer into the TLV stream. It
+// takes the set of known types for a given stream, and returns an error if the
+// buffer includes any unknown even types.
+func TlvStrictDecode(stream *tlv.Stream, r io.Reader,
+	knownTypes fn.Set[tlv.Type]) error {
+
+	parsedTypes, err := stream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	return AssertNoUnknownEvenTypes(parsedTypes, knownTypes)
+}
+
+// TlvStrictDecodeP2P is identical to TlvStrictDecode except that the record
+// size is capped at 65535. This should only be called from a p2p setting where
+// untrusted input is being deserialized.
+func TlvStrictDecodeP2P(stream *tlv.Stream, r io.Reader,
+	knownTypes fn.Set[tlv.Type]) error {
+
+	parsedTypes, err := stream.DecodeWithParsedTypesP2P(r)
+	if err != nil {
+		return err
+	}
+
+	return AssertNoUnknownEvenTypes(parsedTypes, knownTypes)
+}
 
 // WitnessTlvType represents the different TLV types for Asset Witness TLV
 // records.
