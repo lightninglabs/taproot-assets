@@ -1343,7 +1343,8 @@ func (a *Asset) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	return TlvStrictDecode(stream, r, KnownAssetLeafTypes)
 }
 
 // Leaf returns the asset encoded as a MS-SMT leaf node.
