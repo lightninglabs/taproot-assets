@@ -97,6 +97,11 @@ var testCases = []*testCase{
 		test: testMintMultiAssetGroups,
 	},
 	{
+		name:             "sending multi asset groups",
+		test:             testMultiAssetGroupSend,
+		proofCourierType: proof.HashmailCourierType,
+	},
+	{
 		name: "re-issuance amount overflow",
 		test: testReIssuanceAmountOverflow,
 	},

@@ -1,9 +1,11 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
-	"strconv"
+	"fmt"
+	"testing"
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -190,14 +192,14 @@ func createMultiAssetGroup(anchor *mintrpc.MintAssetRequest,
 	groupRequests := []*mintrpc.MintAssetRequest{CopyRequest(anchor)}
 	anchorAmount := anchor.Asset.Amount
 	anchorName := anchor.Asset.Name
-	nameModifier := "-tranche-"
 	groupSum := uint64(0)
-	for i := uint64(1); i < numAssets+1; i++ {
+	for i := uint64(1); i <= numAssets; i++ {
 		assetReq := CopyRequest(anchor)
 		assetReq.EnableEmission = false
 		assetReq.Asset.GroupAnchor = anchorName
-		reqName := anchorName + nameModifier + strconv.FormatUint(i, 10)
-		assetReq.Asset.Name = reqName
+		assetReq.Asset.Name = fmt.Sprintf(
+			"%s-tranche-%d", anchorName, i,
+		)
 
 		if assetReq.Asset.AssetType == taprpc.AssetType_NORMAL {
 			reqAmount := anchorAmount / (2 * i)
@@ -269,4 +271,145 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	expectedGroupBalance := groupedAsset.Asset.Amount +
 		validAnchor.Asset.Amount
 	AssertBalanceByGroup(t.t, t.tapd, groupKeyHex, expectedGroupBalance)
+}
+
+// testMultiAssetGroupSend tests that we can randomly send assets from a group
+// of collectibles one after another from one node to the other.
+func testMultiAssetGroupSend(t *harnessTest) {
+	// We use a hashmail proof courier for this test, which takes a bit
+	// longer to send proofs. So we use a longer timeout.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*3)
+	defer cancel()
+
+	// First, we'll build a batch to mint.
+	issuableAsset := CopyRequest(simpleAssets[1])
+	issuableAsset.EnableEmission = true
+
+	collectibleGroupMembers := 50
+	collectibleGroup, collectibleGroupSum := createMultiAssetGroup(
+		issuableAsset, uint64(collectibleGroupMembers),
+	)
+
+	// The minted batch should contain 51 assets total, and the daemon
+	// should now be aware of one asset group.
+	mintedBatch := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, collectibleGroup,
+	)
+	require.Len(t.t, mintedBatch, collectibleGroupMembers+1)
+
+	// Once the batch is minted, we can verify that all asset groups were
+	// created correctly. We begin by verifying the number of asset groups.
+	groupCount := 1
+	AssertNumGroups(t.t, t.tapd, groupCount)
+	balancesResp, err := t.tapd.ListBalances(
+		ctxt, &taprpc.ListBalancesRequest{
+			GroupBy: &taprpc.ListBalancesRequest_GroupKey{
+				GroupKey: true,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	require.NotNil(t.t, mintedBatch[0].AssetGroup)
+	groupKeyStr := hex.EncodeToString(
+		mintedBatch[0].AssetGroup.TweakedGroupKey,
+	)
+
+	require.Contains(t.t, balancesResp.AssetGroupBalances, groupKeyStr)
+	require.EqualValues(
+		t.t, collectibleGroupSum,
+		balancesResp.AssetGroupBalances[groupKeyStr].Balance,
+	)
+
+	AssertGroupSizes(t.t, t.tapd, []string{groupKeyStr}, []int{
+		collectibleGroupMembers + 1,
+	})
+
+	// We'll make a second node now that'll be the receiver of all the
+	// assets made above.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.startupSyncNode = t.tapd
+			params.startupSyncNumAssets = groupCount
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Send 5 of the assets to Bob, and verify that they are received.
+	numUnits := issuableAsset.Asset.Amount
+	assetType := issuableAsset.Asset.AssetType
+	for i := 0; i < 5; i++ {
+		// Query the asset we'll be sending, so we can assert some
+		// things about it later.
+		sendAsset := assetIDWithBalance(
+			t.t, t.tapd, numUnits, assetType,
+		)
+		genInfo := sendAsset.AssetGenesis
+		t.Logf("Attempt %d: Sending %d asset(s) with ID %x from "+
+			"alice to bob", i+1, numUnits, genInfo.AssetId)
+
+		addr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     numUnits,
+		})
+		require.NoError(t.t, err)
+		AssertAddrCreated(t.t, secondTapd, sendAsset, addr)
+
+		sendResp := sendAssetsToAddr(t, t.tapd, addr)
+
+		ConfirmAndAssertOutboundTransfer(
+			t.t, t.lndHarness.Miner.Client, t.tapd,
+			sendResp, genInfo.AssetId,
+			[]uint64{0, numUnits}, i, i+1,
+		)
+
+		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
+	}
+}
+
+// assetIDWithBalance returns the asset ID of an asset that has at least the
+// given balance. If no such asset is found, nil is returned.
+func assetIDWithBalance(t *testing.T, node *tapdHarness,
+	minBalance uint64, assetType taprpc.AssetType) *taprpc.Asset {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	balances, err := node.ListBalances(ctxt, &taprpc.ListBalancesRequest{
+		GroupBy: &taprpc.ListBalancesRequest_AssetId{
+			AssetId: true,
+		},
+	})
+	require.NoError(t, err)
+
+	for assetIDHex, balance := range balances.AssetBalances {
+		if balance.Balance >= minBalance &&
+			balance.AssetType == assetType {
+
+			assetIDBytes, err := hex.DecodeString(assetIDHex)
+			require.NoError(t, err)
+
+			assets, err := node.ListAssets(
+				ctxt, &taprpc.ListAssetRequest{},
+			)
+			require.NoError(t, err)
+
+			for _, asset := range assets.Assets {
+				if bytes.Equal(
+					asset.AssetGenesis.AssetId,
+					assetIDBytes,
+				) {
+
+					return asset
+				}
+			}
+		}
+	}
+
+	return nil
 }
