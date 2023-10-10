@@ -605,6 +605,18 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return nil
 		}
 
+		unSpendable, err := out.ScriptKey.IsUnSpendable()
+		if err != nil {
+			return fmt.Errorf("error checking if script key is "+
+				"unspendable: %w", err)
+		}
+		if unSpendable {
+			log.Debugf("Not transferring proof for un-spendable "+
+				"output script key %x",
+				key.SerializeCompressed())
+			return nil
+		}
+
 		// We just look for the full proof in the list of final proofs
 		// by matching the content of the proof suffix.
 		var receiverProof *proof.AnnotatedProof
