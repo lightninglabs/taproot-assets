@@ -421,11 +421,9 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		)
 		require.NoError(t, err)
 
-		// Finally make a new asset commitment (the inner SMT tree) for
+		// Finally, make a new asset commitment (the inner SMT tree) for
 		// this newly created asset.
-		assetRoot, err := commitment.NewAssetCommitment(
-			newAsset,
-		)
+		assetRoot, err := commitment.NewAssetCommitment(newAsset)
 		require.NoError(t, err)
 
 		assetRoots = append(assetRoots, assetRoot)
@@ -1059,6 +1057,9 @@ func TestGroupAnchors(t *testing.T) {
 	ctx := context.Background()
 	const numSeedlings = 10
 	assetStore, _, _ := newAssetStore(t)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, assetStore)
+	groupAnchorVerifier := tapgarden.GenGroupAnchorVerifier(ctx, assetStore)
+	rawGroupAnchorVerifier := tapgarden.GenRawGroupAnchorVerifier(ctx)
 
 	// First, we'll write a new minting batch to disk, including an
 	// internal key and a set of seedlings. One random seedling will
@@ -1113,6 +1114,19 @@ func TestGroupAnchors(t *testing.T) {
 	)
 	seedlings[secondGrouped].GroupAnchor = &secondAnchor
 
+	// Record the number of seedlings set as group anchors and members.
+	// These counts should not change after sprouting.
+	batchSeedlings := maps.Values(mintingBatch.Seedlings)
+	isGroupAnchor := func(s *tapgarden.Seedling) bool {
+		return s.EnableEmission == true
+	}
+	isGroupMember := func(s *tapgarden.Seedling) bool {
+		return s.GroupAnchor != nil || s.GroupInfo != nil
+	}
+
+	anchorCount := fn.Count(batchSeedlings, isGroupAnchor)
+	memberCount := fn.Count(batchSeedlings, isGroupMember)
+
 	// Now we'll map these seedlings to an asset commitment and insert them
 	// into the DB as sprouts.
 	genesisPacket := randGenesisPacket(t)
@@ -1135,6 +1149,29 @@ func TestGroupAnchors(t *testing.T) {
 	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateCommitted)
 	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
+
+	// Check that the number of group anchors and members matches the batch
+	// state when frozen.
+	storedAssets := mintingBatches[0].RootAssetCommitment.CommittedAssets()
+	groupedAssets := fn.Filter(storedAssets, func(a *asset.Asset) bool {
+		return a.GroupKey != nil
+	})
+	require.Equal(t, anchorCount+memberCount, len(groupedAssets))
+	require.True(t, fn.All(groupedAssets, func(a *asset.Asset) bool {
+		return groupVerifier(&a.GroupKey.GroupPubKey) == nil
+	}))
+
+	// Both group anchor verifiers must return the same result.
+	groupAnchors := fn.Filter(groupedAssets, func(a *asset.Asset) bool {
+		return groupAnchorVerifier(&a.Genesis, a.GroupKey) == nil
+	})
+	require.Equal(t, anchorCount, len(groupAnchors))
+
+	rawGroupAnchors := fn.Filter(groupAnchors, func(a *asset.Asset) bool {
+		return rawGroupAnchorVerifier(&a.Genesis, a.GroupKey) == nil
+	})
+	require.Equal(t, anchorCount, len(rawGroupAnchors))
+	require.Equal(t, groupAnchors, rawGroupAnchors)
 }
 
 func init() {
