@@ -4,7 +4,7 @@ The Taproot Assets Daemon `tapd` implements the [Taproot Assets Protocol](https:
 
 ## Features:
 
-- Mint assets
+- Mint and burn assets
 - Synchronize to universes
 - Send and receive assets
 - Export and import Taproot Asset proofs
@@ -114,7 +114,30 @@ Taproot Assets exposes a GRPC (port 10029) and a REST (port 8089) API. Connectio
 
 ### Mainnet
 
-The current codebase does not support the Bitcoin `mainnet`. Patching the code to run on `mainnet` will very likely lead to loss of funds (both the minted assets and the BTC UTXO) as things will break or change in the future.
+Starting with the release of version `v0.3.0` the daemon does support the
+Bitcoin `mainnet`.
+
+**IMPORTANT NOTE**: To avoid loss of funds, it's imperative that you read the
+[Operational Safety Guidelines](docs/safety.md) before using `tapd` on
+`mainnet`!
+
+The daemon is still in `alpha` state, which means there can still be bugs and
+not all desired data safety and backup mechanisms have been implemented yet.
+Releasing on `mainnet` mainly signals that there will be no breaking changes in
+the future and that assets minted with `v0.3.0` will be compatible with later
+versions.
+
+#### Important note for Umbrel/Lightning Terminal users
+
+**DO NOT UNDER ANY CIRCUMSTANCE** uninstall (or re-install) the "Lightning
+Terminal" app without first making a manual backup of all local `tapd` data,
+if you are using Taproot Assets as part of the "Lightning Terminal" app with
+Umbrel -- or any comparable node-in-a-box solution.  Uninstalling Umbrel apps
+deletes application data. This Taproot Assets application data encumbers
+Taproot Assets **AND** bitcoin funds. Receiving and sending `tapd` assets
+updates the daemon's funds-custody material. Merely having the `lnd` seed phrase
+is **NOT** enough to restore assets minted or received.
+**WITHOUT BACKUP BEFORE DELETION, FUNDS ARE DESTROYED**.
 
 ## Submit feature requests
 
