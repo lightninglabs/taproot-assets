@@ -237,8 +237,6 @@ type LndConfig struct {
 type UniverseConfig struct {
 	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
 
-	AcceptRemoteProofs bool `long:"accept-remote-proofs" description:"If true, then if the Universe server is on a public interface, valid proof from remote parties will be accepted"`
-
 	FederationServers []string `long:"federationserver" description:"The host:port of a Universe server peer with. These servers will be added as the default set of federation servers. Can be specified multiple times."`
 }
 
