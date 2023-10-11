@@ -3334,6 +3334,17 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, err
 	}
 
+	// Ensure proof insert is enabled for the given universe.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !syncConfigs.IsSyncInsertEnabled(universeID) {
+		return nil, fmt.Errorf("proof insert is disabled for the " +
+			"given universe")
+	}
+
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
 		"(universeID=%x, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
