@@ -125,7 +125,14 @@ func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 		return nil, err
 	}
 
-	return mssmt.NewLeafNode(buf.Bytes(), m.Amt), nil
+	amount := m.Amt
+	if !m.Proof.Asset.IsGenesisAsset() {
+		// We set transfer proof amounts to 1 as the transfer universe
+		// tracks the total number of transfers.
+		amount = 1
+	}
+
+	return mssmt.NewLeafNode(buf.Bytes(), amount), nil
 }
 
 // LeafKey is the top level leaf key for a universe. This will be used to key
