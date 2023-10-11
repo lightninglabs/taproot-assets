@@ -72,6 +72,10 @@ const (
 	// proofs for asynchronous sends.
 	fallbackHashMailAddr = "mailbox.terminal.lightning.today:443"
 
+	// fallbackUniverseAddr is the fallback address we'll use to deliver
+	// proofs for asynchronous sends.
+	fallbackUniverseAddr = defaultMainnetFederationServer
+
 	// DatabaseBackendSqlite is the name of the SQLite database backend.
 	DatabaseBackendSqlite = "sqlite"
 
@@ -153,6 +157,12 @@ var (
 	// the SQLite database file.
 	defaultSqliteDatabasePath = filepath.Join(
 		defaultDataDir, defaultNetwork, defaultSqliteDatabaseFileName,
+	)
+
+	// defaultProofCourierAddr is the default proof courier address URI
+	// we'll use to deliver proofs for asynchronous sends.
+	defaultProofCourierAddr = fmt.Sprintf(
+		"%s://%s", proof.UniverseRpcCourierType, fallbackUniverseAddr,
 	)
 
 	// minimalCompatibleVersion is the minimum version and build tags
@@ -335,13 +345,11 @@ func DefaultConfig() Config {
 			Port:               5432,
 			MaxOpenConnections: 10,
 		},
-		LogWriter:            build.NewRotatingLogWriter(),
-		Prometheus:           monitoring.DefaultPrometheusConfig(),
-		BatchMintingInterval: defaultBatchMintingInterval,
-		ReOrgSafeDepth:       defaultReOrgSafeDepth,
-		DefaultProofCourierAddr: fmt.Sprintf(
-			"%s://%s", proof.HashmailCourierType, fallbackHashMailAddr,
-		),
+		LogWriter:               build.NewRotatingLogWriter(),
+		Prometheus:              monitoring.DefaultPrometheusConfig(),
+		BatchMintingInterval:    defaultBatchMintingInterval,
+		ReOrgSafeDepth:          defaultReOrgSafeDepth,
+		DefaultProofCourierAddr: defaultProofCourierAddr,
 		HashMailCourier: &proof.HashMailCourierCfg{
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
 			BackoffCfg: &proof.BackoffCfg{
