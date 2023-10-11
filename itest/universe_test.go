@@ -427,7 +427,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Bob's Universe stats should show that he now has a single asset. We
 	// should also be able to query for stats specifically for the asset.
-	AssertUniverseStats(t.t, bob, 1, 0, 1)
+	AssertUniverseStats(t.t, bob, 1, 0, 1, 0)
 
 	// Test the content of the universe info call.
 	info, err := bob.Info(ctxt, &unirpc.InfoRequest{})
@@ -478,7 +478,7 @@ func testUniverseFederation(t *harnessTest) {
 
 	// Bob's stats should also now show that there're three total asset as
 	// well as three proofs.
-	AssertUniverseStats(t.t, bob, 3, 0, 3)
+	AssertUniverseStats(t.t, bob, 3, 0, 3, 1)
 
 	// We should be able to find both the new assets in the set of universe
 	// stats for an asset.

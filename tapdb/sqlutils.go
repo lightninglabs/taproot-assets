@@ -3,7 +3,9 @@ package tapdb
 import (
 	"database/sql"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"strconv"
 	"testing"
 	"time"
 
@@ -139,4 +141,35 @@ func fMap[T1, T2 any](s []T1, f func(T1) T2) []T2 {
 		r[i] = f(v)
 	}
 	return r
+}
+
+// parseCoalesceNumericType parses a value that is expected to be a numeric
+// value into a numeric type.
+func parseCoalesceNumericType[T constraints.Integer](value any) (T, error) {
+	switch typedValue := value.(type) {
+	case int64:
+		return T(typedValue), nil
+
+	case int32:
+		return T(typedValue), nil
+
+	case int16:
+		return T(typedValue), nil
+
+	case int8:
+		return T(typedValue), nil
+
+	case string:
+		parsedValue, err := strconv.ParseInt(typedValue, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("unable to parse value '%v' as "+
+				"number: %v", value, err)
+		}
+
+		return T(parsedValue), nil
+
+	default:
+		return 0, fmt.Errorf("unexpected column type '%T' to parse "+
+			"value '%v' as number", value, value)
+	}
 }

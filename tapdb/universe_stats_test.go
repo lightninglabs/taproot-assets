@@ -115,21 +115,30 @@ func TestUniverseStatsEvents(t *testing.T) {
 
 	ctx := context.Background()
 
-	const numAssets = 3
+	const numTranches = 3
 
-	sh := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+	sh := newUniStatsHarness(t, numTranches, db.BaseDB, statsDB)
+
+	// Record the number of groups in this asset.
+	var numGroups uint64
+	for i := 0; i < numTranches; i++ {
+		if sh.universeLeaves[i].Leaf.GroupKey != nil {
+			numGroups++
+		}
+	}
 
 	// Before we insert anything into the DB, we should have all zeroes for
-	// the main set of stats.
+	// the main events.
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
-		NumTotalAssets: 0,
+		NumTotalAssets: numTranches,
+		NumTotalGroups: numGroups,
 		NumTotalProofs: 0,
 		NumTotalSyncs:  0,
 	})
 
 	// Now that we have our assets, we'll insert a new sync event for each
 	// asset above. We'll mark these each first as a new proof.
-	for i := 0; i < numAssets; i++ {
+	for i := 0; i < numTranches; i++ {
 		sh.logProofEventByIndex(i)
 
 		// Increment the clock by a full day to ensure that the event
@@ -140,21 +149,23 @@ func TestUniverseStatsEvents(t *testing.T) {
 	// We'll now query for the set of aggregate Universe stats. It should
 	// show 3 assets, and one new proof for each of those assets.
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
-		NumTotalAssets: numAssets,
-		NumTotalProofs: numAssets,
+		NumTotalAssets: numTranches,
+		NumTotalGroups: numGroups,
+		NumTotalProofs: numTranches,
 		NumTotalSyncs:  0,
 	})
 
 	// Next, we'll simulate a new sync event for a random asset. If we
-	// query again, then we should see that the number of proofs has
+	// query again, then we should see that the number of syncs has
 	// increased by one.
-	assetToSync := rand.Int() % numAssets
+	assetToSync := rand.Int() % numTranches
 
 	sh.logSyncEventByIndex(assetToSync)
 
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
-		NumTotalAssets: numAssets,
-		NumTotalProofs: numAssets,
+		NumTotalAssets: numTranches,
+		NumTotalGroups: numGroups,
+		NumTotalProofs: numTranches,
 		NumTotalSyncs:  1,
 	})
 
@@ -165,7 +176,7 @@ func TestUniverseStatsEvents(t *testing.T) {
 		ctx, universe.SyncStatsQuery{},
 	)
 	require.NoError(t, err)
-	require.Len(t, syncStats.SyncStats, numAssets)
+	require.Len(t, syncStats.SyncStats, numTranches)
 
 	// We should also be able to find summaries of each of the items above.
 	// This should match the leaves we inserted above.
@@ -210,9 +221,13 @@ func TestUniverseStatsEvents(t *testing.T) {
 	_, err = sh.assetUniverses[assetToSync].DeleteUniverse(ctx)
 	require.NoError(t, err)
 
+	if sh.universeLeaves[assetToSync].Leaf.GroupKey != nil {
+		numGroups--
+	}
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
-		NumTotalAssets: numAssets - 1,
-		NumTotalProofs: numAssets - 1,
+		NumTotalAssets: numTranches - 1,
+		NumTotalGroups: numGroups,
+		NumTotalProofs: numTranches - 1,
 		NumTotalSyncs:  0,
 	})
 }

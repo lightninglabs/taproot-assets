@@ -159,14 +159,45 @@ INSERT INTO universe_events (
 );
 
 -- name: QueryUniverseStats :one
-WITH num_assets As (
-    SELECT COUNT(*) AS num_assets
+WITH stats AS (
+    SELECT total_asset_syncs, total_asset_proofs
+    FROM universe_stats
+), group_ids AS (
+    SELECT id
     FROM universe_roots
+    WHERE group_key IS NOT NULL
+), asset_keys AS (
+    SELECT hash_key
+    FROM mssmt_nodes nodes
+    JOIN mssmt_roots roots
+      ON nodes.hash_key = roots.root_hash AND
+         nodes.namespace = roots.namespace
+    JOIN universe_roots uroots
+      ON roots.namespace = uroots.namespace_root
+), aggregated AS (
+    SELECT COALESCE(SUM(stats.total_asset_syncs), 0) AS total_syncs,
+           COALESCE(SUM(stats.total_asset_proofs), 0) AS total_proofs,
+           0 AS total_num_groups,
+           0 AS total_num_assets
+    FROM stats
+    UNION ALL
+    SELECT 0 AS total_syncs,
+           0 AS total_proofs,
+           COALESCE(COUNT(group_ids.id), 0) AS total_num_groups,
+           0 AS total_num_assets
+    FROM group_ids
+    UNION ALL
+    SELECT 0 AS total_syncs,
+           0 AS total_proofs,
+           0 AS total_num_groups,
+           COALESCE(COUNT(asset_keys.hash_key), 0) AS total_num_assets
+    FROM asset_keys
 )
-SELECT COALESCE(SUM(universe_stats.total_asset_syncs), 0) AS total_syncs,
-       COALESCE(SUM(universe_stats.total_asset_proofs), 0) AS total_proofs,
-       COUNT(num_assets) AS total_num_assets
-FROM universe_stats, num_assets;
+SELECT SUM(total_syncs) AS total_syncs,
+       SUM(total_proofs) AS total_proofs,
+       SUM(total_num_groups) AS total_num_groups,
+       SUM(total_num_assets) AS total_num_assets
+FROM aggregated;
 
 -- TODO(roasbeef): use the universe id instead for the grouping? so namespace
 -- root, simplifies queries
@@ -181,8 +212,17 @@ WITH asset_supply AS (
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
     GROUP BY gen.asset_id
+), group_supply AS (
+    SELECT sum AS num_assets, uroots.group_key AS group_key
+    FROM mssmt_nodes nodes
+    JOIN mssmt_roots roots
+      ON nodes.hash_key = roots.root_hash AND
+         nodes.namespace = roots.namespace
+    JOIN universe_roots uroots
+      ON roots.namespace = uroots.namespace_root
 ), asset_info AS (
-    SELECT asset_supply.supply, gen.asset_id AS asset_id, 
+    SELECT asset_supply.supply, group_supply.num_assets AS group_supply,
+           gen.asset_id AS asset_id, 
            gen.asset_tag AS asset_name, gen.asset_type AS asset_type,
            gen.block_height AS genesis_height, gen.prev_out AS genesis_prev_out,
            group_info.tweaked_group_key AS group_key
@@ -194,11 +234,15 @@ WITH asset_supply AS (
     -- doesn't have a group key.
     LEFT JOIN key_group_info_view group_info
         ON gen.gen_asset_id = group_info.gen_asset_id
+    LEFT JOIN group_supply
+        ON group_supply.group_key = group_info.x_only_group_key
     WHERE (gen.asset_tag = sqlc.narg('asset_name') OR sqlc.narg('asset_name') IS NULL) AND
           (gen.asset_type = sqlc.narg('asset_type') OR sqlc.narg('asset_type') IS NULL) AND
           (gen.asset_id = sqlc.narg('asset_id') OR sqlc.narg('asset_id') IS NULL)
 )
-SELECT asset_info.supply AS asset_supply, asset_info.asset_name AS asset_name,
+SELECT asset_info.supply AS asset_supply,
+    asset_info.group_supply AS group_supply,
+    asset_info.asset_name AS asset_name,
     asset_info.asset_type AS asset_type, asset_info.asset_id AS asset_id,
     asset_info.genesis_height AS genesis_height,
     asset_info.genesis_prev_out AS genesis_prev_out,

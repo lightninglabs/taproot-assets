@@ -201,6 +201,7 @@ type KeyGroupInfoView struct {
 	RawKey          []byte
 	KeyIndex        int32
 	KeyFamily       int32
+	XOnlyGroupKey   []byte
 }
 
 type Macaroon struct {

@@ -1210,7 +1210,7 @@ func AssertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 }
 
 func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
-	numProofs, numSyncs, numAssets int) {
+	numProofs, numSyncs, numAssets, numGroups int) {
 
 	err := wait.NoError(func() error {
 		uniStats, err := client.UniverseStats(
@@ -1232,6 +1232,10 @@ func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
 			return fmt.Errorf("expected %v assets, got %v",
 				numAssets, uniStats.NumTotalAssets)
 		}
+		if numGroups != int(uniStats.NumTotalGroups) {
+			return fmt.Errorf("expected %v groups, got %v",
+				numGroups, uniStats.NumTotalGroups)
+		}
 
 		return nil
 	}, defaultTimeout)
@@ -1247,27 +1251,31 @@ func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	require.Len(t, assetStats.AssetStats, len(assets))
 
 	for _, assetStat := range assetStats.AssetStats {
-		found := fn.Any(
-			assets, func(a *taprpc.Asset) bool {
-				groupKeyEqual := true
-				if a.AssetGroup != nil {
-					groupKeyEqual = bytes.Equal(
-						assetStat.GroupKey,
-						a.AssetGroup.TweakedGroupKey,
-					)
-				}
+		var statAsset *unirpc.AssetStatsAsset
+		if assetStat.GroupAnchor != nil {
+			statAsset = assetStat.GroupAnchor
+		} else {
+			statAsset = assetStat.Asset
+		}
 
-				return groupKeyEqual && bytes.Equal(
-					assetStat.AssetId,
-					a.AssetGenesis.AssetId,
+		found := fn.Any(assets, func(a *taprpc.Asset) bool {
+			groupKeyEqual := true
+			if a.AssetGroup != nil {
+				groupKeyEqual = bytes.Equal(
+					assetStat.GroupKey,
+					a.AssetGroup.TweakedGroupKey,
 				)
-			},
-		)
+			}
+
+			return groupKeyEqual && bytes.Equal(
+				statAsset.AssetId, a.AssetGenesis.AssetId,
+			)
+		})
 		require.True(t, found)
 
-		require.NotZero(t, assetStat.GenesisHeight)
-		require.NotZero(t, assetStat.GenesisTimestamp)
-		require.NotEmpty(t, assetStat.GenesisPoint)
+		require.NotZero(t, statAsset.GenesisHeight)
+		require.NotZero(t, statAsset.GenesisTimestamp)
+		require.NotEmpty(t, statAsset.GenesisPoint)
 	}
 
 	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})

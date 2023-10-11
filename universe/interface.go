@@ -634,6 +634,10 @@ type AssetSyncSnapshot struct {
 	// GroupKey is the optional group key of the asset.
 	GroupKey *btcec.PublicKey
 
+	// GroupSupply is the total supply of the whole asset group. This is
+	// only set for grouped assets.
+	GroupSupply uint64
+
 	// GenesisPoint is the first previous output that created the asset.
 	GenesisPoint wire.OutPoint
 
@@ -675,6 +679,9 @@ type AssetSyncStats struct {
 type AggregateStats struct {
 	// NumTotalAssets is the total number of assets in the Universe.
 	NumTotalAssets uint64
+
+	// NumTotalGroups is the total number of groups in the Universe.
+	NumTotalGroups uint64
 
 	// NumTotalSyncs is the total number of syncs that have been performed
 	// in the Universe.

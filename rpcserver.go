@@ -2262,13 +2262,46 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		return rpcBatch, nil
 	}
 
-	rpcBatch.Assets = make([]*mintrpc.MintAsset, 0, len(batch.Seedlings))
-	for _, seedling := range batch.Seedlings {
+	// When we have sprouts, then they represent the same assets as the
+	// seedlings but in a more "grown up" state. So in that case we only
+	// marshal the sprouts.
+	switch {
+	// We have sprouts, ignore seedlings.
+	case batch.RootAssetCommitment != nil &&
+		len(batch.RootAssetCommitment.CommittedAssets()) > 0:
+
+		rpcBatch.Assets = marshalSprouts(
+			batch.RootAssetCommitment.CommittedAssets(),
+			batch.AssetMetas,
+		)
+
+	// No sprouts, so we marshal the seedlings.
+	case len(batch.Seedlings) > 0:
+		rpcBatch.Assets, err = marshalSeedlings(batch.Seedlings)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return rpcBatch, nil
+}
+
+// marshalSeedlings marshals the seedlings into the RPC counterpart.
+func marshalSeedlings(
+	seedlings map[string]*tapgarden.Seedling) ([]*mintrpc.MintAsset, error) {
+
+	rpcAssets := make([]*mintrpc.MintAsset, 0, len(seedlings))
+	for _, seedling := range seedlings {
 		var groupKeyBytes []byte
 		if seedling.HasGroupKey() {
 			groupKey := seedling.GroupInfo.GroupKey
 			groupPubKey := groupKey.GroupPubKey
 			groupKeyBytes = groupPubKey.SerializeCompressed()
+		}
+
+		var groupAnchor string
+		if seedling.GroupAnchor != nil {
+			groupAnchor = *seedling.GroupAnchor
 		}
 
 		var seedlingMeta *taprpc.AssetMeta
@@ -2289,17 +2322,55 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			return nil, err
 		}
 
-		rpcBatch.Assets = append(rpcBatch.Assets, &mintrpc.MintAsset{
+		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
 			AssetType:    taprpc.AssetType(seedling.AssetType),
 			AssetVersion: assetVersion,
 			Name:         seedling.AssetName,
 			AssetMeta:    seedlingMeta,
 			Amount:       seedling.Amount,
 			GroupKey:     groupKeyBytes,
+			GroupAnchor:  groupAnchor,
 		})
 	}
 
-	return rpcBatch, nil
+	return rpcAssets, nil
+}
+
+// marshalSprouts marshals the sprouts into the RPC counterpart.
+func marshalSprouts(sprouts []*asset.Asset,
+	metas tapgarden.AssetMetas) []*mintrpc.MintAsset {
+
+	rpcAssets := make([]*mintrpc.MintAsset, 0, len(sprouts))
+	for _, sprout := range sprouts {
+		scriptKey := asset.ToSerialized(sprout.ScriptKey.PubKey)
+
+		var assetMeta *taprpc.AssetMeta
+		if metas != nil {
+			if m, ok := metas[scriptKey]; ok && m != nil {
+				assetMeta = &taprpc.AssetMeta{
+					MetaHash: fn.ByteSlice(m.MetaHash()),
+					Data:     m.Data,
+					Type:     taprpc.AssetMetaType(m.Type),
+				}
+			}
+		}
+
+		var groupKeyBytes []byte
+		if sprout.GroupKey != nil {
+			gpk := sprout.GroupKey.GroupPubKey
+			groupKeyBytes = gpk.SerializeCompressed()
+		}
+
+		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType(sprout.Type),
+			Name:      sprout.Tag,
+			AssetMeta: assetMeta,
+			Amount:    sprout.Amount,
+			GroupKey:  groupKeyBytes,
+		})
+	}
+
+	return rpcAssets
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
@@ -3410,6 +3481,7 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 	return &unirpc.StatsResponse{
 		NumTotalAssets: int64(universeStats.NumTotalAssets),
+		NumTotalGroups: int64(universeStats.NumTotalGroups),
 		NumTotalSyncs:  int64(universeStats.NumTotalSyncs),
 		NumTotalProofs: int64(universeStats.NumTotalProofs),
 	}, nil
@@ -3417,25 +3489,32 @@ func (r *rpcServer) UniverseStats(ctx context.Context,
 
 // marshalAssetSyncSnapshot maps a universe asset sync stat snapshot to the RPC
 // counterpart.
-func marshalAssetSyncSnapshot(
+func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 	a universe.AssetSyncSnapshot) *unirpc.AssetStatsSnapshot {
 
-	var groupKey []byte
-	if a.GroupKey != nil {
-		groupKey = a.GroupKey.SerializeCompressed()
+	resp := &unirpc.AssetStatsSnapshot{
+		TotalSyncs:  int64(a.TotalSyncs),
+		TotalProofs: int64(a.TotalProofs),
+		GroupSupply: int64(a.GroupSupply),
+	}
+	rpcAsset := &unirpc.AssetStatsAsset{
+		AssetId:          a.AssetID[:],
+		GenesisPoint:     a.GenesisPoint.String(),
+		AssetName:        a.AssetName,
+		AssetType:        taprpc.AssetType(a.AssetType),
+		TotalSupply:      int64(a.TotalSupply),
+		GenesisHeight:    int32(a.GenesisHeight),
+		GenesisTimestamp: r.getBlockTimestamp(ctx, a.GenesisHeight),
 	}
 
-	return &unirpc.AssetStatsSnapshot{
-		AssetId:       a.AssetID[:],
-		GroupKey:      groupKey,
-		GenesisPoint:  a.GenesisPoint.String(),
-		AssetName:     a.AssetName,
-		AssetType:     taprpc.AssetType(a.AssetType),
-		TotalSupply:   int64(a.TotalSupply),
-		GenesisHeight: int32(a.GenesisHeight),
-		TotalSyncs:    int64(a.TotalSyncs),
-		TotalProofs:   int64(a.TotalProofs),
+	if a.GroupKey != nil {
+		resp.GroupKey = a.GroupKey.SerializeCompressed()
+		resp.GroupAnchor = rpcAsset
+	} else {
+		resp.Asset = rpcAsset
 	}
+
+	return resp
 }
 
 // QueryAssetStats returns a set of statistics for a given set of assets.
@@ -3479,10 +3558,7 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 		),
 	}
 	for idx, snapshot := range assetStats.SyncStats {
-		resp.AssetStats[idx] = marshalAssetSyncSnapshot(snapshot)
-		resp.AssetStats[idx].GenesisTimestamp = r.getBlockTimestamp(
-			ctx, snapshot.GenesisHeight,
-		)
+		resp.AssetStats[idx] = r.marshalAssetSyncSnapshot(ctx, snapshot)
 	}
 
 	return resp, nil
