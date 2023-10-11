@@ -156,6 +156,14 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 			"federation: %v", err)
 	}
 
+	if s.cfg.UniversePublicAccess {
+		err := s.cfg.UniverseFederation.SetAllowPublicAccess()
+		if err != nil {
+			return fmt.Errorf("unable to set public access "+
+				"for universe federation: %v", err)
+		}
+	}
+
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	if err := s.rpcServer.Start(); err != nil {
