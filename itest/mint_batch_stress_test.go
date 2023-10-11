@@ -191,6 +191,7 @@ func mintBatchStressTest(
 		Id: &unirpc.ID_GroupKey{
 			GroupKey: collectGroupKey[1:],
 		},
+		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
 	uniLeaves, err := alice.AssetLeaves(ctx, &collectUniID)
 	require.NoError(t, err)
