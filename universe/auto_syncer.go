@@ -482,7 +482,12 @@ func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
 	}
 
 	syncServer := func(ctx context.Context, serverAddr ServerAddr) error {
-		return f.syncServerState(ctx, serverAddr, syncConfigs)
+		err := f.syncServerState(ctx, serverAddr, syncConfigs)
+		if err != nil {
+			log.Warnf("encountered an error whilst syncing with "+
+				"server=%v: %w", spew.Sdump(serverAddr), err)
+		}
+		return nil
 	}
 
 	err = fn.ParSlice(ctx, serverAddrs, syncServer)
