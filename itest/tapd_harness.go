@@ -144,6 +144,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		TLSPath:      cfg.LndNode.Cfg.TLSCertPath,
 	}
 
+	// Ensure valid proof from tapd nodes will be accepted, and proofs will
+	// be queryable by other tapd nodes. This applies to federation syncing
+	// as well as RPC insert and query.
+	tapCfg.Universe.PublicAccess = true
+
 	cfgLogger := tapCfg.LogWriter.GenSubLogger("CONF", nil)
 	finalCfg, err := tapcfg.ValidateConfig(tapCfg, cfgLogger)
 	if err != nil {
