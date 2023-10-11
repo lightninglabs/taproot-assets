@@ -137,6 +137,7 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 		Id: &unirpc.ID_GroupKey{
 			GroupKey: collectGroupKey[1:],
 		},
+		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
 	uniLeaves, err := alice.AssetLeaves(ctx, &collectUniID)
 	require.NoError(t, err)

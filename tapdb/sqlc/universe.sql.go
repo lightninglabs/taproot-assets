@@ -136,14 +136,18 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 const insertNewProofEvent = `-- name: InsertNewProofEvent :exec
 WITH group_key_root_id AS (
     SELECT id
-    FROM universe_roots
+    FROM universe_roots roots
     WHERE group_key = $1
+        AND roots.proof_type = $4
 ), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
-             JOIN genesis_info_view gen
-                  ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $4
+    JOIN universe_roots roots
+        ON leaves.universe_root_id = roots.id
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE gen.asset_id = $5
+        AND roots.proof_type = $4
     LIMIT 1
 )
 INSERT INTO universe_events (
@@ -163,6 +167,7 @@ type InsertNewProofEventParams struct {
 	GroupKeyXOnly  interface{}
 	EventTime      time.Time
 	EventTimestamp int64
+	ProofType      string
 	AssetID        []byte
 }
 
@@ -171,6 +176,7 @@ func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEve
 		arg.GroupKeyXOnly,
 		arg.EventTime,
 		arg.EventTimestamp,
+		arg.ProofType,
 		arg.AssetID,
 	)
 	return err
@@ -179,14 +185,18 @@ func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEve
 const insertNewSyncEvent = `-- name: InsertNewSyncEvent :exec
 WITH group_key_root_id AS (
     SELECT id
-    FROM universe_roots
+    FROM universe_roots roots
     WHERE group_key = $1
+      AND roots.proof_type = $4
 ), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
+    JOIN universe_roots roots
+        ON leaves.universe_root_id = roots.id
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
-    WHERE gen.asset_id = $4 
+    WHERE gen.asset_id = $5
+        AND roots.proof_type = $4
     LIMIT 1
 )
 INSERT INTO universe_events (
@@ -206,6 +216,7 @@ type InsertNewSyncEventParams struct {
 	GroupKeyXOnly  interface{}
 	EventTime      time.Time
 	EventTimestamp int64
+	ProofType      string
 	AssetID        []byte
 }
 
@@ -214,6 +225,7 @@ func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEvent
 		arg.GroupKeyXOnly,
 		arg.EventTime,
 		arg.EventTimestamp,
+		arg.ProofType,
 		arg.AssetID,
 	)
 	return err
