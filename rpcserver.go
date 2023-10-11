@@ -3201,52 +3201,59 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	}
 
 	rpcsLog.Debugf("[QueryProof]: fetching proof at "+
-		"(universeID=%x, leafKey=%x)", universeID,
+		"(universeID=%v, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
-	// Keep a record of whether the proof type was specified by the client.
-	unspecifiedArgProofType :=
-		universeID.ProofType == universe.ProofTypeUnspecified
-	if unspecifiedArgProofType {
-		// The target proof type was unspecified. Assume that the proof
-		// type is a transfer proof (more transfer proofs exist then
-		// issuance proofs).
-		universeID.ProofType = universe.ProofTypeTransfer
+	// Retrieve proof export config for the given universe.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// Attempt to fetch the proof from the base universe.
-	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
-		ctx, universeID, leafKey,
-	)
-	// If we were unable to find a proof, and the proof type was originally
-	// unspecified, then we'll try again with the other proof type.
-	if unspecifiedArgProofType &&
-		errors.Is(err, universe.ErrNoUniverseProofFound) {
+	var candidateIDs []universe.Identifier
 
-		// The proof type was originally unspecified by the client. We
-		// will therefore try again with the other proof type.
-		switch universeID.ProofType {
-		case universe.ProofTypeTransfer:
-			universeID.ProofType = universe.ProofTypeIssuance
-		case universe.ProofTypeIssuance:
-			universeID.ProofType = universe.ProofTypeTransfer
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		universeID.ProofType = universe.ProofTypeIssuance
+		if syncConfigs.IsSyncExportEnabled(universeID) {
+			candidateIDs = append(candidateIDs, universeID)
 		}
 
+		universeID.ProofType = universe.ProofTypeIssuance
+		if syncConfigs.IsSyncExportEnabled(universeID) {
+			candidateIDs = append(candidateIDs, universeID)
+		}
+	} else {
+		if !syncConfigs.IsSyncExportEnabled(universeID) {
+			return nil, fmt.Errorf("proof export is disabled for " +
+				"the given universe")
+		}
+
+		candidateIDs = append(candidateIDs, universeID)
+	}
+
+	if len(candidateIDs) == 0 {
+		return nil, fmt.Errorf("proof export is disabled for the " +
+			"given universe")
+	}
+
+	var proofs []*universe.Proof
+	for i := range candidateIDs {
+		candidateID := candidateIDs[i]
 		proofs, err = r.cfg.BaseUniverse.FetchIssuanceProof(
-			ctx, universeID, leafKey,
+			ctx, candidateID, leafKey,
 		)
 		if err != nil {
+			if errors.Is(err, universe.ErrNoUniverseProofFound) {
+				continue
+			}
+
 			rpcsLog.Debugf("[QueryProof]: error querying for "+
 				"proof at (universeID=%x, leafKey=%x)",
 				universeID, leafKey.UniverseKey())
 			return nil, err
 		}
-	}
-	if err != nil {
-		rpcsLog.Debugf("[QueryProof]: error querying for proof at "+
-			"(universeID=%x, leafKey=%x)", universeID,
-			leafKey.UniverseKey())
-		return nil, err
+
+		break
 	}
 
 	// TODO(roasbeef): query may return multiple proofs, if allow key to
