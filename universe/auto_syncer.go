@@ -501,6 +501,30 @@ func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
 	return nil
 }
 
+// SetAllowPublicAccess sets the global sync config to allow public access
+// for proof insert and export across all universes.
+func (f *FederationEnvoy) SetAllowPublicAccess() error {
+	ctx, cancel := f.WithCtxQuit()
+	defer cancel()
+
+	globalSyncConfigs := []*FedGlobalSyncConfig{
+		{
+			ProofType:       ProofTypeIssuance,
+			AllowSyncInsert: true,
+			AllowSyncExport: true,
+		},
+		{
+			ProofType:       ProofTypeTransfer,
+			AllowSyncInsert: true,
+			AllowSyncExport: true,
+		},
+	}
+
+	return f.cfg.FederationDB.UpsertFederationSyncConfig(
+		ctx, globalSyncConfigs, nil,
+	)
+}
+
 // SyncConfigs is a set of configs that are used to control which universes to
 // synchronize with the federation.
 type SyncConfigs struct {
