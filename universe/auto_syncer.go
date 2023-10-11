@@ -560,3 +560,24 @@ func (s *SyncConfigs) IsSyncInsertEnabled(id Identifier) bool {
 
 	return false
 }
+
+// IsSyncExportEnabled returns true if the given universe is configured to allow
+// export (from this server) synchronization with the federation.
+func (s *SyncConfigs) IsSyncExportEnabled(id Identifier) bool {
+	// Check for universe specific config. This takes precedence over the
+	// global config.
+	for _, cfg := range s.UniSyncConfigs {
+		if cfg.UniverseID == id {
+			return cfg.AllowSyncExport
+		}
+	}
+
+	// Check for global config.
+	for _, cfg := range s.GlobalSyncConfigs {
+		if cfg.ProofType == id.ProofType {
+			return cfg.AllowSyncExport
+		}
+	}
+
+	return false
+}
