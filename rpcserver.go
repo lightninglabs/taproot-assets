@@ -2706,10 +2706,22 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 		UniverseRoots: make(map[string]*unirpc.UniverseRoot),
 	}
 
+	// Retrieve config for use in filtering asset roots based on sync export
+	// settings.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// For each universe root, marshal it into the RPC form, taking care to
 	// specify the proper universe ID.
 	for _, assetRoot := range assetRoots {
 		idStr := assetRoot.ID.String()
+
+		// Skip this asset if it's not configured for sync export.
+		if !syncConfigs.IsSyncExportEnabled(assetRoot.ID) {
+			continue
+		}
 
 		resp.UniverseRoots[idStr], err = marshalUniverseRoot(assetRoot)
 		if err != nil {
