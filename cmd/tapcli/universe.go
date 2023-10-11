@@ -10,8 +10,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/urfave/cli"
+)
+
+const (
+	proofTypeName = "proof_type"
 )
 
 func getUniverseClient(ctx *cli.Context) (universerpc.UniverseClient, func()) {
@@ -59,11 +64,26 @@ var universeRootsCommand = cli.Command{
 			Name:  groupKeyName,
 			Usage: "the group key of the universe to query for",
 		},
+		cli.StringFlag{
+			Name: proofTypeName,
+			Usage: "the type of proof to show the roots for, " +
+				"either 'issuance' or 'transfer'",
+			Value: universe.ProofTypeIssuance.String(),
+		},
 	},
 	Action: universeRoots,
 }
 
 func parseUniverseID(ctx *cli.Context, mustParse bool) (*universerpc.ID, error) {
+	proofType, err := universe.ParseStrProofType(ctx.String(proofTypeName))
+	if err != nil {
+		return nil, err
+	}
+	rpcProofType, err := tap.MarshalUniProofType(proofType)
+	if err != nil {
+		return nil, err
+	}
+
 	switch {
 	// Both the asset ID and the group key can't be set.
 	case ctx.IsSet(assetIDName) && ctx.IsSet(groupKeyName):
@@ -83,6 +103,7 @@ func parseUniverseID(ctx *cli.Context, mustParse bool) (*universerpc.ID, error) 
 			Id: &universerpc.ID_AssetId{
 				AssetId: assetIDBytes,
 			},
+			ProofType: rpcProofType,
 		}, nil
 
 	case ctx.IsSet(groupKeyName):
@@ -97,6 +118,7 @@ func parseUniverseID(ctx *cli.Context, mustParse bool) (*universerpc.ID, error) 
 			Id: &universerpc.ID_GroupKey{
 				GroupKey: groupKeyBytes,
 			},
+			ProofType: rpcProofType,
 		}, nil
 
 	// Neither was set, so we'll return nil.
@@ -156,6 +178,12 @@ var universeDeleteRootCommand = cli.Command{
 			Name:  groupKeyName,
 			Usage: "the group key of the universe to delete",
 		},
+		cli.StringFlag{
+			Name: proofTypeName,
+			Usage: "the type of proof to delete the roots for, " +
+				"either 'issuance' or 'transfer'",
+			Value: universe.ProofTypeIssuance.String(),
+		},
 	},
 	Action: deleteUniverseRoot,
 }
@@ -201,6 +229,12 @@ var universeKeysCommand = cli.Command{
 			Name:  groupKeyName,
 			Usage: "the group key of the universe to query for",
 		},
+		cli.StringFlag{
+			Name: proofTypeName,
+			Usage: "the type of proof to show the keys for, " +
+				"either 'issuance' or 'transfer'",
+			Value: universe.ProofTypeIssuance.String(),
+		},
 	},
 	Action: universeKeys,
 }
@@ -242,6 +276,12 @@ var universeLeavesCommand = cli.Command{
 			Name:  groupKeyName,
 			Usage: "the group key of the universe to query for",
 		},
+		cli.StringFlag{
+			Name: proofTypeName,
+			Usage: "the type of proof to show the leaves for, " +
+				"either 'issuance' or 'transfer'",
+			Value: universe.ProofTypeIssuance.String(),
+		},
 	},
 	Action: universeLeaves,
 }
@@ -279,23 +319,31 @@ var universeProofArgs = []cli.Flag{
 		Usage: "the group key of the universe to query for",
 	},
 	cli.StringFlag{
-		Name:  outpointName,
-		Usage: "the target outpoint on chain to locate a tap proof within",
+		Name: outpointName,
+		Usage: "the target outpoint on chain to locate a tap proof " +
+			"within",
 	},
 	cli.StringFlag{
-		Name:  scriptKeyName,
-		Usage: "the script key (scoped to an assetID) to query a proof for",
+		Name: scriptKeyName,
+		Usage: "the script key (scoped to an assetID) to query a " +
+			"proof for",
+	},
+	cli.StringFlag{
+		Name: proofTypeName,
+		Usage: "the type of proof to query for, either 'issuance' or " +
+			"'transfer'",
+		Value: universe.ProofTypeIssuance.String(),
 	},
 }
 
 var universeProofCommand = cli.Command{
 	Name:      "proofs",
 	ShortName: "p",
-	Usage:     "retreive or insert a new Universe proof",
+	Usage:     "retrieve or insert a new Universe proof",
 	Description: `
 	Query for the set of proofs known by the target universe. A proof may
 	be either an issuance proof, or a proof that some transfer took place
-	on chain. Proofs are namesapced based on a top level assetID/groupKey,
+	on chain. Proofs are namespaced based on a top level assetID/groupKey,
 	so that must be specified for each command.
 
 	Two sub-commands are available: proof querying (query) and proof
