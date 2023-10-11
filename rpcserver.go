@@ -2844,6 +2844,17 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 
 	universeID.ProofType = universe.ProofTypeIssuance
 
+	// Ensure proof export is enabled for the given universe.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !syncConfigs.IsSyncExportEnabled(universeID) {
+		return nil, fmt.Errorf("proof export is disabled for the " +
+			"given universe")
+	}
+
 	issuanceRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
 	if err != nil {
 		// Do not return at this point if the error only indicates that
