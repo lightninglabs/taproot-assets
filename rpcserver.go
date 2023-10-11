@@ -3200,9 +3200,8 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Debugf("[QueryProof]: fetching proof at "+
-		"(universeID=%x, leafKey=%x)", universeID,
-		leafKey.UniverseKey())
+	rpcsLog.Debugf("[QueryProof]: fetching proof at (universeID=%v, "+
+		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
 	// Keep a record of whether the proof type was specified by the client.
 	unspecifiedArgProofType :=
@@ -3237,14 +3236,14 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		)
 		if err != nil {
 			rpcsLog.Debugf("[QueryProof]: error querying for "+
-				"proof at (universeID=%x, leafKey=%x)",
+				"proof at (universeID=%v, leafKey=%x)",
 				universeID, leafKey.UniverseKey())
 			return nil, err
 		}
 	}
 	if err != nil {
 		rpcsLog.Debugf("[QueryProof]: error querying for proof at "+
-			"(universeID=%x, leafKey=%x)", universeID,
+			"(universeID=%v, leafKey=%x)", universeID,
 			leafKey.UniverseKey())
 		return nil, err
 	}
@@ -3253,9 +3252,8 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	// not be fully specified
 	proof := proofs[0]
 
-	rpcsLog.Debugf("[QueryProof]: found proof at "+
-		"(universeID=%x, leafKey=%x)", universeID,
-		leafKey.UniverseKey())
+	rpcsLog.Debugf("[QueryProof]: found proof at (universeID=%v, "+
+		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
 	return r.marshalIssuanceProof(ctx, req, proof)
 }
@@ -3328,7 +3326,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	}
 
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
-		"(universeID=%x, leafKey=%x)", universeID,
+		"(universeID=%v, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
 	newUniverseState, err := r.cfg.BaseUniverse.RegisterIssuance(
