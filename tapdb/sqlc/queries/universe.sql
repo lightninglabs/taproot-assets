@@ -306,3 +306,33 @@ WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
       event_timestamp >= @start_time AND event_timestamp <= @end_time
 GROUP BY day
 ORDER BY day;
+
+-- name: UpsertFederationGlobalSyncConfig :exec
+INSERT INTO federation_global_sync_config (
+    proof_type, allow_sync_insert, allow_sync_export
+)
+VALUES (@proof_type, @allow_sync_insert, @allow_sync_export)
+ON CONFLICT(proof_type)
+    DO UPDATE SET
+    allow_sync_insert = @allow_sync_insert,
+    allow_sync_export = @allow_sync_export;
+
+-- name: QueryFederationGlobalSyncConfigs :many
+SELECT proof_type, allow_sync_insert, allow_sync_export
+FROM federation_global_sync_config;
+
+-- name: UpsertFederationUniSyncConfig :exec
+INSERT INTO federation_uni_sync_config  (
+    asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
+)
+VALUES(
+    @asset_id, @group_key, @proof_type, @allow_sync_insert, @allow_sync_export
+)
+ON CONFLICT(asset_id, group_key, proof_type)
+    DO UPDATE SET
+    allow_sync_insert = @allow_sync_insert,
+    allow_sync_export = @allow_sync_export;
+
+-- name: QueryFederationUniSyncConfigs :many
+SELECT asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
+FROM federation_uni_sync_config;

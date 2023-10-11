@@ -2733,15 +2733,34 @@ func UnmarshalUniProofType(rpcType unirpc.ProofType) (universe.ProofType,
 	}
 }
 
-// unmarshalUniID parses the RPC universe ID into the native counterpart.
-func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+// unmarshalAssetSyncConfig parses the RPC asset sync config into the native
+// counterpart.
+func unmarshalAssetSyncConfig(
+	config *unirpc.AssetFederationSyncConfig) (*universe.FedUniSyncConfig,
+	error) {
+
+	// Parse the universe ID from the RPC form.
+	uniID, err := UnmarshalUniID(config.Id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse universe id: %w",
+			err)
+	}
+
+	return &universe.FedUniSyncConfig{
+		UniverseID:      uniID,
+		AllowSyncInsert: config.AllowSyncInsert,
+		AllowSyncExport: config.AllowSyncExport,
+	}, nil
+}
+
+// UnmarshalUniID parses the RPC universe ID into the native counterpart.
+func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	// Unmarshal the proof type.
 	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
 	if err != nil {
 		return universe.Identifier{}, fmt.Errorf("unable to unmarshal "+
 			"proof type: %w", err)
 	}
-
 	switch {
 	case rpcID.GetAssetId() != nil:
 		var assetID asset.ID
@@ -2807,7 +2826,7 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 	req *unirpc.AssetRootQuery) (*unirpc.QueryRootResponse, error) {
 
-	universeID, err := unmarshalUniID(req.Id)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -2865,7 +2884,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	req *unirpc.DeleteRootQuery) (*unirpc.DeleteRootResponse, error) {
 
-	universeID, err := unmarshalUniID(req.Id)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -2921,7 +2940,7 @@ func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafKeyResponse, error) {
 
-	universeID, err := unmarshalUniID(req)
+	universeID, err := UnmarshalUniID(req)
 	if err != nil {
 		return nil, err
 	}
@@ -2983,7 +3002,7 @@ func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
 func (r *rpcServer) AssetLeaves(ctx context.Context,
 	req *unirpc.ID) (*unirpc.AssetLeafResponse, error) {
 
-	universeID, err := unmarshalUniID(req)
+	universeID, err := UnmarshalUniID(req)
 	if err != nil {
 		return nil, err
 	}
@@ -3172,7 +3191,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 func (r *rpcServer) QueryProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
-	universeID, err := unmarshalUniID(req.Id)
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -3276,7 +3295,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		return nil, fmt.Errorf("key cannot be nil")
 	}
 
-	universeID, err := unmarshalUniID(req.Key.Id)
+	universeID, err := UnmarshalUniID(req.Key.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -3362,7 +3381,7 @@ func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
 func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
 	uniIDs := make([]universe.Identifier, 0, len(targets))
 	for _, target := range targets {
-		uniID, err := unmarshalUniID(target.Id)
+		uniID, err := UnmarshalUniID(target.Id)
 		if err != nil {
 			return nil, err
 		}
@@ -3527,6 +3546,113 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 	}
 
 	return &unirpc.DeleteFederationServerResponse{}, nil
+}
+
+// SetFederationSyncConfig sets the configuration of the universe federation
+// sync.
+func (r *rpcServer) SetFederationSyncConfig(ctx context.Context,
+	req *unirpc.SetFederationSyncConfigRequest) (
+	*unirpc.SetFederationSyncConfigResponse, error) {
+
+	// Unmarshal global sync configs.
+	globalSyncConfig := make(
+		[]*universe.FedGlobalSyncConfig, len(req.GlobalSyncConfigs),
+	)
+	for i := range req.GlobalSyncConfigs {
+		config := req.GlobalSyncConfigs[i]
+
+		proofType, err := UnmarshalUniProofType(config.ProofType)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal "+
+				"proof type: %w", err)
+		}
+
+		globalSyncConfig[i] = &universe.FedGlobalSyncConfig{
+			ProofType:       proofType,
+			AllowSyncInsert: config.AllowSyncInsert,
+			AllowSyncExport: config.AllowSyncExport,
+		}
+	}
+
+	// Unmarshal asset (asset/asset group) specific sync configs.
+	assetSyncConfigs := make(
+		[]*universe.FedUniSyncConfig, len(req.AssetSyncConfigs),
+	)
+	for i := range req.AssetSyncConfigs {
+		assetSyncConfig := req.AssetSyncConfigs[i]
+		config, err := unmarshalAssetSyncConfig(assetSyncConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse asset sync "+
+				"config: %w", err)
+		}
+
+		assetSyncConfigs[i] = config
+	}
+
+	// Update asset (asset/asset group) specific sync configs.
+	err := r.cfg.FederationDB.UpsertFederationSyncConfig(
+		ctx, globalSyncConfig, assetSyncConfigs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to set federation sync "+
+			"config: %w", err)
+	}
+
+	return &unirpc.SetFederationSyncConfigResponse{}, nil
+}
+
+// QueryFederationSyncConfig queries the universe federation sync configuration
+// settings.
+func (r *rpcServer) QueryFederationSyncConfig(ctx context.Context,
+	_ *unirpc.QueryFederationSyncConfigRequest,
+) (*unirpc.QueryFederationSyncConfigResponse, error) {
+
+	// Obtain the general and universe specific federation sync configs.
+	queryFedSyncConfigs := r.cfg.FederationDB.QueryFederationSyncConfigs
+	globalConfigs, uniSyncConfigs, err := queryFedSyncConfigs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query federation sync "+
+			"config(s): %w", err)
+	}
+
+	// Marshal the general sync config into the RPC form.
+	globalConfigRPC := make(
+		[]*unirpc.GlobalFederationSyncConfig, len(globalConfigs),
+	)
+	for i := range globalConfigs {
+		globalConfig := globalConfigs[i]
+
+		proofTypeRpc, err := MarshalUniProofType(globalConfig.ProofType)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal "+
+				"proof type: %w", err)
+		}
+
+		globalConfigRPC[i] = &unirpc.GlobalFederationSyncConfig{
+			ProofType:       proofTypeRpc,
+			AllowSyncInsert: globalConfig.AllowSyncInsert,
+			AllowSyncExport: globalConfig.AllowSyncExport,
+		}
+	}
+
+	// Marshal universe specific sync configs into the RPC form.
+	uniConfigRPCs := make(
+		[]*unirpc.AssetFederationSyncConfig, len(uniSyncConfigs),
+	)
+	for i := range uniSyncConfigs {
+		uniSyncConfig := uniSyncConfigs[i]
+		uniConfigRPC, err := MarshalAssetFedSyncCfg(*uniSyncConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal universe "+
+				"specific federation sync config: %w", err)
+		}
+		uniConfigRPCs[i] = uniConfigRPC
+	}
+
+	return &unirpc.QueryFederationSyncConfigResponse{
+		GlobalSyncConfigs: globalConfigRPC,
+		AssetSyncConfigs:  uniConfigRPCs,
+	}, nil
 }
 
 // ProveAssetOwnership creates an ownership proof embedded in an asset
@@ -3843,4 +3969,34 @@ func unmarshalMetaType(rpcMeta taprpc.AssetMetaType) (proof.MetaType, error) {
 	default:
 		return 0, fmt.Errorf("unknown meta type: %v", rpcMeta)
 	}
+}
+
+// MarshalAssetFedSyncCfg returns an RPC ready asset specific federation sync
+// config.
+func MarshalAssetFedSyncCfg(
+	config universe.FedUniSyncConfig) (*unirpc.AssetFederationSyncConfig,
+	error) {
+
+	// Marshal universe ID into the RPC form.
+	uniID := config.UniverseID
+	assetIDBytes := uniID.AssetID[:]
+
+	var groupKeyBytes []byte
+	if uniID.GroupKey != nil {
+		groupKeyBytes = uniID.GroupKey.SerializeCompressed()
+	}
+	uniIdRPC := unirpc.MarshalUniverseID(assetIDBytes, groupKeyBytes)
+
+	// Marshal proof type.
+	proofTypeRpc, err := MarshalUniProofType(uniID.ProofType)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal proof type: %w", err)
+	}
+	uniIdRPC.ProofType = proofTypeRpc
+
+	return &unirpc.AssetFederationSyncConfig{
+		Id:              uniIdRPC,
+		AllowSyncInsert: config.AllowSyncInsert,
+		AllowSyncExport: config.AllowSyncExport,
+	}, nil
 }

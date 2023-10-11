@@ -1116,6 +1116,60 @@
           "Universe"
         ]
       }
+    },
+    "/v1/taproot-assets/universe/sync/config": {
+      "get": {
+        "summary": "QueryFederationSyncConfig queries the universe federation sync configuration\nsettings.",
+        "operationId": "Universe_QueryFederationSyncConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcQueryFederationSyncConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Universe"
+        ]
+      },
+      "post": {
+        "summary": "SetFederationSyncConfig sets the configuration of the universe federation\nsync.",
+        "operationId": "Universe_SetFederationSyncConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcSetFederationSyncConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcSetFederationSyncConfigRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1400,6 +1454,24 @@
     "universerpcAddFederationServerResponse": {
       "type": "object"
     },
+    "universerpcAssetFederationSyncConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/universerpcID",
+          "description": "id is the ID of the universe to configure."
+        },
+        "allow_sync_insert": {
+          "type": "boolean",
+          "description": "allow_sync_insert is a boolean that indicates whether leaves from\nuniverses of the given proof type have may be inserted via federation\nsync."
+        },
+        "allow_sync_export": {
+          "type": "boolean",
+          "description": "allow_sync_export is a boolean that indicates whether leaves from\nuniverses of the given proof type have may be exported via federation\nsync."
+        }
+      },
+      "description": "AssetFederationSyncConfig is an asset universe specific configuration for\nfederation syncing."
+    },
     "universerpcAssetKey": {
       "type": "object",
       "properties": {
@@ -1604,6 +1676,24 @@
     "universerpcDeleteRootResponse": {
       "type": "object"
     },
+    "universerpcGlobalFederationSyncConfig": {
+      "type": "object",
+      "properties": {
+        "proof_type": {
+          "$ref": "#/definitions/universerpcProofType",
+          "description": "proof_type is the universe proof type which this config applies to."
+        },
+        "allow_sync_insert": {
+          "type": "boolean",
+          "description": "allow_sync_insert is a boolean that indicates whether leaves from\nuniverses of the given proof type have may be inserted via federation\nsync."
+        },
+        "allow_sync_export": {
+          "type": "boolean",
+          "description": "allow_sync_export is a boolean that indicates whether leaves from\nuniverses of the given proof type have may be exported via federation\nsync."
+        }
+      },
+      "description": "GlobalFederationSyncConfig is a global proof type specific configuration\nfor universe federation syncing."
+    },
     "universerpcGroupedUniverseEvents": {
       "type": "object",
       "properties": {
@@ -1722,6 +1812,23 @@
         }
       }
     },
+    "universerpcQueryFederationSyncConfigResponse": {
+      "type": "object",
+      "properties": {
+        "global_sync_configs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
+          }
+        },
+        "asset_sync_configs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
+          }
+        }
+      }
+    },
     "universerpcQueryRootResponse": {
       "type": "object",
       "properties": {
@@ -1734,6 +1841,26 @@
           "description": "The transfer universe root for the given asset ID or group key."
         }
       }
+    },
+    "universerpcSetFederationSyncConfigRequest": {
+      "type": "object",
+      "properties": {
+        "global_sync_configs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
+          }
+        },
+        "asset_sync_configs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
+          }
+        }
+      }
+    },
+    "universerpcSetFederationSyncConfigResponse": {
+      "type": "object"
     },
     "universerpcSortDirection": {
       "type": "string",
