@@ -162,7 +162,7 @@ unit-trace:
 
 unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
-	$(GOACC_BIN) $(GOLIST_COVER)
+	$(GOACC); $(COVER_HTML)
 
 unit-race:
 	@$(call print, "Running unit race tests.")
