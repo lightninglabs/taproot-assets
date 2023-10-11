@@ -311,5 +311,4 @@ type UniverseStat struct {
 	TotalAssetProofs int64
 	AssetID          []byte
 	GroupKey         []byte
-	NamespaceRoot    string
 }
