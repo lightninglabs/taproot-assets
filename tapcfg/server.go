@@ -236,6 +236,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	federationMembers := cfg.Universe.FederationServers
 	switch cfg.ChainConf.Network {
+	case "mainnet":
+		cfgLogger.Infof("Configuring %v as initial Universe "+
+			"federation server", defaultMainnetFederationServer)
+
+		federationMembers = append(
+			federationMembers, defaultMainnetFederationServer,
+		)
+
 	case "testnet":
 		cfgLogger.Infof("Configuring %v as initial Universe "+
 			"federation server", defaultTestnetFederationServer)

@@ -48,9 +48,12 @@ const (
 	defaultLetsEncryptDirname = "letsencrypt"
 	defaultLetsEncryptListen  = ":80"
 
+	defaultNetwork = "mainnet"
+
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
 
+	defaultMainnetFederationServer = "universe.lightning.finance:10029"
 	defaultTestnetFederationServer = "testnet.universe.lightning.finance:10029"
 
 	// DefaultAutogenValidity is the default validity of a self-signed
@@ -121,8 +124,6 @@ var (
 	// file.
 	DefaultConfigFile = filepath.Join(DefaultTapdDir, defaultConfigFileName)
 
-	defaultNetwork = "testnet"
-
 	defaultDataDir = filepath.Join(DefaultTapdDir, defaultDataDirname)
 	defaultLogDir  = filepath.Join(DefaultTapdDir, defaultLogDirname)
 
@@ -175,7 +176,7 @@ var (
 // ChainConfig houses the configuration options that govern which chain/network
 // we operate on.
 type ChainConfig struct {
-	Network string `long:"network" description:"network to run on" choice:"regtest" choice:"testnet" choice:"simnet" choice:"signet"`
+	Network string `long:"network" description:"network to run on" choice:"mainnet" choice:"regtest" choice:"testnet" choice:"simnet" choice:"signet"`
 
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
@@ -541,6 +542,8 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	// network flags passed; assign active network params
 	// while we're at it.
 	switch cfg.ChainConf.Network {
+	case "mainnet":
+		cfg.ActiveNetParams = chaincfg.MainNetParams
 	case "testnet":
 		cfg.ActiveNetParams = chaincfg.TestNet3Params
 	case "regtest":
