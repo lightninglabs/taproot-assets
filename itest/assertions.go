@@ -1099,6 +1099,11 @@ func AssertUniverseRoot(t *testing.T, client unirpc.UniverseClient,
 }
 
 func AssertUniverseRootEqual(a, b *unirpc.UniverseRoot) bool {
+	// Basic RPC form sanity checks.
+	if (a.Id != nil && b.Id == nil) || (a.Id == nil && b.Id != nil) {
+		return false
+	}
+
 	// The ids should batch exactly.
 	if !reflect.DeepEqual(a.Id.Id, b.Id.Id) {
 		return false

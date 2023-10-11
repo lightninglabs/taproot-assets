@@ -129,6 +129,15 @@ func (b *MultiverseStore) RootNodes(
 				}
 			}
 
+			// Parse universe proof type and populate the universe
+			// ID.
+			id.ProofType, err = universe.ParseStrProofType(
+				dbRoot.ProofType,
+			)
+			if err != nil {
+				return err
+			}
+
 			var nodeHash mssmt.NodeHash
 			copy(nodeHash[:], dbRoot.RootHash)
 			uniRoot := universe.BaseRoot{

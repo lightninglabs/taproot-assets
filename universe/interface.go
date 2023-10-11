@@ -13,8 +13,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
@@ -36,7 +36,7 @@ var (
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
-// Identifier is the identifier for a root/base universe.
+// Identifier is the identifier for a universe.
 type Identifier struct {
 	// AssetID is the asset ID for the universe.
 	//
@@ -45,6 +45,9 @@ type Identifier struct {
 
 	// GroupKey is the group key for the universe.
 	GroupKey *btcec.PublicKey
+
+	// ProofType is the type of proof that should be stored in the universe.
+	ProofType ProofType
 }
 
 // Bytes returns a bytes representation of the ID.
@@ -58,7 +61,10 @@ func (i *Identifier) Bytes() [32]byte {
 
 // String returns a string representation of the ID.
 func (i *Identifier) String() string {
-	return hex.EncodeToString(fn.ByteSlice(i.Bytes()))
+	// The namespace is prefixed by the proof type. This is done to make it
+	// easier to identify the proof type when looking at a list of
+	// namespaces (say, in a DB explorer).
+	return fmt.Sprintf("%s-%x", i.ProofType, i.Bytes())
 }
 
 // StringForLog returns a string representation of the ID for logging.
@@ -70,8 +76,24 @@ func (i *Identifier) StringForLog() string {
 		)
 	}
 
-	return fmt.Sprintf("%v (asset_id=%x, group_key=%v)",
-		i.String(), i.AssetID[:], groupKey)
+	return fmt.Sprintf("%v (asset_id=%x, group_key=%v, proof_type=%v)",
+		i.String(), i.AssetID[:], groupKey, i.ProofType)
+}
+
+// ValidateProofUniverseType validates that the proof type matches the universe
+// identifier proof type.
+func ValidateProofUniverseType(proof *proof.Proof, uniID Identifier) error {
+	expectedProofType, err := NewProofTypeFromAssetProof(proof)
+	if err != nil {
+		return err
+	}
+
+	if expectedProofType != uniID.ProofType {
+		return fmt.Errorf("proof type mismatch: expected %s, got %s",
+			expectedProofType, uniID.ProofType)
+	}
+
+	return nil
 }
 
 // GenesisWithGroup is a two tuple that groups the genesis of an asset with the
@@ -548,6 +570,62 @@ type FederationLog interface {
 	// LogNewSyncs logs a new sync event for each server. This can be used
 	// to keep track of the last time we synced with a remote server.
 	LogNewSyncs(ctx context.Context, addrs ...ServerAddr) error
+}
+
+// ProofType is an enum that describes the type of proof which can be stored in
+// a given universe.
+type ProofType uint8
+
+const (
+	// ProofTypeUnspecified signifies an unspecified proof type.
+	ProofTypeUnspecified ProofType = iota
+
+	// ProofTypeIssuance corresponds to the issuance proof type.
+	ProofTypeIssuance
+
+	// ProofTypeTransfer corresponds to the transfer proof type.
+	ProofTypeTransfer
+)
+
+// NewProofTypeFromAssetProof returns the proof type for the given asset proof.
+func NewProofTypeFromAssetProof(proof *proof.Proof) (ProofType, error) {
+	if proof == nil {
+		return 0, fmt.Errorf("proof is nil")
+	}
+
+	if proof.Asset.IsGenesisAsset() {
+		return ProofTypeIssuance, nil
+	}
+
+	return ProofTypeTransfer, nil
+}
+
+// String returns a human-readable string representation of the proof type.
+func (t ProofType) String() string {
+	switch t {
+	case ProofTypeUnspecified:
+		return "unspecified"
+	case ProofTypeIssuance:
+		return "issuance"
+	case ProofTypeTransfer:
+		return "transfer"
+	}
+
+	return fmt.Sprintf("unknown(%v)", int(t))
+}
+
+// ParseStrProofType returns the proof type corresponding to the given string.
+func ParseStrProofType(typeStr string) (ProofType, error) {
+	switch typeStr {
+	case "unspecified":
+		return ProofTypeUnspecified, nil
+	case "issuance":
+		return ProofTypeIssuance, nil
+	case "transfer":
+		return ProofTypeTransfer, nil
+	default:
+		return 0, fmt.Errorf("unknown proof type: %v", typeStr)
+	}
 }
 
 // SyncStatsSort is an enum used to specify the sort order of the returned sync

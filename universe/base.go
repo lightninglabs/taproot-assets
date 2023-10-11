@@ -147,6 +147,22 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 	newProof := leaf.Proof
 
+	// If universe proof type unspecified in universe ID, set based on the
+	// provided asset proof.
+	if id.ProofType == ProofTypeUnspecified {
+		var err error
+		id.ProofType, err = NewProofTypeFromAssetProof(newProof)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Ensure the proof is of the correct type for the target universe.
+	err := ValidateProofUniverseType(newProof, id)
+	if err != nil {
+		return nil, err
+	}
+
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
 	issuanceProofs, err := a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
@@ -282,6 +298,26 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 	nonAnchorItems := make([]*IssuanceItem, 0, len(items))
 	for ind := range items {
 		item := items[ind]
+
+		// If unspecified, set universe ID proof type based on leaf
+		// proof type.
+		if item.ID.ProofType == ProofTypeUnspecified {
+			var err error
+			item.ID.ProofType, err = NewProofTypeFromAssetProof(
+				item.Leaf.Proof,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Ensure that the target universe ID proof type corresponds to
+		// the leaf proof type.
+		err := ValidateProofUniverseType(item.Leaf.Proof, item.ID)
+		if err != nil {
+			return err
+		}
+
 		// Any group anchor issuance proof must have a group key reveal
 		// attached, so tht can be used to partition anchor assets and
 		// non-anchor assets.
@@ -368,9 +404,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
-	if newProof.Asset.HasGenesisWitness() ||
-		newProof.Asset.HasGenesisWitnessForGroup() {
-
+	if newProof.Asset.IsGenesisAsset() {
 		return nil, nil
 	}
 
@@ -402,6 +436,16 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
 		ctx, uniID, prevLeafKey,
 	)
+	// If we've failed in finding the previous proof in the transfer
+	// universe, we will try to find it in the issuance universe.
+	if uniID.ProofType == ProofTypeTransfer &&
+		errors.Is(err, ErrNoUniverseProofFound) {
+
+		uniID.ProofType = ProofTypeIssuance
+		prevProofs, err = a.cfg.Multiverse.FetchProofLeaf(
+			ctx, uniID, prevLeafKey,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous "+
 			"proof: %v", err)

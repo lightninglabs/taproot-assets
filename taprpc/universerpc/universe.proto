@@ -145,6 +145,12 @@ message MerkleSumNode {
     // exposed via iterative queries
 }
 
+enum ProofType {
+    PROOF_TYPE_UNSPECIFIED = 0;
+    PROOF_TYPE_ISSUANCE = 1;
+    PROOF_TYPE_TRANSFER = 2;
+}
+
 message ID {
     oneof id {
         // The 32-byte asset ID specified as raw bytes (gRPC only).
@@ -160,6 +166,8 @@ message ID {
         // REST).
         string group_key_str = 4;
     }
+
+    ProofType proof_type = 5;
 }
 
 message UniverseRoot {
@@ -194,8 +202,11 @@ message AssetRootQuery {
 }
 
 message QueryRootResponse {
-    // The asset root for the given asset ID or group key.
-    UniverseRoot asset_root = 1;
+    // The issuance universe root for the given asset ID or group key.
+    UniverseRoot issuance_root = 1;
+
+    // The transfer universe root for the given asset ID or group key.
+    UniverseRoot transfer_root = 2;
 }
 
 message DeleteRootQuery {

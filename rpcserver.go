@@ -2606,7 +2606,27 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 	}, nil
 }
 
-func marshalUniID(id universe.Identifier) *unirpc.ID {
+// MarshalUniProofType marshals the universe proof type into the RPC
+// counterpart.
+func MarshalUniProofType(
+	proofType universe.ProofType) (unirpc.ProofType, error) {
+
+	switch proofType {
+	case universe.ProofTypeUnspecified:
+		return unirpc.ProofType_PROOF_TYPE_UNSPECIFIED, nil
+	case universe.ProofTypeIssuance:
+		return unirpc.ProofType_PROOF_TYPE_ISSUANCE, nil
+	case universe.ProofTypeTransfer:
+		return unirpc.ProofType_PROOF_TYPE_TRANSFER, nil
+
+	default:
+		return 0, fmt.Errorf("unknown universe proof type: %v",
+			proofType)
+	}
+}
+
+// MarshalUniID marshals the universe ID into the RPC counterpart.
+func MarshalUniID(id universe.Identifier) (*unirpc.ID, error) {
 	var uniID unirpc.ID
 
 	if id.GroupKey != nil {
@@ -2619,7 +2639,13 @@ func marshalUniID(id universe.Identifier) *unirpc.ID {
 		}
 	}
 
-	return &uniID
+	proofTypeRpc, err := MarshalUniProofType(id.ProofType)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal proof type: %w", err)
+	}
+	uniID.ProofType = proofTypeRpc
+
+	return &uniID, nil
 }
 
 // marshalMssmtNode marshals a MS-SMT node into the RPC counterpart.
@@ -2645,8 +2671,13 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 		rpcGroupedAssets[assetID.String()] = amount
 	}
 
+	uniID, err := MarshalUniID(node.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &unirpc.UniverseRoot{
-		Id:               marshalUniID(node.ID),
+		Id:               uniID,
 		MssmtRoot:        mssmtRoot,
 		AssetName:        node.AssetName,
 		AmountsByAssetId: rpcGroupedAssets,
@@ -2682,15 +2713,43 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	return resp, nil
 }
 
+// UnmarshalUniProofType parses the RPC universe proof type into the native
+// counterpart.
+func UnmarshalUniProofType(rpcType unirpc.ProofType) (universe.ProofType,
+	error) {
+
+	switch rpcType {
+	case unirpc.ProofType_PROOF_TYPE_UNSPECIFIED:
+		return universe.ProofTypeUnspecified, nil
+
+	case unirpc.ProofType_PROOF_TYPE_ISSUANCE:
+		return universe.ProofTypeIssuance, nil
+
+	case unirpc.ProofType_PROOF_TYPE_TRANSFER:
+		return universe.ProofTypeTransfer, nil
+
+	default:
+		return 0, fmt.Errorf("unknown universe proof type: %v", rpcType)
+	}
+}
+
 // unmarshalUniID parses the RPC universe ID into the native counterpart.
 func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+	// Unmarshal the proof type.
+	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
+	if err != nil {
+		return universe.Identifier{}, fmt.Errorf("unable to unmarshal "+
+			"proof type: %w", err)
+	}
+
 	switch {
 	case rpcID.GetAssetId() != nil:
 		var assetID asset.ID
 		copy(assetID[:], rpcID.GetAssetId())
 
 		return universe.Identifier{
-			AssetID: assetID,
+			AssetID:   assetID,
+			ProofType: proofType,
 		}, nil
 
 	case rpcID.GetAssetIdStr() != "":
@@ -2705,7 +2764,8 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		copy(assetID[:], assetIDBytes)
 
 		return universe.Identifier{
-			AssetID: assetID,
+			AssetID:   assetID,
+			ProofType: proofType,
 		}, nil
 
 	case rpcID.GetGroupKey() != nil:
@@ -2715,7 +2775,8 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}
 
 		return universe.Identifier{
-			GroupKey: groupKey,
+			GroupKey:  groupKey,
+			ProofType: proofType,
 		}, nil
 
 	case rpcID.GetGroupKeyStr() != "":
@@ -2732,7 +2793,8 @@ func unmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}
 
 		return universe.Identifier{
-			GroupKey: groupKey,
+			GroupKey:  groupKey,
+			ProofType: proofType,
 		}, nil
 
 	default:
@@ -2750,20 +2812,51 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Debugf("Querying for asset root for %v", spew.Sdump(universeID))
+	// Attempt to retrieve the issuance universe root.
+	rpcsLog.Debugf("Querying for asset (group) issuance universe root "+
+		"for %v", spew.Sdump(universeID))
 
-	assetRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	universeID.ProofType = universe.ProofTypeIssuance
+
+	issuanceRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	if err != nil {
+		// Do not return at this point if the error only indicates that
+		// the root wasn't found. We'll try to find the transfer root
+		// below.
+		if !errors.Is(err, universe.ErrNoUniverseRoot) {
+			return nil, err
+		}
+	}
+
+	issuanceRootRPC, err := marshalUniverseRoot(issuanceRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	uniRoot, err := marshalUniverseRoot(assetRoot)
+	// Attempt to retrieve the transfer universe root.
+	rpcsLog.Debugf("Querying for asset (group) transfer universe root "+
+		"for %v", spew.Sdump(universeID))
+
+	universeID.ProofType = universe.ProofTypeTransfer
+
+	transferRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	if err != nil {
+		// Do not return at this point if the error only indicates that
+		// the root wasn't found. We may have found the issuance root
+		// above.
+		if !errors.Is(err, universe.ErrNoUniverseRoot) {
+			return nil, err
+		}
+	}
+
+	transferRootRPC, err := marshalUniverseRoot(transferRoot)
 	if err != nil {
 		return nil, err
 	}
 
 	return &unirpc.QueryRootResponse{
-		AssetRoot: uniRoot,
+		IssuanceRoot: issuanceRootRPC,
+		TransferRoot: transferRootRPC,
 	}, nil
 }
 
@@ -2779,6 +2872,26 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 
 	rpcsLog.Debugf("Deleting asset root for %v", spew.Sdump(universeID))
 
+	// If the universe proof type is unspecified, we'll delete both the
+	// issuance and transfer roots.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		universeID.ProofType = universe.ProofTypeIssuance
+		_, err := r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		if err != nil {
+			return nil, err
+		}
+
+		universeID.ProofType = universe.ProofTypeTransfer
+		_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		if err != nil {
+			return nil, err
+		}
+
+		return &unirpc.DeleteRootResponse{}, nil
+	}
+
+	// At this point the universe proof type was specified, so we'll only
+	// delete the root for that proof type.
 	_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
 	if err != nil {
 		return nil, err
@@ -3072,9 +3185,44 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		"(universeID=%x, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
+	// Keep a record of whether the proof type was specified by the client.
+	unspecifiedArgProofType :=
+		universeID.ProofType == universe.ProofTypeUnspecified
+	if unspecifiedArgProofType {
+		// The target proof type was unspecified. Assume that the proof
+		// type is a transfer proof (more transfer proofs exist then
+		// issuance proofs).
+		universeID.ProofType = universe.ProofTypeTransfer
+	}
+
+	// Attempt to fetch the proof from the base universe.
 	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
 		ctx, universeID, leafKey,
 	)
+	// If we were unable to find a proof, and the proof type was originally
+	// unspecified, then we'll try again with the other proof type.
+	if unspecifiedArgProofType &&
+		errors.Is(err, universe.ErrNoUniverseProofFound) {
+
+		// The proof type was originally unspecified by the client. We
+		// will therefore try again with the other proof type.
+		switch universeID.ProofType {
+		case universe.ProofTypeTransfer:
+			universeID.ProofType = universe.ProofTypeIssuance
+		case universe.ProofTypeIssuance:
+			universeID.ProofType = universe.ProofTypeTransfer
+		}
+
+		proofs, err = r.cfg.BaseUniverse.FetchIssuanceProof(
+			ctx, universeID, leafKey,
+		)
+		if err != nil {
+			rpcsLog.Debugf("[QueryProof]: error querying for "+
+				"proof at (universeID=%x, leafKey=%x)",
+				universeID, leafKey.UniverseKey())
+			return nil, err
+		}
+	}
 	if err != nil {
 		rpcsLog.Debugf("[QueryProof]: error querying for proof at "+
 			"(universeID=%x, leafKey=%x)", universeID,
@@ -3138,6 +3286,24 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	}
 
 	assetLeaf, err := unmarshalAssetLeaf(req.AssetLeaf)
+	if err != nil {
+		return nil, err
+	}
+
+	// If universe proof type unspecified, set based on the provided asset
+	// proof.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		universeID.ProofType, err = universe.NewProofTypeFromAssetProof(
+			assetLeaf.Proof,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Ensure that the new proof is of the correct type for the target
+	// universe.
+	err = universe.ValidateProofUniverseType(assetLeaf.Proof, universeID)
 	if err != nil {
 		return nil, err
 	}

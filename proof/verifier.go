@@ -454,8 +454,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 5. If this is a genesis asset, start by verifying the
 	// genesis reveal, which should be present for genesis assets.
 	// Non-genesis assets must not have a genesis or meta reveal.
-	isGenesisAsset := p.Asset.HasGenesisWitness() ||
-		p.Asset.HasGenesisWitnessForGroup()
+	isGenesisAsset := p.Asset.IsGenesisAsset()
 	hasGenesisReveal := p.GenesisReveal != nil
 	hasMetaReveal := p.MetaReveal != nil
 

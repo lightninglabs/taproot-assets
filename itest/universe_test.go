@@ -11,11 +11,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -110,7 +112,12 @@ func testUniverseSync(t *harnessTest) {
 			}
 		}()
 
-		srcRoot, ok := universeRoots.UniverseRoots[uniKey]
+		// Construct universe namespace.
+		proofType, err := tap.UnmarshalUniProofType(newRoot.Id.ProofType)
+		require.NoError(t.t, err)
+		uniNamespace := fmt.Sprintf("%s-%s", proofType, uniKey)
+
+		srcRoot, ok := universeRoots.UniverseRoots[uniNamespace]
 		require.True(t.t, ok)
 		require.True(t.t, AssertUniverseRootEqual(srcRoot, newRoot))
 	}
@@ -130,8 +137,7 @@ func testUniverseSync(t *harnessTest) {
 	uniRoots := maps.Values(universeRoots.UniverseRoots)
 	uniIDs := fn.Map(uniRoots, func(root *unirpc.UniverseRoot) *unirpc.ID {
 		return root.Id
-	},
-	)
+	})
 	AssertUniverseKeysEqual(t.t, uniIDs, t.tapd, bob)
 	AssertUniverseLeavesEqual(t.t, uniIDs, t.tapd, bob)
 
@@ -211,6 +217,7 @@ func testUniverseSync(t *harnessTest) {
 			Id: &unirpc.ID_AssetId{
 				AssetId: firstAssetID,
 			},
+			ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 		},
 	})
 	require.NoError(t.t, err)
@@ -282,21 +289,29 @@ func testUniverseREST(t *harnessTest) {
 
 	// Simple assets are keyed by their asset ID.
 	for _, simpleAsset := range rpcSimpleAssets {
-		assetID := hex.EncodeToString(simpleAsset.AssetGenesis.AssetId)
-		require.Contains(t.t, roots.UniverseRoots, assetID)
+		// Ensure that the universe root set contains issuance roots for
+		// all of our assets.
+		var assetID asset.ID
+		copy(assetID[:], simpleAsset.AssetGenesis.AssetId)
+		uniID := universe.Identifier{
+			AssetID:   assetID,
+			ProofType: universe.ProofTypeIssuance,
+		}
+		uniIDStr := uniID.String()
+		require.Contains(t.t, roots.UniverseRoots, uniIDStr)
 
 		require.Equal(
 			t.t, simpleAsset.AssetGenesis.Name,
-			roots.UniverseRoots[assetID].AssetName,
+			roots.UniverseRoots[uniIDStr].AssetName,
 		)
 
 		// Query the specific root to make sure we get the same result.
-		assetRoot, err := getJSON[*unirpc.QueryRootResponse](
+		assetRoots, err := getJSON[*unirpc.QueryRootResponse](
 			fmt.Sprintf("%s/roots/asset-id/%s", urlPrefix, assetID),
 		)
 		require.NoError(t.t, err)
 		require.True(t.t, AssertUniverseRootEqual(
-			roots.UniverseRoots[assetID], assetRoot.AssetRoot,
+			roots.UniverseRoots[uniIDStr], assetRoots.IssuanceRoot,
 		))
 	}
 
@@ -309,7 +324,12 @@ func testUniverseREST(t *harnessTest) {
 		groupKey := issuableAsset.AssetGroup.TweakedGroupKey
 		groupKeyHash := sha256.Sum256(groupKey[1:])
 		groupKeyID := hex.EncodeToString(groupKeyHash[:])
-		require.Contains(t.t, roots.UniverseRoots, groupKeyID)
+
+		// Construct universe namespace using the group key ID.
+		namespace := fmt.Sprintf(
+			"%s-%s", universe.ProofTypeIssuance, groupKeyID,
+		)
+		require.Contains(t.t, roots.UniverseRoots, namespace)
 
 		// Query the specific root to make sure we get the same result.
 		// Rather than use the hash above, the API exposes the
@@ -321,9 +341,10 @@ func testUniverseREST(t *harnessTest) {
 		assetRoot, err := getJSON[*unirpc.QueryRootResponse](queryURI)
 		require.NoError(t.t, err)
 
+		uniRoot, foundRoot := roots.UniverseRoots[namespace]
+		require.True(t.t, foundRoot)
 		require.True(t.t, AssertUniverseRootEqual(
-			roots.UniverseRoots[groupKeyID],
-			assetRoot.AssetRoot,
+			uniRoot, assetRoot.IssuanceRoot,
 		))
 	}
 }
