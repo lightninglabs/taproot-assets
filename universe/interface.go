@@ -624,8 +624,7 @@ func ParseStrProofType(typeStr string) (ProofType, error) {
 	case "transfer":
 		return ProofTypeTransfer, nil
 	default:
-		return ProofTypeUnspecified, fmt.Errorf("unknown proof "+
-			"type: %v", typeStr)
+		return 0, fmt.Errorf("unknown proof type: %v", typeStr)
 	}
 }
 
