@@ -60,7 +60,8 @@ func NewSimpleSyncer(cfg SimpleSyncCfg) *SimpleSyncer {
 // A simple approach where a set difference is used to find the set of assets
 // that need to be synced is used.
 func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
-	syncType SyncType, idsToSync []Identifier) ([]AssetSyncDiff, error) {
+	syncType SyncType, syncConfigs SyncConfigs,
+	idsToSync []Identifier) ([]AssetSyncDiff, error) {
 
 	// Prevent the syncer from running twice.
 	if !s.isSyncing.CompareAndSwap(false, true) {
@@ -114,6 +115,20 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 			return nil, err
 		}
 	}
+
+	targetRoots = fn.Filter(
+		targetRoots, func(r BaseRoot) bool {
+			// If we're syncing issuance proofs, then we'll only
+			// sync issuance roots.
+			if syncType == SyncIssuance &&
+				r.ID.ProofType != ProofTypeIssuance {
+
+				return false
+			}
+
+			return syncConfigs.IsSyncInsertEnabled(r.ID)
+		},
+	)
 
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
@@ -322,21 +337,8 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 // SyncUniverse attempts to synchronize the local universe with the remote
 // universe, governed by the sync type and the set of universe IDs to sync.
 func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
-	syncType SyncType, idsToSync ...Identifier) ([]AssetSyncDiff, error) {
-
-	// First, we'll make sure that the user requested a sync with the set
-	// of supported sync types.
-	switch syncType {
-	case SyncIssuance:
-		break
-
-	// For now, we only support issuance syncs.
-	case SyncFull:
-		fallthrough
-
-	default:
-		return nil, ErrUnsupportedSync
-	}
+	syncType SyncType, syncConfigs SyncConfigs,
+	idsToSync ...Identifier) ([]AssetSyncDiff, error) {
 
 	log.Infof("Attempting to sync universe: host=%v, sync_type=%v, ids=%v",
 		host.HostStr(), syncType, spew.Sdump(idsToSync))
@@ -351,5 +353,5 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 
 	// With the engine created, we can now sync the local Universe with the
 	// remote instance.
-	return s.executeSync(ctx, diffEngine, syncType, idsToSync)
+	return s.executeSync(ctx, diffEngine, syncType, syncConfigs, idsToSync)
 }
