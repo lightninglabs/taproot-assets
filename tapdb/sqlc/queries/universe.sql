@@ -142,14 +142,18 @@ INSERT INTO universe_events (
 -- name: InsertNewProofEvent :exec
 WITH group_key_root_id AS (
     SELECT id
-    FROM universe_roots
+    FROM universe_roots roots
     WHERE group_key = @group_key_x_only
+        AND roots.proof_type = @proof_type
 ), asset_id_root_id AS (
     SELECT leaves.universe_root_id AS id
     FROM universe_leaves leaves
-             JOIN genesis_info_view gen
-                  ON leaves.asset_genesis_id = gen.gen_asset_id
+    JOIN universe_roots roots
+        ON leaves.universe_root_id = roots.id
+    JOIN genesis_info_view gen
+        ON leaves.asset_genesis_id = gen.gen_asset_id
     WHERE gen.asset_id = @asset_id
+        AND roots.proof_type = @proof_type
     LIMIT 1
 )
 INSERT INTO universe_events (
