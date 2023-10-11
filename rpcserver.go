@@ -3457,10 +3457,24 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 
 	uniAddr := universe.NewServerAddrFromStr(req.UniverseHost)
 
+	// Obtain the general and universe specific federation sync configs.
+	queryFedSyncConfigs := r.cfg.FederationDB.QueryFederationSyncConfigs
+	globalConfigs, uniSyncConfigs, err := queryFedSyncConfigs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query federation sync "+
+			"config(s): %w", err)
+	}
+
+	syncConfigs := universe.SyncConfigs{
+		GlobalSyncConfigs: globalConfigs,
+		UniSyncConfigs:    uniSyncConfigs,
+	}
+
 	// TODO(roasbeef): add layer of indirection in front of?
 	//  * just interface interaction
+	// TODO(ffranr): Sync via the FederationEnvoy rather than syncer.
 	universeDiff, err := r.cfg.UniverseSyncer.SyncUniverse(
-		ctx, uniAddr, syncMode, syncTargets...,
+		ctx, uniAddr, syncMode, syncConfigs, syncTargets...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync universe: %w", err)

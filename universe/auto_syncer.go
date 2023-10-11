@@ -184,14 +184,14 @@ func (f *FederationEnvoy) reportErr(err error) {
 // If the sync is successful (even if no diff is generated), then a new sync
 // event will be logged.
 func (f *FederationEnvoy) syncServerState(ctx context.Context,
-	addr ServerAddr) error {
+	addr ServerAddr, syncConfigs SyncConfigs) error {
 
 	log.Infof("Syncing Universe state with server=%v", spew.Sdump(addr))
 
 	// Attempt to sync with the remote Universe server, if this errors then
 	// we'll bail out early as something wrong happened.
 	diff, err := f.cfg.UniverseSyncer.SyncUniverse(
-		ctx, addr, SyncIssuance,
+		ctx, addr, SyncFull, syncConfigs,
 	)
 	if err != nil {
 		return err
@@ -468,10 +468,58 @@ func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
 	ctx, cancel := f.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	err := fn.ParSlice(ctx, serverAddrs, f.syncServerState)
+	// Obtain the general and universe specific federation sync configs.
+	queryFedSyncConfigs := f.cfg.FederationDB.QueryFederationSyncConfigs
+	globalConfigs, uniSyncConfigs, err := queryFedSyncConfigs(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to query federation sync "+
+			"config(s): %w", err)
+	}
+
+	syncConfigs := SyncConfigs{
+		GlobalSyncConfigs: globalConfigs,
+		UniSyncConfigs:    uniSyncConfigs,
+	}
+
+	syncServer := func(ctx context.Context, serverAddr ServerAddr) error {
+		return f.syncServerState(ctx, serverAddr, syncConfigs)
+	}
+
+	err = fn.ParSlice(ctx, serverAddrs, syncServer)
 	if err != nil {
 		log.Warnf("unable to sync with server: %w", err)
 	}
 
 	return nil
+}
+
+// SyncConfigs is a set of configs that are used to control which universes to
+// synchronize with the federation.
+type SyncConfigs struct {
+	// GlobalSyncConfigs are the global proof type specific configs.
+	GlobalSyncConfigs []*FedGlobalSyncConfig
+
+	// UniSyncConfigs are the universe specific configs.
+	UniSyncConfigs []*FedUniSyncConfig
+}
+
+// IsSyncInsertEnabled returns true if the given universe is configured to allow
+// insert (into this server) synchronization with the federation.
+func (s *SyncConfigs) IsSyncInsertEnabled(id Identifier) bool {
+	// Check for universe specific config. This takes precedence over the
+	// global config.
+	for _, cfg := range s.UniSyncConfigs {
+		if cfg.UniverseID == id {
+			return cfg.AllowSyncInsert
+		}
+	}
+
+	// Check for global config.
+	for _, cfg := range s.GlobalSyncConfigs {
+		if cfg.ProofType == id.ProofType {
+			return cfg.AllowSyncInsert
+		}
+	}
+
+	return false
 }

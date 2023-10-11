@@ -473,7 +473,7 @@ type Syncer interface {
 	// remote universe, governed by the sync type and the set of universe
 	// IDs to sync.
 	SyncUniverse(ctx context.Context, host ServerAddr,
-		syncType SyncType,
+		syncType SyncType, syncConfigs SyncConfigs,
 		idsToSync ...Identifier) ([]AssetSyncDiff, error)
 }
 
