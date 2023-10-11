@@ -140,6 +140,7 @@ func (u *UniverseStats) LogSyncEvent(ctx context.Context,
 			EventTimestamp: u.clock.Now().UTC().Unix(),
 			AssetID:        uniID.AssetID[:],
 			GroupKeyXOnly:  groupKeyXOnly,
+			ProofType:      uniID.ProofType.String(),
 		})
 	})
 }
@@ -165,6 +166,7 @@ func (u *UniverseStats) LogSyncEvents(ctx context.Context,
 				EventTimestamp: u.clock.Now().UTC().Unix(),
 				AssetID:        uniID.AssetID[:],
 				GroupKeyXOnly:  groupKeyXOnly,
+				ProofType:      uniID.ProofType.String(),
 			})
 			if err != nil {
 				return err
